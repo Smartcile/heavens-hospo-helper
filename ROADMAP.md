@@ -21,7 +21,7 @@
 ☐ **Calendar sync** — view venue events/bookings alongside task list
 ☐ **Recurring task auto-generation engine** — cron-based daily task generation (replace on-demand filtering)
 ☐ **Push notifications** — web push or email alerts for overdue/incomplete tasks at end of shift
-☐ **Task templates library** — pre-built hospo SOP task sets (bar open, kitchen close, etc.)
+✅ **Task templates library** — pre-built hospo SOP task sets (bar open, kitchen close, etc.) + custom templates, one-click apply to a department, and "save department as template" snapshot
 ☐ **S3 file uploads** — replace local disk uploads with S3-compatible object storage
 ☐ **Proper admin email auth** — replace `swiftPosId` login hack with proper email + password
 

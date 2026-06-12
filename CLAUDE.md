@@ -189,6 +189,15 @@ Phase 1 uses no cron engine — task generation is on-demand. When a worker load
 
 `TaskCompletion.scheduledDate` is the **calendar date** the task was for (not when it was submitted), allowing completion tracking across timezones.
 
+### Task templates (Phase 2)
+`TaskTemplate` + `TaskTemplateItem` hold reusable SOP task sets. Built-in
+templates are seeded with `isBuiltIn: true` / `venueId: null` (global, read-only
+in the UI). Custom templates are venue-scoped. Applying a template
+(`POST /api/admin/templates/[id]/apply`) bulk-creates `Task` rows in a chosen
+department, skipping any whose title already exists there (re-apply is safe).
+`POST /api/admin/templates/from-department` snapshots a department's active
+tasks into a new template. Admin UI lives at `/admin/templates`.
+
 ## NAMING CONVENTIONS
 
 - All primary keys: UUID `@default(uuid())`

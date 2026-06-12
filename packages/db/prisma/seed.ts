@@ -320,6 +320,140 @@ async function main() {
     },
   })
 
+  // --- Built-in task templates (Phase 2) ---
+  // Curated SOP sets an admin can apply to any department in one click.
+  // Re-seeding refreshes the items so built-ins stay in sync with the code.
+  const builtInTemplates: {
+    id: string
+    name: string
+    description: string
+    category: string
+    items: {
+      title: string
+      description?: string
+      completionType?: 'TICK' | 'TICK_NOTE' | 'TICK_PHOTO'
+      scheduleType?: 'DAILY' | 'WEEKLY'
+      scheduleDays?: number[]
+    }[]
+  }[] = [
+    {
+      id: '00000000-0000-0000-00a0-000000000001',
+      name: 'BAR OPEN',
+      description: 'Opening checklist for the bar.',
+      category: 'BAR',
+      items: [
+        { title: 'COUNT OPENING FLOAT', completionType: 'TICK_NOTE' },
+        { title: 'TURN ON COFFEE MACHINE AND CALIBRATE', completionType: 'TICK' },
+        { title: 'CHECK BEER LINE PRESSURE', completionType: 'TICK' },
+        { title: 'STOCK GLASS FRIDGE AND GARNISHES', completionType: 'TICK' },
+        { title: 'WIPE DOWN ALL BAR SURFACES', completionType: 'TICK' },
+      ],
+    },
+    {
+      id: '00000000-0000-0000-00a0-000000000002',
+      name: 'BAR CLOSE',
+      description: 'Closing checklist for the bar.',
+      category: 'BAR',
+      items: [
+        { title: 'CLEAN AND BACKFLUSH COFFEE MACHINE', completionType: 'TICK' },
+        { title: 'EMPTY AND CLEAN DRIP TRAYS', completionType: 'TICK' },
+        { title: 'CASH UP AND RECORD TAKINGS', completionType: 'TICK_NOTE' },
+        { title: 'LOCK SPIRITS AND SECURE TILL', completionType: 'TICK' },
+        { title: 'PHOTO OF CLEAN BAR FOR HANDOVER', completionType: 'TICK_PHOTO' },
+      ],
+    },
+    {
+      id: '00000000-0000-0000-00a0-000000000003',
+      name: 'KITCHEN OPEN',
+      description: 'Opening checklist for the kitchen.',
+      category: 'KITCHEN',
+      items: [
+        { title: 'RECORD ALL FRIDGE AND FREEZER TEMPERATURES', completionType: 'TICK_NOTE' },
+        { title: 'CHECK OIL LEVELS AND QUALITY IN FRYERS', completionType: 'TICK' },
+        { title: 'SANITISE ALL PREP SURFACES', completionType: 'TICK' },
+        { title: 'CHECK DELIVERIES AGAINST DOCKETS', completionType: 'TICK_NOTE' },
+        { title: 'PREP MISE EN PLACE FOR SERVICE', completionType: 'TICK' },
+      ],
+    },
+    {
+      id: '00000000-0000-0000-00a0-000000000004',
+      name: 'KITCHEN CLOSE',
+      description: 'Closing checklist for the kitchen.',
+      category: 'KITCHEN',
+      items: [
+        { title: 'RECORD CLOSING FRIDGE TEMPERATURES', completionType: 'TICK_NOTE' },
+        { title: 'CLEAN AND DEGREASE COOKLINE', completionType: 'TICK' },
+        { title: 'EMPTY AND SANITISE BINS', completionType: 'TICK' },
+        { title: 'WRAP, LABEL AND DATE ALL OPEN STOCK', completionType: 'TICK' },
+        { title: 'PHOTO OF CLEAN KITCHEN FOR HANDOVER', completionType: 'TICK_PHOTO' },
+      ],
+    },
+    {
+      id: '00000000-0000-0000-00a0-000000000005',
+      name: 'FOH OPEN',
+      description: 'Opening checklist for front of house.',
+      category: 'FRONT OF HOUSE',
+      items: [
+        { title: 'POLISH ALL CUTLERY AND GLASSWARE', completionType: 'TICK' },
+        { title: 'SET ALL TABLES TO STANDARD LAYOUT', completionType: 'TICK' },
+        { title: 'FILL CONDIMENT AND NAPKIN STATIONS', completionType: 'TICK' },
+        { title: 'CHECK AND CLEAN CUSTOMER BATHROOMS', completionType: 'TICK_PHOTO' },
+        { title: 'BRIEF FLOOR TEAM ON SPECIALS AND ALLERGENS', completionType: 'TICK_NOTE' },
+      ],
+    },
+    {
+      id: '00000000-0000-0000-00a0-000000000006',
+      name: 'FOH CLOSE',
+      description: 'Closing checklist for front of house.',
+      category: 'FRONT OF HOUSE',
+      items: [
+        { title: 'CLEAR, WIPE AND RESET ALL TABLES', completionType: 'TICK' },
+        { title: 'STACK AND CHARGE EFTPOS TERMINALS', completionType: 'TICK' },
+        { title: 'SWEEP AND MOP FLOOR', completionType: 'TICK' },
+        { title: 'RESTOCK FOR NEXT SERVICE', completionType: 'TICK' },
+      ],
+    },
+    {
+      id: '00000000-0000-0000-00a0-000000000007',
+      name: 'WEEKLY DEEP CLEAN',
+      description: 'Weekly deep-clean tasks (defaults to Monday).',
+      category: 'GENERAL',
+      items: [
+        { title: 'DEEP CLEAN BEHIND ALL EQUIPMENT', completionType: 'TICK_PHOTO', scheduleType: 'WEEKLY', scheduleDays: [1] },
+        { title: 'DESCALE SINKS AND TAPS', completionType: 'TICK', scheduleType: 'WEEKLY', scheduleDays: [1] },
+        { title: 'FULL STOCKTAKE AND REORDER', completionType: 'TICK_NOTE', scheduleType: 'WEEKLY', scheduleDays: [1] },
+      ],
+    },
+  ]
+
+  for (const tpl of builtInTemplates) {
+    await prisma.taskTemplate.upsert({
+      where: { id: tpl.id },
+      update: { name: tpl.name, description: tpl.description, category: tpl.category, isBuiltIn: true },
+      create: {
+        id: tpl.id,
+        name: tpl.name,
+        description: tpl.description,
+        category: tpl.category,
+        isBuiltIn: true,
+        venueId: null,
+      },
+    })
+    // Keep items in sync with code on every seed.
+    await prisma.taskTemplateItem.deleteMany({ where: { templateId: tpl.id } })
+    await prisma.taskTemplateItem.createMany({
+      data: tpl.items.map((item, i) => ({
+        templateId: tpl.id,
+        title: item.title,
+        description: item.description ?? null,
+        completionType: item.completionType ?? 'TICK',
+        scheduleType: item.scheduleType ?? 'DAILY',
+        scheduleDays: item.scheduleDays ?? [],
+        sortOrder: i,
+      })),
+    })
+  }
+
   console.log('Seed complete.')
   console.log('Admin logins (email / PIN):')
   console.log('  admin@demo.com / 0000  (ADMIN)')

@@ -41,6 +41,7 @@ model Venue {
   qrCodes     QRCode[]
   budgetPeriods BudgetPeriod[]
   trainingModules TrainingModule[]
+  taskTemplates TaskTemplate[]
 }
 
 model Department {
@@ -130,6 +131,38 @@ model QRCode {
 
   venue      Venue       @relation(fields: [venueId], references: [id])
   department Department? @relation(fields: [departmentId], references: [id])
+}
+
+// --- TASK TEMPLATES (Phase 2) ---
+
+model TaskTemplate {
+  id          String    @id @default(uuid())
+  name        String              // ALL CAPS, e.g. "BAR OPEN"
+  description String?
+  category    String?             // grouping hint, e.g. "BAR", "KITCHEN", "FOH", "GENERAL"
+  isBuiltIn   Boolean   @default(false) // seeded curated templates (not editable/deletable)
+  venueId     String?             // null = global/shared; else scoped to one venue
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  venue Venue?             @relation(fields: [venueId], references: [id])
+  items TaskTemplateItem[]
+}
+
+model TaskTemplateItem {
+  id             String         @id @default(uuid())
+  templateId     String
+  title          String         // ALL CAPS
+  description    String?
+  completionType CompletionType @default(TICK)
+  scheduleType   ScheduleType   @default(DAILY)
+  scheduleDays   Int[]
+  sortOrder      Int            @default(0)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  template TaskTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 }
 
 // --- FUTURE STUBS ---
