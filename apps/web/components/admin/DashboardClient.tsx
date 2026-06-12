@@ -78,6 +78,40 @@ export function DashboardClient({ role }: { role: string }) {
         </div>
       </div>
 
+      {/* Attention banner — daily glance at what needs action */}
+      {overdue && (() => {
+        const missed = overdue.totalMissed
+        const pending = stats.overdueCount
+        if (missed === 0 && pending === 0) {
+          return (
+            <div className="status-bar-success bg-grey-dark border border-grey-mid p-4">
+              <p className="font-mono text-sm text-success uppercase tracking-wider">
+                ALL CLEAR — EVERYTHING ON TRACK
+              </p>
+              <p className="font-mono text-xs text-grey-light mt-1">
+                NO MISSED TASKS IN THE LAST {overdue.days} DAYS AND NOTHING OUTSTANDING TODAY.
+              </p>
+            </div>
+          )
+        }
+        return (
+          <div className={`${missed > 0 ? 'status-bar-danger' : 'status-bar-warning'} bg-grey-dark border border-grey-mid p-4`}>
+            <p className={`font-mono text-sm uppercase tracking-wider ${missed > 0 ? 'text-danger' : 'text-warning'}`}>
+              ATTENTION NEEDED
+            </p>
+            <p className="font-mono text-xs text-white mt-1">
+              {missed > 0 && (
+                <span className="text-danger">{missed} MISSED IN LAST {overdue.days} DAYS</span>
+              )}
+              {missed > 0 && pending > 0 && <span className="text-grey-light"> · </span>}
+              {pending > 0 && (
+                <span className="text-warning">{pending} STILL PENDING TODAY</span>
+              )}
+            </p>
+          </div>
+        )
+      })()}
+
       {/* Summary Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="card p-4 bg-grey-dark border border-grey-mid">
