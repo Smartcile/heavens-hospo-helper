@@ -101,9 +101,11 @@ After seeding, the following accounts exist:
 
 ## HOW TO ACCESS THE ADMIN PANEL
 
-1. Open `http://your-server/admin/login`
+1. Open `http://your-server-ip:3000/admin/login`
 2. Enter your login email and PIN
 3. You will land on the Dashboard
+
+The worker login (for QR scanning) is at `http://your-server-ip:3000/w/login`.
 
 ---
 
@@ -135,37 +137,65 @@ The PIN is immediately usable at any QR code login point for that venue/departme
 
 ## ENVIRONMENT VARIABLE REFERENCE
 
-| Variable | Required | Description |
-|---|---|---|
-| `DB_USER` | Yes | PostgreSQL username |
-| `DB_PASSWORD` | Yes | PostgreSQL password |
-| `DATABASE_URL` | Yes | Full Postgres connection string |
-| `NEXTAUTH_SECRET` | Yes | Secret for admin session JWT signing |
-| `NEXTAUTH_URL` | Yes | Public app URL (used by NextAuth) |
-| `APP_NAME` | No | Display name (default: HOSPO OPS) |
-| `APP_URL` | Yes | Used to generate QR code URLs |
-| `DEFAULT_TIMEZONE` | No | Fallback timezone (default: Pacific/Auckland) |
-| `WORKER_SESSION_SECRET` | Yes | Secret for worker PIN session JWT signing |
-| `WORKER_SESSION_EXPIRY_MINUTES` | No | Worker auto-logout timeout (default: 15) |
-| `UPLOAD_PROVIDER` | No | `local` only in Phase 1 |
-| `UPLOAD_PATH` | No | File upload directory (default: /app/uploads) |
+These are the only variables you set (in Portainer's stack env, or in `.env`
+for plain compose). Everything else is derived automatically.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `DB_PASSWORD` | **Yes** | — | PostgreSQL password |
+| `NEXTAUTH_SECRET` | **Yes** | — | Admin session signing secret (`openssl rand -base64 32`) |
+| `WORKER_SESSION_SECRET` | **Yes** | — | Worker PIN session signing secret (`openssl rand -base64 32`) |
+| `NEXTAUTH_URL` | **Yes** | — | Public URL incl. port, e.g. `http://192.168.1.10:3000` |
+| `APP_URL` | **Yes** | — | Same as `NEXTAUTH_URL`; baked into scannable QR codes |
+| `APP_PORT` | No | `3000` | Host port the app is published on |
+| `APP_NAME` | No | `HOSPO OPS` | Display / white-label name |
+| `DB_USER` | No | `hospo_ops_user` | PostgreSQL username |
+| `WORKER_SESSION_EXPIRY_MINUTES` | No | `15` | Worker auto-logout timeout |
+
+> `DATABASE_URL` is **not** set by hand — the compose file builds it from
+> `DB_USER` / `DB_PASSWORD`. Uploads always go to the `uploads_data` volume.
 
 ---
 
 ## HOW TO UPDATE
 
+The image rebuilds automatically on GitHub whenever code is pushed. To pull the
+new image onto your server:
+
+**Portainer:** open the stack → **Update the stack** → tick **Re-pull image and
+redeploy** → **Update**.
+
+**Plain compose:**
+
 ```bash
-# Pull latest code
-git pull
-
-# Rebuild and restart containers
-cd infra
-docker compose down
-docker compose up -d --build
-
-# Apply any new migrations
-docker compose exec app npx prisma migrate deploy --schema=packages/db/prisma/schema.prisma
+cd heavens-hospo-helper
+docker compose pull      # fetch the latest image from GHCR
+docker compose up -d     # recreate the app container
 ```
+
+Database migrations run automatically inside the container on every start, so
+schema changes are applied for you. (To auto-update without clicking, point
+[Watchtower](https://containrrr.dev/watchtower/) at the `hospo-ops-app` container.)
+
+---
+
+## TROUBLESHOOTING
+
+**No published port on the app container / can't reach the site.**
+The container publishes port `3000`. Make sure you deployed *this* repo's
+top-level `docker-compose.yml` (not a hand-pasted older copy). In Portainer use
+**Stacks → Add stack → Repository** with compose path `docker-compose.yml`, so
+you always get the current file with the `ports:` mapping. After deploy, the
+`hospo-ops-app` container should show `0.0.0.0:3000->3000/tcp`. If you set
+`APP_PORT`, it shows that host port instead.
+
+**`unauthorized` when pulling the image.**
+The GHCR package must be public (or add GHCR credentials in Portainer). See the
+note under "With Docker" above.
+
+**Admin login redirect loops or QR codes point to the wrong host.**
+`NEXTAUTH_URL` and `APP_URL` must match the exact URL you open in the browser,
+including the port. Fix them in the stack env and redeploy.
 
 ---
 

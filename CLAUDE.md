@@ -49,10 +49,12 @@ hospo-ops/
 │   │   └── index.ts                # Exported Prisma client (global singleton)
 │   ├── types/                      # Shared TypeScript types/interfaces
 │   └── config/                     # Shared Tailwind config
-├── infra/
-│   ├── docker-compose.yml          # Dev/staging compose file
-│   ├── docker-compose.prod.yml     # Production compose file
-│   └── nginx/nginx.conf            # Nginx reverse proxy config
+├── .github/workflows/
+│   └── docker-build.yml            # CI: builds image, pushes to GHCR
+├── apps/web/Dockerfile             # Single-stage image (build + runtime)
+├── apps/web/docker-entrypoint.sh   # Runs migrate + seed, then `next start`
+├── docker-compose.yml              # Canonical stack — PULLS image from GHCR
+├── .env.example                    # Env template for compose / Portainer
 ├── CLAUDE.md                       # This file
 ├── README.md                       # User-facing setup guide
 └── ROADMAP.md                      # Phased feature roadmap
@@ -82,18 +84,26 @@ npm run dev
 
 ## HOW TO RUN WITH DOCKER
 
+The image is built by GitHub Actions (`.github/workflows/docker-build.yml`) and
+published to `ghcr.io/smartcile/heavens-hospo-helper:latest` on every push to
+`master`. The root `docker-compose.yml` PULLS that image — nothing is built on
+the server.
+
 ```bash
-# From hospo-ops/
+# From the repo root
 cp .env.example .env
-# Edit .env — set strong passwords and secrets
+# Edit .env — set strong passwords, secrets, and the public URL (with port)
 
-cd infra
+docker compose pull
 docker compose up -d
-
-# Run migrations after first start
-docker compose exec app npm run db:migrate
-docker compose exec app npm run db:seed
 ```
+
+On container start, `apps/web/docker-entrypoint.sh` automatically runs
+`prisma migrate deploy`, seeds the DB (idempotent), then launches
+`next start -H 0.0.0.0 -p 3000`. No manual migrate/seed step is needed.
+
+In Portainer: **Stacks → Add stack → Repository**, compose path
+`docker-compose.yml`, set the env vars from the table below, deploy.
 
 ## DATABASE
 
