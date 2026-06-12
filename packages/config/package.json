@@ -1,0 +1,10 @@
+{
+  "name": "@hospo-ops/config",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./tailwind.config.ts",
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "tailwindcss": "^3.4.0"
+  }
+}

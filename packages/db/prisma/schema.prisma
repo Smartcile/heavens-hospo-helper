@@ -1,0 +1,187 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+enum CompletionType {
+  TICK
+  TICK_NOTE
+  TICK_PHOTO
+}
+
+enum ScheduleType {
+  DAILY
+  WEEKLY
+  CUSTOM
+}
+
+model Venue {
+  id         String    @id @default(uuid())
+  name       String
+  address    String?
+  timezone   String    @default("Pacific/Auckland")
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  departments Department[]
+  staff       Staff[]
+  tasks       Task[]
+  qrCodes     QRCode[]
+  budgetPeriods BudgetPeriod[]
+  trainingModules TrainingModule[]
+}
+
+model Department {
+  id        String    @id @default(uuid())
+  name      String
+  venueId   String
+  colour    String?
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  venue  Venue   @relation(fields: [venueId], references: [id])
+  staff  Staff[]
+  tasks  Task[]
+  qrCodes QRCode[]
+}
+
+model Staff {
+  id              String    @id @default(uuid())
+  firstName       String
+  lastName        String
+  pin             String
+  role            Role      @default(STAFF)
+  venueId         String
+  departmentId    String?
+  profilePhotoUrl String?
+  isActive        Boolean   @default(true)
+  swiftPosId      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  venue            Venue            @relation(fields: [venueId], references: [id])
+  department       Department?      @relation(fields: [departmentId], references: [id])
+  taskCompletions  TaskCompletion[]
+}
+
+model Task {
+  id                String       @id @default(uuid())
+  title             String
+  description       String?
+  venueId           String
+  departmentId      String?
+  assignedToStaffId String?
+  completionType    CompletionType @default(TICK)
+  scheduleType      ScheduleType   @default(DAILY)
+  scheduleDays      Int[]
+  customCron        String?
+  isActive          Boolean      @default(true)
+  sortOrder         Int          @default(0)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  deletedAt         DateTime?
+
+  venue            Venue            @relation(fields: [venueId], references: [id])
+  department       Department?      @relation(fields: [departmentId], references: [id])
+  taskCompletions  TaskCompletion[]
+  trainingSteps    TrainingStep[]
+}
+
+model TaskCompletion {
+  id            String   @id @default(uuid())
+  taskId        String
+  staffId       String
+  completedAt   DateTime @default(now())
+  note          String?
+  photoUrl      String?
+  scheduledDate DateTime @db.Date
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  task  Task  @relation(fields: [taskId], references: [id])
+  staff Staff @relation(fields: [staffId], references: [id])
+}
+
+model QRCode {
+  id           String    @id @default(uuid())
+  venueId      String
+  departmentId String?
+  label        String
+  token        String    @unique @default(uuid())
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  venue      Venue       @relation(fields: [venueId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+}
+
+// --- FUTURE STUBS ---
+
+model TrainingModule {
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  venueId     String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  venue Venue          @relation(fields: [venueId], references: [id])
+  steps TrainingStep[]
+}
+
+model TrainingStep {
+  id            String    @id @default(uuid())
+  moduleId      String
+  order         Int
+  content       String
+  linkedTaskId  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  module     TrainingModule @relation(fields: [moduleId], references: [id])
+  linkedTask Task?          @relation(fields: [linkedTaskId], references: [id])
+}
+
+model BudgetPeriod {
+  id           String    @id @default(uuid())
+  venueId      String
+  month        Int
+  year         Int
+  totalBudget  Float
+  workingDays  Int
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  venue       Venue                @relation(fields: [venueId], references: [id])
+  allocations BudgetDayAllocation[]
+}
+
+model BudgetDayAllocation {
+  id             String    @id @default(uuid())
+  budgetPeriodId String
+  date           DateTime  @db.Date
+  amount         Float
+  note           String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  budgetPeriod BudgetPeriod @relation(fields: [budgetPeriodId], references: [id])
+}

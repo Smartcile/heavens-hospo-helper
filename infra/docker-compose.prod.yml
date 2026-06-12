@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: hospo_ops
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d hospo_ops"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    image: hospo-ops-app:latest
+    environment:
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/hospo_ops
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+      APP_NAME: ${APP_NAME:-HOSPO OPS}
+      WORKER_SESSION_SECRET: ${WORKER_SESSION_SECRET}
+      WORKER_SESSION_EXPIRY_MINUTES: ${WORKER_SESSION_EXPIRY_MINUTES:-15}
+      UPLOAD_PROVIDER: ${UPLOAD_PROVIDER:-local}
+      UPLOAD_PATH: ${UPLOAD_PATH:-/app/uploads}
+      NODE_ENV: production
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - app
+    restart: always
+
+volumes:
+  postgres_data:
+  uploads_data:

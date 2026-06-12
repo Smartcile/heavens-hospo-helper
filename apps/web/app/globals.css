@@ -1,0 +1,93 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --black: #0A0A0A;
+  --white: #F5F5F5;
+  --grey-dark: #1A1A1A;
+  --grey-mid: #2E2E2E;
+  --grey-light: #6B6B6B;
+  --accent: #E8E8E8;
+  --success: #4ADE80;
+  --danger: #F87171;
+  --warning: #FACC15;
+
+  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background-color: var(--black);
+  color: var(--white);
+  font-family: var(--font-sans);
+}
+
+/* Remove all border-radius globally */
+*, *::before, *::after {
+  border-radius: 0 !important;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--grey-dark);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--grey-mid);
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-white text-black font-mono font-semibold uppercase text-sm px-4 py-2 border border-white transition-colors hover:bg-accent hover:border-accent;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent text-white font-mono font-semibold uppercase text-sm px-4 py-2 border border-grey-mid transition-colors hover:border-white;
+  }
+
+  .btn-danger {
+    @apply bg-transparent text-danger font-mono font-semibold uppercase text-sm px-4 py-2 border border-danger transition-colors hover:bg-danger hover:text-black;
+  }
+
+  .input {
+    @apply bg-grey-dark border border-grey-mid text-white font-sans text-sm px-3 py-2 w-full outline-none focus:border-white transition-colors placeholder:text-grey-light;
+  }
+
+  .label {
+    @apply font-mono text-xs uppercase text-grey-light tracking-wider;
+  }
+
+  .card {
+    @apply bg-grey-dark border border-grey-mid;
+  }
+
+  .status-bar-success {
+    @apply border-l-4 border-l-success pl-3;
+  }
+
+  .status-bar-danger {
+    @apply border-l-4 border-l-danger pl-3;
+  }
+
+  .status-bar-warning {
+    @apply border-l-4 border-l-warning pl-3;
+  }
+
+  .loading-cursor::after {
+    content: '_';
+    @apply animate-blink;
+  }
+}

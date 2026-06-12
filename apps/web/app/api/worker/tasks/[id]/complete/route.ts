@@ -1,0 +1,59 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@hospo-ops/db'
+import { getWorkerSession } from '@/lib/worker-session'
+import { getTodayDate } from '@/lib/utils'
+import { writeFile } from 'fs/promises'
+import { join } from 'path'
+
+interface Params {
+  params: { id: string }
+}
+
+export async function POST(req: NextRequest, { params }: Params) {
+  const session = await getWorkerSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const today = getTodayDate()
+
+  const existing = await prisma.taskCompletion.findFirst({
+    where: { taskId: params.id, staffId: session.staffId, scheduledDate: today },
+  })
+
+  if (existing) {
+    return NextResponse.json({ error: 'TASK ALREADY COMPLETED' }, { status: 409 })
+  }
+
+  const contentType = req.headers.get('content-type') ?? ''
+  let note: string | null = null
+  let photoUrl: string | null = null
+
+  if (contentType.includes('multipart/form-data')) {
+    const form = await req.formData()
+    note = (form.get('note') as string) || null
+
+    const photo = form.get('photo') as File | null
+    if (photo && photo.size > 0) {
+      const bytes = await photo.arrayBuffer()
+      const buffer = Buffer.from(bytes)
+      const filename = `${crypto.randomUUID()}-${photo.name.replace(/[^a-z0-9.]/gi, '_')}`
+      const uploadPath = process.env.UPLOAD_PATH ?? '/app/uploads'
+      await writeFile(join(uploadPath, filename), buffer)
+      photoUrl = `/uploads/${filename}`
+    }
+  } else {
+    const body = await req.json()
+    note = body.note ?? null
+  }
+
+  const completion = await prisma.taskCompletion.create({
+    data: {
+      taskId: params.id,
+      staffId: session.staffId,
+      scheduledDate: today,
+      note,
+      photoUrl,
+    },
+  })
+
+  return NextResponse.json(completion, { status: 201 })
+}
