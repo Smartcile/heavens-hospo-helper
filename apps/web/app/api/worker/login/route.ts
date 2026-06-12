@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import bcrypt from 'bcryptjs'
-import { createWorkerSession, setWorkerSessionCookie } from '@/lib/worker-session'
+import { createWorkerSession, workerCookieSecure } from '@/lib/worker-session'
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   const response = NextResponse.json({ success: true, firstName: matched.firstName })
   response.cookies.set('hospo-worker-session', sessionToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: workerCookieSecure,
     sameSite: 'lax',
     maxAge: Number(process.env.WORKER_SESSION_EXPIRY_MINUTES ?? 15) * 60,
     path: '/',
