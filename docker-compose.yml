@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hospo_ops
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d hospo_ops"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/hospo_ops
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+      APP_NAME: ${APP_NAME:-HOSPO OPS}
+      APP_URL: ${APP_URL}
+      WORKER_SESSION_SECRET: ${WORKER_SESSION_SECRET}
+      WORKER_SESSION_EXPIRY_MINUTES: ${WORKER_SESSION_EXPIRY_MINUTES:-15}
+      NEXT_PUBLIC_APP_NAME: ${APP_NAME:-HOSPO OPS}
+      NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES: ${WORKER_SESSION_EXPIRY_MINUTES:-15}
+      UPLOAD_PROVIDER: local
+      UPLOAD_PATH: /app/uploads
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  uploads_data:
