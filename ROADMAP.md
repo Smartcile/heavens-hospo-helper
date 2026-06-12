@@ -19,7 +19,7 @@
 ## PHASE 2 — INTELLIGENCE
 ☐ **SwiftPOS staff sync** — import staff + PINs from SwiftPOS API using `swiftPosId` stub
 ☐ **Calendar sync** — view venue events/bookings alongside task list
-☐ **Recurring task auto-generation engine** — cron-based daily task generation (replace on-demand filtering)
+✅ **Recurring + overdue engine** — cron-aware scheduling (CUSTOM cron now actually evaluated, fixing daily/weekly/cron due-dates) plus missed-task tracking surfaced on the dashboard ("MISSED — LAST 7 DAYS") via `/api/admin/overdue`
 ☐ **Push notifications** — web push or email alerts for overdue/incomplete tasks at end of shift
 ✅ **Task templates library** — pre-built hospo SOP task sets (bar open, kitchen close, etc.) + custom templates, one-click apply to a department, and "save department as template" snapshot
 ☐ **S3 file uploads** — replace local disk uploads with S3-compatible object storage

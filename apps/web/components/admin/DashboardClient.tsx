@@ -4,17 +4,39 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { Badge } from '@/components/ui/Badge'
-import { formatDateTime } from '@/lib/utils'
+import { formatDateTime, formatDate } from '@/lib/utils'
 import type { DashboardStats } from '@hospo-ops/types'
+
+interface MissedItem {
+  taskId: string
+  taskTitle: string
+  departmentName: string | null
+  departmentColour: string | null
+  venueName: string
+  date: string
+}
+
+interface OverdueData {
+  days: number
+  totalMissed: number
+  items: MissedItem[]
+}
 
 export function DashboardClient({ role }: { role: string }) {
   const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [overdue, setOverdue] = useState<OverdueData | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/admin/dashboard')
-      .then((r) => r.json())
-      .then((data) => { setStats(data); setLoading(false) })
+    Promise.all([
+      fetch('/api/admin/dashboard').then((r) => r.json()),
+      fetch('/api/admin/overdue?days=7').then((r) => r.json()),
+    ])
+      .then(([statsData, overdueData]) => {
+        setStats(statsData)
+        setOverdue(overdueData)
+        setLoading(false)
+      })
       .catch(() => setLoading(false))
   }, [])
 
@@ -152,6 +174,53 @@ export function DashboardClient({ role }: { role: string }) {
           )}
         </div>
       </div>
+
+      {/* Missed tasks (last 7 days) */}
+      {overdue && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <h2 className="font-mono text-sm uppercase tracking-widest text-grey-light">
+              MISSED — LAST {overdue.days} DAYS
+            </h2>
+            {overdue.totalMissed > 0 && (
+              <Badge variant="danger">{overdue.totalMissed}</Badge>
+            )}
+          </div>
+          <div className="card bg-grey-dark border border-grey-mid overflow-hidden">
+            {overdue.totalMissed === 0 ? (
+              <div className="status-bar-success p-4">
+                <p className="font-mono text-xs text-success">
+                  NO MISSED TASKS IN THE LAST {overdue.days} DAYS — GREAT WORK
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-grey-mid">
+                {overdue.items.map((m, i) => (
+                  <div key={`${m.taskId}-${i}`} className="px-4 py-2.5 flex items-center justify-between status-bar-danger">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {m.departmentColour && (
+                        <span className="w-1.5 h-1.5 flex-shrink-0" style={{ backgroundColor: m.departmentColour }} />
+                      )}
+                      <span className="font-mono text-xs text-white truncate">{m.taskTitle}</span>
+                      {m.departmentName && (
+                        <span className="font-mono text-xs text-grey-light truncate hidden md:block">[{m.departmentName}]</span>
+                      )}
+                    </div>
+                    <span className="font-mono text-xs text-danger flex-shrink-0 ml-2">
+                      {formatDate(m.date)}
+                    </span>
+                  </div>
+                ))}
+                {overdue.totalMissed > overdue.items.length && (
+                  <div className="px-4 py-2 font-mono text-xs text-grey-light">
+                    + {overdue.totalMissed - overdue.items.length} MORE
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

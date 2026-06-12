@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
-import { isTaskScheduledToday, getTodayDate, completionPercent } from '@/lib/utils'
+import { getTodayDate, completionPercent } from '@/lib/utils'
+import { isTaskDueOnDate } from '@/lib/scheduling'
 import type { DashboardStats } from '@hospo-ops/types'
 
 export async function GET() {
@@ -46,9 +47,7 @@ export async function GET() {
     let vCompleted = 0
 
     const departmentStats = venue.departments.map((dept) => {
-      const todayTasks = dept.tasks.filter((t) =>
-        isTaskScheduledToday(t.scheduleType, t.scheduleDays, venue.timezone)
-      )
+      const todayTasks = dept.tasks.filter((t) => isTaskDueOnDate(t, today))
       const dCompleted = todayTasks.filter((t) => t.taskCompletions.length > 0).length
       vTotal += todayTasks.length
       vCompleted += dCompleted

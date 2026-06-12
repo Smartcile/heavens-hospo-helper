@@ -1,18 +1,14 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
-import { isTaskScheduledToday, getTodayDate } from '@/lib/utils'
+import { getTodayDate } from '@/lib/utils'
+import { isTaskDueOnDate } from '@/lib/scheduling'
 
 export async function GET() {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const today = getTodayDate()
-
-  const venue = await prisma.venue.findUnique({
-    where: { id: session.venueId },
-    select: { timezone: true },
-  })
 
   const where = {
     venueId: session.venueId,
@@ -38,10 +34,7 @@ export async function GET() {
     orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
   })
 
-  const timezone = venue?.timezone
-  const todayTasks = tasks.filter((t) =>
-    isTaskScheduledToday(t.scheduleType, t.scheduleDays, timezone)
-  )
+  const todayTasks = tasks.filter((t) => isTaskDueOnDate(t, today))
 
   const result = todayTasks.map((t) => ({
     id: t.id,

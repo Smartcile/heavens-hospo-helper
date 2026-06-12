@@ -182,10 +182,23 @@ Task titles, venue names, department names, and staff names are stored in UPPERC
 `packages/db/index.ts` exports a global singleton Prisma client to prevent connection pool exhaustion in Next.js dev (hot reload creates new instances without this pattern).
 
 ### Task scheduling
-Phase 1 uses no cron engine — task generation is on-demand. When a worker loads their task list, the API queries all active tasks for their venue/department and filters by:
-- `DAILY`: always shown
-- `WEEKLY`: shown if `scheduleDays` contains today's day-of-week (0=Sun)
-- `CUSTOM`: cron expression stored for Phase 2 engine
+Tasks are filtered on-demand (no generation table). `lib/scheduling.ts`
+`isTaskDueOnDate(task, date)` is the single source of truth, used by the worker
+task list, the dashboard, and the overdue engine:
+- `DAILY`: always due
+- `WEEKLY`: due if `scheduleDays` contains the date's day-of-week (0=Sun)
+- `CUSTOM`: due if the `customCron` expression fires on that date (evaluated
+  with `cron-parser`, day-granular)
+
+The container runs in UTC, so "today" (`getTodayDate()`) and `scheduledDate`
+(@db.Date) are UTC-based and consistent. Full per-venue timezone handling is a
+future item.
+
+### Overdue / missed tasks
+`/api/admin/overdue?days=N` computes, for each active task across the last N days
+(excluding today), whether it was due (via `isTaskDueOnDate`) but has no
+`TaskCompletion` for that date — gated by the task's `createdAt` so new tasks
+aren't flagged retroactively. Surfaced on the dashboard as "MISSED — LAST 7 DAYS".
 
 `TaskCompletion.scheduledDate` is the **calendar date** the task was for (not when it was submitted), allowing completion tracking across timezones.
 
