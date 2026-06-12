@@ -29,9 +29,10 @@ migrations and seeds the demo data (safe to re-run on redeploys).
    - `DB_PASSWORD` — a strong database password
    - `NEXTAUTH_SECRET` — `openssl rand -base64 32`
    - `WORKER_SESSION_SECRET` — `openssl rand -base64 32`
-   - `NEXTAUTH_URL` — public URL, e.g. `http://192.168.1.10:3000`
-   - `APP_URL` — same as `NEXTAUTH_URL` (used to generate QR codes)
-   - `APP_PORT` — *(optional)* published port, default `3000`
+   - `APP_URL` — the **one** public URL you reach the app at, e.g.
+     `http://192.168.1.100:9008` (LAN) or `https://hospo.example.com`
+     (Cloudflare Tunnel). Drives both admin login and the QR codes.
+   - `APP_PORT` — *(optional)* published host port, default `3000`
 4. Click **Deploy the stack**.
 
 #### Option B — plain docker compose
@@ -145,15 +146,41 @@ for plain compose). Everything else is derived automatically.
 | `DB_PASSWORD` | **Yes** | — | PostgreSQL password |
 | `NEXTAUTH_SECRET` | **Yes** | — | Admin session signing secret (`openssl rand -base64 32`) |
 | `WORKER_SESSION_SECRET` | **Yes** | — | Worker PIN session signing secret (`openssl rand -base64 32`) |
-| `NEXTAUTH_URL` | **Yes** | — | Public URL incl. port, e.g. `http://192.168.1.10:3000` |
-| `APP_URL` | **Yes** | — | Same as `NEXTAUTH_URL`; baked into scannable QR codes |
+| `APP_URL` | **Yes** | — | The one public URL (incl. port if not 80/443). Drives admin login **and** QR codes |
 | `APP_PORT` | No | `3000` | Host port the app is published on |
 | `APP_NAME` | No | `HOSPO OPS` | Display / white-label name |
 | `DB_USER` | No | `hospo_ops_user` | PostgreSQL username |
 | `WORKER_SESSION_EXPIRY_MINUTES` | No | `15` | Worker auto-logout timeout |
 
-> `DATABASE_URL` is **not** set by hand — the compose file builds it from
-> `DB_USER` / `DB_PASSWORD`. Uploads always go to the `uploads_data` volume.
+> `DATABASE_URL` and `NEXTAUTH_URL` are **not** set by hand — the compose file
+> builds `DATABASE_URL` from `DB_USER`/`DB_PASSWORD` and derives `NEXTAUTH_URL`
+> from `APP_URL`. Uploads always go to the `uploads_data` volume.
+
+---
+
+## CLOUDFLARE ZERO TRUST / TUNNEL
+
+If you expose the app through a Cloudflare Tunnel:
+
+1. **Point the tunnel** at the app container — public hostname
+   `hospo.example.com` → service `http://hospo-ops-app:3000` (or `http://<host-ip>:<APP_PORT>`).
+2. **Set `APP_URL=https://hospo.example.com`** (no port). This makes admin login
+   cookies and the QR codes all use the HTTPS hostname. With a tunnel you don't
+   need to publish `APP_PORT` on the host at all.
+3. **Cloudflare Access policies — exempt the worker paths.** Floor staff don't
+   have Cloudflare accounts, so an Access policy covering the whole site will
+   block them at the QR-code login. Add a **Bypass** (public) policy for:
+   - `/w/*` — worker PIN login + task view
+   - `/api/worker/*` — worker API
+   - `/api/upload/*` — task photos
+
+   Keep `/admin/*` and `/api/admin/*` behind Access for an extra auth layer if
+   you like — the app still requires its own admin login on top.
+
+> **Note on HTTP vs HTTPS cookies:** over HTTPS (Cloudflare) everything works.
+> If you *also* browse via plain `http://<lan-ip>:<port>`, the secure session
+> cookies won't be sent and login will appear to loop — pick the HTTPS hostname
+> as your primary `APP_URL` and use that consistently.
 
 ---
 

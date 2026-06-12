@@ -7,9 +7,13 @@
 #   DB_PASSWORD             (required)  the database password you choose
 #   NEXTAUTH_SECRET         (required)  admin login signing secret — openssl rand -base64 32
 #   WORKER_SESSION_SECRET   (required)  worker PIN session secret  — openssl rand -base64 32
-#   NEXTAUTH_URL            (required)  public URL of the app, e.g. http://192.168.1.10:3000
-#   APP_URL                 (required)  same as NEXTAUTH_URL — used to generate QR codes
-#   APP_PORT                (optional)  port the app is published on (default 3000)
+#   APP_URL                 (required)  the ONE public URL you reach the app at.
+#                                       Used for admin login (NextAuth) AND baked
+#                                       into scannable QR codes. Include the port
+#                                       if not 80/443, e.g. http://192.168.1.100:9008
+#                                       Behind Cloudflare Tunnel use the https
+#                                       hostname, e.g. https://hospo.example.com
+#   APP_PORT                (optional)  host port the app is published on (default 3000)
 #   APP_NAME                (optional)  display / white-label name (default "HOSPO OPS")
 #   DB_USER                 (optional)  database username (default hospo_ops_user)
 #
@@ -52,13 +56,14 @@ services:
     environment:
       # Built from the db settings above; `db` is the service hostname.
       DATABASE_URL: postgresql://${DB_USER:-hospo_ops_user}:${DB_PASSWORD}@db:5432/hospo_ops
-      # Admin login (NextAuth) — secret signs the session cookie.
+      # Admin login (NextAuth). NEXTAUTH_URL is derived from APP_URL so you only
+      # ever set one public URL for the whole app.
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?set NEXTAUTH_SECRET in Portainer env}
-      NEXTAUTH_URL: ${NEXTAUTH_URL:?set NEXTAUTH_URL in Portainer env}
+      NEXTAUTH_URL: ${APP_URL:?set APP_URL in Portainer env}
       # Worker PIN session — separate secret, signs the worker JWT cookie.
       WORKER_SESSION_SECRET: ${WORKER_SESSION_SECRET:?set WORKER_SESSION_SECRET in Portainer env}
       WORKER_SESSION_EXPIRY_MINUTES: ${WORKER_SESSION_EXPIRY_MINUTES:-15}
-      # Used to generate the URL printed QR codes resolve to.
+      # The single public URL — also baked into scannable QR codes.
       APP_URL: ${APP_URL:?set APP_URL in Portainer env}
       # White-label display name, exposed to both server and client.
       APP_NAME: ${APP_NAME:-HOSPO OPS}
