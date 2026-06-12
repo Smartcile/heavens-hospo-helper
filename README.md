@@ -16,35 +16,49 @@ A self-hosted hospitality operations platform for venue managers and floor staff
 
 ### With Docker (recommended)
 
+The app image is built automatically by GitHub Actions and published to the
+GitHub Container Registry (GHCR). You don't build anything yourself — Docker
+just pulls the image. On first start, the container automatically runs database
+migrations and seeds the demo data (safe to re-run on redeploys).
+
+#### Option A — Portainer (Stacks → Add stack → Repository)
+
+1. Repository URL: `https://github.com/Smartcile/heavens-hospo-helper`
+2. Compose path: `docker-compose.yml`
+3. Under **Environment variables**, set:
+   - `DB_PASSWORD` — a strong database password
+   - `NEXTAUTH_SECRET` — `openssl rand -base64 32`
+   - `WORKER_SESSION_SECRET` — `openssl rand -base64 32`
+   - `NEXTAUTH_URL` — public URL, e.g. `http://192.168.1.10:3000`
+   - `APP_URL` — same as `NEXTAUTH_URL` (used to generate QR codes)
+   - `APP_PORT` — *(optional)* published port, default `3000`
+4. Click **Deploy the stack**.
+
+#### Option B — plain docker compose
+
 ```bash
 # 1. Clone the repo
-git clone <your-repo-url> hospo-ops
-cd hospo-ops
+git clone https://github.com/Smartcile/heavens-hospo-helper.git
+cd heavens-hospo-helper
 
 # 2. Create your environment file
 cp .env.example .env
-```
+# Edit .env and fill in the required secrets/URLs
 
-Edit `.env` and set strong values for:
-- `DB_PASSWORD` — your PostgreSQL password
-- `NEXTAUTH_SECRET` — generate with: `openssl rand -base64 32`
-- `WORKER_SESSION_SECRET` — generate with: `openssl rand -base64 32`
-- `NEXTAUTH_URL` — the public URL of your server (e.g. `http://192.168.1.10`)
-- `APP_URL` — same as `NEXTAUTH_URL`
-
-```bash
-# 3. Start the containers
-cd infra
+# 3. Pull the prebuilt image and start
+docker compose pull
 docker compose up -d
-
-# 4. Wait for db to be healthy, then run migrations
-docker compose exec app npx prisma migrate deploy --schema=packages/db/prisma/schema.prisma
-
-# 5. Seed the database with demo data
-docker compose exec app npm run db:seed --workspace=packages/db
 ```
 
-The app will be available at `http://localhost` (port 80).
+The app will be available at `http://your-server:3000`. Migrations and seeding
+happen automatically inside the container on startup.
+
+> **Note on the GHCR image:** the package is private by default. For Portainer
+> to pull it without credentials, open the package on GitHub
+> (**Profile → Packages → heavens-hospo-helper**) → **Package settings** →
+> **Change visibility → Public**. Alternatively, add your GHCR registry
+> credentials to Portainer (**Registries → Add registry → Custom**, using a
+> GitHub personal access token with `read:packages`).
 
 ### Local development (no Docker)
 
