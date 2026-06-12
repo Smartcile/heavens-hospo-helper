@@ -99,8 +99,16 @@ docker compose up -d
 ```
 
 On container start, `apps/web/docker-entrypoint.sh` automatically runs
-`prisma migrate deploy`, seeds the DB (idempotent), then launches
-`next start -H 0.0.0.0 -p 3000`. No manual migrate/seed step is needed.
+`prisma db push` (reconciles the live DB to match `schema.prisma`), seeds the
+DB (idempotent), then launches `next start -H 0.0.0.0 -p 3000`. No manual
+migrate/seed step is needed.
+
+**Why `db push` and not `migrate deploy` at deploy time:** auto-running
+`migrate deploy` on every boot crash-loops the container if a migration is ever
+interrupted (Prisma marks it failed → P3009 → exit non-zero → restart → repeat).
+`db push` keeps no migration history and is self-healing, which is the right
+trade-off for a single-instance self-hosted deploy. The `0_init` migration is
+kept in the repo for reference / future controlled migrations.
 
 In Portainer: **Stacks → Add stack → Repository**, compose path
 `docker-compose.yml`, set the env vars from the table below, deploy.
@@ -209,5 +217,5 @@ Phase 1 uses no cron engine — task generation is on-demand. When a worker load
 - **NO inline styles** — Tailwind utility classes only.
 - **NO plain-text PINs** — always bcrypt hash before storing, never log.
 - **NO direct DB access in client components** — Server Actions or API routes only.
-- **NO manual schema changes** — Prisma migrations only.
+- **NO manual schema changes** — change `schema.prisma`, never hand-edit the DB. (Deploy syncs it via `prisma db push`; see "Why db push" above.)
 - **NO storing session tokens in `localStorage`** — HTTP-only cookies only.

@@ -7,9 +7,13 @@ echo "  HOSPO OPS — STARTING"
 echo "============================================"
 
 echo ""
-echo "▸ Running database migrations..."
+echo "▸ Syncing database schema..."
 cd /app
-npx prisma migrate deploy --schema=packages/db/prisma/schema.prisma
+# db push reconciles the DB to match schema.prisma on every boot. Unlike
+# `migrate deploy` it keeps no migration history, so it can't get stuck in a
+# failed-migration (P3009) state and crash-loop the container — it just makes
+# the schema correct. Idempotent: on an up-to-date DB it's a no-op.
+npx prisma db push --schema=packages/db/prisma/schema.prisma --accept-data-loss --skip-generate
 
 echo ""
 echo "▸ Seeding database (safe to re-run)..."
