@@ -7,7 +7,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
-    "db:seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts",
+    "db:seed": "ts-node --transpile-only prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "db:studio": "prisma studio"
   },
@@ -23,6 +23,6 @@
   },
   "prisma": {
     "schema": "./prisma/schema.prisma",
-    "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
+    "seed": "ts-node --transpile-only prisma/seed.ts"
   }
 }
