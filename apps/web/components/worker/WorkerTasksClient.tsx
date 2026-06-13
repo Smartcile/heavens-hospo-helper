@@ -20,6 +20,7 @@ export function WorkerTasksClient() {
   const [completing, setCompleting] = useState(false)
   const [completionError, setCompletionError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const [noticeCount, setNoticeCount] = useState(0)
 
   const expiryMinutes = Number(process.env.NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES ?? 15)
 
@@ -51,6 +52,13 @@ export function WorkerTasksClient() {
   }
 
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    fetch('/api/worker/notices')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setNoticeCount(d.unackedRequired ?? 0) })
+      .catch(() => {})
+  }, [])
 
   function openTask(t: TaskState) {
     if (t.isCompleted) return
@@ -160,6 +168,12 @@ export function WorkerTasksClient() {
             </p>
           </div>
           <div className="flex flex-col items-end gap-1 mt-1">
+            <button
+              onClick={() => router.push('/w/notices')}
+              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+            >
+              NOTICES{noticeCount > 0 ? ` (${noticeCount})` : ''} →
+            </button>
             <button
               onClick={() => router.push('/w/calendar')}
               className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"

@@ -30,6 +30,9 @@
 
 ---
 
+## OPERATIONAL BOARD (display-first features)
+✅ **Staff notice board** — managers post notices (priority, pin, whole-venue or department-targeted, optional "must acknowledge" with read tracking); staff see them on their phone and tap to acknowledge
+
 ## PHASE 3 — TRAINING
 ✅ **Training modules / guides** — authored in admin, with step-by-step content, **photos** (upload) and **video links**
 ✅ **Assignment** — onboarding (all staff), by department (auto), individually assigned (upskill / area to work on), and **task-linked** guides
@@ -45,7 +48,7 @@
 ## PHASE 4 — FINANCE
 ✅ **Monthly budget splitter** — set a month total, EVEN SPLIT across working days, mark days closed, with a live allocated-vs-budget balance check (`/admin/budget`)
 ✅ **Daily budget allocations** — editable per-day amounts + notes + working-day toggle
-☐ **Labour cost visibility** — hours × pay rate per department/day from the roster (needs a pay-rate field on staff)
+~~Labour cost visibility~~ — DROPPED. Loaded already does this well; HOSPO OPS is an operational "what's on" board, not a finance/analytics tool, so it deliberately stays out of cross-resource cost reporting.
 ☐ **Loaded Reports integration** — export format compatible with Loaded accounting software
 ☐ **Basic labour cost visibility** — estimated hours × rate per department per day
 

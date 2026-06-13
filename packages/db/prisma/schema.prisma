@@ -31,6 +31,12 @@ enum TimeOffStatus {
   DECLINED
 }
 
+enum NoticePriority {
+  INFO
+  IMPORTANT
+  URGENT
+}
+
 model Venue {
   id         String    @id @default(uuid())
   name       String
@@ -51,6 +57,7 @@ model Venue {
   shiftNotes  ShiftNote[]
   shifts      Shift[]
   timeOffRequests TimeOffRequest[]
+  notices     Notice[]
 }
 
 model Department {
@@ -69,6 +76,7 @@ model Department {
   qrCodes QRCode[]
   trainingModules TrainingModule[]
   shifts Shift[]
+  notices Notice[]
 }
 
 model Staff {
@@ -100,6 +108,7 @@ model Staff {
   shiftNotes       ShiftNote[]
   shifts           Shift[]
   timeOffRequests  TimeOffRequest[]
+  noticeAcks       NoticeAck[]
 }
 
 model Task {
@@ -264,6 +273,42 @@ model TrainingCompletion {
   staff  Staff          @relation(fields: [staffId], references: [id])
 
   @@unique([moduleId, staffId])
+}
+
+// --- NOTICE BOARD ---
+
+model Notice {
+  id           String         @id @default(uuid())
+  venueId      String
+  departmentId String?        // null = whole venue
+  title        String
+  body         String
+  priority     NoticePriority @default(INFO)
+  pinned       Boolean        @default(false)
+  requiresAck  Boolean        @default(false)
+  startsAt     DateTime?      // active-window start (null = immediately)
+  endsAt       DateTime?      // active-window end (null = no expiry)
+  isActive     Boolean        @default(true)
+  createdById  String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  deletedAt    DateTime?
+
+  venue      Venue       @relation(fields: [venueId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+  acks       NoticeAck[]
+}
+
+model NoticeAck {
+  id       String   @id @default(uuid())
+  noticeId String
+  staffId  String
+  ackedAt  DateTime @default(now())
+
+  notice Notice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  staff  Staff  @relation(fields: [staffId], references: [id])
+
+  @@unique([noticeId, staffId])
 }
 
 // --- CALENDAR: roster + time off ---
