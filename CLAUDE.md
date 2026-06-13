@@ -151,15 +151,28 @@ cd packages/db && npx prisma studio
 
 ## ADMIN LOGIN SYSTEM
 
-Admin login uses **email + PIN** (not email + password). The admin's "email" is stored in the `swiftPosId` field as a login identifier. This is a Phase 1 compromise — Phase 2 will introduce proper email-based auth with password hashing.
+Admin/manager web login uses a real **email + password** (`Staff.email`,
+`Staff.password`, bcrypt). Only `ADMIN`/`MANAGER` roles can log into the panel.
+Floor `STAFF` log in separately via QR + `Staff.pin` (also bcrypt). `pin` is now
+optional (a pure admin needn't have one); the worker login skips staff with no PIN.
 
-Default seed accounts:
-- Admin: `admin@demo.com` / PIN `0000`
-- Bar Manager: `bar@demo.com` / PIN `1111`
-- Kitchen Manager: `kitchen@demo.com` / PIN `2222`
-- FOH Manager: `foh@demo.com` / PIN `3333`
+Default seed web logins (email / password):
+- Admin: `admin@demo.com` / `admin1234`
+- Bar Manager: `bar@demo.com` / `bar1234`
+- Kitchen Manager: `kitchen@demo.com` / `kitchen1234`
+- FOH Manager: `foh@demo.com` / `foh1234`
 
-To create admin accounts with login access, set the `swiftPosId` field to the login email. The PIN is always bcrypt-hashed.
+Worker QR+PIN logins remain `0000` / `1111` / `2222` / `3333`.
+
+**Migration:** earlier builds stored the login email in `swiftPosId` and used the
+PIN as the password. The seed backfills `email`/`password` from those for any
+existing ADMIN/MANAGER (and frees `swiftPosId`), so no one is locked out.
+
+### Unified staff identity
+A single `Staff` profile carries external-system link IDs — `swiftPosId`,
+`myHrId`, `loadedReportsId` — so one person maps across SwiftPOS, MyHR, and
+LoadedReports. These are editable in the Staff form now; automated sync is a
+future item (see ROADMAP). `email` doubles as a natural cross-system match key.
 
 ## KEY ARCHITECTURAL DECISIONS
 

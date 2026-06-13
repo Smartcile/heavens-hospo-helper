@@ -87,23 +87,27 @@ App runs at `http://localhost:3000`.
 
 ## DEFAULT CREDENTIALS
 
-After seeding, the following accounts exist:
+After seeding, the following accounts exist.
 
-| Role | Login Email | PIN |
+**Admin / manager web login (email + password):**
+
+| Role | Email | Password |
 |---|---|---|
-| Admin | `admin@demo.com` | `0000` |
-| Bar Manager | `bar@demo.com` | `1111` |
-| Kitchen Manager | `kitchen@demo.com` | `2222` |
-| FOH Manager | `foh@demo.com` | `3333` |
+| Admin | `admin@demo.com` | `admin1234` |
+| Bar Manager | `bar@demo.com` | `bar1234` |
+| Kitchen Manager | `kitchen@demo.com` | `kitchen1234` |
+| FOH Manager | `foh@demo.com` | `foh1234` |
 
-**Change these immediately in production.** Admin PINs are changed via **Settings** in the admin panel.
+**Floor worker login (QR + PIN):** `0000` (admin) · `1111` (bar) · `2222` (kitchen) · `3333` (foh)
+
+**Change these immediately in production.** Passwords are changed via **Settings** in the admin panel.
 
 ---
 
 ## HOW TO ACCESS THE ADMIN PANEL
 
 1. Open `http://your-server-ip:3000/admin/login`
-2. Enter your login email and PIN
+2. Enter your email and password
 3. You will land on the Dashboard
 
 The worker login (for QR scanning) is at `http://your-server-ip:3000/w/login`.

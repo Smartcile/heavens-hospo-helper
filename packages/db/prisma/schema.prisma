@@ -64,13 +64,19 @@ model Staff {
   id              String    @id @default(uuid())
   firstName       String
   lastName        String
-  pin             String
+  pin             String?   // worker QR + PIN login (bcrypt). Optional: pure admins may have none.
+  email           String?   @unique // admin/manager web login + cross-system match key
+  password        String?   // admin/manager web login (bcrypt)
   role            Role      @default(STAFF)
   venueId         String
   departmentId    String?
   profilePhotoUrl String?
   isActive        Boolean   @default(true)
-  swiftPosId      String?
+  // --- External system links (one profile, many systems). Sync is "coming soon";
+  //     these IDs let an admin link a person across systems now. ---
+  swiftPosId      String?   // SwiftPOS staff id
+  myHrId          String?   // MyHR id
+  loadedReportsId String?   // LoadedReports id
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?

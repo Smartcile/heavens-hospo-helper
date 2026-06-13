@@ -56,74 +56,106 @@ async function main() {
     },
   })
 
-  // Create staff
+  // Create staff. Admin/manager profiles log into the web panel with
+  // email + password; PINs remain for QR + numpad worker login.
   const pinAdmin = await bcrypt.hash('0000', 10)
   const pinManager1 = await bcrypt.hash('1111', 10)
   const pinManager2 = await bcrypt.hash('2222', 10)
   const pinManager3 = await bcrypt.hash('3333', 10)
+  const pwAdmin = await bcrypt.hash('admin1234', 10)
+  const pwBar = await bcrypt.hash('bar1234', 10)
+  const pwKitchen = await bcrypt.hash('kitchen1234', 10)
+  const pwFoh = await bcrypt.hash('foh1234', 10)
 
   const adminStaff = await prisma.staff.upsert({
     where: { id: '00000000-0000-0000-0000-000000000020' },
-    update: {},
+    update: { email: 'admin@demo.com', password: pwAdmin },
     create: {
       id: '00000000-0000-0000-0000-000000000020',
       firstName: 'ADMIN',
       lastName: 'USER',
       pin: pinAdmin,
+      email: 'admin@demo.com',
+      password: pwAdmin,
       role: Role.ADMIN,
       venueId: venue.id,
       isActive: true,
-      swiftPosId: 'admin@demo.com',
     },
   })
 
   const barManager = await prisma.staff.upsert({
     where: { id: '00000000-0000-0000-0000-000000000021' },
-    update: {},
+    update: { email: 'bar@demo.com', password: pwBar },
     create: {
       id: '00000000-0000-0000-0000-000000000021',
       firstName: 'BAR',
       lastName: 'MANAGER',
       pin: pinManager1,
+      email: 'bar@demo.com',
+      password: pwBar,
       role: Role.MANAGER,
       venueId: venue.id,
       departmentId: deptBar.id,
       isActive: true,
-      swiftPosId: 'bar@demo.com',
     },
   })
 
   const kitchenManager = await prisma.staff.upsert({
     where: { id: '00000000-0000-0000-0000-000000000022' },
-    update: {},
+    update: { email: 'kitchen@demo.com', password: pwKitchen },
     create: {
       id: '00000000-0000-0000-0000-000000000022',
       firstName: 'KITCHEN',
       lastName: 'MANAGER',
       pin: pinManager2,
+      email: 'kitchen@demo.com',
+      password: pwKitchen,
       role: Role.MANAGER,
       venueId: venue.id,
       departmentId: deptKitchen.id,
       isActive: true,
-      swiftPosId: 'kitchen@demo.com',
     },
   })
 
   const fohManager = await prisma.staff.upsert({
     where: { id: '00000000-0000-0000-0000-000000000023' },
-    update: {},
+    update: { email: 'foh@demo.com', password: pwFoh },
     create: {
       id: '00000000-0000-0000-0000-000000000023',
       firstName: 'FOH',
       lastName: 'MANAGER',
       pin: pinManager3,
+      email: 'foh@demo.com',
+      password: pwFoh,
       role: Role.MANAGER,
       venueId: venue.id,
       departmentId: deptFOH.id,
       isActive: true,
-      swiftPosId: 'foh@demo.com',
     },
   })
+
+  // --- One-time migration for existing installs ---
+  // Earlier builds stored the admin login email in `swiftPosId` and used the
+  // PIN as the password. Backfill the new email/password fields from those so
+  // nobody is locked out, and free up swiftPosId for real SwiftPOS ids.
+  const legacyAdmins = await prisma.staff.findMany({
+    where: {
+      role: { in: [Role.ADMIN, Role.MANAGER] },
+      deletedAt: null,
+      email: null,
+      swiftPosId: { contains: '@' },
+    },
+  })
+  for (const s of legacyAdmins) {
+    await prisma.staff.update({
+      where: { id: s.id },
+      data: {
+        email: s.swiftPosId!.toLowerCase().trim(),
+        password: s.password ?? s.pin, // reuse existing bcrypt hash if no password yet
+        swiftPosId: null,
+      },
+    })
+  }
 
   // BAR tasks
   const barDailyTasks = [
@@ -455,11 +487,12 @@ async function main() {
   }
 
   console.log('Seed complete.')
-  console.log('Admin logins (email / PIN):')
-  console.log('  admin@demo.com / 0000  (ADMIN)')
-  console.log('  bar@demo.com   / 1111  (BAR MANAGER)')
-  console.log('  kitchen@demo.com / 2222  (KITCHEN MANAGER)')
-  console.log('  foh@demo.com   / 3333  (FOH MANAGER)')
+  console.log('Admin/manager web logins (email / password):')
+  console.log('  admin@demo.com   / admin1234    (ADMIN)')
+  console.log('  bar@demo.com     / bar1234      (BAR MANAGER)')
+  console.log('  kitchen@demo.com / kitchen1234  (KITCHEN MANAGER)')
+  console.log('  foh@demo.com     / foh1234      (FOH MANAGER)')
+  console.log('Worker QR + PIN logins: 0000 / 1111 / 2222 / 3333')
 }
 
 main()

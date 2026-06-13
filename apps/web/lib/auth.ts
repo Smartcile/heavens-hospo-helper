@@ -23,25 +23,22 @@ export const authOptions: NextAuthOptions = {
 
         const staff = await prisma.staff.findFirst({
           where: {
-            // Use email as login — map to firstName+lastName combo or swiftPosId
-            // For Phase 1, we store admin email in swiftPosId field as login identifier
-            swiftPosId: credentials.email.toLowerCase(),
+            email: credentials.email.toLowerCase().trim(),
             deletedAt: null,
             isActive: true,
             role: { in: ['ADMIN', 'MANAGER'] },
           },
-          include: { venue: true },
         })
 
-        if (!staff) return null
+        if (!staff?.password) return null
 
-        const isValid = await bcrypt.compare(credentials.password, staff.pin)
+        const isValid = await bcrypt.compare(credentials.password, staff.password)
         if (!isValid) return null
 
         return {
           id: staff.id,
           name: `${staff.firstName} ${staff.lastName}`,
-          email: credentials.email,
+          email: staff.email ?? credentials.email,
           role: staff.role,
           venueId: staff.venueId,
         }

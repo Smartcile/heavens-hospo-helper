@@ -30,12 +30,14 @@ export async function POST(req: NextRequest) {
       venueId: qrCode.venueId,
       isActive: true,
       deletedAt: null,
+      pin: { not: null }, // only staff who have a worker PIN set
       ...(qrCode.departmentId ? { departmentId: qrCode.departmentId } : {}),
     },
   })
 
   let matched: typeof staffList[0] | null = null
   for (const staff of staffList) {
+    if (!staff.pin) continue
     const valid = await bcrypt.compare(String(pin), staff.pin)
     if (valid) {
       matched = staff

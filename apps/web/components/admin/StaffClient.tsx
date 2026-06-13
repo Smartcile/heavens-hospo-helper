@@ -11,12 +11,15 @@ interface StaffMember {
   id: string
   firstName: string
   lastName: string
+  email: string | null
   role: string
   venueId: string
   departmentId: string | null
   isActive: boolean
   profilePhotoUrl: string | null
   swiftPosId: string | null
+  myHrId: string | null
+  loadedReportsId: string | null
   venue: { id: string; name: string }
   department: { id: string; name: string } | null
 }
@@ -28,20 +31,28 @@ interface FormState {
   firstName: string
   lastName: string
   pin: string
+  email: string
+  password: string
   role: string
   venueId: string
   departmentId: string
   swiftPosId: string
+  myHrId: string
+  loadedReportsId: string
 }
 
 const EMPTY_FORM: FormState = {
   firstName: '',
   lastName: '',
   pin: '',
+  email: '',
+  password: '',
   role: 'STAFF',
   venueId: '',
   departmentId: '',
   swiftPosId: '',
+  myHrId: '',
+  loadedReportsId: '',
 }
 
 const ROLE_OPTIONS = [
@@ -91,22 +102,41 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
       firstName: s.firstName,
       lastName: s.lastName,
       pin: '',
+      email: s.email ?? '',
+      password: '',
       role: s.role,
       venueId: s.venueId,
       departmentId: s.departmentId ?? '',
       swiftPosId: s.swiftPosId ?? '',
+      myHrId: s.myHrId ?? '',
+      loadedReportsId: s.loadedReportsId ?? '',
     })
     setError('')
     setModalOpen(true)
   }
 
   async function handleSave() {
+    const isWebUser = form.role === 'ADMIN' || form.role === 'MANAGER'
+
     if (!form.firstName.trim() || !form.lastName.trim() || !form.venueId) {
       setError('FIRST NAME, LAST NAME AND VENUE ARE REQUIRED')
       return
     }
-    if (!editing && !form.pin) {
-      setError('PIN IS REQUIRED FOR NEW STAFF')
+    if (isWebUser) {
+      if (!form.email.trim()) {
+        setError('EMAIL IS REQUIRED FOR ADMIN / MANAGER')
+        return
+      }
+      if (!editing && form.password.length < 8) {
+        setError('PASSWORD (MIN 8 CHARS) IS REQUIRED FOR ADMIN / MANAGER')
+        return
+      }
+      if (form.password && form.password.length < 8) {
+        setError('PASSWORD MUST BE AT LEAST 8 CHARACTERS')
+        return
+      }
+    } else if (!editing && !form.pin) {
+      setError('PIN IS REQUIRED FOR FLOOR STAFF')
       return
     }
     if (form.pin && !/^\d{2,4}$/.test(form.pin)) {
@@ -124,9 +154,13 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
       lastName: form.lastName,
       venueId: form.venueId,
       departmentId: form.departmentId || null,
+      email: form.email || null,
       swiftPosId: form.swiftPosId || null,
+      myHrId: form.myHrId || null,
+      loadedReportsId: form.loadedReportsId || null,
     }
     if (form.pin) body.pin = form.pin
+    if (form.password) body.password = form.password
     if (!editing) body.role = form.role
     if (isAdmin) body.role = form.role
 
@@ -170,6 +204,7 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
       .filter((d) => d.venueId === form.venueId)
       .map((d) => ({ value: d.id, label: d.name })),
   ]
+  const isWebUser = form.role === 'ADMIN' || form.role === 'MANAGER'
 
   return (
     <div className="p-6 space-y-4">
@@ -254,15 +289,7 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
               placeholder="SMITH"
             />
           </div>
-          <Input
-            label={editing ? 'New PIN (leave blank to keep)' : 'PIN (2-4 digits)'}
-            type="password"
-            value={form.pin}
-            onChange={(e) => setForm({ ...form, pin: e.target.value })}
-            placeholder="••••"
-            maxLength={4}
-            pattern="\d{2,4}"
-          />
+
           {isAdmin && (
             <Select
               label="Role"
@@ -286,17 +313,77 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
             onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
             options={deptOptions}
           />
-          <div className="flex flex-col gap-1">
+
+          {/* Web login (admins/managers) */}
+          {isWebUser && (
+            <div className="border-l-4 border-l-grey-mid pl-3 space-y-3">
+              <p className="font-mono text-xs uppercase tracking-wider text-grey-light">WEB LOGIN</p>
+              <Input
+                label="Email"
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="name@venue.com"
+                autoComplete="off"
+              />
+              <Input
+                label={editing ? 'New Password (leave blank to keep)' : 'Password (min 8 chars)'}
+                type="password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                placeholder="••••••••"
+                autoComplete="new-password"
+              />
+            </div>
+          )}
+
+          {/* Worker PIN (floor login via QR + numpad) */}
+          <Input
+            label={
+              isWebUser
+                ? editing
+                  ? 'Floor PIN — optional (leave blank to keep)'
+                  : 'Floor PIN — optional (2-4 digits)'
+                : editing
+                  ? 'New PIN (leave blank to keep)'
+                  : 'PIN (2-4 digits)'
+            }
+            type="password"
+            value={form.pin}
+            onChange={(e) => setForm({ ...form, pin: e.target.value })}
+            placeholder="••••"
+            maxLength={4}
+            pattern="\d{2,4}"
+          />
+
+          {/* One profile, linked across systems */}
+          <div className="border-l-4 border-l-grey-mid pl-3 space-y-3">
+            <div>
+              <p className="font-mono text-xs uppercase tracking-wider text-grey-light">STAFF SYNC IDS</p>
+              <p className="font-mono text-xs text-grey-light mt-0.5">
+                LINK THIS PROFILE ACROSS SYSTEMS. AUTO-SYNC COMING SOON — SET MANUALLY FOR NOW.
+              </p>
+            </div>
             <Input
-              label="SwiftPOS ID (optional — coming soon)"
+              label="SwiftPOS ID"
               value={form.swiftPosId}
               onChange={(e) => setForm({ ...form, swiftPosId: e.target.value })}
-              placeholder="SWIFTPOS SYNC — COMING SOON"
-              disabled
-              className="opacity-40"
+              placeholder="SWIFTPOS STAFF ID"
             />
-            <p className="font-mono text-xs text-grey-light">SWIFTPOS SYNC — PHASE 2</p>
+            <Input
+              label="MyHR ID"
+              value={form.myHrId}
+              onChange={(e) => setForm({ ...form, myHrId: e.target.value })}
+              placeholder="MYHR ID"
+            />
+            <Input
+              label="LoadedReports ID"
+              value={form.loadedReportsId}
+              onChange={(e) => setForm({ ...form, loadedReportsId: e.target.value })}
+              placeholder="LOADEDREPORTS ID"
+            />
           </div>
+
           {error && <p className="font-mono text-xs text-danger">{error}</p>}
           <div className="flex gap-2 pt-2">
             <Button onClick={handleSave} loading={saving}>SAVE</Button>
