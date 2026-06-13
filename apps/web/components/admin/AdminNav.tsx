@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { href: '/admin/training', label: 'Training' },
   { href: '/admin/qrcodes', label: 'QR Codes' },
   { href: '/admin/reports', label: 'Reports' },
+  { href: '/admin/budget', label: 'Budget' },
   { href: '/admin/review', label: 'Review' },
   { href: '/admin/settings', label: 'Settings' },
 ]

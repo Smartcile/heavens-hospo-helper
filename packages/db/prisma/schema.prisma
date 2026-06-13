@@ -337,25 +337,31 @@ model ShiftNote {
 model BudgetPeriod {
   id           String    @id @default(uuid())
   venueId      String
-  month        Int
+  month        Int       // 1-12
   year         Int
   totalBudget  Float
-  workingDays  Int
+  workingDays  Int       @default(0) // count of working days (derived on save)
+  label        String?   // optional, e.g. "WAGES", "FOOD COST"
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   venue       Venue                @relation(fields: [venueId], references: [id])
   allocations BudgetDayAllocation[]
+
+  @@unique([venueId, year, month])
 }
 
 model BudgetDayAllocation {
   id             String    @id @default(uuid())
   budgetPeriodId String
   date           DateTime  @db.Date
-  amount         Float
+  amount         Float     @default(0)
+  isWorkingDay   Boolean   @default(true)
   note           String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  budgetPeriod BudgetPeriod @relation(fields: [budgetPeriodId], references: [id])
+  budgetPeriod BudgetPeriod @relation(fields: [budgetPeriodId], references: [id], onDelete: Cascade)
+
+  @@unique([budgetPeriodId, date])
 }

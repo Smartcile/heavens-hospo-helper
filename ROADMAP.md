@@ -43,8 +43,9 @@
 ---
 
 ## PHASE 4 — FINANCE
-☐ **Monthly budget splitter** — split a monthly labour budget across working days (`BudgetPeriod` model already exists)
-☐ **Daily budget allocations** — set custom amounts per day with notes (`BudgetDayAllocation` model already exists)
+✅ **Monthly budget splitter** — set a month total, EVEN SPLIT across working days, mark days closed, with a live allocated-vs-budget balance check (`/admin/budget`)
+✅ **Daily budget allocations** — editable per-day amounts + notes + working-day toggle
+☐ **Labour cost visibility** — hours × pay rate per department/day from the roster (needs a pay-rate field on staff)
 ☐ **Loaded Reports integration** — export format compatible with Loaded accounting software
 ☐ **Basic labour cost visibility** — estimated hours × rate per department per day
 
