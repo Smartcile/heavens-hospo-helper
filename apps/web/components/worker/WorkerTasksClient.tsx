@@ -159,12 +159,20 @@ export function WorkerTasksClient() {
               {done.length} OF {tasks.length} TASKS COMPLETE
             </p>
           </div>
-          <button
-            onClick={handleLogout}
-            className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors mt-1"
-          >
-            SIGN OUT
-          </button>
+          <div className="flex flex-col items-end gap-1 mt-1">
+            <button
+              onClick={() => router.push('/w/training')}
+              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+            >
+              MY TRAINING →
+            </button>
+            <button
+              onClick={handleLogout}
+              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+            >
+              SIGN OUT
+            </button>
+          </div>
         </div>
 
         {/* Progress bar */}
@@ -196,6 +204,7 @@ export function WorkerTasksClient() {
                     <span className="font-mono text-xs text-grey-light">[{t.departmentName}]</span>
                   )}
                   <CompletionTypeIcon type={t.completionType} />
+                  {t.guide && <span className="font-mono text-xs text-grey-light">📖 GUIDE</span>}
                 </div>
               </div>
             </div>
@@ -245,6 +254,14 @@ export function WorkerTasksClient() {
               )}
               {activeTask.departmentName && (
                 <p className="font-mono text-xs text-grey-light mt-1 uppercase">[{activeTask.departmentName}]</p>
+              )}
+              {activeTask.guide && (
+                <button
+                  onClick={() => router.push(`/w/training?module=${activeTask.guide!.id}`)}
+                  className="mt-3 inline-block font-mono text-xs uppercase border border-grey-mid px-3 py-2 text-white hover:border-white transition-colors"
+                >
+                  📖 VIEW GUIDE: {activeTask.guide.title}
+                </button>
               )}
             </div>
 

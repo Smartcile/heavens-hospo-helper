@@ -58,6 +58,7 @@ model Department {
   staff  Staff[]
   tasks  Task[]
   qrCodes QRCode[]
+  trainingModules TrainingModule[]
 }
 
 model Staff {
@@ -84,6 +85,8 @@ model Staff {
   venue            Venue            @relation(fields: [venueId], references: [id])
   department       Department?      @relation(fields: [departmentId], references: [id])
   taskCompletions  TaskCompletion[]
+  trainingAssignments TrainingAssignment[]
+  trainingCompletions TrainingCompletion[]
 }
 
 model Task {
@@ -106,7 +109,8 @@ model Task {
   venue            Venue            @relation(fields: [venueId], references: [id])
   department       Department?      @relation(fields: [departmentId], references: [id])
   taskCompletions  TaskCompletion[]
-  trainingSteps    TrainingStep[]
+  trainingSteps    TrainingStep[]   @relation("StepLinkedTask")
+  trainingModules  TrainingModule[] @relation("ModuleLinkedTask")
 }
 
 model TaskCompletion {
@@ -171,32 +175,82 @@ model TaskTemplateItem {
   template TaskTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 }
 
-// --- FUTURE STUBS ---
+// --- TRAINING (Phase 3) ---
 
 model TrainingModule {
-  id          String    @id @default(uuid())
-  title       String
-  description String?
-  venueId     String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
+  id              String    @id @default(uuid())
+  title           String              // ALL CAPS
+  description     String?
+  category        String?             // grouping, e.g. "BAR", "FOOD SAFETY"
+  venueId         String
+  departmentId    String?             // if set, auto-applies to all staff in this department
+  linkedTaskId    String?             // if set, this guide is the how-to for a task
+  requiresSignOff Boolean   @default(false) // true = a manager must sign off; false = staff self-complete
+  isOnboarding    Boolean   @default(false) // part of the onboarding checklist (applies to all staff)
+  onboardingOrder Int       @default(0)
+  isActive        Boolean   @default(true)
+  sortOrder       Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
 
-  venue Venue          @relation(fields: [venueId], references: [id])
-  steps TrainingStep[]
+  venue       Venue                @relation(fields: [venueId], references: [id])
+  department  Department?          @relation(fields: [departmentId], references: [id])
+  linkedTask  Task?                @relation("ModuleLinkedTask", fields: [linkedTaskId], references: [id])
+  steps       TrainingStep[]
+  assignments TrainingAssignment[]
+  completions TrainingCompletion[]
 }
 
 model TrainingStep {
   id            String    @id @default(uuid())
   moduleId      String
   order         Int
+  title         String?
   content       String
+  imageUrl      String?           // uploaded photo
+  videoUrl      String?           // external video link (YouTube/Vimeo/etc)
   linkedTaskId  String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  module     TrainingModule @relation(fields: [moduleId], references: [id])
-  linkedTask Task?          @relation(fields: [linkedTaskId], references: [id])
+  module     TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  linkedTask Task?          @relation("StepLinkedTask", fields: [linkedTaskId], references: [id])
+}
+
+// Individual assignment of a module to a person (upskill / area to work on).
+// Onboarding + department applicability is computed, not stored here.
+model TrainingAssignment {
+  id           String    @id @default(uuid())
+  moduleId     String
+  staffId      String
+  assignedById String?            // manager who assigned (Staff id, no relation)
+  reason       String?            // e.g. "UPSKILL", "AREA TO WORK ON"
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  module TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  staff  Staff          @relation(fields: [staffId], references: [id])
+
+  @@unique([moduleId, staffId])
+}
+
+model TrainingCompletion {
+  id            String   @id @default(uuid())
+  moduleId      String
+  staffId       String
+  completedAt   DateTime @default(now())
+  selfCompleted Boolean  @default(false) // true = staff ticked it; false = manager sign-off
+  signedOffById String?            // manager who signed off (Staff id, no relation)
+  note          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  module TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  staff  Staff          @relation(fields: [staffId], references: [id])
+
+  @@unique([moduleId, staffId])
 }
 
 model BudgetPeriod {

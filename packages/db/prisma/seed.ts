@@ -486,6 +486,104 @@ async function main() {
     })
   }
 
+  // --- Example training modules (Phase 3) ---
+  const coffeeTaskId = '00000000-0000-0000-0001-000000000003' // CLEAN COFFEE MACHINE
+  const trainingModules: {
+    id: string
+    title: string
+    description: string
+    category: string
+    departmentId?: string
+    linkedTaskId?: string
+    requiresSignOff: boolean
+    isOnboarding: boolean
+    onboardingOrder: number
+    steps: { title?: string; content: string; videoUrl?: string }[]
+  }[] = [
+    {
+      id: '00000000-0000-0000-00b0-000000000001',
+      title: 'WELCOME & VENUE INDUCTION',
+      description: 'Start here on your first shift.',
+      category: 'ONBOARDING',
+      requiresSignOff: false,
+      isOnboarding: true,
+      onboardingOrder: 1,
+      steps: [
+        { title: 'WELCOME', content: 'Welcome to the team! This short induction covers the basics before your first shift.' },
+        { title: 'WHERE THINGS ARE', content: 'Find the staff room, lockers, first-aid kit, and fire exits. Ask your manager for a quick tour.' },
+        { title: 'USING THIS APP', content: 'Each shift, scan the QR at your area and enter your PIN to see your tasks. Tick them off as you go.' },
+      ],
+    },
+    {
+      id: '00000000-0000-0000-00b0-000000000002',
+      title: 'FOOD SAFETY BASICS',
+      description: 'Core hygiene and food-handling rules.',
+      category: 'FOOD SAFETY',
+      requiresSignOff: true,
+      isOnboarding: true,
+      onboardingOrder: 2,
+      steps: [
+        { title: 'HAND WASHING', content: 'Wash hands for 20 seconds on arrival, after breaks, and between tasks.' },
+        { title: 'TEMPERATURE DANGER ZONE', content: 'Keep cold food below 5°C and hot food above 60°C. Record fridge temps daily.' },
+        { title: 'CROSS-CONTAMINATION', content: 'Use separate boards and utensils for raw and ready-to-eat foods.' },
+      ],
+    },
+    {
+      id: '00000000-0000-0000-00b0-000000000003',
+      title: 'HOW TO CLEAN THE COFFEE MACHINE',
+      description: 'Step-by-step end-of-day clean, linked to the daily task.',
+      category: 'BAR',
+      departmentId: deptBar.id,
+      linkedTaskId: coffeeTaskId,
+      requiresSignOff: false,
+      isOnboarding: false,
+      onboardingOrder: 0,
+      steps: [
+        { title: 'BACKFLUSH', content: 'Insert the blind filter, add cleaning powder, and run the backflush cycle 5 times.' },
+        { title: 'GROUP HEADS', content: 'Remove and scrub the group heads and gaskets with the group brush.' },
+        { title: 'STEAM WAND', content: 'Purge the steam wand and wipe it down. Soak the tip if milk has dried on.', videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
+      ],
+    },
+  ]
+
+  for (const m of trainingModules) {
+    await prisma.trainingModule.upsert({
+      where: { id: m.id },
+      update: {
+        title: m.title,
+        description: m.description,
+        category: m.category,
+        departmentId: m.departmentId ?? null,
+        linkedTaskId: m.linkedTaskId ?? null,
+        requiresSignOff: m.requiresSignOff,
+        isOnboarding: m.isOnboarding,
+        onboardingOrder: m.onboardingOrder,
+      },
+      create: {
+        id: m.id,
+        title: m.title,
+        description: m.description,
+        category: m.category,
+        venueId: venue.id,
+        departmentId: m.departmentId ?? null,
+        linkedTaskId: m.linkedTaskId ?? null,
+        requiresSignOff: m.requiresSignOff,
+        isOnboarding: m.isOnboarding,
+        onboardingOrder: m.onboardingOrder,
+      },
+    })
+    await prisma.trainingStep.deleteMany({ where: { moduleId: m.id } })
+    await prisma.trainingStep.createMany({
+      data: m.steps.map((s, i) => ({
+        moduleId: m.id,
+        order: i,
+        title: s.title ?? null,
+        content: s.content,
+        videoUrl: s.videoUrl ?? null,
+      })),
+    })
+  }
+
   console.log('Seed complete.')
   console.log('Admin/manager web logins (email / password):')
   console.log('  admin@demo.com   / admin1234    (ADMIN)')

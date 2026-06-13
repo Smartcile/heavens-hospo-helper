@@ -107,6 +107,7 @@ export interface WorkerTaskView {
   description: string | null
   completionType: string
   departmentName: string | null
+  guide: { id: string; title: string } | null
   isCompleted: boolean
   completion: {
     id: string

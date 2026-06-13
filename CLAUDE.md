@@ -168,6 +168,20 @@ Worker QR+PIN logins remain `0000` / `1111` / `2222` / `3333`.
 PIN as the password. The seed backfills `email`/`password` from those for any
 existing ADMIN/MANAGER (and frees `swiftPosId`), so no one is locked out.
 
+### Training (Phase 3)
+`TrainingModule` + `TrainingStep` hold guides (steps: text + `imageUrl` upload +
+`videoUrl` link). A module applies to a person when it is onboarding
+(`isOnboarding`, all staff), department-scoped (`departmentId` == staff's dept),
+or individually assigned (`TrainingAssignment`, with a `reason` for upskill/areas
+to work on). `requiresSignOff` toggles staff-self-complete vs manager sign-off.
+`linkedTaskId` ties a guide to a task so it surfaces in the worker task view.
+`TrainingCompletion` records who completed what (`selfCompleted` vs
+`signedOffById`). `lib/training.ts:getStaffTraining()` is the shared resolver
+used by the admin per-staff panel (`/api/admin/staff/[id]/training`) and the
+worker view (`/api/worker/training`). Admin authoring at `/admin/training`;
+sign-off/assign from the Staff page; worker view at `/w/training`. Step photos
+upload via `/api/admin/upload`.
+
 ### Unified staff identity
 A single `Staff` profile carries external-system link IDs — `swiftPosId`,
 `myHrId`, `loadedReportsId` — so one person maps across SwiftPOS, MyHR, and

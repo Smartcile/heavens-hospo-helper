@@ -36,6 +36,11 @@ export async function GET() {
         orderBy: { completedAt: 'desc' },
         take: 1,
       },
+      trainingModules: {
+        where: { isActive: true, deletedAt: null },
+        select: { id: true, title: true },
+        take: 1,
+      },
     },
     orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
   })
@@ -48,6 +53,8 @@ export async function GET() {
     description: t.description,
     completionType: t.completionType,
     departmentName: t.department?.name ?? null,
+    // A linked how-to guide, if one exists for this task.
+    guide: t.trainingModules[0] ?? null,
     isCompleted: t.taskCompletions.length > 0,
     completion: t.taskCompletions[0]
       ? {

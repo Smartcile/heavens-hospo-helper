@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
+import { StaffTrainingModal } from '@/components/admin/StaffTrainingModal'
 
 interface StaffMember {
   id: string
@@ -67,6 +68,7 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
   const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
+  const [trainingFor, setTrainingFor] = useState<StaffMember | null>(null)
   const [editing, setEditing] = useState<StaffMember | null>(null)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
@@ -254,6 +256,9 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex gap-3">
+                        <button onClick={() => setTrainingFor(s)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">
+                          TRAINING
+                        </button>
                         <button onClick={() => toggleActive(s)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">
                           {s.isActive ? 'DEACTIVATE' : 'ACTIVATE'}
                         </button>
@@ -391,6 +396,14 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
           </div>
         </div>
       </Modal>
+
+      {trainingFor && (
+        <StaffTrainingModal
+          staffId={trainingFor.id}
+          staffName={`${trainingFor.firstName} ${trainingFor.lastName}`}
+          onClose={() => setTrainingFor(null)}
+        />
+      )}
     </div>
   )
 }

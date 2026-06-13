@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: '/admin/staff', label: 'Staff' },
   { href: '/admin/tasks', label: 'Tasks' },
   { href: '/admin/templates', label: 'Templates' },
+  { href: '/admin/training', label: 'Training' },
   { href: '/admin/qrcodes', label: 'QR Codes' },
   { href: '/admin/reports', label: 'Reports' },
   { href: '/admin/settings', label: 'Settings' },
