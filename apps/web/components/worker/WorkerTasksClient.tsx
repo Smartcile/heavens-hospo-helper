@@ -161,6 +161,12 @@ export function WorkerTasksClient() {
           </div>
           <div className="flex flex-col items-end gap-1 mt-1">
             <button
+              onClick={() => router.push('/w/calendar')}
+              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+            >
+              MY SCHEDULE →
+            </button>
+            <button
               onClick={() => router.push('/w/training')}
               className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
             >

@@ -25,6 +25,12 @@ enum ScheduleType {
   CUSTOM
 }
 
+enum TimeOffStatus {
+  PENDING
+  APPROVED
+  DECLINED
+}
+
 model Venue {
   id         String    @id @default(uuid())
   name       String
@@ -43,6 +49,8 @@ model Venue {
   trainingModules TrainingModule[]
   taskTemplates TaskTemplate[]
   shiftNotes  ShiftNote[]
+  shifts      Shift[]
+  timeOffRequests TimeOffRequest[]
 }
 
 model Department {
@@ -60,6 +68,7 @@ model Department {
   tasks  Task[]
   qrCodes QRCode[]
   trainingModules TrainingModule[]
+  shifts Shift[]
 }
 
 model Staff {
@@ -89,6 +98,8 @@ model Staff {
   trainingAssignments TrainingAssignment[]
   trainingCompletions TrainingCompletion[]
   shiftNotes       ShiftNote[]
+  shifts           Shift[]
+  timeOffRequests  TimeOffRequest[]
 }
 
 model Task {
@@ -253,6 +264,54 @@ model TrainingCompletion {
   staff  Staff          @relation(fields: [staffId], references: [id])
 
   @@unique([moduleId, staffId])
+}
+
+// --- CALENDAR: roster + time off ---
+
+// A rostered shift for a person on a date. Times are local "HH:mm" strings —
+// a shift is "this calendar day, from start to end in venue-local time".
+model Shift {
+  id           String    @id @default(uuid())
+  staffId      String
+  venueId      String
+  departmentId String?
+  date         DateTime  @db.Date
+  startTime    String    // "09:00"
+  endTime      String    // "17:00"
+  note         String?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  staff      Staff       @relation(fields: [staffId], references: [id])
+  venue      Venue       @relation(fields: [venueId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+
+  @@index([venueId, date])
+  @@index([staffId, date])
+}
+
+model TimeOffRequest {
+  id           String        @id @default(uuid())
+  staffId      String
+  venueId      String
+  startDate    DateTime      @db.Date
+  endDate      DateTime      @db.Date
+  reason       String?
+  status       TimeOffStatus @default(PENDING)
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  deletedAt    DateTime?
+
+  staff Staff @relation(fields: [staffId], references: [id])
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@index([venueId, status])
+  @@index([staffId])
 }
 
 // Manager end-of-day notes about a person for a given shift date. An

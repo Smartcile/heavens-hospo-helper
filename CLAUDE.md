@@ -182,6 +182,18 @@ worker view (`/api/worker/training`). Admin authoring at `/admin/training`;
 sign-off/assign from the Staff page; worker view at `/w/training`. Step photos
 upload via `/api/admin/upload`.
 
+### Calendar (roster + time off)
+`Shift` (per-staff, per-date, `startTime`/`endTime` as local "HH:mm" strings) and
+`TimeOffRequest` (date range, `TimeOffStatus` PENDING/APPROVED/DECLINED) drive a
+month calendar. `/api/admin/calendar?year=&month=&venueId=` returns a per-day map
+of shifts + time-off + a `dutiesRequired` flag (computed from task schedules via
+`isTaskDueOnDate`). Admin manages shifts (`/api/admin/shifts`) and approves
+requests (`/api/admin/timeoff/[id]` PATCH) at `/admin/calendar`. Staff see their
+own upcoming shifts and request/cancel time off at `/w/calendar`
+(`/api/worker/calendar`, `/api/worker/timeoff`). Times are local strings (no tz
+math); dates are @db.Date keyed via `formatDateKey`. `lib/calendar.ts` has the
+month/range/time-validation helpers.
+
 ### Unified staff identity
 A single `Staff` profile carries external-system link IDs — `swiftPosId`,
 `myHrId`, `loadedReportsId` — so one person maps across SwiftPOS, MyHR, and

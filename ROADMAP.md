@@ -20,7 +20,9 @@
 ✅ **Per-venue timezone** — daily reset, worker view, dashboard, and overdue all use each venue's local day
 ✅ **Proper admin email auth** — real email + password login for ADMIN/MANAGER (bcrypt); floor staff keep QR + PIN; legacy `swiftPosId`-as-login backfilled automatically
 ☐ **Unified staff sync (COMING SOON)** — one profile linked across SwiftPOS / MyHR / LoadedReports via per-system ID fields (editable now); planned: CSV import then API sync, matching on email + system IDs
-☐ **Calendar sync** — view venue events/bookings alongside task list
+✅ **Calendar — roster + time off (v1)** — month overview with shift roster (times), time-off request→approve workflow, and a duty-days overlay (from task schedules); managers manage it in admin, staff see their own shifts + request time off on their phone
+☐ **Calendar — events + guest numbers** — manual venue events + expected covers per day on the same calendar (next round)
+☐ **Calendar sync (external)** — pull venue events/bookings from Microsoft Graph / Outlook alongside the native calendar
 ✅ **Recurring + overdue engine** — cron-aware scheduling (CUSTOM cron now actually evaluated, fixing daily/weekly/cron due-dates) plus missed-task tracking surfaced on the dashboard ("MISSED — LAST 7 DAYS") via `/api/admin/overdue`
 ☐ **Push notifications** — web push or email alerts for overdue/incomplete tasks at end of shift
 ✅ **Task templates library** — pre-built hospo SOP task sets (bar open, kitchen close, etc.) + custom templates, one-click apply to a department, and "save department as template" snapshot
