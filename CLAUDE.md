@@ -190,9 +190,14 @@ task list, the dashboard, and the overdue engine:
 - `CUSTOM`: due if the `customCron` expression fires on that date (evaluated
   with `cron-parser`, day-granular)
 
-The container runs in UTC, so "today" (`getTodayDate()`) and `scheduledDate`
-(@db.Date) are UTC-based and consistent. Full per-venue timezone handling is a
-future item.
+**Per-venue timezone:** "today" is computed in each venue's own timezone via
+`getTodayDate(venue.timezone)` (set on the venue, default `Pacific/Auckland`).
+This is used by the worker task list, the worker completion stamp
+(`scheduledDate`), the dashboard, and the overdue engine — so a venue's daily
+tasks reset at its local midnight, not UTC. `getTodayDate(tz)` returns the
+venue-local calendar day anchored to UTC midnight; `formatDateKey` and
+`isTaskDueOnDate` both work in UTC on that value, so storage, matching, and
+weekday/cron evaluation stay consistent regardless of the server's own tz.
 
 ### Overdue / missed tasks
 `/api/admin/overdue?days=N` computes, for each active task across the last N days

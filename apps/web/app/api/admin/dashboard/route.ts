@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { getTodayDate, completionPercent } from '@/lib/utils'
-import { isTaskDueOnDate } from '@/lib/scheduling'
+import { isTaskDueOnDate, formatDateKey } from '@/lib/scheduling'
 import type { DashboardStats } from '@hospo-ops/types'
 
 export async function GET() {
@@ -22,33 +22,45 @@ export async function GET() {
       departments: {
         where: { deletedAt: null, isActive: true },
         include: {
-          tasks: {
-            where: { deletedAt: null, isActive: true },
-            include: {
-              taskCompletions: {
-                where: {
-                  scheduledDate: getTodayDate(),
-                },
-              },
-            },
-          },
+          tasks: { where: { deletedAt: null, isActive: true } },
         },
       },
     },
   })
 
-  const today = getTodayDate()
+  // Each venue's "today" is its own local calendar day.
+  const venueToday = new Map<string, Date>()
+  for (const venue of venues) {
+    venueToday.set(venue.id, getTodayDate(venue.timezone))
+  }
+
+  // Fetch completions for the distinct "today" dates across venues in one query.
+  const allTaskIds = venues.flatMap((v) => v.departments.flatMap((d) => d.tasks.map((t) => t.id)))
+  const distinctDates = Array.from(
+    new Map([...venueToday.values()].map((d) => [d.getTime(), d])).values()
+  )
+
+  const completions =
+    allTaskIds.length > 0
+      ? await prisma.taskCompletion.findMany({
+          where: { taskId: { in: allTaskIds }, scheduledDate: { in: distinctDates } },
+          select: { taskId: true, scheduledDate: true },
+        })
+      : []
+  const doneSet = new Set(completions.map((c) => `${c.taskId}|${formatDateKey(c.scheduledDate)}`))
 
   let totalTasksToday = 0
   let completedTasksToday = 0
 
   const venueStats = venues.map((venue) => {
+    const today = venueToday.get(venue.id)!
+    const todayKey = formatDateKey(today)
     let vTotal = 0
     let vCompleted = 0
 
     const departmentStats = venue.departments.map((dept) => {
       const todayTasks = dept.tasks.filter((t) => isTaskDueOnDate(t, today))
-      const dCompleted = todayTasks.filter((t) => t.taskCompletions.length > 0).length
+      const dCompleted = todayTasks.filter((t) => doneSet.has(`${t.id}|${todayKey}`)).length
       vTotal += todayTasks.length
       vCompleted += dCompleted
 

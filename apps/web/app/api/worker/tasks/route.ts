@@ -8,7 +8,13 @@ export async function GET() {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const today = getTodayDate()
+  // "Today" is the venue's local calendar day, so daily tasks reset at the
+  // venue's local midnight rather than UTC midnight.
+  const venue = await prisma.venue.findUnique({
+    where: { id: session.venueId },
+    select: { timezone: true },
+  })
+  const today = getTodayDate(venue?.timezone)
 
   const where = {
     venueId: session.venueId,

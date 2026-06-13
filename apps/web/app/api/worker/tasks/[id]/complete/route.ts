@@ -13,7 +13,12 @@ export async function POST(req: NextRequest, { params }: Params) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const today = getTodayDate()
+  // Stamp the completion against the venue's local calendar day.
+  const venue = await prisma.venue.findUnique({
+    where: { id: session.venueId },
+    select: { timezone: true },
+  })
+  const today = getTodayDate(venue?.timezone)
 
   const existing = await prisma.taskCompletion.findFirst({
     where: { taskId: params.id, staffId: session.staffId, scheduledDate: today },

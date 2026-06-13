@@ -38,20 +38,6 @@ export function getTodayDate(timezone?: string): Date {
   return new Date(`${year}-${month}-${day}`)
 }
 
-export function isTaskScheduledToday(
-  scheduleType: string,
-  scheduleDays: number[],
-  timezone?: string
-): boolean {
-  if (scheduleType === 'DAILY') return true
-  const today = getTodayDate(timezone)
-  const dayOfWeek = today.getDay()
-  if (scheduleType === 'WEEKLY' || scheduleType === 'CUSTOM') {
-    return scheduleDays.includes(dayOfWeek)
-  }
-  return false
-}
-
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
 }

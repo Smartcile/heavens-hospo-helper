@@ -12,24 +12,30 @@ export interface SchedulableTask {
  * - WEEKLY → the date's day-of-week is in scheduleDays (0=Sun..6=Sat)
  * - CUSTOM → the cron expression has at least one firing on that date
  *
- * The container runs in UTC, so `date` is treated in the server's local time
- * (== UTC in production), consistent with how `scheduledDate` is stored.
+ * `date` is expected to be a UTC-anchored calendar date (as produced by
+ * `getTodayDate(timezone)`), so everything here is evaluated in UTC. That makes
+ * the result independent of the server's own timezone and consistent with how
+ * `scheduledDate` (@db.Date) and `formatDateKey` round-trip dates.
  */
 export function isTaskDueOnDate(task: SchedulableTask, date: Date): boolean {
   switch (task.scheduleType) {
     case 'DAILY':
       return true
     case 'WEEKLY':
-      return task.scheduleDays.includes(date.getDay())
+      return task.scheduleDays.includes(date.getUTCDay())
     case 'CUSTOM': {
       if (!task.customCron?.trim()) return false
       try {
-        const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)
-        const end = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999)
+        const y = date.getUTCFullYear()
+        const m = date.getUTCMonth()
+        const d = date.getUTCDate()
+        const start = new Date(Date.UTC(y, m, d, 0, 0, 0, 0))
+        const end = new Date(Date.UTC(y, m, d, 23, 59, 59, 999))
         const interval = parser.parseExpression(task.customCron, {
           // start - 1ms so a midnight firing on this date still counts
           currentDate: new Date(start.getTime() - 1),
           endDate: end,
+          tz: 'UTC',
         })
         return interval.hasNext()
       } catch {

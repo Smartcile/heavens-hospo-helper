@@ -6,8 +6,9 @@ import { getTodayDate, clamp } from '@/lib/utils'
 import { isTaskDueOnDate, formatDateKey } from '@/lib/scheduling'
 
 // Missed tasks: for each active task and each day in the window (yesterday back
-// N days), if the task was due that day (per its schedule) but has no completion
-// for that date, it counts as missed. Today is excluded — the day isn't over.
+// N days, in the task's venue timezone), if the task was due that day but has no
+// completion for that date, it counts as missed. Today is excluded — the day
+// isn't over yet.
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
     where: taskWhere,
     include: {
       department: { select: { name: true, colour: true } },
-      venue: { select: { name: true } },
+      venue: { select: { name: true, timezone: true } },
     },
   })
 
@@ -33,14 +34,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ days, totalMissed: 0, items: [] })
   }
 
-  const today = getTodayDate()
-  const windowStart = new Date(today)
-  windowStart.setDate(windowStart.getDate() - (days + 1))
+  // "Today" per venue (its local calendar day).
+  const venueToday = new Map<string, Date>()
+  for (const t of tasks) {
+    if (!venueToday.has(t.venueId)) venueToday.set(t.venueId, getTodayDate(t.venue.timezone))
+  }
+
+  // Earliest date we might inspect, for the completions query lower bound.
+  const earliest = new Date(Math.min(...[...venueToday.values()].map((d) => d.getTime())))
+  earliest.setUTCDate(earliest.getUTCDate() - (days + 1))
 
   const completions = await prisma.taskCompletion.findMany({
     where: {
       taskId: { in: tasks.map((t) => t.id) },
-      scheduledDate: { gte: windowStart },
+      scheduledDate: { gte: earliest },
     },
     select: { taskId: true, scheduledDate: true },
   })
@@ -55,14 +62,16 @@ export async function GET(req: NextRequest) {
     date: string
   }[] = []
 
-  for (let i = 1; i <= days; i++) {
-    const d = new Date(today)
-    d.setDate(d.getDate() - i)
-    const key = formatDateKey(d)
+  for (const t of tasks) {
+    const today = venueToday.get(t.venueId)!
+    const createdKey = formatDateKey(new Date(t.createdAt))
 
-    for (const t of tasks) {
-      const createdDay = new Date(new Date(t.createdAt).toDateString())
-      if (d.getTime() < createdDay.getTime()) continue
+    for (let i = 1; i <= days; i++) {
+      const d = new Date(today)
+      d.setUTCDate(d.getUTCDate() - i)
+      const key = formatDateKey(d)
+
+      if (key < createdKey) continue
       if (!isTaskDueOnDate(t, d)) continue
       if (doneSet.has(`${t.id}|${key}`)) continue
 
