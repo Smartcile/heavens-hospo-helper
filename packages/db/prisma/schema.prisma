@@ -43,6 +43,10 @@ model Venue {
   address    String?
   timezone   String    @default("Pacific/Auckland")
   isActive   Boolean   @default(true)
+  // External embeds (pasteable links shown live in the app — not imported)
+  loadedRosterUrl        String?
+  googleCalendarUrl      String?
+  externalRefreshMinutes Int     @default(0) // 0 = manual refresh only
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   deletedAt  DateTime?

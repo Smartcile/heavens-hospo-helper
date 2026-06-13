@@ -6,14 +6,22 @@ import { Select } from '@/components/ui/Select'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
+import { formatBreaks } from '@/lib/breaks'
 
 interface ShiftItem { id: string; staffId: string; staffName: string; departmentName: string | null; startTime: string; endTime: string }
 interface TimeOffItem { id: string; staffId: string; staffName: string; status: string }
 interface DayData { shifts: ShiftItem[]; timeOff: TimeOffItem[]; dutiesRequired: boolean }
 interface Pending { id: string; staffName: string; startDate: string; endDate: string; reason: string | null }
 
-interface Venue { id: string; name: string }
+interface Venue {
+  id: string
+  name: string
+  loadedRosterUrl?: string | null
+  googleCalendarUrl?: string | null
+  externalRefreshMinutes?: number
+}
 interface StaffLite { id: string; firstName: string; lastName: string; venueId: string }
+type CalView = 'planner' | 'loaded' | 'events'
 
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
 const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
@@ -32,6 +40,9 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
   const [venues, setVenues] = useState<Venue[]>([])
   const [staff, setStaff] = useState<StaffLite[]>([])
   const [loading, setLoading] = useState(true)
+
+  const [view, setView] = useState<CalView>('planner')
+  const [refreshTick, setRefreshTick] = useState(0)
 
   // Day modal
   const [openDay, setOpenDay] = useState<string | null>(null)
@@ -61,6 +72,16 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
 
   useEffect(() => { loadMeta() }, [])
   useEffect(() => { load() }, [year, month, venueId])
+
+  // Auto-refresh the embedded views at the venue's chosen interval.
+  useEffect(() => {
+    if (view === 'planner') return
+    const v = venues.find((x) => x.id === venueId) ?? (venues.length === 1 ? venues[0] : undefined)
+    const mins = v?.externalRefreshMinutes ?? 0
+    if (!mins) return
+    const t = setInterval(() => setRefreshTick((n) => n + 1), mins * 60 * 1000)
+    return () => clearInterval(t)
+  }, [view, venueId, venues])
 
   function prevMonth() {
     if (month === 1) { setYear(year - 1); setMonth(12) } else setMonth(month - 1)
@@ -108,6 +129,11 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
     .map((s) => ({ value: s.id, label: `${s.firstName} ${s.lastName}` }))
   const openDayData = openDay ? days[openDay] : null
 
+  // Venue whose external embeds we show (manager's own, or the admin's selection).
+  const embedVenue = venues.find((v) => v.id === (venueId || (role === 'MANAGER' ? venueId : ''))) ?? (venues.length === 1 ? venues[0] : undefined)
+  const refreshMins = embedVenue?.externalRefreshMinutes ?? 0
+  const embedUrl = view === 'loaded' ? embedVenue?.loadedRosterUrl : view === 'events' ? embedVenue?.googleCalendarUrl : null
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -124,6 +150,45 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
         </div>
       </div>
 
+      {/* View tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {([['planner', 'PLANNER'], ['loaded', 'LOADED ROSTER'], ['events', 'EVENTS']] as [CalView, string][]).map(([v, label]) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={`font-mono text-xs uppercase px-3 py-2 border transition-colors ${view === v ? 'bg-white text-black border-white' : 'border-grey-mid text-grey-light hover:border-white hover:text-white'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view !== 'planner' ? (
+        <div className="space-y-2">
+          {!embedVenue ? (
+            <p className="font-mono text-xs text-grey-light">SELECT A VENUE TO VIEW ITS EXTERNAL {view === 'loaded' ? 'ROSTER' : 'CALENDAR'}.</p>
+          ) : !embedUrl ? (
+            <p className="font-mono text-xs text-grey-light">
+              NO {view === 'loaded' ? 'LOADED ROSTER' : 'GOOGLE CALENDAR'} LINK SET — ADD ONE IN SETTINGS → INTEGRATIONS.
+            </p>
+          ) : (
+            <>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="font-mono text-xs text-grey-light uppercase">
+                  LIVE FROM {view === 'loaded' ? 'LOADED' : 'GOOGLE CALENDAR'}{refreshMins ? ` · AUTO-REFRESH ${refreshMins}MIN` : ''}
+                </span>
+                <div className="flex gap-3">
+                  <button onClick={() => setRefreshTick((n) => n + 1)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">REFRESH</button>
+                  <a href={embedUrl} target="_blank" rel="noopener noreferrer" className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">OPEN ↗</a>
+                </div>
+              </div>
+              <iframe key={`${view}-${refreshTick}`} src={embedUrl} className="w-full h-[75vh] border border-grey-mid bg-white" />
+              <p className="font-mono text-xs text-grey-light">IF THIS PANEL IS BLANK, THE SOURCE MAY BLOCK EMBEDDING — USE OPEN ↗ INSTEAD.</p>
+            </>
+          )}
+        </div>
+      ) : (
+      <>
       {/* Pending approvals */}
       {pending.length > 0 && (
         <div className="bg-grey-dark border border-grey-mid">
@@ -195,6 +260,8 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
         <span><span className="text-warning">▮</span> OFF (PENDING)</span>
         <span><span className="text-accent">▮</span> DUTIES DUE</span>
       </div>
+      </>
+      )}
 
       {/* Day modal */}
       <Modal isOpen={!!openDay} onClose={() => setOpenDay(null)} title={openDay ? new Date(openDay).toLocaleDateString('en-NZ', { weekday: 'long', day: '2-digit', month: 'long' }) : ''} size="md">
@@ -208,7 +275,10 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
                 <div className="space-y-1">
                   {openDayData.shifts.map((s) => (
                     <div key={s.id} className="flex items-center justify-between border border-grey-mid p-2">
-                      <span className="font-mono text-xs text-white">{s.staffName} · {s.startTime}–{s.endTime}{s.departmentName ? ` · ${s.departmentName}` : ''}</span>
+                      <div className="min-w-0">
+                        <div className="font-mono text-xs text-white">{s.staffName} · {s.startTime}–{s.endTime}{s.departmentName ? ` · ${s.departmentName}` : ''}</div>
+                        <div className="font-mono text-xs text-grey-light">BREAKS: {formatBreaks(s.startTime, s.endTime)}</div>
+                      </div>
                       <button onClick={() => deleteShift(s.id)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">DEL</button>
                     </div>
                   ))}

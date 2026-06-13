@@ -182,6 +182,18 @@ worker view (`/api/worker/training`). Admin authoring at `/admin/training`;
 sign-off/assign from the Staff page; worker view at `/w/training`. Step photos
 upload via `/api/admin/upload`.
 
+### External embeds + NZ breaks
+Per-venue integration links live on `Venue` (`loadedRosterUrl`,
+`googleCalendarUrl`, `externalRefreshMinutes`), edited in Settings → Integrations
+(admin, or a venue's own manager, via `PUT /api/admin/venues/[id]`). They are
+**displayed live in iframes** on the Calendar page (PLANNER / LOADED ROSTER /
+EVENTS tabs) with optional auto-refresh — nothing is imported, so there are no
+duplicates. The Loaded "PublicRoster" URL is a client-rendered SPA, so it can
+only be embedded, not server-parsed; true shift import would need an iCal/CSV
+feed. `lib/breaks.ts` computes NZ rest/meal break entitlements from shift length
+(`formatBreaks(start,end)`), shown on each roster shift and as a reference table
+in Settings.
+
 ### Calendar (roster + time off)
 `Shift` (per-staff, per-date, `startTime`/`endTime` as local "HH:mm" strings) and
 `TimeOffRequest` (date range, `TimeOffStatus` PENDING/APPROVED/DECLINED) drive a

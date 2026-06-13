@@ -32,6 +32,8 @@
 
 ## OPERATIONAL BOARD (display-first features)
 ✅ **Staff notice board** — managers post notices (priority, pin, whole-venue or department-targeted, optional "must acknowledge" with read tracking); staff see them on their phone and tap to acknowledge
+✅ **External embeds** — paste a Loaded public-roster link and/or a Google Calendar embed link in Settings → Integrations, pick an auto-refresh interval; shown live as panels on the Calendar page (PLANNER / LOADED ROSTER / EVENTS tabs). Live source, so no double-ups. (True shift *import* from Loaded would need an iCal/CSV feed — future.)
+✅ **NZ break entitlements** — 10-min rest / 30-min meal breaks auto-calculated per shift length and shown on each roster shift (admin + worker), with a reference table in Settings
 
 ## PHASE 3 — TRAINING
 ✅ **Training modules / guides** — authored in admin, with step-by-step content, **photos** (upload) and **video links**

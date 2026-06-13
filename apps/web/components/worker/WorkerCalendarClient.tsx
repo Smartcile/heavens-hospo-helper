@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { formatBreaks } from '@/lib/breaks'
 
 interface Shift {
   id: string
@@ -90,6 +91,7 @@ export function WorkerCalendarClient() {
               <div>
                 <div className="font-mono text-sm text-white uppercase">{fmt(s.date)}</div>
                 {s.departmentName && <div className="font-mono text-xs text-grey-light">{s.departmentName}</div>}
+                <div className="font-mono text-xs text-grey-light">BREAKS: {formatBreaks(s.startTime, s.endTime)}</div>
               </div>
               <div className="font-mono text-sm text-success">{s.startTime}–{s.endTime}</div>
             </div>
