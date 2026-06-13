@@ -34,7 +34,7 @@
 ✅ **Per-module sign-off model** — each module is either staff-self-complete or requires a manager sign-off
 ✅ **Worker access** — staff see "MY TRAINING" on their phone, work through guides, self-complete where allowed; linked guides surface on the task itself
 ✅ **Completion tracking** — who completed what, self vs signed-off (and by whom), shown per person on the Staff page
-☐ **Manager end-of-day review** — review completed shift work + add "areas to work on" notes per person (next)
+✅ **Manager end-of-day review** — per-shift view of each person's completed work + manager notes (area to work on / praise / incident); an "area to work on" can assign a follow-up training module in one click
 ☐ **MyHR onboarding export** — generate onboarding document from training modules
 ☐ **Reordering / required-for-role gating** — drag-order modules, block shifts until mandatory training done
 

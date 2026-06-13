@@ -42,6 +42,7 @@ model Venue {
   budgetPeriods BudgetPeriod[]
   trainingModules TrainingModule[]
   taskTemplates TaskTemplate[]
+  shiftNotes  ShiftNote[]
 }
 
 model Department {
@@ -87,6 +88,7 @@ model Staff {
   taskCompletions  TaskCompletion[]
   trainingAssignments TrainingAssignment[]
   trainingCompletions TrainingCompletion[]
+  shiftNotes       ShiftNote[]
 }
 
 model Task {
@@ -251,6 +253,26 @@ model TrainingCompletion {
   staff  Staff          @relation(fields: [staffId], references: [id])
 
   @@unique([moduleId, staffId])
+}
+
+// Manager end-of-day notes about a person for a given shift date. An
+// "AREA TO WORK ON" can be linked to a training module assigned to address it.
+model ShiftNote {
+  id             String    @id @default(uuid())
+  staffId        String
+  venueId        String
+  authorId       String?            // manager who wrote it (Staff id, no relation)
+  shiftDate      DateTime  @db.Date
+  category       String    @default("AREA TO WORK ON") // AREA TO WORK ON | PRAISE | INCIDENT | GENERAL
+  content        String
+  linkedModuleId String?            // training module assigned to address this
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  staff Staff @relation(fields: [staffId], references: [id])
+  venue Venue @relation(fields: [venueId], references: [id])
 }
 
 model BudgetPeriod {
