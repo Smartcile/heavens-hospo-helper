@@ -37,16 +37,24 @@ enum NoticePriority {
   URGENT
 }
 
+enum CalendarSource {
+  GOOGLE
+  ICAL
+  MANUAL
+}
+
 model Venue {
   id         String    @id @default(uuid())
   name       String
   address    String?
   timezone   String    @default("Pacific/Auckland")
   isActive   Boolean   @default(true)
-  // External embeds (pasteable links shown live in the app — not imported)
+  // External embeds (pasteable links shown live in the app)
   loadedRosterUrl        String?
-  googleCalendarUrl      String?
+  googleCalendarUrl      String?   // also imported into the planner via its derived iCal feed
+  icalFeedUrl            String?   // any .ics subscribe link (e.g. a Loaded/roster calendar feed) — imported
   externalRefreshMinutes Int     @default(0) // 0 = manual refresh only
+  lastExternalSyncAt     DateTime? // last successful calendar import
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   deletedAt  DateTime?
@@ -62,6 +70,7 @@ model Venue {
   shifts      Shift[]
   timeOffRequests TimeOffRequest[]
   notices     Notice[]
+  calendarEvents CalendarEvent[]
 }
 
 model Department {
@@ -339,6 +348,31 @@ model Shift {
 
   @@index([venueId, date])
   @@index([staffId, date])
+}
+
+// An event imported from an external calendar feed (Google Calendar / any iCal).
+// Keyed by (venueId, source, uid) so re-syncing UPDATES the same row instead of
+// duplicating; events that vanish from the feed are soft-deleted on next sync.
+model CalendarEvent {
+  id           String         @id @default(uuid())
+  venueId      String
+  source       CalendarSource @default(ICAL)
+  uid          String         // stable id from the feed (per-occurrence for recurring)
+  title        String
+  description  String?
+  location     String?
+  startsAt     DateTime
+  endsAt       DateTime?
+  allDay       Boolean        @default(false)
+  lastSyncedAt DateTime       @default(now())
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  deletedAt    DateTime?
+
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@unique([venueId, source, uid])
+  @@index([venueId, startsAt])
 }
 
 model TimeOffRequest {

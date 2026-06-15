@@ -11,6 +11,7 @@ interface Venue {
   name: string
   loadedRosterUrl: string | null
   googleCalendarUrl: string | null
+  icalFeedUrl: string | null
   externalRefreshMinutes: number
 }
 
@@ -50,6 +51,7 @@ export function SettingsClient({
   const [venueId, setVenueId] = useState(sessionVenueId)
   const [loadedUrl, setLoadedUrl] = useState('')
   const [googleUrl, setGoogleUrl] = useState('')
+  const [icalUrl, setIcalUrl] = useState('')
   const [refresh, setRefresh] = useState('0')
   const [intSaving, setIntSaving] = useState(false)
   const [intMessage, setIntMessage] = useState('')
@@ -66,6 +68,7 @@ export function SettingsClient({
     setVenueId(v.id)
     setLoadedUrl(v.loadedRosterUrl ?? '')
     setGoogleUrl(v.googleCalendarUrl ?? '')
+    setIcalUrl(v.icalFeedUrl ?? '')
     setRefresh(String(v.externalRefreshMinutes ?? 0))
   }
 
@@ -106,7 +109,7 @@ export function SettingsClient({
     const r = await fetch(`/api/admin/venues/${venueId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ loadedRosterUrl: loadedUrl, googleCalendarUrl: googleUrl, externalRefreshMinutes: Number(refresh) }),
+      body: JSON.stringify({ loadedRosterUrl: loadedUrl, googleCalendarUrl: googleUrl, icalFeedUrl: icalUrl, externalRefreshMinutes: Number(refresh) }),
     })
     setIntSaving(false)
     if (r.ok) {
@@ -124,15 +127,16 @@ export function SettingsClient({
       <div className="max-w-2xl border-l-4 border-l-white pl-4">
         <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">INTEGRATIONS</h2>
         <p className="font-mono text-xs text-grey-light mb-3">
-          PASTE A LIVE LINK AND IT SHOWS ON THE CALENDAR PAGE. NOTHING IS COPIED IN — IT&apos;S THE LIVE SOURCE, SO NO DOUBLE-UPS.
+          GOOGLE CALENDAR + ANY ICAL FEED ARE IMPORTED ONTO THE PLANNER (RE-SYNCED ON THE INTERVAL — CHANGED EVENTS UPDATE, REMOVED ONES DROP OFF, NO DOUBLE-UPS). THE LOADED LINK STAYS A LIVE EMBED TAB.
         </p>
         <div className="space-y-3">
           {role === 'ADMIN' && venues.length > 1 && (
             <Select label="Venue" value={venueId} onChange={(e) => onPickVenue(e.target.value)} options={venues.map((v) => ({ value: v.id, label: v.name }))} />
           )}
-          <Textarea label="Loaded roster — public link" value={loadedUrl} onChange={(e) => setLoadedUrl(e.target.value)} placeholder="https://loadedhub.com/App/PublicRoster#/roster/..." />
-          <Textarea label="Google Calendar — embed link" value={googleUrl} onChange={(e) => setGoogleUrl(e.target.value)} placeholder="https://calendar.google.com/calendar/embed?..." />
-          <Select label="Auto-refresh interval" value={refresh} onChange={(e) => setRefresh(e.target.value)} options={REFRESH_OPTIONS} />
+          <Textarea label="Google Calendar — embed link (shown as EVENTS tab + imported to planner)" value={googleUrl} onChange={(e) => setGoogleUrl(e.target.value)} placeholder="https://calendar.google.com/calendar/embed?src=..." />
+          <Textarea label="iCal feed (.ics) — imported to planner (e.g. a roster 'subscribe to calendar' link)" value={icalUrl} onChange={(e) => setIcalUrl(e.target.value)} placeholder="https://…/basic.ics  or  webcal://…" />
+          <Textarea label="Loaded roster — public link (live embed tab only)" value={loadedUrl} onChange={(e) => setLoadedUrl(e.target.value)} placeholder="https://loadedhub.com/App/PublicRoster#/roster/..." />
+          <Select label="Auto-refresh / re-sync interval" value={refresh} onChange={(e) => setRefresh(e.target.value)} options={REFRESH_OPTIONS} />
           {intMessage && <p className={`font-mono text-xs ${intMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{intMessage}</p>}
           <Button onClick={saveIntegrations} loading={intSaving} size="sm">SAVE INTEGRATIONS</Button>
         </div>

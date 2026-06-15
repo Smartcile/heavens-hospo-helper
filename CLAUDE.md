@@ -182,15 +182,34 @@ worker view (`/api/worker/training`). Admin authoring at `/admin/training`;
 sign-off/assign from the Staff page; worker view at `/w/training`. Step photos
 upload via `/api/admin/upload`.
 
-### External embeds + NZ breaks
+### External embeds + calendar import + NZ breaks
 Per-venue integration links live on `Venue` (`loadedRosterUrl`,
-`googleCalendarUrl`, `externalRefreshMinutes`), edited in Settings → Integrations
-(admin, or a venue's own manager, via `PUT /api/admin/venues/[id]`). They are
-**displayed live in iframes** on the Calendar page (PLANNER / LOADED ROSTER /
-EVENTS tabs) with optional auto-refresh — nothing is imported, so there are no
-duplicates. The Loaded "PublicRoster" URL is a client-rendered SPA, so it can
-only be embedded, not server-parsed; true shift import would need an iCal/CSV
-feed. `lib/breaks.ts` computes NZ rest/meal break entitlements from shift length
+`googleCalendarUrl`, `icalFeedUrl`, `externalRefreshMinutes`,
+`lastExternalSyncAt`), edited in Settings → Integrations (admin, or a venue's
+own manager, via `PUT /api/admin/venues/[id]`).
+
+Two mechanisms:
+1. **Live embeds** — the Loaded roster + Google Calendar links render in iframes
+   on the Calendar page's LOADED ROSTER / EVENTS tabs (auto-refresh, OPEN↗
+   fallback). The Loaded "PublicRoster" URL is a token-gated SPA with no
+   anonymous JSON/iCal feed, so it can only be embedded, not imported.
+2. **Import onto the PLANNER** — the Google Calendar link (its derived
+   `…/ical/…/basic.ics` feed) and any pasted `.ics`/webcal `icalFeedUrl` are
+   fetched + parsed server-side (`lib/ical.ts` — no dependency; handles
+   line-folding, all-day vs timed, UTC/naive times, and basic RRULE expansion
+   within a ~−60/+400 day window) and stored as `CalendarEvent` rows. They show
+   as `◆` events on the month grid + day modal. `lib/external-sync.ts`
+   `syncVenueCalendar()` upserts by `@@unique([venueId, source, uid])` (changed
+   events update in place) and soft-deletes events no longer in the feed (per
+   source, only when that source fetched cleanly) — the "update, no double-up"
+   guarantee. Triggered by `POST /api/admin/calendar/sync` ({venueId} → that
+   venue; admin with none → all venues; manager → own), which the CalendarClient
+   calls on opening the PLANNER and on the venue's refresh interval, plus a
+   manual SYNC NOW button. `/api/admin/calendar` GET merges events into the
+   per-day map and returns `lastSyncedAt`. Recurring events use a per-occurrence
+   uid (`baseUid_YYYYMMDD`) so re-sync stays idempotent.
+
+`lib/breaks.ts` computes NZ rest/meal break entitlements from shift length
 (`formatBreaks(start,end)`), shown on each roster shift and as a reference table
 in Settings.
 

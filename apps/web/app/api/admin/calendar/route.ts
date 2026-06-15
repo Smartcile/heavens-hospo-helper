@@ -8,7 +8,12 @@ import { isTaskDueOnDate } from '@/lib/scheduling'
 interface DayData {
   shifts: { id: string; staffId: string; staffName: string; departmentName: string | null; startTime: string; endTime: string }[]
   timeOff: { id: string; staffId: string; staffName: string; status: string }[]
+  events: { id: string; title: string; time: string | null; allDay: boolean; location: string | null; source: string }[]
   dutiesRequired: boolean
+}
+
+function utcTime(d: Date): string {
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
 }
 
 export async function GET(req: NextRequest) {
@@ -25,7 +30,7 @@ export async function GET(req: NextRequest) {
 
   const { first, last, days } = monthDays(year, month)
 
-  const [shifts, timeOff, tasks] = await Promise.all([
+  const [shifts, timeOff, tasks, events] = await Promise.all([
     prisma.shift.findMany({
       where: { deletedAt: null, date: { gte: first, lte: last }, ...(venueScope ? { venueId: venueScope } : {}) },
       include: {
@@ -48,6 +53,14 @@ export async function GET(req: NextRequest) {
       where: { deletedAt: null, isActive: true, ...(venueScope ? { venueId: venueScope } : {}) },
       select: { scheduleType: true, scheduleDays: true, customCron: true },
     }),
+    prisma.calendarEvent.findMany({
+      where: {
+        deletedAt: null,
+        startsAt: { lte: new Date(last.getTime() + 86400000) },
+        ...(venueScope ? { venueId: venueScope } : {}),
+      },
+      orderBy: { startsAt: 'asc' },
+    }),
   ])
 
   // Build empty day map
@@ -56,6 +69,7 @@ export async function GET(req: NextRequest) {
     dayMap[formatDateKey(d)] = {
       shifts: [],
       timeOff: [],
+      events: [],
       dutiesRequired: tasks.some((t) => isTaskDueOnDate(t, d)),
     }
   }
@@ -79,6 +93,24 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  for (const ev of events) {
+    // DTEND is exclusive for all-day events — pull the last day back by one.
+    let rangeEnd = ev.endsAt ?? ev.startsAt
+    if (ev.allDay && ev.endsAt) rangeEnd = new Date(ev.endsAt.getTime() - 86400000)
+    if (rangeEnd.getTime() < ev.startsAt.getTime()) rangeEnd = ev.startsAt
+    const entry = {
+      id: ev.id,
+      title: ev.title,
+      time: ev.allDay ? null : utcTime(ev.startsAt),
+      allDay: ev.allDay,
+      location: ev.location,
+      source: ev.source,
+    }
+    for (const key of dateKeysBetween(ev.startsAt, rangeEnd)) {
+      if (dayMap[key]) dayMap[key].events.push(entry)
+    }
+  }
+
   const pending = timeOff
     .filter((t) => t.status === 'PENDING')
     .map((t) => ({
@@ -91,5 +123,9 @@ export async function GET(req: NextRequest) {
     // de-dup (pending appears once per request, not per day)
     .filter((v, i, arr) => arr.findIndex((x) => x.id === v.id) === i)
 
-  return NextResponse.json({ year, month, days: dayMap, pending })
+  const lastSyncedAt = venueScope
+    ? (await prisma.venue.findUnique({ where: { id: venueScope }, select: { lastExternalSyncAt: true } }))?.lastExternalSyncAt ?? null
+    : null
+
+  return NextResponse.json({ year, month, days: dayMap, pending, lastSyncedAt })
 }

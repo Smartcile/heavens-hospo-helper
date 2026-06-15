@@ -10,7 +10,8 @@ import { formatBreaks } from '@/lib/breaks'
 
 interface ShiftItem { id: string; staffId: string; staffName: string; departmentName: string | null; startTime: string; endTime: string }
 interface TimeOffItem { id: string; staffId: string; staffName: string; status: string }
-interface DayData { shifts: ShiftItem[]; timeOff: TimeOffItem[]; dutiesRequired: boolean }
+interface EventItem { id: string; title: string; time: string | null; allDay: boolean; location: string | null; source: string }
+interface DayData { shifts: ShiftItem[]; timeOff: TimeOffItem[]; events: EventItem[]; dutiesRequired: boolean }
 interface Pending { id: string; staffName: string; startDate: string; endDate: string; reason: string | null }
 
 interface Venue {
@@ -18,6 +19,7 @@ interface Venue {
   name: string
   loadedRosterUrl?: string | null
   googleCalendarUrl?: string | null
+  icalFeedUrl?: string | null
   externalRefreshMinutes?: number
 }
 interface StaffLite { id: string; firstName: string; lastName: string; venueId: string }
@@ -43,6 +45,8 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
 
   const [view, setView] = useState<CalView>('planner')
   const [refreshTick, setRefreshTick] = useState(0)
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
 
   // Day modal
   const [openDay, setOpenDay] = useState<string | null>(null)
@@ -60,7 +64,23 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
     const data = await r.json()
     setDays(data.days ?? {})
     setPending(data.pending ?? [])
+    setLastSyncedAt(data.lastSyncedAt ?? null)
     setLoading(false)
+  }
+
+  // Pull external feeds (Google / iCal) into the planner, then reload the grid.
+  async function syncNow(silent = false) {
+    if (!silent) setSyncing(true)
+    try {
+      await fetch('/api/admin/calendar/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(venueId ? { venueId } : {}),
+      })
+    } finally {
+      if (!silent) setSyncing(false)
+      load()
+    }
   }
 
   async function loadMeta() {
@@ -82,6 +102,19 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
     const t = setInterval(() => setRefreshTick((n) => n + 1), mins * 60 * 1000)
     return () => clearInterval(t)
   }, [view, venueId, venues])
+
+  // On the planner: import external feeds on open / venue change, then re-sync
+  // on the venue's chosen interval so changed events stay current.
+  useEffect(() => {
+    if (view !== 'planner' || venues.length === 0) return
+    syncNow(true)
+    const v = venues.find((x) => x.id === venueId) ?? (venues.length === 1 ? venues[0] : undefined)
+    const mins = v?.externalRefreshMinutes ?? 0
+    if (!mins) return
+    const t = setInterval(() => syncNow(true), mins * 60 * 1000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, venueId, venues, year, month])
 
   function prevMonth() {
     if (month === 1) { setYear(year - 1); setMonth(12) } else setMonth(month - 1)
@@ -189,6 +222,20 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
         </div>
       ) : (
       <>
+      {/* Import status + manual sync */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <span className="font-mono text-xs text-grey-light uppercase">
+          {lastSyncedAt ? `IMPORTED EVENTS LAST SYNCED ${new Date(lastSyncedAt).toLocaleString('en-NZ')}` : 'IMPORTED EVENTS — NOT YET SYNCED'}
+        </span>
+        <button
+          onClick={() => syncNow(false)}
+          disabled={syncing}
+          className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors disabled:opacity-40"
+        >
+          {syncing ? 'SYNCING_' : 'SYNC NOW'}
+        </button>
+      </div>
+
       {/* Pending approvals */}
       {pending.length > 0 && (
         <div className="bg-grey-dark border border-grey-mid">
@@ -247,6 +294,14 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
                       OFF {t.staffName.split(' ')[0]}{t.status === 'PENDING' ? '?' : ''}
                     </div>
                   ))}
+                  {data?.events.slice(0, 2).map((ev) => (
+                    <div key={ev.id} className="font-mono text-[10px] text-accent truncate leading-tight">
+                      ◆ {ev.time ? `${ev.time} ` : ''}{ev.title}
+                    </div>
+                  ))}
+                  {data && data.events.length > 2 && (
+                    <div className="font-mono text-[10px] text-accent">+{data.events.length - 2} EVENT{data.events.length - 2 > 1 ? 'S' : ''}</div>
+                  )}
                 </button>
               )
             })}
@@ -259,6 +314,7 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
         <span><span className="text-danger">▮</span> OFF (APPROVED)</span>
         <span><span className="text-warning">▮</span> OFF (PENDING)</span>
         <span><span className="text-accent">▮</span> DUTIES DUE</span>
+        <span><span className="text-accent">◆</span> IMPORTED EVENT</span>
       </div>
       </>
       )}
@@ -285,6 +341,21 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
                 </div>
               )}
             </div>
+
+            {openDayData && openDayData.events.length > 0 && (
+              <div>
+                <div className="font-mono text-xs uppercase tracking-wider text-grey-light mb-2">EVENTS</div>
+                <div className="space-y-1">
+                  {openDayData.events.map((ev) => (
+                    <div key={ev.id} className="border border-grey-mid p-2">
+                      <div className="font-mono text-xs text-accent">◆ {ev.allDay ? 'ALL DAY' : ev.time} · {ev.title}</div>
+                      {ev.location && <div className="font-mono text-xs text-grey-light">{ev.location}</div>}
+                      <div className="font-mono text-[10px] uppercase text-grey-light">{ev.source === 'GOOGLE' ? 'GOOGLE CALENDAR' : 'ICAL FEED'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {openDayData && openDayData.timeOff.length > 0 && (
               <div>

@@ -18,12 +18,13 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
 
   const body = await req.json()
-  const { name, address, timezone, isActive, loadedRosterUrl, googleCalendarUrl, externalRefreshMinutes } = body
+  const { name, address, timezone, isActive, loadedRosterUrl, googleCalendarUrl, icalFeedUrl, externalRefreshMinutes } = body
 
   const data: Record<string, unknown> = {}
   // Integration settings — editable by an admin or the venue's own manager.
   if (loadedRosterUrl !== undefined) data.loadedRosterUrl = loadedRosterUrl?.trim() || null
   if (googleCalendarUrl !== undefined) data.googleCalendarUrl = googleCalendarUrl?.trim() || null
+  if (icalFeedUrl !== undefined) data.icalFeedUrl = icalFeedUrl?.trim() || null
   if (externalRefreshMinutes !== undefined) data.externalRefreshMinutes = Number(externalRefreshMinutes) || 0
   // Core venue fields — admin only.
   if (isAdmin) {
