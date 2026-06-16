@@ -23,7 +23,9 @@ export async function GET(req: NextRequest) {
     include: {
       department: { select: { id: true, name: true, colour: true } },
       section: { select: { id: true, name: true } },
-      requiredTraining: { select: { moduleId: true } },
+      requiredTraining: { select: { moduleId: true, module: { select: { kind: true } } } },
+      trainingModules: { select: { kind: true } }, // modules whose how-to is this task
+      _count: { select: { checklistLinks: true } },
     },
     orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
   })

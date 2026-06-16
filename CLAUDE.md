@@ -251,9 +251,17 @@ fixed mobile bar.
   (`@@unique([checklistId, taskId])`). Editing a task updates every checklist —
   single source of truth, no duplication. Managed on the Tasks page under a
   CHECKLISTS tab (`ChecklistsPanel`); APIs at `/api/admin/checklists(+/[id])`.
-  Ordering is by `sortOrder` (up/down in the editor; drag deferred). The Tasks
-  page is a 50/50 two-column layout: tasks (left, grouped Department → Section
-  with a "general" bucket) and `ChecklistsPanel` (right).
+  The Tasks page (`TasksClient`) is a 50/50 two-column layout: tasks (left,
+  grouped Department → Section with a "general" bucket) and checklists (right).
+  Checklist create/edit happens **inline in the right panel** (no modal); the
+  editor has a **drop zone** — task rows on the left are `draggable` and set the
+  task id on `dataTransfer`, dropping adds them; order is up/down + internal
+  drag. `TasksClient` owns all the shared data (tasks/venues/depts/sections/
+  checklists) behind one `load()`, so creating a task immediately refreshes the
+  checklist picker (no more stale-until-refresh). Task rows clip long
+  title/description (`truncate`, `min-w-0`) so the right-hand tags don't wrap,
+  and show usage **labels** from the tasks API (`_count.checklistLinks` → LIST,
+  linked/required module kinds → TRAINING / SOP / GUIDE).
 - **Checklist embedded in training.** `TrainingStep.linkedChecklistId` lets a
   training/SOP step embed a whole checklist; `getStaffTraining` returns the
   step's `linkedChecklist` (live task titles) and the worker reader shows them as
