@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react'
 interface StaffNode { id: string; name: string; role: string }
 interface TaskNode { id: string; title: string; schedule: string; active: boolean; scope: string; assignee: string | null }
 interface TrainingNode { id: string; title: string; kind: string; signOff: boolean; linkedToTask: boolean }
-interface DeptNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; training: TrainingNode[] }
+interface SectionNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[] }
+interface DeptNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; training: TrainingNode[]; sections: SectionNode[] }
 interface VenueNode {
   id: string
   name: string
@@ -111,8 +112,7 @@ export function StructureClient({ role }: { role: string }) {
         <button onClick={load} className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors">REFRESH</button>
       </div>
       <p className="font-mono text-xs text-grey-light">
-        LIVE VIEW OF HOW EVERYTHING LINKS — VENUE → DEPARTMENT → STAFF · TASKS · TRAINING.
-        THE PLANNED <span className="text-white">SECTION</span> LAYER (BAR · COFFEE · CABINET …) SLOTS BETWEEN DEPARTMENT AND TASKS — SEE ECOSYSTEM.MD.
+        LIVE VIEW OF HOW EVERYTHING LINKS — VENUE → DEPARTMENT → <span className="text-white">SECTION</span> → STAFF · TASKS · TRAINING.
       </p>
 
       {loading ? (
@@ -173,13 +173,40 @@ export function StructureClient({ role }: { role: string }) {
                           </button>
 
                           {isOpen(`d:${d.id}`) && (
-                            <div className="pl-5 py-1 space-y-0.5">
-                              <div className="font-mono text-[10px] uppercase text-grey-light italic">
-                                ▸ SECTIONS — PLANNED (e.g. BAR · COFFEE · CABINET · FLOOR)
-                              </div>
-                              <Group k={`ds:${d.id}`} label="Staff" count={d.staff.length} />
+                            <div className="pl-5 py-1 space-y-1">
+                              {/* Sections within this department */}
+                              {d.sections.length === 0 ? (
+                                <div className="font-mono text-[10px] uppercase text-grey-light italic">NO SECTIONS YET — ADD UNDER SECTIONS</div>
+                              ) : (
+                                d.sections.map((sec) => (
+                                  <div key={sec.id} className="border-l-2 pl-3" style={{ borderColor: sec.colour ?? '#6B6B6B' }}>
+                                    <button onClick={() => toggle(`s:${sec.id}`)} className="w-full flex items-center justify-between gap-2 py-0.5 text-left">
+                                      <span className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-white">
+                                        <Chevron open={isOpen(`s:${sec.id}`)} />
+                                        {sec.colour && <span className="inline-block w-2 h-2 border border-grey-mid" style={{ backgroundColor: sec.colour }} />}
+                                        {sec.name}
+                                      </span>
+                                      <span className="flex items-center gap-1.5">
+                                        <Count>{sec.staff.length} STAFF</Count>
+                                        <Count>{sec.tasks.length} TASKS</Count>
+                                      </span>
+                                    </button>
+                                    {isOpen(`s:${sec.id}`) && (
+                                      <div className="pl-3 py-0.5">
+                                        <Group k={`ss:${sec.id}`} label="Staff" count={sec.staff.length} />
+                                        {isOpen(`ss:${sec.id}`) && <StaffList items={sec.staff} />}
+                                        <Group k={`st:${sec.id}`} label="Tasks" count={sec.tasks.length} />
+                                        {isOpen(`st:${sec.id}`) && <TaskList items={sec.tasks} />}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))
+                              )}
+
+                              {/* Department-level (not in any section) */}
+                              <Group k={`ds:${d.id}`} label="Dept staff" count={d.staff.length} />
                               {isOpen(`ds:${d.id}`) && <StaffList items={d.staff} />}
-                              <Group k={`dt:${d.id}`} label="Tasks" count={d.tasks.length} />
+                              <Group k={`dt:${d.id}`} label="Dept tasks (no section)" count={d.tasks.length} />
                               {isOpen(`dt:${d.id}`) && <TaskList items={d.tasks} />}
                               <Group k={`dr:${d.id}`} label="Training" count={d.training.length} />
                               {isOpen(`dr:${d.id}`) && <TrainingList items={d.training} />}

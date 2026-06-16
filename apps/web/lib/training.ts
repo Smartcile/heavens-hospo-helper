@@ -56,6 +56,7 @@ export async function getStaffTraining(staffId: string): Promise<{
       venueId: staff.venueId,
       isActive: true,
       deletedAt: null,
+      kind: 'TRAINING', // SOP / FAQ / HOWTO are reference material, not "to complete"
       OR: [
         { isOnboarding: true },
         ...(staff.departmentId ? [{ departmentId: staff.departmentId }] : []),

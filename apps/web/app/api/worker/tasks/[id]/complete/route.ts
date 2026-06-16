@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { getTodayDate } from '@/lib/utils'
+import { checkUntrainedOnCompletion } from '@/lib/followups'
 import { writeFile } from 'fs/promises'
 import { join } from 'path'
 
@@ -59,6 +60,17 @@ export async function POST(req: NextRequest, { params }: Params) {
       photoUrl,
     },
   })
+
+  // Trigger: completed by someone without the task's required training? Flag it.
+  // Best-effort — never let this block the completion response.
+  try {
+    await checkUntrainedOnCompletion({
+      taskId: params.id,
+      staffId: session.staffId,
+      venueId: session.venueId,
+      date: today,
+    })
+  } catch { /* ignore */ }
 
   return NextResponse.json(completion, { status: 201 })
 }

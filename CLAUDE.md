@@ -244,13 +244,28 @@ a burger button that opens an off-canvas drawer (closes on route change /
 backdrop tap). The protected layout adds `pt-14 md:pt-0` so content clears the
 fixed mobile bar.
 
-### Linking model & the Section ecosystem (planned)
-The full "how everything links" model — and the phased plan to add **sections**
-(a layer between department and tasks), unify SOP/FAQ/how-to/training as one
-"resource" type, add a `Task ⇄ Training` competency link, and drive follow-up
-triggers (missed/incorrect task → auto-assign training; done-but-untrained →
-prompt manager) — lives in `ECOSYSTEM.md` at the repo root. Keep that doc in sync
-when building these phases.
+### Section ecosystem (Phases A–D, built)
+A layer between department and the work, plus a follow-up trigger loop. Full
+write-up in `ECOSYSTEM.md`; keep it in sync.
+
+- **Sections** — `Section` (under `Department`; denormalised `venueId`). `Task.sectionId`
+  (a section implies its department — enforced in the task API). `Staff ⇄ Section`
+  many-to-many (`StaffSection`). CRUD at `/admin/sections`; section pickers on the
+  Task and Staff forms; rendered on `/admin/structure`.
+- **Resources** — `TrainingModule.kind` (`ResourceKind`: TRAINING | SOP | FAQ | HOWTO).
+  `getStaffTraining` filters to `kind: 'TRAINING'` so SOP/FAQ/HOWTO are reference-only.
+  `ResourceSection` (resource ⇄ section, sharable) and `ResourceLink` (resource ⇄
+  resource). Authored on the Training page (kind selector + section attach).
+- **Competency** — `TaskRequiredTraining` (`Task ⇄ TrainingModule` "requires"), set in
+  the Task form; competency held = a `TrainingCompletion` for that module.
+- **Triggers** — `FollowUp` (`FollowUpKind` MISSED | UNTRAINED | INCORRECT,
+  `FollowUpStatus`, `@@unique([venueId, staffId, kind, taskId, dueDate])` for
+  idempotency). `lib/followups.ts`: `checkUntrainedOnCompletion` (called from the
+  worker complete route) raises UNTRAINED at completion; `generateVenueFollowUps`
+  (run on the Follow-ups page load + RE-SCAN) raises MISSED for assigned tasks with
+  required training and auto-assigns that training. Surface: `/admin/followups`
+  (`GET /api/admin/followups?generate=1`, `PATCH …/[id]` resolve|signoff). In-app
+  only for now (push/WhatsApp later).
 
 ## KEY ARCHITECTURAL DECISIONS
 

@@ -23,10 +23,12 @@ interface StaffMember {
   loadedReportsId: string | null
   venue: { id: string; name: string }
   department: { id: string; name: string } | null
+  sections: { sectionId: string }[]
 }
 
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string }
+interface Section { id: string; name: string; venueId: string; departmentId: string }
 
 interface FormState {
   firstName: string
@@ -40,6 +42,7 @@ interface FormState {
   swiftPosId: string
   myHrId: string
   loadedReportsId: string
+  sectionIds: string[]
 }
 
 const EMPTY_FORM: FormState = {
@@ -54,6 +57,7 @@ const EMPTY_FORM: FormState = {
   swiftPosId: '',
   myHrId: '',
   loadedReportsId: '',
+  sectionIds: [],
 }
 
 const ROLE_OPTIONS = [
@@ -66,6 +70,7 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
+  const [sections, setSections] = useState<Section[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [trainingFor, setTrainingFor] = useState<StaffMember | null>(null)
@@ -77,15 +82,17 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
   const isAdmin = role === 'ADMIN'
 
   async function load() {
-    const [sR, vR, dR] = await Promise.all([
+    const [sR, vR, dR, secR] = await Promise.all([
       fetch('/api/admin/staff'),
       fetch('/api/admin/venues'),
       fetch('/api/admin/departments'),
+      fetch('/api/admin/sections'),
     ])
-    const [staffData, venueData, deptData] = await Promise.all([sR.json(), vR.json(), dR.json()])
+    const [staffData, venueData, deptData, sectionData] = await Promise.all([sR.json(), vR.json(), dR.json(), secR.json()])
     setStaff(staffData)
     setVenues(venueData)
     setDepartments(deptData)
+    setSections(sectionData)
     setLoading(false)
   }
 
@@ -112,6 +119,7 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
       swiftPosId: s.swiftPosId ?? '',
       myHrId: s.myHrId ?? '',
       loadedReportsId: s.loadedReportsId ?? '',
+      sectionIds: (s.sections ?? []).map((x) => x.sectionId),
     })
     setError('')
     setModalOpen(true)
@@ -160,6 +168,7 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
       swiftPosId: form.swiftPosId || null,
       myHrId: form.myHrId || null,
       loadedReportsId: form.loadedReportsId || null,
+      sectionIds: form.sectionIds,
     }
     if (form.pin) body.pin = form.pin
     if (form.password) body.password = form.password
@@ -206,7 +215,15 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
       .filter((d) => d.venueId === form.venueId)
       .map((d) => ({ value: d.id, label: d.name })),
   ]
+  const formSections = sections.filter((s) => s.venueId === form.venueId)
   const isWebUser = form.role === 'ADMIN' || form.role === 'MANAGER'
+
+  function toggleSection(id: string) {
+    setForm((f) => ({
+      ...f,
+      sectionIds: f.sectionIds.includes(id) ? f.sectionIds.filter((x) => x !== id) : [...f.sectionIds, id],
+    }))
+  }
 
   return (
     <div className="p-6 space-y-4">
@@ -318,6 +335,28 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
             onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
             options={deptOptions}
           />
+
+          {formSections.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Sections worked (optional)</label>
+              <div className="flex flex-wrap gap-1">
+                {formSections.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => toggleSection(s.id)}
+                    className={`font-mono text-xs px-2 py-1.5 border transition-colors ${
+                      form.sectionIds.includes(s.id)
+                        ? 'bg-white text-black border-white'
+                        : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
+                    }`}
+                  >
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Web login (admins/managers) */}
           {isWebUser && (

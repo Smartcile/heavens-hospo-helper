@@ -20,6 +20,7 @@ const STAFF_SELECT = {
   createdAt: true,
   venue: { select: { id: true, name: true } },
   department: { select: { id: true, name: true } },
+  sections: { select: { sectionId: true } },
 } as const
 
 export async function GET(req: NextRequest) {
@@ -61,6 +62,7 @@ export async function POST(req: NextRequest) {
     swiftPosId,
     myHrId,
     loadedReportsId,
+    sectionIds,
   } = body
 
   const finalRole = role ?? 'STAFF'
@@ -117,6 +119,9 @@ export async function POST(req: NextRequest) {
       swiftPosId: swiftPosId?.trim() || null,
       myHrId: myHrId?.trim() || null,
       loadedReportsId: loadedReportsId?.trim() || null,
+      sections: Array.isArray(sectionIds) && sectionIds.length
+        ? { create: sectionIds.map((sectionId: string) => ({ sectionId })) }
+        : undefined,
     },
     select: STAFF_SELECT,
   })

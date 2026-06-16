@@ -25,6 +25,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
       steps: { orderBy: { order: 'asc' } },
       department: { select: { id: true, name: true } },
       linkedTask: { select: { id: true, title: true } },
+      resourceSections: { select: { sectionId: true } },
+      linksFrom: { select: { toModuleId: true } },
     },
   })
   if (!trainingModule || trainingModule.deletedAt) {
@@ -51,12 +53,22 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.description !== undefined) updates.description = body.description?.trim() || null
   if (body.category !== undefined)
     updates.category = body.category ? String(body.category).toUpperCase().trim() : null
+  if (body.kind !== undefined) updates.kind = body.kind
   if (body.departmentId !== undefined) updates.departmentId = body.departmentId || null
   if (body.linkedTaskId !== undefined) updates.linkedTaskId = body.linkedTaskId || null
   if (body.requiresSignOff !== undefined) updates.requiresSignOff = !!body.requiresSignOff
   if (body.isOnboarding !== undefined) updates.isOnboarding = !!body.isOnboarding
   if (body.onboardingOrder !== undefined) updates.onboardingOrder = body.onboardingOrder
   if (body.isActive !== undefined) updates.isActive = !!body.isActive
+
+  if (body.sectionIds !== undefined) {
+    const ids: string[] = Array.isArray(body.sectionIds) ? body.sectionIds : []
+    updates.resourceSections = { deleteMany: {}, create: ids.map((sectionId: string) => ({ sectionId })) }
+  }
+  if (body.linkedResourceIds !== undefined) {
+    const ids: string[] = Array.isArray(body.linkedResourceIds) ? body.linkedResourceIds : []
+    updates.linksFrom = { deleteMany: {}, create: ids.map((toModuleId: string) => ({ toModuleId })) }
+  }
 
   if (body.steps !== undefined) {
     const cleanSteps = (body.steps as IncomingStep[]).filter((s) => s.content?.trim())

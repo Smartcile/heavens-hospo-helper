@@ -30,6 +30,8 @@ export async function GET(req: NextRequest) {
       steps: { orderBy: { order: 'asc' } },
       department: { select: { id: true, name: true } },
       linkedTask: { select: { id: true, title: true } },
+      resourceSections: { select: { sectionId: true } },
+      linksFrom: { select: { toModuleId: true } },
       _count: { select: { completions: true } },
     },
     orderBy: [{ isOnboarding: 'desc' }, { onboardingOrder: 'asc' }, { category: 'asc' }, { title: 'asc' }],
@@ -47,6 +49,7 @@ export async function POST(req: NextRequest) {
     title,
     description,
     category,
+    kind,
     departmentId,
     linkedTaskId,
     requiresSignOff,
@@ -54,10 +57,13 @@ export async function POST(req: NextRequest) {
     onboardingOrder,
     venueId,
     steps,
+    sectionIds,
+    linkedResourceIds,
   } = body as {
     title: string
     description?: string
     category?: string
+    kind?: 'TRAINING' | 'SOP' | 'FAQ' | 'HOWTO'
     departmentId?: string | null
     linkedTaskId?: string | null
     requiresSignOff?: boolean
@@ -65,6 +71,8 @@ export async function POST(req: NextRequest) {
     onboardingOrder?: number
     venueId?: string
     steps: IncomingStep[]
+    sectionIds?: string[]
+    linkedResourceIds?: string[]
   }
 
   if (!title?.trim()) {
@@ -84,6 +92,7 @@ export async function POST(req: NextRequest) {
       description: description?.trim() || null,
       category: category ? String(category).toUpperCase().trim() : null,
       venueId: scopedVenueId,
+      kind: kind ?? 'TRAINING',
       departmentId: departmentId || null,
       linkedTaskId: linkedTaskId || null,
       requiresSignOff: !!requiresSignOff,
@@ -99,6 +108,12 @@ export async function POST(req: NextRequest) {
           linkedTaskId: s.linkedTaskId || null,
         })),
       },
+      resourceSections: Array.isArray(sectionIds) && sectionIds.length
+        ? { create: sectionIds.map((sectionId) => ({ sectionId })) }
+        : undefined,
+      linksFrom: Array.isArray(linkedResourceIds) && linkedResourceIds.length
+        ? { create: linkedResourceIds.map((toModuleId) => ({ toModuleId })) }
+        : undefined,
     },
     include: { steps: { orderBy: { order: 'asc' } } },
   })

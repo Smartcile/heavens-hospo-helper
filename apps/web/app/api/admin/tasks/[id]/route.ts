@@ -25,6 +25,19 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.isActive !== undefined) updates.isActive = body.isActive
   if (body.sortOrder !== undefined) updates.sortOrder = body.sortOrder
 
+  // Section implies its department.
+  if (body.sectionId !== undefined) {
+    updates.sectionId = body.sectionId || null
+    if (body.sectionId) {
+      const section = await prisma.section.findFirst({ where: { id: body.sectionId, deletedAt: null }, select: { departmentId: true } })
+      if (section) updates.departmentId = section.departmentId
+    }
+  }
+  if (body.requiredTrainingIds !== undefined) {
+    const reqIds: string[] = Array.isArray(body.requiredTrainingIds) ? body.requiredTrainingIds : []
+    updates.requiredTraining = { deleteMany: {}, create: reqIds.map((moduleId: string) => ({ moduleId })) }
+  }
+
   const task = await prisma.task.update({
     where: { id: params.id },
     data: updates,

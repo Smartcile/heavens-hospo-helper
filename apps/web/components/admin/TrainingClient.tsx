@@ -21,6 +21,7 @@ interface TrainingModule {
   title: string
   description: string | null
   category: string | null
+  kind: string
   departmentId: string | null
   linkedTaskId: string | null
   requiresSignOff: boolean
@@ -37,11 +38,20 @@ interface TrainingModule {
   }[]
   department: { id: string; name: string } | null
   linkedTask: { id: string; title: string } | null
+  resourceSections: { sectionId: string }[]
   _count: { completions: number }
 }
 
 interface Department { id: string; name: string; venueId: string }
 interface TaskLite { id: string; title: string; venueId: string }
+interface Section { id: string; name: string; venueId: string }
+
+const KIND_OPTIONS = [
+  { value: 'TRAINING', label: 'TRAINING (SIGN-OFF-ABLE)' },
+  { value: 'SOP', label: 'SOP' },
+  { value: 'FAQ', label: 'FAQ' },
+  { value: 'HOWTO', label: 'HOW-TO' },
+]
 
 function emptyStep(): Step {
   return { title: '', content: '', imageUrl: null, videoUrl: '', linkedTaskId: '' }
@@ -51,6 +61,7 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
   const [modules, setModules] = useState<TrainingModule[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [tasks, setTasks] = useState<TaskLite[]>([])
+  const [sections, setSections] = useState<Section[]>([])
   const [loading, setLoading] = useState(true)
 
   const [open, setOpen] = useState(false)
@@ -58,6 +69,8 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState('')
+  const [kind, setKind] = useState('TRAINING')
+  const [sectionIds, setSectionIds] = useState<string[]>([])
   const [departmentId, setDepartmentId] = useState('')
   const [linkedTaskId, setLinkedTaskId] = useState('')
   const [requiresSignOff, setRequiresSignOff] = useState(false)
@@ -69,15 +82,17 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
   const fileRefs = useRef<(HTMLInputElement | null)[]>([])
 
   async function load() {
-    const [mR, dR, tR] = await Promise.all([
+    const [mR, dR, tR, sR] = await Promise.all([
       fetch('/api/admin/training'),
       fetch('/api/admin/departments'),
       fetch('/api/admin/tasks'),
+      fetch('/api/admin/sections'),
     ])
-    const [mData, dData, tData] = await Promise.all([mR.json(), dR.json(), tR.json()])
+    const [mData, dData, tData, sData] = await Promise.all([mR.json(), dR.json(), tR.json(), sR.json()])
     setModules(mData)
     setDepartments(dData)
     setTasks(tData)
+    setSections(sData)
     setLoading(false)
   }
 
@@ -86,6 +101,7 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
   function openCreate() {
     setEditing(null)
     setTitle(''); setDescription(''); setCategory('')
+    setKind('TRAINING'); setSectionIds([])
     setDepartmentId(''); setLinkedTaskId('')
     setRequiresSignOff(false); setIsOnboarding(false)
     setSteps([emptyStep()])
@@ -95,6 +111,7 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
   function openEdit(m: TrainingModule) {
     setEditing(m)
     setTitle(m.title); setDescription(m.description ?? ''); setCategory(m.category ?? '')
+    setKind(m.kind ?? 'TRAINING'); setSectionIds((m.resourceSections ?? []).map((r) => r.sectionId))
     setDepartmentId(m.departmentId ?? ''); setLinkedTaskId(m.linkedTaskId ?? '')
     setRequiresSignOff(m.requiresSignOff); setIsOnboarding(m.isOnboarding)
     setSteps(
@@ -136,7 +153,8 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
 
     setSaving(true); setError('')
     const payload = {
-      title, description, category,
+      title, description, category, kind,
+      sectionIds,
       departmentId: departmentId || null,
       linkedTaskId: linkedTaskId || null,
       requiresSignOff, isOnboarding,
@@ -168,6 +186,10 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
     { value: '', label: 'ALL STAFF (NOT DEPT-SPECIFIC)' },
     ...departments.map((d) => ({ value: d.id, label: d.name })),
   ]
+  const formSections = sections.filter((s) => s.venueId === sessionVenueId)
+  function toggleSection(id: string) {
+    setSectionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
   const taskOptions = [
     { value: '', label: 'NOT LINKED TO A TASK' },
     ...tasks.map((t) => ({ value: t.id, label: t.title })),
@@ -198,6 +220,7 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
                 {!m.isActive && <Badge variant="danger">OFF</Badge>}
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
+                {m.kind !== 'TRAINING' && <Badge variant="default">{m.kind}</Badge>}
                 {m.isOnboarding && <Badge variant="warning">ONBOARDING</Badge>}
                 {m.department && <Badge>{m.department.name}</Badge>}
                 {m.category && <Badge>{m.category}</Badge>}
@@ -224,10 +247,35 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
           <Input label="Title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="HOW TO CLEAN THE COFFEE MACHINE" />
           <Textarea label="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} />
           <div className="grid grid-cols-2 gap-3">
+            <Select label="Type" value={kind} onChange={(e) => setKind(e.target.value)} options={KIND_OPTIONS} />
             <Input label="Category (optional)" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="BAR" />
-            <Select label="Auto-assign to department" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} options={deptOptions} />
           </div>
-          <Select label="Link to a task (optional)" value={linkedTaskId} onChange={(e) => setLinkedTaskId(e.target.value)} options={taskOptions} />
+          <div className="grid grid-cols-2 gap-3">
+            <Select label="Auto-assign to department" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} options={deptOptions} />
+            <Select label="Link to a task (optional)" value={linkedTaskId} onChange={(e) => setLinkedTaskId(e.target.value)} options={taskOptions} />
+          </div>
+
+          {formSections.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Show in sections (optional)</label>
+              <div className="flex flex-wrap gap-1">
+                {formSections.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => toggleSection(s.id)}
+                    className={`font-mono text-xs px-2 py-1.5 border transition-colors ${
+                      sectionIds.includes(s.id)
+                        ? 'bg-white text-black border-white'
+                        : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
+                    }`}
+                  >
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-2 cursor-pointer">

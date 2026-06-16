@@ -14,6 +14,7 @@ interface Task {
   description: string | null
   venueId: string
   departmentId: string | null
+  sectionId: string | null
   completionType: string
   scheduleType: string
   scheduleDays: number[]
@@ -21,20 +22,26 @@ interface Task {
   isActive: boolean
   sortOrder: number
   department: { id: string; name: string; colour: string | null } | null
+  section: { id: string; name: string } | null
+  requiredTraining: { moduleId: string }[]
 }
 
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string; colour: string | null }
+interface Section { id: string; name: string; departmentId: string; venueId: string }
+interface TrainingLite { id: string; title: string; venueId: string; kind: string }
 
 interface FormState {
   title: string
   description: string
   venueId: string
   departmentId: string
+  sectionId: string
   completionType: string
   scheduleType: string
   scheduleDays: number[]
   customCron: string
+  requiredTrainingIds: string[]
 }
 
 const EMPTY_FORM: FormState = {
@@ -42,10 +49,12 @@ const EMPTY_FORM: FormState = {
   description: '',
   venueId: '',
   departmentId: '',
+  sectionId: '',
   completionType: 'TICK',
   scheduleType: 'DAILY',
   scheduleDays: [],
   customCron: '',
+  requiredTrainingIds: [],
 }
 
 const COMPLETION_OPTIONS = [
@@ -66,6 +75,8 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
   const [tasks, setTasks] = useState<Task[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
+  const [sections, setSections] = useState<Section[]>([])
+  const [modules, setModules] = useState<TrainingLite[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Task | null>(null)
@@ -80,15 +91,19 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
     if (filterVenue) params.set('venueId', filterVenue)
     if (filterDept) params.set('departmentId', filterDept)
 
-    const [tR, vR, dR] = await Promise.all([
+    const [tR, vR, dR, sR, mR] = await Promise.all([
       fetch(`/api/admin/tasks?${params}`),
       fetch('/api/admin/venues'),
       fetch('/api/admin/departments'),
+      fetch('/api/admin/sections'),
+      fetch('/api/admin/training'),
     ])
-    const [tasksData, venueData, deptData] = await Promise.all([tR.json(), vR.json(), dR.json()])
+    const [tasksData, venueData, deptData, sectionData, moduleData] = await Promise.all([tR.json(), vR.json(), dR.json(), sR.json(), mR.json()])
     setTasks(tasksData)
     setVenues(venueData)
     setDepartments(deptData)
+    setSections(sectionData)
+    setModules(moduleData)
     setLoading(false)
   }
 
@@ -108,10 +123,12 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
       description: t.description ?? '',
       venueId: t.venueId,
       departmentId: t.departmentId ?? '',
+      sectionId: t.sectionId ?? '',
       completionType: t.completionType,
       scheduleType: t.scheduleType,
       scheduleDays: t.scheduleDays,
       customCron: t.customCron ?? '',
+      requiredTrainingIds: (t.requiredTraining ?? []).map((r) => r.moduleId),
     })
     setError('')
     setModalOpen(true)
@@ -143,6 +160,8 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
       body: JSON.stringify({
         ...form,
         departmentId: form.departmentId || null,
+        sectionId: form.sectionId || null,
+        requiredTrainingIds: form.requiredTrainingIds,
         customCron: form.scheduleType === 'CUSTOM' ? form.customCron : null,
         scheduleDays: form.scheduleType === 'DAILY' ? [] : form.scheduleDays,
       }),
@@ -182,6 +201,15 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
     setForm({ ...form, scheduleDays: days })
   }
 
+  function toggleRequired(id: string) {
+    setForm((f) => ({
+      ...f,
+      requiredTrainingIds: f.requiredTrainingIds.includes(id)
+        ? f.requiredTrainingIds.filter((x) => x !== id)
+        : [...f.requiredTrainingIds, id],
+    }))
+  }
+
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
   const filterDeptOptions = [
     { value: '', label: 'ALL DEPARTMENTS' },
@@ -195,6 +223,13 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
       .filter((d) => d.venueId === form.venueId)
       .map((d) => ({ value: d.id, label: d.name })),
   ]
+  const formSectionOptions = [
+    { value: '', label: 'NO SECTION' },
+    ...sections
+      .filter((s) => s.departmentId === form.departmentId)
+      .map((s) => ({ value: s.id, label: s.name })),
+  ]
+  const trainingOptions = modules.filter((m) => m.venueId === form.venueId && m.kind === 'TRAINING')
 
   // Group tasks by department
   const grouped = tasks.reduce<Record<string, { dept: Task['department']; tasks: Task[] }>>(
@@ -302,7 +337,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
               <Select
                 label="Venue"
                 value={form.venueId}
-                onChange={(e) => setForm({ ...form, venueId: e.target.value, departmentId: '' })}
+                onChange={(e) => setForm({ ...form, venueId: e.target.value, departmentId: '', sectionId: '' })}
                 options={venueOptions}
                 placeholder="SELECT VENUE"
               />
@@ -310,10 +345,42 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
             <Select
               label="Department"
               value={form.departmentId}
-              onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
+              onChange={(e) => setForm({ ...form, departmentId: e.target.value, sectionId: '' })}
               options={formDeptOptions}
             />
           </div>
+
+          <Select
+            label="Section (optional)"
+            value={form.sectionId}
+            onChange={(e) => setForm({ ...form, sectionId: e.target.value })}
+            options={formSectionOptions}
+          />
+
+          {trainingOptions.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Required training (competency)</label>
+              <div className="flex flex-wrap gap-1">
+                {trainingOptions.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => toggleRequired(m.id)}
+                    className={`font-mono text-xs px-2 py-1.5 border transition-colors ${
+                      form.requiredTrainingIds.includes(m.id)
+                        ? 'bg-white text-black border-white'
+                        : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
+                    }`}
+                  >
+                    {m.title}
+                  </button>
+                ))}
+              </div>
+              <p className="font-mono text-xs text-grey-light">
+                IF SOMEONE COMPLETES THIS TASK WITHOUT THE TICKED TRAINING, A FOLLOW-UP IS RAISED FOR A MANAGER.
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <Select
               label="Completion Type"

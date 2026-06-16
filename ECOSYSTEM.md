@@ -136,40 +136,42 @@ Two trigger loops fall straight out of this:
 
 ---
 
-## 4 · Integration plan (how we build it)
+## 4 · Integration plan (BUILT 2026-06-16)
 
-The ecosystem slots onto the existing schema as **one new level + one
-generalisation + one new link** — not a rebuild. Phased so each step is usable on
-its own:
+The ecosystem slotted onto the existing schema as **one new level + one
+generalisation + one new link** — not a rebuild. All four phases are now live:
 
-**Phase A — Section layer**
-- New `Section` model (`departmentId` FK). Venue → Department → Section.
-- `Task.sectionId?` (optional; tasks can still be dept- or venue-level).
-- `Staff ⇄ Section` **many-to-many** (a server works Coffee *and* Floor).
-- Surface sections in the admin (CRUD) and on the **Structure** page (replace the
-  "Sections — planned" placeholder with real data).
+**Phase A — Section layer** ✅
+- `Section` model (`departmentId` FK, denormalised `venueId`). Venue → Department → Section.
+- `Task.sectionId?` (tasks can still be dept- or venue-level; a section implies its department).
+- `Staff ⇄ Section` **many-to-many** (`StaffSection`) — a server works Coffee *and* Floor.
+- Admin: `/admin/sections` CRUD; section pickers on the Task and Staff forms; sections
+  rendered live on the **Structure** page.
 
-**Phase B — Unify knowledge as "resources"**
-- Generalise `TrainingModule` with a `kind` field: `TRAINING | SOP | FAQ | HOWTO`.
-  One table, one viewer, all attachable at venue / department / section.
-- `ResourceLink` join so resources cross-reference each other (task → SOP →
-  training → FAQ).
-- Knowledge sharable across sections (many-to-many, or a level field) so one
-  health-&-safety SOP serves many stations.
+**Phase B — Knowledge as "resources"** ✅
+- `TrainingModule.kind`: `TRAINING | SOP | FAQ | HOWTO`. One table, one editor
+  (the Training page). Non-TRAINING kinds are reference-only (excluded from "my training").
+- Attach to sections via `ResourceSection`; cross-reference via `ResourceLink`.
 
-**Phase C — Competency link**
-- `Task ⇄ Training` "requires" relation (today the link only goes the other way,
-  as a how-to). This is the competency gate.
+**Phase C — Competency link** ✅
+- `TaskRequiredTraining` (`Task ⇄ Training` "requires"), set per task in the Task form.
 - Competency = existing `TrainingCompletion`.
 
-**Phase D — Trigger engine + notifications**
-- Rule 1: missed / failed task → auto-assign linked training + notify.
-- Rule 2: completed-but-untrained → prompt manager to upskill / sign off.
-- Delivery: in-app first (dashboard + a follow-ups list), then push / WhatsApp.
+**Phase D — Trigger engine + notifications** ✅
+- `FollowUp` model + `lib/followups.ts`:
+  - **done-but-untrained** — raised the moment a task is completed by someone who
+    lacks its required training (`checkUntrainedOnCompletion`, called from the
+    worker complete route).
+  - **missed** — `generateVenueFollowUps` scans the last 7 days of assigned tasks
+    with required training; each miss raises a follow-up and auto-assigns the
+    training to that person.
+- Surfaced at `/admin/followups` — resolve, or one-click **sign off** (records a
+  manager `TrainingCompletion` and clears it). Idempotent via
+  `@@unique([venueId, staffId, kind, taskId, dueDate])`. In-app for now; push /
+  WhatsApp is the next step.
 
-> Until Phase A ships, the **Structure** page shows the live venue → department →
-> staff / tasks / training tree, with the Section layer marked as planned so the
-> shape is visible as we go.
+> The **Structure** page (`/admin/structure`) now renders the full live tree:
+> venue → department → **section** → staff / tasks / training.
 
 ---
 

@@ -43,6 +43,26 @@ enum CalendarSource {
   MANUAL
 }
 
+// A knowledge resource's type. TRAINING is a sign-off-able guide; the rest are
+// reference material that bundles alongside tasks in a section.
+enum ResourceKind {
+  TRAINING
+  SOP
+  FAQ
+  HOWTO
+}
+
+enum FollowUpKind {
+  MISSED     // a due task wasn't completed
+  UNTRAINED  // a task was completed by someone without the required training
+  INCORRECT  // a manager flagged work as not done correctly
+}
+
+enum FollowUpStatus {
+  OPEN
+  RESOLVED
+}
+
 model Venue {
   id         String    @id @default(uuid())
   name       String
@@ -71,6 +91,8 @@ model Venue {
   timeOffRequests TimeOffRequest[]
   notices     Notice[]
   calendarEvents CalendarEvent[]
+  sections    Section[]
+  followUps   FollowUp[]
 }
 
 model Department {
@@ -90,6 +112,7 @@ model Department {
   trainingModules TrainingModule[]
   shifts Shift[]
   notices Notice[]
+  sections Section[]
 }
 
 model Staff {
@@ -122,6 +145,8 @@ model Staff {
   shifts           Shift[]
   timeOffRequests  TimeOffRequest[]
   noticeAcks       NoticeAck[]
+  sections         StaffSection[]
+  followUps        FollowUp[]
 }
 
 model Task {
@@ -130,6 +155,7 @@ model Task {
   description       String?
   venueId           String
   departmentId      String?
+  sectionId         String?
   assignedToStaffId String?
   completionType    CompletionType @default(TICK)
   scheduleType      ScheduleType   @default(DAILY)
@@ -143,9 +169,12 @@ model Task {
 
   venue            Venue            @relation(fields: [venueId], references: [id])
   department       Department?      @relation(fields: [departmentId], references: [id])
+  section          Section?         @relation(fields: [sectionId], references: [id])
   taskCompletions  TaskCompletion[]
   trainingSteps    TrainingStep[]   @relation("StepLinkedTask")
   trainingModules  TrainingModule[] @relation("ModuleLinkedTask")
+  requiredTraining TaskRequiredTraining[]
+  followUps        FollowUp[]
 }
 
 model TaskCompletion {
@@ -220,6 +249,7 @@ model TrainingModule {
   venueId         String
   departmentId    String?             // if set, auto-applies to all staff in this department
   linkedTaskId    String?             // if set, this guide is the how-to for a task
+  kind            ResourceKind @default(TRAINING) // TRAINING (sign-off-able) | SOP | FAQ | HOWTO (reference)
   requiresSignOff Boolean   @default(false) // true = a manager must sign off; false = staff self-complete
   isOnboarding    Boolean   @default(false) // part of the onboarding checklist (applies to all staff)
   onboardingOrder Int       @default(0)
@@ -235,6 +265,11 @@ model TrainingModule {
   steps       TrainingStep[]
   assignments TrainingAssignment[]
   completions TrainingCompletion[]
+  resourceSections ResourceSection[]
+  requiredByTasks  TaskRequiredTraining[]
+  linksFrom   ResourceLink[] @relation("ResourceLinkFrom")
+  linksTo     ResourceLink[] @relation("ResourceLinkTo")
+  followUps   FollowUp[]
 }
 
 model TrainingStep {
@@ -447,4 +482,107 @@ model BudgetDayAllocation {
   budgetPeriod BudgetPeriod @relation(fields: [budgetPeriodId], references: [id], onDelete: Cascade)
 
   @@unique([budgetPeriodId, date])
+}
+
+// --- SECTION ECOSYSTEM (Phase A–D) ---
+
+// A station within a department, e.g. Bar / Coffee / Cabinet under "Front of house".
+// Venue → Department → Section. Tasks and resources can attach here.
+model Section {
+  id           String    @id @default(uuid())
+  name         String              // ALL CAPS
+  venueId      String              // denormalised from department for scoping
+  departmentId String
+  colour       String?
+  sortOrder    Int       @default(0)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  venue      Venue      @relation(fields: [venueId], references: [id])
+  department Department @relation(fields: [departmentId], references: [id])
+  tasks      Task[]
+  staff      StaffSection[]
+  resources  ResourceSection[]
+
+  @@index([venueId])
+  @@index([departmentId])
+}
+
+// Staff ⇄ Section (a person can work many sections).
+model StaffSection {
+  id        String   @id @default(uuid())
+  staffId   String
+  sectionId String
+  createdAt DateTime @default(now())
+
+  staff   Staff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  section Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, sectionId])
+}
+
+// Resource ⇄ Section (a resource can be shared across many sections).
+model ResourceSection {
+  id        String   @id @default(uuid())
+  moduleId  String
+  sectionId String
+  createdAt DateTime @default(now())
+
+  module  TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  section Section        @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([moduleId, sectionId])
+}
+
+// Resource ⇄ Resource cross-reference (a task's SOP → its training → its FAQ).
+model ResourceLink {
+  id           String   @id @default(uuid())
+  fromModuleId String
+  toModuleId   String
+  createdAt    DateTime @default(now())
+
+  fromModule TrainingModule @relation("ResourceLinkFrom", fields: [fromModuleId], references: [id], onDelete: Cascade)
+  toModule   TrainingModule @relation("ResourceLinkTo", fields: [toModuleId], references: [id], onDelete: Cascade)
+
+  @@unique([fromModuleId, toModuleId])
+}
+
+// Task ⇄ Training "requires" — the competency a person needs to do this task.
+model TaskRequiredTraining {
+  id        String   @id @default(uuid())
+  taskId    String
+  moduleId  String
+  createdAt DateTime @default(now())
+
+  task   Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  module TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, moduleId])
+}
+
+// A follow-up raised by the trigger engine for a manager to action.
+model FollowUp {
+  id           String         @id @default(uuid())
+  venueId      String
+  staffId      String
+  taskId       String?
+  moduleId     String?        // training to do / that was missing
+  kind         FollowUpKind
+  status       FollowUpStatus @default(OPEN)
+  detail       String?
+  dueDate      DateTime?      @db.Date // the date the issue relates to (for MISSED)
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  venue  Venue           @relation(fields: [venueId], references: [id])
+  staff  Staff           @relation(fields: [staffId], references: [id])
+  task   Task?           @relation(fields: [taskId], references: [id])
+  module TrainingModule? @relation(fields: [moduleId], references: [id])
+
+  @@unique([venueId, staffId, kind, taskId, dueDate])
+  @@index([venueId, status])
 }

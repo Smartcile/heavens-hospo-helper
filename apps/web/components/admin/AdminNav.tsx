@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: '/admin/notices', label: 'Notices' },
   { href: '/admin/venues', label: 'Venues' },
   { href: '/admin/departments', label: 'Departments' },
+  { href: '/admin/sections', label: 'Sections' },
   { href: '/admin/staff', label: 'Staff' },
   { href: '/admin/tasks', label: 'Tasks' },
   { href: '/admin/templates', label: 'Templates' },
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { href: '/admin/reports', label: 'Reports' },
   { href: '/admin/budget', label: 'Budget' },
   { href: '/admin/review', label: 'Review' },
+  { href: '/admin/followups', label: 'Follow-ups' },
   { href: '/admin/settings', label: 'Settings' },
 ]
 

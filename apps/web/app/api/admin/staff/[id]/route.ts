@@ -37,6 +37,12 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (myHrId !== undefined) updates.myHrId = myHrId?.trim() || null
   if (loadedReportsId !== undefined) updates.loadedReportsId = loadedReportsId?.trim() || null
 
+  // Replace the staff member's section membership when provided.
+  if (body.sectionIds !== undefined) {
+    const ids: string[] = Array.isArray(body.sectionIds) ? body.sectionIds : []
+    updates.sections = { deleteMany: {}, create: ids.map((sectionId: string) => ({ sectionId })) }
+  }
+
   // PIN: empty/undefined leaves it unchanged; empty string clears it.
   if (pin) {
     if (!/^\d{2,4}$/.test(String(pin))) {

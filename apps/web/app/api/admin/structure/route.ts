@@ -28,7 +28,7 @@ export async function GET() {
     }),
     prisma.task.findMany({
       where: { deletedAt: null, venueId: { in: venueIds } },
-      select: { id: true, title: true, venueId: true, departmentId: true, assignedToStaffId: true, scheduleType: true, isActive: true },
+      select: { id: true, title: true, venueId: true, departmentId: true, sectionId: true, assignedToStaffId: true, scheduleType: true, isActive: true },
       orderBy: { sortOrder: 'asc' },
     }),
     prisma.trainingModule.findMany({
@@ -38,6 +38,21 @@ export async function GET() {
     }),
   ])
 
+  const [sections, staffSections] = await Promise.all([
+    prisma.section.findMany({
+      where: { deletedAt: null, venueId: { in: venueIds } },
+      select: { id: true, name: true, colour: true, departmentId: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    }),
+    prisma.staffSection.findMany({ select: { staffId: true, sectionId: true } }),
+  ])
+  const staffIdsBySection = new Map<string, string[]>()
+  for (const ss of staffSections) {
+    const arr = staffIdsBySection.get(ss.sectionId) ?? []
+    arr.push(ss.staffId)
+    staffIdsBySection.set(ss.sectionId, arr)
+  }
+
   const staffName = new Map(staff.map((s) => [s.id, `${s.firstName} ${s.lastName}`]))
 
   const fmtStaff = (s: (typeof staff)[number]) => ({ id: s.id, name: `${s.firstName} ${s.lastName}`, role: s.role })
@@ -46,7 +61,7 @@ export async function GET() {
     title: t.title,
     schedule: t.scheduleType,
     active: t.isActive,
-    scope: t.assignedToStaffId ? 'PERSON' : t.departmentId ? 'DEPARTMENT' : 'VENUE',
+    scope: t.assignedToStaffId ? 'PERSON' : t.sectionId ? 'SECTION' : t.departmentId ? 'DEPARTMENT' : 'VENUE',
     assignee: t.assignedToStaffId ? staffName.get(t.assignedToStaffId) ?? null : null,
   })
   const fmtTraining = (t: (typeof training)[number]) => ({
@@ -62,14 +77,28 @@ export async function GET() {
     const vTasks = tasks.filter((t) => t.venueId === v.id)
     const vTraining = training.filter((t) => t.venueId === v.id)
 
-    const departments = v.departments.map((d) => ({
-      id: d.id,
-      name: d.name,
-      colour: d.colour,
-      staff: vStaff.filter((s) => s.departmentId === d.id).map(fmtStaff),
-      tasks: vTasks.filter((t) => t.departmentId === d.id).map(fmtTask),
-      training: vTraining.filter((t) => t.departmentId === d.id).map(fmtTraining),
-    }))
+    const departments = v.departments.map((d) => {
+      const deptSections = sections.filter((s) => s.departmentId === d.id)
+      return {
+        id: d.id,
+        name: d.name,
+        colour: d.colour,
+        // Department-level lists exclude items pushed down into a section.
+        staff: vStaff.filter((s) => s.departmentId === d.id).map(fmtStaff),
+        tasks: vTasks.filter((t) => t.departmentId === d.id && !t.sectionId).map(fmtTask),
+        training: vTraining.filter((t) => t.departmentId === d.id).map(fmtTraining),
+        sections: deptSections.map((sec) => {
+          const memberIds = new Set(staffIdsBySection.get(sec.id) ?? [])
+          return {
+            id: sec.id,
+            name: sec.name,
+            colour: sec.colour,
+            staff: vStaff.filter((s) => memberIds.has(s.id)).map(fmtStaff),
+            tasks: vTasks.filter((t) => t.sectionId === sec.id).map(fmtTask),
+          }
+        }),
+      }
+    })
 
     return {
       id: v.id,
