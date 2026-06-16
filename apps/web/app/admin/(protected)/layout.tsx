@@ -13,7 +13,7 @@ export default async function AdminProtectedLayout({ children }: { children: Rea
   return (
     <div className="flex min-h-screen bg-black">
       <AdminNav />
-      <main className="flex-1 flex flex-col min-h-screen overflow-auto">{children}</main>
+      <main className="flex-1 flex flex-col min-h-screen overflow-auto pt-14 md:pt-0">{children}</main>
     </div>
   )
 }

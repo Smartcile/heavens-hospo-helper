@@ -35,6 +35,15 @@
 ✅ **External embeds** — paste a Loaded public-roster link and/or a Google Calendar embed link in Settings → Integrations, pick an auto-refresh interval; shown live as panels on the Calendar page (PLANNER / LOADED ROSTER / EVENTS tabs).
 ✅ **External calendar IMPORT** — Google Calendar + any `.ics`/webcal feed are parsed server-side and shown as events directly on the PLANNER month grid (and day modal). Re-synced on the chosen interval (or SYNC NOW) and reconciled by event UID: changed events update in place, removed events drop off — no double-ups (`CalendarEvent` model, `lib/ical.ts` parser with RRULE expansion, `lib/external-sync.ts`, `POST /api/admin/calendar/sync`). Loaded's public-roster SPA has no anonymous feed, so it stays embed-only unless an `.ics` subscribe link is available.
 ✅ **NZ break entitlements** — 10-min rest / 30-min meal breaks auto-calculated per shift length and shown on each roster shift (admin + worker), with a reference table in Settings
+✅ **Live structure map** — `/admin/structure` renders the real venue → department → staff / tasks / training tree (collapsible, with counts); the planned Section layer shows as a placeholder. Read-only visual review.
+✅ **Mobile-friendly admin nav** — burger menu + off-canvas drawer on phones, static sidebar on desktop.
+
+## SECTION ECOSYSTEM (planned) — see ECOSYSTEM.md
+The model that links sections, tasks and knowledge into one followed-up loop.
+☐ **A · Section layer** — new `Section` model under `Department` (Venue → Dept → Section); `Task.sectionId`; `Staff ⇄ Section` many-to-many; sections in admin CRUD + on the Structure map.
+☐ **B · Unify knowledge as resources** — generalise `TrainingModule` with `kind` (TRAINING / SOP / FAQ / HOWTO), attachable at venue/dept/section; `ResourceLink` cross-references; knowledge sharable across sections.
+☐ **C · Competency link** — `Task ⇄ Training` "requires" relation; competency = existing `TrainingCompletion`.
+☐ **D · Trigger engine + notifications** — missed/incorrect task → auto-assign training + notify; done-but-untrained → prompt manager to upskill/sign off; in-app follow-ups first, then push/WhatsApp.
 
 ## PHASE 3 — TRAINING
 ✅ **Training modules / guides** — authored in admin, with step-by-step content, **photos** (upload) and **video links**

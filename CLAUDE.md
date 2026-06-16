@@ -231,6 +231,27 @@ A single `Staff` profile carries external-system link IDs — `swiftPosId`,
 LoadedReports. These are editable in the Staff form now; automated sync is a
 future item (see ROADMAP). `email` doubles as a natural cross-system match key.
 
+### Live structure map
+`/admin/structure` (`StructureClient` + `GET /api/admin/structure`) renders the
+live entity tree — venue → department → staff / tasks / training, plus a
+venue-wide bucket — as collapsible nodes with counts. Manager sees own venue,
+admin sees all. It's a read-only visual review; the planned **Section** layer is
+shown as a labelled placeholder under each department until Phase A ships.
+
+### Responsive admin nav
+`AdminNav` renders a static sidebar on `md+` and, on mobile, a fixed top bar with
+a burger button that opens an off-canvas drawer (closes on route change /
+backdrop tap). The protected layout adds `pt-14 md:pt-0` so content clears the
+fixed mobile bar.
+
+### Linking model & the Section ecosystem (planned)
+The full "how everything links" model — and the phased plan to add **sections**
+(a layer between department and tasks), unify SOP/FAQ/how-to/training as one
+"resource" type, add a `Task ⇄ Training` competency link, and drive follow-up
+triggers (missed/incorrect task → auto-assign training; done-but-untrained →
+prompt manager) — lives in `ECOSYSTEM.md` at the repo root. Keep that doc in sync
+when building these phases.
+
 ## KEY ARCHITECTURAL DECISIONS
 
 ### Dual auth system

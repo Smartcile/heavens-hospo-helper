@@ -112,6 +112,36 @@ After seeding, the following accounts exist.
 
 The worker login (for QR scanning) is at `http://your-server-ip:3000/w/login`.
 
+On a phone, the admin panel collapses to a **burger menu** (top-left) that slides
+out the navigation; on desktop the sidebar is always visible.
+
+---
+
+## HOW IT ALL LINKS TOGETHER
+
+HOSPO OPS is an **operational board**: one place that shows what's going on, with
+the work and the knowledge that backs it linked together. The spine is:
+
+```
+Venue → Department → Section* → tasks + training/SOPs/FAQs → completion → follow-up
+                                                                  (*planned layer)
+```
+
+- A **task** can be scoped venue-wide, to a department, to a section, or to one
+  person. A staff member is linked to a task by *completing* it (tick / note /
+  photo), which feeds the dashboard and the overdue tracker.
+- Tasks and knowledge (SOPs, training, how-tos) bundle together per area so the
+  guide is one tap from the task.
+- Coming next: **sections** (bar / coffee / cabinet / floor under a department)
+  and **follow-up triggers** — a missed or incorrectly-done task auto-assigns its
+  training, and a task done by an untrained person prompts a manager to upskill.
+
+**See it live:** open **Admin → Structure** (`/admin/structure`) for a tree of how
+your venues, departments, staff, tasks and training are currently linked.
+
+The full model and the build plan are documented in
+[`ECOSYSTEM.md`](./ECOSYSTEM.md).
+
 ---
 
 ## HOW TO GENERATE AND PRINT A QR CODE
