@@ -42,6 +42,7 @@ interface Checklist {
   venueId: string
   departmentId: string | null
   sectionId: string | null
+  appearFromTime: string | null
   department: { id: string; name: string } | null
   section: { id: string; name: string } | null
   tasks: ChecklistCardTask[]
@@ -94,6 +95,9 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
   const [error, setError] = useState('')
   const [filterVenue, setFilterVenue] = useState(role === 'MANAGER' ? sessionVenueId : '')
   const [filterDept, setFilterDept] = useState('')
+  const [filterSection, setFilterSection] = useState('')
+  const [search, setSearch] = useState('')
+  const [filterUsage, setFilterUsage] = useState('')
   const [requireRetrain, setRequireRetrain] = useState(false)
   const [changeSummary, setChangeSummary] = useState('')
 
@@ -105,6 +109,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
   const [clDeptId, setClDeptId] = useState('')
   const [clSectionId, setClSectionId] = useState('')
   const [clSelected, setClSelected] = useState<string[]>([])
+  const [clAppearFrom, setClAppearFrom] = useState('')
   const [clSaving, setClSaving] = useState(false)
   const [clError, setClError] = useState('')
   const [dropActive, setDropActive] = useState(false)
@@ -198,13 +203,13 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
     setClEditing('new')
     setClName(''); setClDesc('')
     setClVenueId(role === 'MANAGER' ? sessionVenueId : (filterVenue || venues[0]?.id || ''))
-    setClDeptId(''); setClSectionId(''); setClSelected([]); setClError('')
+    setClDeptId(''); setClSectionId(''); setClSelected([]); setClAppearFrom(''); setClError('')
   }
   function openChecklistEdit(c: Checklist) {
     setClEditing(c)
     setClName(c.name); setClDesc(c.description ?? '')
     setClVenueId(c.venueId); setClDeptId(c.departmentId ?? ''); setClSectionId(c.sectionId ?? '')
-    setClSelected(c.tasks.map((t) => t.id)); setClError('')
+    setClSelected(c.tasks.map((t) => t.id)); setClAppearFrom(c.appearFromTime ?? ''); setClError('')
   }
   function addToChecklist(id: string) {
     setClSelected((prev) => (prev.includes(id) ? prev : [...prev, id]))
@@ -213,7 +218,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
     if (!clName.trim() || !clVenueId) { setClError('NAME AND VENUE ARE REQUIRED'); return }
     if (clSelected.length === 0) { setClError('ADD AT LEAST ONE TASK'); return }
     setClSaving(true); setClError('')
-    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, taskIds: clSelected }
+    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clAppearFrom || null, taskIds: clSelected }
     const url = clEditing && clEditing !== 'new' ? `/api/admin/checklists/${clEditing.id}` : '/api/admin/checklists'
     const method = clEditing && clEditing !== 'new' ? 'PUT' : 'POST'
     const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -238,7 +243,36 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
   const taskById = new Map(tasks.map((t) => [t.id, t]))
   const clDeptOptions = [{ value: '', label: 'WHOLE VENUE' }, ...departments.filter((d) => d.venueId === clVenueId).map((d) => ({ value: d.id, label: d.name }))]
   const clSectionOptions = [{ value: '', label: 'NO SECTION' }, ...sections.filter((s) => s.departmentId === clDeptId).map((s) => ({ value: s.id, label: s.name }))]
-  const clAddOptions = [{ value: '', label: '+ ADD A TASK…' }, ...tasks.filter((t) => t.venueId === clVenueId && !clSelected.includes(t.id)).map((t) => ({ value: t.id, label: t.title }))]
+  // Add-a-task dropdown is scoped to the checklist's department/section (drag in
+  // from the left to add anything else).
+  const clAddOptions = [
+    { value: '', label: '+ ADD A TASK…' },
+    ...tasks
+      .filter((t) => t.venueId === clVenueId && !clSelected.includes(t.id) && (clSectionId ? t.sectionId === clSectionId : clDeptId ? t.departmentId === clDeptId : true))
+      .map((t) => ({ value: t.id, label: t.title })),
+  ]
+
+  const filterSectionOptions = [
+    { value: '', label: 'ALL SECTIONS' },
+    ...sections
+      .filter((s) => (filterDept ? s.departmentId === filterDept : !filterVenue || s.venueId === filterVenue))
+      .map((s) => ({ value: s.id, label: s.name })),
+  ]
+  const USAGE_OPTIONS = [
+    { value: '', label: 'ANY USAGE' },
+    { value: 'list', label: 'IN A CHECKLIST' },
+    { value: 'nolist', label: 'NOT IN A LIST' },
+    { value: 'training', label: 'HAS TRAINING/SOP' },
+  ]
+  const hasTrainingUse = (t: Task) => (t.trainingModules?.length ?? 0) > 0 || (t.requiredTraining?.length ?? 0) > 0
+  const visibleTasks = tasks.filter((t) => {
+    if (filterSection && t.sectionId !== filterSection) return false
+    if (search.trim() && !t.title.toLowerCase().includes(search.trim().toLowerCase())) return false
+    if (filterUsage === 'list' && !(t._count?.checklistLinks)) return false
+    if (filterUsage === 'nolist' && (t._count?.checklistLinks ?? 0) > 0) return false
+    if (filterUsage === 'training' && !hasTrainingUse(t)) return false
+    return true
+  })
 
   function taskLabels(t: Task): { text: string; cls: string }[] {
     const out: { text: string; cls: string }[] = []
@@ -256,7 +290,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
   // Group tasks: Department → Section, with a per-department "general" bucket.
   const deptGroups: { key: string; name: string; colour: string | null; sections: { id: string; name: string; tasks: Task[] }[]; loose: Task[] }[] = []
   const deptIndex = new Map<string, (typeof deptGroups)[number]>()
-  for (const t of tasks) {
+  for (const t of visibleTasks) {
     const dKey = t.departmentId ?? 'none'
     let dg = deptIndex.get(dKey)
     if (!dg) { dg = { key: dKey, name: t.department?.name ?? 'NO DEPARTMENT', colour: t.department?.colour ?? null, sections: [], loose: [] }; deptIndex.set(dKey, dg); deptGroups.push(dg) }
@@ -309,14 +343,23 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
             <Button onClick={openCreate} size="sm">+ NEW TASK</Button>
           </div>
 
-          <div className="flex gap-2 flex-wrap">
-            {role === 'ADMIN' && (
-              <div className="w-40">
-                <Select value={filterVenue} onChange={(e) => { setFilterVenue(e.target.value); setFilterDept('') }} options={[{ value: '', label: 'ALL VENUES' }, ...venueOptions]} />
+          <div className="space-y-2">
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="SEARCH TASKS…" />
+            <div className="flex gap-2 flex-wrap">
+              {role === 'ADMIN' && (
+                <div className="w-36">
+                  <Select value={filterVenue} onChange={(e) => { setFilterVenue(e.target.value); setFilterDept(''); setFilterSection('') }} options={[{ value: '', label: 'ALL VENUES' }, ...venueOptions]} />
+                </div>
+              )}
+              <div className="w-36">
+                <Select value={filterDept} onChange={(e) => { setFilterDept(e.target.value); setFilterSection('') }} options={filterDeptOptions} />
               </div>
-            )}
-            <div className="w-44">
-              <Select value={filterDept} onChange={(e) => setFilterDept(e.target.value)} options={filterDeptOptions} />
+              <div className="w-36">
+                <Select value={filterSection} onChange={(e) => setFilterSection(e.target.value)} options={filterSectionOptions} />
+              </div>
+              <div className="w-40">
+                <Select value={filterUsage} onChange={(e) => setFilterUsage(e.target.value)} options={USAGE_OPTIONS} />
+              </div>
             </div>
           </div>
 
@@ -324,8 +367,8 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
 
           {loading ? (
             <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
-          ) : tasks.length === 0 ? (
-            <p className="font-mono text-xs text-grey-light">NO TASKS FOUND.</p>
+          ) : visibleTasks.length === 0 ? (
+            <p className="font-mono text-xs text-grey-light">{tasks.length === 0 ? 'NO TASKS FOUND.' : 'NO TASKS MATCH THESE FILTERS.'}</p>
           ) : (
             <div className="space-y-5">
               {deptGroups.map((dg) => (
@@ -352,8 +395,8 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
           )}
         </div>
 
-        {/* RIGHT — checklists list OR inline editor */}
-        <div className="lg:border-l lg:border-grey-mid lg:pl-6">
+        {/* RIGHT — checklists list OR inline editor (sticky so it follows long task lists) */}
+        <div className="lg:border-l lg:border-grey-mid lg:pl-6 lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
           {clEditing ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -371,6 +414,10 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
               <div className="grid grid-cols-2 gap-3">
                 <Select label="Department (optional)" value={clDeptId} onChange={(e) => { setClDeptId(e.target.value); setClSectionId('') }} options={clDeptOptions} />
                 <Select label="Section (optional)" value={clSectionId} onChange={(e) => setClSectionId(e.target.value)} options={clSectionOptions} />
+              </div>
+              <div>
+                <Input label="Appears from (time, optional)" type="time" value={clAppearFrom} onChange={(e) => setClAppearFrom(e.target.value)} />
+                <p className="font-mono text-[10px] uppercase text-grey-light mt-1">SHOWS ON THE FLOOR FROM THIS TIME &amp; STAYS UNTIL EVERY TASK IS DONE FOR THE DAY.</p>
               </div>
 
               <div className="space-y-1">
@@ -437,6 +484,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
                         {c.section ? <Badge>{c.section.name}</Badge> : c.department ? <Badge>{c.department.name}</Badge> : <Badge>WHOLE VENUE</Badge>}
+                        {c.appearFromTime && <Badge variant="warning">FROM {c.appearFromTime}</Badge>}
                         <span className="font-mono text-xs text-grey-light">{c.tasks.length} TASK{c.tasks.length !== 1 ? 'S' : ''}</span>
                       </div>
                       <ol className="font-mono text-xs text-grey-light list-decimal list-inside">

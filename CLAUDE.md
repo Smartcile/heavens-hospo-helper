@@ -261,7 +261,17 @@ fixed mobile bar.
   checklist picker (no more stale-until-refresh). Task rows clip long
   title/description (`truncate`, `min-w-0`) so the right-hand tags don't wrap,
   and show usage **labels** from the tasks API (`_count.checklistLinks` → LIST,
-  linked/required module kinds → TRAINING / SOP / GUIDE).
+  linked/required module kinds → TRAINING / SOP / GUIDE). The right panel is
+  sticky (`lg:sticky lg:top-6 lg:self-start lg:max-h-… lg:overflow-y-auto`) so it
+  follows long task lists; the "add a task" dropdown is scoped to the checklist's
+  department/section; the task list has search + section + usage filters.
+- **Timed lists.** `Checklist.appearFromTime` ("HH:mm" venue-local). The worker
+  tasks API also returns the floor's checklists (`{id,name,appearFromTime,taskIds}`,
+  department + whole-venue scoped). `WorkerTasksClient` groups pending tasks by
+  **list** first — a list shows once `now >= appearFromTime` and stays until all
+  its tasks are done (no expiry) — then falls back to dept → section for tasks in
+  no list, with an "opens later" note for not-yet-open lists. Time compared
+  against the device clock (staff are on-site).
 - **Checklist embedded in training.** `TrainingStep.linkedChecklistId` lets a
   training/SOP step embed a whole checklist; `getStaffTraining` returns the
   step's `linkedChecklist` (live task titles) and the worker reader shows them as

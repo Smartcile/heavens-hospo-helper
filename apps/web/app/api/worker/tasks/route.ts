@@ -54,6 +54,30 @@ export async function GET() {
     : []
   const assigneeName = new Map(assignees.map((s) => [s.id, `${s.firstName} ${s.lastName}`]))
 
+  // Checklists ("lists") for this floor — they gate visibility by appear-from
+  // time and stay until everything's done.
+  const checklists = await prisma.checklist.findMany({
+    where: {
+      deletedAt: null,
+      isActive: true,
+      venueId: session.venueId,
+      ...(session.departmentId ? { OR: [{ departmentId: session.departmentId }, { departmentId: null }] } : {}),
+    },
+    select: {
+      id: true,
+      name: true,
+      appearFromTime: true,
+      tasks: { select: { taskId: true }, orderBy: { sortOrder: 'asc' } },
+    },
+    orderBy: [{ appearFromTime: 'asc' }, { name: 'asc' }],
+  })
+  const checklistResult = checklists.map((c) => ({
+    id: c.id,
+    name: c.name,
+    appearFromTime: c.appearFromTime,
+    taskIds: c.tasks.map((ct) => ct.taskId),
+  }))
+
   const result = todayTasks.map((t) => {
     const c = t.taskCompletions[0]
     return {
@@ -74,5 +98,5 @@ export async function GET() {
     }
   })
 
-  return NextResponse.json({ tasks: result, firstName: session.firstName })
+  return NextResponse.json({ tasks: result, checklists: checklistResult, firstName: session.firstName })
 }

@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
       venueId: c.venueId,
       departmentId: c.departmentId,
       sectionId: c.sectionId,
+      appearFromTime: c.appearFromTime,
       department: c.department,
       section: c.section,
       tasks: c.tasks
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, taskIds } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds } = body
   const venueId = session.user.role === 'MANAGER' ? session.user.venueId : body.venueId
 
   if (!name?.trim() || !venueId) {
@@ -86,6 +87,7 @@ export async function POST(req: NextRequest) {
       venueId,
       departmentId: departmentId || null,
       sectionId: sectionId || null,
+      appearFromTime: appearFromTime?.trim() || null,
       tasks: { create: ids.map((taskId, i) => ({ taskId, sortOrder: i })) },
     },
   })

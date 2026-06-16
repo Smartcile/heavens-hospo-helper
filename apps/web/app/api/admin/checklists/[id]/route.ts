@@ -23,6 +23,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.description !== undefined) updates.description = body.description?.trim() || null
   if (body.departmentId !== undefined) updates.departmentId = body.departmentId || null
   if (body.sectionId !== undefined) updates.sectionId = body.sectionId || null
+  if (body.appearFromTime !== undefined) updates.appearFromTime = body.appearFromTime?.trim() || null
   if (body.isActive !== undefined) updates.isActive = !!body.isActive
   if (body.taskIds !== undefined) {
     const ids: string[] = Array.isArray(body.taskIds) ? body.taskIds : []

@@ -12,6 +12,7 @@ let inactivityTimer: ReturnType<typeof setTimeout> | null = null
 export function WorkerTasksClient() {
   const router = useRouter()
   const [tasks, setTasks] = useState<TaskState[]>([])
+  const [checklists, setChecklists] = useState<{ id: string; name: string; appearFromTime: string | null; taskIds: string[] }[]>([])
   const [firstName, setFirstName] = useState('')
   const [loading, setLoading] = useState(true)
   const [activeTask, setActiveTask] = useState<ModalTask>(null)
@@ -47,6 +48,7 @@ export function WorkerTasksClient() {
     if (r.status === 401) { router.push('/w/login'); return }
     const data = await r.json()
     setTasks(data.tasks)
+    setChecklists(data.checklists ?? [])
     setFirstName(data.firstName)
     setLoading(false)
   }
@@ -112,13 +114,50 @@ export function WorkerTasksClient() {
   const done = tasks.filter((t) => t.isCompleted)
   const allDone = tasks.length > 0 && pending.length === 0
 
-  // Group the day's lists by department → section so the floor can see everything.
-  const pendingGroups: { dept: string; sections: { key: string; name: string | null; tasks: TaskState[] }[] }[] = []
-  const dIndex = new Map<string, (typeof pendingGroups)[number]>()
+  // Time-gate the lists: a list shows from its appear-from time and stays until
+  // every task in it is done. Tasks in no list fall back to dept → section.
+  const now = new Date()
+  const nowHHmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  const isOpen = (t: string | null) => !t || nowHHmm >= t
+
+  const listsByTask = new Map<string, { id: string; name: string; appearFromTime: string | null }[]>()
+  for (const cl of checklists) {
+    for (const tid of cl.taskIds) {
+      const arr = listsByTask.get(tid) ?? []
+      arr.push(cl)
+      listsByTask.set(tid, arr)
+    }
+  }
+
+  const listGroupMap = new Map<string, { id: string; name: string; time: string | null; tasks: TaskState[] }>()
+  const otherTasks: TaskState[] = []
+  const upcomingMap = new Map<string, { name: string; time: string | null }>()
   for (const t of pending) {
+    const lists = listsByTask.get(t.id) ?? []
+    if (lists.length === 0) { otherTasks.push(t); continue }
+    const open = lists
+      .filter((l) => isOpen(l.appearFromTime))
+      .sort((a, b) => (a.appearFromTime ?? '').localeCompare(b.appearFromTime ?? '') || a.name.localeCompare(b.name))
+    if (open.length === 0) {
+      const next = lists.slice().sort((a, b) => (a.appearFromTime ?? '').localeCompare(b.appearFromTime ?? ''))[0]
+      upcomingMap.set(next.id, { name: next.name, time: next.appearFromTime })
+      continue
+    }
+    const g = open[0]
+    let grp = listGroupMap.get(g.id)
+    if (!grp) { grp = { id: g.id, name: g.name, time: g.appearFromTime, tasks: [] }; listGroupMap.set(g.id, grp) }
+    grp.tasks.push(t)
+  }
+  const listGroups = [...listGroupMap.values()].sort((a, b) => (a.time ?? '').localeCompare(b.time ?? '') || a.name.localeCompare(b.name))
+  const upcoming = [...upcomingMap.values()].sort((a, b) => (a.time ?? '').localeCompare(b.time ?? ''))
+
+  // "Other" (no checklist) tasks grouped by department → section.
+  const otherGroups: { dept: string; sections: { key: string; name: string | null; tasks: TaskState[] }[] }[] = []
+  const dIndex = new Map<string, (typeof otherGroups)[number]>()
+  for (const t of otherTasks) {
     const dName = t.departmentName ?? 'GENERAL'
     let dg = dIndex.get(dName)
-    if (!dg) { dg = { dept: dName, sections: [] }; dIndex.set(dName, dg); pendingGroups.push(dg) }
+    if (!dg) { dg = { dept: dName, sections: [] }; dIndex.set(dName, dg); otherGroups.push(dg) }
     const sName = t.sectionName ?? null
     const sKey = sName ?? '__none__'
     let sg = dg.sections.find((s) => s.key === sKey)
@@ -239,9 +278,19 @@ export function WorkerTasksClient() {
         </div>
       </div>
 
-      {/* Pending tasks — grouped by department → section (the day's lists) */}
+      {/* Pending — time-gated lists first, then any other tasks by dept → section */}
       <div className="px-4 py-4 space-y-5">
-        {pendingGroups.map((dg) => (
+        {listGroups.map((lg) => (
+          <div key={lg.id} className="space-y-2">
+            <div className="flex items-center justify-between gap-2 border-b border-grey-mid pb-1">
+              <span className="font-mono text-xs uppercase tracking-widest text-white">{lg.name}</span>
+              {lg.time && <span className="font-mono text-[10px] uppercase text-warning">FROM {lg.time}</span>}
+            </div>
+            {lg.tasks.map(renderTask)}
+          </div>
+        ))}
+
+        {otherGroups.map((dg) => (
           <div key={dg.dept} className="space-y-2">
             <div className="font-mono text-xs uppercase tracking-widest text-white border-b border-grey-mid pb-1">{dg.dept}</div>
             {dg.sections.map((sg) => (
@@ -252,6 +301,15 @@ export function WorkerTasksClient() {
             ))}
           </div>
         ))}
+
+        {upcoming.length > 0 && (
+          <div className="border border-grey-mid p-3">
+            <div className="font-mono text-[10px] uppercase tracking-wider text-grey-light mb-1">OPENS LATER</div>
+            {upcoming.map((u) => (
+              <div key={u.name} className="font-mono text-xs text-grey-light">{u.name}{u.time ? ` · FROM ${u.time}` : ''}</div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Completed tasks */}

@@ -502,6 +502,7 @@ model Checklist {
   venueId      String
   departmentId String?
   sectionId    String?
+  appearFromTime String?           // "HH:mm" venue-local — list shows from this time; stays until all done
   sortOrder    Int       @default(0)
   isActive     Boolean   @default(true)
   createdAt    DateTime  @default(now())
