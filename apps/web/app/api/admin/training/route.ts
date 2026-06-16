@@ -9,6 +9,7 @@ interface IncomingStep {
   imageUrl?: string | null
   videoUrl?: string | null
   linkedTaskId?: string | null
+  linkedChecklistId?: string | null
 }
 
 export async function GET(req: NextRequest) {
@@ -84,7 +85,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Venue is required' }, { status: 400 })
   }
 
-  const cleanSteps = (steps ?? []).filter((s) => s.content?.trim())
+  const cleanSteps = (steps ?? []).filter((s) => s.content?.trim() || s.linkedChecklistId || s.linkedTaskId)
 
   const trainingModule = await prisma.trainingModule.create({
     data: {
@@ -102,10 +103,11 @@ export async function POST(req: NextRequest) {
         create: cleanSteps.map((s, i) => ({
           order: i,
           title: s.title?.trim() || null,
-          content: s.content.trim(),
+          content: s.content?.trim() ?? '',
           imageUrl: s.imageUrl || null,
           videoUrl: s.videoUrl?.trim() || null,
           linkedTaskId: s.linkedTaskId || null,
+          linkedChecklistId: s.linkedChecklistId || null,
         })),
       },
       resourceSections: Array.isArray(sectionIds) && sectionIds.length

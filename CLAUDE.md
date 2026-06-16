@@ -251,7 +251,15 @@ fixed mobile bar.
   (`@@unique([checklistId, taskId])`). Editing a task updates every checklist —
   single source of truth, no duplication. Managed on the Tasks page under a
   CHECKLISTS tab (`ChecklistsPanel`); APIs at `/api/admin/checklists(+/[id])`.
-  Ordering is by `sortOrder` (up/down in the editor; drag deferred).
+  Ordering is by `sortOrder` (up/down in the editor; drag deferred). The Tasks
+  page is a 50/50 two-column layout: tasks (left, grouped Department → Section
+  with a "general" bucket) and `ChecklistsPanel` (right).
+- **Checklist embedded in training.** `TrainingStep.linkedChecklistId` lets a
+  training/SOP step embed a whole checklist; `getStaffTraining` returns the
+  step's `linkedChecklist` (live task titles) and the worker reader shows them as
+  an in-session tick-off list (a walkthrough aid — not the live daily
+  `TaskCompletion`). Authored via a per-step dropdown in the Training editor
+  (filtered to the module's department).
 - **Re-train on significant change.** `Task.version` / `TrainingModule.version`
   bump when a save includes `requireRetrain: true` (a "Require re-training"
   toggle on the Task and Training edit forms, with an optional `changeSummary`).

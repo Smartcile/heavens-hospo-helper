@@ -286,11 +286,13 @@ model TrainingStep {
   imageUrl      String?           // uploaded photo
   videoUrl      String?           // external video link (YouTube/Vimeo/etc)
   linkedTaskId  String?
+  linkedChecklistId String?       // embed a whole checklist into this step (tick off in person)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  module     TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  linkedTask Task?          @relation("StepLinkedTask", fields: [linkedTaskId], references: [id])
+  module          TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  linkedTask      Task?          @relation("StepLinkedTask", fields: [linkedTaskId], references: [id])
+  linkedChecklist Checklist?     @relation(fields: [linkedChecklistId], references: [id])
 }
 
 // Individual assignment of a module to a person (upskill / area to work on).
@@ -510,6 +512,7 @@ model Checklist {
   department Department? @relation(fields: [departmentId], references: [id])
   section    Section?    @relation(fields: [sectionId], references: [id])
   tasks      ChecklistTask[]
+  trainingSteps TrainingStep[]
 
   @@index([venueId])
 }

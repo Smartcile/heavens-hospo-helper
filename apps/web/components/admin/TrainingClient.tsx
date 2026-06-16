@@ -14,6 +14,7 @@ interface Step {
   imageUrl: string | null
   videoUrl: string
   linkedTaskId: string
+  linkedChecklistId: string
 }
 
 interface TrainingModule {
@@ -35,6 +36,7 @@ interface TrainingModule {
     imageUrl: string | null
     videoUrl: string | null
     linkedTaskId: string | null
+    linkedChecklistId: string | null
   }[]
   department: { id: string; name: string } | null
   linkedTask: { id: string; title: string } | null
@@ -54,14 +56,17 @@ const KIND_OPTIONS = [
 ]
 
 function emptyStep(): Step {
-  return { title: '', content: '', imageUrl: null, videoUrl: '', linkedTaskId: '' }
+  return { title: '', content: '', imageUrl: null, videoUrl: '', linkedTaskId: '', linkedChecklistId: '' }
 }
+
+interface ChecklistLite { id: string; name: string; departmentId: string | null }
 
 export function TrainingClient({ role, sessionVenueId }: { role: string; sessionVenueId: string }) {
   const [modules, setModules] = useState<TrainingModule[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [tasks, setTasks] = useState<TaskLite[]>([])
   const [sections, setSections] = useState<Section[]>([])
+  const [checklists, setChecklists] = useState<ChecklistLite[]>([])
   const [loading, setLoading] = useState(true)
 
   const [open, setOpen] = useState(false)
@@ -84,17 +89,19 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
   const fileRefs = useRef<(HTMLInputElement | null)[]>([])
 
   async function load() {
-    const [mR, dR, tR, sR] = await Promise.all([
+    const [mR, dR, tR, sR, cR] = await Promise.all([
       fetch('/api/admin/training'),
       fetch('/api/admin/departments'),
       fetch('/api/admin/tasks'),
       fetch('/api/admin/sections'),
+      fetch('/api/admin/checklists'),
     ])
-    const [mData, dData, tData, sData] = await Promise.all([mR.json(), dR.json(), tR.json(), sR.json()])
+    const [mData, dData, tData, sData, cData] = await Promise.all([mR.json(), dR.json(), tR.json(), sR.json(), cR.json()])
     setModules(mData)
     setDepartments(dData)
     setTasks(tData)
     setSections(sData)
+    setChecklists(cData)
     setLoading(false)
   }
 
@@ -126,6 +133,7 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
             imageUrl: s.imageUrl,
             videoUrl: s.videoUrl ?? '',
             linkedTaskId: s.linkedTaskId ?? '',
+            linkedChecklistId: s.linkedChecklistId ?? '',
           }))
         : [emptyStep()]
     )
@@ -151,7 +159,7 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
   }
 
   async function handleSave() {
-    const cleanSteps = steps.filter((s) => s.content.trim())
+    const cleanSteps = steps.filter((s) => s.content.trim() || s.linkedChecklistId || s.linkedTaskId)
     if (!title.trim()) { setError('TITLE IS REQUIRED'); return }
     if (cleanSteps.length === 0) { setError('ADD AT LEAST ONE STEP'); return }
 
@@ -169,6 +177,7 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
         imageUrl: s.imageUrl,
         videoUrl: s.videoUrl || null,
         linkedTaskId: s.linkedTaskId || null,
+        linkedChecklistId: s.linkedChecklistId || null,
       })),
     }
     const url = editing ? `/api/admin/training/${editing.id}` : '/api/admin/training'
@@ -198,6 +207,13 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
   const taskOptions = [
     { value: '', label: 'NOT LINKED TO A TASK' },
     ...tasks.map((t) => ({ value: t.id, label: t.title })),
+  ]
+  // Checklists offered per step — filtered to the module's department (or shared).
+  const stepChecklistOptions = [
+    { value: '', label: '+ EMBED A CHECKLIST (OPTIONAL)' },
+    ...checklists
+      .filter((c) => !departmentId || c.departmentId === departmentId || c.departmentId === null)
+      .map((c) => ({ value: c.id, label: c.name })),
   ]
 
   return (
@@ -309,6 +325,10 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
                 <Input value={s.title} onChange={(e) => updateStep(i, { title: e.target.value })} placeholder="STEP HEADING (OPTIONAL)" />
                 <Textarea value={s.content} onChange={(e) => updateStep(i, { content: e.target.value })} placeholder="What to do in this step..." />
                 <Input value={s.videoUrl} onChange={(e) => updateStep(i, { videoUrl: e.target.value })} placeholder="VIDEO LINK (YOUTUBE/VIMEO, OPTIONAL)" />
+                <Select value={s.linkedChecklistId} onChange={(e) => updateStep(i, { linkedChecklistId: e.target.value })} options={stepChecklistOptions} />
+                {s.linkedChecklistId && (
+                  <p className="font-mono text-[10px] uppercase text-grey-light">THIS LIST APPEARS IN THE TRAINING TO TICK OFF IN PERSON.</p>
+                )}
                 <div className="flex items-center gap-2">
                   <input
                     ref={(el) => { fileRefs.current[i] = el }}

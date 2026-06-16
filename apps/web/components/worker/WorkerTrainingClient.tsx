@@ -10,6 +10,7 @@ interface Step {
   content: string
   imageUrl: string | null
   videoUrl: string | null
+  linkedChecklist: { id: string; name: string; tasks: { id: string; title: string }[] } | null
 }
 
 interface TrainingItem {
@@ -33,6 +34,20 @@ function TrainingInner() {
   const [active, setActive] = useState<TrainingItem | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // In-session tick state for embedded checklists (a walkthrough aid, not the
+  // live daily task completion).
+  const [checked, setChecked] = useState<Set<string>>(new Set())
+
+  useEffect(() => { setChecked(new Set()) }, [active?.id])
+
+  function toggleCheck(id: string) {
+    setChecked((prev) => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  }
 
   async function load(openId?: string | null) {
     const r = await fetch('/api/worker/training')
@@ -95,6 +110,30 @@ function TrainingInner() {
                 <a href={s.videoUrl} target="_blank" rel="noopener noreferrer" className="inline-block font-mono text-xs uppercase border border-grey-mid px-3 py-2 text-white hover:border-white transition-colors">
                   ▶ WATCH VIDEO
                 </a>
+              )}
+              {s.linkedChecklist && (
+                <div className="border border-grey-mid">
+                  <div className="px-3 py-2 border-b border-grey-mid font-mono text-xs uppercase text-grey-light">
+                    CHECKLIST: {s.linkedChecklist.name}
+                  </div>
+                  <div className="divide-y divide-grey-mid">
+                    {s.linkedChecklist.tasks.length === 0 ? (
+                      <p className="px-3 py-2 font-mono text-xs text-grey-light">NO TASKS IN THIS LIST.</p>
+                    ) : (
+                      s.linkedChecklist.tasks.map((t) => {
+                        const on = checked.has(t.id)
+                        return (
+                          <button key={t.id} onClick={() => toggleCheck(t.id)} className="w-full flex items-center gap-3 px-3 py-2 text-left active:bg-black">
+                            <span className={`w-5 h-5 border-2 flex-shrink-0 flex items-center justify-center ${on ? 'border-success bg-success' : 'border-grey-mid'}`}>
+                              {on && <svg className="w-3 h-3 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="square" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                            </span>
+                            <span className={`font-sans text-sm ${on ? 'text-grey-light line-through' : 'text-white'}`}>{t.title}</span>
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           ))}

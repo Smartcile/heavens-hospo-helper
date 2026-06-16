@@ -17,6 +17,7 @@ export interface StaffTrainingItem {
     content: string
     imageUrl: string | null
     videoUrl: string | null
+    linkedChecklist: { id: string; name: string; tasks: { id: string; title: string }[] } | null
   }[]
   source: 'ONBOARDING' | 'DEPARTMENT' | 'ASSIGNED'
   assignmentReason: string | null
@@ -64,7 +65,18 @@ export async function getStaffTraining(staffId: string): Promise<{
       ],
     },
     include: {
-      steps: { orderBy: { order: 'asc' } },
+      steps: {
+        orderBy: { order: 'asc' },
+        include: {
+          linkedChecklist: {
+            select: {
+              id: true,
+              name: true,
+              tasks: { orderBy: { sortOrder: 'asc' }, include: { task: { select: { id: true, title: true, deletedAt: true } } } },
+            },
+          },
+        },
+      },
       department: { select: { id: true, name: true } },
       linkedTask: { select: { id: true, title: true } },
     },
@@ -115,6 +127,15 @@ export async function getStaffTraining(staffId: string): Promise<{
         content: s.content,
         imageUrl: s.imageUrl,
         videoUrl: s.videoUrl,
+        linkedChecklist: s.linkedChecklist
+          ? {
+              id: s.linkedChecklist.id,
+              name: s.linkedChecklist.name,
+              tasks: s.linkedChecklist.tasks
+                .filter((ct) => ct.task && !ct.task.deletedAt)
+                .map((ct) => ({ id: ct.task.id, title: ct.task.title })),
+            }
+          : null,
       })),
       source,
       assignmentReason: reasonByModule.get(m.id) ?? null,

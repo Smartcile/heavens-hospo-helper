@@ -14,6 +14,7 @@ interface IncomingStep {
   imageUrl?: string | null
   videoUrl?: string | null
   linkedTaskId?: string | null
+  linkedChecklistId?: string | null
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {
@@ -72,16 +73,17 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
 
   if (body.steps !== undefined) {
-    const cleanSteps = (body.steps as IncomingStep[]).filter((s) => s.content?.trim())
+    const cleanSteps = (body.steps as IncomingStep[]).filter((s) => s.content?.trim() || s.linkedChecklistId || s.linkedTaskId)
     updates.steps = {
       deleteMany: {},
       create: cleanSteps.map((s, i) => ({
         order: i,
         title: s.title?.trim() || null,
-        content: s.content.trim(),
+        content: s.content?.trim() ?? '',
         imageUrl: s.imageUrl || null,
         videoUrl: s.videoUrl?.trim() || null,
         linkedTaskId: s.linkedTaskId || null,
+        linkedChecklistId: s.linkedChecklistId || null,
       })),
     }
   }

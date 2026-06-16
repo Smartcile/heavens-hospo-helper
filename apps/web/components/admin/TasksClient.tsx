@@ -86,7 +86,6 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
   const [error, setError] = useState('')
   const [filterVenue, setFilterVenue] = useState(role === 'MANAGER' ? sessionVenueId : '')
   const [filterDept, setFilterDept] = useState('')
-  const [view, setView] = useState<'tasks' | 'checklists'>('tasks')
   const [requireRetrain, setRequireRetrain] = useState(false)
   const [changeSummary, setChangeSummary] = useState('')
 
@@ -238,110 +237,115 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
   ]
   const trainingOptions = modules.filter((m) => m.venueId === form.venueId && m.kind === 'TRAINING')
 
-  // Group tasks by department
-  const grouped = tasks.reduce<Record<string, { dept: Task['department']; tasks: Task[] }>>(
-    (acc, t) => {
-      const key = t.departmentId ?? 'none'
-      if (!acc[key]) acc[key] = { dept: t.department, tasks: [] }
-      acc[key].tasks.push(t)
-      return acc
-    },
-    {}
+  // Group tasks: Department → Section → tasks, with a per-department "general"
+  // (no section) bucket.
+  const deptGroups: {
+    key: string
+    name: string
+    colour: string | null
+    sections: { id: string; name: string; tasks: Task[] }[]
+    loose: Task[]
+  }[] = []
+  const deptIndex = new Map<string, (typeof deptGroups)[number]>()
+  for (const t of tasks) {
+    const dKey = t.departmentId ?? 'none'
+    let dg = deptIndex.get(dKey)
+    if (!dg) {
+      dg = { key: dKey, name: t.department?.name ?? 'NO DEPARTMENT', colour: t.department?.colour ?? null, sections: [], loose: [] }
+      deptIndex.set(dKey, dg)
+      deptGroups.push(dg)
+    }
+    if (t.sectionId) {
+      let sg = dg.sections.find((s) => s.id === t.sectionId)
+      if (!sg) { sg = { id: t.sectionId, name: t.section?.name ?? 'SECTION', tasks: [] }; dg.sections.push(sg) }
+      sg.tasks.push(t)
+    } else {
+      dg.loose.push(t)
+    }
+  }
+  for (const dg of deptGroups) dg.sections.sort((a, b) => a.name.localeCompare(b.name))
+
+  const taskRow = (t: Task) => (
+    <div key={t.id} className="bg-grey-dark border border-grey-mid px-3 py-2.5 flex items-center justify-between gap-2 flex-wrap">
+      <div className="flex items-center gap-2 min-w-0">
+        <div className={`w-1.5 h-1.5 flex-shrink-0 ${t.isActive ? 'bg-success' : 'bg-grey-mid'}`} />
+        <div className="min-w-0">
+          <span className="font-mono text-sm font-semibold uppercase text-white">{t.title}</span>
+          {t.description && <p className="font-mono text-xs text-grey-light truncate">{t.description}</p>}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <Badge>{t.scheduleType}</Badge>
+        <button onClick={() => toggleActive(t)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">{t.isActive ? 'OFF' : 'ON'}</button>
+        <button onClick={() => openEdit(t)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">EDIT</button>
+        <button onClick={() => handleDelete(t.id)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">DEL</button>
+      </div>
+    </div>
   )
 
   return (
     <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="font-mono text-xl font-bold uppercase tracking-widest">TASKS</h1>
-        {view === 'tasks' && <Button onClick={openCreate} size="sm">+ NEW TASK</Button>}
-      </div>
+      <h1 className="font-mono text-xl font-bold uppercase tracking-widest">TASKS &amp; CHECKLISTS</h1>
 
-      <div className="flex gap-2 flex-wrap">
-        {([['tasks', 'TASKS'], ['checklists', 'CHECKLISTS']] as [typeof view, string][]).map(([v, label]) => (
-          <button
-            key={v}
-            onClick={() => setView(v)}
-            className={`font-mono text-xs uppercase px-3 py-2 border transition-colors ${view === v ? 'bg-white text-black border-white' : 'border-grey-mid text-grey-light hover:border-white hover:text-white'}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {view === 'checklists' ? (
-        <ChecklistsPanel role={role} sessionVenueId={sessionVenueId} />
-      ) : (
-      <>
-      <div className="flex gap-3 flex-wrap">
-        {role === 'ADMIN' && (
-          <div className="w-48">
-            <Select
-              value={filterVenue}
-              onChange={(e) => { setFilterVenue(e.target.value); setFilterDept('') }}
-              options={[{ value: '', label: 'ALL VENUES' }, ...venueOptions]}
-            />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        {/* LEFT — tasks, grouped by department then section */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <h2 className="font-mono text-sm uppercase tracking-widest text-grey-light">TASKS</h2>
+            <Button onClick={openCreate} size="sm">+ NEW TASK</Button>
           </div>
-        )}
-        <div className="w-52">
-          <Select
-            value={filterDept}
-            onChange={(e) => setFilterDept(e.target.value)}
-            options={filterDeptOptions}
-          />
-        </div>
-      </div>
 
-      {loading ? (
-        <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
-      ) : (
-        <div className="space-y-6">
-          {Object.entries(grouped).map(([key, group]) => (
-            <div key={key}>
-              <div className="flex items-center gap-2 mb-2">
-                {group.dept?.colour && (
-                  <div className="w-2 h-2" style={{ backgroundColor: group.dept.colour }} />
-                )}
-                <h2 className="font-mono text-xs uppercase tracking-widest text-grey-light">
-                  {group.dept?.name ?? 'NO DEPARTMENT'}
-                </h2>
+          <div className="flex gap-2 flex-wrap">
+            {role === 'ADMIN' && (
+              <div className="w-40">
+                <Select
+                  value={filterVenue}
+                  onChange={(e) => { setFilterVenue(e.target.value); setFilterDept('') }}
+                  options={[{ value: '', label: 'ALL VENUES' }, ...venueOptions]}
+                />
               </div>
-              <div className="space-y-1">
-                {group.tasks.map((t) => (
-                  <div key={t.id} className="bg-grey-dark border border-grey-mid px-4 py-3 flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className={`w-1.5 h-1.5 flex-shrink-0 ${t.isActive ? 'bg-success' : 'bg-grey-mid'}`} />
-                      <div className="min-w-0">
-                        <span className="font-mono text-sm font-semibold uppercase text-white">{t.title}</span>
-                        {t.description && (
-                          <p className="font-mono text-xs text-grey-light truncate">{t.description}</p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <Badge>{t.scheduleType}</Badge>
-                      <Badge>{t.completionType.replace('_', ' + ')}</Badge>
-                      <button onClick={() => toggleActive(t)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">
-                        {t.isActive ? 'OFF' : 'ON'}
-                      </button>
-                      <button onClick={() => openEdit(t)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">
-                        EDIT
-                      </button>
-                      <button onClick={() => handleDelete(t.id)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">
-                        DEL
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+            )}
+            <div className="w-44">
+              <Select value={filterDept} onChange={(e) => setFilterDept(e.target.value)} options={filterDeptOptions} />
             </div>
-          ))}
-          {tasks.length === 0 && (
+          </div>
+
+          {loading ? (
+            <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
+          ) : tasks.length === 0 ? (
             <p className="font-mono text-xs text-grey-light">NO TASKS FOUND.</p>
+          ) : (
+            <div className="space-y-5">
+              {deptGroups.map((dg) => (
+                <div key={dg.key} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    {dg.colour && <div className="w-2 h-2" style={{ backgroundColor: dg.colour }} />}
+                    <h3 className="font-mono text-xs uppercase tracking-widest text-white">{dg.name}</h3>
+                  </div>
+                  {dg.sections.map((sg) => (
+                    <div key={sg.id} className="space-y-1 pl-3 border-l border-grey-mid">
+                      <div className="font-mono text-[10px] uppercase tracking-wider text-accent">{sg.name}</div>
+                      {sg.tasks.map(taskRow)}
+                    </div>
+                  ))}
+                  {dg.loose.length > 0 && (
+                    <div className="space-y-1 pl-3 border-l border-grey-mid">
+                      {dg.sections.length > 0 && <div className="font-mono text-[10px] uppercase tracking-wider text-grey-light">GENERAL (NO SECTION)</div>}
+                      {dg.loose.map(taskRow)}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </div>
-      )}
-      </>
-      )}
+
+        {/* RIGHT — checklists (live task references) */}
+        <div className="lg:border-l lg:border-grey-mid lg:pl-6">
+          <h2 className="font-mono text-sm uppercase tracking-widest text-grey-light mb-3">CHECKLISTS</h2>
+          <ChecklistsPanel role={role} sessionVenueId={sessionVenueId} />
+        </div>
+      </div>
 
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'EDIT TASK' : 'NEW TASK'} size="lg">
         <div className="space-y-4">
