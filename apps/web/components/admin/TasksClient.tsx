@@ -335,7 +335,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
     <div className="p-4 md:p-6 space-y-4">
       <h1 className="font-mono text-xl font-bold uppercase tracking-widest">TASKS &amp; CHECKLISTS</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* LEFT — tasks grouped by department → section */}
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -396,7 +396,8 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
         </div>
 
         {/* RIGHT — checklists list OR inline editor (sticky so it follows long task lists) */}
-        <div className="lg:border-l lg:border-grey-mid lg:pl-6 lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
+        <div className="lg:border-l lg:border-grey-mid lg:pl-6">
+          <div className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
           {clEditing ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -497,6 +498,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
               )}
             </div>
           )}
+          </div>
         </div>
       </div>
 
