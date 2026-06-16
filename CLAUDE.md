@@ -341,6 +341,17 @@ aren't flagged retroactively. Surfaced on the dashboard as "MISSED — LAST 7 DA
 
 `TaskCompletion.scheduledDate` is the **calendar date** the task was for (not when it was submitted), allowing completion tracking across timezones.
 
+### Shared floor task list (worker view)
+The worker task view (`/w/tasks`, `WorkerTasksClient`) shows the **whole
+department's** due tasks for the day (the assignee filter was removed — everyone
+on the floor sees every list), grouped by **Department → Section**. Completion is
+**shared/global**: `GET /api/worker/tasks` marks a task done if *any*
+`TaskCompletion` exists for that task on the venue-local day, and the complete
+route blocks a second completion by checking `taskId + scheduledDate` (not
+staffId). So once anyone ticks a job it's done for the team (the list shows "BY
+<name>"), preventing double-ups. Personally-assigned tasks still show, tagged
+`FOR <name>`, but anyone can complete them.
+
 ### Task templates (Phase 2)
 `TaskTemplate` + `TaskTemplateItem` hold reusable SOP task sets. Built-in
 templates are seeded with `isBuiltIn: true` / `venueId: null` (global, read-only

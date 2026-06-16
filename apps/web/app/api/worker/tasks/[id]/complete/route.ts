@@ -21,12 +21,14 @@ export async function POST(req: NextRequest, { params }: Params) {
   })
   const today = getTodayDate(venue?.timezone)
 
+  // Shared list: a task is done for the whole floor once anyone completes it for
+  // the day (checked across all staff, not just this one) — prevents double-ups.
   const existing = await prisma.taskCompletion.findFirst({
-    where: { taskId: params.id, staffId: session.staffId, scheduledDate: today },
+    where: { taskId: params.id, scheduledDate: today },
   })
 
   if (existing) {
-    return NextResponse.json({ error: 'TASK ALREADY COMPLETED' }, { status: 409 })
+    return NextResponse.json({ error: 'TASK ALREADY DONE FOR TODAY' }, { status: 409 })
   }
 
   const contentType = req.headers.get('content-type') ?? ''

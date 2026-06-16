@@ -52,6 +52,7 @@ The model that links sections, tasks and knowledge into one followed-up loop.
 ✅ **Tasks + Checklists side by side** — the Tasks page is a 50/50 two-column layout (Tasks left, Checklists right) on desktop, stacked on mobile.
 ✅ **Tasks grouped by Department → Section** — the task list nests sections under each department, with a "general (no section)" bucket.
 ✅ **Embed a checklist in a training step** — a training/SOP step can link a checklist (filtered to the module's department); its tasks render as a tick-off list inside the module on the worker's phone (in-session walkthrough). `TrainingStep.linkedChecklistId`.
+✅ **Shared floor task list** — the worker task view is grouped by Department → Section (the day's lists), shows the *whole* department's lists (not just personally-assigned), and completion is **global per task+date**: once anyone ticks a job it's done for the floor (shows "BY name"), so no double-ups.
 
 ## PHASE 3 — TRAINING
 ✅ **Training modules / guides** — authored in admin, with step-by-step content, **photos** (upload) and **video links**

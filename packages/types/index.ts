@@ -107,8 +107,11 @@ export interface WorkerTaskView {
   description: string | null
   completionType: string
   departmentName: string | null
+  sectionName: string | null
+  assigneeName: string | null      // nominally assigned to this person (still shared)
   guide: { id: string; title: string } | null
   isCompleted: boolean
+  completedByName: string | null   // who ticked it (shared list — done for everyone)
   completion: {
     id: string
     note: string | null

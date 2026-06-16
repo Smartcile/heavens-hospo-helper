@@ -112,6 +112,41 @@ export function WorkerTasksClient() {
   const done = tasks.filter((t) => t.isCompleted)
   const allDone = tasks.length > 0 && pending.length === 0
 
+  // Group the day's lists by department → section so the floor can see everything.
+  const pendingGroups: { dept: string; sections: { key: string; name: string | null; tasks: TaskState[] }[] }[] = []
+  const dIndex = new Map<string, (typeof pendingGroups)[number]>()
+  for (const t of pending) {
+    const dName = t.departmentName ?? 'GENERAL'
+    let dg = dIndex.get(dName)
+    if (!dg) { dg = { dept: dName, sections: [] }; dIndex.set(dName, dg); pendingGroups.push(dg) }
+    const sName = t.sectionName ?? null
+    const sKey = sName ?? '__none__'
+    let sg = dg.sections.find((s) => s.key === sKey)
+    if (!sg) { sg = { key: sKey, name: sName, tasks: [] }; dg.sections.push(sg) }
+    sg.tasks.push(t)
+  }
+
+  const renderTask = (t: TaskState) => (
+    <button
+      key={t.id}
+      onClick={() => openTask(t)}
+      className="w-full text-left bg-grey-dark border border-grey-mid p-4 hover:border-white transition-colors active:bg-black"
+    >
+      <div className="flex items-start gap-3">
+        <div className="w-5 h-5 border-2 border-grey-mid flex-shrink-0 mt-0.5" />
+        <div className="min-w-0">
+          <div className="font-mono font-semibold text-sm uppercase text-white">{t.title}</div>
+          {t.description && <p className="font-sans text-xs text-grey-light mt-0.5">{t.description}</p>}
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <CompletionTypeIcon type={t.completionType} />
+            {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
+            {t.guide && <span className="font-mono text-xs text-grey-light">📖 GUIDE</span>}
+          </div>
+        </div>
+      </div>
+    </button>
+  )
+
   const getGreeting = () => {
     const h = new Date().getHours()
     if (h < 12) return 'GOOD MORNING'
@@ -204,31 +239,18 @@ export function WorkerTasksClient() {
         </div>
       </div>
 
-      {/* Pending tasks */}
-      <div className="px-4 py-4 space-y-2">
-        {pending.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => openTask(t)}
-            className="w-full text-left bg-grey-dark border border-grey-mid p-4 hover:border-white transition-colors active:bg-black"
-          >
-            <div className="flex items-start gap-3">
-              <div className="w-5 h-5 border-2 border-grey-mid flex-shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <div className="font-mono font-semibold text-sm uppercase text-white">{t.title}</div>
-                {t.description && (
-                  <p className="font-sans text-xs text-grey-light mt-0.5">{t.description}</p>
-                )}
-                <div className="flex items-center gap-2 mt-1">
-                  {t.departmentName && (
-                    <span className="font-mono text-xs text-grey-light">[{t.departmentName}]</span>
-                  )}
-                  <CompletionTypeIcon type={t.completionType} />
-                  {t.guide && <span className="font-mono text-xs text-grey-light">📖 GUIDE</span>}
-                </div>
+      {/* Pending tasks — grouped by department → section (the day's lists) */}
+      <div className="px-4 py-4 space-y-5">
+        {pendingGroups.map((dg) => (
+          <div key={dg.dept} className="space-y-2">
+            <div className="font-mono text-xs uppercase tracking-widest text-white border-b border-grey-mid pb-1">{dg.dept}</div>
+            {dg.sections.map((sg) => (
+              <div key={sg.key} className="space-y-2">
+                {sg.name && <div className="font-mono text-[10px] uppercase tracking-wider text-accent pt-1">{sg.name}</div>}
+                {sg.tasks.map(renderTask)}
               </div>
-            </div>
-          </button>
+            ))}
+          </div>
         ))}
       </div>
 
@@ -246,7 +268,8 @@ export function WorkerTasksClient() {
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <span className="font-mono text-xs uppercase text-success line-through">{t.title}</span>
+                <span className="font-mono text-xs uppercase text-success line-through min-w-0 truncate">{t.title}</span>
+                {t.completedByName && <span className="font-mono text-[10px] uppercase text-grey-light ml-auto flex-shrink-0">BY {t.completedByName}</span>}
               </div>
             ))}
           </div>
