@@ -1,8 +1,7 @@
-import { TemplatesClient } from '@/components/admin/TemplatesClient'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { redirect } from 'next/navigation'
 
-export default async function TemplatesPage() {
-  const session = await getServerSession(authOptions)
-  return <TemplatesClient role={session!.user.role} sessionVenueId={session!.user.venueId} />
+// Templates were merged into the Tasks page (Checklists tab) — checklists now
+// reference live tasks instead of holding copies. Redirect any old links.
+export default function TemplatesPage() {
+  redirect('/admin/tasks')
 }

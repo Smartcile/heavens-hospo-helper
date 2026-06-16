@@ -75,6 +75,8 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
   const [linkedTaskId, setLinkedTaskId] = useState('')
   const [requiresSignOff, setRequiresSignOff] = useState(false)
   const [isOnboarding, setIsOnboarding] = useState(false)
+  const [reqRetrain, setReqRetrain] = useState(false)
+  const [changeSummary, setChangeSummary] = useState('')
   const [steps, setSteps] = useState<Step[]>([emptyStep()])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -104,6 +106,7 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
     setKind('TRAINING'); setSectionIds([])
     setDepartmentId(''); setLinkedTaskId('')
     setRequiresSignOff(false); setIsOnboarding(false)
+    setReqRetrain(false); setChangeSummary('')
     setSteps([emptyStep()])
     setError(''); setOpen(true)
   }
@@ -114,6 +117,7 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
     setKind(m.kind ?? 'TRAINING'); setSectionIds((m.resourceSections ?? []).map((r) => r.sectionId))
     setDepartmentId(m.departmentId ?? ''); setLinkedTaskId(m.linkedTaskId ?? '')
     setRequiresSignOff(m.requiresSignOff); setIsOnboarding(m.isOnboarding)
+    setReqRetrain(false); setChangeSummary('')
     setSteps(
       m.steps.length
         ? m.steps.map((s) => ({
@@ -158,6 +162,7 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
       departmentId: departmentId || null,
       linkedTaskId: linkedTaskId || null,
       requiresSignOff, isOnboarding,
+      ...(editing ? { requireRetrain: reqRetrain, changeSummary } : {}),
       steps: cleanSteps.map((s) => ({
         title: s.title || null,
         content: s.content,
@@ -324,6 +329,19 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
               </div>
             ))}
           </div>
+
+          {editing && (
+            <div className="border-l-4 border-l-warning pl-3 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={reqRetrain} onChange={(e) => setReqRetrain(e.target.checked)} className="w-4 h-4 accent-white" />
+                <span className="font-mono text-xs uppercase text-white">Require re-training (notify staff of this change)</span>
+              </label>
+              {reqRetrain && (
+                <Input label="What changed? (optional)" value={changeSummary} onChange={(e) => setChangeSummary(e.target.value)} placeholder="e.g. UPDATED MILK TEMPERATURE" />
+              )}
+              <p className="font-mono text-xs text-grey-light">POSTS A MUST-ACKNOWLEDGE NOTICE TO THE RELEVANT GROUP; STAFF TAP GOT IT TO CONFIRM.</p>
+            </div>
+          )}
 
           {error && <p className="font-mono text-xs text-danger">{error}</p>}
           <div className="flex gap-2 pt-2">

@@ -175,7 +175,35 @@ generalisation + one new link** — not a rebuild. All four phases are now live:
 
 ---
 
-## 5 · Using it day to day
+## 5 · Checklists & re-train (built 2026-06-16)
+
+**One task, used in many places.** Checklists (formerly "templates") no longer
+hold *copies* of tasks — that caused the duplication. A `Checklist` is an ordered
+set of references to **live** `Task` rows. Edit a task (or its SOP) once and every
+checklist that includes it is instantly current.
+
+```
+TASK "Wipe down bar surfaces" (v3)   ← single source of truth
+  ├─ referenced by checklist "Bar open"
+  └─ referenced by checklist "Close down"     edit once → both update
+```
+
+Tasks and checklists live on **one page** (`/admin/tasks`, TASKS / CHECKLISTS
+tabs). The old `/admin/templates` redirects here.
+
+**Significant change → re-train.** When you edit a task or SOP and tick
+**Require re-training**, its `version` bumps and a must-acknowledge **RE-TRAIN
+notice** is posted to the relevant group. Staff confirm with **GOT IT** on their
+phone (`/w/notices`); you see who's across it on `/admin/notices`. Trivial edits
+(leave the box unticked) don't notify anyone.
+
+```
+edit task/SOP + tick "Require re-training"
+   └─► version++  +  RE-TRAIN notice (must-ack) to the department
+          └─► staff tap GOT IT  →  manager sees confirmations
+```
+
+## 6 · Using it day to day
 
 - **Managers** set up the structure (departments → sections → tasks + the
   knowledge that backs them), roster shifts, and post notices. They review

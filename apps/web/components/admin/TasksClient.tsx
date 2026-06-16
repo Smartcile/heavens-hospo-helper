@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
+import { ChecklistsPanel } from '@/components/admin/ChecklistsPanel'
 
 interface Task {
   id: string
@@ -85,6 +86,9 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
   const [error, setError] = useState('')
   const [filterVenue, setFilterVenue] = useState(role === 'MANAGER' ? sessionVenueId : '')
   const [filterDept, setFilterDept] = useState('')
+  const [view, setView] = useState<'tasks' | 'checklists'>('tasks')
+  const [requireRetrain, setRequireRetrain] = useState(false)
+  const [changeSummary, setChangeSummary] = useState('')
 
   async function load() {
     const params = new URLSearchParams()
@@ -112,6 +116,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
   function openCreate() {
     setEditing(null)
     setForm({ ...EMPTY_FORM, venueId: role === 'MANAGER' ? sessionVenueId : '' })
+    setRequireRetrain(false); setChangeSummary('')
     setError('')
     setModalOpen(true)
   }
@@ -130,6 +135,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
       customCron: t.customCron ?? '',
       requiredTrainingIds: (t.requiredTraining ?? []).map((r) => r.moduleId),
     })
+    setRequireRetrain(false); setChangeSummary('')
     setError('')
     setModalOpen(true)
   }
@@ -164,6 +170,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
         requiredTrainingIds: form.requiredTrainingIds,
         customCron: form.scheduleType === 'CUSTOM' ? form.customCron : null,
         scheduleDays: form.scheduleType === 'DAILY' ? [] : form.scheduleDays,
+        ...(editing ? { requireRetrain, changeSummary } : {}),
       }),
     })
 
@@ -246,9 +253,25 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="font-mono text-xl font-bold uppercase tracking-widest">TASKS</h1>
-        <Button onClick={openCreate} size="sm">+ NEW TASK</Button>
+        {view === 'tasks' && <Button onClick={openCreate} size="sm">+ NEW TASK</Button>}
       </div>
 
+      <div className="flex gap-2 flex-wrap">
+        {([['tasks', 'TASKS'], ['checklists', 'CHECKLISTS']] as [typeof view, string][]).map(([v, label]) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={`font-mono text-xs uppercase px-3 py-2 border transition-colors ${view === v ? 'bg-white text-black border-white' : 'border-grey-mid text-grey-light hover:border-white hover:text-white'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'checklists' ? (
+        <ChecklistsPanel role={role} sessionVenueId={sessionVenueId} />
+      ) : (
+      <>
       <div className="flex gap-3 flex-wrap">
         {role === 'ADMIN' && (
           <div className="w-48">
@@ -316,6 +339,8 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
             <p className="font-mono text-xs text-grey-light">NO TASKS FOUND.</p>
           )}
         </div>
+      )}
+      </>
       )}
 
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'EDIT TASK' : 'NEW TASK'} size="lg">
@@ -430,6 +455,19 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
               <p className="font-mono text-xs text-grey-light">
                 FORMAT: MIN HOUR DOM MON DOW — e.g. 0 8 * * 1-5 (weekdays at 8am)
               </p>
+            </div>
+          )}
+
+          {editing && (
+            <div className="border-l-4 border-l-warning pl-3 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={requireRetrain} onChange={(e) => setRequireRetrain(e.target.checked)} className="w-4 h-4 accent-white" />
+                <span className="font-mono text-xs uppercase text-white">Require re-training (notify staff of this change)</span>
+              </label>
+              {requireRetrain && (
+                <Input label="What changed? (optional)" value={changeSummary} onChange={(e) => setChangeSummary(e.target.value)} placeholder="e.g. NEW GLASS-RINSE STEP ADDED" />
+              )}
+              <p className="font-mono text-xs text-grey-light">POSTS A MUST-ACKNOWLEDGE NOTICE TO THE RELEVANT GROUP; STAFF TAP GOT IT TO CONFIRM.</p>
             </div>
           )}
 

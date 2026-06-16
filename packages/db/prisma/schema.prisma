@@ -93,6 +93,7 @@ model Venue {
   calendarEvents CalendarEvent[]
   sections    Section[]
   followUps   FollowUp[]
+  checklists  Checklist[]
 }
 
 model Department {
@@ -113,6 +114,7 @@ model Department {
   shifts Shift[]
   notices Notice[]
   sections Section[]
+  checklists Checklist[]
 }
 
 model Staff {
@@ -163,6 +165,7 @@ model Task {
   customCron        String?
   isActive          Boolean      @default(true)
   sortOrder         Int          @default(0)
+  version           Int          @default(1) // bumped on a "significant change" (drives re-train)
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
   deletedAt         DateTime?
@@ -174,6 +177,7 @@ model Task {
   trainingSteps    TrainingStep[]   @relation("StepLinkedTask")
   trainingModules  TrainingModule[] @relation("ModuleLinkedTask")
   requiredTraining TaskRequiredTraining[]
+  checklistLinks   ChecklistTask[]
   followUps        FollowUp[]
 }
 
@@ -250,6 +254,7 @@ model TrainingModule {
   departmentId    String?             // if set, auto-applies to all staff in this department
   linkedTaskId    String?             // if set, this guide is the how-to for a task
   kind            ResourceKind @default(TRAINING) // TRAINING (sign-off-able) | SOP | FAQ | HOWTO (reference)
+  version         Int       @default(1) // bumped on a "significant change" (drives re-train)
   requiresSignOff Boolean   @default(false) // true = a manager must sign off; false = staff self-complete
   isOnboarding    Boolean   @default(false) // part of the onboarding checklist (applies to all staff)
   onboardingOrder Int       @default(0)
@@ -484,6 +489,44 @@ model BudgetDayAllocation {
   @@unique([budgetPeriodId, date])
 }
 
+// --- CHECKLISTS (live task references — single source of truth) ---
+
+// A named, ordered list of LIVE tasks (not copies). Editing a task updates it
+// everywhere it appears. A task can belong to many checklists.
+model Checklist {
+  id           String    @id @default(uuid())
+  name         String              // ALL CAPS
+  description  String?
+  venueId      String
+  departmentId String?
+  sectionId    String?
+  sortOrder    Int       @default(0)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  venue      Venue       @relation(fields: [venueId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+  section    Section?    @relation(fields: [sectionId], references: [id])
+  tasks      ChecklistTask[]
+
+  @@index([venueId])
+}
+
+model ChecklistTask {
+  id          String   @id @default(uuid())
+  checklistId String
+  taskId      String
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  checklist Checklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([checklistId, taskId])
+}
+
 // --- SECTION ECOSYSTEM (Phase A–D) ---
 
 // A station within a department, e.g. Bar / Coffee / Cabinet under "Front of house".
@@ -505,6 +548,7 @@ model Section {
   tasks      Task[]
   staff      StaffSection[]
   resources  ResourceSection[]
+  checklists Checklist[]
 
   @@index([venueId])
   @@index([departmentId])

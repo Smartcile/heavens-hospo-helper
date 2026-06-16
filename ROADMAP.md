@@ -45,6 +45,11 @@ The model that links sections, tasks and knowledge into one followed-up loop.
 ✅ **C · Competency link** — `Task ⇄ Training` "requires" relation (`TaskRequiredTraining`), set per task; competency = existing `TrainingCompletion`.
 ✅ **D · Trigger engine + notifications** — `FollowUp` model + `lib/followups.ts`: done-but-untrained raises a follow-up at completion time; missed assigned tasks raise one and auto-assign the training. Surfaced at `/admin/followups` (resolve / one-click sign-off). In-app for now; push / WhatsApp later.
 
+## CHECKLISTS + RE-TRAIN (BUILT 2026-06-16)
+✅ **Tasks + Checklists merged** — Templates retired; a `Checklist` is now an ordered set of references to **live tasks** (`ChecklistTask`), not copies. Editing a task updates every checklist automatically. Managed via a CHECKLISTS tab on the Tasks page (`/admin/templates` redirects to `/admin/tasks`).
+✅ **Change → re-train** — editing a task or SOP with "Require re-training" ticked bumps its `version` and auto-posts a must-acknowledge `RE-TRAIN` notice to the relevant group; staff confirm with GOT IT on `/w/notices`, managers see who's across it on `/admin/notices`. (`lib/retrain.ts`.)
+✅ **Grouped side nav** — the admin sidebar is now collapsible groups (Overview / Organisation / Work / Daily ops / Finance + Settings); the active group auto-opens. Mobile burger drawer uses the same groups.
+
 ## PHASE 3 — TRAINING
 ✅ **Training modules / guides** — authored in admin, with step-by-step content, **photos** (upload) and **video links**
 ✅ **Assignment** — onboarding (all staff), by department (auto), individually assigned (upskill / area to work on), and **task-linked** guides

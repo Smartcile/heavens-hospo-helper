@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { postRetrainNotice } from '@/lib/retrain'
 
 interface Params {
   params: { id: string }
@@ -85,11 +86,27 @@ export async function PUT(req: NextRequest, { params }: Params) {
     }
   }
 
+  // "Significant change" → bump version + post a re-train notice to the group.
+  const requireRetrain = !!body.requireRetrain
+  if (requireRetrain) updates.version = { increment: 1 }
+
   const trainingModule = await prisma.trainingModule.update({
     where: { id: params.id },
     data: updates,
     include: { steps: { orderBy: { order: 'asc' } } },
   })
+
+  if (requireRetrain) {
+    try {
+      await postRetrainNotice({
+        venueId: trainingModule.venueId,
+        departmentId: trainingModule.departmentId,
+        title: trainingModule.title,
+        summary: body.changeSummary ?? null,
+        createdById: session.user.id,
+      })
+    } catch { /* never block the save */ }
+  }
 
   return NextResponse.json(trainingModule)
 }

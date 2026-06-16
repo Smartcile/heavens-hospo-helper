@@ -244,6 +244,26 @@ a burger button that opens an off-canvas drawer (closes on route change /
 backdrop tap). The protected layout adds `pt-14 md:pt-0` so content clears the
 fixed mobile bar.
 
+### Checklists (live task references) + re-train
+- **Merged Tasks + Checklists.** The old copy-based `TaskTemplate` is retired from
+  the UI (`/admin/templates` → redirects to `/admin/tasks`). A `Checklist` is an
+  ordered set of references to **live** `Task` rows via `ChecklistTask`
+  (`@@unique([checklistId, taskId])`). Editing a task updates every checklist —
+  single source of truth, no duplication. Managed on the Tasks page under a
+  CHECKLISTS tab (`ChecklistsPanel`); APIs at `/api/admin/checklists(+/[id])`.
+  Ordering is by `sortOrder` (up/down in the editor; drag deferred).
+- **Re-train on significant change.** `Task.version` / `TrainingModule.version`
+  bump when a save includes `requireRetrain: true` (a "Require re-training"
+  toggle on the Task and Training edit forms, with an optional `changeSummary`).
+  `lib/retrain.ts:postRetrainNotice` then auto-creates a must-acknowledge
+  `Notice` (priority IMPORTANT, pinned) targeted at the item's department (null =
+  whole venue). Staff acknowledge via the existing `/w/notices` GOT IT flow;
+  managers track acks on `/admin/notices`. Reuses notice/ack infra — no new
+  worker screen. Best-effort (never blocks the save).
+- **Grouped admin nav.** `AdminNav` renders collapsible groups (Overview /
+  Organisation / Work / Daily ops / Finance + a standalone Settings); the active
+  group auto-opens; the mobile burger drawer shares the same groups.
+
 ### Section ecosystem (Phases A–D, built)
 A layer between department and the work, plus a follow-up trigger loop. Full
 write-up in `ECOSYSTEM.md`; keep it in sync.
