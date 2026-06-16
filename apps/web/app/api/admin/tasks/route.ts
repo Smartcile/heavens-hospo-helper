@@ -49,6 +49,9 @@ export async function POST(req: NextRequest) {
     scheduleType,
     scheduleDays,
     customCron,
+    intervalMonths,
+    monthlyOption,
+    monthlyDay,
     requiredTrainingIds,
   } = body
 
@@ -83,6 +86,9 @@ export async function POST(req: NextRequest) {
       scheduleType: scheduleType ?? 'DAILY',
       scheduleDays: scheduleDays ?? [],
       customCron: customCron ?? null,
+      intervalMonths: Math.max(1, Number(intervalMonths) || 1),
+      monthlyOption: scheduleType === 'MONTHLY' ? (monthlyOption ?? 'FIRST_DAY') : null,
+      monthlyDay: scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? (Number(monthlyDay) || 1) : null,
       sortOrder: (maxSort?.sortOrder ?? -1) + 1,
       requiredTraining: { create: reqIds.map((moduleId) => ({ moduleId })) },
     },

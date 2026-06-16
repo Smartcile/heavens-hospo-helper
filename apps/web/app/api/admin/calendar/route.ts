@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
     }),
     prisma.task.findMany({
       where: { deletedAt: null, isActive: true, ...(venueScope ? { venueId: venueScope } : {}) },
-      select: { scheduleType: true, scheduleDays: true, customCron: true },
+      select: { scheduleType: true, scheduleDays: true, customCron: true, intervalMonths: true, monthlyOption: true, monthlyDay: true, createdAt: true },
     }),
     prisma.calendarEvent.findMany({
       where: {

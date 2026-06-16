@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { moveItem } from '@/lib/array'
+import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 
 interface Task {
   id: string
@@ -20,6 +21,9 @@ interface Task {
   scheduleType: string
   scheduleDays: number[]
   customCron: string | null
+  intervalMonths: number
+  monthlyOption: string | null
+  monthlyDay: number | null
   isActive: boolean
   sortOrder: number
   department: { id: string; name: string; colour: string | null } | null
@@ -58,12 +62,16 @@ interface FormState {
   scheduleType: string
   scheduleDays: number[]
   customCron: string
+  intervalMonths: number
+  monthlyOption: string
+  monthlyDay: number
   requiredTrainingIds: string[]
 }
 
 const EMPTY_FORM: FormState = {
   title: '', description: '', venueId: '', departmentId: '', sectionId: '',
-  completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '', requiredTrainingIds: [],
+  completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
+  intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, requiredTrainingIds: [],
 }
 
 const COMPLETION_OPTIONS = [
@@ -74,6 +82,7 @@ const COMPLETION_OPTIONS = [
 const SCHEDULE_OPTIONS = [
   { value: 'DAILY', label: 'DAILY' },
   { value: 'WEEKLY', label: 'WEEKLY (SELECT DAYS)' },
+  { value: 'MONTHLY', label: 'MONTHLY' },
   { value: 'CUSTOM', label: 'CUSTOM (CRON)' },
 ]
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
@@ -152,7 +161,9 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
       title: t.title, description: t.description ?? '', venueId: t.venueId,
       departmentId: t.departmentId ?? '', sectionId: t.sectionId ?? '',
       completionType: t.completionType, scheduleType: t.scheduleType, scheduleDays: t.scheduleDays,
-      customCron: t.customCron ?? '', requiredTrainingIds: (t.requiredTraining ?? []).map((r) => r.moduleId),
+      customCron: t.customCron ?? '',
+      intervalMonths: t.intervalMonths ?? 1, monthlyOption: t.monthlyOption ?? 'FIRST_DAY', monthlyDay: t.monthlyDay ?? 1,
+      requiredTrainingIds: (t.requiredTraining ?? []).map((r) => r.moduleId),
     })
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
@@ -315,14 +326,12 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
         <div className="min-w-0 flex-1">
           <div className="font-mono text-sm font-semibold uppercase text-white truncate">{t.title}</div>
           {t.description && <p className="font-mono text-xs text-grey-light truncate">{t.description}</p>}
-          {labels.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-0.5">
-              {labels.map((l) => <span key={l.text} className={`font-mono text-[10px] uppercase ${l.cls}`}>{l.text}</span>)}
-            </div>
-          )}
+          <div className="flex flex-wrap gap-1.5 mt-0.5 items-center">
+            <span className="font-mono text-[10px] uppercase text-grey-light border border-grey-mid px-1 py-0.5">{describeSchedule(t)}</span>
+            {labels.map((l) => <span key={l.text} className={`font-mono text-[10px] uppercase ${l.cls}`}>{l.text}</span>)}
+          </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <Badge>{t.scheduleType}</Badge>
           <button onClick={() => toggleActive(t)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">{t.isActive ? 'OFF' : 'ON'}</button>
           <button onClick={() => openEdit(t)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">EDIT</button>
           <button onClick={() => handleDelete(t.id)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">DEL</button>
@@ -530,6 +539,19 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
             <Select label="Completion Type" value={form.completionType} onChange={(e) => setForm({ ...form, completionType: e.target.value })} options={COMPLETION_OPTIONS} />
             <Select label="Schedule" value={form.scheduleType} onChange={(e) => setForm({ ...form, scheduleType: e.target.value, scheduleDays: [] })} options={SCHEDULE_OPTIONS} />
           </div>
+
+          {form.scheduleType === 'MONTHLY' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <Select label="When in the month" value={form.monthlyOption} onChange={(e) => setForm({ ...form, monthlyOption: e.target.value })} options={MONTHLY_OPTIONS} />
+                <Input label="Every (months)" type="number" min={1} value={String(form.intervalMonths)} onChange={(e) => setForm({ ...form, intervalMonths: Math.max(1, Number(e.target.value) || 1) })} />
+              </div>
+              {form.monthlyOption === 'SPECIFIC_DAY' && (
+                <Input label="Day of month (1–31)" type="number" min={1} max={31} value={String(form.monthlyDay)} onChange={(e) => setForm({ ...form, monthlyDay: Math.min(31, Math.max(1, Number(e.target.value) || 1)) })} />
+              )}
+              <p className="font-mono text-xs text-grey-light">E.G. END OF MONTH, EVERY 3 MONTHS. &ldquo;EVERY&rdquo; COUNTS FROM WHEN THE TASK WAS CREATED.</p>
+            </div>
+          )}
 
           {form.scheduleType === 'WEEKLY' && (
             <div className="flex flex-col gap-1">

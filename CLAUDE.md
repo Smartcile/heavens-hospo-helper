@@ -339,8 +339,18 @@ Tasks are filtered on-demand (no generation table). `lib/scheduling.ts`
 task list, the dashboard, and the overdue engine:
 - `DAILY`: always due
 - `WEEKLY`: due if `scheduleDays` contains the date's day-of-week (0=Sun)
+- `MONTHLY`: due if the date matches `monthlyOption` (FIRST_DAY / LAST_DAY /
+  FIFTEENTH / FIRST_WEEKDAY / LAST_WEEKDAY / FIRST_MONDAY / LAST_FRIDAY /
+  SPECIFIC_DAY+`monthlyDay`) AND, when `intervalMonths` > 1, the month is on the
+  every-N cadence anchored on `createdAt`'s month.
 - `CUSTOM`: due if the `customCron` expression fires on that date (evaluated
   with `cron-parser`, day-granular)
+
+`describeSchedule(task)` (also in `lib/scheduling.ts`) renders the human label
+shown on each task — e.g. "MON, WED, FRI" or "EVERY 3 MONTHS · END OF MONTH".
+`MONTHLY_OPTIONS` is the option list for the task form. Routes that evaluate
+due-dates must select the monthly fields + `createdAt` (worker/overdue/dashboard
+use full task objects; calendar + `lib/followups.ts` select them explicitly).
 
 **Per-venue timezone:** "today" is computed in each venue's own timezone via
 `getTodayDate(venue.timezone)` (set on the venue, default `Pacific/Auckland`).

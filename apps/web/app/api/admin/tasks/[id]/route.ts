@@ -23,6 +23,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.scheduleType !== undefined) updates.scheduleType = body.scheduleType
   if (body.scheduleDays !== undefined) updates.scheduleDays = body.scheduleDays
   if (body.customCron !== undefined) updates.customCron = body.customCron ?? null
+  if (body.intervalMonths !== undefined) updates.intervalMonths = Math.max(1, Number(body.intervalMonths) || 1)
+  if (body.monthlyOption !== undefined) updates.monthlyOption = body.monthlyOption || null
+  if (body.monthlyDay !== undefined) updates.monthlyDay = body.monthlyDay != null ? (Number(body.monthlyDay) || 1) : null
   if (body.isActive !== undefined) updates.isActive = body.isActive
   if (body.sortOrder !== undefined) updates.sortOrder = body.sortOrder
 
