@@ -13,7 +13,9 @@
     "db:generate": "turbo run db:generate",
     "db:migrate": "turbo run db:migrate",
     "db:seed": "turbo run db:seed",
-    "db:reset": "turbo run db:reset"
+    "db:reset": "turbo run db:reset",
+    "docs:check": "node scripts/check-docs.mjs",
+    "prepush": "npm run docs:check"
   },
   "devDependencies": {
     "@types/node": "^20.12.0",
