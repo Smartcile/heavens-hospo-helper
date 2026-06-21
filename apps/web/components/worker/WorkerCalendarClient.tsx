@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatBreaks } from '@/lib/breaks'
+import { WorkerHamburgerMenu } from '@/components/worker/WorkerHamburgerMenu'
 
 interface Shift {
   id: string
@@ -30,6 +31,7 @@ export function WorkerCalendarClient() {
   const router = useRouter()
   const [shifts, setShifts] = useState<Shift[]>([])
   const [timeOff, setTimeOff] = useState<TimeOff[]>([])
+  const [firstName, setFirstName] = useState('')
   const [loading, setLoading] = useState(true)
 
   const [start, setStart] = useState('')
@@ -45,6 +47,7 @@ export function WorkerCalendarClient() {
     const data = await r.json()
     setShifts(data.shifts ?? [])
     setTimeOff(data.timeOff ?? [])
+    setFirstName(data.firstName ?? '')
     setLoading(false)
   }
 
@@ -77,10 +80,7 @@ export function WorkerCalendarClient() {
     <div className="min-h-screen bg-black">
       <div className="px-4 pt-6 pb-4 border-b border-grey-mid flex items-start justify-between">
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">MY SCHEDULE</h1>
-        <div className="flex gap-3 mt-1">
-          <button onClick={() => router.push('/w/dashboard')} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">DASHBOARD →</button>
-          <button onClick={() => router.push('/w/tasks')} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">TASKS →</button>
-        </div>
+        <WorkerHamburgerMenu firstName={firstName} />
       </div>
 
       {/* Upcoming shifts */}

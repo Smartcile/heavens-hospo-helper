@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import type { WorkerTaskView } from '@hospo-ops/types'
+import { WorkerHamburgerMenu } from '@/components/worker/WorkerHamburgerMenu'
 
 type TaskState = WorkerTaskView
 type ModalTask = TaskState | null
@@ -21,7 +22,6 @@ export function WorkerTasksClient() {
   const [completing, setCompleting] = useState(false)
   const [completionError, setCompletionError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
-  const [noticeCount, setNoticeCount] = useState(0)
 
   const expiryMinutes = Number(process.env.NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES ?? 15)
 
@@ -54,13 +54,6 @@ export function WorkerTasksClient() {
   }
 
   useEffect(() => { load() }, [])
-
-  useEffect(() => {
-    fetch('/api/worker/notices')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d) setNoticeCount(d.unackedRequired ?? 0) })
-      .catch(() => {})
-  }, [])
 
   function openTask(t: TaskState) {
     if (t.isCompleted) return
@@ -103,11 +96,6 @@ export function WorkerTasksClient() {
     setCompleting(false)
     setActiveTask(null)
     await load()
-  }
-
-  async function handleLogout() {
-    await fetch('/api/worker/logout', { method: 'POST' })
-    router.push('/w/login')
   }
 
   const pending = tasks.filter((t) => !t.isCompleted)
@@ -203,27 +191,26 @@ export function WorkerTasksClient() {
 
   if (allDone) {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-center gap-6">
-        <div className="w-16 h-16 border-4 border-success flex items-center justify-center">
-          <svg className="w-8 h-8 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M5 13l4 4L19 7" />
-          </svg>
+      <div className="min-h-screen bg-black flex flex-col">
+        <div className="px-4 pt-6 pb-4 border-b border-grey-mid flex items-start justify-end">
+          <WorkerHamburgerMenu firstName={firstName} />
         </div>
-        <div>
-          <h1 className="font-mono text-2xl font-bold uppercase tracking-widest text-success">
-            ALL DONE
-          </h1>
-          <p className="font-mono text-sm text-white mt-1 uppercase">NICE WORK, {firstName}!</p>
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-6">
+          <div className="w-16 h-16 border-4 border-success flex items-center justify-center">
+            <svg className="w-8 h-8 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="font-mono text-2xl font-bold uppercase tracking-widest text-success">
+              ALL DONE
+            </h1>
+            <p className="font-mono text-sm text-white mt-1 uppercase">NICE WORK, {firstName}!</p>
+          </div>
+          <p className="font-mono text-xs text-grey-light uppercase">
+            {tasks.length} TASK{tasks.length !== 1 ? 'S' : ''} COMPLETED TODAY
+          </p>
         </div>
-        <p className="font-mono text-xs text-grey-light uppercase">
-          {tasks.length} TASK{tasks.length !== 1 ? 'S' : ''} COMPLETED TODAY
-        </p>
-        <button
-          onClick={handleLogout}
-          className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors mt-4"
-        >
-          SIGN OUT
-        </button>
       </div>
     )
   }
@@ -241,44 +228,7 @@ export function WorkerTasksClient() {
               {done.length} OF {tasks.length} TASKS COMPLETE
             </p>
           </div>
-          <div className="flex flex-col items-end gap-1 mt-1">
-            <button
-              onClick={() => router.push('/w/dashboard')}
-              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
-            >
-              DASHBOARD →
-            </button>
-            <button
-              onClick={() => router.push('/w/notices')}
-              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
-            >
-              NOTICES{noticeCount > 0 ? ` (${noticeCount})` : ''} →
-            </button>
-            <button
-              onClick={() => router.push('/w/calendar')}
-              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
-            >
-              MY SCHEDULE →
-            </button>
-            <button
-              onClick={() => router.push('/w/training')}
-              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
-            >
-              MY TRAINING →
-            </button>
-            <button
-              onClick={() => router.push('/w/sops')}
-              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
-            >
-              SOPS & GUIDES →
-            </button>
-            <button
-              onClick={handleLogout}
-              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
-            >
-              SIGN OUT
-            </button>
-          </div>
+          <WorkerHamburgerMenu firstName={firstName} />
         </div>
 
         {/* Progress bar */}

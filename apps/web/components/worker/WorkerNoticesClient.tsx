@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { WorkerHamburgerMenu } from '@/components/worker/WorkerHamburgerMenu'
 
 interface Notice {
   id: string
@@ -17,6 +18,7 @@ interface Notice {
 export function WorkerNoticesClient() {
   const router = useRouter()
   const [items, setItems] = useState<Notice[]>([])
+  const [firstName, setFirstName] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
 
@@ -25,6 +27,7 @@ export function WorkerNoticesClient() {
     if (r.status === 401) { router.push('/w/login'); return }
     const data = await r.json()
     setItems(data.items ?? [])
+    setFirstName(data.firstName ?? '')
     setLoading(false)
   }
 
@@ -45,10 +48,7 @@ export function WorkerNoticesClient() {
     <div className="min-h-screen bg-black">
       <div className="px-4 pt-6 pb-4 border-b border-grey-mid flex items-start justify-between">
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">NOTICES</h1>
-        <div className="flex gap-3 mt-1">
-          <button onClick={() => router.push('/w/dashboard')} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">DASHBOARD →</button>
-          <button onClick={() => router.push('/w/tasks')} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">TASKS →</button>
-        </div>
+        <WorkerHamburgerMenu firstName={firstName} />
       </div>
 
       <div className="px-4 py-4 space-y-2">

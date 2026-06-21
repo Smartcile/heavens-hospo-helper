@@ -36,5 +36,5 @@ export async function GET() {
 
   const unackedRequired = items.filter((n) => n.requiresAck && !n.acked).length
 
-  return NextResponse.json({ items, unackedRequired })
+  return NextResponse.json({ firstName: session.firstName, items, unackedRequired })
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { WorkerHamburgerMenu } from '@/components/worker/WorkerHamburgerMenu'
 
 interface DashData {
   firstName: string
@@ -89,11 +90,6 @@ export function WorkerDashboardClient() {
 
   useEffect(() => { load() }, [])
 
-  async function handleLogout() {
-    await fetch('/api/worker/logout', { method: 'POST' })
-    router.push('/w/login')
-  }
-
   const getGreeting = () => {
     const h = new Date().getHours()
     if (h < 12) return 'GOOD MORNING'
@@ -120,12 +116,7 @@ export function WorkerDashboardClient() {
             </h1>
             <p className="font-mono text-xs text-grey-light mt-0.5 uppercase">TAP A SECTION TO OPEN</p>
           </div>
-          <button
-            onClick={handleLogout}
-            className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors mt-1"
-          >
-            SIGN OUT
-          </button>
+          <WorkerHamburgerMenu firstName={data?.firstName ?? ''} />
         </div>
       </div>
 
