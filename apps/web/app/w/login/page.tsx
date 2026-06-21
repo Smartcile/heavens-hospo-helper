@@ -1,9 +1,11 @@
 'use client'
 
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useState, Suspense } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 
-function PinPad({ token }: { token: string }) {
+interface Venue { id: string; name: string }
+
+function PinPad({ venueId }: { venueId: string }) {
   const router = useRouter()
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
@@ -33,7 +35,7 @@ function PinPad({ token }: { token: string }) {
     const r = await fetch('/api/worker/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, pin }),
+      body: JSON.stringify({ venueId, pin }),
     })
 
     const data = await r.json()
@@ -124,6 +126,68 @@ function PinPad({ token }: { token: string }) {
         >
           CLEAR
         </button>
+
+        <div className="text-center">
+          <button
+            onClick={() => router.push('/w/login')}
+            className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+          >
+            ← DIFFERENT VENUE
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function VenuePicker() {
+  const router = useRouter()
+  const [venues, setVenues] = useState<Venue[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/venues')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => { setVenues(data); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <p className="font-mono text-sm text-grey-light loading-cursor">LOADING</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6">
+      <div className="w-full max-w-sm space-y-6">
+        <div className="text-center">
+          <h1 className="font-mono text-2xl font-bold uppercase tracking-widest text-white">
+            HOSPO OPS
+          </h1>
+          <p className="font-mono text-xs text-grey-light mt-1 uppercase tracking-wider">
+            SELECT YOUR VENUE
+          </p>
+        </div>
+
+        {venues.length === 0 && (
+          <p className="font-mono text-xs text-grey-light text-center">NO VENUES AVAILABLE.</p>
+        )}
+
+        <div className="space-y-3">
+          {venues.map((v) => (
+            <button
+              key={v.id}
+              onClick={() => router.push(`/w/login?venue=${v.id}`)}
+              className="w-full bg-grey-dark border border-grey-mid p-6 text-left hover:border-white transition-colors active:bg-black flex flex-col gap-1"
+            >
+              <span className="font-mono text-lg font-bold uppercase text-white">{v.name}</span>
+              <span className="font-mono text-xs text-grey-light uppercase">TAP TO ENTER PIN</span>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -131,24 +195,13 @@ function PinPad({ token }: { token: string }) {
 
 function LoginContent() {
   const searchParams = useSearchParams()
-  const token = searchParams.get('token')
+  const venueId = searchParams.get('venue')
 
-  if (!token) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center p-6">
-        <div className="text-center space-y-2">
-          <h1 className="font-mono text-xl font-bold uppercase tracking-widest text-danger">
-            INVALID QR CODE
-          </h1>
-          <p className="font-mono text-xs text-grey-light uppercase">
-            PLEASE SCAN A VALID QR CODE TO CONTINUE
-          </p>
-        </div>
-      </div>
-    )
+  if (venueId) {
+    return <PinPad venueId={venueId} />
   }
 
-  return <PinPad token={token} />
+  return <VenuePicker />
 }
 
 export default function WorkerLoginPage() {

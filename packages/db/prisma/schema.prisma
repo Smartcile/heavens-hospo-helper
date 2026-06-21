@@ -110,7 +110,6 @@ model Department {
   venue  Venue   @relation(fields: [venueId], references: [id])
   staff  Staff[]
   tasks  Task[]
-  qrCodes QRCode[]
   trainingModules TrainingModule[]
   shifts Shift[]
   notices Notice[]
@@ -201,18 +200,15 @@ model TaskCompletion {
 }
 
 model QRCode {
-  id           String    @id @default(uuid())
-  venueId      String
-  departmentId String?
-  label        String
-  token        String    @unique @default(uuid())
-  isActive     Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  deletedAt    DateTime?
+  id        String    @id @default(uuid())
+  venueId   String
+  label     String
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
-  venue      Venue       @relation(fields: [venueId], references: [id])
-  department Department? @relation(fields: [departmentId], references: [id])
+  venue Venue @relation(fields: [venueId], references: [id])
 }
 
 // --- TASK TEMPLATES (Phase 2) ---

@@ -5,33 +5,19 @@ import { createWorkerSession, workerCookieSecure } from '@/lib/worker-session'
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { token, pin } = body
+  const { venueId, pin } = body
 
-  if (!token || !pin) {
-    return NextResponse.json({ error: 'Token and PIN required' }, { status: 400 })
+  if (!venueId || !pin) {
+    return NextResponse.json({ error: 'Venue and PIN required' }, { status: 400 })
   }
 
-  // Validate QR token
-  const qrCode = await prisma.qRCode.findFirst({
-    where: { token, isActive: true, deletedAt: null },
-    include: {
-      venue: true,
-      department: true,
-    },
-  })
-
-  if (!qrCode) {
-    return NextResponse.json({ error: 'INVALID OR EXPIRED QR CODE' }, { status: 401 })
-  }
-
-  // Find staff matching PIN in this venue (and optionally department)
+  // Find staff matching PIN in this venue
   const staffList = await prisma.staff.findMany({
     where: {
-      venueId: qrCode.venueId,
+      venueId,
       isActive: true,
       deletedAt: null,
-      pin: { not: null }, // only staff who have a worker PIN set
-      ...(qrCode.departmentId ? { departmentId: qrCode.departmentId } : {}),
+      pin: { not: null },
     },
   })
 
@@ -51,8 +37,8 @@ export async function POST(req: NextRequest) {
 
   const sessionToken = await createWorkerSession({
     staffId: matched.id,
-    venueId: qrCode.venueId,
-    departmentId: qrCode.departmentId,
+    venueId,
+    departmentId: matched.departmentId,
     firstName: matched.firstName,
   })
 

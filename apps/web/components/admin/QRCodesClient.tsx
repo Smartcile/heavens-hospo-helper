@@ -12,29 +12,24 @@ interface QRCodeItem {
   id: string
   label: string
   venueId: string
-  departmentId: string | null
   isActive: boolean
   url: string
   qrDataUrl: string
   venue: { id: string; name: string }
-  department: { id: string; name: string } | null
 }
 
 interface Venue { id: string; name: string }
-interface Department { id: string; name: string; venueId: string }
 
 interface FormState {
   label: string
   venueId: string
-  departmentId: string
 }
 
-const EMPTY_FORM: FormState = { label: '', venueId: '', departmentId: '' }
+const EMPTY_FORM: FormState = { label: '', venueId: '' }
 
 export function QRCodesClient({ role, sessionVenueId }: { role: string; sessionVenueId: string }) {
   const [codes, setCodes] = useState<QRCodeItem[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
-  const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [viewCode, setViewCode] = useState<QRCodeItem | null>(null)
@@ -43,15 +38,13 @@ export function QRCodesClient({ role, sessionVenueId }: { role: string; sessionV
   const [error, setError] = useState('')
 
   async function load() {
-    const [cR, vR, dR] = await Promise.all([
+    const [cR, vR] = await Promise.all([
       fetch('/api/admin/qrcodes'),
       fetch('/api/admin/venues'),
-      fetch('/api/admin/departments'),
     ])
-    const [codesData, venueData, deptData] = await Promise.all([cR.json(), vR.json(), dR.json()])
+    const [codesData, venueData] = await Promise.all([cR.json(), vR.json()])
     setCodes(codesData)
     setVenues(venueData)
-    setDepartments(deptData)
     setLoading(false)
   }
 
@@ -74,7 +67,7 @@ export function QRCodesClient({ role, sessionVenueId }: { role: string; sessionV
     const r = await fetch('/api/admin/qrcodes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, departmentId: form.departmentId || null }),
+      body: JSON.stringify({ venueId: form.venueId, label: form.label }),
     })
 
     if (!r.ok) {
@@ -98,16 +91,6 @@ export function QRCodesClient({ role, sessionVenueId }: { role: string; sessionV
     load()
   }
 
-  async function handleRegenerate(code: QRCodeItem) {
-    if (!confirm('REGENERATE TOKEN? THE OLD QR CODE WILL NO LONGER WORK.')) return
-    await fetch(`/api/admin/qrcodes/${code.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ regenerate: true }),
-    })
-    load()
-  }
-
   async function handleDelete(id: string) {
     if (!confirm('DELETE THIS QR CODE?')) return
     await fetch(`/api/admin/qrcodes/${id}`, { method: 'DELETE' })
@@ -122,12 +105,6 @@ export function QRCodesClient({ role, sessionVenueId }: { role: string; sessionV
   }
 
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
-  const deptOptions = [
-    { value: '', label: 'ALL DEPARTMENTS (VENUE-WIDE)' },
-    ...departments
-      .filter((d) => d.venueId === form.venueId)
-      .map((d) => ({ value: d.id, label: d.name })),
-  ]
 
   return (
     <div className="p-6 space-y-4">
@@ -149,9 +126,6 @@ export function QRCodesClient({ role, sessionVenueId }: { role: string; sessionV
                 <div>
                   <div className="font-mono font-semibold text-sm uppercase text-white">{code.label}</div>
                   <div className="font-mono text-xs text-grey-light">{code.venue.name}</div>
-                  {code.department && (
-                    <div className="font-mono text-xs text-grey-light">{code.department.name}</div>
-                  )}
                 </div>
                 <Badge variant={code.isActive ? 'success' : 'danger'}>
                   {code.isActive ? 'ACTIVE' : 'INACTIVE'}
@@ -176,9 +150,6 @@ export function QRCodesClient({ role, sessionVenueId }: { role: string; sessionV
                 <button onClick={() => handleToggle(code)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">
                   {code.isActive ? 'DEACTIVATE' : 'ACTIVATE'}
                 </button>
-                <button onClick={() => handleRegenerate(code)} className="font-mono text-xs uppercase text-grey-light hover:text-warning transition-colors">
-                  REGENERATE
-                </button>
                 <button onClick={() => handleDelete(code.id)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">
                   DELETE
                 </button>
@@ -200,17 +171,11 @@ export function QRCodesClient({ role, sessionVenueId }: { role: string; sessionV
             <Select
               label="Venue"
               value={form.venueId}
-              onChange={(e) => setForm({ ...form, venueId: e.target.value, departmentId: '' })}
+              onChange={(e) => setForm({ ...form, venueId: e.target.value })}
               options={venueOptions}
               placeholder="SELECT VENUE"
             />
           )}
-          <Select
-            label="Department (optional)"
-            value={form.departmentId}
-            onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
-            options={deptOptions}
-          />
           {error && <p className="font-mono text-xs text-danger">{error}</p>}
           <div className="flex gap-2 pt-2">
             <Button onClick={handleSave} loading={saving}>GENERATE</Button>

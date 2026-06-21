@@ -12,11 +12,10 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { isActive, regenerate } = body
+  const { isActive } = body
 
   const updates: Record<string, unknown> = {}
   if (isActive !== undefined) updates.isActive = isActive
-  if (regenerate) updates.token = crypto.randomUUID()
 
   const code = await prisma.qRCode.update({
     where: { id: params.id },
