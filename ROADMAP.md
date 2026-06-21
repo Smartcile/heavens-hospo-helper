@@ -57,6 +57,27 @@ The model that links sections, tasks and knowledge into one followed-up loop.
 ✅ **Timed lists** — a checklist can have an **"appears from" time** (`Checklist.appearFromTime`); on the floor it surfaces from that time and stays until every task in it is done for the day. The worker view groups by list (time-gated) first, then any other tasks by dept → section, with an "opens later" note for upcoming lists.
 ✅ **Tasks page editor polish** — the checklist editor is sticky (follows long task lists), the "add a task" dropdown is scoped to the checklist's department/section (drag in anything else), and the task list gained search + section + usage filters.
 
+## FLOOR PLANNER (Phase 1 design — see plan in conversation history)
+☐ **Phase 1 — Editor + basic views**
+  ☐ Prisma models: `FloorPlan` + `FloorPlanElement` + enums (`ElementType` / `ElementShape`)
+  ☐ Admin API: CRUD floor plans + bulk-save elements (`PUT /api/admin/floorplan/[id]/elements`)
+  ☐ Admin page: `/admin/floorplan` — list plans, create, edit
+  ☐ Visual editor (`FloorPlanEditor.tsx`, react-konva): room outline drawn to scale (real cm), drag-from-palette to place walls/tables/chairs/counters/bars/doors/windows/sinks/stairs/toilets, grid snapping, select→move→resize→rotate, colour/section-link/capacity properties, SAVE, EXPORT PNG
+  ☐ Worker API: `GET /api/worker/floorplan` (by JWT venue, returns default view)
+  ☐ Worker read-only page: `/w/floorplan` with view switcher if venue has multiple plans (slug-based), section-colour-coded elements, tap for details
+  ☐ Nav: admin sidebar under Organisation + burger menu FLOOR PLAN card + dashboard card
+  ☐ Polygons: data model supports `shape: POLYGON` + `vertices Json?` from day one; drawing tool comes later
+☐ **Phase 2 — Advanced drawing + calendar integration**
+  ☐ Polygon drawing tool (click vertices to define custom furniture/l-shaped bars/bends)
+  ☐ Calendar event floor plan switching — `CalendarEvent.floorPlanSlug` links events to alternate layouts
+  ☐ Worker auto-view-switch when event is active (banner: "EVENT MODE ACTIVE")
+  ☐ PDF export via jspdf
+  ☐ Undo/redo stack in editor
+☐ **Phase 3 — Operational overlays**
+  ☐ Overdue task overlay — colour zones by pending task count
+  ☐ Staff assignment pins — "YOU → Section B" on the plan
+  ☐ Multi-floor / zone support per venue
+
 ## PHASE 3 — TRAINING
 ✅ **Training modules / guides** — authored in admin, with step-by-step content, **photos** (upload) and **video links**
 ✅ **Assignment** — onboarding (all staff), by department (auto), individually assigned (upskill / area to work on), and **task-linked** guides

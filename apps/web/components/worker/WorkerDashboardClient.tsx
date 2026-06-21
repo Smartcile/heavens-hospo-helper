@@ -214,27 +214,41 @@ export function WorkerDashboardClient() {
         </button>
 
         {/* SOPs */}
-        <div className="sm:col-span-2">
-          <button
-            onClick={() => router.push('/w/sops')}
-            className="w-full bg-grey-dark border border-grey-mid p-5 text-left hover:border-white transition-colors active:bg-black flex flex-col gap-2"
-          >
-            <div className="flex items-center justify-between">
-              <div className="w-9 h-9 border border-grey-mid flex items-center justify-center">
-                <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="square" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              </div>
-              <span className="font-mono text-xs text-grey-light">{data?.sopCount} GUIDES</span>
+        <button
+          onClick={() => router.push('/w/sops')}
+          className="bg-grey-dark border border-grey-mid p-5 text-left hover:border-white transition-colors active:bg-black flex flex-col gap-2"
+        >
+          <div className="flex items-center justify-between">
+            <div className="w-9 h-9 border border-grey-mid flex items-center justify-center">
+              <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="square" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
             </div>
-            <span className="font-mono text-sm font-bold uppercase text-white">SOPS & GUIDES</span>
-            <span className="font-mono text-xs text-grey-light">
-              {data && data.sopCount > 0
-                ? `${data.sopCount} REFERENCE GUIDE${data.sopCount !== 1 ? 'S' : ''} AVAILABLE`
-                : 'NO GUIDES AVAILABLE YET'}
-            </span>
-          </button>
-        </div>
+            <span className="font-mono text-xs text-grey-light">{data?.sopCount} GUIDES</span>
+          </div>
+          <span className="font-mono text-sm font-bold uppercase text-white">SOPS & GUIDES</span>
+          <span className="font-mono text-xs text-grey-light">
+            {data && data.sopCount > 0
+              ? `${data.sopCount} REFERENCE GUIDE${data.sopCount !== 1 ? 'S' : ''} AVAILABLE`
+              : 'NO GUIDES AVAILABLE YET'}
+          </span>
+        </button>
+
+        {/* Floor Plan */}
+        <button
+          onClick={() => router.push('/w/floorplan')}
+          className="bg-grey-dark border border-grey-mid p-5 text-left hover:border-white transition-colors active:bg-black flex flex-col gap-2"
+        >
+          <div className="flex items-center justify-between">
+            <div className="w-9 h-9 border border-grey-mid flex items-center justify-center">
+              <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="square" strokeWidth={1.5} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+              </svg>
+            </div>
+          </div>
+          <span className="font-mono text-sm font-bold uppercase text-white">FLOOR PLAN</span>
+          <span className="font-mono text-xs text-grey-light">VENUE LAYOUT</span>
+        </button>
       </div>
     </div>
   )

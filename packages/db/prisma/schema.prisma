@@ -95,6 +95,7 @@ model Venue {
   sections    Section[]
   followUps   FollowUp[]
   checklists  Checklist[]
+  floorPlans  FloorPlan[]
 }
 
 model Department {
@@ -553,6 +554,7 @@ model Section {
   staff      StaffSection[]
   resources  ResourceSection[]
   checklists Checklist[]
+  floorPlanElements FloorPlanElement[]
 
   @@index([venueId])
   @@index([departmentId])
@@ -633,4 +635,86 @@ model FollowUp {
 
   @@unique([venueId, staffId, kind, taskId, dueDate])
   @@index([venueId, status])
+}
+
+// --- FLOOR PLANNER ---
+
+enum ElementType {
+  WALL
+  DOOR
+  WINDOW
+  TABLE
+  CHAIR
+  COUNTER
+  BAR
+  KITCHEN_EQUIP
+  SINK
+  STORAGE
+  ENTRY
+  EXIT
+  STAIRS
+  TOILET
+  PLANT
+  OTHER
+}
+
+enum ElementShape {
+  RECTANGLE
+  CIRCLE
+  POLYGON
+}
+
+model FloorPlan {
+  id         String    @id @default(uuid())
+  venueId    String
+  name       String
+  slug       String
+  isDefault  Boolean   @default(false)
+  roomWidth  Float     @default(2000) // real-world cm
+  roomDepth  Float     @default(1500) // real-world cm
+  gridUnit   Float     @default(50)   // snap grid in cm
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  venue    Venue              @relation(fields: [venueId], references: [id])
+  elements FloorPlanElement[]
+
+  @@unique([venueId, slug])
+  @@index([venueId])
+}
+
+model FloorPlanElement {
+  id          String       @id @default(uuid())
+  floorPlanId String
+  type        ElementType
+  shape       ElementShape @default(RECTANGLE)
+  label       String?
+  // Position in real-world cm from room top-left
+  x           Float
+  y           Float
+  width       Float        @default(80)  // for RECTANGLE (cm)
+  depth       Float        @default(80)  // for RECTANGLE (cm)
+  radius      Float?                    // for CIRCLE (cm)
+  vertices    Json?                     // for POLYGON: [{x,y},...] relative to anchor
+  rotation    Float        @default(0)
+  // Appearance
+  colour      String?
+  fillColour  String?
+  opacity     Float        @default(1)
+  zIndex      Int          @default(0)
+  // Business links
+  sectionId   String?
+  capacity    Int?
+  sortOrder   Int          @default(0)
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  floorPlan FloorPlan @relation(fields: [floorPlanId], references: [id], onDelete: Cascade)
+  section   Section?  @relation(fields: [sectionId], references: [id])
+
+  @@index([floorPlanId])
 }
