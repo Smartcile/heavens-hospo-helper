@@ -243,6 +243,12 @@ export function WorkerTasksClient() {
           </div>
           <div className="flex flex-col items-end gap-1 mt-1">
             <button
+              onClick={() => router.push('/w/dashboard')}
+              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+            >
+              DASHBOARD →
+            </button>
+            <button
               onClick={() => router.push('/w/notices')}
               className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
             >
@@ -259,6 +265,12 @@ export function WorkerTasksClient() {
               className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
             >
               MY TRAINING →
+            </button>
+            <button
+              onClick={() => router.push('/w/sops')}
+              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+            >
+              SOPS & GUIDES →
             </button>
             <button
               onClick={handleLogout}

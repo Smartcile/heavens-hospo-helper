@@ -45,7 +45,7 @@ function PinPad({ token }: { token: string }) {
       return
     }
 
-    router.push('/w/tasks')
+    router.push('/w/dashboard')
     router.refresh()
   }
 

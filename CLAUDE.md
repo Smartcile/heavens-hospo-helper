@@ -2,6 +2,8 @@
 
 HOSPO OPS is a self-hosted, web-based hospitality operations platform. It gives venue managers a dashboard to create and assign recurring tasks, and gives floor staff a fast mobile interface (accessed via printed QR code + PIN) to complete those tasks.
 
+> Behavioural working rules live in the global `~/.claude/CLAUDE.md` (apply to all projects).
+
 ## TECH STACK
 
 | Layer | Version |

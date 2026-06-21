@@ -153,3 +153,77 @@ export async function getStaffTraining(staffId: string): Promise<{
 
   return { staff, items }
 }
+
+/**
+ * Resolve SOP / FAQ / HOWTO reference modules available to a staff member
+ * (venue-scoped, department-scoped, or venue-wide). These are reference
+ * material — no completion tracking, no assignment — used for the SOPs page.
+ */
+export async function getStaffSops(staffId: string): Promise<{
+  items: Pick<StaffTrainingItem, 'id' | 'title' | 'description' | 'category' | 'steps' | 'department'>[]
+} | null> {
+  const staff = await prisma.staff.findUnique({
+    where: { id: staffId },
+    select: { id: true, firstName: true, lastName: true, venueId: true, departmentId: true },
+  })
+  if (!staff) return null
+
+  const modules = await prisma.trainingModule.findMany({
+    where: {
+      venueId: staff.venueId,
+      isActive: true,
+      deletedAt: null,
+      kind: { in: ['SOP', 'FAQ', 'HOWTO'] },
+      OR: [
+        { departmentId: null },
+        ...(staff.departmentId ? [{ departmentId: staff.departmentId }] : []),
+      ],
+    },
+    include: {
+      steps: {
+        orderBy: { order: 'asc' },
+        include: {
+          linkedChecklist: {
+            select: {
+              id: true,
+              name: true,
+              tasks: {
+                orderBy: { sortOrder: 'asc' },
+                include: { task: { select: { id: true, title: true, deletedAt: true } } },
+              },
+            },
+          },
+        },
+      },
+      department: { select: { id: true, name: true } },
+    },
+    orderBy: [{ category: 'asc' }, { title: 'asc' }],
+  })
+
+  const items = modules.map((m) => ({
+    id: m.id,
+    title: m.title,
+    description: m.description,
+    category: m.category,
+    department: m.department,
+    steps: m.steps.map((s) => ({
+      id: s.id,
+      order: s.order,
+      title: s.title,
+      content: s.content,
+      imageUrl: s.imageUrl,
+      videoUrl: s.videoUrl,
+      linkedChecklist: s.linkedChecklist
+        ? {
+            id: s.linkedChecklist.id,
+            name: s.linkedChecklist.name,
+            tasks: s.linkedChecklist.tasks
+              .filter((ct) => ct.task && !ct.task.deletedAt)
+              .map((ct) => ({ id: ct.task.id, title: ct.task.title })),
+          }
+        : null,
+    })),
+  }))
+
+  return { items }
+}

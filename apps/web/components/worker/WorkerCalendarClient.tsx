@@ -77,7 +77,10 @@ export function WorkerCalendarClient() {
     <div className="min-h-screen bg-black">
       <div className="px-4 pt-6 pb-4 border-b border-grey-mid flex items-start justify-between">
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">MY SCHEDULE</h1>
-        <button onClick={() => router.push('/w/tasks')} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors mt-1">TASKS →</button>
+        <div className="flex gap-3 mt-1">
+          <button onClick={() => router.push('/w/dashboard')} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">DASHBOARD →</button>
+          <button onClick={() => router.push('/w/tasks')} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">TASKS →</button>
+        </div>
       </div>
 
       {/* Upcoming shifts */}
