@@ -19,6 +19,7 @@ HOSPO OPS is a self-hosted, web-based hospitality operations platform. It gives 
 | Auth (admin) | NextAuth.js v4 — Credentials provider |
 | Auth (worker) | Custom PIN flow — JWT in HTTP-only cookie |
 | QR Generation | `qrcode` npm package |
+| Canvas / Floor Plans | `konva` + `react-konva` npm packages |
 
 ## MONOREPO STRUCTURE
 
@@ -29,9 +30,11 @@ hospo-ops/
 │       ├── app/
 │       │   ├── admin/
 │       │   │   ├── (protected)/    # Auth-gated admin routes (/admin/*)
+│       │   │   │   └── floorplan/  # Floor plan editor (/admin/floorplan)
 │       │   │   └── login/          # /admin/login — public
 │       │   ├── w/
 │       │   │   ├── (authenticated)/# PIN-gated worker routes (/w/*)
+│       │   │   │   └── floorplan/  # Worker floor plan view (/w/floorplan)
 │       │   │   └── login/          # /w/login?token=... — public
 │       │   └── api/                # API route handlers
 │       │       ├── admin/          # Admin API endpoints
@@ -227,6 +230,24 @@ own upcoming shifts and request/cancel time off at `/w/calendar`
 math); dates are @db.Date keyed via `formatDateKey`. `lib/calendar.ts` has the
 month/range/time-validation helpers.
 
+### Floor planner (Phase 1, built)
+To-scale venue layout editor using `react-konva` canvas. Admin creates floor plans with
+room dimensions (real cm), then drags elements from a palette (WALL, DOOR, WINDOW, TABLE,
+CHAIR, COUNTER, BAR, SINK, KITCHEN_EQUIP, STORAGE, ENTRY, EXIT, STAIRS, TOILET, PLANT,
+OTHER) onto a grid-snapped canvas. Elements can be moved, resized, rotated; each has
+properties (label, colour, section link, capacity, z-index). Bulk SAVE sends all elements
+as one PUT to `/api/admin/floorplan/[id]/elements`. EXPORT PNG downloads the canvas.
+
+Multiple floor plan views per venue (slug-based, one default). Workers see a read-only
+canvas at `/w/floorplan` with a view switcher dropdown, section-colour-coded elements,
+and tap-for-details info panel.
+
+`react-konva` is dynamically imported inside `useEffect` (`import('react-konva')`) to
+avoid SSR crashes — never imported at module scope. `Stage`/`Layer`/`Rect`/`Circle`/`Line`/
+`Group`/`Transformer`/`Text` components are stored in state and rendered only client-side.
+Polygon data model (`shape: POLYGON` + `vertices Json?`) is supported from day one;
+drawing tool deferred to Phase 2.
+
 ### Unified staff identity
 A single `Staff` profile carries external-system link IDs — `swiftPosId`,
 `myHrId`, `loadedReportsId` — so one person maps across SwiftPOS, MyHR, and
@@ -335,6 +356,23 @@ Task titles, venue names, department names, and staff names are stored in UPPERC
 ### Prisma client singleton
 `packages/db/index.ts` exports a global singleton Prisma client to prevent connection pool exhaustion in Next.js dev (hot reload creates new instances without this pattern).
 
+### Floor plan scale and coordinate system
+All positions and dimensions are stored in real-world centimetres. The room dimensions
+(`roomWidth`, `roomDepth`) are set at plan creation. The canvas auto-computes a pixel-per-cm
+scale to fit the viewport. Grid snapping snaps to `gridUnit` cm. The bulk element save
+(`PUT /api/admin/floorplan/[id]/elements`) diffs incoming IDs vs existing DB IDs — soft-deletes
+removed elements, updates existing, creates new ones (all in one transaction).
+
+### react-konva SSR avoidance
+`react-konva` and `konva` MUST NOT be imported at module scope anywhere in the application.
+Both are loaded via dynamic `import('react-konva')` inside `useEffect`, with the imported
+components stored in local state. The admin `FloorPlansClient` uses `next/dynamic(() => import(...), { ssr: false })` 
+for the editor. The worker page uses `next/dynamic` with `ssr: false` for `WorkerFloorPlan`.
+Custom 404/500 pages (`not-found.tsx`, `error.tsx`) must exist to prevent Next.js from
+trying to static-generate error pages (which would fail when konva is present). `package.json`
+has npm overrides forcing `react@18.3.1` / `react-dom@18.3.1` because `react-konva@18.2.16`
+requires React 18, while `next-auth` peer-deps allow React 19.
+
 ### Task scheduling
 Tasks are filtered on-demand (no generation table). `lib/scheduling.ts`
 `isTaskDueOnDate(task, date)` is the single source of truth, used by the worker
@@ -411,6 +449,9 @@ tasks into a new template. Admin UI lives at `/admin/templates`.
 | Training modules | `TrainingModule`, `TrainingStep` models | 3 |
 | Push notifications | Not yet wired | 2 |
 | S3 file uploads | `UPLOAD_PROVIDER=s3` env var stub | 2 |
+| Floor plan polygon drawing tool | `FloorPlanEditor.tsx` — deferred | 2 |
+| Floor plan calendar event linking | `CalendarEvent.floorPlanSlug` planned | 2 |
+| Floor plan PDF export | Not yet wired | 2 |
 
 ## WHAT NOT TO DO
 
@@ -421,3 +462,4 @@ tasks into a new template. Admin UI lives at `/admin/templates`.
 - **NO direct DB access in client components** — Server Actions or API routes only.
 - **NO manual schema changes** — change `schema.prisma`, never hand-edit the DB. (Deploy syncs it via `prisma db push`; see "Why db push" above.)
 - **NO storing session tokens in `localStorage`** — HTTP-only cookies only.
+- **NO module-level imports of `konva` or `react-konva`** — always use `import('react-konva')` inside `useEffect` to prevent SSR crashes. Never `import ... from 'react-konva'` at the top of a file.

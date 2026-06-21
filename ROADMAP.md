@@ -57,16 +57,16 @@ The model that links sections, tasks and knowledge into one followed-up loop.
 ✅ **Timed lists** — a checklist can have an **"appears from" time** (`Checklist.appearFromTime`); on the floor it surfaces from that time and stays until every task in it is done for the day. The worker view groups by list (time-gated) first, then any other tasks by dept → section, with an "opens later" note for upcoming lists.
 ✅ **Tasks page editor polish** — the checklist editor is sticky (follows long task lists), the "add a task" dropdown is scoped to the checklist's department/section (drag in anything else), and the task list gained search + section + usage filters.
 
-## FLOOR PLANNER (Phase 1 design — see plan in conversation history)
-☐ **Phase 1 — Editor + basic views**
-  ☐ Prisma models: `FloorPlan` + `FloorPlanElement` + enums (`ElementType` / `ElementShape`)
-  ☐ Admin API: CRUD floor plans + bulk-save elements (`PUT /api/admin/floorplan/[id]/elements`)
-  ☐ Admin page: `/admin/floorplan` — list plans, create, edit
-  ☐ Visual editor (`FloorPlanEditor.tsx`, react-konva): room outline drawn to scale (real cm), drag-from-palette to place walls/tables/chairs/counters/bars/doors/windows/sinks/stairs/toilets, grid snapping, select→move→resize→rotate, colour/section-link/capacity properties, SAVE, EXPORT PNG
-  ☐ Worker API: `GET /api/worker/floorplan` (by JWT venue, returns default view)
-  ☐ Worker read-only page: `/w/floorplan` with view switcher if venue has multiple plans (slug-based), section-colour-coded elements, tap for details
-  ☐ Nav: admin sidebar under Organisation + burger menu FLOOR PLAN card + dashboard card
-  ☐ Polygons: data model supports `shape: POLYGON` + `vertices Json?` from day one; drawing tool comes later
+## FLOOR PLANNER (BUILT 2026-06-22)
+✅ **Phase 1 — Editor + basic views**
+  ✅ Prisma models: `FloorPlan` + `FloorPlanElement` + enums (`ElementType` / `ElementShape`)
+  ✅ Admin API: CRUD floor plans + bulk-save elements (`PUT /api/admin/floorplan/[id]/elements`)
+  ✅ Admin page: `/admin/floorplan` — list plans, create, edit
+  ✅ Visual editor (`FloorPlanEditor.tsx`, react-konva): room outline drawn to scale (real cm), drag-from-palette to place walls/tables/chairs/counters/bars/doors/windows/sinks/stairs/toilets, grid snapping, select→move→resize→rotate, colour/section-link/capacity properties, SAVE, EXPORT PNG
+  ✅ Worker API: `GET /api/worker/floorplan` (by JWT venue, returns default view)
+  ✅ Worker read-only page: `/w/floorplan` with view switcher if venue has multiple plans (slug-based), section-colour-coded elements, tap for details
+  ✅ Nav: admin sidebar under Organisation + burger menu FLOOR PLAN card + dashboard card
+  ✅ Polygons: data model supports `shape: POLYGON` + `vertices Json?` from day one; drawing tool comes later
 ☐ **Phase 2 — Advanced drawing + calendar integration**
   ☐ Polygon drawing tool (click vertices to define custom furniture/l-shaped bars/bends)
   ☐ Calendar event floor plan switching — `CalendarEvent.floorPlanSlug` links events to alternate layouts
@@ -121,3 +121,5 @@ The model that links sections, tasks and knowledge into one followed-up loop.
 - No cron engine in Phase 1 — task scheduling is filtered on read, not generated in advance
 - File uploads are local disk only — not suitable for multi-server deployments
 - No rate limiting on PIN login endpoint — to be added before public exposure
+- `react-konva` pinned to `18.2.16` (latest supporting React 18) — upgrade when Next.js supports React 19
+- React 18/19 conflict resolved via npm `overrides` in root `package.json` — remove overrides when Next.js supports React 19

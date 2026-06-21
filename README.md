@@ -142,6 +142,15 @@ your venues, departments, staff, tasks and training are currently linked.
 The full model and the build plan are documented in
 [`ECOSYSTEM.md`](./ECOSYSTEM.md).
 
+### FLOOR PLANNER
+The app includes a to-scale venue floor plan editor for admins and a read-only view for
+staff. Go to **Admin → Floor Plan** to create a plan (set room dimensions in real cm),
+then use the interactive canvas to drag furniture/elements from the palette (walls, doors,
+tables, chairs, counters, bars, sinks, etc.), snap to grid, and assign sections and
+capacities. Staff see the plan on their phone at **Menu → Floor Plan**, with section-colour-
+coded elements and tap-for-details info. Multiple views per venue are supported (e.g.
+standard layout vs event mode).
+
 ---
 
 ## HOW TO GENERATE AND PRINT A QR CODE
