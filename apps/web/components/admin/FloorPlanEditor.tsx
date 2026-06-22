@@ -191,11 +191,11 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       shape: item.circle ? 'CIRCLE' : 'RECTANGLE',
       label,
       labelVisible: true,
-      x: snap(pos.x - (item.circle ? 0 : item.w / 2), gu),
-      y: snap(pos.y - (item.circle ? 0 : item.d / 2), gu),
-      width: snap(item.w, gu) || gu,
-      depth: snap(item.d, gu) || gu,
-      radius: item.circle ? snap(Math.min(item.w, item.d) / 2, gu) : null,
+      x: snapEnabled ? snap(pos.x - (item.circle ? 0 : item.w / 2), gu) : (pos.x - (item.circle ? 0 : item.w / 2)),
+      y: snapEnabled ? snap(pos.y - (item.circle ? 0 : item.d / 2), gu) : (pos.y - (item.circle ? 0 : item.d / 2)),
+      width: snapEnabled ? (snap(item.w, gu) || gu) : (item.w || gu),
+      depth: snapEnabled ? (snap(item.d, gu) || gu) : (item.d || gu),
+      radius: item.circle ? (snapEnabled ? snap(Math.min(item.w, item.d) / 2, gu) : Math.min(item.w, item.d) / 2) : null,
       rotation: 0,
       fillColour: item.fill,
       opacity: 1,
@@ -213,9 +213,27 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     if (!zoneDrawing && e.target === e.target.getStage()) setSelectedId(null)
   }
 
-  function handleStageMouseDown(e: any) {
-    if (zoneDrawing) {
-      if (e.target !== e.target.getStage()) return
+  const dragRef = useRef<{
+    activeId: string | null
+    startClientX: number
+    startClientY: number
+    startElX: number
+    startElY: number
+    node: any | null
+  }>({ activeId: null, startClientX: 0, startClientY: 0, startElX: 0, startElY: 0, node: null })
+
+  function findElementId(target: any): string | null {
+    let node = target
+    while (node && node !== node.getStage()) {
+      const nid = node.id()
+      if (typeof nid === 'string' && nid.length > 0) return nid
+      node = node.getParent()
+    }
+    return null
+  }
+
+  function handlePointerDown(e: any) {
+    if (zoneDrawing && e.target === e.target.getStage()) {
       const rect = containerRef.current!.getBoundingClientRect()
       const gx = (e.evt.clientX - rect.left - offsetX) / scale
       const gy = (e.evt.clientY - rect.top - offsetY) / scale
@@ -224,22 +242,42 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       setSelectedZoneId(null)
       return
     }
-    if (e.target === e.target.getStage()) setSelectedId(null)
+    const elId = findElementId(e.target)
+    if (!elId) {
+      setSelectedId(null)
+      return
+    }
+    const el = elements.find((x) => x.id === elId)
+    if (!el || el.shape === 'POLYGON') { setSelectedId(elId); return }
+    dragRef.current = {
+      activeId: elId,
+      startClientX: e.evt.clientX,
+      startClientY: e.evt.clientY,
+      startElX: el.x,
+      startElY: el.y,
+      node: e.target.getStage().findOne('#' + elId),
+    }
   }
 
-  function handleStageMouseMove(e: any) {
-    if (!zoneDrawing || !zoneDrawStart) return
-    const rect = containerRef.current!.getBoundingClientRect()
-    const gx = (e.evt.clientX - rect.left - offsetX) / scale
-    const gy = (e.evt.clientY - rect.top - offsetY) / scale
-    const x = Math.min(zoneDrawStart.x, gx)
-    const y = Math.min(zoneDrawStart.y, gy)
-    const w = Math.abs(gx - zoneDrawStart.x)
-    const h = Math.abs(gy - zoneDrawStart.y)
-    setZoneDrawRect({ x, y, w, h })
+  function handlePointerMove(e: any) {
+    if (zoneDrawing && zoneDrawStart) {
+      const rect = containerRef.current!.getBoundingClientRect()
+      const gx = (e.evt.clientX - rect.left - offsetX) / scale
+      const gy = (e.evt.clientY - rect.top - offsetY) / scale
+      setZoneDrawRect({ x: Math.min(zoneDrawStart.x, gx), y: Math.min(zoneDrawStart.y, gy), w: Math.abs(gx - zoneDrawStart.x), h: Math.abs(gy - zoneDrawStart.y) })
+      return
+    }
+    const d = dragRef.current
+    if (!d.activeId) return
+    const dx = (e.evt.clientX - d.startClientX) / scale
+    const dy = (e.evt.clientY - d.startClientY) / scale
+    let nx = d.startElX + dx
+    let ny = d.startElY + dy
+    if (snapEnabled) { nx = snap(nx, plan.gridUnit); ny = snap(ny, plan.gridUnit) }
+    if (d.node) { d.node.x(offsetX + nx * scale); d.node.y(offsetY + ny * scale) }
   }
 
-  function handleStageMouseUp(e: any) {
+  function handlePointerUp(e: any) {
     if (zoneDrawing && zoneDrawStart) {
       const rect = containerRef.current!.getBoundingClientRect()
       const gx = (e.evt.clientX - rect.left - offsetX) / scale
@@ -250,19 +288,25 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       if (w > gu && h > gu) {
         const x = Math.min(zoneDrawStart.x, gx)
         const y = Math.min(zoneDrawStart.y, gy)
-        const newZone: SectionZone = {
-          id: `zone_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          x: snap(x, gu), y: snap(y, gu),
-          width: snap(w, gu), height: snap(h, gu),
-          sectionId: zoneSectionId,
-        }
-        setZones((prev) => [...prev, newZone])
-        setSelectedZoneId(newZone.id)
+        setZones((prev) => [...prev, { id: `zone_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, x: snap(x, gu), y: snap(y, gu), width: snap(w, gu), height: snap(h, gu), sectionId: zoneSectionId }])
       }
       setZoneDrawStart(null)
       setZoneDrawRect(null)
       return
     }
+    const d = dragRef.current
+    if (!d.activeId) return
+    const dx = (e.evt.clientX - d.startClientX) / scale
+    const dy = (e.evt.clientY - d.startClientY) / scale
+    const moved = Math.sqrt(dx * dx + dy * dy) > 3
+    if (moved) {
+      let nx = d.startElX + dx
+      let ny = d.startElY + dy
+      if (snapEnabled) { nx = snap(nx, plan.gridUnit); ny = snap(ny, plan.gridUnit) }
+      pushHistory()
+      updateElement(d.activeId, { x: nx, y: ny })
+    }
+    dragRef.current.activeId = null
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -340,7 +384,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     )
   }
 
-  const { Stage, Layer, Rect, Circle, Line, Text, Group, Transformer, Shape } = KC
+  const { Stage, Layer, Rect, Circle, Line, Text, Group, Transformer } = KC
 
   const summary = showSummary ? computeSectionSummary(elements, sections) : null
 
@@ -471,8 +515,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         >
           <Stage ref={stageRef} width={stageSize.w} height={stageSize.h}
             onClick={handleStageClick} onTap={handleStageClick}
-            onMouseDown={handleStageMouseDown} onMouseUp={handleStageMouseUp}
-            onMouseMove={handleStageMouseMove}>
+            onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}>
             <Layer>
               <Rect x={offsetX} y={offsetY} width={plan.roomWidth * scale} height={plan.roomDepth * scale}
                 fill="#1A1A1A" stroke="#4A4A4A" strokeWidth={2} listening={false} />
@@ -497,8 +541,10 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     onDragEnd={(e: any) => {
                       if (!zoneDrawing) return
                       const gu = plan.gridUnit
-                      const nx = snap((e.target.x() - offsetX) / scale, gu)
-                      const ny = snap((e.target.y() - offsetY) / scale, gu)
+                      const rawX = (e.target.x() - offsetX) / scale
+                      const rawY = (e.target.y() - offsetY) / scale
+                      const nx = snapEnabled ? snap(rawX, gu) : rawX
+                      const ny = snapEnabled ? snap(rawY, gu) : rawY
                       setZones((prev) => prev.map((z) => z.id === zone.id ? { ...z, x: nx, y: ny } : z))
                       e.target.x(offsetX + zone.x * scale)
                       e.target.y(offsetY + zone.y * scale)
@@ -507,24 +553,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                       width={zone.width * scale} height={zone.height * scale}
                       fill={zc} opacity={0.1} stroke={isSel ? '#FFF' : zc}
                       strokeWidth={isSel ? 2 : 1} listening={true} />
-                    {isSel && zoneDrawing && (
-                      <>
-                        {/* Resize handle bottom-right */}
-                        <Rect x={offsetX + (zone.x + zone.width - 10) * scale} y={offsetY + (zone.y + zone.height - 10) * scale}
-                          width={10 * scale} height={10 * scale} fill="#FFF" opacity={0.5} stroke="#FFF" strokeWidth={1}
-                          draggable
-                          onDragMove={(e: any) => {
-                            const gu = plan.gridUnit
-                            const mx = snap((e.target.x() - offsetX) / scale, gu)
-                            const my = snap((e.target.y() - offsetY) / scale, gu)
-                            setZones((prev) => prev.map((z) => z.id === zone.id ? {
-                              ...z,
-                              width: Math.max(mx - z.x, gu),
-                              height: Math.max(my - z.y, gu),
-                            } : z))
-                          }} />
-                      </>
-                    )}
                     {zone.label && (
                       <Text x={offsetX + (zone.x + 5) * scale} y={offsetY + (zone.y + 5) * scale}
                         text={zone.label} fontSize={10} fill={zc} listening={false} />
@@ -559,36 +587,16 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
                 if (el.shape === 'CIRCLE') {
                   return (
-                    <Group key={el.id} id={el.id}
-                      draggable onClick={() => setSelectedId(el.id ?? null)} onTap={() => setSelectedId(el.id ?? null)}
-                       onDragEnd={(e: any) => {
-                         pushHistory()
-                         const gu = plan.gridUnit
-                         const nx = snap((e.target.x() - offsetX) / scale, gu)
-                         const ny = snap((e.target.y() - offsetY) / scale, gu)
-                         updateElement(el.id!, { x: nx, y: ny })
-                         e.target.x(offsetX + nx * scale)
-                         e.target.y(offsetY + ny * scale)
-                       }}>
-                       {visual}
-                     </Group>
-                   )
-                 }
+                    <Group key={el.id} id={el.id} x={kx} y={ky}
+                      onClick={() => setSelectedId(el.id ?? null)} onTap={() => setSelectedId(el.id ?? null)}>
+                      {visual}
+                    </Group>
+                  )
+                }
 
-                 return (
-                   <Group key={el.id} id={el.id} x={kx} y={ky} rotation={el.rotation}
-                     draggable
-                     onClick={() => setSelectedId(el.id ?? null)} onTap={() => setSelectedId(el.id ?? null)}
-                     onDragEnd={(e: any) => {
-                       pushHistory()
-                       const gu = plan.gridUnit
-                       const nx = snap((e.target.x() - offsetX) / scale, gu)
-                       const ny = snap((e.target.y() - offsetY) / scale, gu)
-                       const nr = e.target.rotation()
-                       updateElement(el.id!, { x: nx, y: ny, rotation: nr })
-                       e.target.x(offsetX + nx * scale)
-                       e.target.y(offsetY + ny * scale)
-                     }}>
+                return (
+                  <Group key={el.id} id={el.id} x={kx} y={ky} rotation={el.rotation}
+                    onClick={() => setSelectedId(el.id ?? null)} onTap={() => setSelectedId(el.id ?? null)}>
                     {visual}
                   </Group>
                 )
@@ -627,25 +635,19 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   const node = stageRef.current?.findOne(`#${selectedId}`)
                   if (!node) return
                   const gu = plan.gridUnit
+                  const rawX = (node.x() - offsetX) / scale
+                  const rawY = (node.y() - offsetY) / scale
+                  const rawW = node.width() / scale
+                  const rawD = node.height() / scale
                   updateElement(selectedId, {
-                    x: snap((node.x() - offsetX) / scale, gu),
-                    y: snap((node.y() - offsetY) / scale, gu),
-                    width: snap(node.width() / scale, gu) || gu,
-                    depth: snap(node.height() / scale, gu) || gu,
+                    x: snapEnabled ? snap(rawX, gu) : rawX,
+                    y: snapEnabled ? snap(rawY, gu) : rawY,
+                    width: snapEnabled ? (snap(rawW, gu) || gu) : (rawW || gu),
+                    depth: snapEnabled ? (snap(rawD, gu) || gu) : (rawD || gu),
                     rotation: node.rotation(),
                   })
                 }}
               />
-
-              {zoneDrawing && selectedZoneId && (
-                zones.filter((z) => z.id === selectedZoneId).map((zone) => (
-                  <Group key={`sel-${zone.id}`}>
-                    <Rect x={offsetX + zone.x * scale} y={offsetY + zone.y * scale}
-                      width={zone.width * scale} height={zone.height * scale}
-                      stroke="#FFD700" strokeWidth={2} dash={[4, 4]} listening={false} />
-                  </Group>
-                ))
-              )}
             </Layer>
           </Stage>
         </div>

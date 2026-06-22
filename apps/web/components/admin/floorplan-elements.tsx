@@ -160,7 +160,7 @@ export function FloorPlanElementVisual({
   if (el.shape === 'CIRCLE') {
     const r = (el.radius ?? Math.min(el.width, el.depth) / 2) * scale
     return (
-      <Group x={kx} y={ky}>
+      <Group>
         <Circle radius={r} fill={fill} stroke={stroke} strokeWidth={strokeW} opacity={el.opacity} />
         {showLabel && (
           <Text x={0} y={0} text={labelStr} fontSize={Math.max(r * 0.4, 6)} fill={theme.textLabel}
