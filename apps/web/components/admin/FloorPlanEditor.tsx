@@ -55,7 +55,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [paletteOpen, setPaletteOpen] = useState(true)
   const [snapEnabled, setSnapEnabled] = useState(true)
   const [snap45Enabled, setSnap45Enabled] = useState(false)
-  const [showSections, setShowSections] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
   const [showInvTab, setShowInvTab] = useState(false)
   const [zones, setZones] = useState<SectionZone[]>([])
@@ -213,71 +212,27 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     if (!zoneDrawing && e.target === e.target.getStage()) setSelectedId(null)
   }
 
-  const dragRef = useRef<{
-    activeId: string | null
-    startClientX: number
-    startClientY: number
-    startElX: number
-    startElY: number
-    node: any | null
-  }>({ activeId: null, startClientX: 0, startClientY: 0, startElX: 0, startElY: 0, node: null })
-
-  function findElementId(target: any): string | null {
-    let node = target
-    while (node && node !== node.getStage()) {
-      const nid = node.id()
-      if (typeof nid === 'string' && nid.length > 0) return nid
-      node = node.getParent()
-    }
-    return null
-  }
-
-  function handlePointerDown(e: any) {
-    if (zoneDrawing && e.target === e.target.getStage()) {
+  function handleStageMouseDown(e: any) {
+    if (zoneDrawing) {
+      if (e.target !== e.target.getStage()) return
       const rect = containerRef.current!.getBoundingClientRect()
-      const gx = (e.evt.clientX - rect.left - offsetX) / scale
-      const gy = (e.evt.clientY - rect.top - offsetY) / scale
-      setZoneDrawStart({ x: gx, y: gy })
+      setZoneDrawStart({ x: (e.evt.clientX - rect.left - offsetX) / scale, y: (e.evt.clientY - rect.top - offsetY) / scale })
       setZoneDrawRect(null)
       setSelectedZoneId(null)
       return
     }
-    const elId = findElementId(e.target)
-    if (!elId) {
-      setSelectedId(null)
-      return
-    }
-    const el = elements.find((x) => x.id === elId)
-    if (!el || el.shape === 'POLYGON') { setSelectedId(elId); return }
-    dragRef.current = {
-      activeId: elId,
-      startClientX: e.evt.clientX,
-      startClientY: e.evt.clientY,
-      startElX: el.x,
-      startElY: el.y,
-      node: e.target.getStage().findOne('#' + elId),
-    }
+    if (e.target === e.target.getStage()) setSelectedId(null)
   }
 
-  function handlePointerMove(e: any) {
-    if (zoneDrawing && zoneDrawStart) {
-      const rect = containerRef.current!.getBoundingClientRect()
-      const gx = (e.evt.clientX - rect.left - offsetX) / scale
-      const gy = (e.evt.clientY - rect.top - offsetY) / scale
-      setZoneDrawRect({ x: Math.min(zoneDrawStart.x, gx), y: Math.min(zoneDrawStart.y, gy), w: Math.abs(gx - zoneDrawStart.x), h: Math.abs(gy - zoneDrawStart.y) })
-      return
-    }
-    const d = dragRef.current
-    if (!d.activeId) return
-    const dx = (e.evt.clientX - d.startClientX) / scale
-    const dy = (e.evt.clientY - d.startClientY) / scale
-    let nx = d.startElX + dx
-    let ny = d.startElY + dy
-    if (snapEnabled) { nx = snap(nx, plan.gridUnit); ny = snap(ny, plan.gridUnit) }
-    if (d.node) { d.node.x(offsetX + nx * scale); d.node.y(offsetY + ny * scale) }
+  function handleStageMouseMove(e: any) {
+    if (!zoneDrawing || !zoneDrawStart) return
+    const rect = containerRef.current!.getBoundingClientRect()
+    const gx = (e.evt.clientX - rect.left - offsetX) / scale
+    const gy = (e.evt.clientY - rect.top - offsetY) / scale
+    setZoneDrawRect({ x: Math.min(zoneDrawStart.x, gx), y: Math.min(zoneDrawStart.y, gy), w: Math.abs(gx - zoneDrawStart.x), h: Math.abs(gy - zoneDrawStart.y) })
   }
 
-  function handlePointerUp(e: any) {
+  function handleStageMouseUp(e: any) {
     if (zoneDrawing && zoneDrawStart) {
       const rect = containerRef.current!.getBoundingClientRect()
       const gx = (e.evt.clientX - rect.left - offsetX) / scale
@@ -286,27 +241,11 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       const w = Math.abs(gx - zoneDrawStart.x)
       const h = Math.abs(gy - zoneDrawStart.y)
       if (w > gu && h > gu) {
-        const x = Math.min(zoneDrawStart.x, gx)
-        const y = Math.min(zoneDrawStart.y, gy)
-        setZones((prev) => [...prev, { id: `zone_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, x: snap(x, gu), y: snap(y, gu), width: snap(w, gu), height: snap(h, gu), sectionId: zoneSectionId }])
+        setZones((prev) => [...prev, { id: `zone_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, x: snap(Math.min(zoneDrawStart.x, gx), gu), y: snap(Math.min(zoneDrawStart.y, gy), gu), width: snap(w, gu), height: snap(h, gu), sectionId: zoneSectionId }])
       }
       setZoneDrawStart(null)
       setZoneDrawRect(null)
-      return
     }
-    const d = dragRef.current
-    if (!d.activeId) return
-    const dx = (e.evt.clientX - d.startClientX) / scale
-    const dy = (e.evt.clientY - d.startClientY) / scale
-    const moved = Math.sqrt(dx * dx + dy * dy) > 3
-    if (moved) {
-      let nx = d.startElX + dx
-      let ny = d.startElY + dy
-      if (snapEnabled) { nx = snap(nx, plan.gridUnit); ny = snap(ny, plan.gridUnit) }
-      pushHistory()
-      updateElement(d.activeId, { x: nx, y: ny })
-    }
-    dragRef.current.activeId = null
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -409,16 +348,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             <input type="checkbox" checked={snap45Enabled} onChange={() => setSnap45Enabled(!snap45Enabled)} className="accent-white" />
             45°
           </label>
-          <button onClick={() => setShowSections(!showSections)}
-            className={`font-mono text-[10px] uppercase px-2 py-1 border ${showSections ? 'border-accent text-accent' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
-            SECTIONS
-          </button>
           <button onClick={() => {
             if (zoneDrawing) { setZoneDrawing(false); setZoneDrawStart(null); setZoneDrawRect(null) }
             else { setZoneDrawing(true); setSelectedId(null) }
           }}
-            className={`font-mono text-[10px] uppercase px-2 py-1 border ${zoneDrawing ? 'border-success text-success bg-success/10' : 'border-grey-mid text-grey-light'} hover:border-success transition-colors`}>
-            ZONES {zoneDrawing ? '· ON' : ''}
+            className={`font-mono text-[10px] uppercase px-2 py-1 border ${zoneDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
+            SECTIONS {zoneDrawing ? '· ON' : ''}
           </button>
           <button onClick={() => setShowSummary(!showSummary)}
             className={`font-mono text-[10px] uppercase px-2 py-1 border ${showSummary ? 'border-success text-success' : 'border-grey-mid text-grey-light'} hover:border-success transition-colors`}>
@@ -515,8 +450,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         >
           <Stage ref={stageRef} width={stageSize.w} height={stageSize.h}
             onClick={handleStageClick} onTap={handleStageClick}
-            onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}>
+            onMouseDown={handleStageMouseDown} onMouseMove={handleStageMouseMove}
+            onMouseUp={handleStageMouseUp}>
             <Layer>
               <Rect x={offsetX} y={offsetY} width={plan.roomWidth * scale} height={plan.roomDepth * scale}
                 fill="#1A1A1A" stroke="#4A4A4A" strokeWidth={2} listening={false} />
@@ -569,16 +504,13 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
               {elements.sort((a, b) => a.zIndex - b.zIndex).map((el) => {
                 const isSel = el.id === selectedId
-                const sec = el.sectionId ? sectionMap.get(el.sectionId) : null
-                const sectionColour = sec?.colour ?? null
                 const kx = offsetX + el.x * scale
                 const ky = offsetY + el.y * scale
 
                 const visual = (
                   <FloorPlanElementVisual
                     el={el} KC={KC} scale={scale} offsetX={offsetX} offsetY={offsetY}
-                    isSelected={isSel} sectionColour={sectionColour}
-                    showSectionOverlay={showSections} />
+                    isSelected={isSel} />
                 )
 
                 if (el.shape === 'POLYGON') {
@@ -588,7 +520,19 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 if (el.shape === 'CIRCLE') {
                   return (
                     <Group key={el.id} id={el.id} x={kx} y={ky}
-                      onClick={() => setSelectedId(el.id ?? null)} onTap={() => setSelectedId(el.id ?? null)}>
+                      draggable
+                      onClick={() => setSelectedId(el.id ?? null)} onTap={() => setSelectedId(el.id ?? null)}
+                      onDragEnd={(e: any) => {
+                        pushHistory()
+                        const gu = plan.gridUnit
+                        const rawX = (e.target.x() - offsetX) / scale
+                        const rawY = (e.target.y() - offsetY) / scale
+                        const nx = snapEnabled ? snap(rawX, gu) : rawX
+                        const ny = snapEnabled ? snap(rawY, gu) : rawY
+                        updateElement(el.id!, { x: nx, y: ny })
+                        e.target.x(offsetX + nx * scale)
+                        e.target.y(offsetY + ny * scale)
+                      }}>
                       {visual}
                     </Group>
                   )
@@ -596,7 +540,19 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
                 return (
                   <Group key={el.id} id={el.id} x={kx} y={ky} rotation={el.rotation}
-                    onClick={() => setSelectedId(el.id ?? null)} onTap={() => setSelectedId(el.id ?? null)}>
+                    draggable
+                    onClick={() => setSelectedId(el.id ?? null)} onTap={() => setSelectedId(el.id ?? null)}
+                    onDragEnd={(e: any) => {
+                      pushHistory()
+                      const gu = plan.gridUnit
+                      const rawX = (e.target.x() - offsetX) / scale
+                      const rawY = (e.target.y() - offsetY) / scale
+                      const nx = snapEnabled ? snap(rawX, gu) : rawX
+                      const ny = snapEnabled ? snap(rawY, gu) : rawY
+                      updateElement(el.id!, { x: nx, y: ny, rotation: e.target.rotation() })
+                      e.target.x(offsetX + nx * scale)
+                      e.target.y(offsetY + ny * scale)
+                    }}>
                     {visual}
                   </Group>
                 )
