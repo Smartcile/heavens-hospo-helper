@@ -9,6 +9,17 @@ import {
   computeSectionSummary, type PaletteItem, type ElementData,
 } from '@/components/admin/floorplan-elements'
 import { ElementInventoryPanel } from '@/components/admin/ElementInventoryPanel'
+import type { Vertex } from '@hospo-ops/types'
+
+interface SectionZone {
+  id: string
+  x: number
+  y: number
+  width: number
+  height: number
+  sectionId: string
+  label?: string
+}
 
 interface Section { id: string; name: string; colour: string | null; departmentId: string }
 
@@ -40,7 +51,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [KC, setKC] = useState<{
     Stage: React.FC<any>; Layer: React.FC<any>; Rect: React.FC<any>
     Circle: React.FC<any>; Line: React.FC<any>; Text: React.FC<any>
-    Group: React.FC<any>; Transformer: React.FC<any>
+    Group: React.FC<any>; Transformer: React.FC<any>; Shape: React.FC<any>
   } | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(true)
   const [snapEnabled, setSnapEnabled] = useState(true)
@@ -48,6 +59,15 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [showSections, setShowSections] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
   const [showInvTab, setShowInvTab] = useState(false)
+  const [penActive, setPenActive] = useState(false)
+  const [penVertices, setPenVertices] = useState<Vertex[]>([])
+  const [penDragStart, setPenDragStart] = useState<{ x: number; y: number } | null>(null)
+  const [zones, setZones] = useState<SectionZone[]>([])
+  const [zoneDrawing, setZoneDrawing] = useState(false)
+  const [zoneDrawStart, setZoneDrawStart] = useState<{ x: number; y: number } | null>(null)
+  const [zoneDrawRect, setZoneDrawRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const [zoneSectionId, setZoneSectionId] = useState(sections[0]?.id ?? '')
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
 
   const INVENTORY_TYPES = ['TABLE', 'CHAIR', 'BOOTH_BENCH', 'BAR', 'COUNTER', 'SINK', 'STORAGE', 'KITCHEN_EQUIP']
 
@@ -55,6 +75,29 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const transformerRef = useRef<any>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const nextIdCounter = useRef(1)
+
+  const historyRef = useRef<{ past: ElementData[][]; future: ElementData[][] }>({ past: [], future: [] })
+
+  function pushHistory() {
+    historyRef.current.past.push(JSON.parse(JSON.stringify(elements)))
+    historyRef.current.future = []
+  }
+
+  function undo() {
+    const { past, future } = historyRef.current
+    if (past.length === 0) return
+    const prev = past.pop()!
+    future.push(JSON.parse(JSON.stringify(elements)))
+    setElements(prev)
+  }
+
+  function redo() {
+    const { past, future } = historyRef.current
+    if (future.length === 0) return
+    const next = future.pop()!
+    past.push(JSON.parse(JSON.stringify(elements)))
+    setElements(next)
+  }
 
   const CANVAS_PAD = 40
   const [stageSize, setStageSize] = useState({ w: 800, h: 600 })
@@ -64,6 +107,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       setKC({
         Stage: RK.Stage, Layer: RK.Layer, Rect: RK.Rect, Circle: RK.Circle,
         Line: RK.Line, Text: RK.Text, Group: RK.Group, Transformer: RK.Transformer,
+        Shape: RK.Shape,
       })
       setKonvaReady(true)
     })
@@ -83,6 +127,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           })))
           nextIdCounter.current = (data.elements.length || 0) + 1
         }
+        if (data.zones) setZones(data.zones)
       }
       setLoading(false)
     }
@@ -122,6 +167,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
   function deleteSelected() {
     if (!selectedId) return
+    pushHistory()
     setElements((prev) => prev.filter((e) => e.id !== selectedId))
     setSelectedId(null)
   }
@@ -156,18 +202,156 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       isActive: true,
       style: null,
     }
+    pushHistory()
     setElements((prev) => [...prev, el])
     setSelectedId(id)
   }
 
+  function finishPen() {
+    if (penVertices.length < 3) return
+    const gu = plan.gridUnit
+    const verts = penVertices.map((v) => ({
+      x: snap(v.x, gu),
+      y: snap(v.y, gu),
+      cp1x: v.cp1x !== undefined ? snap(v.cp1x, gu) : undefined,
+      cp1y: v.cp1y !== undefined ? snap(v.cp1y, gu) : undefined,
+      cp2x: v.cp2x !== undefined ? snap(v.cp2x, gu) : undefined,
+      cp2y: v.cp2y !== undefined ? snap(v.cp2y, gu) : undefined,
+    }))
+    const minX = Math.min(...verts.map((v) => v.x))
+    const minY = Math.min(...verts.map((v) => v.y))
+    const maxX = Math.max(...verts.map((v) => v.x))
+    const maxY = Math.max(...verts.map((v) => v.y))
+    const id = `new_${nextIdCounter.current++}`
+    const el: ElementData = {
+      id, type: 'OTHER', shape: 'POLYGON', label: null, labelVisible: true,
+      x: minX, y: minY,
+      width: Math.max(maxX - minX, gu),
+      depth: Math.max(maxY - minY, gu),
+      rotation: 0, fillColour: '#6B6B6B', opacity: 1,
+      zIndex: elements.length + 1, sortOrder: elements.length, isActive: true,
+      style: null,
+      vertices: verts.map((v) => ({ x: v.x - minX, y: v.y - minY, cp1x: v.cp1x !== undefined ? v.cp1x - minX : undefined, cp1y: v.cp1y !== undefined ? v.cp1y - minY : undefined, cp2x: v.cp2x !== undefined ? v.cp2x - minX : undefined, cp2y: v.cp2y !== undefined ? v.cp2y - minY : undefined })),
+    }
+    pushHistory()
+    setElements((prev) => [...prev, el])
+    setSelectedId(id)
+    setPenActive(false)
+    setPenVertices([])
+    setPenDragStart(null)
+  }
+
   function handleStageClick(e: any) {
-    if (e.target === e.target.getStage()) setSelectedId(null)
+    if (!penActive && e.target === e.target.getStage()) setSelectedId(null)
+  }
+
+  function handleStageDblClick(e: any) {
+    if (!penActive) return
+    e.evt.preventDefault()
+    if (penVertices.length < 3) return
+    finishPen()
+  }
+
+  function handleStageMouseDown(e: any) {
+    if (zoneDrawing) {
+      if (e.target !== e.target.getStage()) return
+      const rect = containerRef.current!.getBoundingClientRect()
+      const gx = (e.evt.clientX - rect.left - offsetX) / scale
+      const gy = (e.evt.clientY - rect.top - offsetY) / scale
+      setZoneDrawStart({ x: gx, y: gy })
+      setZoneDrawRect(null)
+      setSelectedZoneId(null)
+      return
+    }
+    if (!penActive) {
+      if (e.target === e.target.getStage()) setSelectedId(null)
+      return
+    }
+    if (e.target !== e.target.getStage()) return
+    const rect = containerRef.current!.getBoundingClientRect()
+    const gx = (e.evt.clientX - rect.left - offsetX) / scale
+    const gy = (e.evt.clientY - rect.top - offsetY) / scale
+    setPenDragStart({ x: gx, y: gy })
+  }
+
+  function handleStageMouseMove(e: any) {
+    if (!zoneDrawing || !zoneDrawStart) return
+    const rect = containerRef.current!.getBoundingClientRect()
+    const gx = (e.evt.clientX - rect.left - offsetX) / scale
+    const gy = (e.evt.clientY - rect.top - offsetY) / scale
+    const x = Math.min(zoneDrawStart.x, gx)
+    const y = Math.min(zoneDrawStart.y, gy)
+    const w = Math.abs(gx - zoneDrawStart.x)
+    const h = Math.abs(gy - zoneDrawStart.y)
+    setZoneDrawRect({ x, y, w, h })
+  }
+
+  function handleStageMouseUp(e: any) {
+    if (zoneDrawing && zoneDrawStart) {
+      const rect = containerRef.current!.getBoundingClientRect()
+      const gx = (e.evt.clientX - rect.left - offsetX) / scale
+      const gy = (e.evt.clientY - rect.top - offsetY) / scale
+      const gu = plan.gridUnit
+      const w = Math.abs(gx - zoneDrawStart.x)
+      const h = Math.abs(gy - zoneDrawStart.y)
+      if (w > gu && h > gu) {
+        const x = Math.min(zoneDrawStart.x, gx)
+        const y = Math.min(zoneDrawStart.y, gy)
+        const newZone: SectionZone = {
+          id: `zone_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          x: snap(x, gu), y: snap(y, gu),
+          width: snap(w, gu), height: snap(h, gu),
+          sectionId: zoneSectionId,
+        }
+        setZones((prev) => [...prev, newZone])
+        setSelectedZoneId(newZone.id)
+      }
+      setZoneDrawStart(null)
+      setZoneDrawRect(null)
+      return
+    }
+    if (!penActive || !penDragStart) return
+    const rect = containerRef.current!.getBoundingClientRect()
+    const gx = (e.evt.clientX - rect.left - offsetX) / scale
+    const gy = (e.evt.clientY - rect.top - offsetY) / scale
+    const dist = Math.sqrt((gx - penDragStart.x) ** 2 + (gy - penDragStart.y) ** 2)
+    const gu = plan.gridUnit
+    const sgx = snap(gx, gu)
+    const sgy = snap(gy, gu)
+
+    if (dist > 5) {
+      setPenVertices((prev) => {
+        if (prev.length === 0) return [{ x: sgx, y: sgy }]
+        const updated = [...prev]
+        const last = { ...updated[updated.length - 1] }
+        const dx = sgx - last.x
+        const dy = sgy - last.y
+        last.cp2x = snap(last.x + dx * 0.5, gu)
+        last.cp2y = snap(last.y + dy * 0.5, gu)
+        updated[updated.length - 1] = last
+        const next: Vertex = { x: sgx, y: sgy, cp1x: snap(sgx - dx * 0.5, gu), cp1y: snap(sgy - dy * 0.5, gu) }
+        return [...updated, next]
+      })
+    } else {
+      setPenVertices((prev) => [...prev, { x: sgx, y: sgy }])
+    }
+    setPenDragStart(null)
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
       e.preventDefault()
       deleteSelected()
+      return
+    }
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key === 'z' && e.shiftKey) {
+        e.preventDefault()
+        redo()
+      } else if (e.key === 'z') {
+        e.preventDefault()
+        undo()
+      }
     }
   }
 
@@ -181,6 +365,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           ...el,
           id: el.id?.startsWith('new_') ? undefined : el.id,
         })),
+        zones: zones.length > 0 ? zones : undefined,
       }),
     })
     setSaving(false)
@@ -194,6 +379,24 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     a.download = `${plan.slug}.png`
     a.href = uri
     a.click()
+  }
+
+  async function handleExportPDF() {
+    const stage = stageRef.current
+    if (!stage) return
+    const uri = stage.toDataURL({ mimeType: 'image/png', pixelRatio: 2 })
+    const { jsPDF } = await import('jspdf')
+    const orientation = plan.roomWidth > plan.roomDepth ? 'l' : 'p'
+    const pdf = new jsPDF({ orientation, unit: 'cm' })
+    const pageW = pdf.internal.pageSize.getWidth()
+    const pageH = pdf.internal.pageSize.getHeight()
+    const margin = 1
+    const imgW = pageW - margin * 2
+    const imgH = imgW * (plan.roomDepth / plan.roomWidth)
+    pdf.setFontSize(8)
+    pdf.text(`${plan.name} · ${new Date().toLocaleDateString('en-NZ')}`, margin, 0.8)
+    pdf.addImage(uri, 'PNG', margin, 1.2, imgW, Math.min(imgH, pageH - 2))
+    pdf.save(`${plan.slug}.pdf`)
   }
 
   const scale = Math.min(
@@ -211,7 +414,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     )
   }
 
-  const { Stage, Layer, Rect, Circle, Line, Text, Group, Transformer } = KC
+  const { Stage, Layer, Rect, Circle, Line, Text, Group, Transformer, Shape } = KC
 
   const isSelectedFixture = selected ? isFixture(selected.type) : true
 
@@ -226,9 +429,16 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           <span className="font-mono text-[10px] text-grey-light">{plan.roomWidth}×{plan.roomDepth} cm · {plan.gridUnit} cm grid</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={() => setPaletteOpen(!paletteOpen)}
+          <button onClick={() => { setPaletteOpen(!paletteOpen); if (penActive) { setPenActive(false); setPenVertices([]); setPenDragStart(null) } }}
             className={`font-mono text-xs uppercase px-2 py-1 border ${paletteOpen ? 'border-white text-white' : 'border-grey-mid text-grey-light'} hover:border-white transition-colors`}>
             PALETTE
+          </button>
+          <button onClick={() => {
+            if (penActive) { setPenActive(false); setPenVertices([]); setPenDragStart(null) }
+            else { setPenActive(true); setPaletteOpen(false); setSelectedId(null) }
+          }}
+            className={`font-mono text-xs uppercase px-2 py-1 border ${penActive ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
+            PEN {penActive ? '· ON' : ''}
           </button>
           <label className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
             <input type="checkbox" checked={snapEnabled} onChange={() => setSnapEnabled(!snapEnabled)} className="accent-white" />
@@ -242,12 +452,22 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             className={`font-mono text-[10px] uppercase px-2 py-1 border ${showSections ? 'border-accent text-accent' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
             SECTIONS
           </button>
+          <button onClick={() => {
+            if (zoneDrawing) { setZoneDrawing(false); setZoneDrawStart(null); setZoneDrawRect(null) }
+            else { setZoneDrawing(true); setPenActive(false); setPenVertices([]); setSelectedId(null) }
+          }}
+            className={`font-mono text-[10px] uppercase px-2 py-1 border ${zoneDrawing ? 'border-success text-success bg-success/10' : 'border-grey-mid text-grey-light'} hover:border-success transition-colors`}>
+            ZONES {zoneDrawing ? '· ON' : ''}
+          </button>
           <button onClick={() => setShowSummary(!showSummary)}
             className={`font-mono text-[10px] uppercase px-2 py-1 border ${showSummary ? 'border-success text-success' : 'border-grey-mid text-grey-light'} hover:border-success transition-colors`}>
             SUMMARY
           </button>
           <Button onClick={handleSave} loading={saving} size="sm">SAVE</Button>
-          <Button onClick={handleExportPNG} variant="ghost" size="sm">EXPORT PNG</Button>
+          <button onClick={undo} className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid px-2 py-1">↶</button>
+          <button onClick={redo} className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid px-2 py-1">↷</button>
+          <Button onClick={handleExportPNG} variant="ghost" size="sm">PNG</Button>
+          <Button onClick={handleExportPDF} variant="ghost" size="sm">PDF</Button>
         </div>
       </div>
 
@@ -292,7 +512,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         >
           <Stage ref={stageRef} width={stageSize.w} height={stageSize.h}
             onClick={handleStageClick} onTap={handleStageClick}
-            onMouseDown={(e: any) => { if (e.target === e.target.getStage()) setSelectedId(null) }}>
+            onDblClick={handleStageDblClick}
+            onMouseDown={handleStageMouseDown} onMouseUp={handleStageMouseUp}
+            onMouseMove={handleStageMouseMove}>
             <Layer>
               <Rect x={offsetX} y={offsetY} width={plan.roomWidth * scale} height={plan.roomDepth * scale}
                 fill="#1A1A1A" stroke="#4A4A4A" strokeWidth={2} listening={false} />
@@ -305,6 +527,29 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 <Rect key={`v${i}`} x={offsetX + i * plan.gridUnit * scale} y={offsetY}
                   width={1} height={plan.roomDepth * scale} fill="#2E2E2E" listening={false} />
               ))}
+
+              {zones.map((zone) => {
+                const sec = sectionMap.get(zone.sectionId)
+                const zc = sec?.colour ?? '#4A4A4A'
+                return (
+                  <Group key={zone.id} onClick={() => setSelectedZoneId(zone.id)}>
+                    <Rect x={offsetX + zone.x * scale} y={offsetY + zone.y * scale}
+                      width={zone.width * scale} height={zone.height * scale}
+                      fill={zc} opacity={0.1} stroke={zone.id === selectedZoneId ? '#FFF' : zc}
+                      strokeWidth={zone.id === selectedZoneId ? 2 : 1} listening={true} />
+                    {zone.label && (
+                      <Text x={offsetX + (zone.x + 5) * scale} y={offsetY + (zone.y + 5) * scale}
+                        text={zone.label} fontSize={10} fill={zc} listening={false} />
+                    )}
+                  </Group>
+                )
+              })}
+
+              {zoneDrawRect && (
+                <Rect x={offsetX + zoneDrawRect.x * scale} y={offsetY + zoneDrawRect.y * scale}
+                  width={zoneDrawRect.w * scale} height={zoneDrawRect.h * scale}
+                  fill="#FFF" opacity={0.08} stroke="#FFF" strokeWidth={1} dash={[4, 4]} listening={false} />
+              )}
 
               {elements.sort((a, b) => a.zIndex - b.zIndex).map((el) => {
                 const isSel = el.id === selectedId
@@ -328,35 +573,55 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   return (
                     <Group key={el.id} id={el.id}
                       draggable onClick={() => setSelectedId(el.id ?? null)} onTap={() => setSelectedId(el.id ?? null)}
-                      onDragEnd={(e: any) => {
-                        const gu = plan.gridUnit
-                        const nx = snap((e.target.x() - offsetX) / scale, gu)
-                        const ny = snap((e.target.y() - offsetY) / scale, gu)
-                        updateElement(el.id!, { x: nx, y: ny })
-                        e.target.x(offsetX + nx * scale)
-                        e.target.y(offsetY + ny * scale)
-                      }}>
-                      {visual}
-                    </Group>
-                  )
-                }
+                       onDragEnd={(e: any) => {
+                         pushHistory()
+                         const gu = plan.gridUnit
+                         const nx = snap((e.target.x() - offsetX) / scale, gu)
+                         const ny = snap((e.target.y() - offsetY) / scale, gu)
+                         updateElement(el.id!, { x: nx, y: ny })
+                         e.target.x(offsetX + nx * scale)
+                         e.target.y(offsetY + ny * scale)
+                       }}>
+                       {visual}
+                     </Group>
+                   )
+                 }
 
-                return (
-                  <Group key={el.id} id={el.id} x={kx} y={ky} rotation={el.rotation}
-                    draggable
-                    onClick={() => setSelectedId(el.id ?? null)} onTap={() => setSelectedId(el.id ?? null)}
-                    onDragEnd={(e: any) => {
-                      const gu = plan.gridUnit
-                      const nx = snap((e.target.x() - offsetX) / scale, gu)
-                      const ny = snap((e.target.y() - offsetY) / scale, gu)
-                      const nr = e.target.rotation()
-                      updateElement(el.id!, { x: nx, y: ny, rotation: nr })
-                      e.target.x(offsetX + nx * scale)
-                      e.target.y(offsetY + ny * scale)
-                    }}>
+                 return (
+                   <Group key={el.id} id={el.id} x={kx} y={ky} rotation={el.rotation}
+                     draggable
+                     onClick={() => setSelectedId(el.id ?? null)} onTap={() => setSelectedId(el.id ?? null)}
+                     onDragEnd={(e: any) => {
+                       pushHistory()
+                       const gu = plan.gridUnit
+                       const nx = snap((e.target.x() - offsetX) / scale, gu)
+                       const ny = snap((e.target.y() - offsetY) / scale, gu)
+                       const nr = e.target.rotation()
+                       updateElement(el.id!, { x: nx, y: ny, rotation: nr })
+                       e.target.x(offsetX + nx * scale)
+                       e.target.y(offsetY + ny * scale)
+                     }}>
                     {visual}
                   </Group>
                 )
+              })}
+
+              {elements.filter((e) => e.type === 'BOOTH_BENCH').map((bench) => {
+                const served: string[] = (bench.style as any)?.servedTableIds ?? []
+                if (served.length === 0) return null
+                return served.map((tid) => {
+                  const table = elements.find((e) => e.id === tid && e.type === 'TABLE')
+                  if (!table) return null
+                  const bx = offsetX + (bench.x + bench.width / 2) * scale
+                  const by = offsetY + (bench.y + bench.depth / 2) * scale
+                  const tx = offsetX + (table.x + table.width / 2) * scale
+                  const ty = offsetY + (table.y + table.depth / 2) * scale
+                  return (
+                    <Line key={`${bench.id}-${tid}`}
+                      points={[bx, by, tx, ty]}
+                      stroke="#FFD700" strokeWidth={1.5} dash={[5, 3]} listening={false} />
+                  )
+                })
               })}
 
               <Transformer
@@ -372,6 +637,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 }}
                 onTransformEnd={(e: any) => {
                   if (!selectedId) return
+                  pushHistory()
                   const node = stageRef.current?.findOne(`#${selectedId}`)
                   if (!node) return
                   const gu = plan.gridUnit
@@ -384,6 +650,31 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   })
                 }}
               />
+
+              {penActive && penVertices.length > 0 && (
+                <>
+                  {penVertices.map((v, i) => {
+                    const px = offsetX + v.x * scale
+                    const py = offsetY + v.y * scale
+                    const isFirst = i === 0
+                    const isLast = i === penVertices.length - 1
+                    return (
+                      <Group key={i}>
+                        <Circle x={px} y={py} radius={4} fill={isLast ? '#FFD700' : '#FFF'} stroke="#333" strokeWidth={1} listening={false} />
+                        {v.cp2x !== undefined && v.cp2y !== undefined && (
+                          <>
+                            <Line points={[px, py, offsetX + v.cp2x * scale, offsetY + v.cp2y * scale]} stroke="#FFD700" strokeWidth={1} dash={[3, 3]} listening={false} />
+                            <Circle x={offsetX + v.cp2x * scale} y={offsetY + v.cp2y * scale} radius={2} fill="#FFD700" listening={false} />
+                          </>
+                        )}
+                      </Group>
+                    )
+                  })}
+                  <Line
+                    points={penVertices.flatMap((v) => [offsetX + v.x * scale, offsetY + v.y * scale])}
+                    stroke="#FFD700" strokeWidth={2} dash={[5, 3]} closed={false} listening={false} />
+                </>
+              )}
             </Layer>
           </Stage>
         </div>
@@ -402,9 +693,24 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   <span className="font-mono text-xs text-white uppercase">{entry.sectionName}</span>
                 </div>
                 {Object.entries(entry.byType).map(([type, info]) => (
-                  <div key={type} className="flex justify-between font-mono text-[10px] text-grey-light pl-3">
-                    <span>{type}{info.totalCapacity > 0 ? ` (${info.totalCapacity} seats)` : ''}</span>
-                    <span>×{info.count}</span>
+                  <div key={type}>
+                    <div className="flex justify-between font-mono text-[10px] text-grey-light pl-3">
+                      <span>{type}{info.totalCapacity > 0 ? ` (${info.totalCapacity} seats)` : ''}</span>
+                      <span>×{info.count}</span>
+                    </div>
+                    {type === 'BOOTH_BENCH' && elements.filter((e) => e.type === 'BOOTH_BENCH').map((bench) => {
+                      const served: string[] = (bench.style as any)?.servedTableIds ?? []
+                      if (served.length === 0) return null
+                      const tableLabels = served.map((tid) => {
+                        const t = elements.find((e) => e.id === tid)
+                        return t?.label || '?'
+                      })
+                      return (
+                        <div key={bench.id} className="font-mono text-[9px] text-accent pl-5">
+                          {bench.label || '?'} serves {tableLabels.join(', ')}
+                        </div>
+                      )
+                    })}
                   </div>
                 ))}
                 <div className="flex justify-between font-mono text-[10px] text-white mt-1 pl-3">
@@ -425,6 +731,50 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     <span>×{info.count}</span>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {zoneDrawing && !selected && (
+          <div className="w-56 flex-shrink-0 border-l border-grey-mid overflow-y-auto bg-grey-dark p-3 space-y-3">
+            <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider">SECTION ZONES</h2>
+            <p className="font-mono text-[10px] text-grey-light">Drag on canvas to draw a zone rectangle.</p>
+            <Select label="Section" value={zoneSectionId}
+              onChange={(e) => setZoneSectionId(e.target.value)}
+              options={sections.map((s) => ({ value: s.id, label: s.name }))} />
+            <div className="mt-3 space-y-1 max-h-48 overflow-y-auto">
+              {zones.map((z) => {
+                const sec = sectionMap.get(z.sectionId)
+                return (
+                  <div key={z.id} onClick={() => setSelectedZoneId(z.id)}
+                    className={`flex items-center gap-2 p-1.5 cursor-pointer font-mono text-[10px] ${z.id === selectedZoneId ? 'bg-grey-mid text-white' : 'text-grey-light hover:text-white'}`}>
+                    <div className="w-3 h-3 flex-shrink-0" style={{ backgroundColor: sec?.colour ?? '#666' }} />
+                    <span className="truncate flex-1">{sec?.name ?? '?'}</span>
+                    <span>{Math.round(z.width)}×{Math.round(z.height)}</span>
+                  </div>
+                )
+              })}
+              {zones.length === 0 && <p className="font-mono text-[10px] text-grey-light italic">No zones yet</p>}
+            </div>
+            {selectedZoneId && (
+              <div className="border-t border-grey-mid pt-2 space-y-2">
+                <button onClick={() => {
+                  const z = zones.find((x) => x.id === selectedZoneId)
+                  if (z) {
+                    setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, sectionId: zoneSectionId } : x))
+                  }
+                }}
+                  className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1 w-full">
+                  APPLY SECTION
+                </button>
+                <button onClick={() => {
+                  setZones((prev) => prev.filter((x) => x.id !== selectedZoneId))
+                  setSelectedZoneId(null)
+                }}
+                  className="font-mono text-[10px] text-danger hover:text-white uppercase border border-danger px-2 py-1 w-full">
+                  DELETE ZONE
+                </button>
               </div>
             )}
           </div>
@@ -466,6 +816,35 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     className="accent-white" />
                   SHOW LABEL
                 </label>
+                {selected.type === 'BOOTH_BENCH' && (
+                  <div className="space-y-1">
+                    <p className="font-mono text-[10px] text-grey-light uppercase">Serves Tables</p>
+                    {elements.filter((e) => e.type === 'TABLE').map((t) => {
+                      const served: string[] = (selected.style as any)?.servedTableIds ?? []
+                      const checked = served.includes(t.id!)
+                      return (
+                        <label key={t.id} className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+                          <input type="checkbox" checked={checked}
+                            onChange={() => {
+                              const s: string[] = [...served]
+                              if (checked) {
+                                const idx = s.indexOf(t.id!)
+                                if (idx >= 0) s.splice(idx, 1)
+                              } else {
+                                s.push(t.id!)
+                              }
+                              updateElement(selected.id!, { style: { ...(selected.style ?? {}), servedTableIds: s } })
+                            }}
+                            className="accent-white" />
+                          <span>{t.label || t.type}</span>
+                        </label>
+                      )
+                    })}
+                    {elements.filter((e) => e.type === 'TABLE').length === 0 && (
+                      <p className="font-mono text-[10px] text-grey-light italic">No tables on plan</p>
+                    )}
+                  </div>
+                )}
                 <Input label="Fill Colour" value={selected.fillColour ?? ''}
                   onChange={(e) => updateElement(selected.id!, { fillColour: e.target.value || null })} placeholder="#555" />
                 <Select label="Section" value={selected.sectionId ?? ''}

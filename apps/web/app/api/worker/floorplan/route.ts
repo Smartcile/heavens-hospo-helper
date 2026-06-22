@@ -14,10 +14,44 @@ export async function GET(req: NextRequest) {
     deletedAt: null,
     isActive: true,
   }
-  if (viewSlug) {
-    where.slug = viewSlug
+
+  // If no explicit view requested, check for today's events with a linked floor plan
+  let eventBanner: { eventName: string; planName: string } | null = null
+  if (!viewSlug) {
+    const venue = await prisma.venue.findUnique({
+      where: { id: session.venueId },
+      select: { timezone: true },
+    })
+    const tz = venue?.timezone ?? 'Pacific/Auckland'
+    const now = new Date()
+    const todayStart = new Date(now.toLocaleString('en-US', { timeZone: tz }))
+    todayStart.setHours(0, 0, 0, 0)
+    const todayEnd = new Date(todayStart)
+    todayEnd.setHours(23, 59, 59, 999)
+
+    const eventPlan = await prisma.calendarEvent.findFirst({
+      where: {
+        venueId: session.venueId,
+        deletedAt: null,
+        floorPlanSlug: { not: null },
+        startsAt: { lte: todayEnd },
+        endsAt: { gte: todayStart },
+      },
+      select: { floorPlanSlug: true, floorPlanName: true, title: true },
+      orderBy: { startsAt: 'desc' },
+    })
+
+    if (eventPlan?.floorPlanSlug) {
+      where.slug = eventPlan.floorPlanSlug
+      eventBanner = {
+        eventName: eventPlan.title,
+        planName: eventPlan.floorPlanName ?? eventPlan.floorPlanSlug,
+      }
+    } else {
+      where.isDefault = true
+    }
   } else {
-    where.isDefault = true
+    where.slug = viewSlug
   }
 
   const plan = await prisma.floorPlan.findFirst({
@@ -35,5 +69,8 @@ export async function GET(req: NextRequest) {
 
   if (!plan) return NextResponse.json({ plan: null, elements: [] })
 
-  return NextResponse.json(plan)
+  const result: Record<string, unknown> = { ...plan }
+  if (eventBanner) result.eventBanner = eventBanner
+
+  return NextResponse.json(result)
 }

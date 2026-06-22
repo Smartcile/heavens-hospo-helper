@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import type { Vertex } from '@hospo-ops/types'
 
 // ── Theme ──
 export interface FloorPlanTheme {
@@ -77,7 +78,7 @@ export interface ElementData {
   width: number
   depth: number
   radius?: number | null
-  vertices?: { x: number; y: number }[] | null
+  vertices?: Vertex[] | null
   rotation: number
   colour?: string | null
   fillColour?: string | null
@@ -172,6 +173,41 @@ export function FloorPlanElementVisual({
 
   // ── POLYGON shape ──
   if (el.shape === 'POLYGON' && el.vertices) {
+    const { Shape } = KC
+    const hasBezier = el.vertices.some((v) => v.cp1x !== undefined || v.cp2x !== undefined)
+    if (hasBezier) {
+      return (
+        <Shape
+          sceneFunc={(context: any, shape: any) => {
+            const ctx = context._context
+            const verts = el.vertices!
+            const [sx, sy] = [offsetX + (el.x + verts[0].x) * scale, offsetY + (el.y + verts[0].y) * scale]
+            ctx.beginPath()
+            ctx.moveTo(sx, sy)
+            for (let i = 0; i < verts.length; i++) {
+              const j = (i + 1) % verts.length
+              const curr = verts[i]
+              const next = verts[j]
+              const [cx, cy] = [offsetX + (el.x + next.x) * scale, offsetY + (el.y + next.y) * scale]
+              if (curr.cp2x !== undefined && curr.cp2y !== undefined && next.cp1x !== undefined && next.cp1y !== undefined) {
+                const [cp1x, cp1y] = [offsetX + (el.x + curr.cp2x) * scale, offsetY + (el.y + curr.cp2y) * scale]
+                const [cp2x, cp2y] = [offsetX + (el.x + next.cp1x) * scale, offsetY + (el.y + next.cp1y) * scale]
+                ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, cx, cy)
+              } else if (curr.cp2x !== undefined && curr.cp2y !== undefined) {
+                const [cp1x, cp1y] = [offsetX + (el.x + curr.cp2x) * scale, offsetY + (el.y + curr.cp2y) * scale]
+                ctx.quadraticCurveTo(cp1x, cp1y, cx, cy)
+              } else {
+                ctx.lineTo(cx, cy)
+              }
+            }
+            ctx.closePath()
+            shape.fill(ctx)
+            shape.stroke(ctx)
+          }}
+          fill={fill} stroke={stroke} strokeWidth={strokeW} opacity={el.opacity}
+        />
+      )
+    }
     const pts = el.vertices.flatMap((v) => [offsetX + (el.x + v.x) * scale, offsetY + (el.y + v.y) * scale])
     return (
       <Line points={pts} closed fill={fill} stroke={stroke} strokeWidth={strokeW} opacity={el.opacity} />

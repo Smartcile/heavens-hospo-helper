@@ -19,7 +19,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { elements } = await req.json()
+  const { elements, zones } = await req.json()
   if (!Array.isArray(elements)) {
     return NextResponse.json({ error: 'elements array is required' }, { status: 400 })
   }
@@ -80,5 +80,12 @@ export async function PUT(req: NextRequest, { params }: Params) {
     }
   }
 
-  return NextResponse.json({ saved: results.length, deleted: toDelete.length })
+  if (zones !== undefined) {
+    await prisma.floorPlan.update({
+      where: { id: params.id },
+      data: { zones },
+    })
+  }
+
+  return NextResponse.json({ saved: results.length, deleted: toDelete.length, zonesSaved: zones !== undefined })
 }

@@ -94,12 +94,12 @@ The model that links sections, tasks and knowledge into one followed-up loop.
     ☑ Admin stocktake page: create, assign to role/staff, review variance, sign-off
     ☑ Worker stocktake screen: dashboard card, scrollable count list, submit IN_PROGRESS or COMPLETED
     ☑ Par level alerts on dashboard: items below threshold flagged
-  ☐ **Bezier pen tool** — click = straight vertex, click-drag = bezier with control handles; double-click to close; edit existing vertices (drag, toggle straight↔curve); tool button next to palette
-  ☐ **Drawable section zones** — drag-to-draw coloured zone rectangles on canvas; pick section from dropdown; zones render behind elements at 0.1 opacity
-  ☐ **Table↔bench linking** — assign BOOTH_BENCH to specific TABLE elements; dashed connector line on canvas; "B1 serves T1, T2" in summary
-  ☐ **Calendar event floor plan linking** — `CalendarEvent.floorPlanSlug` links events to alternate layouts; worker auto-switch with banner: "EVENT MODE — [Name] LAYOUT ACTIVE"
-  ☐ **Undo/redo stack** — Ctrl+Z / Ctrl+Shift+Z snapshots of elements array per action
-  ☐ **PDF export** — render canvas to PDF with date/venue header via jspdf
+  ☑ **Bezier pen tool** — click = straight vertex, click-drag = bezier with control handles; double-click to close; tool button next to palette; pen preview rendering on canvas
+  ☑ **Drawable section zones** — drag-to-draw coloured zone rectangles on canvas; pick section from dropdown; zones render behind elements at 0.1 opacity; saved as JSON on FloorPlan
+  ☑ **Table↔bench linking** — assign BOOTH_BENCH to specific TABLE elements via checkboxes in properties panel; dashed gold connector line on canvas; "B1 serves T1, T2" in summary
+  ☑ **Calendar event floor plan linking** — `CalendarEvent.floorPlanSlug` + `floorPlanName` fields; admin event modal has floor plan selector; worker auto-switches to event layout; banner: "EVENT MODE — [Name] LAYOUT ACTIVE"
+  ☑ **Undo/redo stack** — Ctrl+Z / Ctrl+Shift+Z; history pushed on add, delete, drag-end, transform-end; buttons in toolbar
+  ☑ **PDF export** — render canvas to PDF with date/venue header via jspdf
 
 ## PHASE 3 — TRAINING (prev. Phase 3, unchanged)
 ✅ **Training modules / guides** — authored in admin, with step-by-step content, **photos** (upload) and **video links**

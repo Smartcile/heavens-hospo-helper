@@ -411,11 +411,13 @@ model CalendarEvent {
   location     String?
   startsAt     DateTime
   endsAt       DateTime?
-  allDay       Boolean        @default(false)
-  lastSyncedAt DateTime       @default(now())
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  deletedAt    DateTime?
+  allDay         Boolean   @default(false)
+  floorPlanSlug  String?   // links event to a specific floor plan layout
+  floorPlanName  String?   // display name for the banner
+  lastSyncedAt   DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
 
   venue Venue @relation(fields: [venueId], references: [id])
 
@@ -679,6 +681,7 @@ model FloorPlan {
   roomWidth  Float     @default(2000) // real-world cm
   roomDepth  Float     @default(1500) // real-world cm
   gridUnit   Float     @default(50)   // snap grid in cm
+  zones      Json?                     // section zone rectangles [{id,x,y,w,h,sectionId}]
   isActive   Boolean   @default(true)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt

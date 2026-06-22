@@ -15,6 +15,7 @@ interface FullPlan {
   id: string; name: string; slug: string; isDefault: boolean
   roomWidth: number; roomDepth: number; gridUnit: number
   elements: WorkerElement[]
+  eventBanner?: { eventName: string; planName: string } | null
 }
 
 export function WorkerFloorPlan() {
@@ -85,6 +86,13 @@ export function WorkerFloorPlan() {
 
   return (
     <div className="min-h-screen bg-black flex flex-col">
+      {plan.eventBanner && (
+        <div className="bg-accent/20 border-b border-accent px-4 py-2">
+          <p className="font-mono text-xs text-accent uppercase text-center">
+            EVENT MODE — {plan.eventBanner.planName} LAYOUT ACTIVE · {plan.eventBanner.eventName}
+          </p>
+        </div>
+      )}
       <div className="flex items-center justify-between px-4 py-3 border-b border-grey-mid">
         <div>
           <h1 className="font-mono text-sm font-bold uppercase tracking-widest text-white">FLOOR PLAN</h1>

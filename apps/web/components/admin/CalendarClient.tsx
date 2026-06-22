@@ -10,7 +10,9 @@ import { formatBreaks } from '@/lib/breaks'
 
 interface ShiftItem { id: string; staffId: string; staffName: string; departmentName: string | null; startTime: string; endTime: string }
 interface TimeOffItem { id: string; staffId: string; staffName: string; status: string }
-interface EventItem { id: string; title: string; time: string | null; allDay: boolean; location: string | null; source: string }
+interface EventItem { id: string; title: string; time: string | null; allDay: boolean; location: string | null; source: string; floorPlanSlug?: string | null; floorPlanName?: string | null }
+
+interface FloorPlanLite { slug: string; name: string }
 interface DayData { shifts: ShiftItem[]; timeOff: TimeOffItem[]; events: EventItem[]; dutiesRequired: boolean }
 interface Pending { id: string; staffName: string; startDate: string; endDate: string; reason: string | null }
 
@@ -41,6 +43,7 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
   const [pending, setPending] = useState<Pending[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [staff, setStaff] = useState<StaffLite[]>([])
+  const [floorPlans, setFloorPlans] = useState<FloorPlanLite[]>([])
   const [loading, setLoading] = useState(true)
 
   const [view, setView] = useState<CalView>('planner')
@@ -84,13 +87,30 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
   }
 
   async function loadMeta() {
-    const [vR, sR] = await Promise.all([fetch('/api/admin/venues'), fetch('/api/admin/staff')])
+    const [vR, sR, fR] = await Promise.all([
+      fetch('/api/admin/venues'),
+      fetch('/api/admin/staff'),
+      venueId ? fetch(`/api/admin/floorplan?venueId=${venueId}`) : Promise.resolve(null),
+    ])
     const [vData, sData] = await Promise.all([vR.json(), sR.json()])
     setVenues(vData)
     setStaff(sData)
+    if (fR) {
+      const fpData = await fR.json()
+      setFloorPlans(fpData.map((fp: any) => ({ slug: fp.slug, name: fp.name })))
+    }
   }
 
-  useEffect(() => { loadMeta() }, [])
+  async function linkEventToPlan(eventId: string, slug: string, name: string) {
+    await fetch(`/api/admin/calendar/${eventId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ floorPlanSlug: slug || null, floorPlanName: name || null }),
+    })
+    load()
+  }
+
+  useEffect(() => { loadMeta() }, [venueId])
   useEffect(() => { load() }, [year, month, venueId])
 
   // Auto-refresh the embedded views at the venue's chosen interval.
@@ -347,10 +367,24 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
                 <div className="font-mono text-xs uppercase tracking-wider text-grey-light mb-2">EVENTS</div>
                 <div className="space-y-1">
                   {openDayData.events.map((ev) => (
-                    <div key={ev.id} className="border border-grey-mid p-2">
+                    <div key={ev.id} className="border border-grey-mid p-2 space-y-1">
                       <div className="font-mono text-xs text-accent">◆ {ev.allDay ? 'ALL DAY' : ev.time} · {ev.title}</div>
                       {ev.location && <div className="font-mono text-xs text-grey-light">{ev.location}</div>}
                       <div className="font-mono text-[10px] uppercase text-grey-light">{ev.source === 'GOOGLE' ? 'GOOGLE CALENDAR' : 'ICAL FEED'}</div>
+                      <div className="flex items-center gap-2">
+                        <select value={ev.floorPlanSlug ?? ''}
+                          onChange={(e) => {
+                            const fp = floorPlans.find((f) => f.slug === e.target.value)
+                            linkEventToPlan(ev.id, e.target.value, fp?.name ?? '')
+                          }}
+                          className="bg-grey-dark border border-grey-mid text-white font-mono text-[10px] p-1 flex-1">
+                          <option value="">NO FLOOR PLAN</option>
+                          {floorPlans.map((fp) => (
+                            <option key={fp.slug} value={fp.slug}>{fp.name}</option>
+                          ))}
+                        </select>
+                        {ev.floorPlanSlug && <span className="font-mono text-[10px] text-success uppercase">LINKED</span>}
+                      </div>
                     </div>
                   ))}
                 </div>

@@ -1,3 +1,12 @@
+export interface Vertex {
+  x: number
+  y: number
+  cp1x?: number
+  cp1y?: number
+  cp2x?: number
+  cp2y?: number
+}
+
 export type Role = 'ADMIN' | 'MANAGER' | 'STAFF'
 export type CompletionType = 'TICK' | 'TICK_NOTE' | 'TICK_PHOTO'
 export type ScheduleType = 'DAILY' | 'WEEKLY' | 'CUSTOM'
