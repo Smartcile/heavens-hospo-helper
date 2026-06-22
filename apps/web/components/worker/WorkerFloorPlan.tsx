@@ -22,10 +22,9 @@ export function WorkerFloorPlan() {
   const [loading, setLoading] = useState(true)
   const [infoPanel, setInfoPanel] = useState<WorkerElement | null>(null)
   const [zoomLevel, setZoomLevel] = useState(1)
+  const [rebuildKey, setRebuildKey] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<ViewState>({ baseScale: 1, ox: 0, oy: 0, zoom: 1, panX: 0, panY: 0 })
-  const CANVAS_W = typeof window !== 'undefined' ? Math.min(window.innerWidth - 32, 800) : 800
-  const CANVAS_H = 500
 
   async function loadPlan(view?: string | null) {
     setLoading(true)
@@ -41,6 +40,14 @@ export function WorkerFloorPlan() {
   }
 
   useEffect(() => { loadViews(); loadPlan() }, [])
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setRebuildKey((k) => k + 1))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   function switchView(slug: string) {
     setActiveView(slug)
@@ -118,7 +125,7 @@ export function WorkerFloorPlan() {
             onZoneDrawMove={() => {}}
             onZoneDrawEnd={() => {}}
             onViewChange={(z) => setZoomLevel(z)}
-            stageW={CANVAS_W} stageH={CANVAS_H}
+            rebuildKey={rebuildKey}
           />
       </div>
 

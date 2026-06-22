@@ -96,8 +96,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     setElements(next)
   }
 
-  const CANVAS_PAD = 40
-  const [stageSize, setStageSize] = useState({ w: 800, h: 600 })
+  const [rebuildKey, setRebuildKey] = useState(0)
 
   useEffect(() => {
     const load = async () => {
@@ -123,17 +122,13 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     load()
   }, [plan.id])
 
+  // ResizeObserver triggers rebuild via rebuildKey
   useEffect(() => {
-    if (!containerRef.current) return
-    const resize = () => {
-      const parent = containerRef.current!.parentElement!
-      const w = Math.min(parent.clientWidth - 2, 1200)
-      const h = Math.min(window.innerHeight - 200, 700)
-      setStageSize({ w, h })
-    }
-    resize()
-    window.addEventListener('resize', resize)
-    return () => window.removeEventListener('resize', resize)
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setRebuildKey((k) => k + 1))
+    ro.observe(el)
+    return () => ro.disconnect()
   }, [])
 
   const selected = elements.find((e) => e.id === selectedId) ?? null
@@ -222,13 +217,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     })
     setSaving(false)
   }
-
-  const scale = Math.min(
-    (stageSize.w - CANVAS_PAD * 2) / plan.roomWidth,
-    (stageSize.h - CANVAS_PAD * 2) / plan.roomDepth,
-  )
-  const offsetX = (stageSize.w - plan.roomWidth * scale) / 2
-  const offsetY = (stageSize.h - plan.roomDepth * scale) / 2
 
   if (loading) {
     return (
@@ -441,7 +429,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               })
             }}
             onViewChange={(z) => setZoomLevel(z)}
-            stageW={stageSize.w} stageH={stageSize.h}
+            rebuildKey={rebuildKey}
           />
         </div>
 

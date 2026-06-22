@@ -32,10 +32,21 @@ interface PixiCanvasProps {
   onZoneDrawMove: (x: number, y: number) => void
   onZoneDrawEnd: (x: number, y: number) => void
   onViewChange?: (zoom: number) => void
-  stageW: number; stageH: number
+  rebuildKey?: number
 }
 
 function gridSnap(v: number, u: number) { return Math.round(v / u) * u }
+
+function computeView(sw: number, sh: number, rw: number, rd: number, zoom: number, panX: number, panY: number) {
+  const baseScale = Math.min((sw - 40) / rw, (sh - 40) / rd)
+  const ox = (sw - rw * baseScale) / 2; const oy = (sh - rd * baseScale) / 2
+  return { baseScale, ox, oy, zoom, panX, panY }
+}
+
+function applyRoomTransform(room: PIXI.Container, vs: ViewState) {
+  room.scale.set(vs.baseScale * vs.zoom)
+  room.position.set(vs.ox + vs.panX, vs.oy + vs.panY)
+}
 
 export function FloorPlanPixiCanvas({
   roomWidth, roomDepth, gridUnit,
@@ -44,7 +55,7 @@ export function FloorPlanPixiCanvas({
   containerRef, viewRef,
   onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd,
   onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onViewChange,
-  stageW, stageH,
+  rebuildKey,
 }: PixiCanvasProps) {
   const appRef = useRef<PIXI.Application | null>(null)
   const roomRef = useRef<PIXI.Container | null>(null)
@@ -54,27 +65,27 @@ export function FloorPlanPixiCanvas({
 
   // Init app once
   useEffect(() => {
-    if (!containerRef.current) return
+    const el = containerRef.current
+    if (!el) return
+    const w = el.clientWidth || 800; const h = el.clientHeight || 600
     const app = new PIXI.Application({
-      width: stageW, height: stageH, backgroundColor: 0x000000,
+      width: w, height: h, backgroundColor: 0x000000,
       antialias: true, resolution: window.devicePixelRatio || 1, autoDensity: true,
     })
-    containerRef.current.appendChild(app.view as unknown as Node)
+    el.appendChild(app.view as unknown as Node)
     appRef.current = app
 
     const room = new PIXI.Container()
     roomRef.current = room
     app.stage.addChild(room)
 
-    // Compute initial view state
-    const bs = Math.min((stageW - 80) / roomWidth, (stageH - 80) / roomDepth)
-    const ox = (stageW - roomWidth * bs) / 2; const oy = (stageH - roomDepth * bs) / 2
-    viewRef.current = { baseScale: bs, ox, oy, zoom: 1, panX: 0, panY: 0 }
-    room.scale.set(bs); room.position.set(ox, oy)
+    const vs = computeView(w, h, roomWidth, roomDepth, 1, 0, 0)
+    viewRef.current = vs
+    applyRoomTransform(room, vs)
 
     // Stage click to deselect
     app.stage.eventMode = 'static'
-    app.stage.hitArea = new PIXI.Rectangle(0, 0, stageW, stageH)
+    app.stage.hitArea = new PIXI.Rectangle(0, 0, w, h)
     app.stage.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
       if (e.target === app.stage) { cbRef.current.onElementClick(null); cbRef.current.onZoneClick(null) }
     })
@@ -90,7 +101,7 @@ export function FloorPlanPixiCanvas({
       vs.zoom = newZoom
       vs.panX = e.globalX - worldX * vs.baseScale * vs.zoom - vs.ox
       vs.panY = e.globalY - worldY * vs.baseScale * vs.zoom - vs.oy
-      room.scale.set(vs.baseScale * vs.zoom); room.position.set(vs.ox + vs.panX, vs.oy + vs.panY)
+      applyRoomTransform(room, vs)
       cbRef.current.onViewChange?.(newZoom)
     })
 
@@ -141,31 +152,47 @@ export function FloorPlanPixiCanvas({
       zd = null
     })
 
-    return () => { app.destroy(true, { children: true }); appRef.current = null; roomRef.current = null }
+    // ResizeObserver: auto-resize renderer + recompute view
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect
+        if (width < 10 || height < 10) return
+        app.renderer.resize(Math.round(width), Math.round(height))
+        app.stage.hitArea = new PIXI.Rectangle(0, 0, width, height)
+        const vs = viewRef.current
+        const nv = computeView(width, height, roomWidth, roomDepth, vs.zoom, vs.panX, vs.panY)
+        Object.assign(vs, nv)
+        applyRoomTransform(room, vs)
+      }
+    })
+    ro.observe(el)
+
+    return () => { ro.disconnect(); app.destroy(true, { children: true }); appRef.current = null; roomRef.current = null }
   }, [])
 
   // Rebuild scene
   useEffect(() => {
-    const room = roomRef.current
-    if (!room) return
+    const app = appRef.current; const room = roomRef.current
+    if (!app || !room) return
 
-    // Update base scale on resize
+    const sw = app.screen.width; const sh = app.screen.height
     const vs = viewRef.current
-    vs.baseScale = Math.min((stageW - 80) / roomWidth, (stageH - 80) / roomDepth)
-    vs.ox = (stageW - roomWidth * vs.baseScale) / 2; vs.oy = (stageH - roomDepth * vs.baseScale) / 2
-    room.scale.set(vs.baseScale * vs.zoom); room.position.set(vs.ox + vs.panX, vs.oy + vs.panY)
+    const nv = computeView(sw, sh, roomWidth, roomDepth, vs.zoom, vs.panX, vs.panY)
+    Object.assign(vs, nv)
+    applyRoomTransform(room, vs)
     stateRef.current = { snap: snapEnabled, gu: gridUnit }
 
     room.removeChildren()
+    const pxScale = vs.baseScale * vs.zoom || 1
 
-    // Background (drawn at 0,0 in cm, scaled by room)
+    // Background
     const bg = new PIXI.Graphics()
-    bg.beginFill(0x1A1A1A).lineStyle(2 / (vs.baseScale * vs.zoom || 1), 0x4A4A4A).drawRect(0, 0, roomWidth, roomDepth).endFill()
+    bg.beginFill(0x1A1A1A).lineStyle(2 / pxScale, 0x4A4A4A).drawRect(0, 0, roomWidth, roomDepth).endFill()
     bg.eventMode = 'none'
     room.addChild(bg)
 
-    // Grid (drawn in cm)
-    const gd = new PIXI.Graphics(); gd.lineStyle(1 / (vs.baseScale * vs.zoom || 1), 0x2E2E2E, 0.3)
+    // Grid
+    const gd = new PIXI.Graphics(); gd.lineStyle(1 / pxScale, 0x2E2E2E, 0.3)
     for (let i = 0; i <= roomWidth; i += gridUnit) { gd.moveTo(i, 0); gd.lineTo(i, roomDepth) }
     for (let j = 0; j <= roomDepth; j += gridUnit) { gd.moveTo(0, j); gd.lineTo(roomWidth, j) }
     gd.eventMode = 'none'; room.addChild(gd)
@@ -173,7 +200,7 @@ export function FloorPlanPixiCanvas({
     // Zone draw preview
     if (zoneDrawing && zoneDrawRect) {
       const pr = new PIXI.Graphics()
-      pr.lineStyle(1 / (vs.baseScale * vs.zoom || 1), 0xFFFFFF, 0.3); pr.beginFill(0xFFFFFF, 0.05)
+      pr.lineStyle(1 / pxScale, 0xFFFFFF, 0.3); pr.beginFill(0xFFFFFF, 0.05)
       pr.drawRect(zoneDrawRect.x, zoneDrawRect.y, zoneDrawRect.w, zoneDrawRect.h)
       pr.endFill(); pr.eventMode = 'none'; room.addChild(pr)
     }
@@ -181,15 +208,11 @@ export function FloorPlanPixiCanvas({
     // Zones
     zones.forEach((z) => {
       const c = new PIXI.Container(); c.x = z.x; c.y = z.y
-      if (zoneDrawing) {
-        c.eventMode = 'static'; c.cursor = 'move'
-      } else {
-        c.eventMode = 'static'; c.cursor = 'default'
-      }
+      if (zoneDrawing) { c.eventMode = 'static'; c.cursor = 'move' }
+      else { c.eventMode = 'static'; c.cursor = 'default' }
       const colour = sectionColours.get(z.sectionId) ?? '#4A4A4A'
       const nc = parseInt(colour.replace('#', ''), 16)
       const g = new PIXI.Graphics()
-      const pxScale = vs.baseScale * vs.zoom || 1
       g.lineStyle((z.id === selectedZoneId ? 2 : 1) / pxScale, z.id === selectedZoneId ? 0xFFFFFF : nc, 1)
       g.beginFill(nc, 0.1).drawRect(0, 0, z.width, z.height).endFill()
       c.addChild(g)
@@ -205,8 +228,8 @@ export function FloorPlanPixiCanvas({
       const fill = el.fillColour ?? '#6B6B6B'
       const nf = parseInt(fill.replace('#', ''), 16)
       const ns = el.id === selectedId ? 0xFFFFFF : parseInt('#4A4A4A'.replace('#', ''), 16)
-      const sw = (el.id === selectedId ? 2 : 1) / (vs.baseScale * vs.zoom || 1)
-      const g = new PIXI.Graphics(); g.lineStyle(sw, ns, el.opacity ?? 1); g.beginFill(nf, el.opacity ?? 1)
+      const sw2 = (el.id === selectedId ? 2 : 1) / pxScale
+      const g = new PIXI.Graphics(); g.lineStyle(sw2, ns, el.opacity ?? 1); g.beginFill(nf, el.opacity ?? 1)
       if (el.shape === 'CIRCLE') { g.drawCircle(0, 0, el.radius ?? Math.min(el.width, el.depth) / 2) }
       else {
         const w = el.width; const h = el.depth
@@ -223,7 +246,6 @@ export function FloorPlanPixiCanvas({
 
       // Label
       if (el.labelVisible !== false && el.label) {
-        const pxScale = (vs.baseScale * vs.zoom || 1)
         const fs = Math.max(8, Math.min(el.width, el.depth) * 0.3 * pxScale)
         const t = new PIXI.Text(el.label, { fontSize: fs, fill: 0xCCCCCC, fontFamily: 'monospace', align: 'center' })
         t.anchor.set(0.5); t.x = el.width / 2; t.y = el.depth / 2; t.eventMode = 'none'; c.addChild(t)
@@ -233,7 +255,6 @@ export function FloorPlanPixiCanvas({
       if (el.type === 'TABLE' && (el.chairCount ?? 0) > 0) {
         const cc = el.chairCount ?? 0
         const chairsPerSide = Math.ceil(cc / 4)
-        const pxScale = vs.baseScale * vs.zoom || 1
         const chairR = 4 / pxScale
         const chairGap = 2 / pxScale
         const sides = [
@@ -252,7 +273,7 @@ export function FloorPlanPixiCanvas({
             const pxPos = side.x1 + ux * (spacing * 0.5 + spacing * i)
             const pyPos = side.y1 + uy * (spacing * 0.5 + spacing * i)
             const chair = new PIXI.Graphics()
-            chair.beginFill(0x3A3A4A).lineStyle(sw, 0x666666).drawCircle(pxPos, pyPos, chairR).endFill()
+            chair.beginFill(0x3A3A4A).lineStyle(sw2, 0x666666).drawCircle(pxPos, pyPos, chairR).endFill()
             chair.eventMode = 'none'; c.addChild(chair)
             placed++
           }
@@ -272,7 +293,7 @@ export function FloorPlanPixiCanvas({
       const served: string[] = (bench.style as any)?.servedTableIds ?? []
       served.forEach((tid) => {
         const table = elements.find((e) => e.id === tid); if (!table) return
-        const l = new PIXI.Graphics(); l.lineStyle(1.5 / (vs.baseScale * vs.zoom || 1), 0xFFD700, 1)
+        const l = new PIXI.Graphics(); l.lineStyle(1.5 / pxScale, 0xFFD700, 1)
         const bx = bench.x + bench.width / 2; const by = bench.y + bench.depth / 2
         const tx = table.x + table.width / 2; const ty = table.y + table.depth / 2
         const ddx = tx - bx; const ddy = ty - by; const dist = Math.sqrt(ddx * ddx + ddy * ddy)
@@ -281,7 +302,7 @@ export function FloorPlanPixiCanvas({
         l.eventMode = 'none'; room.addChild(l)
       })
     })
-  }, [elements, zones, selectedId, selectedZoneId, zoneDrawing, zoneDrawRect, roomWidth, roomDepth, gridUnit, snapEnabled, stageW, stageH])
+  }, [elements, zones, selectedId, selectedZoneId, zoneDrawing, zoneDrawRect, roomWidth, roomDepth, gridUnit, snapEnabled, rebuildKey])
 
   function attachElementDrag(node: PIXI.Container, el: ElementData) {
     let dd: { sx: number; sy: number; ex: number; ey: number } | null = null
@@ -306,7 +327,6 @@ export function FloorPlanPixiCanvas({
         let rx = dd.ex + (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
         let ry = dd.ey + (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
         if (st.snap) { rx = gridSnap(rx, st.gu); ry = gridSnap(ry, st.gu) }
-        // Clamp to room bounds
         rx = Math.max(0, Math.min(rx, roomWidth - el.width))
         ry = Math.max(0, Math.min(ry, roomDepth - el.depth))
         cbRef.current.onElementDragEnd(el.id!, rx, ry); dd = null
