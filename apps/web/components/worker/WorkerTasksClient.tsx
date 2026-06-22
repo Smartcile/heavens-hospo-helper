@@ -240,17 +240,53 @@ export function WorkerTasksClient() {
         </div>
       </div>
 
-      {/* Pending — time-gated lists first, then any other tasks by dept → section */}
-      <div className="px-4 py-4 space-y-5">
-        {listGroups.map((lg) => (
-          <div key={lg.id} className="space-y-2">
-            <div className="flex items-center justify-between gap-2 border-b border-grey-mid pb-1">
-              <span className="font-mono text-xs uppercase tracking-widest text-white">{lg.name}</span>
-              {lg.time && <span className="font-mono text-[10px] uppercase text-warning">FROM {lg.time}</span>}
+      {/* Pending — time-gated lists as boxes, then any other tasks by dept → section */}
+      <div className="px-4 py-4 space-y-4">
+        {listGroups.map((lg) => {
+          const allTaskIds = checklists.find((cl) => cl.id === lg.id)?.taskIds ?? []
+          const allInList = tasks.filter((t) => allTaskIds.includes(t.id))
+          const doneCount = allInList.filter((t) => t.isCompleted).length
+          const totalCount = allInList.length
+          const donePct = totalCount > 0 ? (doneCount / totalCount) * 100 : 0
+          const maxVisible = 5
+          const extra = lg.tasks.length - maxVisible
+          return (
+            <div key={lg.id} className="border border-grey-mid bg-grey-dark">
+              <div className="h-1.5 bg-grey-mid">
+                <div className="h-full bg-success transition-all duration-500" style={{ width: `${donePct}%` }} />
+              </div>
+              <div className="p-3 border-b border-grey-mid flex items-center justify-between gap-2">
+                <div className="font-mono text-xs uppercase tracking-widest text-white">{lg.name}</div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {lg.time && <span className="font-mono text-[9px] uppercase text-warning">{lg.time}</span>}
+                  <span className="font-mono text-[10px] text-grey-light">{doneCount}/{totalCount}</span>
+                </div>
+              </div>
+              <div className="divide-y divide-grey-mid">
+                {lg.tasks.slice(0, maxVisible).map((t) => (
+                  <button key={t.id} onClick={() => openTask(t)}
+                    className="w-full text-left bg-grey-dark p-3 hover:border-white transition-colors active:bg-black flex items-center gap-3 border-0 border-b border-grey-mid last:border-0">
+                    <div className="w-5 h-5 border-2 border-grey-mid flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-mono font-semibold text-sm uppercase text-white">{t.title}</div>
+                      {t.description && <p className="font-sans text-xs text-grey-light mt-0.5">{t.description}</p>}
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <CompletionTypeIcon type={t.completionType} />
+                        {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
+                        {t.guide && <span className="font-mono text-xs text-grey-light">📖 GUIDE</span>}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+                {extra > 0 && (
+                  <div className="p-3 text-center">
+                    <span className="font-mono text-[10px] text-grey-light">+{extra} MORE TASK{extra > 1 ? 'S' : ''}</span>
+                  </div>
+                )}
+              </div>
             </div>
-            {lg.tasks.map(renderTask)}
-          </div>
-        ))}
+          )
+        })}
 
         {otherGroups.map((dg) => (
           <div key={dg.dept} className="space-y-2">

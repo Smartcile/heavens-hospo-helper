@@ -5,11 +5,10 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import {
-  PALETTE_ITEMS, isFixture, FloorPlanElementVisual,
+  PALETTE_ITEMS, FloorPlanElementVisual,
   computeSectionSummary, type PaletteItem, type ElementData,
 } from '@/components/admin/floorplan-elements'
 import { ElementInventoryPanel } from '@/components/admin/ElementInventoryPanel'
-import type { Vertex } from '@hospo-ops/types'
 
 interface SectionZone {
   id: string
@@ -59,15 +58,18 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [showSections, setShowSections] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
   const [showInvTab, setShowInvTab] = useState(false)
-  const [penActive, setPenActive] = useState(false)
-  const [penVertices, setPenVertices] = useState<Vertex[]>([])
-  const [penDragStart, setPenDragStart] = useState<{ x: number; y: number } | null>(null)
   const [zones, setZones] = useState<SectionZone[]>([])
   const [zoneDrawing, setZoneDrawing] = useState(false)
   const [zoneDrawStart, setZoneDrawStart] = useState<{ x: number; y: number } | null>(null)
   const [zoneDrawRect, setZoneDrawRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [zoneSectionId, setZoneSectionId] = useState(sections[0]?.id ?? '')
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
+  const [customPresets, setCustomPresets] = useState<PaletteItem[]>([])
+  const [presetFormOpen, setPresetFormOpen] = useState(false)
+  const [presetName, setPresetName] = useState('')
+  const [presetW, setPresetW] = useState(80)
+  const [presetD, setPresetD] = useState(80)
+  const [presetFill, setPresetFill] = useState('#555')
 
   const INVENTORY_TYPES = ['TABLE', 'CHAIR', 'BOOTH_BENCH', 'BAR', 'COUNTER', 'SINK', 'STORAGE', 'KITCHEN_EQUIP']
 
@@ -189,8 +191,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       shape: item.circle ? 'CIRCLE' : 'RECTANGLE',
       label,
       labelVisible: true,
-      x: snap(pos.x, gu) - (item.circle ? 0 : snap(item.w / 2, gu)),
-      y: snap(pos.y, gu) - (item.circle ? 0 : snap(item.d / 2, gu)),
+      x: snap(pos.x - (item.circle ? 0 : item.w / 2), gu),
+      y: snap(pos.y - (item.circle ? 0 : item.d / 2), gu),
       width: snap(item.w, gu) || gu,
       depth: snap(item.d, gu) || gu,
       radius: item.circle ? snap(Math.min(item.w, item.d) / 2, gu) : null,
@@ -207,49 +209,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     setSelectedId(id)
   }
 
-  function finishPen() {
-    if (penVertices.length < 3) return
-    const gu = plan.gridUnit
-    const verts = penVertices.map((v) => ({
-      x: snap(v.x, gu),
-      y: snap(v.y, gu),
-      cp1x: v.cp1x !== undefined ? snap(v.cp1x, gu) : undefined,
-      cp1y: v.cp1y !== undefined ? snap(v.cp1y, gu) : undefined,
-      cp2x: v.cp2x !== undefined ? snap(v.cp2x, gu) : undefined,
-      cp2y: v.cp2y !== undefined ? snap(v.cp2y, gu) : undefined,
-    }))
-    const minX = Math.min(...verts.map((v) => v.x))
-    const minY = Math.min(...verts.map((v) => v.y))
-    const maxX = Math.max(...verts.map((v) => v.x))
-    const maxY = Math.max(...verts.map((v) => v.y))
-    const id = `new_${nextIdCounter.current++}`
-    const el: ElementData = {
-      id, type: 'OTHER', shape: 'POLYGON', label: null, labelVisible: true,
-      x: minX, y: minY,
-      width: Math.max(maxX - minX, gu),
-      depth: Math.max(maxY - minY, gu),
-      rotation: 0, fillColour: '#6B6B6B', opacity: 1,
-      zIndex: elements.length + 1, sortOrder: elements.length, isActive: true,
-      style: null,
-      vertices: verts.map((v) => ({ x: v.x - minX, y: v.y - minY, cp1x: v.cp1x !== undefined ? v.cp1x - minX : undefined, cp1y: v.cp1y !== undefined ? v.cp1y - minY : undefined, cp2x: v.cp2x !== undefined ? v.cp2x - minX : undefined, cp2y: v.cp2y !== undefined ? v.cp2y - minY : undefined })),
-    }
-    pushHistory()
-    setElements((prev) => [...prev, el])
-    setSelectedId(id)
-    setPenActive(false)
-    setPenVertices([])
-    setPenDragStart(null)
-  }
-
   function handleStageClick(e: any) {
-    if (!penActive && e.target === e.target.getStage()) setSelectedId(null)
-  }
-
-  function handleStageDblClick(e: any) {
-    if (!penActive) return
-    e.evt.preventDefault()
-    if (penVertices.length < 3) return
-    finishPen()
+    if (!zoneDrawing && e.target === e.target.getStage()) setSelectedId(null)
   }
 
   function handleStageMouseDown(e: any) {
@@ -263,15 +224,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       setSelectedZoneId(null)
       return
     }
-    if (!penActive) {
-      if (e.target === e.target.getStage()) setSelectedId(null)
-      return
-    }
-    if (e.target !== e.target.getStage()) return
-    const rect = containerRef.current!.getBoundingClientRect()
-    const gx = (e.evt.clientX - rect.left - offsetX) / scale
-    const gy = (e.evt.clientY - rect.top - offsetY) / scale
-    setPenDragStart({ x: gx, y: gy })
+    if (e.target === e.target.getStage()) setSelectedId(null)
   }
 
   function handleStageMouseMove(e: any) {
@@ -310,39 +263,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       setZoneDrawRect(null)
       return
     }
-    if (!penActive || !penDragStart) return
-    const rect = containerRef.current!.getBoundingClientRect()
-    const gx = (e.evt.clientX - rect.left - offsetX) / scale
-    const gy = (e.evt.clientY - rect.top - offsetY) / scale
-    const dist = Math.sqrt((gx - penDragStart.x) ** 2 + (gy - penDragStart.y) ** 2)
-    const gu = plan.gridUnit
-    const sgx = snap(gx, gu)
-    const sgy = snap(gy, gu)
-
-    if (dist > 5) {
-      setPenVertices((prev) => {
-        if (prev.length === 0) return [{ x: sgx, y: sgy }]
-        const updated = [...prev]
-        const last = { ...updated[updated.length - 1] }
-        const dx = sgx - last.x
-        const dy = sgy - last.y
-        last.cp2x = snap(last.x + dx * 0.5, gu)
-        last.cp2y = snap(last.y + dy * 0.5, gu)
-        updated[updated.length - 1] = last
-        const next: Vertex = { x: sgx, y: sgy, cp1x: snap(sgx - dx * 0.5, gu), cp1y: snap(sgy - dy * 0.5, gu) }
-        return [...updated, next]
-      })
-    } else {
-      setPenVertices((prev) => [...prev, { x: sgx, y: sgy }])
-    }
-    setPenDragStart(null)
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
-      e.preventDefault()
-      deleteSelected()
-      return
+    if ((e.key === 'Delete' || e.key === 'Backspace')) {
+      if (selectedId) { e.preventDefault(); deleteSelected(); return }
+      if (zoneDrawing && selectedZoneId) { e.preventDefault(); setZones((prev) => prev.filter((z) => z.id !== selectedZoneId)); setSelectedZoneId(null); return }
     }
     if (e.ctrlKey || e.metaKey) {
       if (e.key === 'z' && e.shiftKey) {
@@ -416,8 +342,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
   const { Stage, Layer, Rect, Circle, Line, Text, Group, Transformer, Shape } = KC
 
-  const isSelectedFixture = selected ? isFixture(selected.type) : true
-
   const summary = showSummary ? computeSectionSummary(elements, sections) : null
 
   return (
@@ -429,16 +353,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           <span className="font-mono text-[10px] text-grey-light">{plan.roomWidth}×{plan.roomDepth} cm · {plan.gridUnit} cm grid</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={() => { setPaletteOpen(!paletteOpen); if (penActive) { setPenActive(false); setPenVertices([]); setPenDragStart(null) } }}
+          <button onClick={() => setPaletteOpen(!paletteOpen)}
             className={`font-mono text-xs uppercase px-2 py-1 border ${paletteOpen ? 'border-white text-white' : 'border-grey-mid text-grey-light'} hover:border-white transition-colors`}>
             PALETTE
-          </button>
-          <button onClick={() => {
-            if (penActive) { setPenActive(false); setPenVertices([]); setPenDragStart(null) }
-            else { setPenActive(true); setPaletteOpen(false); setSelectedId(null) }
-          }}
-            className={`font-mono text-xs uppercase px-2 py-1 border ${penActive ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
-            PEN {penActive ? '· ON' : ''}
           </button>
           <label className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
             <input type="checkbox" checked={snapEnabled} onChange={() => setSnapEnabled(!snapEnabled)} className="accent-white" />
@@ -454,7 +371,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           </button>
           <button onClick={() => {
             if (zoneDrawing) { setZoneDrawing(false); setZoneDrawStart(null); setZoneDrawRect(null) }
-            else { setZoneDrawing(true); setPenActive(false); setPenVertices([]); setSelectedId(null) }
+            else { setZoneDrawing(true); setSelectedId(null) }
           }}
             className={`font-mono text-[10px] uppercase px-2 py-1 border ${zoneDrawing ? 'border-success text-success bg-success/10' : 'border-grey-mid text-grey-light'} hover:border-success transition-colors`}>
             ZONES {zoneDrawing ? '· ON' : ''}
@@ -474,24 +391,66 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       <div className="flex flex-1 min-h-0">
         {paletteOpen && (
           <div className="w-44 flex-shrink-0 border-r border-grey-mid overflow-y-auto bg-grey-dark p-2 space-y-1">
-            <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid">ELEMENTS</p>
-            {PALETTE_ITEMS.map((item) => (
-              <div
-                key={item.type}
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData('text/plain', item.type)
-                  const dragImg = new globalThis.Image()
-                  dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-                  e.dataTransfer.setDragImage(dragImg, 0, 0)
-                }}
-                onDragEnd={() => {}}
-                className="flex items-center gap-2 p-1.5 cursor-grab hover:bg-grey-mid transition-colors"
-              >
-                <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.fill }} />
-                <span className="font-mono text-[10px] text-white uppercase truncate">{item.label}</span>
-              </div>
-            ))}
+            {(['FIXTURE', 'FURNITURE'] as const).map((cat) => {
+              const items = [...PALETTE_ITEMS, ...customPresets].filter((i) => i.category === cat)
+              if (items.length === 0) return null
+              return (
+                <div key={cat}>
+                  <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2 first:mt-0">{cat}</p>
+                  {items.map((item) => (
+                    <div
+                      key={item.type}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', item.type)
+                        const dragImg = new globalThis.Image()
+                        dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+                        e.dataTransfer.setDragImage(dragImg, 0, 0)
+                      }}
+                      onDragEnd={() => {}}
+                      className="flex items-center gap-2 p-1.5 cursor-grab hover:bg-grey-mid transition-colors"
+                    >
+                      <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.fill }} />
+                      <span className="font-mono text-[10px] text-white uppercase truncate">{item.label}</span>
+                      <span className="font-mono text-[8px] text-grey-light ml-auto">{item.w}×{item.d}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
+            <div className="border-t border-grey-mid pt-2 mt-2">
+              {presetFormOpen ? (
+                <div className="space-y-1 px-1">
+                  <Input label="Name" value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="E.G. TABLE-60X60" />
+                  <div className="grid grid-cols-2 gap-1">
+                    <Input label="W" type="number" value={presetW.toString()} onChange={(e) => setPresetW(parseInt(e.target.value) || 80)} />
+                    <Input label="D" type="number" value={presetD.toString()} onChange={(e) => setPresetD(parseInt(e.target.value) || 80)} />
+                  </div>
+                  <Input label="Colour" value={presetFill} onChange={(e) => setPresetFill(e.target.value)} placeholder="#555" />
+                  <div className="flex gap-1">
+                    <button onClick={() => {
+                      if (!presetName.trim()) return
+                      const p: PaletteItem = { type: presetName.toUpperCase().trim(), label: presetName.toUpperCase().trim(), w: presetW, d: presetD, fill: presetFill, category: 'FURNITURE' }
+                      setCustomPresets((prev) => [...prev, p])
+                      setPresetName(''); setPresetW(80); setPresetD(80); setPresetFill('#555')
+                      setPresetFormOpen(false)
+                    }}
+                      className="font-mono text-[10px] text-success hover:text-white uppercase px-1.5 py-0.5 border border-success flex-1">
+                      ADD
+                    </button>
+                    <button onClick={() => setPresetFormOpen(false)}
+                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5">
+                      CANCEL
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setPresetFormOpen(true)}
+                  className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-1 w-full text-left">
+                  + ADD PRESET
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -502,7 +461,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           onDrop={(e) => {
             e.preventDefault()
             const type = e.dataTransfer.getData('text/plain')
-            const item = PALETTE_ITEMS.find((p) => p.type === type)
+            const item = [...PALETTE_ITEMS, ...customPresets].find((p) => p.type === type)
             if (!item) return
             const rect = containerRef.current!.getBoundingClientRect()
             const x = (e.clientX - rect.left - offsetX) / scale
@@ -512,7 +471,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         >
           <Stage ref={stageRef} width={stageSize.w} height={stageSize.h}
             onClick={handleStageClick} onTap={handleStageClick}
-            onDblClick={handleStageDblClick}
             onMouseDown={handleStageMouseDown} onMouseUp={handleStageMouseUp}
             onMouseMove={handleStageMouseMove}>
             <Layer>
@@ -531,12 +489,42 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               {zones.map((zone) => {
                 const sec = sectionMap.get(zone.sectionId)
                 const zc = sec?.colour ?? '#4A4A4A'
+                const isSel = zone.id === selectedZoneId
                 return (
-                  <Group key={zone.id} onClick={() => setSelectedZoneId(zone.id)}>
+                  <Group key={zone.id}
+                    draggable={zoneDrawing}
+                    onClick={() => { if (zoneDrawing) setSelectedZoneId(zone.id) }}
+                    onDragEnd={(e: any) => {
+                      if (!zoneDrawing) return
+                      const gu = plan.gridUnit
+                      const nx = snap((e.target.x() - offsetX) / scale, gu)
+                      const ny = snap((e.target.y() - offsetY) / scale, gu)
+                      setZones((prev) => prev.map((z) => z.id === zone.id ? { ...z, x: nx, y: ny } : z))
+                      e.target.x(offsetX + zone.x * scale)
+                      e.target.y(offsetY + zone.y * scale)
+                    }}>
                     <Rect x={offsetX + zone.x * scale} y={offsetY + zone.y * scale}
                       width={zone.width * scale} height={zone.height * scale}
-                      fill={zc} opacity={0.1} stroke={zone.id === selectedZoneId ? '#FFF' : zc}
-                      strokeWidth={zone.id === selectedZoneId ? 2 : 1} listening={true} />
+                      fill={zc} opacity={0.1} stroke={isSel ? '#FFF' : zc}
+                      strokeWidth={isSel ? 2 : 1} listening={true} />
+                    {isSel && zoneDrawing && (
+                      <>
+                        {/* Resize handle bottom-right */}
+                        <Rect x={offsetX + (zone.x + zone.width - 10) * scale} y={offsetY + (zone.y + zone.height - 10) * scale}
+                          width={10 * scale} height={10 * scale} fill="#FFF" opacity={0.5} stroke="#FFF" strokeWidth={1}
+                          draggable
+                          onDragMove={(e: any) => {
+                            const gu = plan.gridUnit
+                            const mx = snap((e.target.x() - offsetX) / scale, gu)
+                            const my = snap((e.target.y() - offsetY) / scale, gu)
+                            setZones((prev) => prev.map((z) => z.id === zone.id ? {
+                              ...z,
+                              width: Math.max(mx - z.x, gu),
+                              height: Math.max(my - z.y, gu),
+                            } : z))
+                          }} />
+                      </>
+                    )}
                     {zone.label && (
                       <Text x={offsetX + (zone.x + 5) * scale} y={offsetY + (zone.y + 5) * scale}
                         text={zone.label} fontSize={10} fill={zc} listening={false} />
@@ -628,9 +616,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 ref={transformerRef}
                 rotateEnabled={true}
                 rotationSnaps={snap45Enabled ? [0, 45, 90, 135, 180, 225, 270, 315] : undefined}
-                enabledAnchors={isSelectedFixture
-                  ? ['top-left', 'top-right', 'bottom-left', 'bottom-right']
-                  : []}
+                enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right']}
                 boundBoxFunc={(oldBox: any, newBox: any) => {
                   if (newBox.width < 10 || newBox.height < 10) return oldBox
                   return newBox
@@ -651,29 +637,14 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 }}
               />
 
-              {penActive && penVertices.length > 0 && (
-                <>
-                  {penVertices.map((v, i) => {
-                    const px = offsetX + v.x * scale
-                    const py = offsetY + v.y * scale
-                    const isFirst = i === 0
-                    const isLast = i === penVertices.length - 1
-                    return (
-                      <Group key={i}>
-                        <Circle x={px} y={py} radius={4} fill={isLast ? '#FFD700' : '#FFF'} stroke="#333" strokeWidth={1} listening={false} />
-                        {v.cp2x !== undefined && v.cp2y !== undefined && (
-                          <>
-                            <Line points={[px, py, offsetX + v.cp2x * scale, offsetY + v.cp2y * scale]} stroke="#FFD700" strokeWidth={1} dash={[3, 3]} listening={false} />
-                            <Circle x={offsetX + v.cp2x * scale} y={offsetY + v.cp2y * scale} radius={2} fill="#FFD700" listening={false} />
-                          </>
-                        )}
-                      </Group>
-                    )
-                  })}
-                  <Line
-                    points={penVertices.flatMap((v) => [offsetX + v.x * scale, offsetY + v.y * scale])}
-                    stroke="#FFD700" strokeWidth={2} dash={[5, 3]} closed={false} listening={false} />
-                </>
+              {zoneDrawing && selectedZoneId && (
+                zones.filter((z) => z.id === selectedZoneId).map((zone) => (
+                  <Group key={`sel-${zone.id}`}>
+                    <Rect x={offsetX + zone.x * scale} y={offsetY + zone.y * scale}
+                      width={zone.width * scale} height={zone.height * scale}
+                      stroke="#FFD700" strokeWidth={2} dash={[4, 4]} listening={false} />
+                  </Group>
+                ))
               )}
             </Layer>
           </Stage>
@@ -739,11 +710,11 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         {zoneDrawing && !selected && (
           <div className="w-56 flex-shrink-0 border-l border-grey-mid overflow-y-auto bg-grey-dark p-3 space-y-3">
             <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider">SECTION ZONES</h2>
-            <p className="font-mono text-[10px] text-grey-light">Drag on canvas to draw a zone rectangle.</p>
+            <p className="font-mono text-[10px] text-grey-light">Drag on canvas to draw or move zones.</p>
             <Select label="Section" value={zoneSectionId}
               onChange={(e) => setZoneSectionId(e.target.value)}
               options={sections.map((s) => ({ value: s.id, label: s.name }))} />
-            <div className="mt-3 space-y-1 max-h-48 overflow-y-auto">
+            <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
               {zones.map((z) => {
                 const sec = sectionMap.get(z.sectionId)
                 return (
@@ -757,33 +728,43 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               })}
               {zones.length === 0 && <p className="font-mono text-[10px] text-grey-light italic">No zones yet</p>}
             </div>
-            {selectedZoneId && (
-              <div className="border-t border-grey-mid pt-2 space-y-2">
-                <button onClick={() => {
-                  const z = zones.find((x) => x.id === selectedZoneId)
-                  if (z) {
-                    setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, sectionId: zoneSectionId } : x))
-                  }
-                }}
-                  className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1 w-full">
-                  APPLY SECTION
-                </button>
-                <button onClick={() => {
-                  setZones((prev) => prev.filter((x) => x.id !== selectedZoneId))
-                  setSelectedZoneId(null)
-                }}
-                  className="font-mono text-[10px] text-danger hover:text-white uppercase border border-danger px-2 py-1 w-full">
-                  DELETE ZONE
-                </button>
-              </div>
-            )}
+            {selectedZoneId && (() => {
+              const z = zones.find((x) => x.id === selectedZoneId)
+              if (!z) return null
+              return (
+                <div className="border-t border-grey-mid pt-2 space-y-2">
+                  <Input label="X (cm)" type="number" value={Math.round(z.x).toString()}
+                    onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, x: parseFloat(e.target.value) || 0 } : x))} />
+                  <Input label="Y (cm)" type="number" value={Math.round(z.y).toString()}
+                    onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, y: parseFloat(e.target.value) || 0 } : x))} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input label="W" type="number" value={Math.round(z.width).toString()}
+                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, width: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) } : x))} />
+                    <Input label="H" type="number" value={Math.round(z.height).toString()}
+                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, height: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) } : x))} />
+                  </div>
+                  <Select label="Section" value={z.sectionId}
+                    onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, sectionId: e.target.value } : x))}
+                    options={sections.map((s) => ({ value: s.id, label: s.name }))} />
+                  <button onClick={() => {
+                    setZones((prev) => prev.filter((x) => x.id !== selectedZoneId))
+                    setSelectedZoneId(null)
+                  }}
+                    className="font-mono text-[10px] text-danger hover:text-white uppercase border border-danger px-2 py-1 w-full">
+                    DELETE ZONE
+                  </button>
+                </div>
+              )
+            })()}
           </div>
         )}
 
         {selected && (
           <div className="w-56 flex-shrink-0 border-l border-grey-mid overflow-y-auto bg-grey-dark p-3 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="font-mono text-xs font-bold text-white">{selected.type}</span>
+              <input value={selected.type}
+                onChange={(e) => updateElement(selected.id!, { type: e.target.value.toUpperCase() || 'OTHER' })}
+                className="font-mono text-xs font-bold text-white bg-transparent border-0 p-0 outline-none w-24" />
               <button onClick={deleteSelected}
                 className="font-mono text-[10px] text-danger hover:text-white uppercase border border-danger px-1.5 py-0.5">
                 DELETE
@@ -847,6 +828,25 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 )}
                 <Input label="Fill Colour" value={selected.fillColour ?? ''}
                   onChange={(e) => updateElement(selected.id!, { fillColour: e.target.value || null })} placeholder="#555" />
+                {selected.shape === 'RECTANGLE' && (
+                  <div>
+                    <p className="font-mono text-[10px] text-grey-light uppercase mb-1">Corner Radius</p>
+                    <div className="grid grid-cols-4 gap-1">
+                      {['TL', 'TR', 'BR', 'BL'].map((label, idx) => {
+                        const cr: number[] = ((selected.style as any)?.cornerRadius) ?? [0, 0, 0, 0]
+                        return (
+                          <Input key={label} label={label} type="number" min="0" max={Math.min(selected.width, selected.depth) / 2}
+                            value={cr[idx]?.toString() ?? '0'}
+                            onChange={(e) => {
+                              const next = [...cr]
+                              next[idx] = Math.min(parseInt(e.target.value) || 0, Math.min(selected.width, selected.depth) / 2)
+                              updateElement(selected.id!, { style: { ...(selected.style ?? {}), cornerRadius: next } })
+                            }} />
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
                 <Select label="Section" value={selected.sectionId ?? ''}
                   onChange={(e) => updateElement(selected.id!, { sectionId: e.target.value || null })}
                   options={sections.map((s) => ({ value: s.id, label: s.name }))} placeholder="NONE" />
@@ -861,18 +861,10 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     onChange={(e) => updateElement(selected.id!, { y: parseFloat(e.target.value) || 0 })} />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Input label="Width (cm)" type="number" value={Math.round(selected.width).toString()}
-                      onChange={(e) => updateElement(selected.id!, { width: parseFloat(e.target.value) || plan.gridUnit })}
-                      disabled={!isSelectedFixture} />
-                    {!isSelectedFixture && <p className="font-mono text-[8px] text-grey-light mt-0.5">FIXED SIZE</p>}
-                  </div>
-                  <div>
-                    <Input label="Depth (cm)" type="number" value={Math.round(selected.depth).toString()}
-                      onChange={(e) => updateElement(selected.id!, { depth: parseFloat(e.target.value) || plan.gridUnit })}
-                      disabled={!isSelectedFixture} />
-                    {!isSelectedFixture && <p className="font-mono text-[8px] text-grey-light mt-0.5">FIXED SIZE</p>}
-                  </div>
+                  <Input label="Width (cm)" type="number" value={Math.round(selected.width).toString()}
+                    onChange={(e) => updateElement(selected.id!, { width: parseFloat(e.target.value) || plan.gridUnit })} />
+                  <Input label="Depth (cm)" type="number" value={Math.round(selected.depth).toString()}
+                    onChange={(e) => updateElement(selected.id!, { depth: parseFloat(e.target.value) || plan.gridUnit })} />
                 </div>
                 <Input label="Rotation" type="number" value={Math.round(selected.rotation).toString()}
                   onChange={(e) => updateElement(selected.id!, { rotation: parseFloat(e.target.value) || 0 })} />

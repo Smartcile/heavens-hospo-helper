@@ -94,7 +94,7 @@ The model that links sections, tasks and knowledge into one followed-up loop.
     ☑ Admin stocktake page: create, assign to role/staff, review variance, sign-off
     ☑ Worker stocktake screen: dashboard card, scrollable count list, submit IN_PROGRESS or COMPLETED
     ☑ Par level alerts on dashboard: items below threshold flagged
-  ☑ **Bezier pen tool** — click = straight vertex, click-drag = bezier with control handles; double-click to close; tool button next to palette; pen preview rendering on canvas
+  ☑ **Pen tool removed, replaced with per-corner rounding** — 4 corner radius inputs (TL/TR/BR/BL) on any RECTANGLE element, stored in `style.cornerRadius`, rendered via Konva native array support
   ☑ **Drawable section zones** — drag-to-draw coloured zone rectangles on canvas; pick section from dropdown; zones render behind elements at 0.1 opacity; saved as JSON on FloorPlan
   ☑ **Table↔bench linking** — assign BOOTH_BENCH to specific TABLE elements via checkboxes in properties panel; dashed gold connector line on canvas; "B1 serves T1, T2" in summary
   ☑ **Calendar event floor plan linking** — `CalendarEvent.floorPlanSlug` + `floorPlanName` fields; admin event modal has floor plan selector; worker auto-switches to event layout; banner: "EVENT MODE — [Name] LAYOUT ACTIVE"
