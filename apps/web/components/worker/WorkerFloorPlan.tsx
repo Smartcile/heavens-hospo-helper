@@ -1,14 +1,11 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import {
-  FloorPlanElementVisual, type ElementData,
-} from '@/components/admin/floorplan-elements'
+import { FloorPlanPixiCanvas } from '@/components/admin/floorplan-pixi'
+import type { ElementData } from '@/components/admin/floorplan-elements'
 
 interface View { slug: string; name: string; isDefault: boolean }
-
 interface SectionInfo { id: string; name: string; colour: string | null }
-
 type WorkerElement = ElementData & { section?: SectionInfo | null }
 
 interface FullPlan {
@@ -24,24 +21,9 @@ export function WorkerFloorPlan() {
   const [activeView, setActiveView] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [infoPanel, setInfoPanel] = useState<WorkerElement | null>(null)
-  const [showSections, setShowSections] = useState(false)
-  const [konvaReady, setKonvaReady] = useState(false)
-  const [KC, setKC] = useState<{
-    Stage: React.FC<any>; Layer: React.FC<any>; Rect: React.FC<any>
-    Circle: React.FC<any>; Line: React.FC<any>; Text: React.FC<any>
-    Group: React.FC<any>
-  } | null>(null)
-
-  const stageRef = useRef<any>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const CANVAS_W = typeof window !== 'undefined' ? Math.min(window.innerWidth - 32, 800) : 800
   const CANVAS_H = 500
-
-  useEffect(() => {
-    import('react-konva').then((RK) => {
-      setKC({ Stage: RK.Stage, Layer: RK.Layer, Rect: RK.Rect, Circle: RK.Circle, Line: RK.Line, Text: RK.Text, Group: RK.Group })
-      setKonvaReady(true)
-    })
-  }, [])
 
   async function loadPlan(view?: string | null) {
     setLoading(true)
@@ -64,9 +46,7 @@ export function WorkerFloorPlan() {
     setInfoPanel(null)
   }
 
-  const scale = plan ? Math.min(CANVAS_W / plan.roomWidth, CANVAS_H / plan.roomDepth) : 0.5
-
-  if (loading || !konvaReady || !KC) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
         <p className="font-mono text-sm text-grey-light loading-cursor">LOADING</p>
@@ -82,7 +62,10 @@ export function WorkerFloorPlan() {
     )
   }
 
-  const { Stage, Layer, Rect, Group } = KC
+  const sectionColours = new Map<string, string>()
+  plan.elements.forEach((el) => {
+    if (el.section?.colour) sectionColours.set(el.section.id, el.section.colour)
+  })
 
   return (
     <div className="min-h-screen bg-black flex flex-col">
@@ -105,37 +88,33 @@ export function WorkerFloorPlan() {
               {views.map((v) => <option key={v.slug} value={v.slug}>{v.name}{v.isDefault ? ' (DEFAULT)' : ''}</option>)}
             </select>
           )}
-          <button onClick={() => setShowSections(!showSections)}
-            className={`font-mono text-[10px] uppercase px-2 py-1 border ${showSections ? 'border-accent text-accent' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
-            SECTIONS
-          </button>
         </div>
       </div>
 
       <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
-        <Stage ref={stageRef} width={CANVAS_W} height={CANVAS_H} scaleX={scale} scaleY={scale}
-          className="border border-grey-mid">
-          <Layer>
-            <Rect x={0} y={0} width={plan.roomWidth} height={plan.roomDepth}
-              fill="#1A1A1A" stroke="#4A4A4A" strokeWidth={2} listening={false} />
-
-            {plan.elements.sort((a, b) => a.zIndex - b.zIndex).map((el) => {
-              const secColour = el.section?.colour ?? null
-              const kx = el.x
-              const ky = el.y
-
-              return (
-                <Group key={el.id} x={kx} y={ky} rotation={el.rotation}
-                  onClick={() => setInfoPanel(el)} onTap={() => setInfoPanel(el)}>
-                  <FloorPlanElementVisual
-                    el={el} KC={KC} scale={1} offsetX={0} offsetY={0}
-                    isSelected={false} sectionColour={secColour}
-                    showSectionOverlay={showSections} />
-                </Group>
-              )
-            })}
-          </Layer>
-        </Stage>
+        <div ref={containerRef} className="w-full h-full" />
+        <FloorPlanPixiCanvas
+            roomWidth={plan.roomWidth} roomDepth={plan.roomDepth} gridUnit={plan.gridUnit}
+            elements={plan.elements} zones={[]}
+            selectedId={null} snapEnabled={false}
+            sectionColours={sectionColours}
+            zoneDrawing={false}
+            zoneDrawStart={null}
+            zoneDrawRect={null}
+            selectedZoneId={null}
+            containerRef={containerRef}
+            onElementClick={(id) => {
+              if (id) { const el = plan.elements.find((e) => e.id === id); if (el) setInfoPanel(el) }
+              else setInfoPanel(null)
+            }}
+            onElementDragEnd={() => {}}
+            onZoneClick={() => {}}
+            onZoneDragEnd={() => {}}
+            onZoneDrawStart={() => {}}
+            onZoneDrawMove={() => {}}
+            onZoneDrawEnd={() => {}}
+            stageW={CANVAS_W} stageH={CANVAS_H}
+          />
       </div>
 
       {infoPanel && (
@@ -159,5 +138,3 @@ export function WorkerFloorPlan() {
     </div>
   )
 }
-
-

@@ -36,6 +36,7 @@
   "dependencies": {
     "jspdf": "^4.2.1",
     "konva": "^10.3.0",
+    "pixi.js": "^7.3.3",
     "react-konva": "^18.2.16"
   }
 }
