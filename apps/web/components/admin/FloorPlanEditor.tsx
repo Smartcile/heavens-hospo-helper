@@ -66,6 +66,13 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [presetD, setPresetD] = useState(80)
   const [presetFill, setPresetFill] = useState('#555')
   const [furnitureItems, setFurnitureItems] = useState<any[]>([])
+  const [furnitureCatId, setFurnitureCatId] = useState('')
+  const [newTableOpen, setNewTableOpen] = useState(false)
+  const [newTableName, setNewTableName] = useState('')
+  const [newTableW, setNewTableW] = useState('80')
+  const [newTableD, setNewTableD] = useState('80')
+  const [newTableColour, setNewTableColour] = useState('#555')
+  const [newTableChairs, setNewTableChairs] = useState('0')
 
   const INVENTORY_TYPES = ['TABLE', 'CHAIR', 'BOOTH_BENCH', 'BAR', 'COUNTER', 'SINK', 'STORAGE', 'KITCHEN_EQUIP']
 
@@ -73,6 +80,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const nextIdCounter = useRef(1)
   const viewRef = useRef<ViewState>({ baseScale: 1, ox: 0, oy: 0, zoom: 1, panX: 0, panY: 0 })
   const [zoomLevel, setZoomLevel] = useState(1)
+  const [textScale, setTextScale] = useState(1)
 
   const historyRef = useRef<{ past: ElementData[][]; future: ElementData[][] }>({ past: [], future: [] })
 
@@ -120,7 +128,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         if (data.zones) setZones(data.zones)
       }
       const furnRes = await fetch('/api/admin/inventory?furniture=true')
-      if (furnRes.ok) setFurnitureItems(await furnRes.json())
+      if (furnRes.ok) { const data = await furnRes.json(); setFurnitureItems(data); if (data.length > 0 && !furnitureCatId) setFurnitureCatId(data[0].categoryId) }
+      const catRes = await fetch('/api/admin/inventory/categories')
+      if (catRes.ok) { const cats = await catRes.json(); const fc = cats.find((c: any) => c.name === 'FURNITURE'); if (fc) setFurnitureCatId(fc.id) }
       setLoading(false)
     }
     load()
@@ -264,6 +274,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-mono text-[10px] text-grey-light w-16 text-right">ZOOM: {Math.round(zoomLevel * 100)}%</span>
+          <div className="flex items-center gap-1">
+            <span className="font-mono text-[8px] text-grey-light">TEXT</span>
+            <input type="range" min="0.5" max="3" step="0.1" value={textScale} onChange={(e) => setTextScale(parseFloat(e.target.value))}
+              className="w-16 accent-white" />
+            <span className="font-mono text-[9px] text-grey-light w-5">{textScale.toFixed(1)}×</span>
+          </div>
           <button onClick={() => setPaletteOpen(!paletteOpen)}
             className={`font-mono text-xs uppercase px-2 py-1 border ${paletteOpen ? 'border-white text-white' : 'border-grey-mid text-grey-light'} hover:border-white transition-colors`}>
             PALETTE
@@ -342,6 +358,59 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     <span className="font-mono text-[8px] text-grey-light ml-auto">{fi.elementWidth}×{fi.elementDepth}</span>
                   </div>
                 ))}
+              </div>
+            )}
+            {(furnitureItems.length > 0 || true) && (
+              <div className="border-t border-grey-mid pt-1 mt-1">
+                {newTableOpen ? (
+                  <div className="space-y-1 px-1">
+                    <Input label="Name" value={newTableName} onChange={(e) => setNewTableName(e.target.value)} placeholder="TABLE" />
+                    <div className="grid grid-cols-2 gap-1">
+                      <Input label="W" type="number" value={newTableW} onChange={(e) => setNewTableW(e.target.value)} />
+                      <Input label="D" type="number" value={newTableD} onChange={(e) => setNewTableD(e.target.value)} />
+                    </div>
+                    <Input label="Colour" value={newTableColour} onChange={(e) => setNewTableColour(e.target.value)} placeholder="#555" />
+                    <Input label="Chairs" type="number" value={newTableChairs} onChange={(e) => setNewTableChairs(e.target.value)} />
+                    <div className="flex gap-1">
+                      <button onClick={async () => {
+                        const name = (newTableName || `TABLE-${Math.floor(Math.random() * 1000)}`).toUpperCase().trim()
+                        if (!name) return
+                        const r = await fetch('/api/admin/inventory', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            name,
+                            categoryId: furnitureCatId || undefined,
+                            unit: 'EA', defaultParLevel: 0,
+                            furnitureType: 'TABLE',
+                            elementWidth: parseFloat(newTableW) || 80,
+                            elementDepth: parseFloat(newTableD) || 80,
+                            elementShape: 'RECTANGLE',
+                            defaultColour: newTableColour,
+                            defaultChairCount: parseInt(newTableChairs) || 0,
+                          }),
+                        })
+                        if (r.ok) {
+                          const created = await r.json()
+                          setFurnitureItems((prev) => [...prev, created])
+                          setNewTableOpen(false); setNewTableName(''); setNewTableW('80'); setNewTableD('80'); setNewTableColour('#555'); setNewTableChairs('0')
+                        }
+                      }}
+                        className="font-mono text-[10px] text-success hover:text-white uppercase px-1.5 py-0.5 border border-success flex-1">
+                        CREATE
+                      </button>
+                      <button onClick={() => setNewTableOpen(false)}
+                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5">
+                        CANCEL
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => setNewTableOpen(true)}
+                    className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-1 w-full text-left">
+                    + NEW TABLE
+                  </button>
+                )}
               </div>
             )}
             <div className="border-t border-grey-mid pt-2 mt-2">
@@ -466,6 +535,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 return null
               })
             }}
+            textScale={textScale}
             onViewChange={(z) => setZoomLevel(z)}
             selRect={selRect}
             onSelRectStart={(x, y) => { setSelRect({ x, y, w: 0, h: 0 }); setSelectedIds([]) }}

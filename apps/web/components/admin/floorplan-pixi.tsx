@@ -33,6 +33,7 @@ interface PixiCanvasProps {
   onZoneDrawMove: (x: number, y: number) => void
   onZoneDrawEnd: (x: number, y: number) => void
   onZoneResize?: (id: string, x: number, y: number, width: number, height: number) => void
+  textScale?: number
   selRect?: { x: number; y: number; w: number; h: number } | null
   onSelRectStart?: (x: number, y: number) => void
   onSelRectMove?: (x: number, y: number) => void
@@ -61,7 +62,7 @@ export function FloorPlanPixiCanvas({
   containerRef, viewRef,
   onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd,
   onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange,
-  selRect, onSelRectStart, onSelRectMove, onSelRectEnd,
+  textScale = 1, selRect, onSelRectStart, onSelRectMove, onSelRectEnd,
   rebuildKey,
 }: PixiCanvasProps) {
   const appRef = useRef<PIXI.Application | null>(null)
@@ -238,11 +239,14 @@ export function FloorPlanPixiCanvas({
       g.lineStyle((isSelected ? 2 : 1) / pxScale, isSelected ? 0xFFFFFF : nc, isSelected ? 0.6 : 0.4)
       g.beginFill(nc, 0.06).drawRect(0, 0, z.width, z.height).endFill()
       c.addChild(g)
-      // Watermark
+      // Watermark (rotated if portrait)
       const secName = sectionNames.get(z.sectionId)
       if (secName) {
-        const wm = new PIXI.Text(secName, { fontSize: Math.min(z.width, z.height) * 0.3, fill: 0xFFFFFF, fontFamily: 'monospace', align: 'center' })
+        const isPortrait = z.height > z.width * 1.2
+        const fontSize = (isPortrait ? Math.max(z.width, z.height) : Math.min(z.width, z.height)) * 0.25 * textScale
+        const wm = new PIXI.Text(secName, { fontSize, fill: 0xFFFFFF, fontFamily: 'monospace', align: 'center' })
         wm.anchor.set(0.5); wm.x = z.width / 2; wm.y = z.height / 2; wm.alpha = 0.15; wm.eventMode = 'none'
+        if (isPortrait) wm.rotation = -Math.PI / 2
         c.addChild(wm)
       }
       if (zoneDrawing) attachZoneDrag(c, z)
@@ -296,9 +300,11 @@ export function FloorPlanPixiCanvas({
         ov.endFill(); ov.eventMode = 'none'; c.addChild(ov)
       }
 
-      // Label
+      // Label (use longer dimension for asymmetric elements)
       if (el.labelVisible !== false && el.label) {
-        const fs = Math.max(8, Math.min(el.width, el.depth) * 0.3 * pxScale)
+        const minDim = Math.min(el.width, el.depth); const maxDim = Math.max(el.width, el.depth)
+        const base = maxDim / minDim > 2 ? maxDim * 0.15 : minDim * 0.3
+        const fs = Math.max(8, base * pxScale * textScale)
         const t = new PIXI.Text(el.label, { fontSize: fs, fill: 0xCCCCCC, fontFamily: 'monospace', align: 'center' })
         t.anchor.set(0.5); t.x = el.width / 2; t.y = el.depth / 2; t.eventMode = 'none'; c.addChild(t)
       }
@@ -351,7 +357,7 @@ export function FloorPlanPixiCanvas({
           }
         }
         if (placed > 0 && el.labelVisible !== false && el.label) {
-          const capText = new PIXI.Text(`×${cc}`, { fontSize: Math.max(6, Math.min(el.width, el.depth) * 0.18 * pxScale), fill: 0xCCCCCC, fontFamily: 'monospace' })
+          const capText = new PIXI.Text(`×${cc}`, { fontSize: Math.max(6, Math.min(el.width, el.depth) * 0.18 * pxScale * textScale), fill: 0xCCCCCC, fontFamily: 'monospace' })
           capText.anchor.set(0, 0.5); capText.x = el.width / 2 + 2; capText.y = el.depth / 2; capText.eventMode = 'none'; c.addChild(capText)
         }
       }
