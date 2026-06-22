@@ -473,17 +473,15 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   <Group key={zone.id}
                     draggable={zoneDrawing}
                     onClick={() => { if (zoneDrawing) setSelectedZoneId(zone.id) }}
-                    onDragEnd={(e: any) => {
-                      if (!zoneDrawing) return
-                      const gu = plan.gridUnit
-                      const rawX = (e.target.x() - offsetX) / scale
-                      const rawY = (e.target.y() - offsetY) / scale
-                      const nx = snapEnabled ? snap(rawX, gu) : rawX
-                      const ny = snapEnabled ? snap(rawY, gu) : rawY
-                      setZones((prev) => prev.map((z) => z.id === zone.id ? { ...z, x: nx, y: ny } : z))
-                      e.target.x(offsetX + zone.x * scale)
-                      e.target.y(offsetY + zone.y * scale)
-                    }}>
+                      onDragEnd={(e: any) => {
+                        if (!zoneDrawing) return
+                        const gu = plan.gridUnit
+                        const rawX = (e.currentTarget.x() - offsetX) / scale
+                        const rawY = (e.currentTarget.y() - offsetY) / scale
+                        const nx = snapEnabled ? snap(rawX, gu) : rawX
+                        const ny = snapEnabled ? snap(rawY, gu) : rawY
+                        setZones((prev) => prev.map((z) => z.id === zone.id ? { ...z, x: nx, y: ny } : z))
+                      }}>
                     <Rect x={offsetX + zone.x * scale} y={offsetY + zone.y * scale}
                       width={zone.width * scale} height={zone.height * scale}
                       fill={zc} opacity={0.1} stroke={isSel ? '#FFF' : zc}
@@ -525,8 +523,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                       onDragEnd={(e: any) => {
                         pushHistory()
                         const gu = plan.gridUnit
-                        const rawX = (e.target.x() - offsetX) / scale
-                        const rawY = (e.target.y() - offsetY) / scale
+                        const rawX = (e.currentTarget.x() - offsetX) / scale
+                        const rawY = (e.currentTarget.y() - offsetY) / scale
                         const nx = snapEnabled ? snap(rawX, gu) : rawX
                         const ny = snapEnabled ? snap(rawY, gu) : rawY
                         updateElement(el.id!, { x: nx, y: ny })
@@ -540,15 +538,15 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   <Group key={el.id} id={el.id} x={kx} y={ky} rotation={el.rotation}
                     draggable
                     onClick={() => setSelectedId(el.id ?? null)} onTap={() => setSelectedId(el.id ?? null)}
-                    onDragEnd={(e: any) => {
-                      pushHistory()
-                      const gu = plan.gridUnit
-                      const rawX = (e.target.x() - offsetX) / scale
-                      const rawY = (e.target.y() - offsetY) / scale
-                      const nx = snapEnabled ? snap(rawX, gu) : rawX
-                      const ny = snapEnabled ? snap(rawY, gu) : rawY
-                      updateElement(el.id!, { x: nx, y: ny, rotation: e.target.rotation() })
-                    }}>
+                      onDragEnd={(e: any) => {
+                        pushHistory()
+                        const gu = plan.gridUnit
+                        const rawX = (e.currentTarget.x() - offsetX) / scale
+                        const rawY = (e.currentTarget.y() - offsetY) / scale
+                        const nx = snapEnabled ? snap(rawX, gu) : rawX
+                        const ny = snapEnabled ? snap(rawY, gu) : rawY
+                        updateElement(el.id!, { x: nx, y: ny, rotation: e.currentTarget.rotation() })
+                      }}>
                     {visual}
                   </Group>
                 )
