@@ -15,16 +15,17 @@ interface PixiCanvasProps {
   roomWidth: number; roomDepth: number; gridUnit: number
   elements: ElementData[]
   zones: ZoneP[]
-  selectedId: string | null
+  selectedIds: string[]
   snapEnabled: boolean
   sectionColours: Map<string, string>
+  sectionNames: Map<string, string>
   zoneDrawing: boolean
   zoneDrawStart: { x: number; y: number } | null
   zoneDrawRect: { x: number; y: number; w: number; h: number } | null
   selectedZoneId: string | null
   containerRef: React.RefObject<HTMLDivElement | null>
   viewRef: React.MutableRefObject<ViewState>
-  onElementClick: (id: string | null) => void
+  onElementClick: (id: string | null, ctrlKey?: boolean) => void
   onElementDragEnd: (id: string, x: number, y: number) => void
   onZoneClick: (id: string | null) => void
   onZoneDragEnd: (id: string, x: number, y: number) => void
@@ -32,6 +33,10 @@ interface PixiCanvasProps {
   onZoneDrawMove: (x: number, y: number) => void
   onZoneDrawEnd: (x: number, y: number) => void
   onZoneResize?: (id: string, x: number, y: number, width: number, height: number) => void
+  selRect?: { x: number; y: number; w: number; h: number } | null
+  onSelRectStart?: (x: number, y: number) => void
+  onSelRectMove?: (x: number, y: number) => void
+  onSelRectEnd?: (x: number, y: number) => void
   onViewChange?: (zoom: number) => void
   rebuildKey?: number
 }
@@ -51,18 +56,19 @@ function applyRoomTransform(room: PIXI.Container, vs: ViewState) {
 
 export function FloorPlanPixiCanvas({
   roomWidth, roomDepth, gridUnit,
-  elements, zones, selectedId, snapEnabled,
-  sectionColours, zoneDrawing, zoneDrawStart, zoneDrawRect, selectedZoneId,
+  elements, zones, selectedIds, snapEnabled,
+  sectionColours, sectionNames, zoneDrawing, zoneDrawStart, zoneDrawRect, selectedZoneId,
   containerRef, viewRef,
   onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd,
   onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange,
+  selRect, onSelRectStart, onSelRectMove, onSelRectEnd,
   rebuildKey,
 }: PixiCanvasProps) {
   const appRef = useRef<PIXI.Application | null>(null)
   const roomRef = useRef<PIXI.Container | null>(null)
   const stateRef = useRef({ snap: snapEnabled, gu: gridUnit })
-  const cbRef = useRef({ onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange })
-  cbRef.current = { onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange }
+  const cbRef = useRef({ onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd })
+  cbRef.current = { onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd }
 
   // Init app once
   useEffect(() => {
@@ -126,30 +132,37 @@ export function FloorPlanPixiCanvas({
       panning = null
     })
 
-    // Zone drawing on stage
-    let zd: { sx: number; sy: number } | null = null
+    // Zone drawing / selection rect on stage
+    let zd: { sx: number; sy: number; mode: 'zone' | 'sel' } | null = null
     app.stage.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
       if (e.target !== app.stage) return; if (e.button !== 0) return
-      if (!cbRef.current.onZoneDrawStart) return
       const vs = viewRef.current
       const cx = (e.globalX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
       const cy = (e.globalY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
-      zd = { sx: e.globalX, sy: e.globalY }
-      cbRef.current.onZoneDrawStart(cx, cy)
+      if (cbRef.current.zoneDrawing) {
+        if (!cbRef.current.onZoneDrawStart) return
+        zd = { sx: e.globalX, sy: e.globalY, mode: 'zone' }
+        cbRef.current.onZoneDrawStart(cx, cy)
+      } else {
+        zd = { sx: e.globalX, sy: e.globalY, mode: 'sel' }
+        cbRef.current.onSelRectStart?.(cx, cy)
+      }
     })
     app.stage.on('globalpointermove', (e: PIXI.FederatedPointerEvent) => {
       if (!zd) return
       const vs = viewRef.current
       const cx = (e.globalX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
       const cy = (e.globalY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
-      cbRef.current.onZoneDrawMove(cx, cy)
+      if (zd.mode === 'zone') cbRef.current.onZoneDrawMove(cx, cy)
+      else cbRef.current.onSelRectMove?.(cx, cy)
     })
     app.stage.on('pointerup', (e: PIXI.FederatedPointerEvent) => {
       if (!zd) return
       const vs = viewRef.current
       const cx = (e.globalX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
       const cy = (e.globalY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
-      cbRef.current.onZoneDrawEnd(cx, cy)
+      if (zd.mode === 'zone') cbRef.current.onZoneDrawEnd(cx, cy)
+      else cbRef.current.onSelRectEnd?.(cx, cy)
       zd = null
     })
 
@@ -205,6 +218,13 @@ export function FloorPlanPixiCanvas({
       pr.drawRect(zoneDrawRect.x, zoneDrawRect.y, zoneDrawRect.w, zoneDrawRect.h)
       pr.endFill(); pr.eventMode = 'none'; room.addChild(pr)
     }
+    // Selection rectangle
+    if (!zoneDrawing && selRect) {
+      const sr = new PIXI.Graphics()
+      sr.lineStyle(1.5 / pxScale, 0x4488FF, 0.6); sr.beginFill(0x4488FF, 0.1)
+      sr.drawRect(selRect.x, selRect.y, selRect.w, selRect.h)
+      sr.endFill(); sr.eventMode = 'none'; room.addChild(sr)
+    }
 
     // Zones
     zones.forEach((z) => {
@@ -214,12 +234,27 @@ export function FloorPlanPixiCanvas({
       const colour = sectionColours.get(z.sectionId) ?? '#4A4A4A'
       const nc = parseInt(colour.replace('#', ''), 16)
       const g = new PIXI.Graphics()
-      g.lineStyle((z.id === selectedZoneId ? 2 : 1) / pxScale, z.id === selectedZoneId ? 0xFFFFFF : nc, 1)
-      g.beginFill(nc, 0.1).drawRect(0, 0, z.width, z.height).endFill()
+      const isSelected = z.id === selectedZoneId
+      g.lineStyle((isSelected ? 2 : 1) / pxScale, isSelected ? 0xFFFFFF : nc, isSelected ? 0.6 : 0.4)
+      g.beginFill(nc, 0.06).drawRect(0, 0, z.width, z.height).endFill()
       c.addChild(g)
+      // Watermark
+      const secName = sectionNames.get(z.sectionId)
+      if (secName) {
+        const wm = new PIXI.Text(secName, { fontSize: Math.min(z.width, z.height) * 0.3, fill: 0xFFFFFF, fontFamily: 'monospace', align: 'center' })
+        wm.anchor.set(0.5); wm.x = z.width / 2; wm.y = z.height / 2; wm.alpha = 0.15; wm.eventMode = 'none'
+        c.addChild(wm)
+      }
       if (zoneDrawing) attachZoneDrag(c, z)
-      if (zoneDrawing && z.id === selectedZoneId) addZoneResizeHandles(c, z, pxScale)
+      if (zoneDrawing && isSelected) addZoneResizeHandles(c, z, pxScale)
       room.addChild(c)
+    })
+
+    // Build section colour map from zones for element grouping
+    const zoneSectionColour = new Map<string, string>()
+    zones.forEach((z) => {
+      const col = sectionColours.get(z.sectionId)
+      if (col) zoneSectionColour.set(z.sectionId, col)
     })
 
     // Elements
@@ -229,8 +264,9 @@ export function FloorPlanPixiCanvas({
       c.eventMode = 'static'; c.cursor = 'pointer'
       const fill = el.fillColour ?? '#6B6B6B'
       const nf = parseInt(fill.replace('#', ''), 16)
-      const ns = el.id === selectedId ? 0xFFFFFF : parseInt('#4A4A4A'.replace('#', ''), 16)
-      const sw2 = (el.id === selectedId ? 2 : 1) / pxScale
+      const isElSelected = selectedIds.includes(el.id!)
+      const ns = isElSelected ? 0xFFFFFF : parseInt('#4A4A4A'.replace('#', ''), 16)
+      const sw2 = (isElSelected ? 2 : 1) / pxScale
       const g = new PIXI.Graphics(); g.lineStyle(sw2, ns, el.opacity ?? 1); g.beginFill(nf, el.opacity ?? 1)
       if (el.shape === 'CIRCLE') { g.drawCircle(0, 0, el.radius ?? Math.min(el.width, el.depth) / 2) }
       else {
@@ -246,6 +282,20 @@ export function FloorPlanPixiCanvas({
       }
       g.endFill(); c.addChild(g)
 
+      // Section grouping overlay
+      const secCol = el.sectionId ? zoneSectionColour.get(el.sectionId) : undefined
+      if (secCol) {
+        const sc = parseInt(secCol.replace('#', ''), 16)
+        const ov = new PIXI.Graphics()
+        const w = el.shape === 'CIRCLE' ? (el.radius ?? Math.min(el.width, el.depth) / 2) * 2 : el.width
+        const h = el.shape === 'CIRCLE' ? w : el.depth
+        ov.lineStyle(1.5 / pxScale, sc, 0.3)
+        ov.beginFill(sc, 0.08)
+        if (el.shape === 'CIRCLE') { ov.drawCircle(w / 2, h / 2, w / 2) }
+        else { ov.drawRect(0, 0, w, h) }
+        ov.endFill(); ov.eventMode = 'none'; c.addChild(ov)
+      }
+
       // Label
       if (el.labelVisible !== false && el.label) {
         const fs = Math.max(8, Math.min(el.width, el.depth) * 0.3 * pxScale)
@@ -256,28 +306,48 @@ export function FloorPlanPixiCanvas({
       // Visual chairs around tables
       if (el.type === 'TABLE' && (el.chairCount ?? 0) > 0) {
         const cc = el.chairCount ?? 0
-        const chairsPerSide = Math.ceil(cc / 4)
-        const chairR = 4 / pxScale
-        const chairGap = 2 / pxScale
-        const sides = [
-          { x1: chairR, y1: -chairR - chairGap, x2: el.width - chairR, y2: -chairR - chairGap },
-          { x1: el.width + chairR + chairGap, y1: chairR, x2: el.width + chairR + chairGap, y2: el.depth - chairR },
-          { x1: el.width - chairR, y1: el.depth + chairR + chairGap, x2: chairR, y2: el.depth + chairR + chairGap },
-          { x1: -chairR - chairGap, y1: el.depth - chairR, x2: -chairR - chairGap, y2: chairR },
-        ]
+        const chairStyle = ((el.style as any)?.chairStyle) ?? 'round'
+        const chairSides: string[] = ((el.style as any)?.chairSides) ?? ['top', 'bottom', 'left', 'right']
+        const sides = chairSides.filter((s) => ['top', 'bottom', 'left', 'right'].includes(s))
+        const countPerSide = sides.length > 0 ? Math.ceil(cc / sides.length) : 0
+        const chairR = 4 / pxScale; const chairGap = 2 / pxScale
+        const edgeDefs: Record<string, { x1: number; y1: number; x2: number; y2: number }> = {
+          top: { x1: chairR, y1: -chairR - chairGap, x2: el.width - chairR, y2: -chairR - chairGap },
+          right: { x1: el.width + chairR + chairGap, y1: chairR, x2: el.width + chairR + chairGap, y2: el.depth - chairR },
+          bottom: { x1: el.width - chairR, y1: el.depth + chairR + chairGap, x2: chairR, y2: el.depth + chairR + chairGap },
+          left: { x1: -chairR - chairGap, y1: el.depth - chairR, x2: -chairR - chairGap, y2: chairR },
+        }
         let placed = 0
         for (const side of sides) {
-          const len = Math.sqrt((side.x2 - side.x1) ** 2 + (side.y2 - side.y1) ** 2)
-          const spacing = len / Math.max(chairsPerSide, 1)
+          const sd = edgeDefs[side]
+          if (!sd) continue
+          const len = Math.sqrt((sd.x2 - sd.x1) ** 2 + (sd.y2 - sd.y1) ** 2)
           if (len < 0.1) continue
-          const ux = (side.x2 - side.x1) / len; const uy = (side.y2 - side.y1) / len
-          for (let i = 0; i < chairsPerSide && placed < cc; i++) {
-            const pxPos = side.x1 + ux * (spacing * 0.5 + spacing * i)
-            const pyPos = side.y1 + uy * (spacing * 0.5 + spacing * i)
-            const chair = new PIXI.Graphics()
-            chair.beginFill(0x3A3A4A).lineStyle(sw2, 0x666666).drawCircle(pxPos, pyPos, chairR).endFill()
-            chair.eventMode = 'none'; c.addChild(chair)
-            placed++
+          const ux = (sd.x2 - sd.x1) / len; const uy = (sd.y2 - sd.y1) / len
+          if (chairStyle === 'half-oval') {
+            // Single semi-ellipse per side
+            const oval = new PIXI.Graphics()
+            oval.beginFill(0x3A3A4A, 0.6).lineStyle(sw2, 0x666666, 0.6)
+            const cx2 = (sd.x1 + sd.x2) / 2; const cy2 = (sd.y1 + sd.y2) / 2
+            const halfW = len / 2; const halfH = chairR * 1.5
+            if (side === 'top' || side === 'bottom') {
+              const dir = side === 'top' ? -1 : 1
+              oval.drawEllipse(cx2, cy2, halfW, halfH)
+            } else {
+              oval.drawEllipse(cx2, cy2, halfH, halfW)
+            }
+            oval.endFill(); oval.eventMode = 'none'; c.addChild(oval)
+            placed += countPerSide
+          } else {
+            const spacing = len / Math.max(countPerSide, 1)
+            for (let i = 0; i < countPerSide && placed < cc; i++) {
+              const pxPos = sd.x1 + ux * (spacing * 0.5 + spacing * i)
+              const pyPos = sd.y1 + uy * (spacing * 0.5 + spacing * i)
+              const chair = new PIXI.Graphics()
+              chair.beginFill(0x3A3A4A).lineStyle(sw2, 0x666666).drawCircle(pxPos, pyPos, chairR).endFill()
+              chair.eventMode = 'none'; c.addChild(chair)
+              placed++
+            }
           }
         }
         if (placed > 0 && el.labelVisible !== false && el.label) {
@@ -304,13 +374,13 @@ export function FloorPlanPixiCanvas({
         l.eventMode = 'none'; room.addChild(l)
       })
     })
-  }, [elements, zones, selectedId, selectedZoneId, zoneDrawing, zoneDrawRect, roomWidth, roomDepth, gridUnit, snapEnabled, rebuildKey])
+  }, [elements, zones, selectedIds, selectedZoneId, zoneDrawing, zoneDrawRect, selRect, roomWidth, roomDepth, gridUnit, snapEnabled, rebuildKey])
 
   function attachElementDrag(node: PIXI.Container, el: ElementData) {
     let dd: { sx: number; sy: number; ex: number; ey: number } | null = null
     node.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
       e.stopPropagation()
-      cbRef.current.onElementClick(el.id!)
+      cbRef.current.onElementClick(el.id!, e.ctrlKey || e.shiftKey)
       dd = { sx: e.globalX, sy: e.globalY, ex: node.x, ey: node.y }
       const app = appRef.current
       if (!app) return

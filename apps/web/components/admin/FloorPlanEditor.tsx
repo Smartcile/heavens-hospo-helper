@@ -46,7 +46,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [elements, setElements] = useState<ElementData[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [paletteOpen, setPaletteOpen] = useState(true)
   const [snapEnabled, setSnapEnabled] = useState(false)
   const [snap45Enabled, setSnap45Enabled] = useState(false)
@@ -58,6 +58,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [zoneDrawRect, setZoneDrawRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [zoneSectionId, setZoneSectionId] = useState(sections[0]?.id ?? '')
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
+  const [selRect, setSelRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [customPresets, setCustomPresets] = useState<PaletteItem[]>([])
   const [presetFormOpen, setPresetFormOpen] = useState(false)
   const [presetName, setPresetName] = useState('')
@@ -97,6 +98,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   }
 
   const [rebuildKey, setRebuildKey] = useState(0)
+  const [editRoomW, setEditRoomW] = useState(plan.roomWidth.toString())
+  const [editRoomD, setEditRoomD] = useState(plan.roomDepth.toString())
+  const [editGridUnit, setEditGridUnit] = useState(plan.gridUnit.toString())
 
   useEffect(() => {
     const load = async () => {
@@ -131,7 +135,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     return () => ro.disconnect()
   }, [])
 
-  const selected = elements.find((e) => e.id === selectedId) ?? null
+  const selected = elements.find((e) => selectedIds.includes(e.id!)) ?? null
 
   const sectionMap = new Map(sections.map((s) => [s.id, s]))
 
@@ -140,10 +144,11 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   }
 
   function deleteSelected() {
-    if (!selectedId) return
+    if (selectedIds.length === 0) return
     pushHistory()
-    setElements((prev) => prev.filter((e) => e.id !== selectedId))
-    setSelectedId(null)
+    const idSet = new Set(selectedIds)
+    setElements((prev) => prev.filter((e) => !idSet.has(e.id!)))
+    setSelectedIds([])
   }
 
   function bringForward(id: string) {
@@ -183,12 +188,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     }
     pushHistory()
     setElements((prev) => [...prev, el])
-    setSelectedId(id)
+    setSelectedIds([id])
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Delete') {
-      if (selectedId) { e.preventDefault(); deleteSelected(); return }
+      if (selectedIds.length > 0) { e.preventDefault(); deleteSelected(); return }
       if (zoneDrawing && selectedZoneId) { e.preventDefault(); setZones((prev) => prev.filter((z) => z.id !== selectedZoneId)); setSelectedZoneId(null); return }
     }
     if (e.ctrlKey || e.metaKey) {
@@ -234,7 +239,28 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         <div className="flex items-center gap-3">
           <button onClick={onBack} className="font-mono text-xs uppercase text-grey-light hover:text-white">← BACK</button>
           <h1 className="font-mono text-sm font-bold uppercase tracking-widest text-white">{plan.name}</h1>
-          <span className="font-mono text-[10px] text-grey-light">{plan.roomWidth}×{plan.roomDepth} cm · {plan.gridUnit} cm grid</span>
+          <div className="flex items-center gap-1">
+            <input type="number" step="10" value={editRoomW} onChange={(e) => setEditRoomW(e.target.value)}
+              className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-1 py-0.5 text-center outline-none focus:border-white" />
+            <span className="font-mono text-[10px] text-grey-light">×</span>
+            <input type="number" step="10" value={editRoomD} onChange={(e) => setEditRoomD(e.target.value)}
+              className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-1 py-0.5 text-center outline-none focus:border-white" />
+            <span className="font-mono text-[10px] text-grey-light">cm ·</span>
+            <input type="number" step="10" value={editGridUnit} onChange={(e) => setEditGridUnit(e.target.value)}
+              className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-1 py-0.5 text-center outline-none focus:border-white" />
+            <span className="font-mono text-[10px] text-grey-light">cm grid</span>
+            <button onClick={async () => {
+              const r = await fetch(`/api/admin/floorplan/${plan.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ roomWidth: parseFloat(editRoomW) || plan.roomWidth, roomDepth: parseFloat(editRoomD) || plan.roomDepth, gridUnit: parseFloat(editGridUnit) || plan.gridUnit }),
+              })
+              if (r.ok) setRebuildKey((k) => k + 1)
+            }}
+              className="font-mono text-[10px] text-success hover:text-white uppercase px-1 py-0.5 border border-success">
+              SAVE ROOM
+            </button>
+          </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-mono text-[10px] text-grey-light w-16 text-right">ZOOM: {Math.round(zoomLevel * 100)}%</span>
@@ -252,7 +278,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           </label>
           <button onClick={() => {
             if (zoneDrawing) { setZoneDrawing(false); setZoneDrawStart(null); setZoneDrawRect(null) }
-            else { setZoneDrawing(true); setSelectedId(null) }
+            else { setZoneDrawing(true); setSelectedIds([]) }
           }}
             className={`font-mono text-[10px] uppercase px-2 py-1 border ${zoneDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
             SECTIONS {zoneDrawing ? '· ON' : ''}
@@ -390,15 +416,26 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           <FloorPlanPixiCanvas
             roomWidth={plan.roomWidth} roomDepth={plan.roomDepth} gridUnit={plan.gridUnit}
             elements={elements} zones={zones}
-            selectedId={selectedId} snapEnabled={snapEnabled}
+            selectedIds={selectedIds} snapEnabled={snapEnabled}
             sectionColours={new Map(sections.filter((s) => s.colour).map((s) => [s.id, s.colour!]))}
+            sectionNames={new Map(sections.map((s) => [s.id, s.name]))}
             zoneDrawing={zoneDrawing}
             zoneDrawStart={zoneDrawStart}
             zoneDrawRect={zoneDrawRect}
             selectedZoneId={selectedZoneId}
             containerRef={containerRef}
             viewRef={viewRef}
-            onElementClick={(id) => setSelectedId(id)}
+            onElementClick={(id, ctrlKey) => {
+              if (!id) { setSelectedIds([]); return }
+              if (ctrlKey) {
+                const el = elements.find((e) => e.id === id)
+                if (el?.type === 'TABLE') {
+                  setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
+                }
+              } else {
+                setSelectedIds((prev) => prev.length === 1 && prev[0] === id ? prev : [id])
+              }
+            }}
             onElementDragEnd={(id, x, y) => { pushHistory(); updateElement(id, { x, y }) }}
             onZoneClick={(id) => setSelectedZoneId(id)}
             onZoneDragEnd={(id, x, y) => setZones((prev) => prev.map((z) => z.id === id ? { ...z, x, y } : z))}
@@ -430,12 +467,29 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               })
             }}
             onViewChange={(z) => setZoomLevel(z)}
+            selRect={selRect}
+            onSelRectStart={(x, y) => { setSelRect({ x, y, w: 0, h: 0 }); setSelectedIds([]) }}
+            onSelRectMove={(cx, cy) => setSelRect((prev) => prev ? { ...prev, w: cx - prev.x, h: cy - prev.y } : prev)}
+            onSelRectEnd={(cx, cy) => {
+              setSelRect((prev) => {
+                if (!prev) return prev
+                const rx = Math.min(prev.x, cx); const ry = Math.min(prev.y, cy)
+                const rw = Math.abs(cx - prev.x); const rh = Math.abs(cy - prev.y)
+                if (rw < 5 && rh < 5) return null
+                const hits = elements.filter((e) => {
+                  const ex = e.x; const ey = e.y; const ew = e.width; const ed = e.depth
+                  return ex < rx + rw && ex + ew > rx && ey < ry + rh && ey + ed > ry
+                })
+                setSelectedIds(hits.map((e) => e.id!))
+                return null
+              })
+            }}
             rebuildKey={rebuildKey}
           />
         </div>
 
         {/* Right panel: properties or summary */}
-        {showSummary && !selected && (
+        {showSummary && selectedIds.length === 0 && (
           <div className="w-64 flex-shrink-0 border-l border-grey-mid overflow-y-auto bg-grey-dark p-3">
             <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider mb-3">SECTION SUMMARY</h2>
             {summary && summary.entries.length === 0 && (
@@ -491,7 +545,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           </div>
         )}
 
-        {zoneDrawing && !selected && (
+        {zoneDrawing && selectedIds.length === 0 && (
           <div className="w-56 flex-shrink-0 border-l border-grey-mid overflow-y-auto bg-grey-dark p-3 space-y-3">
             <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider">SECTION ZONES</h2>
             <p className="font-mono text-[10px] text-grey-light">Drag on canvas to draw or move zones.</p>
@@ -517,17 +571,17 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               if (!z) return null
               return (
                 <div className="border-t border-grey-mid pt-2 space-y-2">
-                  <Input label="X (cm)" type="number" value={Math.round(z.x).toString()}
+                  <Input label="X (cm)" type="number" step="10" value={Math.round(z.x).toString()}
                     onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, x: parseFloat(e.target.value) || 0 } : x))}
                     onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, x: snap(x.x, plan.gridUnit) } : x))} />
-                  <Input label="Y (cm)" type="number" value={Math.round(z.y).toString()}
+                  <Input label="Y (cm)" type="number" step="10" value={Math.round(z.y).toString()}
                     onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, y: parseFloat(e.target.value) || 0 } : x))}
                     onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, y: snap(x.y, plan.gridUnit) } : x))} />
                   <div className="grid grid-cols-2 gap-2">
-                    <Input label="W" type="number" value={Math.round(z.width).toString()}
+                    <Input label="W" type="number" step="10" value={Math.round(z.width).toString()}
                       onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, width: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) } : x))}
                       onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, width: Math.max(snap(x.width, plan.gridUnit), plan.gridUnit) } : x))} />
-                    <Input label="H" type="number" value={Math.round(z.height).toString()}
+                    <Input label="H" type="number" step="10" value={Math.round(z.height).toString()}
                       onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, height: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) } : x))}
                       onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, height: Math.max(snap(x.height, plan.gridUnit), plan.gridUnit) } : x))} />
                   </div>
@@ -547,15 +601,18 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           </div>
         )}
 
-        {selected && (
+        {selectedIds.length > 0 && selected && (
           <div className="w-56 flex-shrink-0 border-l border-grey-mid overflow-y-auto bg-grey-dark p-3 space-y-3">
+            {selectedIds.length > 1 && (
+              <p className="font-mono text-[10px] text-accent uppercase">{selectedIds.length} ELEMENTS SELECTED</p>
+            )}
             <div className="flex items-center justify-between">
               <input value={selected.type}
                 onChange={(e) => updateElement(selected.id!, { type: e.target.value.toUpperCase() || 'OTHER' })}
                 className="font-mono text-xs font-bold text-white bg-transparent border-0 p-0 outline-none w-24" />
               <button onClick={deleteSelected}
                 className="font-mono text-[10px] text-danger hover:text-white uppercase border border-danger px-1.5 py-0.5">
-                DELETE
+                DELETE{selectedIds.length > 1 ? ` ${selectedIds.length}` : ''}
               </button>
             </div>
 
@@ -641,22 +698,49 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 <Input label="Capacity" type="number" value={selected.capacity?.toString() ?? ''}
                   onChange={(e) => updateElement(selected.id!, { capacity: e.target.value ? parseInt(e.target.value) : null })} />
                 {selected.type === 'TABLE' && (
-                  <Input label="Chair Count" type="number" min="0" value={(selected.chairCount ?? 0).toString()}
-                    onChange={(e) => updateElement(selected.id!, { chairCount: parseInt(e.target.value) || 0 })} />
+                  <>
+                    <Input label="Chair Count" type="number" min="0" value={(selected.chairCount ?? 0).toString()}
+                      onChange={(e) => updateElement(selected.id!, { chairCount: parseInt(e.target.value) || 0 })} />
+                    <Select label="Chair Style" value={((selected.style as any)?.chairStyle ?? 'round') as string}
+                      onChange={(e) => updateElement(selected.id!, { style: { ...(selected.style ?? {}), chairStyle: e.target.value } })}
+                      options={[{ value: 'round', label: 'ROUND' }, { value: 'half-oval', label: 'HALF-OVAL' }]} />
+                    <p className="font-mono text-[10px] text-grey-light uppercase">Chairs On Sides</p>
+                    <div className="grid grid-cols-2 gap-1">
+                      {['top', 'bottom', 'left', 'right'].map((side) => {
+                        const sides: string[] = ((selected.style as any)?.chairSides) ?? ['top', 'bottom', 'left', 'right']
+                        const checked = sides.includes(side)
+                        return (
+                          <label key={side} className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+                            <input type="checkbox" checked={checked}
+                              onChange={() => {
+                                const next = checked ? sides.filter((s) => s !== side) : [...sides, side]
+                                updateElement(selected.id!, { style: { ...(selected.style ?? {}), chairSides: next.length > 0 ? next : ['top'] } })
+                              }}
+                              className="accent-white" />
+                            {side.toUpperCase()}
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </>
                 )}
                 <Input label="Z-Index" type="number" value={selected.zIndex.toString()}
                   onChange={(e) => updateElement(selected.id!, { zIndex: parseInt(e.target.value) || 0 })} />
                 <div className="grid grid-cols-2 gap-2">
-                  <Input label="X (cm)" type="number" value={Math.round(selected.x).toString()}
-                    onChange={(e) => updateElement(selected.id!, { x: parseFloat(e.target.value) || 0 })} />
-                  <Input label="Y (cm)" type="number" value={Math.round(selected.y).toString()}
-                    onChange={(e) => updateElement(selected.id!, { y: parseFloat(e.target.value) || 0 })} />
+                  <Input label="X (cm)" type="number" step="10" value={Math.round(selected.x).toString()}
+                    onChange={(e) => updateElement(selected.id!, { x: parseFloat(e.target.value) || 0 })}
+                    onBlur={() => { if (selected.id) updateElement(selected.id, { x: snap(selected.x, plan.gridUnit) }) }} />
+                  <Input label="Y (cm)" type="number" step="10" value={Math.round(selected.y).toString()}
+                    onChange={(e) => updateElement(selected.id!, { y: parseFloat(e.target.value) || 0 })}
+                    onBlur={() => { if (selected.id) updateElement(selected.id, { y: snap(selected.y, plan.gridUnit) }) }} />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <Input label="Width (cm)" type="number" value={Math.round(selected.width).toString()}
-                    onChange={(e) => updateElement(selected.id!, { width: parseFloat(e.target.value) || plan.gridUnit })} />
-                  <Input label="Depth (cm)" type="number" value={Math.round(selected.depth).toString()}
-                    onChange={(e) => updateElement(selected.id!, { depth: parseFloat(e.target.value) || plan.gridUnit })} />
+                  <Input label="Width (cm)" type="number" step="10" value={Math.round(selected.width).toString()}
+                    onChange={(e) => updateElement(selected.id!, { width: parseFloat(e.target.value) || plan.gridUnit })}
+                    onBlur={() => { if (selected.id) updateElement(selected.id, { width: Math.max(snap(selected.width, plan.gridUnit), plan.gridUnit) }) }} />
+                  <Input label="Depth (cm)" type="number" step="10" value={Math.round(selected.depth).toString()}
+                    onChange={(e) => updateElement(selected.id!, { depth: parseFloat(e.target.value) || plan.gridUnit })}
+                    onBlur={() => { if (selected.id) updateElement(selected.id, { depth: Math.max(snap(selected.depth, plan.gridUnit), plan.gridUnit) }) }} />
                 </div>
                 <Input label="Rotation" type="number" value={Math.round(selected.rotation).toString()}
                   onChange={(e) => updateElement(selected.id!, { rotation: parseFloat(e.target.value) || 0 })} />

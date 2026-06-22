@@ -72,8 +72,10 @@ export function WorkerFloorPlan() {
   }
 
   const sectionColours = new Map<string, string>()
+  const sectionNames = new Map<string, string>()
   plan.elements.forEach((el) => {
     if (el.section?.colour) sectionColours.set(el.section.id, el.section.colour)
+    if (el.section?.name) sectionNames.set(el.section.id, el.section.name)
   })
 
   return (
@@ -106,8 +108,9 @@ export function WorkerFloorPlan() {
         <FloorPlanPixiCanvas
             roomWidth={plan.roomWidth} roomDepth={plan.roomDepth} gridUnit={plan.gridUnit}
             elements={plan.elements} zones={[]}
-            selectedId={null} snapEnabled={false}
+            selectedIds={[]} snapEnabled={false}
             sectionColours={sectionColours}
+            sectionNames={sectionNames}
             zoneDrawing={false}
             zoneDrawStart={null}
             zoneDrawRect={null}
