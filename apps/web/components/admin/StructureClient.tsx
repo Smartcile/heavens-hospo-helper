@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 interface StaffNode { id: string; name: string; role: string }
 interface TaskNode { id: string; title: string; schedule: string; active: boolean; scope: string; assignee: string | null }
 interface TrainingNode { id: string; title: string; kind: string; signOff: boolean; linkedToTask: boolean }
-interface SectionNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[] }
+interface SectionNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; floorPlan?: { tables: number; chairs: number; equip: number } }
 interface DeptNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; training: TrainingNode[]; sections: SectionNode[] }
 interface VenueNode {
   id: string
@@ -189,6 +189,9 @@ export function StructureClient({ role }: { role: string }) {
                                       <span className="flex items-center gap-1.5">
                                         <Count>{sec.staff.length} STAFF</Count>
                                         <Count>{sec.tasks.length} TASKS</Count>
+                                        {sec.floorPlan && (sec.floorPlan.tables > 0 || sec.floorPlan.chairs > 0) && (
+                                          <Count>{sec.floorPlan.tables} TBL · {sec.floorPlan.chairs} CHR · {sec.floorPlan.equip} EQP</Count>
+                                        )}
                                       </span>
                                     </button>
                                     {isOpen(`s:${sec.id}`) && (
@@ -196,7 +199,19 @@ export function StructureClient({ role }: { role: string }) {
                                         <Group k={`ss:${sec.id}`} label="Staff" count={sec.staff.length} />
                                         {isOpen(`ss:${sec.id}`) && <StaffList items={sec.staff} />}
                                         <Group k={`st:${sec.id}`} label="Tasks" count={sec.tasks.length} />
-                                        {isOpen(`st:${sec.id}`) && <TaskList items={sec.tasks} />}
+                                        {isOpen(`st:${sec.id}`) && <TaskList items={sec.tasks} />
+                                        }
+                                        {sec.floorPlan && (sec.floorPlan.tables > 0 || sec.floorPlan.chairs > 0) && (
+                                          <>
+                                            <Group k={`sf:${sec.id}`} label="Floor Plan" count={sec.floorPlan.tables + sec.floorPlan.chairs} />
+                                            {isOpen(`sf:${sec.id}`) && (
+                                              <div className="pl-5 space-y-0.5">
+                                                <div className="font-mono text-[10px] text-white">{sec.floorPlan.tables} TABLES{sec.floorPlan.tables > 0 ? ` · ${sec.floorPlan.equip} EQUIPMENT ITEMS` : ''}</div>
+                                                <div className="font-mono text-[10px] text-white">{sec.floorPlan.chairs} CHAIRS</div>
+                                              </div>
+                                            )}
+                                          </>
+                                        )}
                                       </div>
                                     )}
                                   </div>

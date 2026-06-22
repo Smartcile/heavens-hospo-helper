@@ -23,6 +23,9 @@ export function InventoryClient() {
   const [tab, setTab] = useState<'items' | 'stock'>('items')
   const [stock, setStock] = useState<StockSection[]>([])
   const [stockLoading, setStockLoading] = useState(false)
+  const [addTable, setAddTable] = useState<string | null>(null)
+  const [addItemId, setAddItemId] = useState('')
+  const [addQty, setAddQty] = useState('1')
   const [filterCat, setFilterCat] = useState('')
   const [showNewItem, setShowNewItem] = useState(false)
   const [showNewCat, setShowNewCat] = useState(false)
@@ -144,12 +147,51 @@ export function InventoryClient() {
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-[10px] text-white">{tbl.label}</span>
                     <span className="font-mono text-[8px] text-grey-light">{tbl.width}×{tbl.depth} cm · {tbl.planName}</span>
+                    <button onClick={() => setAddTable(addTable === tbl.id ? null : tbl.id)}
+                      className="font-mono text-[8px] text-accent hover:text-white uppercase ml-auto">
+                      + ADD ITEM
+                    </button>
                   </div>
+                  {addTable === tbl.id && (
+                    <div className="flex items-center gap-1 ml-2 mt-1 mb-1">
+                      <select value={addItemId} onChange={(e) => setAddItemId(e.target.value)}
+                        className="bg-grey-dark border border-grey-mid text-white font-mono text-[10px] p-1 flex-1">
+                        <option value="">SELECT ITEM</option>
+                        {items.filter((i) => i.category.name !== 'FURNITURE').map((i) => (
+                          <option key={i.id} value={i.id}>{i.name}</option>
+                        ))}
+                      </select>
+                      <input type="number" min="1" value={addQty} onChange={(e) => setAddQty(e.target.value)}
+                        className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-1 py-1 text-center" />
+                      <button onClick={async () => {
+                        if (!addItemId) return
+                        await fetch(`/api/admin/floorplan/${tbl.planId}/elements/${tbl.id}/inventory`, {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ assignments: [...tbl.inventoryItems.map((i) => ({ itemId: i.id, quantity: i.quantity })), { itemId: addItemId, quantity: parseInt(addQty) || 1 }] }),
+                        })
+                        setAddTable(null); setAddItemId(''); setAddQty('1')
+                        setStockLoading(true); const r = await fetch('/api/admin/stock/hierarchy'); if (r.ok) setStock((await r.json()).sections); setStockLoading(false)
+                      }}
+                        className="font-mono text-[8px] text-success hover:text-white uppercase border border-success px-1.5 py-0.5">
+                        OK
+                      </button>
+                    </div>
+                  )}
                   {tbl.inventoryItems.length === 0 && <p className="font-mono text-[8px] text-grey-light ml-2 italic">No equipment linked.</p>}
                   {tbl.inventoryItems.map((inv) => (
                     <div key={inv.id} className="flex items-center gap-2 ml-2">
                       <span className="font-mono text-[10px] text-grey-light">{inv.name}</span>
                       <span className="font-mono text-[8px] text-accent">×{inv.quantity}</span>
+                      <button onClick={async () => {
+                        await fetch(`/api/admin/floorplan/${tbl.planId}/elements/${tbl.id}/inventory`, {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ assignments: tbl.inventoryItems.filter((i) => i.id !== inv.id).map((i) => ({ itemId: i.id, quantity: i.quantity })) }),
+                        })
+                        setStockLoading(true); const r = await fetch('/api/admin/stock/hierarchy'); if (r.ok) setStock((await r.json()).sections); setStockLoading(false)
+                      }}
+                        className="font-mono text-[8px] text-danger hover:text-white ml-auto">✕</button>
                     </div>
                   ))}
                 </div>
