@@ -160,14 +160,14 @@ export function FloorPlanElementVisual({
   if (el.shape === 'CIRCLE') {
     const r = (el.radius ?? Math.min(el.width, el.depth) / 2) * scale
     return (
-      <Group>
+      <>
         <Circle radius={r} fill={fill} stroke={stroke} strokeWidth={strokeW} opacity={el.opacity} />
         {showLabel && (
           <Text x={0} y={0} text={labelStr} fontSize={Math.max(r * 0.4, 6)} fill={theme.textLabel}
             align="center" verticalAlign="middle" offsetX={labelStr.length * 3} offsetY={4} listening={false} />
         )}
         {OverlayCircle(r)}
-      </Group>
+      </>
     )
   }
 
@@ -431,7 +431,7 @@ export function FloorPlanElementVisual({
 
     default: {
       return (
-        <Group x={kx} y={ky} rotation={el.rotation}>
+        <>
           <Rect width={kw} height={kd} fill={fill} stroke={stroke} strokeWidth={strokeW} opacity={el.opacity} />
           {showLabel && (
             <Text x={kw / 2} y={kd / 2} text={labelStr}
@@ -440,7 +440,7 @@ export function FloorPlanElementVisual({
               offsetX={labelStr.length * 3} offsetY={4} />
           )}
           {OverlayRect()}
-        </Group>
+        </>
       )
     }
   }
