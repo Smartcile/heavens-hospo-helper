@@ -77,6 +77,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const containerRef = useRef<HTMLDivElement>(null)
   const nextIdCounter = useRef(1)
 
+  const dragStartRef = useRef<{ id: string | null; x: number; y: number; clientX: number; clientY: number }>({ id: null, x: 0, y: 0, clientX: 0, clientY: 0 })
+  const zoneDragStartRef = useRef<{ id: string | null; x: number; y: number; clientX: number; clientY: number }>({ id: null, x: 0, y: 0, clientX: 0, clientY: 0 })
+
   const historyRef = useRef<{ past: ElementData[][]; future: ElementData[][] }>({ past: [], future: [] })
 
   function pushHistory() {
@@ -473,15 +476,20 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   <Group key={zone.id}
                     draggable={zoneDrawing}
                     onClick={() => { if (zoneDrawing) setSelectedZoneId(zone.id) }}
-                      onDragEnd={(e: any) => {
-                        if (!zoneDrawing) return
-                        const gu = plan.gridUnit
-                        const rawX = (e.currentTarget.x() - offsetX) / scale
-                        const rawY = (e.currentTarget.y() - offsetY) / scale
-                        const nx = snapEnabled ? snap(rawX, gu) : rawX
-                        const ny = snapEnabled ? snap(rawY, gu) : rawY
-                        setZones((prev) => prev.map((z) => z.id === zone.id ? { ...z, x: nx, y: ny } : z))
-                      }}>
+                    onDragStart={(e: any) => {
+                      zoneDragStartRef.current = { id: zone.id, x: zone.x, y: zone.y, clientX: e.evt.clientX, clientY: e.evt.clientY }
+                    }}
+                    onDragEnd={(e: any) => {
+                      if (!zoneDrawing) return
+                      const zs = zoneDragStartRef.current
+                      if (zs.id !== zone.id) return
+                      const dx = (e.evt.clientX - zs.clientX) / scale
+                      const dy = (e.evt.clientY - zs.clientY) / scale
+                      let nx = zs.x + dx
+                      let ny = zs.y + dy
+                      if (snapEnabled) { nx = snap(nx, plan.gridUnit); ny = snap(ny, plan.gridUnit) }
+                      setZones((prev) => prev.map((z) => z.id === zone.id ? { ...z, x: nx, y: ny } : z))
+                    }}>
                     <Rect x={offsetX + zone.x * scale} y={offsetY + zone.y * scale}
                       width={zone.width * scale} height={zone.height * scale}
                       fill={zc} opacity={0.1} stroke={isSel ? '#FFF' : zc}
@@ -520,13 +528,18 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     <Group key={el.id} id={el.id} x={kx} y={ky}
                       draggable
                       onClick={() => setSelectedId(el.id ?? null)} onTap={() => setSelectedId(el.id ?? null)}
+                      onDragStart={(e: any) => {
+                        dragStartRef.current = { id: el.id!, x: el.x, y: el.y, clientX: e.evt.clientX, clientY: e.evt.clientY }
+                      }}
                       onDragEnd={(e: any) => {
+                        const ds = dragStartRef.current
+                        if (ds.id !== el.id) return
                         pushHistory()
-                        const gu = plan.gridUnit
-                        const rawX = (e.currentTarget.x() - offsetX) / scale
-                        const rawY = (e.currentTarget.y() - offsetY) / scale
-                        const nx = snapEnabled ? snap(rawX, gu) : rawX
-                        const ny = snapEnabled ? snap(rawY, gu) : rawY
+                        const dx = (e.evt.clientX - ds.clientX) / scale
+                        const dy = (e.evt.clientY - ds.clientY) / scale
+                        let nx = ds.x + dx
+                        let ny = ds.y + dy
+                        if (snapEnabled) { nx = snap(nx, plan.gridUnit); ny = snap(ny, plan.gridUnit) }
                         updateElement(el.id!, { x: nx, y: ny })
                       }}>
                       {visual}
@@ -538,15 +551,20 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   <Group key={el.id} id={el.id} x={kx} y={ky} rotation={el.rotation}
                     draggable
                     onClick={() => setSelectedId(el.id ?? null)} onTap={() => setSelectedId(el.id ?? null)}
-                      onDragEnd={(e: any) => {
-                        pushHistory()
-                        const gu = plan.gridUnit
-                        const rawX = (e.currentTarget.x() - offsetX) / scale
-                        const rawY = (e.currentTarget.y() - offsetY) / scale
-                        const nx = snapEnabled ? snap(rawX, gu) : rawX
-                        const ny = snapEnabled ? snap(rawY, gu) : rawY
-                        updateElement(el.id!, { x: nx, y: ny, rotation: e.currentTarget.rotation() })
-                      }}>
+                    onDragStart={(e: any) => {
+                      dragStartRef.current = { id: el.id!, x: el.x, y: el.y, clientX: e.evt.clientX, clientY: e.evt.clientY }
+                    }}
+                    onDragEnd={(e: any) => {
+                      const ds = dragStartRef.current
+                      if (ds.id !== el.id) return
+                      pushHistory()
+                      const dx = (e.evt.clientX - ds.clientX) / scale
+                      const dy = (e.evt.clientY - ds.clientY) / scale
+                      let nx = ds.x + dx
+                      let ny = ds.y + dy
+                      if (snapEnabled) { nx = snap(nx, plan.gridUnit); ny = snap(ny, plan.gridUnit) }
+                      updateElement(el.id!, { x: nx, y: ny, rotation: e.currentTarget.rotation() })
+                    }}>
                     {visual}
                   </Group>
                 )
