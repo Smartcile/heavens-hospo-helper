@@ -134,6 +134,24 @@ export function DashboardClient({ role }: { role: string }) {
         </div>
       </div>
 
+      {/* Par Level Alerts */}
+      {stats.parAlerts && stats.parAlerts.length > 0 && (
+        <div className="card p-4 bg-grey-dark border border-danger/50">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-mono text-xs uppercase tracking-wider text-danger font-bold">PAR LEVEL ALERTS</span>
+            <span className="font-mono text-xs text-danger">{stats.parAlerts.length} ITEM(S) BELOW PAR</span>
+          </div>
+          <div className="space-y-1 max-h-32 overflow-y-auto">
+            {stats.parAlerts.slice(0, 10).map((a, i) => (
+              <div key={i} className="flex items-center justify-between font-mono text-[10px] text-grey-light">
+                <span>{a.itemName} <span className="text-grey-mid">({a.categoryName})</span></span>
+                <span className="text-danger">{a.currentQty} / {a.parLevel}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Overall Progress */}
       <div className="card p-4 bg-grey-dark border border-grey-mid">
         <div className="flex items-center justify-between mb-2">

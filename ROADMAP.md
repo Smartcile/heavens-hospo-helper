@@ -67,18 +67,41 @@ The model that links sections, tasks and knowledge into one followed-up loop.
   ✅ Worker read-only page: `/w/floorplan` with view switcher if venue has multiple plans (slug-based), section-colour-coded elements, tap for details
   ✅ Nav: admin sidebar under Organisation + burger menu FLOOR PLAN card + dashboard card
   ✅ Polygons: data model supports `shape: POLYGON` + `vertices Json?` from day one; drawing tool comes later
-☐ **Phase 2 — Advanced drawing + calendar integration**
-  ☐ Polygon drawing tool (click vertices to define custom furniture/l-shaped bars/bends)
-  ☐ Calendar event floor plan switching — `CalendarEvent.floorPlanSlug` links events to alternate layouts
-  ☐ Worker auto-view-switch when event is active (banner: "EVENT MODE ACTIVE")
-  ☐ PDF export via jspdf
-  ☐ Undo/redo stack in editor
-☐ **Phase 3 — Operational overlays**
-  ☐ Overdue task overlay — colour zones by pending task count
-  ☐ Staff assignment pins — "YOU → Section B" on the plan
-  ☐ Multi-floor / zone support per venue
+✅ **Phase 1.5 — Styled elements, walls as lines, sections & inventory prep**
+  ✅ Per-type styled rendering (table with legs, chair as circle with backrest, booth bench with cushion inset, door with swing arc, window with dividers, sink with basin, stairs with stripes, storage grid, kitchen equip inset, plant as dashed planter, toilet oval, bar with highlight, counter with edge, etc.)
+  ✅ Walls / Entry / Exit rendered as thick lines with centred toggleable label (`-- WALL --`, `==== EXIT ====`)
+  ✅ Arbitrary wall angles — wall placed as horizontal line from palette, rotated via Transformer to any angle
+  ✅ Delete/Backspace keyboard handler deletes selected element
+  ✅ Furniture elements (TABLE, CHAIR, TOILET, PLANT, OTHER) are fixed-size — Transformer shows no resize anchors
+  ✅ Fixture elements (WALL, DOOR, WINDOW, COUNTER, BAR, BOOTH_BENCH, SINK, KITCHEN_EQUIP, STORAGE, ENTRY, EXIT, STAIRS) remain resizable
+  ✅ 45° rotation snap toggle — snaps to 0/45/90/135/180/225/270/315°
+  ✅ `BOOTH_BENCH` element type — long rect with cushion inset, capacity field tracks seats per segment
+  ✅ Auto-label on drop — tables get T1/T2…, chairs C1/C2…, benches B1/B2…
+  ✅ Label visible on all elements (centred text, monospace, auto-sized) for printable plans
+  ✅ Section colour overlay toggle — semi-transparent section colour fill on elements
+  ✅ Section summary panel — live count of tables/chairs/benches/etc. per section with total rows
+  ✅ Shared element renderer (`components/admin/floorplan-elements.tsx`) — single source of truth for palette defaults + visual components, eliminates colour duplication between editor and worker
+  ✅ `style Json?` field on FloorPlanElement for per-type config (wall type, table shape, etc.)
+  ✅ `labelVisible Boolean` field toggles label display per element
+☑ **Phase 2 — Inventory, pen tool, section zones, calendar linking, undo/redo, PDF**
+  ☑ **Inventory system**
+    ☑ `InventoryCategory` model: name, isBuiltIn (7 built-in + custom per venue)
+    ☑ `InventoryItem` model: venueId, name, categoryId, unit, defaultParLevel
+    ☑ `ElementInventoryItem` junction: links items → floor plan elements with quantity
+    ☑ Admin CRUD: categories page, items page, element inventory panel in floor plan editor
+    ☑ `StocktakeRecord` model: venueId, date, status (PENDING/IN_PROGRESS/COMPLETED), assignedRoleId, assignedStaffId, notes
+    ☑ `StocktakeLineItem` model: recordId, itemId, countedQuantity, expectedQuantity, variance
+    ☑ Admin stocktake page: create, assign to role/staff, review variance, sign-off
+    ☑ Worker stocktake screen: dashboard card, scrollable count list, submit IN_PROGRESS or COMPLETED
+    ☑ Par level alerts on dashboard: items below threshold flagged
+  ☐ **Bezier pen tool** — click = straight vertex, click-drag = bezier with control handles; double-click to close; edit existing vertices (drag, toggle straight↔curve); tool button next to palette
+  ☐ **Drawable section zones** — drag-to-draw coloured zone rectangles on canvas; pick section from dropdown; zones render behind elements at 0.1 opacity
+  ☐ **Table↔bench linking** — assign BOOTH_BENCH to specific TABLE elements; dashed connector line on canvas; "B1 serves T1, T2" in summary
+  ☐ **Calendar event floor plan linking** — `CalendarEvent.floorPlanSlug` links events to alternate layouts; worker auto-switch with banner: "EVENT MODE — [Name] LAYOUT ACTIVE"
+  ☐ **Undo/redo stack** — Ctrl+Z / Ctrl+Shift+Z snapshots of elements array per action
+  ☐ **PDF export** — render canvas to PDF with date/venue header via jspdf
 
-## PHASE 3 — TRAINING
+## PHASE 3 — TRAINING (prev. Phase 3, unchanged)
 ✅ **Training modules / guides** — authored in admin, with step-by-step content, **photos** (upload) and **video links**
 ✅ **Assignment** — onboarding (all staff), by department (auto), individually assigned (upskill / area to work on), and **task-linked** guides
 ✅ **Per-module sign-off model** — each module is either staff-self-complete or requires a manager sign-off

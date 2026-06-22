@@ -105,6 +105,31 @@ export async function GET() {
     take: 20,
   })
 
+  // Par level alerts
+  const venueId = session.user.role === 'MANAGER' ? session.user.venueId : undefined
+  const itemsWithPar = await prisma.inventoryItem.findMany({
+    where: {
+      ...(venueId ? { venueId } : {}),
+      deletedAt: null,
+      defaultParLevel: { gt: 0 },
+    },
+    include: {
+      category: { select: { name: true } },
+      elements: {
+        where: { element: { deletedAt: null } },
+        select: { quantity: true },
+      },
+    },
+  })
+  const parAlerts = itemsWithPar
+    .map((item) => {
+      const currentQty = item.elements.reduce((sum, e) => sum + e.quantity, 0)
+      return currentQty < item.defaultParLevel
+        ? { itemName: item.name, categoryName: item.category.name, currentQty, parLevel: item.defaultParLevel }
+        : null
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+
   const stats: DashboardStats = {
     totalTasksToday,
     completedTasksToday,
@@ -118,6 +143,7 @@ export async function GET() {
       departmentName: c.task.department?.name ?? null,
       completedAt: c.completedAt,
     })),
+    parAlerts,
   }
 
   return NextResponse.json(stats)

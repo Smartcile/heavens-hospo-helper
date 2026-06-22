@@ -65,6 +65,7 @@ export interface DashboardStats {
   overdueCount: number
   venueStats: VenueStat[]
   recentActivity: RecentActivity[]
+  parAlerts: { itemName: string; categoryName: string; currentQty: number; parLevel: number }[]
 }
 
 export interface VenueStat {

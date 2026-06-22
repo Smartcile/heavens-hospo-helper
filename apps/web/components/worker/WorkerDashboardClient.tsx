@@ -16,6 +16,7 @@ interface DashData {
   trainingTotal: number
   sopCount: number
   newTraining: number
+  pendingStocktakes: number
 }
 
 let inactivityTimer: ReturnType<typeof setTimeout> | null = null
@@ -50,12 +51,13 @@ export function WorkerDashboardClient() {
     if (loaded.current) return
     loaded.current = true
 
-    const [tasksR, noticesR, calR, trainingR, sopsR] = await Promise.all([
+    const [tasksR, noticesR, calR, trainingR, sopsR, stocktakeR] = await Promise.all([
       fetch('/api/worker/tasks'),
       fetch('/api/worker/notices'),
       fetch('/api/worker/calendar'),
       fetch('/api/worker/training'),
       fetch('/api/worker/sops'),
+      fetch('/api/worker/stocktake'),
     ])
 
     if (tasksR.status === 401) { router.push('/w/login'); return }
@@ -65,6 +67,7 @@ export function WorkerDashboardClient() {
     const cal = await calR.json()
     const training = await trainingR.json()
     const sops = await sopsR.json()
+    const stocktakes = stocktakeR.ok ? await stocktakeR.json() : []
 
     const pending = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => !t.isCompleted).length
     const done = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => t.isCompleted).length
@@ -84,6 +87,7 @@ export function WorkerDashboardClient() {
       trainingTotal: trainingItems.length,
       sopCount: (sops.items ?? []).length,
       newTraining,
+      pendingStocktakes: (stocktakes ?? []).length,
     })
     setLoading(false)
   }
@@ -248,6 +252,29 @@ export function WorkerDashboardClient() {
           </div>
           <span className="font-mono text-sm font-bold uppercase text-white">FLOOR PLAN</span>
           <span className="font-mono text-xs text-grey-light">VENUE LAYOUT</span>
+        </button>
+
+        {/* Stocktake */}
+        <button
+          onClick={() => router.push('/w/stocktake')}
+          className="bg-grey-dark border border-grey-mid p-5 text-left hover:border-white transition-colors active:bg-black flex flex-col gap-2"
+        >
+          <div className="flex items-center justify-between">
+            <div className="w-9 h-9 border border-grey-mid flex items-center justify-center">
+              <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="square" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+              </svg>
+            </div>
+            {(data?.pendingStocktakes ?? 0) > 0 && (
+              <span className="font-mono text-xs text-accent font-bold">{data?.pendingStocktakes} PENDING</span>
+            )}
+          </div>
+          <span className="font-mono text-sm font-bold uppercase text-white">STOCKTAKE</span>
+          <span className="font-mono text-xs text-grey-light">
+            {data && data.pendingStocktakes > 0
+              ? `${data.pendingStocktakes} STOCKTAKE${data.pendingStocktakes !== 1 ? 'S' : ''} TO COMPLETE`
+              : 'NO PENDING STOCKTAKES'}
+          </span>
         </button>
       </div>
     </div>

@@ -95,7 +95,10 @@ model Venue {
   sections    Section[]
   followUps   FollowUp[]
   checklists  Checklist[]
-  floorPlans  FloorPlan[]
+  floorPlans          FloorPlan[]
+  inventoryCategories InventoryCategory[]
+  inventoryItems      InventoryItem[]
+  stocktakeRecords    StocktakeRecord[]
 }
 
 model Department {
@@ -148,8 +151,10 @@ model Staff {
   shifts           Shift[]
   timeOffRequests  TimeOffRequest[]
   noticeAcks       NoticeAck[]
-  sections         StaffSection[]
-  followUps        FollowUp[]
+  sections             StaffSection[]
+  followUps            FollowUp[]
+  stocktakeCompletions StocktakeRecord[] @relation("stocktakeCompletedBy")
+  stocktakeAssignments StocktakeRecord[] @relation("stocktakeAssignedTo")
 }
 
 model Task {
@@ -647,6 +652,7 @@ enum ElementType {
   CHAIR
   COUNTER
   BAR
+  BOOTH_BENCH
   KITCHEN_EQUIP
   SINK
   STORAGE
@@ -691,6 +697,8 @@ model FloorPlanElement {
   type        ElementType
   shape       ElementShape @default(RECTANGLE)
   label       String?
+  labelVisible Boolean   @default(true)
+  style       Json?                     // per-element style config (wallType, tableShape, etc.)
   // Position in real-world cm from room top-left
   x           Float
   y           Float
@@ -713,8 +721,112 @@ model FloorPlanElement {
   updatedAt   DateTime     @updatedAt
   deletedAt   DateTime?
 
-  floorPlan FloorPlan @relation(fields: [floorPlanId], references: [id], onDelete: Cascade)
-  section   Section?  @relation(fields: [sectionId], references: [id])
+  floorPlan       FloorPlan             @relation(fields: [floorPlanId], references: [id], onDelete: Cascade)
+  section         Section?              @relation(fields: [sectionId], references: [id])
+  inventoryItems ElementInventoryItem[]
 
   @@index([floorPlanId])
+}
+
+// --- INVENTORY & STOCKTAKE ---
+
+enum StocktakeStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+model InventoryCategory {
+  id        String   @id @default(uuid())
+  venueId   String?
+  name      String
+  isBuiltIn Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  venue Venue?         @relation(fields: [venueId], references: [id])
+  items InventoryItem[]
+
+  @@unique([venueId, name])
+}
+
+model InventoryItem {
+  id              String   @id @default(uuid())
+  venueId         String
+  categoryId      String
+  name            String
+  unit            String   @default("EA")
+  defaultParLevel Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  venue     Venue                @relation(fields: [venueId], references: [id])
+  category  InventoryCategory    @relation(fields: [categoryId], references: [id])
+  elements  ElementInventoryItem[]
+  stocktake StocktakeLineItem[]
+
+  @@index([venueId])
+  @@index([categoryId])
+}
+
+model ElementInventoryItem {
+  id        String   @id @default(uuid())
+  elementId String
+  itemId    String
+  quantity  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  element FloorPlanElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  item    InventoryItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([elementId, itemId])
+  @@index([elementId])
+  @@index([itemId])
+}
+
+model StocktakeRecord {
+  id              String        @id @default(uuid())
+  venueId         String
+  date            DateTime      @db.Date
+  status          StocktakeStatus @default(PENDING)
+  assignedRoleId  String?
+  assignedStaffId String?
+  notes           String?
+  completedById   String?
+  completedAt     DateTime?
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+
+  venue         Venue              @relation(fields: [venueId], references: [id])
+  completedBy   Staff?             @relation("stocktakeCompletedBy", fields: [completedById], references: [id])
+  lineItems     StocktakeLineItem[]
+  assignedStaff Staff?             @relation("stocktakeAssignedTo", fields: [assignedStaffId], references: [id])
+
+  @@index([venueId])
+  @@index([status])
+  @@index([assignedStaffId])
+}
+
+model StocktakeLineItem {
+  id               String   @id @default(uuid())
+  recordId         String
+  itemId           String
+  countedQuantity  Int      @default(0)
+  expectedQuantity Int      @default(0)
+  variance         Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  record StocktakeRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  item   InventoryItem   @relation(fields: [itemId], references: [id])
+
+  @@unique([recordId, itemId])
+  @@index([recordId])
 }

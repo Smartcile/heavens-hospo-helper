@@ -49,6 +49,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
       type: el.type ?? 'OTHER',
       shape: el.shape ?? 'RECTANGLE',
       label: el.label ?? null,
+      labelVisible: el.labelVisible ?? true,
+      style: el.style ?? undefined,
       x: el.x ?? 0,
       y: el.y ?? 0,
       width: el.width ?? 80,

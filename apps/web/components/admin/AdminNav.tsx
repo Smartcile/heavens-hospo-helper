@@ -21,6 +21,10 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/admin/sections', label: 'Sections' },
     { href: '/admin/floorplan', label: 'Floor Plan' },
     { href: '/admin/staff', label: 'Staff' },
+    { href: '/admin/inventory', label: 'Inventory' },
+  ] },
+  { label: 'Operations', items: [
+    { href: '/admin/stocktake', label: 'Stocktake' },
   ] },
   { label: 'Work', items: [
     { href: '/admin/tasks', label: 'Tasks & Checklists' },
