@@ -402,6 +402,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             onElementDragEnd={(id, x, y) => { pushHistory(); updateElement(id, { x, y }) }}
             onZoneClick={(id) => setSelectedZoneId(id)}
             onZoneDragEnd={(id, x, y) => setZones((prev) => prev.map((z) => z.id === id ? { ...z, x, y } : z))}
+            onZoneResize={(id, x, y, w, h) => setZones((prev) => prev.map((z) => z.id === id ? { ...z, x, y, width: w, height: h } : z))}
             onZoneDrawStart={(x, y) => {
               const gu = plan.gridUnit
               setZoneDrawStart({ x: snap(x, gu), y: snap(y, gu) }); setZoneDrawRect(null); setSelectedZoneId(null)

@@ -31,6 +31,7 @@ interface PixiCanvasProps {
   onZoneDrawStart: (x: number, y: number) => void
   onZoneDrawMove: (x: number, y: number) => void
   onZoneDrawEnd: (x: number, y: number) => void
+  onZoneResize?: (id: string, x: number, y: number, width: number, height: number) => void
   onViewChange?: (zoom: number) => void
   rebuildKey?: number
 }
@@ -54,14 +55,14 @@ export function FloorPlanPixiCanvas({
   sectionColours, zoneDrawing, zoneDrawStart, zoneDrawRect, selectedZoneId,
   containerRef, viewRef,
   onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd,
-  onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onViewChange,
+  onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange,
   rebuildKey,
 }: PixiCanvasProps) {
   const appRef = useRef<PIXI.Application | null>(null)
   const roomRef = useRef<PIXI.Container | null>(null)
   const stateRef = useRef({ snap: snapEnabled, gu: gridUnit })
-  const cbRef = useRef({ onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onViewChange })
-  cbRef.current = { onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onViewChange }
+  const cbRef = useRef({ onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange })
+  cbRef.current = { onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange }
 
   // Init app once
   useEffect(() => {
@@ -217,6 +218,7 @@ export function FloorPlanPixiCanvas({
       g.beginFill(nc, 0.1).drawRect(0, 0, z.width, z.height).endFill()
       c.addChild(g)
       if (zoneDrawing) attachZoneDrag(c, z)
+      if (zoneDrawing && z.id === selectedZoneId) addZoneResizeHandles(c, z, pxScale)
       room.addChild(c)
     })
 
@@ -330,6 +332,69 @@ export function FloorPlanPixiCanvas({
         rx = Math.max(0, Math.min(rx, roomWidth - el.width))
         ry = Math.max(0, Math.min(ry, roomDepth - el.depth))
         cbRef.current.onElementDragEnd(el.id!, rx, ry); dd = null
+      }
+      app.stage.on('globalpointermove', onMove); app.stage.on('pointerup', onUp)
+    })
+  }
+
+  function addZoneResizeHandles(node: PIXI.Container, z: ZoneP, pxScale: number) {
+    const hs = 6 / pxScale
+    const defs = [
+      { x: 0, y: 0, cursor: 'nwse-resize', dx_x: 1, dx_y: 1, dw: -1, dh: -1 },
+      { x: z.width / 2, y: 0, cursor: 'ns-resize', dx_x: 0, dx_y: 1, dw: 0, dh: -1 },
+      { x: z.width, y: 0, cursor: 'nesw-resize', dx_x: 0, dx_y: 1, dw: 1, dh: -1 },
+      { x: 0, y: z.height / 2, cursor: 'ew-resize', dx_x: 1, dx_y: 0, dw: -1, dh: 0 },
+      { x: z.width, y: z.height / 2, cursor: 'ew-resize', dx_x: 0, dx_y: 0, dw: 1, dh: 0 },
+      { x: 0, y: z.height, cursor: 'nesw-resize', dx_x: 1, dx_y: 0, dw: -1, dh: 1 },
+      { x: z.width / 2, y: z.height, cursor: 'ns-resize', dx_x: 0, dx_y: 0, dw: 0, dh: 1 },
+      { x: z.width, y: z.height, cursor: 'nwse-resize', dx_x: 0, dx_y: 0, dw: 1, dh: 1 },
+    ]
+    for (const d of defs) {
+      const hg = new PIXI.Graphics()
+      hg.beginFill(0xFFFFFF).lineStyle(1 / pxScale, 0x000000).drawRect(d.x - hs / 2, d.y - hs / 2, hs, hs).endFill()
+      hg.eventMode = 'static'; hg.cursor = d.cursor
+      attachResizeHandleDrag(hg, z, d, pxScale)
+      node.addChild(hg)
+    }
+  }
+
+  function attachResizeHandleDrag(handle: PIXI.Graphics, z: ZoneP, cfg: { dx_x: number; dx_y: number; dw: number; dh: number }, pxScale: number) {
+    let dd: { sx: number; sy: number; zx: number; zy: number; zw: number; zh: number } | null = null
+    const gu = stateRef.current.gu
+    handle.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+      e.stopPropagation()
+      dd = { sx: e.globalX, sy: e.globalY, zx: z.x, zy: z.y, zw: z.width, zh: z.height }
+      const app = appRef.current
+      if (!app) return
+      const onMove = (ev: PIXI.FederatedPointerEvent) => {
+        if (!dd) return
+        const vs = viewRef.current
+        let dx = (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
+        let dy = (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
+        dx = gridSnap(dx, gu); dy = gridSnap(dy, gu)
+        let nx = dd.zx + dx * cfg.dx_x
+        let ny = dd.zy + dy * cfg.dx_y
+        let nw = dd.zw + dx * cfg.dw
+        let nh = dd.zh + dy * cfg.dh
+        if (nw < gu) { if (cfg.dw < 0) nx -= gu - nw; nw = gu }
+        if (nh < gu) { if (cfg.dh < 0) ny -= gu - nh; nh = gu }
+        cbRef.current.onZoneResize?.(z.id, nx, ny, nw, nh)
+      }
+      const onUp = (ev: PIXI.FederatedPointerEvent) => {
+        app.stage.off('globalpointermove', onMove); app.stage.off('pointerup', onUp)
+        if (!dd) return
+        const vs = viewRef.current
+        let dx = (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
+        let dy = (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
+        dx = gridSnap(dx, gu); dy = gridSnap(dy, gu)
+        let nx = dd.zx + dx * cfg.dx_x
+        let ny = dd.zy + dy * cfg.dx_y
+        let nw = dd.zw + dx * cfg.dw
+        let nh = dd.zh + dy * cfg.dh
+        if (nw < gu) { if (cfg.dw < 0) nx -= gu - nw; nw = gu }
+        if (nh < gu) { if (cfg.dh < 0) ny -= gu - nh; nh = gu }
+        cbRef.current.onZoneResize?.(z.id, nx, ny, nw, nh)
+        dd = null
       }
       app.stage.on('globalpointermove', onMove); app.stage.on('pointerup', onUp)
     })
