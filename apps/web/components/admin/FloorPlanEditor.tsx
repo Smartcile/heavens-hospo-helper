@@ -192,7 +192,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if ((e.key === 'Delete' || e.key === 'Backspace')) {
+    if (e.key === 'Delete') {
       if (selectedId) { e.preventDefault(); deleteSelected(); return }
       if (zoneDrawing && selectedZoneId) { e.preventDefault(); setZones((prev) => prev.filter((z) => z.id !== selectedZoneId)); setSelectedZoneId(null); return }
     }
