@@ -6,7 +6,11 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 
 interface Category { id: string; name: string; isBuiltIn: boolean; venueId: string | null }
-interface Item { id: string; name: string; categoryId: string; unit: string; defaultParLevel: number; category: Category }
+interface Item {
+  id: string; name: string; categoryId: string; unit: string; defaultParLevel: number; category: Category
+  furnitureType?: string | null; elementWidth?: number | null; elementDepth?: number | null
+  elementShape?: string | null; defaultColour?: string | null; defaultChairCount?: number
+}
 
 export function InventoryClient() {
   const [categories, setCategories] = useState<Category[]>([])
@@ -19,6 +23,12 @@ export function InventoryClient() {
   const [newCat, setNewCat] = useState('')
   const [newUnit, setNewUnit] = useState('EA')
   const [newPar, setNewPar] = useState('0')
+  const [newFurnitureType, setNewFurnitureType] = useState('')
+  const [newElemW, setNewElemW] = useState('80')
+  const [newElemD, setNewElemD] = useState('80')
+  const [newElemShape, setNewElemShape] = useState('RECTANGLE')
+  const [newDefaultColour, setNewDefaultColour] = useState('#555')
+  const [newDefaultChairCount, setNewDefaultChairCount] = useState('0')
   const [newCatName, setNewCatName] = useState('')
   const [editing, setEditing] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
@@ -37,12 +47,24 @@ export function InventoryClient() {
   useEffect(() => { load() }, [])
 
   async function addItem() {
+    const body: any = { name: newName, categoryId: newCat, unit: newUnit, defaultParLevel: parseInt(newPar) || 0 }
+    const cat = categories.find((c) => c.id === newCat)
+    if (cat?.name === 'FURNITURE') {
+      body.furnitureType = (newFurnitureType || null) as string | null
+      body.elementWidth = parseFloat(newElemW) || null
+      body.elementDepth = parseFloat(newElemD) || null
+      body.elementShape = (newElemShape || null) as string | null
+      body.defaultColour = (newDefaultColour || null) as string | null
+      body.defaultChairCount = parseInt(newDefaultChairCount) || 0
+    }
     await fetch('/api/admin/inventory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newName, categoryId: newCat, unit: newUnit, defaultParLevel: parseInt(newPar) || 0 }),
+      body: JSON.stringify(body),
     })
     setNewName(''); setNewCat(''); setNewUnit('EA'); setNewPar('0')
+    setNewFurnitureType(''); setNewElemW('80'); setNewElemD('80'); setNewElemShape('RECTANGLE')
+    setNewDefaultColour('#555'); setNewDefaultChairCount('0')
     setShowNewItem(false)
     load()
   }
@@ -115,6 +137,27 @@ export function InventoryClient() {
               options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} className="w-24" />
             <Input type="number" value={newPar} onChange={(e) => setNewPar(e.target.value)} placeholder="PAR" className="w-20" />
           </div>
+          {categories.find((c) => c.id === newCat)?.name === 'FURNITURE' && (
+            <div className="border-t border-grey-mid pt-3 space-y-2">
+              <p className="font-mono text-[10px] text-grey-light uppercase">Furniture Template</p>
+              <div className="flex gap-2">
+                <Select value={newFurnitureType} onChange={(e) => setNewFurnitureType(e.target.value)}
+                  options={[{ value: 'TABLE', label: 'TABLE' }, { value: 'CHAIR', label: 'CHAIR' }]} placeholder="TYPE" className="flex-1" />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <Input label="W (cm)" type="number" value={newElemW} onChange={(e) => setNewElemW(e.target.value)} />
+                <Input label="D (cm)" type="number" value={newElemD} onChange={(e) => setNewElemD(e.target.value)} />
+                <Select label="Shape" value={newElemShape} onChange={(e) => setNewElemShape(e.target.value)}
+                  options={[{ value: 'RECTANGLE', label: 'RECT' }, { value: 'CIRCLE', label: 'CIRCLE' }]} />
+              </div>
+              <div className="flex gap-2">
+                <Input label="Colour" value={newDefaultColour} onChange={(e) => setNewDefaultColour(e.target.value)} placeholder="#555" />
+                {newFurnitureType === 'TABLE' && (
+                  <Input label="Default Chairs" type="number" value={newDefaultChairCount} onChange={(e) => setNewDefaultChairCount(e.target.value)} />
+                )}
+              </div>
+            </div>
+          )}
           <Button size="sm" onClick={addItem} disabled={!newName || !newCat}>CREATE</Button>
         </div>
       )}
@@ -136,12 +179,21 @@ export function InventoryClient() {
       <div className="space-y-1">
         {filtered.length === 0 && <p className="font-mono text-xs text-grey-light">No items yet.</p>}
         {filtered.map((item) => {
-          const belowPar = item.defaultParLevel > 0 && item.defaultParLevel > 0
+          const isFurniture = item.furnitureType != null
           return (
             <div key={item.id} className="flex items-center gap-3 bg-grey-dark border border-grey-mid p-2">
+              {isFurniture && item.defaultColour && (
+                <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.defaultColour }} />
+              )}
               <div className="flex-1 min-w-0">
                 <span className="font-mono text-xs text-white truncate">{item.name}</span>
                 <span className="font-mono text-[10px] text-grey-light ml-2">{item.category.name}</span>
+                {isFurniture && (
+                  <span className="font-mono text-[10px] text-accent ml-2">
+                    {item.furnitureType} {item.elementWidth}×{item.elementDepth}
+                    {item.furnitureType === 'TABLE' && item.defaultChairCount ? ` · ${item.defaultChairCount} chairs` : ''}
+                  </span>
+                )}
               </div>
               <span className="font-mono text-[10px] text-grey-light w-10 text-right">{item.unit}</span>
               {editing === item.id ? (
@@ -155,6 +207,15 @@ export function InventoryClient() {
                 <button onClick={() => { setEditing(item.id); setEditName(item.defaultParLevel.toString()) }}
                   className="font-mono text-[10px] text-grey-light hover:text-white w-12 text-right">
                   PAR: {item.defaultParLevel || '-'}
+                </button>
+              )}
+              {isFurniture && (
+                <button onClick={async () => {
+                  await fetch(`/api/admin/inventory/${item.id}/duplicate`, { method: 'POST' })
+                  load()
+                }}
+                  className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-1.5 py-0.5">
+                  DUPLICATE
                 </button>
               )}
               <button onClick={() => deleteItem(item.id)}

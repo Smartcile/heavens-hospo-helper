@@ -64,6 +64,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       zIndex: el.zIndex ?? 0,
       sectionId: el.sectionId ?? null,
       capacity: el.capacity ?? null,
+      chairCount: el.chairCount ?? 0,
       sortOrder: el.sortOrder ?? 0,
       isActive: el.isActive ?? true,
     }

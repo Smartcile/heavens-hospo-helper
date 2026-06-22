@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { FloorPlanPixiCanvas } from '@/components/admin/floorplan-pixi'
+import { FloorPlanPixiCanvas, type ViewState } from '@/components/admin/floorplan-pixi'
 import type { ElementData } from '@/components/admin/floorplan-elements'
 
 interface View { slug: string; name: string; isDefault: boolean }
@@ -21,7 +21,9 @@ export function WorkerFloorPlan() {
   const [activeView, setActiveView] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [infoPanel, setInfoPanel] = useState<WorkerElement | null>(null)
+  const [zoomLevel, setZoomLevel] = useState(1)
   const containerRef = useRef<HTMLDivElement>(null)
+  const viewRef = useRef<ViewState>({ baseScale: 1, ox: 0, oy: 0, zoom: 1, panX: 0, panY: 0 })
   const CANVAS_W = typeof window !== 'undefined' ? Math.min(window.innerWidth - 32, 800) : 800
   const CANVAS_H = 500
 
@@ -76,20 +78,21 @@ export function WorkerFloorPlan() {
           </p>
         </div>
       )}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-grey-mid">
-        <div>
-          <h1 className="font-mono text-sm font-bold uppercase tracking-widest text-white">FLOOR PLAN</h1>
-          <p className="font-mono text-[10px] text-grey-light uppercase">{plan.name}</p>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-grey-mid">
+          <div>
+            <h1 className="font-mono text-sm font-bold uppercase tracking-widest text-white">FLOOR PLAN</h1>
+            <p className="font-mono text-[10px] text-grey-light uppercase">{plan.name}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] text-grey-light">ZOOM: {Math.round(zoomLevel * 100)}%</span>
+            {views.length > 1 && (
+              <select value={activeView ?? plan.slug} onChange={(e) => switchView(e.target.value)}
+                className="bg-grey-dark border border-grey-mid text-white font-mono text-xs uppercase p-2">
+                {views.map((v) => <option key={v.slug} value={v.slug}>{v.name}{v.isDefault ? ' (DEFAULT)' : ''}</option>)}
+              </select>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {views.length > 1 && (
-            <select value={activeView ?? plan.slug} onChange={(e) => switchView(e.target.value)}
-              className="bg-grey-dark border border-grey-mid text-white font-mono text-xs uppercase p-2">
-              {views.map((v) => <option key={v.slug} value={v.slug}>{v.name}{v.isDefault ? ' (DEFAULT)' : ''}</option>)}
-            </select>
-          )}
-        </div>
-      </div>
 
       <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
         <div ref={containerRef} className="w-full h-full" />
@@ -103,6 +106,7 @@ export function WorkerFloorPlan() {
             zoneDrawRect={null}
             selectedZoneId={null}
             containerRef={containerRef}
+            viewRef={viewRef}
             onElementClick={(id) => {
               if (id) { const el = plan.elements.find((e) => e.id === id); if (el) setInfoPanel(el) }
               else setInfoPanel(null)
@@ -113,6 +117,7 @@ export function WorkerFloorPlan() {
             onZoneDrawStart={() => {}}
             onZoneDrawMove={() => {}}
             onZoneDrawEnd={() => {}}
+            onViewChange={(z) => setZoomLevel(z)}
             stageW={CANVAS_W} stageH={CANVAS_H}
           />
       </div>

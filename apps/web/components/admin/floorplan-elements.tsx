@@ -41,7 +41,6 @@ export const PALETTE_ITEMS: PaletteItem[] = [
   { type: 'WALL',          label: 'WALL',           w: 200, d: 10,  fill: '#4A4A4A', category: 'FIXTURE' },
   { type: 'DOOR',          label: 'DOOR',           w: 10,  d: 80,  fill: '#6B4226', category: 'FIXTURE' },
   { type: 'WINDOW',        label: 'WINDOW',         w: 10,  d: 60,  fill: '#87CEEB', category: 'FIXTURE' },
-  { type: 'TABLE',         label: 'TABLE',          w: 80,  d: 80,  fill: '#2A2A3A', category: 'FURNITURE' },
   { type: 'CHAIR',         label: 'CHAIR',          w: 30,  d: 30,  fill: '#3A3A4A', category: 'FURNITURE' },
   { type: 'COUNTER',       label: 'COUNTER',        w: 120, d: 40,  fill: '#5C4033', category: 'FIXTURE' },
   { type: 'BAR',           label: 'BAR',            w: 160, d: 50,  fill: '#8B4513', category: 'FIXTURE' },
@@ -86,9 +85,11 @@ export interface ElementData {
   zIndex: number
   sectionId?: string | null
   capacity?: number | null
+  chairCount?: number
   sortOrder: number
   isActive: boolean
   style?: Record<string, unknown> | null
+  _furnitureItemId?: string
 }
 
 // ── Arc point helper (for door swing) ──

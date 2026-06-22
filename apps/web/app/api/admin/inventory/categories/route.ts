@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 
-const BUILT_IN = ['CUTLERY', 'GLASSWARE', 'LINEN', 'BARWARE', 'CROCKERY', 'CLEANING', 'MISCELLANEOUS']
+const BUILT_IN = ['CUTLERY', 'GLASSWARE', 'LINEN', 'BARWARE', 'CROCKERY', 'CLEANING', 'MISCELLANEOUS', 'FURNITURE']
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)

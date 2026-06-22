@@ -9,7 +9,7 @@ import {
   computeSectionSummary, type PaletteItem, type ElementData,
 } from '@/components/admin/floorplan-elements'
 import { ElementInventoryPanel } from '@/components/admin/ElementInventoryPanel'
-import { FloorPlanPixiCanvas } from '@/components/admin/floorplan-pixi'
+import { FloorPlanPixiCanvas, type ViewState } from '@/components/admin/floorplan-pixi'
 
 interface SectionZone {
   id: string
@@ -64,11 +64,14 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [presetW, setPresetW] = useState(80)
   const [presetD, setPresetD] = useState(80)
   const [presetFill, setPresetFill] = useState('#555')
+  const [furnitureItems, setFurnitureItems] = useState<any[]>([])
 
   const INVENTORY_TYPES = ['TABLE', 'CHAIR', 'BOOTH_BENCH', 'BAR', 'COUNTER', 'SINK', 'STORAGE', 'KITCHEN_EQUIP']
 
   const containerRef = useRef<HTMLDivElement>(null)
   const nextIdCounter = useRef(1)
+  const viewRef = useRef<ViewState>({ baseScale: 1, ox: 0, oy: 0, zoom: 1, panX: 0, panY: 0 })
+  const [zoomLevel, setZoomLevel] = useState(1)
 
   const historyRef = useRef<{ past: ElementData[][]; future: ElementData[][] }>({ past: [], future: [] })
 
@@ -107,11 +110,14 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             labelVisible: el.labelVisible ?? true,
             sortOrder: el.sortOrder ?? 0,
             isActive: el.isActive ?? true,
+            chairCount: el.chairCount ?? 0,
           })))
           nextIdCounter.current = (data.elements.length || 0) + 1
         }
         if (data.zones) setZones(data.zones)
       }
+      const furnRes = await fetch('/api/admin/inventory?furniture=true')
+      if (furnRes.ok) setFurnitureItems(await furnRes.json())
       setLoading(false)
     }
     load()
@@ -152,28 +158,33 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     })
   }
 
-  function addFromPalette(item: PaletteItem, pos: { x: number; y: number }) {
+  function addFromPalette(item: PaletteItem, pos: { x: number; y: number }, furnItem?: any) {
     const id = `new_${nextIdCounter.current++}`
     const gu = plan.gridUnit
-    const label = nextLabel(item.type, elements)
+    const w = furnItem?.elementWidth ?? item.w
+    const d = furnItem?.elementDepth ?? item.d
+    const fill = furnItem?.defaultColour ?? item.fill
+    const label = furnItem?.name ?? nextLabel(item.type, elements)
     const el: ElementData = {
       id,
       type: item.type,
-      shape: item.circle ? 'CIRCLE' : 'RECTANGLE',
+      shape: furnItem?.elementShape ?? (item.circle ? 'CIRCLE' : 'RECTANGLE'),
       label,
       labelVisible: true,
-      x: snapEnabled ? snap(pos.x - (item.circle ? 0 : item.w / 2), gu) : (pos.x - (item.circle ? 0 : item.w / 2)),
-      y: snapEnabled ? snap(pos.y - (item.circle ? 0 : item.d / 2), gu) : (pos.y - (item.circle ? 0 : item.d / 2)),
-      width: snapEnabled ? (snap(item.w, gu) || gu) : (item.w || gu),
-      depth: snapEnabled ? (snap(item.d, gu) || gu) : (item.d || gu),
-      radius: item.circle ? (snapEnabled ? snap(Math.min(item.w, item.d) / 2, gu) : Math.min(item.w, item.d) / 2) : null,
+      x: snapEnabled ? snap(pos.x - (item.circle ? 0 : w / 2), gu) : (pos.x - (item.circle ? 0 : w / 2)),
+      y: snapEnabled ? snap(pos.y - (item.circle ? 0 : d / 2), gu) : (pos.y - (item.circle ? 0 : d / 2)),
+      width: snapEnabled ? (snap(w, gu) || gu) : (w || gu),
+      depth: snapEnabled ? (snap(d, gu) || gu) : (d || gu),
+      radius: item.circle ? (snapEnabled ? snap(Math.min(w, d) / 2, gu) : Math.min(w, d) / 2) : null,
       rotation: 0,
-      fillColour: item.fill,
+      fillColour: fill,
       opacity: 1,
       zIndex: elements.length + 1,
       sortOrder: elements.length,
       isActive: true,
       style: null,
+      chairCount: furnItem?.defaultChairCount ?? 0,
+      _furnitureItemId: furnItem?.id ?? undefined,
     }
     pushHistory()
     setElements((prev) => [...prev, el])
@@ -238,6 +249,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           <span className="font-mono text-[10px] text-grey-light">{plan.roomWidth}×{plan.roomDepth} cm · {plan.gridUnit} cm grid</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-mono text-[10px] text-grey-light w-16 text-right">ZOOM: {Math.round(zoomLevel * 100)}%</span>
           <button onClick={() => setPaletteOpen(!paletteOpen)}
             className={`font-mono text-xs uppercase px-2 py-1 border ${paletteOpen ? 'border-white text-white' : 'border-grey-mid text-grey-light'} hover:border-white transition-colors`}>
             PALETTE
@@ -286,7 +298,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                         dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
                         e.dataTransfer.setDragImage(dragImg, 0, 0)
                       }}
-                      onDragEnd={() => {}}
                       className="flex items-center gap-2 p-1.5 cursor-grab hover:bg-grey-mid transition-colors"
                     >
                       <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.fill }} />
@@ -297,6 +308,28 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 </div>
               )
             })}
+            {furnitureItems.length > 0 && (
+              <div>
+                <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2">INVENTORY</p>
+                {furnitureItems.map((fi: any) => (
+                  <div
+                    key={`furn_${fi.id}`}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/plain', `furn_${fi.id}`)
+                      const dragImg = new globalThis.Image()
+                      dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+                      e.dataTransfer.setDragImage(dragImg, 0, 0)
+                    }}
+                    className="flex items-center gap-2 p-1.5 cursor-grab hover:bg-grey-mid transition-colors"
+                  >
+                    <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: fi.defaultColour ?? '#555' }} />
+                    <span className="font-mono text-[10px] text-white truncate">{fi.name}</span>
+                    <span className="font-mono text-[8px] text-grey-light ml-auto">{fi.elementWidth}×{fi.elementDepth}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="border-t border-grey-mid pt-2 mt-2">
               {presetFormOpen ? (
                 <div className="space-y-1 px-1">
@@ -340,11 +373,29 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           onDrop={(e) => {
             e.preventDefault()
             const type = e.dataTransfer.getData('text/plain')
+            const rect = containerRef.current!.getBoundingClientRect()
+            const vs = viewRef.current
+            const screenX = e.clientX - rect.left
+            const screenY = e.clientY - rect.top
+            const x = (screenX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
+            const y = (screenY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
+            if (type.startsWith('furn_')) {
+              const fi = furnitureItems.find((f: any) => `furn_${f.id}` === type)
+              if (!fi) return
+              const paletteItem: PaletteItem = {
+                type: fi.furnitureType ?? 'TABLE',
+                label: fi.name,
+                w: fi.elementWidth ?? 80,
+                d: fi.elementDepth ?? 80,
+                fill: fi.defaultColour ?? '#555',
+                category: 'FURNITURE',
+                circle: fi.elementShape === 'CIRCLE',
+              }
+              addFromPalette(paletteItem, { x, y }, fi)
+              return
+            }
             const item = [...PALETTE_ITEMS, ...customPresets].find((p) => p.type === type)
             if (!item) return
-            const rect = containerRef.current!.getBoundingClientRect()
-            const x = (e.clientX - rect.left - offsetX) / scale
-            const y = (e.clientY - rect.top - offsetY) / scale
             addFromPalette(item, { x, y })
           }}
         >
@@ -358,29 +409,38 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             zoneDrawRect={zoneDrawRect}
             selectedZoneId={selectedZoneId}
             containerRef={containerRef}
+            viewRef={viewRef}
             onElementClick={(id) => setSelectedId(id)}
             onElementDragEnd={(id, x, y) => { pushHistory(); updateElement(id, { x, y }) }}
             onZoneClick={(id) => setSelectedZoneId(id)}
             onZoneDragEnd={(id, x, y) => setZones((prev) => prev.map((z) => z.id === id ? { ...z, x, y } : z))}
-            onZoneDrawStart={(x, y) => { setZoneDrawStart({ x, y }); setZoneDrawRect(null); setSelectedZoneId(null) }}
+            onZoneDrawStart={(x, y) => {
+              const gu = plan.gridUnit
+              setZoneDrawStart({ x: snap(x, gu), y: snap(y, gu) }); setZoneDrawRect(null); setSelectedZoneId(null)
+            }}
             onZoneDrawMove={(cx, cy) => {
               setZoneDrawStart((prev) => {
                 if (!prev) return prev
-                setZoneDrawRect({ x: Math.min(prev.x, cx), y: Math.min(prev.y, cy), w: Math.abs(cx - prev.x), h: Math.abs(cy - prev.y) })
+                const gu = plan.gridUnit
+                const sx = snap(cx, gu); const sy = snap(cy, gu)
+                setZoneDrawRect({ x: Math.min(prev.x, sx), y: Math.min(prev.y, sy), w: Math.abs(sx - prev.x), h: Math.abs(sy - prev.y) })
                 return prev
               })
             }}
             onZoneDrawEnd={(cx, cy) => {
               setZoneDrawStart((prev) => {
                 if (!prev) { setZoneDrawRect(null); return prev }
-                const w = Math.abs(cx - prev.x); const h = Math.abs(cy - prev.y)
-                if (w > plan.gridUnit && h > plan.gridUnit) {
-                  setZones((pz) => [...pz, { id: `zone_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, x: Math.min(prev.x, cx), y: Math.min(prev.y, cy), width: w, height: h, sectionId: zoneSectionId }])
+                const gu = plan.gridUnit
+                const sx = snap(cx, gu); const sy = snap(cy, gu)
+                const w = Math.abs(sx - prev.x); const h = Math.abs(sy - prev.y)
+                if (w > gu && h > gu) {
+                  setZones((pz) => [...pz, { id: `zone_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, x: Math.min(prev.x, sx), y: Math.min(prev.y, sy), width: w, height: h, sectionId: zoneSectionId }])
                 }
                 setZoneDrawRect(null); setSelectedZoneId(null)
                 return null
               })
             }}
+            onViewChange={(z) => setZoomLevel(z)}
             stageW={stageSize.w} stageH={stageSize.h}
           />
         </div>
@@ -469,14 +529,18 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               return (
                 <div className="border-t border-grey-mid pt-2 space-y-2">
                   <Input label="X (cm)" type="number" value={Math.round(z.x).toString()}
-                    onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, x: parseFloat(e.target.value) || 0 } : x))} />
+                    onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, x: parseFloat(e.target.value) || 0 } : x))}
+                    onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, x: snap(x.x, plan.gridUnit) } : x))} />
                   <Input label="Y (cm)" type="number" value={Math.round(z.y).toString()}
-                    onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, y: parseFloat(e.target.value) || 0 } : x))} />
+                    onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, y: parseFloat(e.target.value) || 0 } : x))}
+                    onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, y: snap(x.y, plan.gridUnit) } : x))} />
                   <div className="grid grid-cols-2 gap-2">
                     <Input label="W" type="number" value={Math.round(z.width).toString()}
-                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, width: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) } : x))} />
+                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, width: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) } : x))}
+                      onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, width: Math.max(snap(x.width, plan.gridUnit), plan.gridUnit) } : x))} />
                     <Input label="H" type="number" value={Math.round(z.height).toString()}
-                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, height: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) } : x))} />
+                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, height: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) } : x))}
+                      onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, height: Math.max(snap(x.height, plan.gridUnit), plan.gridUnit) } : x))} />
                   </div>
                   <Select label="Section" value={z.sectionId}
                     onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, sectionId: e.target.value } : x))}
@@ -587,6 +651,10 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   options={sections.map((s) => ({ value: s.id, label: s.name }))} placeholder="NONE" />
                 <Input label="Capacity" type="number" value={selected.capacity?.toString() ?? ''}
                   onChange={(e) => updateElement(selected.id!, { capacity: e.target.value ? parseInt(e.target.value) : null })} />
+                {selected.type === 'TABLE' && (
+                  <Input label="Chair Count" type="number" min="0" value={(selected.chairCount ?? 0).toString()}
+                    onChange={(e) => updateElement(selected.id!, { chairCount: parseInt(e.target.value) || 0 })} />
+                )}
                 <Input label="Z-Index" type="number" value={selected.zIndex.toString()}
                   onChange={(e) => updateElement(selected.id!, { zIndex: parseInt(e.target.value) || 0 })} />
                 <div className="grid grid-cols-2 gap-2">

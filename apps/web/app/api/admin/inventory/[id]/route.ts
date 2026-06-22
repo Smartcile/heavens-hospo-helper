@@ -18,7 +18,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, categoryId, unit, defaultParLevel } = await req.json()
+  const { name, categoryId, unit, defaultParLevel, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount } = await req.json()
   const updated = await prisma.inventoryItem.update({
     where: { id: params.id },
     data: {
@@ -26,6 +26,12 @@ export async function PUT(req: NextRequest, { params }: Params) {
       ...(categoryId !== undefined && { categoryId }),
       ...(unit !== undefined && { unit }),
       ...(defaultParLevel !== undefined && { defaultParLevel }),
+      ...(furnitureType !== undefined && { furnitureType }),
+      ...(elementWidth !== undefined && { elementWidth }),
+      ...(elementDepth !== undefined && { elementDepth }),
+      ...(elementShape !== undefined && { elementShape }),
+      ...(defaultColour !== undefined && { defaultColour }),
+      ...(defaultChairCount !== undefined && { defaultChairCount }),
     },
   })
   return NextResponse.json(updated)

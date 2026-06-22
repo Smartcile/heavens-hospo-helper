@@ -718,6 +718,7 @@ model FloorPlanElement {
   // Business links
   sectionId   String?
   capacity    Int?
+  chairCount  Int          @default(0)
   sortOrder   Int          @default(0)
   isActive    Boolean      @default(true)
   createdAt   DateTime     @default(now())
@@ -762,6 +763,13 @@ model InventoryItem {
   name            String
   unit            String   @default("EA")
   defaultParLevel Int      @default(0)
+  // Furniture template fields (only for FURNITURE category items)
+  furnitureType   String?  // "TABLE" | "CHAIR" | null
+  elementWidth    Float?   // cm
+  elementDepth    Float?   // cm
+  elementShape    String?  // "RECTANGLE" | "CIRCLE"
+  defaultColour   String?  // hex colour
+  defaultChairCount Int    @default(0)
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

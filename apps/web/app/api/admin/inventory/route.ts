@@ -9,9 +9,11 @@ export async function GET(req: NextRequest) {
 
   const url = new URL(req.url)
   const categoryId = url.searchParams.get('categoryId')
+  const furnitureOnly = url.searchParams.get('furniture') === 'true'
 
   const where: any = { deletedAt: null, venueId: session.user.venueId }
   if (categoryId) where.categoryId = categoryId
+  if (furnitureOnly) where.furnitureType = { not: null }
   if (session.user.role === 'ADMIN') delete where.venueId
 
   const items = await prisma.inventoryItem.findMany({
@@ -26,7 +28,7 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name, categoryId, unit, defaultParLevel } = await req.json()
+  const { name, categoryId, unit, defaultParLevel, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount } = await req.json()
   if (!name || !categoryId) {
     return NextResponse.json({ error: 'name and categoryId are required' }, { status: 400 })
   }
@@ -38,6 +40,12 @@ export async function POST(req: NextRequest) {
       categoryId,
       unit: unit ?? 'EA',
       defaultParLevel: defaultParLevel ?? 0,
+      furnitureType: furnitureType ?? null,
+      elementWidth: elementWidth ?? null,
+      elementDepth: elementDepth ?? null,
+      elementShape: elementShape ?? null,
+      defaultColour: defaultColour ?? null,
+      defaultChairCount: defaultChairCount ?? 0,
     },
   })
   return NextResponse.json(item, { status: 201 })
