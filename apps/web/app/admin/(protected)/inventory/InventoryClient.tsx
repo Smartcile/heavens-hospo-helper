@@ -12,10 +12,17 @@ interface Item {
   elementShape?: string | null; defaultColour?: string | null; defaultChairCount?: number
 }
 
+interface StockItem { id: string; name: string; quantity: number; unit: string }
+interface StockTable { id: string; label: string; width: number; depth: number; planName: string; planId: string; inventoryItems: StockItem[] }
+interface StockSection { id: string; name: string; tables: StockTable[] }
+
 export function InventoryClient() {
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<Item[]>([])
   const [loading, setLoading] = useState(true)
+  const [tab, setTab] = useState<'items' | 'stock'>('items')
+  const [stock, setStock] = useState<StockSection[]>([])
+  const [stockLoading, setStockLoading] = useState(false)
   const [filterCat, setFilterCat] = useState('')
   const [showNewItem, setShowNewItem] = useState(false)
   const [showNewCat, setShowNewCat] = useState(false)
@@ -111,11 +118,47 @@ export function InventoryClient() {
       <div className="flex items-center justify-between">
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">INVENTORY</h1>
         <div className="flex gap-2">
+          <button onClick={() => setTab('items')}
+            className={`font-mono text-[10px] uppercase px-2 py-1 border ${tab === 'items' ? 'border-white text-white' : 'border-grey-mid text-grey-light'}`}>
+            ITEMS
+          </button>
+          <button onClick={async () => { setTab('stock'); setStockLoading(true); const r = await fetch('/api/admin/stock/hierarchy'); if (r.ok) setStock(await r.json().then((d) => d.sections)); setStockLoading(false) }}
+            className={`font-mono text-[10px] uppercase px-2 py-1 border ${tab === 'stock' ? 'border-white text-white' : 'border-grey-mid text-grey-light'}`}>
+            STOCK
+          </button>
           <Button size="sm" onClick={() => setShowNewCat(!showNewCat)} variant="ghost">NEW CATEGORY</Button>
           <Button size="sm" onClick={() => setShowNewItem(!showNewItem)}>NEW ITEM</Button>
         </div>
       </div>
 
+      {tab === 'stock' ? (
+        <div className="space-y-3">
+          {stockLoading && <p className="font-mono text-xs text-grey-light">LOADING...</p>}
+          {!stockLoading && stock.length === 0 && <p className="font-mono text-xs text-grey-light">No stock hierarchy found. Create sections and place tables on floor plans first.</p>}
+          {!stockLoading && stock.map((sec) => (
+            <div key={sec.id} className="bg-grey-dark border border-grey-mid p-3">
+              <h3 className="font-mono text-xs font-bold text-white uppercase mb-2">{sec.name}</h3>
+              {sec.tables.length === 0 && <p className="font-mono text-[10px] text-grey-light italic ml-3">No tables in this section.</p>}
+              {sec.tables.map((tbl) => (
+                <div key={tbl.id} className="ml-3 border-l border-grey-mid pl-3 py-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[10px] text-white">{tbl.label}</span>
+                    <span className="font-mono text-[8px] text-grey-light">{tbl.width}×{tbl.depth} cm · {tbl.planName}</span>
+                  </div>
+                  {tbl.inventoryItems.length === 0 && <p className="font-mono text-[8px] text-grey-light ml-2 italic">No equipment linked.</p>}
+                  {tbl.inventoryItems.map((inv) => (
+                    <div key={inv.id} className="flex items-center gap-2 ml-2">
+                      <span className="font-mono text-[10px] text-grey-light">{inv.name}</span>
+                      <span className="font-mono text-[8px] text-accent">×{inv.quantity}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <>
       {showNewCat && (
         <div className="bg-grey-dark border border-grey-mid p-4 space-y-3">
           <h2 className="font-mono text-xs font-bold text-white uppercase">New Category</h2>
@@ -242,6 +285,8 @@ export function InventoryClient() {
         </div>
         <p className="font-mono text-[10px] text-grey-light mt-2">★ = custom category</p>
       </div>
+      </>
+      )}
     </div>
   )
 }

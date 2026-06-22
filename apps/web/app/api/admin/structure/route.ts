@@ -38,19 +38,32 @@ export async function GET() {
     }),
   ])
 
-  const [sections, staffSections] = await Promise.all([
+  const [sections, staffSections, floorPlanElements] = await Promise.all([
     prisma.section.findMany({
       where: { deletedAt: null, venueId: { in: venueIds } },
       select: { id: true, name: true, colour: true, departmentId: true },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     }),
     prisma.staffSection.findMany({ select: { staffId: true, sectionId: true } }),
+    prisma.floorPlanElement.findMany({
+      where: { deletedAt: null, sectionId: { not: null }, floorPlan: { deletedAt: null } },
+      select: { id: true, type: true, sectionId: true, label: true, _count: { select: { inventoryItems: true } } },
+    }),
   ])
   const staffIdsBySection = new Map<string, string[]>()
   for (const ss of staffSections) {
     const arr = staffIdsBySection.get(ss.sectionId) ?? []
     arr.push(ss.staffId)
     staffIdsBySection.set(ss.sectionId, arr)
+  }
+  const fpBySection = new Map<string, { tables: number; chairs: number; equip: number }>()
+  for (const fp of floorPlanElements) {
+    const key = fp.sectionId!
+    const cur = fpBySection.get(key) ?? { tables: 0, chairs: 0, equip: 0 }
+    if (fp.type === 'TABLE') cur.tables++
+    else if (fp.type === 'CHAIR') cur.chairs++
+    cur.equip += fp._count.inventoryItems
+    fpBySection.set(key, cur)
   }
 
   const staffName = new Map(staff.map((s) => [s.id, `${s.firstName} ${s.lastName}`]))
@@ -87,16 +100,18 @@ export async function GET() {
         staff: vStaff.filter((s) => s.departmentId === d.id).map(fmtStaff),
         tasks: vTasks.filter((t) => t.departmentId === d.id && !t.sectionId).map(fmtTask),
         training: vTraining.filter((t) => t.departmentId === d.id).map(fmtTraining),
-        sections: deptSections.map((sec) => {
-          const memberIds = new Set(staffIdsBySection.get(sec.id) ?? [])
-          return {
-            id: sec.id,
-            name: sec.name,
-            colour: sec.colour,
-            staff: vStaff.filter((s) => memberIds.has(s.id)).map(fmtStaff),
-            tasks: vTasks.filter((t) => t.sectionId === sec.id).map(fmtTask),
-          }
-        }),
+          sections: deptSections.map((sec) => {
+            const memberIds = new Set(staffIdsBySection.get(sec.id) ?? [])
+            const fp = fpBySection.get(sec.id) ?? { tables: 0, chairs: 0, equip: 0 }
+            return {
+              id: sec.id,
+              name: sec.name,
+              colour: sec.colour,
+              staff: vStaff.filter((s) => memberIds.has(s.id)).map(fmtStaff),
+              tasks: vTasks.filter((t) => t.sectionId === sec.id).map(fmtTask),
+              floorPlan: fp,
+            }
+          }),
       }
     })
 
