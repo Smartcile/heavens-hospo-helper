@@ -67,6 +67,10 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [presetFill, setPresetFill] = useState('#555')
   const [furnitureItems, setFurnitureItems] = useState<any[]>([])
   const [furnitureCatId, setFurnitureCatId] = useState('')
+  const [paletteDefaults, setPaletteDefaults] = useState<Record<string, { width: number; depth: number }>>({})
+  const [rightClickItem, setRightClickItem] = useState<string | null>(null)
+  const [editDefW, setEditDefW] = useState('80')
+  const [editDefD, setEditDefD] = useState('80')
   const [newTableOpen, setNewTableOpen] = useState(false)
   const [newTableName, setNewTableName] = useState('')
   const [newTableW, setNewTableW] = useState('80')
@@ -131,6 +135,13 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       if (furnRes.ok) { const data = await furnRes.json(); setFurnitureItems(data); if (data.length > 0 && !furnitureCatId) setFurnitureCatId(data[0].categoryId) }
       const catRes = await fetch('/api/admin/inventory/categories')
       if (catRes.ok) { const cats = await catRes.json(); const fc = cats.find((c: any) => c.name === 'FURNITURE'); if (fc) setFurnitureCatId(fc.id) }
+      const defRes = await fetch('/api/admin/palette-defaults')
+      if (defRes.ok) {
+        const defs: any[] = await defRes.json()
+        const map: Record<string, { width: number; depth: number }> = {}
+        for (const d of defs) map[d.type] = { width: d.width, depth: d.height ?? d.depth }
+        setPaletteDefaults(map)
+      }
       setLoading(false)
     }
     load()
@@ -171,8 +182,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   function addFromPalette(item: PaletteItem, pos: { x: number; y: number }, furnItem?: any) {
     const id = `new_${nextIdCounter.current++}`
     const gu = plan.gridUnit
-    const w = furnItem?.elementWidth ?? item.w
-    const d = furnItem?.elementDepth ?? item.d
+    const def = paletteDefaults[item.type]
+    const w = furnItem?.elementWidth ?? def?.width ?? item.w
+    const d = furnItem?.elementDepth ?? def?.depth ?? item.d
     const fill = furnItem?.defaultColour ?? item.fill
     const label = furnItem?.name ?? nextLabel(item.type, elements)
     const el: ElementData = {
@@ -318,23 +330,51 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               return (
                 <div key={cat}>
                   <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2 first:mt-0">{cat}</p>
-                  {items.map((item) => (
-                    <div
-                      key={item.type}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData('text/plain', item.type)
-                        const dragImg = new globalThis.Image()
-                        dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-                        e.dataTransfer.setDragImage(dragImg, 0, 0)
-                      }}
-                      className="flex items-center gap-2 p-1.5 cursor-grab hover:bg-grey-mid transition-colors"
-                    >
-                      <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.fill }} />
-                      <span className="font-mono text-[10px] text-white uppercase truncate">{item.label}</span>
-                      <span className="font-mono text-[8px] text-grey-light ml-auto">{item.w}×{item.d}</span>
-                    </div>
-                  ))}
+                  {items.map((item) => {
+                    const def = paletteDefaults[item.type]
+                    const dispW = def?.width ?? item.w; const dispD = def?.depth ?? item.d
+                    return (
+                      <div key={item.type}>
+                        <div
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('text/plain', item.type)
+                            const dragImg = new globalThis.Image()
+                            dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+                            e.dataTransfer.setDragImage(dragImg, 0, 0)
+                          }}
+                          onContextMenu={(e) => { e.preventDefault(); setRightClickItem(rightClickItem === item.type ? null : item.type); setEditDefW(dispW.toString()); setEditDefD(dispD.toString()) }}
+                          className="flex items-center gap-2 p-1.5 cursor-grab hover:bg-grey-mid transition-colors"
+                        >
+                          <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.fill }} />
+                          <span className="font-mono text-[10px] text-white uppercase truncate">{item.label}</span>
+                          <span className="font-mono text-[8px] text-grey-light ml-auto">{dispW}×{dispD}</span>
+                        </div>
+                        {rightClickItem === item.type && (
+                          <div className="flex items-center gap-1 px-1 pb-1">
+                            <input type="number" value={editDefW} onChange={(e) => setEditDefW(e.target.value)}
+                              className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[8px] px-1 py-0.5 text-center" />
+                            <span className="text-grey-light text-[8px]">×</span>
+                            <input type="number" value={editDefD} onChange={(e) => setEditDefD(e.target.value)}
+                              className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[8px] px-1 py-0.5 text-center" />
+                            <button onClick={async () => {
+                              const w = parseFloat(editDefW) || dispW; const d = parseFloat(editDefD) || dispD
+                              await fetch('/api/admin/palette-defaults', {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ items: [{ type: item.type, width: w, depth: d }] }),
+                              })
+                              setPaletteDefaults((prev) => ({ ...prev, [item.type]: { width: w, depth: d } }))
+                              setRightClickItem(null)
+                            }}
+                              className="font-mono text-[8px] text-success hover:text-white uppercase">OK</button>
+                            <button onClick={() => setRightClickItem(null)}
+                              className="font-mono text-[8px] text-grey-light hover:text-white uppercase">✕</button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               )
             })}
@@ -558,281 +598,304 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           />
         </div>
 
-        {/* Right panel: properties or summary */}
-        {showSummary && selectedIds.length === 0 && (
-          <div className="w-64 flex-shrink-0 border-l border-grey-mid overflow-y-auto bg-grey-dark p-3">
-            <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider mb-3">SECTION SUMMARY</h2>
-            {summary && summary.entries.length === 0 && (
-              <p className="font-mono text-[10px] text-grey-light">No elements placed yet.</p>
-            )}
-            {summary && summary.entries.map((entry) => (
-              <div key={entry.sectionName} className="mb-3 pb-2 border-b border-grey-mid last:border-0">
-                <div className="flex items-center gap-2 mb-1">
-                  {entry.sectionColour && <div className="w-2 h-2 flex-shrink-0" style={{ backgroundColor: entry.sectionColour }} />}
-                  <span className="font-mono text-xs text-white uppercase">{entry.sectionName}</span>
+        {/* Right panel — always rendered */}
+        <div className="w-56 flex-shrink-0 border-l border-grey-mid overflow-y-auto bg-grey-dark p-3 space-y-3">
+          {selectedIds.length > 0 && selected ? (
+            <>
+              {selectedIds.length > 1 && (
+                <p className="font-mono text-[10px] text-accent uppercase">{selectedIds.length} ELEMENTS SELECTED</p>
+              )}
+              <div className="flex items-center justify-between">
+                <input value={selected.type}
+                  onChange={(e) => updateElement(selected.id!, { type: e.target.value.toUpperCase() || 'OTHER' })}
+                  className="font-mono text-xs font-bold text-white bg-transparent border-0 p-0 outline-none w-24" />
+                <button onClick={deleteSelected}
+                  className="font-mono text-[10px] text-danger hover:text-white uppercase border border-danger px-1.5 py-0.5">
+                  DELETE{selectedIds.length > 1 ? ` ${selectedIds.length}` : ''}
+                </button>
+              </div>
+              {INVENTORY_TYPES.includes(selected.type) && (
+                <div className="flex border-b border-grey-mid -mx-3 px-3 pb-2">
+                  <button onClick={() => setShowInvTab(false)}
+                    className={`font-mono text-[10px] uppercase px-2 py-1 ${!showInvTab ? 'border-b border-white text-white' : 'text-grey-light'}`}>
+                    PROPERTIES
+                  </button>
+                  <button onClick={() => setShowInvTab(true)}
+                    className={`font-mono text-[10px] uppercase px-2 py-1 ${showInvTab ? 'border-b border-white text-white' : 'text-grey-light'}`}>
+                    INVENTORY
+                  </button>
                 </div>
-                {Object.entries(entry.byType).map(([type, info]) => (
-                  <div key={type}>
-                    <div className="flex justify-between font-mono text-[10px] text-grey-light pl-3">
-                      <span>{type}{info.totalCapacity > 0 ? ` (${info.totalCapacity} seats)` : ''}</span>
+              )}
+              {showInvTab && INVENTORY_TYPES.includes(selected.type) && selected.id ? (
+                <ElementInventoryPanel elementId={selected.id} floorPlanId={plan.id} />
+              ) : (
+                <>
+                  <Input label="Label" value={selected.label ?? ''}
+                    onChange={(e) => updateElement(selected.id!, { label: e.target.value.toUpperCase() || null })} />
+                  <label className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+                    <input type="checkbox" checked={selected.labelVisible !== false}
+                      onChange={(e) => updateElement(selected.id!, { labelVisible: e.target.checked })}
+                      className="accent-white" />
+                    SHOW LABEL
+                  </label>
+                  <Input label="Label Scale" type="number" min="0.5" max="3" step="0.1" value={((selected.style as any)?.labelScale ?? 1).toString()}
+                    onChange={(e) => updateElement(selected.id!, { style: { ...(selected.style ?? {}), labelScale: Math.max(0.5, Math.min(3, parseFloat(e.target.value) || 1)) } })} />
+                  {selected.type === 'BOOTH_BENCH' && (
+                    <div className="space-y-1">
+                      <p className="font-mono text-[10px] text-grey-light uppercase">Serves Tables</p>
+                      {elements.filter((e) => e.type === 'TABLE').map((t) => {
+                        const served: string[] = (selected.style as any)?.servedTableIds ?? []
+                        const checked = served.includes(t.id!)
+                        return (
+                          <label key={t.id} className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+                            <input type="checkbox" checked={checked}
+                              onChange={() => {
+                                const s: string[] = [...served]
+                                if (checked) { const idx = s.indexOf(t.id!); if (idx >= 0) s.splice(idx, 1) }
+                                else { s.push(t.id!) }
+                                updateElement(selected.id!, { style: { ...(selected.style ?? {}), servedTableIds: s } })
+                              }}
+                              className="accent-white" />
+                            <span>{t.label || t.type}</span>
+                          </label>
+                        )
+                      })}
+                      {elements.filter((e) => e.type === 'TABLE').length === 0 && (
+                        <p className="font-mono text-[10px] text-grey-light italic">No tables on plan</p>
+                      )}
+                    </div>
+                  )}
+                  <Input label="Fill Colour" value={selected.fillColour ?? ''}
+                    onChange={(e) => updateElement(selected.id!, { fillColour: e.target.value || null })} placeholder="#555" />
+                  {selected.shape === 'RECTANGLE' && (
+                    <div>
+                      <p className="font-mono text-[10px] text-grey-light uppercase mb-1">Corner Radius</p>
+                      <div className="grid grid-cols-4 gap-1">
+                        {['TL', 'TR', 'BR', 'BL'].map((label, idx) => {
+                          const cr: number[] = ((selected.style as any)?.cornerRadius) ?? [0, 0, 0, 0]
+                          return (
+                            <Input key={label} label={label} type="number" min="0" max={Math.min(selected.width, selected.depth) / 2}
+                              value={cr[idx]?.toString() ?? '0'}
+                              onChange={(e) => {
+                                const next = [...cr]
+                                next[idx] = Math.min(parseInt(e.target.value) || 0, Math.min(selected.width, selected.depth) / 2)
+                                updateElement(selected.id!, { style: { ...(selected.style ?? {}), cornerRadius: next } })
+                              }} />
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input label="X (cm)" type="number" step="10" value={Math.round(selected.x).toString()}
+                      onChange={(e) => updateElement(selected.id!, { x: parseFloat(e.target.value) || 0 })}
+                      onBlur={() => { if (selected.id) updateElement(selected.id, { x: snap(selected.x, plan.gridUnit) }) }} />
+                    <Input label="Y (cm)" type="number" step="10" value={Math.round(selected.y).toString()}
+                      onChange={(e) => updateElement(selected.id!, { y: parseFloat(e.target.value) || 0 })}
+                      onBlur={() => { if (selected.id) updateElement(selected.id, { y: snap(selected.y, plan.gridUnit) }) }} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input label="Width (cm)" type="number" step="10" value={Math.round(selected.width).toString()}
+                      onChange={(e) => updateElement(selected.id!, { width: parseFloat(e.target.value) || plan.gridUnit })}
+                      onBlur={() => { if (selected.id) updateElement(selected.id, { width: Math.max(snap(selected.width, plan.gridUnit), plan.gridUnit) }) }} />
+                    <Input label="Depth (cm)" type="number" step="10" value={Math.round(selected.depth).toString()}
+                      onChange={(e) => updateElement(selected.id!, { depth: parseFloat(e.target.value) || plan.gridUnit })}
+                      onBlur={() => { if (selected.id) updateElement(selected.id, { depth: Math.max(snap(selected.depth, plan.gridUnit), plan.gridUnit) }) }} />
+                  </div>
+                  <Input label="Rotation" type="number" value={Math.round(selected.rotation).toString()}
+                    onChange={(e) => updateElement(selected.id!, { rotation: parseFloat(e.target.value) || 0 })} />
+                  <Input label="Opacity" type="number" min="0" max="1" step="0.1"
+                    value={selected.opacity.toString()}
+                    onChange={(e) => updateElement(selected.id!, { opacity: Math.min(1, Math.max(0, parseFloat(e.target.value) || 1)) })} />
+                  <Select label="Section" value={selected.sectionId ?? ''}
+                    onChange={(e) => updateElement(selected.id!, { sectionId: e.target.value || null })}
+                    options={sections.map((s) => ({ value: s.id, label: s.name }))} placeholder="NONE" />
+                  <Input label="Capacity" type="number" value={selected.capacity?.toString() ?? ''}
+                    onChange={(e) => updateElement(selected.id!, { capacity: e.target.value ? parseInt(e.target.value) : null })} />
+                  {selected.type === 'TABLE' && (
+                    <>
+                      <Input label="Chair Count" type="number" min="0" value={(selected.chairCount ?? 0).toString()}
+                        onChange={(e) => updateElement(selected.id!, { chairCount: parseInt(e.target.value) || 0 })} />
+                      <Select label="Chair Style" value={((selected.style as any)?.chairStyle ?? 'round') as string}
+                        onChange={(e) => updateElement(selected.id!, { style: { ...(selected.style ?? {}), chairStyle: e.target.value } })}
+                        options={[{ value: 'round', label: 'ROUND' }, { value: 'bracket', label: 'BRACKET' }]} />
+                      <p className="font-mono text-[10px] text-grey-light uppercase">Chairs On Sides</p>
+                      <div className="grid grid-cols-2 gap-1">
+                        {['top', 'bottom', 'left', 'right'].map((side) => {
+                          const sides: string[] = ((selected.style as any)?.chairSides) ?? ['top', 'bottom', 'left', 'right']
+                          const checked = sides.includes(side)
+                          return (
+                            <label key={side} className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+                              <input type="checkbox" checked={checked}
+                                onChange={() => {
+                                  const next = checked ? sides.filter((s) => s !== side) : [...sides, side]
+                                  updateElement(selected.id!, { style: { ...(selected.style ?? {}), chairSides: next.length > 0 ? next : ['top'] } })
+                                }}
+                                className="accent-white" />
+                              {side.toUpperCase()}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </>
+                  )}
+                  <Input label="Z-Index" type="number" value={selected.zIndex.toString()}
+                    onChange={(e) => updateElement(selected.id!, { zIndex: parseInt(e.target.value) || 0 })} />
+                  <div className="flex gap-2">
+                    <button onClick={() => bringForward(selected.id!)}
+                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1 flex-1">
+                      BRING FWD
+                    </button>
+                    {selected.style !== undefined && (
+                      <button onClick={() => updateElement(selected.id!, { style: null })}
+                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1">
+                        RESET STYLE
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </>
+          ) : showSummary ? (
+            <>
+              <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider mb-3">SECTION SUMMARY</h2>
+              {summary && summary.entries.length === 0 && (
+                <p className="font-mono text-[10px] text-grey-light">No elements placed yet.</p>
+              )}
+              {summary && summary.entries.map((entry) => (
+                <div key={entry.sectionName} className="mb-3 pb-2 border-b border-grey-mid last:border-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    {entry.sectionColour && <div className="w-2 h-2 flex-shrink-0" style={{ backgroundColor: entry.sectionColour }} />}
+                    <span className="font-mono text-xs text-white uppercase">{entry.sectionName}</span>
+                  </div>
+                  {Object.entries(entry.byType).map(([type, info]) => (
+                    <div key={type}>
+                      <div className="flex justify-between font-mono text-[10px] text-grey-light pl-3">
+                        <span>{type}{info.totalCapacity > 0 ? ` (${info.totalCapacity} seats)` : ''}</span>
+                        <span>×{info.count}</span>
+                      </div>
+                      {type === 'BOOTH_BENCH' && elements.filter((e) => e.type === 'BOOTH_BENCH').map((bench) => {
+                        const served: string[] = (bench.style as any)?.servedTableIds ?? []
+                        if (served.length === 0) return null
+                        const tableLabels = served.map((tid) => {
+                          const t = elements.find((e) => e.id === tid)
+                          return t?.label || '?'
+                        })
+                        return (
+                          <div key={bench.id} className="font-mono text-[9px] text-accent pl-5">
+                            {bench.label || '?'} serves {tableLabels.join(', ')}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ))}
+                  <div className="flex justify-between font-mono text-[10px] text-white mt-1 pl-3">
+                    <span>TOTAL</span>
+                    <span>{entry.itemCount} items{entry.totalCapacity > 0 ? ` · ${entry.totalCapacity} seats` : ''}</span>
+                  </div>
+                </div>
+              ))}
+              {summary && summary.entries.length > 0 && (
+                <div className="pt-2 border-t border-grey-light">
+                  <div className="flex justify-between font-mono text-xs font-bold text-white">
+                    <span>GRAND TOTAL</span>
+                    <span>{summary.grandTotal.itemCount} items{summary.grandTotal.totalCapacity > 0 ? ` · ${summary.grandTotal.totalCapacity} seats` : ''}</span>
+                  </div>
+                  {Object.entries(summary.grandTotal.byType).map(([type, info]) => (
+                    <div key={type} className="flex justify-between font-mono text-[10px] text-grey-light">
+                      <span>{type}</span>
                       <span>×{info.count}</span>
                     </div>
-                    {type === 'BOOTH_BENCH' && elements.filter((e) => e.type === 'BOOTH_BENCH').map((bench) => {
-                      const served: string[] = (bench.style as any)?.servedTableIds ?? []
-                      if (served.length === 0) return null
-                      const tableLabels = served.map((tid) => {
-                        const t = elements.find((e) => e.id === tid)
-                        return t?.label || '?'
-                      })
-                      return (
-                        <div key={bench.id} className="font-mono text-[9px] text-accent pl-5">
-                          {bench.label || '?'} serves {tableLabels.join(', ')}
-                        </div>
-                      )
-                    })}
-                  </div>
-                ))}
-                <div className="flex justify-between font-mono text-[10px] text-white mt-1 pl-3">
-                  <span>TOTAL</span>
-                  <span>{entry.itemCount} items{entry.totalCapacity > 0 ? ` · ${entry.totalCapacity} seats` : ''}</span>
+                  ))}
                 </div>
+              )}
+            </>
+          ) : zoneDrawing ? (
+            <>
+              <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider">SECTION ZONES</h2>
+              <p className="font-mono text-[10px] text-grey-light">Drag on canvas to draw or move zones.</p>
+              <Select label="Section" value={zoneSectionId}
+                onChange={(e) => setZoneSectionId(e.target.value)}
+                options={sections.map((s) => ({ value: s.id, label: s.name }))} />
+              <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                {zones.map((z) => {
+                  const sec = sectionMap.get(z.sectionId)
+                  return (
+                    <div key={z.id} onClick={() => setSelectedZoneId(z.id)}
+                      className={`flex items-center gap-2 p-1.5 cursor-pointer font-mono text-[10px] ${z.id === selectedZoneId ? 'bg-grey-mid text-white' : 'text-grey-light hover:text-white'}`}>
+                      <div className="w-3 h-3 flex-shrink-0" style={{ backgroundColor: sec?.colour ?? '#666' }} />
+                      <span className="truncate flex-1">{sec?.name ?? '?'}</span>
+                      <span>{Math.round(z.width)}×{Math.round(z.height)}</span>
+                    </div>
+                  )
+                })}
+                {zones.length === 0 && <p className="font-mono text-[10px] text-grey-light italic">No zones yet</p>}
               </div>
-            ))}
-            {summary && summary.entries.length > 0 && (
-              <div className="pt-2 border-t border-grey-light">
-                <div className="flex justify-between font-mono text-xs font-bold text-white">
-                  <span>GRAND TOTAL</span>
-                  <span>{summary.grandTotal.itemCount} items{summary.grandTotal.totalCapacity > 0 ? ` · ${summary.grandTotal.totalCapacity} seats` : ''}</span>
-                </div>
-                {Object.entries(summary.grandTotal.byType).map(([type, info]) => (
-                  <div key={type} className="flex justify-between font-mono text-[10px] text-grey-light">
-                    <span>{type}</span>
-                    <span>×{info.count}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {zoneDrawing && selectedIds.length === 0 && (
-          <div className="w-56 flex-shrink-0 border-l border-grey-mid overflow-y-auto bg-grey-dark p-3 space-y-3">
-            <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider">SECTION ZONES</h2>
-            <p className="font-mono text-[10px] text-grey-light">Drag on canvas to draw or move zones.</p>
-            <Select label="Section" value={zoneSectionId}
-              onChange={(e) => setZoneSectionId(e.target.value)}
-              options={sections.map((s) => ({ value: s.id, label: s.name }))} />
-            <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
-              {zones.map((z) => {
-                const sec = sectionMap.get(z.sectionId)
+              {selectedZoneId && (() => {
+                const z = zones.find((x) => x.id === selectedZoneId)
+                if (!z) return null
                 return (
-                  <div key={z.id} onClick={() => setSelectedZoneId(z.id)}
-                    className={`flex items-center gap-2 p-1.5 cursor-pointer font-mono text-[10px] ${z.id === selectedZoneId ? 'bg-grey-mid text-white' : 'text-grey-light hover:text-white'}`}>
-                    <div className="w-3 h-3 flex-shrink-0" style={{ backgroundColor: sec?.colour ?? '#666' }} />
-                    <span className="truncate flex-1">{sec?.name ?? '?'}</span>
-                    <span>{Math.round(z.width)}×{Math.round(z.height)}</span>
-                  </div>
-                )
-              })}
-              {zones.length === 0 && <p className="font-mono text-[10px] text-grey-light italic">No zones yet</p>}
-            </div>
-            {selectedZoneId && (() => {
-              const z = zones.find((x) => x.id === selectedZoneId)
-              if (!z) return null
-              return (
-                <div className="border-t border-grey-mid pt-2 space-y-2">
-                  <Input label="X (cm)" type="number" step="10" value={Math.round(z.x).toString()}
-                    onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, x: parseFloat(e.target.value) || 0 } : x))}
-                    onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, x: snap(x.x, plan.gridUnit) } : x))} />
-                  <Input label="Y (cm)" type="number" step="10" value={Math.round(z.y).toString()}
-                    onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, y: parseFloat(e.target.value) || 0 } : x))}
-                    onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, y: snap(x.y, plan.gridUnit) } : x))} />
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="border-t border-grey-mid pt-2 space-y-2">
+                    <Input label="X (cm)" type="number" step="10" value={Math.round(z.x).toString()}
+                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, x: parseFloat(e.target.value) || 0 } : x))}
+                      onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, x: snap(x.x, plan.gridUnit) } : x))} />
+                    <Input label="Y (cm)" type="number" step="10" value={Math.round(z.y).toString()}
+                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, y: parseFloat(e.target.value) || 0 } : x))}
+                      onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, y: snap(x.y, plan.gridUnit) } : x))} />
+                    <div className="grid grid-cols-2 gap-2">
                     <Input label="W" type="number" step="10" value={Math.round(z.width).toString()}
                       onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, width: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) } : x))}
                       onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, width: Math.max(snap(x.width, plan.gridUnit), plan.gridUnit) } : x))} />
                     <Input label="H" type="number" step="10" value={Math.round(z.height).toString()}
                       onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, height: Math.max(parseFloat(e.target.value) || plan.gridUnit, plan.gridUnit) } : x))}
                       onBlur={() => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, height: Math.max(snap(x.height, plan.gridUnit), plan.gridUnit) } : x))} />
-                  </div>
-                  <Select label="Section" value={z.sectionId}
-                    onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, sectionId: e.target.value } : x))}
-                    options={sections.map((s) => ({ value: s.id, label: s.name }))} />
-                  <button onClick={() => {
-                    setZones((prev) => prev.filter((x) => x.id !== selectedZoneId))
-                    setSelectedZoneId(null)
-                  }}
-                    className="font-mono text-[10px] text-danger hover:text-white uppercase border border-danger px-2 py-1 w-full">
-                    DELETE ZONE
-                  </button>
-                </div>
-              )
-            })()}
-          </div>
-        )}
-
-        {selectedIds.length > 0 && selected && (
-          <div className="w-56 flex-shrink-0 border-l border-grey-mid overflow-y-auto bg-grey-dark p-3 space-y-3">
-            {selectedIds.length > 1 && (
-              <p className="font-mono text-[10px] text-accent uppercase">{selectedIds.length} ELEMENTS SELECTED</p>
-            )}
-            <div className="flex items-center justify-between">
-              <input value={selected.type}
-                onChange={(e) => updateElement(selected.id!, { type: e.target.value.toUpperCase() || 'OTHER' })}
-                className="font-mono text-xs font-bold text-white bg-transparent border-0 p-0 outline-none w-24" />
-              <button onClick={deleteSelected}
-                className="font-mono text-[10px] text-danger hover:text-white uppercase border border-danger px-1.5 py-0.5">
-                DELETE{selectedIds.length > 1 ? ` ${selectedIds.length}` : ''}
-              </button>
-            </div>
-
-            {/* Tab buttons */}
-            {INVENTORY_TYPES.includes(selected.type) && (
-              <div className="flex border-b border-grey-mid -mx-3 px-3 pb-2">
-                <button onClick={() => setShowInvTab(false)}
-                  className={`font-mono text-[10px] uppercase px-2 py-1 ${!showInvTab ? 'border-b border-white text-white' : 'text-grey-light'}`}>
-                  PROPERTIES
-                </button>
-                <button onClick={() => setShowInvTab(true)}
-                  className={`font-mono text-[10px] uppercase px-2 py-1 ${showInvTab ? 'border-b border-white text-white' : 'text-grey-light'}`}>
-                  INVENTORY
-                </button>
-              </div>
-            )}
-
-            {showInvTab && INVENTORY_TYPES.includes(selected.type) && selected.id ? (
-              <ElementInventoryPanel elementId={selected.id} floorPlanId={plan.id} />
-            ) : (
-              <>
-                <Input label="Label" value={selected.label ?? ''}
-                  onChange={(e) => updateElement(selected.id!, { label: e.target.value.toUpperCase() || null })} />
-                <label className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none">
-                  <input type="checkbox" checked={selected.labelVisible !== false}
-                    onChange={(e) => updateElement(selected.id!, { labelVisible: e.target.checked })}
-                    className="accent-white" />
-                  SHOW LABEL
-                </label>
-                {selected.type === 'BOOTH_BENCH' && (
-                  <div className="space-y-1">
-                    <p className="font-mono text-[10px] text-grey-light uppercase">Serves Tables</p>
-                    {elements.filter((e) => e.type === 'TABLE').map((t) => {
-                      const served: string[] = (selected.style as any)?.servedTableIds ?? []
-                      const checked = served.includes(t.id!)
-                      return (
-                        <label key={t.id} className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none">
-                          <input type="checkbox" checked={checked}
-                            onChange={() => {
-                              const s: string[] = [...served]
-                              if (checked) {
-                                const idx = s.indexOf(t.id!)
-                                if (idx >= 0) s.splice(idx, 1)
-                              } else {
-                                s.push(t.id!)
-                              }
-                              updateElement(selected.id!, { style: { ...(selected.style ?? {}), servedTableIds: s } })
-                            }}
-                            className="accent-white" />
-                          <span>{t.label || t.type}</span>
-                        </label>
-                      )
-                    })}
-                    {elements.filter((e) => e.type === 'TABLE').length === 0 && (
-                      <p className="font-mono text-[10px] text-grey-light italic">No tables on plan</p>
-                    )}
-                  </div>
-                )}
-                <Input label="Fill Colour" value={selected.fillColour ?? ''}
-                  onChange={(e) => updateElement(selected.id!, { fillColour: e.target.value || null })} placeholder="#555" />
-                {selected.shape === 'RECTANGLE' && (
-                  <div>
-                    <p className="font-mono text-[10px] text-grey-light uppercase mb-1">Corner Radius</p>
-                    <div className="grid grid-cols-4 gap-1">
-                      {['TL', 'TR', 'BR', 'BL'].map((label, idx) => {
-                        const cr: number[] = ((selected.style as any)?.cornerRadius) ?? [0, 0, 0, 0]
-                        return (
-                          <Input key={label} label={label} type="number" min="0" max={Math.min(selected.width, selected.depth) / 2}
-                            value={cr[idx]?.toString() ?? '0'}
-                            onChange={(e) => {
-                              const next = [...cr]
-                              next[idx] = Math.min(parseInt(e.target.value) || 0, Math.min(selected.width, selected.depth) / 2)
-                              updateElement(selected.id!, { style: { ...(selected.style ?? {}), cornerRadius: next } })
-                            }} />
-                        )
-                      })}
                     </div>
-                  </div>
-                )}
-                <Select label="Section" value={selected.sectionId ?? ''}
-                  onChange={(e) => updateElement(selected.id!, { sectionId: e.target.value || null })}
-                  options={sections.map((s) => ({ value: s.id, label: s.name }))} placeholder="NONE" />
-                <Input label="Capacity" type="number" value={selected.capacity?.toString() ?? ''}
-                  onChange={(e) => updateElement(selected.id!, { capacity: e.target.value ? parseInt(e.target.value) : null })} />
-                {selected.type === 'TABLE' && (
-                  <>
-                    <Input label="Chair Count" type="number" min="0" value={(selected.chairCount ?? 0).toString()}
-                      onChange={(e) => updateElement(selected.id!, { chairCount: parseInt(e.target.value) || 0 })} />
-                    <Select label="Chair Style" value={((selected.style as any)?.chairStyle ?? 'round') as string}
-                      onChange={(e) => updateElement(selected.id!, { style: { ...(selected.style ?? {}), chairStyle: e.target.value } })}
-                      options={[{ value: 'round', label: 'ROUND' }, { value: 'half-oval', label: 'HALF-OVAL' }]} />
-                    <p className="font-mono text-[10px] text-grey-light uppercase">Chairs On Sides</p>
-                    <div className="grid grid-cols-2 gap-1">
-                      {['top', 'bottom', 'left', 'right'].map((side) => {
-                        const sides: string[] = ((selected.style as any)?.chairSides) ?? ['top', 'bottom', 'left', 'right']
-                        const checked = sides.includes(side)
-                        return (
-                          <label key={side} className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
-                            <input type="checkbox" checked={checked}
-                              onChange={() => {
-                                const next = checked ? sides.filter((s) => s !== side) : [...sides, side]
-                                updateElement(selected.id!, { style: { ...(selected.style ?? {}), chairSides: next.length > 0 ? next : ['top'] } })
-                              }}
-                              className="accent-white" />
-                            {side.toUpperCase()}
-                          </label>
-                        )
-                      })}
-                    </div>
-                  </>
-                )}
-                <Input label="Z-Index" type="number" value={selected.zIndex.toString()}
-                  onChange={(e) => updateElement(selected.id!, { zIndex: parseInt(e.target.value) || 0 })} />
-                <div className="grid grid-cols-2 gap-2">
-                  <Input label="X (cm)" type="number" step="10" value={Math.round(selected.x).toString()}
-                    onChange={(e) => updateElement(selected.id!, { x: parseFloat(e.target.value) || 0 })}
-                    onBlur={() => { if (selected.id) updateElement(selected.id, { x: snap(selected.x, plan.gridUnit) }) }} />
-                  <Input label="Y (cm)" type="number" step="10" value={Math.round(selected.y).toString()}
-                    onChange={(e) => updateElement(selected.id!, { y: parseFloat(e.target.value) || 0 })}
-                    onBlur={() => { if (selected.id) updateElement(selected.id, { y: snap(selected.y, plan.gridUnit) }) }} />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Input label="Width (cm)" type="number" step="10" value={Math.round(selected.width).toString()}
-                    onChange={(e) => updateElement(selected.id!, { width: parseFloat(e.target.value) || plan.gridUnit })}
-                    onBlur={() => { if (selected.id) updateElement(selected.id, { width: Math.max(snap(selected.width, plan.gridUnit), plan.gridUnit) }) }} />
-                  <Input label="Depth (cm)" type="number" step="10" value={Math.round(selected.depth).toString()}
-                    onChange={(e) => updateElement(selected.id!, { depth: parseFloat(e.target.value) || plan.gridUnit })}
-                    onBlur={() => { if (selected.id) updateElement(selected.id, { depth: Math.max(snap(selected.depth, plan.gridUnit), plan.gridUnit) }) }} />
-                </div>
-                <Input label="Rotation" type="number" value={Math.round(selected.rotation).toString()}
-                  onChange={(e) => updateElement(selected.id!, { rotation: parseFloat(e.target.value) || 0 })} />
-                <Input label="Opacity" type="number" min="0" max="1" step="0.1"
-                  value={selected.opacity.toString()}
-                  onChange={(e) => updateElement(selected.id!, { opacity: Math.min(1, Math.max(0, parseFloat(e.target.value) || 1)) })} />
-                <div className="flex gap-2">
-                  <button onClick={() => bringForward(selected.id!)}
-                    className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1 flex-1">
-                    BRING FWD
-                  </button>
-                  {selected.style !== undefined && (
-                    <button onClick={() => updateElement(selected.id!, { style: null })}
-                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1">
-                      RESET STYLE
+                    <Input label="Label Scale" type="number" min="0.5" max="3" step="0.1" value={((z as any).labelScale ?? 1).toString()}
+                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, labelScale: Math.max(0.5, Math.min(3, parseFloat(e.target.value) || 1)) } : x))} />
+                    <Select label="Section" value={z.sectionId}
+                      onChange={(e) => setZones((prev) => prev.map((x) => x.id === z.id ? { ...x, sectionId: e.target.value } : x))}
+                      options={sections.map((s) => ({ value: s.id, label: s.name }))} />
+                    <button onClick={() => {
+                      setZones((prev) => prev.filter((x) => x.id !== selectedZoneId))
+                      setSelectedZoneId(null)
+                    }}
+                      className="font-mono text-[10px] text-danger hover:text-white uppercase border border-danger px-2 py-1 w-full">
+                      DELETE ZONE
                     </button>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        )}
+                  </div>
+                )
+              })()}
+            </>
+          ) : (
+            // Layer list (default when nothing selected)
+            <>
+              <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider">LAYERS</h2>
+              {elements.length === 0 && (
+                <p className="font-mono text-[10px] text-grey-light">No elements on this plan.</p>
+              )}
+              {(() => {
+                const grouped: Record<string, ElementData[]> = {}
+                for (const el of elements) {
+                  if (!grouped[el.type]) grouped[el.type] = []
+                  grouped[el.type].push(el)
+                }
+                return Object.entries(grouped).map(([type, els]) => (
+                  <div key={type}>
+                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider border-b border-grey-mid pb-0.5 mb-0.5">{type} ({els.length})</p>
+                    {els.map((el) => (
+                      <div key={el.id} onClick={() => setSelectedIds([el.id!])}
+                        className="flex items-center gap-2 py-0.5 cursor-pointer hover:bg-grey-mid px-1 rounded-sm">
+                        <div className="w-2.5 h-2.5 flex-shrink-0 border border-grey-light" style={{ backgroundColor: el.fillColour ?? '#666' }} />
+                        <span className="font-mono text-[10px] text-white truncate flex-1">{el.label || el.type}</span>
+                        <span className="font-mono text-[8px] text-grey-light">{Math.round(el.width)}×{Math.round(el.depth)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))
+              })()}
+            </>
+          )}
+        </div>
       </div>
     </div>
   )

@@ -98,6 +98,7 @@ model Venue {
   floorPlans          FloorPlan[]
   inventoryCategories InventoryCategory[]
   inventoryItems      InventoryItem[]
+  paletteDefaults     PaletteDefault[]
   stocktakeRecords    StocktakeRecord[]
 }
 
@@ -840,4 +841,19 @@ model StocktakeLineItem {
 
   @@unique([recordId, itemId])
   @@index([recordId])
+}
+
+model PaletteDefault {
+  id      String @id @default(uuid())
+  venueId String
+  type    String
+  width   Float
+  depth   Float
+  colour  String? @default("#555")
+  chairCount Int @default(0)
+
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@unique([venueId, type])
+  @@index([venueId])
 }

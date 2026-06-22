@@ -43,6 +43,11 @@ interface PixiCanvasProps {
 }
 
 function gridSnap(v: number, u: number) { return Math.round(v / u) * u }
+function edgeSnap(v: number, size: number, u: number) {
+  const left = gridSnap(v, u)
+  const right = gridSnap(v + size, u) - size
+  return Math.abs(v - left) < Math.abs(v - right) ? left : right
+}
 
 function computeView(sw: number, sh: number, rw: number, rd: number, zoom: number, panX: number, panY: number) {
   const baseScale = Math.min((sw - 40) / rw, (sh - 40) / rd)
@@ -243,7 +248,8 @@ export function FloorPlanPixiCanvas({
       const secName = sectionNames.get(z.sectionId)
       if (secName) {
         const isPortrait = z.height > z.width * 1.2
-        const fontSize = (isPortrait ? Math.max(z.width, z.height) : Math.min(z.width, z.height)) * 0.25 * textScale
+        const lblScale = (z as any).labelScale ?? 1
+        const fontSize = (isPortrait ? Math.max(z.width, z.height) : Math.min(z.width, z.height)) * 0.25 * textScale * lblScale
         const wm = new PIXI.Text(secName, { fontSize, fill: 0xFFFFFF, fontFamily: 'monospace', align: 'center' })
         wm.anchor.set(0.5); wm.x = z.width / 2; wm.y = z.height / 2; wm.alpha = 0.15; wm.eventMode = 'none'
         if (isPortrait) wm.rotation = -Math.PI / 2
@@ -304,7 +310,8 @@ export function FloorPlanPixiCanvas({
       if (el.labelVisible !== false && el.label) {
         const minDim = Math.min(el.width, el.depth); const maxDim = Math.max(el.width, el.depth)
         const base = maxDim / minDim > 2 ? maxDim * 0.15 : minDim * 0.3
-        const fs = Math.max(8, base * pxScale * textScale)
+        const lblScale = ((el.style as any)?.labelScale ?? 1) as number
+        const fs = Math.max(8, base * pxScale * textScale * lblScale)
         const t = new PIXI.Text(el.label, { fontSize: fs, fill: 0xCCCCCC, fontFamily: 'monospace', align: 'center' })
         t.anchor.set(0.5); t.x = el.width / 2; t.y = el.depth / 2; t.eventMode = 'none'; c.addChild(t)
       }
@@ -330,19 +337,18 @@ export function FloorPlanPixiCanvas({
           const len = Math.sqrt((sd.x2 - sd.x1) ** 2 + (sd.y2 - sd.y1) ** 2)
           if (len < 0.1) continue
           const ux = (sd.x2 - sd.x1) / len; const uy = (sd.y2 - sd.y1) / len
-          if (chairStyle === 'half-oval') {
-            // Single semi-ellipse per side
-            const oval = new PIXI.Graphics()
-            oval.beginFill(0x3A3A4A, 0.6).lineStyle(sw2, 0x666666, 0.6)
-            const cx2 = (sd.x1 + sd.x2) / 2; const cy2 = (sd.y1 + sd.y2) / 2
-            const halfW = len / 2; const halfH = chairR * 1.5
-            if (side === 'top' || side === 'bottom') {
-              const dir = side === 'top' ? -1 : 1
-              oval.drawEllipse(cx2, cy2, halfW, halfH)
-            } else {
-              oval.drawEllipse(cx2, cy2, halfH, halfW)
-            }
-            oval.endFill(); oval.eventMode = 'none'; c.addChild(oval)
+          if (chairStyle === 'bracket') {
+            // Bracket [ shape — line along edge + two short arms outward
+            const bk = new PIXI.Graphics(); bk.lineStyle(sw2, 0x3A3A4A, 0.8)
+            const armLen = chairR * 1.5
+            const perpX = side === 'top' || side === 'bottom' ? 0 : (side === 'left' ? -1 : 1)
+            const perpY = side === 'top' ? -1 : (side === 'bottom' ? 1 : 0)
+            // Main edge line
+            bk.moveTo(sd.x1, sd.y1); bk.lineTo(sd.x2, sd.y2)
+            // Two arms at ends
+            bk.moveTo(sd.x1, sd.y1); bk.lineTo(sd.x1 + perpX * armLen, sd.y1 + perpY * armLen)
+            bk.moveTo(sd.x2, sd.y2); bk.lineTo(sd.x2 + perpX * armLen, sd.y2 + perpY * armLen)
+            bk.eventMode = 'none'; c.addChild(bk)
             placed += countPerSide
           } else {
             const spacing = len / Math.max(countPerSide, 1)
@@ -395,7 +401,7 @@ export function FloorPlanPixiCanvas({
         const vs = viewRef.current
         let nx = dd.ex + (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
         let ny = dd.ey + (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
-        if (st.snap) { nx = gridSnap(nx, st.gu); ny = gridSnap(ny, st.gu) }
+        if (st.snap) { nx = edgeSnap(nx, el.width, st.gu); ny = edgeSnap(ny, el.depth, st.gu) }
         node.x = nx; node.y = ny
       }
       const onUp = (ev: PIXI.FederatedPointerEvent) => {
@@ -404,7 +410,7 @@ export function FloorPlanPixiCanvas({
         const vs = viewRef.current
         let rx = dd.ex + (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
         let ry = dd.ey + (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
-        if (st.snap) { rx = gridSnap(rx, st.gu); ry = gridSnap(ry, st.gu) }
+        if (st.snap) { rx = edgeSnap(rx, el.width, st.gu); ry = edgeSnap(ry, el.depth, st.gu) }
         rx = Math.max(0, Math.min(rx, roomWidth - el.width))
         ry = Math.max(0, Math.min(ry, roomDepth - el.depth))
         cbRef.current.onElementDragEnd(el.id!, rx, ry); dd = null
