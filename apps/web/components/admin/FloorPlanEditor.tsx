@@ -53,7 +53,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     Group: React.FC<any>; Transformer: React.FC<any>; Shape: React.FC<any>
   } | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(true)
-  const [snapEnabled, setSnapEnabled] = useState(true)
+  const [snapEnabled, setSnapEnabled] = useState(false)
   const [snap45Enabled, setSnap45Enabled] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
   const [showInvTab, setShowInvTab] = useState(false)
@@ -530,8 +530,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                         const nx = snapEnabled ? snap(rawX, gu) : rawX
                         const ny = snapEnabled ? snap(rawY, gu) : rawY
                         updateElement(el.id!, { x: nx, y: ny })
-                        e.target.x(offsetX + nx * scale)
-                        e.target.y(offsetY + ny * scale)
                       }}>
                       {visual}
                     </Group>
@@ -550,8 +548,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                       const nx = snapEnabled ? snap(rawX, gu) : rawX
                       const ny = snapEnabled ? snap(rawY, gu) : rawY
                       updateElement(el.id!, { x: nx, y: ny, rotation: e.target.rotation() })
-                      e.target.x(offsetX + nx * scale)
-                      e.target.y(offsetY + ny * scale)
                     }}>
                     {visual}
                   </Group>
