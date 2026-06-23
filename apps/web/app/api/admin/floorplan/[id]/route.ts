@@ -15,6 +15,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       elements: {
         where: { deletedAt: null, isActive: true },
         orderBy: [{ zIndex: 'asc' }, { sortOrder: 'asc' }],
+        include: { inventoryItems: { select: { itemId: true } } },
       },
     },
   })

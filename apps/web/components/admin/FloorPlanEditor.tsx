@@ -118,10 +118,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   useEffect(() => {
     const load = async () => {
       const r = await fetch(`/api/admin/floorplan/${plan.id}`)
+      let loadedElements: any[] = []
       if (r.ok) {
         const data = await r.json()
         if (data.elements) {
-          setElements(data.elements.map((el: any) => ({
+          loadedElements = data.elements
+          setElements(loadedElements.map((el: any) => ({
             ...el,
             labelVisible: el.labelVisible ?? true,
             sortOrder: el.sortOrder ?? 0,
@@ -133,7 +135,16 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         if (data.zones) setZones(data.zones)
       }
       const furnRes = await fetch('/api/admin/inventory?furniture=true')
-      if (furnRes.ok) { const data = await furnRes.json(); setFurnitureItems(data); if (data.length > 0 && !furnitureCatId) setFurnitureCatId(data[0].categoryId) }
+      if (furnRes.ok) {
+        const fiData = await furnRes.json()
+        // Filter out items already linked to elements on this plan
+        const usedIds = new Set<string>()
+        for (const el of loadedElements) {
+          for (const inv of el.inventoryItems ?? []) if (inv.itemId) usedIds.add(inv.itemId)
+        }
+        setFurnitureItems(fiData.filter((fi: any) => !usedIds.has(fi.id)))
+        if (fiData.length > 0 && !furnitureCatId) setFurnitureCatId(fiData[0].categoryId)
+      }
       const catRes = await fetch('/api/admin/inventory/categories')
       if (catRes.ok) { const cats = await catRes.json(); const fc = cats.find((c: any) => c.name === 'FURNITURE'); if (fc) setFurnitureCatId(fc.id) }
       const defRes = await fetch('/api/admin/palette-defaults')
@@ -232,17 +243,56 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
   async function handleSave() {
     setSaving(true)
-    await fetch(`/api/admin/floorplan/${plan.id}/elements`, {
+    const inventoryLinks: { elementId: string; itemId: string; quantity?: number; remove?: boolean }[] = []
+    const saveElements = elements.map((el) => {
+      const isNew = el.id?.startsWith('new_')
+      const clientId = el._clientId ?? el.id ?? ''
+      if (el._furnitureItemId) {
+        inventoryLinks.push({ elementId: clientId, itemId: el._furnitureItemId as string, quantity: 1 })
+      }
+      if (el._removeFurnitureId) {
+        inventoryLinks.push({ elementId: clientId, itemId: el._removeFurnitureId as string, remove: true })
+      }
+      return { ...el, _clientId: clientId, id: isNew ? undefined : el.id }
+    })
+    const r = await fetch(`/api/admin/floorplan/${plan.id}/elements`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        elements: elements.map((el) => ({
-          ...el,
-          id: el.id?.startsWith('new_') ? undefined : el.id,
-        })),
+        elements: saveElements,
         zones: zones.length > 0 ? zones : undefined,
+        inventoryLinks,
       }),
     })
+    if (r.ok) {
+      const res = await r.json()
+      const saved: { id: string; _clientId: string }[] = res.saved ?? []
+      const clientToReal = new Map(saved.map((s) => [s._clientId, s.id]))
+      setElements((prev) =>
+        prev.map((el) => {
+          const realId = clientToReal.get(el._clientId ?? el.id!)
+          if (realId && realId !== el.id) return { ...el, id: realId, _clientId: undefined, _furnitureItemId: undefined, _removeFurnitureId: undefined }
+          return { ...el, _clientId: undefined, _furnitureItemId: undefined, _removeFurnitureId: undefined }
+        })
+      )
+      // Remove newly-placed furniture items from palette
+      const placedIds = new Set(inventoryLinks.filter((l) => !l.remove).map((l) => l.itemId))
+      if (placedIds.size > 0) {
+        setFurnitureItems((prev) => prev.filter((fi) => !placedIds.has(fi.id)))
+      }
+      // Re-add removed furniture items to palette
+      const removedIds = new Set(inventoryLinks.filter((l) => l.remove).map((l) => l.itemId))
+      if (removedIds.size > 0) {
+        const furnRes = await fetch('/api/admin/inventory?furniture=true')
+        if (furnRes.ok) {
+          const allFi = await furnRes.json()
+          setFurnitureItems((prev) => {
+            const usedIds = new Set(prev.map((f: any) => f.id))
+            return [...prev, ...allFi.filter((f: any) => removedIds.has(f.id) && !usedIds.has(f.id))]
+          })
+        }
+      }
+    }
     setSaving(false)
   }
 

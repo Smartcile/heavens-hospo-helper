@@ -19,7 +19,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { elements, zones } = await req.json()
+  const { elements, zones, inventoryLinks } = await req.json()
   if (!Array.isArray(elements)) {
     return NextResponse.json({ error: 'elements array is required' }, { status: 400 })
   }
@@ -32,9 +32,10 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const existingIds = new Set(existing.map((e) => e.id))
   const incomingIds = new Set(elements.filter((e: { id?: string }) => e.id).map((e: { id: string }) => e.id))
 
-  // Delete elements not in the incoming set
+  // Delete elements not in the incoming set (and their inventory links)
   const toDelete = [...existingIds].filter((id) => !incomingIds.has(id))
   if (toDelete.length > 0) {
+    await prisma.elementInventoryItem.deleteMany({ where: { elementId: { in: toDelete } } })
     await prisma.floorPlanElement.updateMany({
       where: { id: { in: toDelete }, floorPlanId: params.id },
       data: { deletedAt: new Date(), isActive: false },
@@ -74,10 +75,31 @@ export async function PUT(req: NextRequest, { params }: Params) {
         where: { id: el.id },
         data,
       })
-      results.push(updated)
+      results.push({ id: updated.id, _clientId: el._clientId ?? el.id })
     } else {
       const created = await prisma.floorPlanElement.create({ data })
-      results.push(created)
+      results.push({ id: created.id, _clientId: el._clientId ?? el.id })
+    }
+  }
+
+  // Process pending inventory links
+  if (Array.isArray(inventoryLinks) && inventoryLinks.length > 0) {
+    const linkElementIds = new Set(inventoryLinks.map((l: any) => l.elementId))
+    // Build clientId → realId mapping from results
+    const clientToReal = new Map(results.map((r: any) => [r._clientId, r.id]))
+    for (const link of inventoryLinks) {
+      const realElementId = clientToReal.get(link.elementId) ?? link.elementId
+      if (link.remove) {
+        await prisma.elementInventoryItem.deleteMany({
+          where: { elementId: realElementId, itemId: link.itemId },
+        })
+      } else {
+        await prisma.elementInventoryItem.upsert({
+          where: { elementId_itemId: { elementId: realElementId, itemId: link.itemId } },
+          update: { quantity: link.quantity ?? 1 },
+          create: { elementId: realElementId, itemId: link.itemId, quantity: link.quantity ?? 1 },
+        })
+      }
     }
   }
 
@@ -88,5 +110,5 @@ export async function PUT(req: NextRequest, { params }: Params) {
     })
   }
 
-  return NextResponse.json({ saved: results.length, deleted: toDelete.length, zonesSaved: zones !== undefined })
+  return NextResponse.json({ saved: results, deleted: toDelete.length, zonesSaved: zones !== undefined })
 }

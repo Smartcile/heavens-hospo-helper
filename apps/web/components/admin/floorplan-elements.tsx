@@ -90,6 +90,8 @@ export interface ElementData {
   isActive: boolean
   style?: Record<string, unknown> | null
   _furnitureItemId?: string
+  _clientId?: string
+  _removeFurnitureId?: string
 }
 
 // ── Arc point helper (for door swing) ──
