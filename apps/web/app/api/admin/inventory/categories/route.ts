@@ -9,6 +9,15 @@ export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // Auto-seed any missing built-in categories
+  const current = await prisma.inventoryCategory.findMany({ where: { name: { in: BUILT_IN }, deletedAt: null } })
+  const currentNames = new Set(current.map((c) => c.name))
+  for (const name of BUILT_IN) {
+    if (!currentNames.has(name)) {
+      await prisma.inventoryCategory.create({ data: { name, isBuiltIn: true, venueId: null } })
+    }
+  }
+
   const where: any = { deletedAt: null }
   if (session.user.role === 'ADMIN') {
     where.OR = [{ venueId: null, isBuiltIn: true }, { venueId: session.user.venueId }]

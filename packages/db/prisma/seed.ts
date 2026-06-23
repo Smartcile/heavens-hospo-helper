@@ -319,9 +319,7 @@ async function main() {
     create: {
       id: '00000000-0000-0000-0000-000000000030',
       venueId: venue.id,
-      departmentId: deptBar.id,
       label: 'BAR ENTRY QR',
-      token: 'demo-bar-token-001',
       isActive: true,
     },
   })
@@ -332,9 +330,7 @@ async function main() {
     create: {
       id: '00000000-0000-0000-0000-000000000031',
       venueId: venue.id,
-      departmentId: deptKitchen.id,
       label: 'KITCHEN ENTRY QR',
-      token: 'demo-kitchen-token-001',
       isActive: true,
     },
   })
@@ -345,9 +341,7 @@ async function main() {
     create: {
       id: '00000000-0000-0000-0000-000000000032',
       venueId: venue.id,
-      departmentId: deptFOH.id,
       label: 'FOH ENTRY QR',
-      token: 'demo-foh-token-001',
       isActive: true,
     },
   })

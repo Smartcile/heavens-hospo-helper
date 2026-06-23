@@ -417,12 +417,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                         if (!name) return
                         let catId = furnitureCatId
                         if (!catId) {
-                          const cre = await fetch('/api/admin/inventory/categories', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ name: 'FURNITURE' }),
-                          })
-                          if (cre.ok) { const cc = await cre.json(); catId = cc.id; setFurnitureCatId(cc.id) }
+                          const cre = await fetch('/api/admin/inventory/categories')
+                          if (cre.ok) { const cats = await cre.json(); const fc = cats.find((c: any) => c.name === 'FURNITURE'); if (fc) { catId = fc.id; setFurnitureCatId(fc.id) } }
                         }
                         if (!catId) return
                         const r = await fetch('/api/admin/inventory', {
