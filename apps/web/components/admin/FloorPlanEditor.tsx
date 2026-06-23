@@ -415,12 +415,22 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                       <button onClick={async () => {
                         const name = (newTableName || `TABLE-${Math.floor(Math.random() * 1000)}`).toUpperCase().trim()
                         if (!name) return
+                        let catId = furnitureCatId
+                        if (!catId) {
+                          const cre = await fetch('/api/admin/inventory/categories', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name: 'FURNITURE' }),
+                          })
+                          if (cre.ok) { const cc = await cre.json(); catId = cc.id; setFurnitureCatId(cc.id) }
+                        }
+                        if (!catId) return
                         const r = await fetch('/api/admin/inventory', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({
                             name,
-                            categoryId: furnitureCatId || undefined,
+                            categoryId: catId,
                             unit: 'EA', defaultParLevel: 0,
                             furnitureType: 'TABLE',
                             elementWidth: parseFloat(newTableW) || 80,

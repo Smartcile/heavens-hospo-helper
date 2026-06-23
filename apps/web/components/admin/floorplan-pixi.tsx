@@ -341,8 +341,8 @@ export function FloorPlanPixiCanvas({
             // Bracket [ shape — line along edge + two short arms outward
             const bk = new PIXI.Graphics(); bk.lineStyle(sw2, 0x3A3A4A, 0.8)
             const armLen = chairR * 1.5
-            const perpX = side === 'top' || side === 'bottom' ? 0 : (side === 'left' ? -1 : 1)
-            const perpY = side === 'top' ? -1 : (side === 'bottom' ? 1 : 0)
+            const perpX = side === 'top' || side === 'bottom' ? 0 : (side === 'left' ? 1 : -1)
+            const perpY = side === 'top' ? 1 : (side === 'bottom' ? -1 : 0)
             // Main edge line
             bk.moveTo(sd.x1, sd.y1); bk.lineTo(sd.x2, sd.y2)
             // Two arms at ends
