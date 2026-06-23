@@ -702,11 +702,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <Input label="Width (cm)" type="number" step="10" value={Math.round(selected.width).toString()}
-                      onChange={(e) => updateElement(selected.id!, { width: parseFloat(e.target.value) || plan.gridUnit })}
-                      onBlur={() => { if (selected.id) updateElement(selected.id, { width: Math.max(snap(selected.width, plan.gridUnit), plan.gridUnit) }) }} />
+                      onChange={(e) => updateElement(selected.id!, { width: parseFloat(e.target.value) || plan.gridUnit })} />
                     <Input label="Depth (cm)" type="number" step="10" value={Math.round(selected.depth).toString()}
-                      onChange={(e) => updateElement(selected.id!, { depth: parseFloat(e.target.value) || plan.gridUnit })}
-                      onBlur={() => { if (selected.id) updateElement(selected.id, { depth: Math.max(snap(selected.depth, plan.gridUnit), plan.gridUnit) }) }} />
+                      onChange={(e) => updateElement(selected.id!, { depth: parseFloat(e.target.value) || plan.gridUnit })} />
                   </div>
                   <p className="font-mono text-[10px] text-grey-light uppercase">Rotation</p>
                   <div className="flex flex-wrap gap-1">
