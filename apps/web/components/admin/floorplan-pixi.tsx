@@ -2,7 +2,7 @@
 
 import { useRef, useEffect } from 'react'
 import * as PIXI from 'pixi.js'
-import type { ElementData } from '@/components/admin/floorplan-elements'
+import { isFixture, type ElementData } from '@/components/admin/floorplan-elements'
 
 interface ZoneP { id: string; x: number; y: number; width: number; height: number; sectionId: string; label?: string }
 
@@ -267,8 +267,13 @@ export function FloorPlanPixiCanvas({
       if (col) zoneSectionColour.set(z.sectionId, col)
     })
 
-    // Elements
-    ;[...elements].sort((a, b) => a.zIndex - b.zIndex).forEach((el) => {
+    // Elements (fixtures below, furniture above)
+    ;[...elements].sort((a, b) => {
+      const aF = isFixture(a.type), bF = isFixture(b.type)
+      if (aF && !bF) return -1
+      if (!aF && bF) return 1
+      return a.zIndex - b.zIndex
+    }).forEach((el) => {
       const c = new PIXI.Container(); c.x = el.x; c.y = el.y
       c.rotation = (el.rotation ?? 0) * (Math.PI / 180)
       c.eventMode = 'static'; c.cursor = 'pointer'
@@ -396,6 +401,10 @@ export function FloorPlanPixiCanvas({
     let dd: { sx: number; sy: number; ex: number; ey: number } | null = null
     node.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
       e.stopPropagation()
+      const inSectionsMode = cbRef.current.zoneDrawing
+      const isFixtureEl = isFixture(el.type)
+      if (inSectionsMode && !isFixtureEl) return
+      if (!inSectionsMode && isFixtureEl) return
       cbRef.current.onElementClick(el.id!, e.ctrlKey || e.shiftKey)
       dd = { sx: e.globalX, sy: e.globalY, ex: node.x, ey: node.y }
       const app = appRef.current

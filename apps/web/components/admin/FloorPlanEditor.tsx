@@ -184,13 +184,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     setSelectedIds([])
   }
 
-  function bringForward(id: string) {
-    setElements((prev) => {
-      const maxZ = Math.max(...prev.map((e) => e.zIndex), 0)
-      return prev.map((e) => e.id === id ? { ...e, zIndex: maxZ + 1 } : e)
-    })
-  }
-
   function addFromPalette(item: PaletteItem, pos: { x: number; y: number }, furnItem?: any) {
     const id = `new_${nextIdCounter.current++}`
     const gu = plan.gridUnit
@@ -223,6 +216,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     pushHistory()
     setElements((prev) => [...prev, el])
     setSelectedIds([id])
+    if (furnItem) setFurnitureItems((prev) => prev.filter((fi: any) => fi.id !== furnItem.id))
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -800,20 +794,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                       </div>
                     </>
                   )}
-                  <Input label="Z-Index" type="number" value={selected.zIndex.toString()}
-                    onChange={(e) => updateElement(selected.id!, { zIndex: parseInt(e.target.value) || 0 })} />
-                  <div className="flex gap-2">
-                    <button onClick={() => bringForward(selected.id!)}
-                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1 flex-1">
-                      BRING FWD
-                    </button>
-                    {selected.style !== undefined && (
+                  {selected.style !== undefined && (
                       <button onClick={() => updateElement(selected.id!, { style: null })}
                         className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1">
                         RESET STYLE
                       </button>
                     )}
-                  </div>
                 </>
               )}
             </>
