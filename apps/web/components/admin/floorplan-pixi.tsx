@@ -323,12 +323,15 @@ export function FloorPlanPixiCanvas({
         const chairSides: string[] = ((el.style as any)?.chairSides) ?? ['top', 'bottom', 'left', 'right']
         const sides = chairSides.filter((s) => ['top', 'bottom', 'left', 'right'].includes(s))
         const countPerSide = sides.length > 0 ? Math.ceil(cc / sides.length) : 0
-        const chairR = 4 / pxScale; const chairGap = (chairStyle === 'bracket' ? 5 : 2) / pxScale
+        const chairR = 4 / pxScale
+        const chairGap = 2 / pxScale
+        const bracketGap = (5 - 4) / pxScale // 5cm total from table edge to bracket line, minus chairR inset
+        const gap = chairStyle === 'bracket' ? bracketGap : chairGap
         const edgeDefs: Record<string, { x1: number; y1: number; x2: number; y2: number }> = {
-          top: { x1: chairR, y1: -chairR - chairGap, x2: el.width - chairR, y2: -chairR - chairGap },
-          right: { x1: el.width + chairR + chairGap, y1: chairR, x2: el.width + chairR + chairGap, y2: el.depth - chairR },
-          bottom: { x1: el.width - chairR, y1: el.depth + chairR + chairGap, x2: chairR, y2: el.depth + chairR + chairGap },
-          left: { x1: -chairR - chairGap, y1: el.depth - chairR, x2: -chairR - chairGap, y2: chairR },
+          top: { x1: chairR, y1: -chairR - gap, x2: el.width - chairR, y2: -chairR - gap },
+          right: { x1: el.width + chairR + gap, y1: chairR, x2: el.width + chairR + gap, y2: el.depth - chairR },
+          bottom: { x1: el.width - chairR, y1: el.depth + chairR + gap, x2: chairR, y2: el.depth + chairR + gap },
+          left: { x1: -chairR - gap, y1: el.depth - chairR, x2: -chairR - gap, y2: chairR },
         }
         let placed = 0
         for (const side of sides) {

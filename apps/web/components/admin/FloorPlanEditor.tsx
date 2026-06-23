@@ -48,7 +48,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [saving, setSaving] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [paletteOpen, setPaletteOpen] = useState(true)
-  const [snapEnabled, setSnapEnabled] = useState(false)
+  const [snapEnabled, setSnapEnabled] = useState(true)
   const [snap45Enabled, setSnap45Enabled] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
   const [showInvTab, setShowInvTab] = useState(false)
@@ -708,8 +708,15 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                       onChange={(e) => updateElement(selected.id!, { depth: parseFloat(e.target.value) || plan.gridUnit })}
                       onBlur={() => { if (selected.id) updateElement(selected.id, { depth: Math.max(snap(selected.depth, plan.gridUnit), plan.gridUnit) }) }} />
                   </div>
-                  <Input label="Rotation" type="number" value={Math.round(selected.rotation).toString()}
-                    onChange={(e) => updateElement(selected.id!, { rotation: parseFloat(e.target.value) || 0 })} />
+                  <p className="font-mono text-[10px] text-grey-light uppercase">Rotation</p>
+                  <div className="flex flex-wrap gap-1">
+                    {[0, 45, 90, 135, 180, 270].map((angle) => (
+                      <button key={angle} onClick={() => updateElement(selected.id!, { rotation: angle })}
+                        className={`font-mono text-[10px] px-2 py-1 border ${Math.round(selected.rotation) === angle ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
+                        {angle}°
+                      </button>
+                    ))}
+                  </div>
                   <Input label="Opacity" type="number" min="0" max="1" step="0.1"
                     value={selected.opacity.toString()}
                     onChange={(e) => updateElement(selected.id!, { opacity: Math.min(1, Math.max(0, parseFloat(e.target.value) || 1)) })} />
