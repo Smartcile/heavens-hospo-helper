@@ -12,6 +12,7 @@ import { ElementInventoryPanel } from '@/components/admin/ElementInventoryPanel'
 import { FloorPlanPixiCanvas, type ViewState } from '@/components/admin/floorplan-pixi'
 import { FloorplanToolbar } from '@/components/admin/FloorplanToolbar'
 import { FloorplanInspector } from '@/components/admin/FloorplanInspector'
+import { traceBoothPerimeter } from '@/lib/booth-trace'
 
 interface SectionZone {
   id: string
@@ -88,6 +89,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const zdStartRef = useRef<{ x: number; y: number } | null>(null)
   const [zoomLevel, setZoomLevel] = useState(1)
   const [showDimensions, setShowDimensions] = useState(false)
+  const [boothPainting, setBoothPainting] = useState(false)
+  const [boothPaintKey, setBoothPaintKey] = useState(0)
+  const boothCellsRef = useRef<Set<string>>(new Set())
   const [textScale, setTextScale] = useState(1)
 
   const historyRef = useRef<{ past: ElementData[][]; future: ElementData[][] }>({ past: [], future: [] })
@@ -255,6 +259,13 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Escape' && boothPainting) {
+      e.preventDefault()
+      setBoothPainting(false)
+      boothCellsRef.current.clear()
+      setBoothPaintKey(k => k + 1)
+      return
+    }
     if (e.key === 'Delete') {
       if (selectedIds.length > 0) { e.preventDefault(); deleteSelected(); return }
       if (zoneDrawing && selectedZoneId) { e.preventDefault(); setZones((prev) => prev.filter((z) => z.id !== selectedZoneId)); setSelectedZoneId(null); return }
@@ -379,11 +390,42 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           </label>
           <button onClick={() => {
             if (zoneDrawing) { setZoneDrawing(false); setZoneDrawStart(null); setZoneDrawRect(null) }
-            else { setZoneDrawing(true); setSelectedIds([]) }
+            else { setZoneDrawing(true); setBoothPainting(false) }
           }}
             className={`font-mono text-[10px] uppercase px-2 py-1 border ${zoneDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
             SECTIONS {zoneDrawing ? '· ON' : ''}
           </button>
+          <button onClick={() => {
+            if (boothPainting) { setBoothPainting(false); boothCellsRef.current.clear(); setBoothPaintKey(k => k + 1) }
+            else { setBoothPainting(true); setZoneDrawing(false); setSelectedIds([]) }
+          }}
+            className={`font-mono text-[10px] uppercase px-2 py-1 border ${boothPainting ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
+            DRAW BOOTH {boothPainting ? '· ON' : ''}
+          </button>
+          {boothPainting && boothCellsRef.current.size > 0 && (
+            <button onClick={() => {
+              const result = traceBoothPerimeter(boothCellsRef.current)
+              if (!result) return
+              const label = nextLabel('BOOTH_BENCH', elements)
+              const id = `new_${nextIdCounter.current++}`
+              const el: ElementData = {
+                id, type: 'BOOTH_BENCH', shape: 'POLYGON', label, labelVisible: true,
+                x: result.bx, y: result.by, width: result.bw, depth: result.bd,
+                vertices: result.outerVertices, rotation: 0, fillColour: '#3D3D4D',
+                opacity: 1, zIndex: elements.length + 1, sortOrder: elements.length, isActive: true,
+                style: { cushionVertices: result.cushionVertices }, chairCount: 0,
+              }
+              pushHistory()
+              setElements(prev => [...prev, el])
+              setSelectedIds([id])
+              boothCellsRef.current.clear()
+              setBoothPainting(false)
+              setBoothPaintKey(k => k + 1)
+            }}
+              className="font-mono text-[10px] text-success hover:text-white uppercase px-2 py-1 border border-success">
+              SAVE SHAPE ({boothCellsRef.current.size} BLOCKS)
+            </button>
+          )}
           <button onClick={() => setShowSummary(!showSummary)}
             className={`font-mono text-[10px] uppercase px-2 py-1 border ${showSummary ? 'border-success text-success' : 'border-grey-mid text-grey-light'} hover:border-success transition-colors`}>
             SUMMARY
@@ -674,6 +716,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             }}
             rebuildKey={rebuildKey}
             showDimensions={showDimensions}
+            boothPainting={boothPainting}
+            boothCellsRef={boothCellsRef}
+            onBoothCellToggle={() => setBoothPaintKey(k => k + 1)}
           />
         </div>
 
@@ -773,7 +818,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                       onChange={(e) => updateElement(selected.id!, { y: parseFloat(e.target.value) || 0 })}
                       onBlur={() => { if (selected.id) updateElement(selected.id, { y: snap(selected.y, plan.gridUnit) }) }} />
                   </div>
-                  <FloorplanInspector selectedElement={selected}
+                  <FloorplanInspector selectedElement={selected} elements={elements}
                     onChange={(patch) => updateElement(selected.id!, patch)} />
                   <p className="font-mono text-[10px] text-grey-light uppercase">Rotation</p>
                   <div className="flex flex-wrap gap-1">

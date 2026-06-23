@@ -37,6 +37,8 @@
     "jspdf": "^4.2.1",
     "konva": "^10.3.0",
     "pixi.js": "^7.3.3",
+    "polygon-clipping": "^0.15.7",
+    "polygon-offset": "^0.3.2",
     "react-konva": "^18.2.16"
   }
 }
