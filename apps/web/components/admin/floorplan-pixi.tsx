@@ -39,6 +39,7 @@ interface PixiCanvasProps {
   onSelRectMove?: (x: number, y: number) => void
   onSelRectEnd?: (x: number, y: number) => void
   onViewChange?: (zoom: number) => void
+  showDimensions?: boolean
   rebuildKey?: number
 }
 
@@ -68,13 +69,13 @@ export function FloorPlanPixiCanvas({
   onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd,
   onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange,
   textScale = 1, selRect, onSelRectStart, onSelRectMove, onSelRectEnd,
-  rebuildKey,
+  rebuildKey, showDimensions = false,
 }: PixiCanvasProps) {
   const appRef = useRef<PIXI.Application | null>(null)
   const roomRef = useRef<PIXI.Container | null>(null)
   const stateRef = useRef({ snap: snapEnabled, gu: gridUnit })
-  const cbRef = useRef({ onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd })
-  cbRef.current = { onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd }
+  const cbRef = useRef({ onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions })
+  cbRef.current = { onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions }
 
   // Init app once
   useEffect(() => {
@@ -375,6 +376,56 @@ export function FloorPlanPixiCanvas({
           const capText = new PIXI.Text(`×${cc}`, { fontSize: Math.max(6, Math.min(el.width, el.depth) * 0.18 * pxScale * textScale), fill: 0xCCCCCC, fontFamily: 'monospace' })
           capText.anchor.set(0, 0.5); capText.x = el.width / 2 + 2; capText.y = el.depth / 2; capText.eventMode = 'none'; c.addChild(capText)
         }
+      }
+
+      // Dimension overlay for selected elements
+      const showDim = cbRef.current.showDimensions
+      if (isElSelected && showDim && el.shape !== 'CIRCLE') {
+        const dimGap = 10 / pxScale
+        const dimLine = new PIXI.Graphics()
+        dimLine.lineStyle(0.5 / pxScale, 0x4488FF, 0.5)
+        // Width dimension line (below element)
+        const wMidY = el.depth + dimGap
+        dimLine.moveTo(0, wMidY)
+        dimLine.lineTo(el.width / 2 - 16 / pxScale, wMidY)
+        dimLine.moveTo(el.width / 2 + 16 / pxScale, wMidY)
+        dimLine.lineTo(el.width, wMidY)
+        // Width end ticks
+        dimLine.moveTo(0, wMidY - 4 / pxScale)
+        dimLine.lineTo(0, wMidY + 4 / pxScale)
+        dimLine.moveTo(el.width, wMidY - 4 / pxScale)
+        dimLine.lineTo(el.width, wMidY + 4 / pxScale)
+        // Depth dimension line (right of element)
+        const dMidX = el.width + dimGap
+        dimLine.moveTo(dMidX, 0)
+        dimLine.lineTo(dMidX, el.depth / 2 - 16 / pxScale)
+        dimLine.moveTo(dMidX, el.depth / 2 + 16 / pxScale)
+        dimLine.lineTo(dMidX, el.depth)
+        // Depth end ticks
+        dimLine.moveTo(dMidX - 4 / pxScale, 0)
+        dimLine.lineTo(dMidX + 4 / pxScale, 0)
+        dimLine.moveTo(dMidX - 4 / pxScale, el.depth)
+        dimLine.lineTo(dMidX + 4 / pxScale, el.depth)
+        dimLine.eventMode = 'none'
+        c.addChild(dimLine)
+        // Width label
+        const wLabel = new PIXI.Text(`${el.width}`, {
+          fontSize: Math.max(8, 10 * pxScale * textScale), fill: 0x4488FF, fontFamily: 'monospace',
+        })
+        wLabel.anchor.set(0.5)
+        wLabel.x = el.width / 2
+        wLabel.y = wMidY
+        wLabel.eventMode = 'none'
+        c.addChild(wLabel)
+        // Depth label
+        const dLabel = new PIXI.Text(`${el.depth}`, {
+          fontSize: Math.max(8, 10 * pxScale * textScale), fill: 0x4488FF, fontFamily: 'monospace',
+        })
+        dLabel.anchor.set(0.5)
+        dLabel.x = dMidX
+        dLabel.y = el.depth / 2
+        dLabel.eventMode = 'none'
+        c.addChild(dLabel)
       }
 
       attachElementDrag(c, el)

@@ -10,6 +10,8 @@ import {
 } from '@/components/admin/floorplan-elements'
 import { ElementInventoryPanel } from '@/components/admin/ElementInventoryPanel'
 import { FloorPlanPixiCanvas, type ViewState } from '@/components/admin/floorplan-pixi'
+import { FloorplanToolbar } from '@/components/admin/FloorplanToolbar'
+import { FloorplanInspector } from '@/components/admin/FloorplanInspector'
 
 interface SectionZone {
   id: string
@@ -85,6 +87,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const viewRef = useRef<ViewState>({ baseScale: 1, ox: 0, oy: 0, zoom: 1, panX: 0, panY: 0 })
   const zdStartRef = useRef<{ x: number; y: number } | null>(null)
   const [zoomLevel, setZoomLevel] = useState(1)
+  const [showDimensions, setShowDimensions] = useState(false)
   const [textScale, setTextScale] = useState(1)
 
   const historyRef = useRef<{ past: ElementData[][]; future: ElementData[][] }>({ past: [], future: [] })
@@ -354,7 +357,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-mono text-[10px] text-grey-light w-16 text-right">ZOOM: {Math.round(zoomLevel * 100)}%</span>
+          <FloorplanToolbar zoom={zoomLevel} onZoomChange={(z) => { setZoomLevel(z); viewRef.current.zoom = z; setRebuildKey((k) => k + 1) }}
+            showDimensions={showDimensions} onShowDimensionsChange={setShowDimensions} />
           <div className="flex items-center gap-1">
             <span className="font-mono text-[8px] text-grey-light">TEXT</span>
             <input type="range" min="0.5" max="3" step="0.1" value={textScale} onChange={(e) => setTextScale(parseFloat(e.target.value))}
@@ -669,6 +673,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               })
             }}
             rebuildKey={rebuildKey}
+            showDimensions={showDimensions}
           />
         </div>
 
@@ -768,12 +773,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                       onChange={(e) => updateElement(selected.id!, { y: parseFloat(e.target.value) || 0 })}
                       onBlur={() => { if (selected.id) updateElement(selected.id, { y: snap(selected.y, plan.gridUnit) }) }} />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input label="Width (cm)" type="number" step="10" value={Math.round(selected.width).toString()}
-                      onChange={(e) => updateElement(selected.id!, { width: parseFloat(e.target.value) || plan.gridUnit })} />
-                    <Input label="Depth (cm)" type="number" step="10" value={Math.round(selected.depth).toString()}
-                      onChange={(e) => updateElement(selected.id!, { depth: parseFloat(e.target.value) || plan.gridUnit })} />
-                  </div>
+                  <FloorplanInspector selectedElement={selected}
+                    onChange={(patch) => updateElement(selected.id!, patch)} />
                   <p className="font-mono text-[10px] text-grey-light uppercase">Rotation</p>
                   <div className="flex flex-wrap gap-1">
                     {[0, 45, 90, 135, 180, 270].map((angle) => (
