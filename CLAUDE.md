@@ -19,7 +19,7 @@ HOSPO OPS is a self-hosted, web-based hospitality operations platform. It gives 
 | Auth (admin) | NextAuth.js v4 — Credentials provider |
 | Auth (worker) | Custom PIN flow — JWT in HTTP-only cookie |
 | QR Generation | `qrcode` npm package |
-| Canvas / Floor Plans | `konva` + `react-konva` npm packages |
+| Canvas / Floor Plans | `pixi.js` v7.3.3 (`konva` + `react-konva` still present but unused) |
 
 ## MONOREPO STRUCTURE
 
@@ -230,23 +230,77 @@ own upcoming shifts and request/cancel time off at `/w/calendar`
 math); dates are @db.Date keyed via `formatDateKey`. `lib/calendar.ts` has the
 month/range/time-validation helpers.
 
-### Floor planner (Phase 1, built)
-To-scale venue layout editor using `react-konva` canvas. Admin creates floor plans with
-room dimensions (real cm), then drags elements from a palette (WALL, DOOR, WINDOW, TABLE,
-CHAIR, COUNTER, BAR, SINK, KITCHEN_EQUIP, STORAGE, ENTRY, EXIT, STAIRS, TOILET, PLANT,
-OTHER) onto a grid-snapped canvas. Elements can be moved, resized, rotated; each has
-properties (label, colour, section link, capacity, z-index). Bulk SAVE sends all elements
-as one PUT to `/api/admin/floorplan/[id]/elements`. EXPORT PNG downloads the canvas.
+### Floor planner (Phase 1 + 2, built)
+To-scale venue layout editor using **PixiJS v7** canvas (migrated from Konva 2026-06 — Konva's
+draggable+React caused unresolvable event target and race condition bugs). Admin creates floor
+plans with room dimensions (real cm), then drags elements from a palette onto a grid-snapped
+canvas. Elements are drawn in real cm; room.scale transform handles zoom/pan (no per-element
+scaling). Canvas fills available space via ResizeObserver.
 
-Multiple floor plan views per venue (slug-based, one default). Workers see a read-only
-canvas at `/w/floorplan` with a view switcher dropdown, section-colour-coded elements,
-and tap-for-details info panel.
+**Palette:** WALL, DOOR, WINDOW, TABLE, CHAIR, COUNTER, BAR, SINK, KITCHEN_EQUIP, STORAGE,
+ENTRY, EXIT, STAIRS, TOILET, PLANT, OTHER (static palette items), plus dynamic **INVENTORY**
+section listing furniture inventory items. Furniture items (tables/chairs) are pre-created in
+the inventory module as FURNITURE-category templates; once placed and saved, they're removed
+from the palette (used-once tracking via `ElementInventoryItem`).
 
-`react-konva` is dynamically imported inside `useEffect` (`import('react-konva')`) to
-avoid SSR crashes — never imported at module scope. `Stage`/`Layer`/`Rect`/`Circle`/`Line`/
-`Group`/`Transformer`/`Text` components are stored in state and rendered only client-side.
-Polygon data model (`shape: POLYGON` + `vertices Json?`) is supported from day one;
-drawing tool deferred to Phase 2.
+**Canvas features:** middle-click pan, mouse-wheel zoom (0.2x–5x centered on cursor), zoom
+indicator in toolbar. Element drag uses pointer-delta (captured start position + delta) — tracks
+cursor reliably at any speed. Multi-select via Shift/Ctrl+click + rubber-band rectangle. Edge-aware
+grid snapping (snaps to nearest grid line — left OR right edge). GRID snap ON by default.
+Rotation via preset buttons (0°/45°/90°/135°/180°/270°). Global text scale slider (0.5x–3.0x).
+Zone resize handles (8 white squares on selected zone — TL/TC/TR/ML/MR/BL/BC/BR — drag to resize,
+grid-snapped). Per-type styled rendering (table with legs, chair as bracket `[` shape, door with
+swing arc, booth bench with cushion inset, etc.). Bracket `[` is the default chair style with
+per-side checkboxes (T/B/L/R) and 5cm gap from table edge. Zones with auto-rotated watermark
+for portrait orientations. Per-element/zone labelScale input.
+
+**Section zones:** coloured rectangles drawn on canvas with 0.06 fill / 0.4-0.6 border opacity,
+section name watermark, saved as JSON on FloorPlan. Element section grouping overlay (coloured
+border + faint fill when element matches a zone's sectionId). SECTIONS mode button gates zone
+drawing/drag — zones non-interactive otherwise.
+
+**Data flow:** Bulk SAVE sends all elements as one PUT to `/api/admin/floorplan/[id]/elements`,
+which diffs incoming IDs vs existing DB IDs — soft-deletes removed elements, updates existing,
+creates new ones. The save API also accepts `inventoryLinks` to create/remove
+`ElementInventoryItem` rows atomically. Response includes `_clientId`→real-ID mapping so local
+state updates consistently.
+
+**Multiple views** per venue (slug-based, one default). Workers see a read-only PixiJS canvas
+at `/w/floorplan` with zoom/pan enabled and a view switcher if venue has multiple plans.
+Calendar events can link to a floor plan (admin event modal selector); worker auto-switches
+to the event layout with banner: "EVENT MODE — [Name] LAYOUT ACTIVE".
+
+**Undo/redo:** Ctrl+Z / Ctrl+Shift+Z pushed on add, delete, drag-end, transform-end.
+
+**Export:** PDF export renders canvas to PDF with date/venue header via jspdf.
+
+**Key architecture:** `FloorPlanPixiCanvas` component contains the PIXI.Application. Room
+transform via `room.scale + room.position` (no manual `* scaleFactor` per element). `viewRef:
+ViewState` shared with parent for coordinate conversion on drops. Canvas clamp prevents elements
+exiting room bounds. All element interaction is handled via pointer-events-tracking on the stage
+(not per-node), using ref-mutable state for drag operations.
+
+### Inventory + stocktake (Phase 2, built)
+Full inventory management system: `InventoryCategory` (7 built-in + per-venue custom) and
+`InventoryItem` (venue-id-scoped, links to category, tracks unit and default par level).
+`ElementInventoryItem` junction links items to floor plan elements with quantity.
+`StocktakeRecord` + `StocktakeLineItem` for periodic stock counts: records have status
+(PENDING/IN_PROGRESS/COMPLETED), assigned to role or staff. Stocktake supports variance
+tracking and manager sign-off.
+
+**Admin pages:** `/admin/inventory` (categories + items CRUD, plus STOCK tab showing hierarchy
+tree — Section → Table → Inventory Items, fetched from `/api/admin/stock/hierarchy`). `/admin/stocktake`
+(create/assign/review/sign-off). Dashboard par level alerts.
+
+**Worker page:** `/w/stocktake` — scrollable count list, submit IN_PROGRESS or COMPLETED.
+Dashboard stocktake card with pending count. Hamburger menu entry.
+
+**AdminNav:** Inventory under Organisation, Stocktake under Operations.
+
+### Stock hierarchy (Phase 2, built)
+`GET /api/admin/stock/hierarchy` returns a Section → Table → Inventory Items tree in one query.
+The Structure API (`GET /api/admin/structure`) extends with `floorPlan { tables, chairs, equip }`
+per section.
 
 ### Unified staff identity
 A single `Staff` profile carries external-system link IDs — `swiftPosId`,
@@ -256,10 +310,10 @@ future item (see ROADMAP). `email` doubles as a natural cross-system match key.
 
 ### Live structure map
 `/admin/structure` (`StructureClient` + `GET /api/admin/structure`) renders the
-live entity tree — venue → department → staff / tasks / training, plus a
+live entity tree — venue → department → section → staff / tasks / training, plus a
 venue-wide bucket — as collapsible nodes with counts. Manager sees own venue,
-admin sees all. It's a read-only visual review; the planned **Section** layer is
-shown as a labelled placeholder under each department until Phase A ships.
+admin sees all. The API also extends with `floorPlan { tables, chairs, equip }`
+per section. It's a read-only visual review.
 
 ### Responsive admin nav
 `AdminNav` renders a static sidebar on `md+` and, on mobile, a fixed top bar with
@@ -356,22 +410,35 @@ Task titles, venue names, department names, and staff names are stored in UPPERC
 ### Prisma client singleton
 `packages/db/index.ts` exports a global singleton Prisma client to prevent connection pool exhaustion in Next.js dev (hot reload creates new instances without this pattern).
 
-### Floor plan scale and coordinate system
+### Floor plan scale, coordinate system, and rendering
 All positions and dimensions are stored in real-world centimetres. The room dimensions
-(`roomWidth`, `roomDepth`) are set at plan creation. The canvas auto-computes a pixel-per-cm
-scale to fit the viewport. Grid snapping snaps to `gridUnit` cm. The bulk element save
-(`PUT /api/admin/floorplan/[id]/elements`) diffs incoming IDs vs existing DB IDs — soft-deletes
-removed elements, updates existing, creates new ones (all in one transaction).
+(`roomWidth`, `roomDepth`) are set at plan creation. The canvas uses a **room.scale** transform
+(not per-element pixel math) — elements drawn in raw cm, the container transform handles
+zoom/pan via `room.scale + room.position`. ViewState `{ baseScale, ox, oy, zoom, panX, panY }`
+is shared with parent via `viewRef` for coordinate conversion on drops. Grid snapping snaps to
+`gridUnit` cm via `edgeSnap(v, size, unit)` (snaps to nearest grid line — left OR right edge).
+The bulk element save (`PUT /api/admin/floorplan/[id]/elements`) diffs incoming IDs vs existing
+DB IDs — soft-deletes removed elements, updates existing, creates new ones (all in one
+transaction). The API also accepts an `inventoryLinks` array for atomic create/remove of
+`ElementInventoryItem` rows, returning `{ saved: [{ id, _clientId }], deleted, zonesSaved }`
+so the client maps temp IDs to real DB IDs and updates local state.
 
-### react-konva SSR avoidance
-`react-konva` and `konva` MUST NOT be imported at module scope anywhere in the application.
-Both are loaded via dynamic `import('react-konva')` inside `useEffect`, with the imported
-components stored in local state. The admin `FloorPlansClient` uses `next/dynamic(() => import(...), { ssr: false })` 
-for the editor. The worker page uses `next/dynamic` with `ssr: false` for `WorkerFloorPlan`.
-Custom 404/500 pages (`not-found.tsx`, `error.tsx`) must exist to prevent Next.js from
-trying to static-generate error pages (which would fail when konva is present). `package.json`
-has npm overrides forcing `react@18.3.1` / `react-dom@18.3.1` because `react-konva@18.2.16`
-requires React 18, while `next-auth` peer-deps allow React 19.
+Since switching from Konva to PixiJS:
+- Element drag uses **pointer-delta** (capture start pos + cumulative delta on stage move/up)
+  — Konva's draggable + React caused unresolvable event target and race condition bugs.
+- Full-screen via ResizeObserver (no hardcoded stageW/stageH or CANVAS_PAD).
+- Canvas clamp prevents elements exiting room bounds.
+- `konva` + `react-konva` are unused but remain in package.json for now.
+
+### PixiJS canvas rendering
+The floor plan canvas uses `pixi.js` v7.3.3 via a custom `FloorPlanPixiCanvas` component
+(no React-Pixi wrapper — raw PIXI.Application managed in a ref). SSR is avoided by using
+`next/dynamic` with `ssr: false` for both admin editor and worker view (no special SSR
+handling needed — PixiJS doesn't crash on SSR, but it has no DOM node until mounted).
+The `konva` and `react-konva` packages remain in `package.json` but are unused; they can
+be removed when convenient. The `npm overrides` for React 18 in root `package.json` can be
+removed when `react-konva` is removed (they exist because `react-konva@18` requires React 18
+while `next-auth` peer-deps allow React 19).
 
 ### Task scheduling
 Tasks are filtered on-demand (no generation table). `lib/scheduling.ts`
@@ -449,9 +516,23 @@ tasks into a new template. Admin UI lives at `/admin/templates`.
 | Training modules | `TrainingModule`, `TrainingStep` models | 3 |
 | Push notifications | Not yet wired | 2 |
 | S3 file uploads | `UPLOAD_PROVIDER=s3` env var stub | 2 |
-| Floor plan polygon drawing tool | `FloorPlanEditor.tsx` — deferred | 2 |
-| Floor plan calendar event linking | `CalendarEvent.floorPlanSlug` planned | 2 |
-| Floor plan PDF export | Not yet wired | 2 |
+| Inventory delete protection | API check against ElementInventoryItem + StocktakeLineItem | 2 |
+| Inventory floor plan sync | Auto-create inventory items from element counts | 2 |
+| Chair snap-to-table edge | Auto-snap chairs to table edges on drag-end | 2 |
+| Two-layer canvas | Fixtures bottom, furniture top | 2 |
+| MyHR onboarding export | Generate onboarding doc from training modules | 3 |
+| Reordering / required-for-role gating | Drag-order modules, block shifts until mandatory training done | 3 |
+| Loaded Reports integration | Export format compatible with Loaded accounting | 4 |
+| Basic labour cost visibility | Estimated hours × rate per department per day | 4 |
+| Microsoft Graph API | Read emails and calendar events (no LLM, read-only) | 5 |
+| Microsoft Teams notifications | Send task overdue alerts to Teams channels | 5 |
+| Outlook calendar sync | Overlay venue events on task schedule view | 5 |
+| SwiftPOS deep sync | Roster data → automatic task assignment | 5 |
+| Multi-tenant SaaS mode | White-label per business, isolated data per tenant | 6 |
+| Role-based permission system | Granular permissions beyond ADMIN/MANAGER/STAFF | 6 |
+| Public API | REST API for third-party integrations | 6 |
+| Mobile app wrapper | Capacitor or React Native shell around worker view | 6 |
+| Offline support | Service worker caching for unreliable wifi | 6 |
 
 ## WHAT NOT TO DO
 

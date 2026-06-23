@@ -57,49 +57,70 @@ The model that links sections, tasks and knowledge into one followed-up loop.
 ✅ **Timed lists** — a checklist can have an **"appears from" time** (`Checklist.appearFromTime`); on the floor it surfaces from that time and stays until every task in it is done for the day. The worker view groups by list (time-gated) first, then any other tasks by dept → section, with an "opens later" note for upcoming lists.
 ✅ **Tasks page editor polish** — the checklist editor is sticky (follows long task lists), the "add a task" dropdown is scoped to the checklist's department/section (drag in anything else), and the task list gained search + section + usage filters.
 
-## FLOOR PLANNER (BUILT 2026-06-22)
+## FLOOR PLANNER (BUILT 2026-06-22 — UNDER PIXIJS REWRITE 2026-06)
+
 ✅ **Phase 1 — Editor + basic views**
   ✅ Prisma models: `FloorPlan` + `FloorPlanElement` + enums (`ElementType` / `ElementShape`)
   ✅ Admin API: CRUD floor plans + bulk-save elements (`PUT /api/admin/floorplan/[id]/elements`)
   ✅ Admin page: `/admin/floorplan` — list plans, create, edit
-  ✅ Visual editor (`FloorPlanEditor.tsx`, react-konva): room outline drawn to scale (real cm), drag-from-palette to place walls/tables/chairs/counters/bars/doors/windows/sinks/stairs/toilets, grid snapping, select→move→resize→rotate, colour/section-link/capacity properties, SAVE, EXPORT PNG
+  ✅ Visual editor: room outline drawn to scale (real cm), drag-from-palette, grid snapping, select→move→resize→rotate, colour/section-link/capacity properties, SAVE
   ✅ Worker API: `GET /api/worker/floorplan` (by JWT venue, returns default view)
   ✅ Worker read-only page: `/w/floorplan` with view switcher if venue has multiple plans (slug-based), section-colour-coded elements, tap for details
   ✅ Nav: admin sidebar under Organisation + burger menu FLOOR PLAN card + dashboard card
-  ✅ Polygons: data model supports `shape: POLYGON` + `vertices Json?` from day one; drawing tool comes later
+  ✅ Polygons: data model supports `shape: POLYGON` + `vertices Json?` from day one; drawing tool deferred
+
 ✅ **Phase 1.5 — Styled elements, walls as lines, sections & inventory prep**
-  ✅ Per-type styled rendering (table with legs, chair as circle with backrest, booth bench with cushion inset, door with swing arc, window with dividers, sink with basin, stairs with stripes, storage grid, kitchen equip inset, plant as dashed planter, toilet oval, bar with highlight, counter with edge, etc.)
-  ✅ Walls / Entry / Exit rendered as thick lines with centred toggleable label (`-- WALL --`, `==== EXIT ====`)
-  ✅ Arbitrary wall angles — wall placed as horizontal line from palette, rotated via Transformer to any angle
+  ✅ Per-type styled rendering (table with legs, chair bracket shape, booth bench with cushion inset, door with swing arc, window with dividers, sink with basin, stairs with stripes, storage grid, kitchen equip inset, plant as dashed planter, toilet oval, bar with highlight, counter with edge, etc.)
+  ✅ Walls / Entry / Exit rendered as thick lines with centred toggleable label
+  ✅ Arbitrary wall angles
   ✅ Delete/Backspace keyboard handler deletes selected element
-  ✅ Furniture elements (TABLE, CHAIR, TOILET, PLANT, OTHER) are fixed-size — Transformer shows no resize anchors
-  ✅ Fixture elements (WALL, DOOR, WINDOW, COUNTER, BAR, BOOTH_BENCH, SINK, KITCHEN_EQUIP, STORAGE, ENTRY, EXIT, STAIRS) remain resizable
-  ✅ 45° rotation snap toggle — snaps to 0/45/90/135/180/225/270/315°
   ✅ `BOOTH_BENCH` element type — long rect with cushion inset, capacity field tracks seats per segment
   ✅ Auto-label on drop — tables get T1/T2…, chairs C1/C2…, benches B1/B2…
   ✅ Label visible on all elements (centred text, monospace, auto-sized) for printable plans
   ✅ Section colour overlay toggle — semi-transparent section colour fill on elements
   ✅ Section summary panel — live count of tables/chairs/benches/etc. per section with total rows
-  ✅ Shared element renderer (`components/admin/floorplan-elements.tsx`) — single source of truth for palette defaults + visual components, eliminates colour duplication between editor and worker
-  ✅ `style Json?` field on FloorPlanElement for per-type config (wall type, table shape, etc.)
+  ✅ Shared element renderer (`components/admin/floorplan-elements.tsx`) — single source of truth for palette defaults + visual components
+  ✅ `style Json?` field on FloorPlanElement for per-type config (wall type, table shape, chairStyle, etc.)
   ✅ `labelVisible Boolean` field toggles label display per element
-☑ **Phase 2 — Inventory, pen tool, section zones, calendar linking, undo/redo, PDF**
-  ☑ **Inventory system**
-    ☑ `InventoryCategory` model: name, isBuiltIn (7 built-in + custom per venue)
-    ☑ `InventoryItem` model: venueId, name, categoryId, unit, defaultParLevel
-    ☑ `ElementInventoryItem` junction: links items → floor plan elements with quantity
-    ☑ Admin CRUD: categories page, items page, element inventory panel in floor plan editor
-    ☑ `StocktakeRecord` model: venueId, date, status (PENDING/IN_PROGRESS/COMPLETED), assignedRoleId, assignedStaffId, notes
-    ☑ `StocktakeLineItem` model: recordId, itemId, countedQuantity, expectedQuantity, variance
-    ☑ Admin stocktake page: create, assign to role/staff, review variance, sign-off
-    ☑ Worker stocktake screen: dashboard card, scrollable count list, submit IN_PROGRESS or COMPLETED
-    ☑ Par level alerts on dashboard: items below threshold flagged
-  ☑ **Pen tool removed, replaced with per-corner rounding** — 4 corner radius inputs (TL/TR/BR/BL) on any RECTANGLE element, stored in `style.cornerRadius`, rendered via Konva native array support
-  ☑ **Drawable section zones** — drag-to-draw coloured zone rectangles on canvas; pick section from dropdown; zones render behind elements at 0.1 opacity; saved as JSON on FloorPlan
-  ☑ **Table↔bench linking** — assign BOOTH_BENCH to specific TABLE elements via checkboxes in properties panel; dashed gold connector line on canvas; "B1 serves T1, T2" in summary
-  ☑ **Calendar event floor plan linking** — `CalendarEvent.floorPlanSlug` + `floorPlanName` fields; admin event modal has floor plan selector; worker auto-switches to event layout; banner: "EVENT MODE — [Name] LAYOUT ACTIVE"
-  ☑ **Undo/redo stack** — Ctrl+Z / Ctrl+Shift+Z; history pushed on add, delete, drag-end, transform-end; buttons in toolbar
-  ☑ **PDF export** — render canvas to PDF with date/venue header via jspdf
+
+✅ **Phase 2 — Inventory, zones, calendar linking, undo/redo, PDF, PixiJS rewrite**
+  ✅ **Inventory system**
+    ✅ `InventoryCategory` model: name, isBuiltIn (7 built-in + custom per venue)
+    ✅ `InventoryItem` model: venueId, name, categoryId, unit, defaultParLevel; plus furniture fields (furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount)
+    ✅ `ElementInventoryItem` junction: links items → floor plan elements with quantity
+    ✅ Admin CRUD: categories page, items page, element inventory panel in floor plan editor
+    ✅ `StocktakeRecord` model: venueId, date, status (PENDING/IN_PROGRESS/COMPLETED), assignedRoleId, assignedStaffId, notes
+    ✅ `StocktakeLineItem` model: recordId, itemId, countedQuantity, expectedQuantity, variance
+    ✅ Admin stocktake page: create, assign to role/staff, review variance, sign-off
+    ✅ Worker stocktake screen: dashboard card, scrollable count list, submit IN_PROGRESS or COMPLETED
+    ✅ Par level alerts on dashboard: items below threshold flagged
+    ✅ FURNITURE category added as built-in; furniture items created in inventory and placed via palette INVENTORY section
+    ✅ Used-once tracking: furniture items removed from palette after save (via ElementInventoryItem)
+    ✅ Stock hierarchy tree (`GET /api/admin/stock/hierarchy`) — Section → Table → Inventory Items
+    ✅ STOCK tab on inventory page (read-only tree)
+    ✅ Structure API extended with `floorPlan { tables, chairs, equip }` per section
+  ✅ **Per-corner rounding** — 4 corner radius inputs (TL/TR/BR/BL) on any RECTANGLE element, stored in `style.cornerRadius`
+  ✅ **Drawable section zones** — drag-to-draw coloured zone rectangles on canvas; pick section from dropdown; zones saved as JSON on FloorPlan; zone fill 0.06 opacity, border 0.4/0.6; auto-rotated watermark; per-zone labelScale
+  ✅ **Zone resize handles** — 8 white squares on selected zone (TL/TC/TR/ML/MR/BL/BC/BR), drag to resize snapped to grid
+  ✅ **Element section grouping overlay** — coloured border + faint fill tint when element matches a zone's sectionId
+  ✅ **Table↔bench linking** — assign BOOTH_BENCH to specific TABLE elements via checkboxes; dashed gold connector line; "B1 serves T1, T2" in summary
+  ✅ **Calendar event floor plan linking** — `CalendarEvent.floorPlanSlug` + `floorPlanName` fields; admin event modal selector; worker auto-switches with banner
+  ✅ **Undo/redo stack** — Ctrl+Z / Ctrl+Shift+Z; history pushed on add, delete, drag-end, transform-end
+  ✅ **PDF export** — render canvas to PDF with date/venue header via jspdf
+  ✅ **Switched from Konva to PixiJS v7** — Konva's draggable+React caused unresolvable bugs; now uses raw PIXI.Application with pointer-delta drag, room.scale transform, ResizeObserver full-screen
+  ✅ **Zoom/pan** — mouse wheel zoom (0.2x–5x centered on cursor), middle-click pan, zoom indicator
+  ✅ **Full-screen canvas** — ResizeObserver replaces hardcoded dimensions
+  ✅ **Multi-select** — Shift/Ctrl+click + rubber-band selection rectangle
+  ✅ **Edge-aware snapping** — snap to nearest grid line (left OR right edge) via `edgeSnap()`
+  ✅ **GRID snap ON by default**
+  ✅ **Rotation preset buttons** — 0°/45°/90°/135°/180°/270°
+  ✅ **Bracket chairs** — bracket `[` shape with per-side checkboxes (T/B/L/R), 5cm gap from table edge; default style
+  ✅ **Static right panel** — always-rendered w-56 panel with layer list when nothing selected; no canvas width jump
+  ✅ **Right-click palette edit** — edit default W/D per palette item, persisted via PaletteDefault model
+  ✅ **Global text scale slider** — 0.5x–3.0x, passed as textScale prop
+  ✅ **Asymmetric element labels** — use longer dimension when aspect ratio > 2:1
+  ✅ **Save API returns `_clientId` mapping** — client maps temp IDs to real DB IDs post-save
+  ✅ **Save API accepts `inventoryLinks`** — atomic create/remove of ElementInventoryItem rows
 
 ## PHASE 3 — TRAINING (prev. Phase 3, unchanged)
 ✅ **Training modules / guides** — authored in admin, with step-by-step content, **photos** (upload) and **video links**
@@ -140,9 +161,8 @@ The model that links sections, tasks and knowledge into one followed-up loop.
 ---
 
 ## TECHNICAL DEBT / KNOWN ISSUES
-- Admin login uses `swiftPosId` field as login email identifier — to be replaced in Phase 2
-- No cron engine in Phase 1 — task scheduling is filtered on read, not generated in advance
+- No cron engine — task scheduling is filtered on read, not generated in advance
 - File uploads are local disk only — not suitable for multi-server deployments
 - No rate limiting on PIN login endpoint — to be added before public exposure
-- `react-konva` pinned to `18.2.16` (latest supporting React 18) — upgrade when Next.js supports React 19
-- React 18/19 conflict resolved via npm `overrides` in root `package.json` — remove overrides when Next.js supports React 19
+- `konva` + `react-konva` still in package.json (unused) — leftover from PixiJS migration, can be removed
+- npm overrides forcing React 18 in root `package.json` exist only for `react-konva` — remove overrides when konva packages are cleaned up

@@ -145,11 +145,27 @@ The full model and the build plan are documented in
 ### FLOOR PLANNER
 The app includes a to-scale venue floor plan editor for admins and a read-only view for
 staff. Go to **Admin → Floor Plan** to create a plan (set room dimensions in real cm),
-then use the interactive canvas to drag furniture/elements from the palette (walls, doors,
-tables, chairs, counters, bars, sinks, etc.), snap to grid, and assign sections and
-capacities. Staff see the plan on their phone at **Menu → Floor Plan**, with section-colour-
-coded elements and tap-for-details info. Multiple views per venue are supported (e.g.
-standard layout vs event mode).
+then use the interactive PixiJS canvas to drag furniture/elements from the palette (walls,
+doors, tables, chairs, counters, bars, sinks, etc.) onto a grid-snapped canvas. Tables and
+chairs can be pre-created in the **Inventory** module (FURNITURE category) and placed via
+the palette's INVENTORY section — once placed and saved, they're removed from the palette
+(used-once tracking). Features: zoom/pan, multi-select, zone drawing, per-corner rounding,
+bracket chairs, section assignment, capacities, undo/redo, and PDF export. Staff see the
+plan on their phone at **Menu → Floor Plan**, with section-colour-coded elements and
+tap-for-details info. Calendar events can link to a floor plan layout — workers
+auto-switch to the event layout with a banner notification. Multiple views per venue are
+supported (e.g. standard layout vs event mode).
+
+### INVENTORY + STOCKTAKE
+The app includes a full inventory management system. Go to **Admin → Inventory** to create
+categories (7 built-in + custom per venue) and items with par levels. The **INVENTORY**
+palette section in the floor plan editor lets you place furniture items (tables/chairs)
+directly from inventory onto the canvas — each furniture item can only be placed once
+per floor plan. **Admin → Stocktake** creates stock counts, assigns them to a role or
+staff member, and tracks variance on sign-off. Staff complete stocktakes on their phone
+at **Menu → Stocktake** with a scrollable count list. The dashboard shows par level
+alerts for items below threshold. The **STOCK** tab in the inventory page shows a
+hierarchy tree (Section → Table → Inventory Items).
 
 ---
 
