@@ -319,11 +319,11 @@ export function FloorPlanPixiCanvas({
       // Visual chairs around tables
       if (el.type === 'TABLE' && (el.chairCount ?? 0) > 0) {
         const cc = el.chairCount ?? 0
-        const chairStyle = ((el.style as any)?.chairStyle) ?? 'round'
+        const chairStyle = ((el.style as any)?.chairStyle) ?? 'bracket'
         const chairSides: string[] = ((el.style as any)?.chairSides) ?? ['top', 'bottom', 'left', 'right']
         const sides = chairSides.filter((s) => ['top', 'bottom', 'left', 'right'].includes(s))
         const countPerSide = sides.length > 0 ? Math.ceil(cc / sides.length) : 0
-        const chairR = 4 / pxScale; const chairGap = 2 / pxScale
+        const chairR = 4 / pxScale; const chairGap = (chairStyle === 'bracket' ? 5 : 2) / pxScale
         const edgeDefs: Record<string, { x1: number; y1: number; x2: number; y2: number }> = {
           top: { x1: chairR, y1: -chairR - chairGap, x2: el.width - chairR, y2: -chairR - chairGap },
           right: { x1: el.width + chairR + chairGap, y1: chairR, x2: el.width + chairR + chairGap, y2: el.depth - chairR },
@@ -338,9 +338,10 @@ export function FloorPlanPixiCanvas({
           if (len < 0.1) continue
           const ux = (sd.x2 - sd.x1) / len; const uy = (sd.y2 - sd.y1) / len
           if (chairStyle === 'bracket') {
-            // Bracket [ shape — line along edge + two short arms outward
+            // Bracket [ shape — line along edge + two short arms outward (extra gap)
             const bk = new PIXI.Graphics(); bk.lineStyle(sw2, 0x3A3A4A, 0.8)
-            const armLen = chairR * 1.5
+            const armLen = chairR * 2.5
+            // Use wider gap by offsetting edge positions further from table
             const perpX = side === 'top' || side === 'bottom' ? 0 : (side === 'left' ? 1 : -1)
             const perpY = side === 'top' ? 1 : (side === 'bottom' ? -1 : 0)
             // Main edge line

@@ -83,6 +83,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const containerRef = useRef<HTMLDivElement>(null)
   const nextIdCounter = useRef(1)
   const viewRef = useRef<ViewState>({ baseScale: 1, ox: 0, oy: 0, zoom: 1, panX: 0, panY: 0 })
+  const zdStartRef = useRef<{ x: number; y: number } | null>(null)
   const [zoomLevel, setZoomLevel] = useState(1)
   const [textScale, setTextScale] = useState(1)
 
@@ -557,29 +558,28 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             onZoneResize={(id, x, y, w, h) => setZones((prev) => prev.map((z) => z.id === id ? { ...z, x, y, width: w, height: h } : z))}
             onZoneDrawStart={(x, y) => {
               const gu = plan.gridUnit
-              setZoneDrawStart({ x: snap(x, gu), y: snap(y, gu) }); setZoneDrawRect(null); setSelectedZoneId(null)
+              const sx = snap(x, gu); const sy = snap(y, gu)
+              zdStartRef.current = { x: sx, y: sy }
+              setZoneDrawStart({ x: sx, y: sy }); setZoneDrawRect(null); setSelectedZoneId(null)
             }}
             onZoneDrawMove={(cx, cy) => {
-              setZoneDrawStart((prev) => {
-                if (!prev) return prev
-                const gu = plan.gridUnit
-                const sx = snap(cx, gu); const sy = snap(cy, gu)
-                setZoneDrawRect({ x: Math.min(prev.x, sx), y: Math.min(prev.y, sy), w: Math.abs(sx - prev.x), h: Math.abs(sy - prev.y) })
-                return prev
-              })
+              const s = zdStartRef.current
+              if (!s) return
+              const gu = plan.gridUnit
+              const sx = snap(cx, gu); const sy = snap(cy, gu)
+              setZoneDrawRect({ x: Math.min(s.x, sx), y: Math.min(s.y, sy), w: Math.abs(sx - s.x), h: Math.abs(sy - s.y) })
             }}
             onZoneDrawEnd={(cx, cy) => {
-              setZoneDrawStart((prev) => {
-                if (!prev) { setZoneDrawRect(null); return prev }
-                const gu = plan.gridUnit
-                const sx = snap(cx, gu); const sy = snap(cy, gu)
-                const w = Math.abs(sx - prev.x); const h = Math.abs(sy - prev.y)
-                if (w > gu && h > gu) {
-                  setZones((pz) => [...pz, { id: `zone_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, x: Math.min(prev.x, sx), y: Math.min(prev.y, sy), width: w, height: h, sectionId: zoneSectionId }])
-                }
-                setZoneDrawRect(null); setSelectedZoneId(null)
-                return null
-              })
+              const s = zdStartRef.current
+              zdStartRef.current = null
+              if (!s) { setZoneDrawRect(null); return }
+              const gu = plan.gridUnit
+              const sx = snap(cx, gu); const sy = snap(cy, gu)
+              const w = Math.abs(sx - s.x); const h = Math.abs(sy - s.y)
+              if (w > gu && h > gu) {
+                setZones((pz) => [...pz, { id: `zone_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, x: Math.min(s.x, sx), y: Math.min(s.y, sy), width: w, height: h, sectionId: zoneSectionId }])
+              }
+              setZoneDrawRect(null); setSelectedZoneId(null); setZoneDrawStart(null)
             }}
             textScale={textScale}
             onViewChange={(z) => setZoomLevel(z)}
@@ -722,7 +722,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     <>
                       <Input label="Chair Count" type="number" min="0" value={(selected.chairCount ?? 0).toString()}
                         onChange={(e) => updateElement(selected.id!, { chairCount: parseInt(e.target.value) || 0 })} />
-                      <Select label="Chair Style" value={((selected.style as any)?.chairStyle ?? 'round') as string}
+                      <Select label="Chair Style" value={((selected.style as any)?.chairStyle ?? 'bracket') as string}
                         onChange={(e) => updateElement(selected.id!, { style: { ...(selected.style ?? {}), chairStyle: e.target.value } })}
                         options={[{ value: 'round', label: 'ROUND' }, { value: 'bracket', label: 'BRACKET' }]} />
                       <p className="font-mono text-[10px] text-grey-light uppercase">Chairs On Sides</p>
