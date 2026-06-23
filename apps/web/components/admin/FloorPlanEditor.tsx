@@ -142,6 +142,18 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         for (const el of loadedElements) {
           for (const inv of el.inventoryItems ?? []) if (inv.itemId) usedIds.add(inv.itemId)
         }
+        // Match old elements without inventory links by properties
+        for (const el of loadedElements) {
+          if (!el.inventoryItems || el.inventoryItems.length === 0) {
+            const match = fiData.find((fi: any) =>
+              fi.furnitureType === el.type &&
+              fi.elementWidth === el.width &&
+              fi.elementDepth === el.depth &&
+              fi.defaultColour === el.fillColour
+            )
+            if (match) usedIds.add(match.id)
+          }
+        }
         setFurnitureItems(fiData.filter((fi: any) => !usedIds.has(fi.id)))
         if (fiData.length > 0 && !furnitureCatId) setFurnitureCatId(fiData[0].categoryId)
       }
@@ -180,8 +192,28 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     if (selectedIds.length === 0) return
     pushHistory()
     const idSet = new Set(selectedIds)
+    const deletedElements = elements.filter((e) => idSet.has(e.id!))
     setElements((prev) => prev.filter((e) => !idSet.has(e.id!)))
     setSelectedIds([])
+    // Eagerly re-add furniture items from deleted elements
+    const deletedItemIds = new Set<string>()
+    for (const el of deletedElements) {
+      if (el._furnitureItemId) deletedItemIds.add(el._furnitureItemId)
+      const invs: { itemId: string }[] = (el as any).inventoryItems ?? []
+      for (const inv of invs) if (inv.itemId) deletedItemIds.add(inv.itemId)
+    }
+    if (deletedItemIds.size > 0) {
+      fetch('/api/admin/inventory?furniture=true').then(async (r) => {
+        if (r.ok) {
+          const allFi = await r.json()
+          setFurnitureItems((prev) => {
+            const existingIds = new Set(prev.map((f: any) => f.id))
+            const toAdd = allFi.filter((f: any) => deletedItemIds.has(f.id) && !existingIds.has(f.id))
+            return toAdd.length > 0 ? [...prev, ...toAdd] : prev
+          })
+        }
+      })
+    }
   }
 
   function addFromPalette(item: PaletteItem, pos: { x: number; y: number }, furnItem?: any) {
@@ -244,9 +276,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       if (el._furnitureItemId) {
         inventoryLinks.push({ elementId: clientId, itemId: el._furnitureItemId as string, quantity: 1 })
       }
-      if (el._removeFurnitureId) {
-        inventoryLinks.push({ elementId: clientId, itemId: el._removeFurnitureId as string, remove: true })
-      }
       return { ...el, _clientId: clientId, id: isNew ? undefined : el.id }
     })
     const r = await fetch(`/api/admin/floorplan/${plan.id}/elements`, {
@@ -265,26 +294,21 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       setElements((prev) =>
         prev.map((el) => {
           const realId = clientToReal.get(el._clientId ?? el.id!)
-          if (realId && realId !== el.id) return { ...el, id: realId, _clientId: undefined, _furnitureItemId: undefined, _removeFurnitureId: undefined }
-          return { ...el, _clientId: undefined, _furnitureItemId: undefined, _removeFurnitureId: undefined }
+          if (realId && realId !== el.id) return { ...el, id: realId, _clientId: undefined, _furnitureItemId: undefined }
+          return { ...el, _clientId: undefined, _furnitureItemId: undefined }
         })
       )
-      // Remove newly-placed furniture items from palette
-      const placedIds = new Set(inventoryLinks.filter((l) => !l.remove).map((l) => l.itemId))
-      if (placedIds.size > 0) {
-        setFurnitureItems((prev) => prev.filter((fi) => !placedIds.has(fi.id)))
-      }
-      // Re-add removed furniture items to palette
-      const removedIds = new Set(inventoryLinks.filter((l) => l.remove).map((l) => l.itemId))
-      if (removedIds.size > 0) {
-        const furnRes = await fetch('/api/admin/inventory?furniture=true')
-        if (furnRes.ok) {
-          const allFi = await furnRes.json()
-          setFurnitureItems((prev) => {
-            const usedIds = new Set(prev.map((f: any) => f.id))
-            return [...prev, ...allFi.filter((f: any) => removedIds.has(f.id) && !usedIds.has(f.id))]
-          })
+      // Recompute palette from current elements
+      const furnRes = await fetch('/api/admin/inventory?furniture=true')
+      if (furnRes.ok) {
+        const allFi = await furnRes.json()
+        const currentUsedIds = new Set<string>()
+        for (const el of elements) {
+          if (el._furnitureItemId) currentUsedIds.add(el._furnitureItemId)
+          const invs: { itemId: string }[] = (el as any).inventoryItems ?? []
+          for (const inv of invs) if (inv.itemId) currentUsedIds.add(inv.itemId)
         }
+        setFurnitureItems(allFi.filter((fi: any) => !currentUsedIds.has(fi.id)))
       }
     }
     setSaving(false)
