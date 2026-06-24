@@ -20,30 +20,41 @@ export function InventoryClient() {
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<Item[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'items' | 'stock'>('items')
   const [stock, setStock] = useState<StockSection[]>([])
   const [stockLoading, setStockLoading] = useState(false)
-  const [addTable, setAddTable] = useState<string | null>(null)
-  const [addItemId, setAddItemId] = useState('')
-  const [addQty, setAddQty] = useState('1')
   const [filterCat, setFilterCat] = useState('')
-  const [showNewItem, setShowNewItem] = useState(false)
   const [showNewCat, setShowNewCat] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [newCat, setNewCat] = useState('')
-  const [newUnit, setNewUnit] = useState('EA')
-  const [newPar, setNewPar] = useState('0')
-  const [newTotalQty, setNewTotalQty] = useState('0')
-  const [newFurnitureType, setNewFurnitureType] = useState('')
-  const [newElemW, setNewElemW] = useState('80')
-  const [newElemD, setNewElemD] = useState('80')
-  const [newElemShape, setNewElemShape] = useState('RECTANGLE')
-  const [newDefaultColour, setNewDefaultColour] = useState('#555')
-  const [newDefaultChairCount, setNewDefaultChairCount] = useState('0')
   const [newCatName, setNewCatName] = useState('')
-  const [editing, setEditing] = useState<string | null>(null)
-  const [editName, setEditName] = useState('')
-  const [editTotalQty, setEditTotalQty] = useState('0')
+
+  // Property editor state
+  const [selectedItem, setSelectedItem] = useState<Item | null>(null)
+  const [isCreating, setIsCreating] = useState(false)
+  const [formName, setFormName] = useState('')
+  const [formCat, setFormCat] = useState('')
+  const [formUnit, setFormUnit] = useState('EA')
+  const [formPar, setFormPar] = useState('0')
+  const [formTotalQty, setFormTotalQty] = useState('0')
+  const [formFurnitureType, setFormFurnitureType] = useState('')
+  const [formElemW, setFormElemW] = useState('80')
+  const [formElemD, setFormElemD] = useState('80')
+  const [formElemShape, setFormElemShape] = useState('RECTANGLE')
+  const [formDefaultColour, setFormDefaultColour] = useState('#555')
+  const [formChairCount, setFormChairCount] = useState('0')
+
+  function resetForm() {
+    setFormName(''); setFormCat(''); setFormUnit('EA'); setFormPar('0'); setFormTotalQty('0')
+    setFormFurnitureType(''); setFormElemW('80'); setFormElemD('80'); setFormElemShape('RECTANGLE')
+    setFormDefaultColour('#555'); setFormChairCount('0')
+  }
+
+  function populateForm(item: Item) {
+    setFormName(item.name); setFormCat(item.categoryId); setFormUnit(item.unit)
+    setFormPar((item.defaultParLevel ?? 0).toString()); setFormTotalQty((item.totalQty ?? 0).toString())
+    setFormFurnitureType(item.furnitureType ?? '')
+    setFormElemW((item.elementWidth ?? 80).toString()); setFormElemD((item.elementDepth ?? 80).toString())
+    setFormElemShape(item.elementShape ?? 'RECTANGLE'); setFormDefaultColour(item.defaultColour ?? '#555')
+    setFormChairCount((item.defaultChairCount ?? 0).toString())
+  }
 
   async function load() {
     setLoading(true)
@@ -56,40 +67,47 @@ export function InventoryClient() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  async function loadStock() {
+    setStockLoading(true)
+    const r = await fetch('/api/admin/stock/hierarchy')
+    if (r.ok) setStock((await r.json()).sections)
+    setStockLoading(false)
+  }
 
-  async function addItem() {
-    const body: any = { name: newName, categoryId: newCat, unit: newUnit, defaultParLevel: parseInt(newPar) || 0, totalQty: parseInt(newTotalQty) || 0 }
-    const cat = categories.find((c) => c.id === newCat)
-    if (cat?.name === 'FURNITURE') {
-      body.furnitureType = (newFurnitureType || null) as string | null
-      body.elementWidth = parseFloat(newElemW) || null
-      body.elementDepth = parseFloat(newElemD) || null
-      body.elementShape = (newElemShape || null) as string | null
-      body.defaultColour = (newDefaultColour || null) as string | null
-      body.defaultChairCount = parseInt(newDefaultChairCount) || 0
+  useEffect(() => { load(); loadStock() }, [])
+
+  async function handleSave() {
+    const cat = categories.find((c) => c.id === formCat)
+    const body: any = {
+      name: (formName || 'ITEM').toUpperCase().trim(),
+      categoryId: formCat || categories[0]?.id,
+      unit: formUnit || 'EA',
+      defaultParLevel: parseInt(formPar) || 0,
+      totalQty: parseInt(formTotalQty) || 0,
     }
-    await fetch('/api/admin/inventory', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    setNewName(''); setNewCat(''); setNewUnit('EA'); setNewPar('0'); setNewTotalQty('0')
-    setNewFurnitureType(''); setNewElemW('80'); setNewElemD('80'); setNewElemShape('RECTANGLE')
-    setNewDefaultColour('#555'); setNewDefaultChairCount('0')
-    setShowNewItem(false)
-    load()
+    if (cat?.name === 'FURNITURE') {
+      body.furnitureType = formFurnitureType || null
+      body.elementWidth = parseFloat(formElemW) || null
+      body.elementDepth = parseFloat(formElemD) || null
+      body.elementShape = formElemShape || null
+      body.defaultColour = formDefaultColour || null
+      body.defaultChairCount = parseInt(formChairCount) || 0
+    }
+    if (isCreating) {
+      if (!body.name || !body.categoryId) return
+      const r = await fetch('/api/admin/inventory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      if (!r.ok) return
+    } else if (selectedItem) {
+      const r = await fetch(`/api/admin/inventory/${selectedItem.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      if (!r.ok) return
+    }
+    setSelectedItem(null); setIsCreating(false); resetForm(); load()
   }
 
   async function addCategory() {
-    const r = await fetch('/api/admin/inventory/categories', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newCatName }),
-    })
+    const r = await fetch('/api/admin/inventory/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName }) })
     if (!r.ok) { const d = await r.json(); alert(d.error); return }
-    setNewCatName(''); setShowNewCat(false)
-    load()
+    setNewCatName(''); setShowNewCat(false); load()
   }
 
   async function deleteCategory(id: string) {
@@ -100,233 +118,170 @@ export function InventoryClient() {
 
   async function deleteItem(id: string) {
     await fetch(`/api/admin/inventory/${id}`, { method: 'DELETE' })
-    load()
-  }
-
-  async function updatePar(id: string, par: number) {
-    await fetch(`/api/admin/inventory/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ defaultParLevel: par }),
-    })
+    if (selectedItem?.id === id) { setSelectedItem(null); setIsCreating(false); resetForm() }
     load()
   }
 
   const filtered = filterCat ? items.filter((i) => i.categoryId === filterCat) : items
+  const formCategory = categories.find((c) => c.id === formCat)
 
   if (loading) {
-    return <p className="font-mono text-sm text-grey-light loading-cursor">LOADING</p>
+    return <div className="p-8"><p className="font-mono text-sm text-grey-light loading-cursor">LOADING</p></div>
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">INVENTORY</h1>
         <div className="flex gap-2">
-          <button onClick={() => setTab('items')}
-            className={`font-mono text-[10px] uppercase px-2 py-1 border ${tab === 'items' ? 'border-white text-white' : 'border-grey-mid text-grey-light'}`}>
-            ITEMS
-          </button>
-          <button onClick={async () => { setTab('stock'); setStockLoading(true); const r = await fetch('/api/admin/stock/hierarchy'); if (r.ok) setStock(await r.json().then((d) => d.sections)); setStockLoading(false) }}
-            className={`font-mono text-[10px] uppercase px-2 py-1 border ${tab === 'stock' ? 'border-white text-white' : 'border-grey-mid text-grey-light'}`}>
-            STOCK
-          </button>
-          <Button size="sm" onClick={() => setShowNewCat(!showNewCat)} variant="ghost">NEW CATEGORY</Button>
-          <Button size="sm" onClick={() => setShowNewItem(!showNewItem)}>NEW ITEM</Button>
+          <Button size="sm" onClick={() => setShowNewCat(!showNewCat)} variant="ghost">+ CATEGORY</Button>
         </div>
       </div>
 
-      {tab === 'stock' ? (
-        <div className="space-y-3">
-          {stockLoading && <p className="font-mono text-xs text-grey-light">LOADING...</p>}
-          {!stockLoading && stock.length === 0 && <p className="font-mono text-xs text-grey-light">No stock hierarchy found. Create sections and place tables on floor plans first.</p>}
-          {!stockLoading && stock.map((sec) => (
-            <div key={sec.id} className="bg-grey-dark border border-grey-mid p-3">
-              <h3 className="font-mono text-xs font-bold text-white uppercase mb-2">{sec.name}</h3>
-              {sec.tables.length === 0 && <p className="font-mono text-[10px] text-grey-light italic ml-3">No tables in this section.</p>}
-              {sec.tables.map((tbl) => (
-                <div key={tbl.id} className="ml-3 border-l border-grey-mid pl-3 py-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[10px] text-white">{tbl.label}</span>
-                    <span className="font-mono text-[8px] text-grey-light">{tbl.width}×{tbl.depth} cm · {tbl.planName}</span>
-                    <button onClick={() => setAddTable(addTable === tbl.id ? null : tbl.id)}
-                      className="font-mono text-[8px] text-accent hover:text-white uppercase ml-auto">
-                      + ADD ITEM
-                    </button>
-                  </div>
-                  {addTable === tbl.id && (
-                    <div className="flex items-center gap-1 ml-2 mt-1 mb-1">
-                      <select value={addItemId} onChange={(e) => setAddItemId(e.target.value)}
-                        className="bg-grey-dark border border-grey-mid text-white font-mono text-[10px] p-1 flex-1">
-                        <option value="">SELECT ITEM</option>
-                        {items.filter((i) => i.category.name !== 'FURNITURE').map((i) => (
-                          <option key={i.id} value={i.id}>{i.name}</option>
-                        ))}
-                      </select>
-                      <input type="number" min="1" value={addQty} onChange={(e) => setAddQty(e.target.value)}
-                        className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-1 py-1 text-center" />
-                      <button onClick={async () => {
-                        if (!addItemId) return
-                        await fetch(`/api/admin/floorplan/${tbl.planId}/elements/${tbl.id}/inventory`, {
-                          method: 'PUT',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ assignments: [...tbl.inventoryItems.map((i) => ({ itemId: i.id, quantity: i.quantity })), { itemId: addItemId, quantity: parseInt(addQty) || 1 }] }),
-                        })
-                        setAddTable(null); setAddItemId(''); setAddQty('1')
-                        setStockLoading(true); const r = await fetch('/api/admin/stock/hierarchy'); if (r.ok) setStock((await r.json()).sections); setStockLoading(false)
-                      }}
-                        className="font-mono text-[8px] text-success hover:text-white uppercase border border-success px-1.5 py-0.5">
-                        OK
-                      </button>
-                    </div>
-                  )}
-                  {tbl.inventoryItems.length === 0 && <p className="font-mono text-[8px] text-grey-light ml-2 italic">No equipment linked.</p>}
-                  {tbl.inventoryItems.map((inv) => (
-                    <div key={inv.id} className="flex items-center gap-2 ml-2">
-                      <span className="font-mono text-[10px] text-grey-light">{inv.name}</span>
-                      <span className="font-mono text-[8px] text-accent">×{inv.quantity}</span>
-                      <button onClick={async () => {
-                        await fetch(`/api/admin/floorplan/${tbl.planId}/elements/${tbl.id}/inventory`, {
-                          method: 'PUT',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ assignments: tbl.inventoryItems.filter((i) => i.id !== inv.id).map((i) => ({ itemId: i.id, quantity: i.quantity })) }),
-                        })
-                        setStockLoading(true); const r = await fetch('/api/admin/stock/hierarchy'); if (r.ok) setStock((await r.json()).sections); setStockLoading(false)
-                      }}
-                        className="font-mono text-[8px] text-danger hover:text-white ml-auto">✕</button>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <>
       {showNewCat && (
-        <div className="bg-grey-dark border border-grey-mid p-4 space-y-3">
-          <h2 className="font-mono text-xs font-bold text-white uppercase">New Category</h2>
-          <div className="flex gap-2">
-            <Input value={newCatName} onChange={(e) => setNewCatName(e.target.value.toUpperCase())} placeholder="CATEGORY NAME" className="flex-1" />
-            <Button size="sm" onClick={addCategory} disabled={!newCatName}>CREATE</Button>
-          </div>
+        <div className="border border-grey-mid p-4 flex gap-2">
+          <Input value={newCatName} onChange={(e) => setNewCatName(e.target.value.toUpperCase())} placeholder="CATEGORY NAME" className="flex-1" />
+          <Button size="sm" onClick={addCategory} disabled={!newCatName}>CREATE</Button>
+          <Button size="sm" variant="ghost" onClick={() => setShowNewCat(false)}>CANCEL</Button>
         </div>
       )}
 
-      {showNewItem && (
-        <div className="bg-grey-dark border border-grey-mid p-4 space-y-3">
-          <h2 className="font-mono text-xs font-bold text-white uppercase">New Item</h2>
-          <Input value={newName} onChange={(e) => setNewName(e.target.value.toUpperCase())} placeholder="ITEM NAME" />
-          <div className="flex gap-2">
-            <Select value={newCat} onChange={(e) => setNewCat(e.target.value)}
-              options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="CATEGORY" className="flex-1" />
-            <Select value={newUnit} onChange={(e) => setNewUnit(e.target.value)}
-              options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} className="w-24" />
-            <Input type="number" value={newPar} onChange={(e) => setNewPar(e.target.value)} placeholder="PAR" className="w-20" />
-            <Input type="number" value={newTotalQty} onChange={(e) => setNewTotalQty(e.target.value)} placeholder="STOCK" className="w-20" />
+      {/* Two-column grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left: Stock Hierarchy Tree */}
+        <div className="lg:col-span-5">
+          <div className="border border-grey-mid p-4 h-full">
+            <h2 className="font-mono text-xs font-bold text-white uppercase mb-3">INVENTORY SUMMARY</h2>
+            {stockLoading && <p className="font-mono text-xs text-grey-light">LOADING...</p>}
+            {!stockLoading && stock.length === 0 && <p className="font-mono text-xs text-grey-light">No stock hierarchy found. Create sections and place tables on floor plans first.</p>}
+            {!stockLoading && stock.map((sec) => (
+              <div key={sec.id} className="mb-2">
+                <h3 className="font-mono text-[11px] font-bold text-accent uppercase">{sec.name}</h3>
+                {sec.tables.length === 0 && <p className="font-mono text-[9px] text-grey-light italic ml-3">No tables in this section.</p>}
+                {sec.tables.map((tbl) => (
+                  <div key={tbl.id} className="ml-3 border-l border-grey-mid pl-3 py-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[10px] text-white">{tbl.label}</span>
+                      <span className="font-mono text-[8px] text-grey-light">{tbl.width}×{tbl.depth} cm · {tbl.planName}</span>
+                    </div>
+                    {tbl.inventoryItems.length === 0 && <p className="font-mono text-[8px] text-grey-light ml-2 italic">No equipment linked.</p>}
+                    {tbl.inventoryItems.map((inv) => (
+                      <div key={inv.id} className="flex items-center gap-2 ml-2">
+                        <span className="font-mono text-[9px] text-grey-light">{inv.name}</span>
+                        <span className="font-mono text-[8px] text-accent">×{inv.quantity}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
-          {categories.find((c) => c.id === newCat)?.name === 'FURNITURE' && (
-            <div className="border-t border-grey-mid pt-3 space-y-2">
-              <p className="font-mono text-[10px] text-grey-light uppercase">Furniture Template</p>
-              <div className="flex gap-2">
-                <Select value={newFurnitureType} onChange={(e) => setNewFurnitureType(e.target.value)}
-                  options={[{ value: 'TABLE', label: 'TABLE' }, { value: 'CHAIR', label: 'CHAIR' }]} placeholder="TYPE" className="flex-1" />
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <Input label="W (cm)" type="number" value={newElemW} onChange={(e) => setNewElemW(e.target.value)} />
-                <Input label="D (cm)" type="number" value={newElemD} onChange={(e) => setNewElemD(e.target.value)} />
-                <Select label="Shape" value={newElemShape} onChange={(e) => setNewElemShape(e.target.value)}
-                  options={[{ value: 'RECTANGLE', label: 'RECT' }, { value: 'CIRCLE', label: 'CIRCLE' }]} />
-              </div>
-              <div className="flex gap-2">
-                <Input label="Colour" value={newDefaultColour} onChange={(e) => setNewDefaultColour(e.target.value)} placeholder="#555" />
-                {newFurnitureType === 'TABLE' && (
-                  <Input label="Default Chairs" type="number" value={newDefaultChairCount} onChange={(e) => setNewDefaultChairCount(e.target.value)} />
-                )}
+        </div>
+
+        {/* Right: Item List + Property Editor */}
+        <div className="lg:col-span-7 flex flex-col gap-6">
+          {/* Top: Item List */}
+          <div className="border border-grey-mid p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-mono text-xs font-bold text-white uppercase">STANDARD STOCK</h2>
+              <div className="flex items-center gap-2">
+                <Select value={filterCat} onChange={(e) => setFilterCat(e.target.value)}
+                  options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="ALL CATEGORIES" />
+                <Button size="sm" onClick={() => { setSelectedItem(null); setIsCreating(true); resetForm() }}>+ ADD ITEM</Button>
               </div>
             </div>
-          )}
-          <Button size="sm" onClick={addItem} disabled={!newName || !newCat}>CREATE</Button>
-        </div>
-      )}
+            <div className="space-y-0">
+              {filtered.length === 0 && <p className="font-mono text-xs text-grey-light py-2">No items yet.</p>}
+              {filtered.map((item) => {
+                const isFurniture = item.furnitureType != null
+                return (
+                  <div key={item.id} className={`flex items-center gap-3 py-2 border-b border-grey-mid last:border-0 ${selectedItem?.id === item.id ? 'bg-grey-mid/20 -mx-4 px-4' : ''}`}>
+                    {isFurniture && item.defaultColour && (
+                      <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.defaultColour }} />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <span className="font-mono text-xs text-white block truncate">{item.name}</span>
+                      <span className="font-mono text-[10px] text-grey-light">{item.category.name}</span>
+                      {isFurniture && (
+                        <span className="font-mono text-[10px] text-accent ml-2">
+                          {item.furnitureType} {item.elementWidth}×{item.elementDepth}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 text-right flex-shrink-0">
+                      <span className="font-mono text-[10px] text-grey-light w-12">QTY: {item.totalQty ?? 0}</span>
+                      {isFurniture && <span className="font-mono text-[10px] text-accent w-12">AVAIL: {item.totalQty ?? 0}</span>}
+                      <button onClick={() => { setSelectedItem(item); setIsCreating(false); populateForm(item) }}
+                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase">E</button>
+                      <button onClick={() => deleteItem(item.id)}
+                        className="font-mono text-[10px] text-danger hover:text-white">D</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
 
-      <div className="space-y-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-mono text-[10px] text-grey-light uppercase">Filter:</span>
-          <button onClick={() => setFilterCat('')}
-            className={`font-mono text-[10px] uppercase px-2 py-1 border ${!filterCat ? 'border-white text-white' : 'border-grey-mid text-grey-light'}`}>ALL</button>
-          {categories.map((c) => (
-            <button key={c.id} onClick={() => setFilterCat(c.id)}
-              className={`font-mono text-[10px] uppercase px-2 py-1 border ${filterCat === c.id ? 'border-white text-white' : 'border-grey-mid text-grey-light'}`}>
-              {c.name}{c.isBuiltIn ? '' : ' ★'}
-            </button>
-          ))}
-        </div>
-      </div>
+          {/* Bottom: Property Editor */}
+          <div className="border border-grey-mid p-4">
+            <h2 className="font-mono text-xs font-bold text-white uppercase mb-3">PROPERTIES</h2>
 
-      <div className="space-y-1">
-        {filtered.length === 0 && <p className="font-mono text-xs text-grey-light">No items yet.</p>}
-        {filtered.map((item) => {
-          const isFurniture = item.furnitureType != null
-          return (
-            <div key={item.id} className="flex items-center gap-3 bg-grey-dark border border-grey-mid p-2">
-              {isFurniture && item.defaultColour && (
-                <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.defaultColour }} />
-              )}
-              <div className="flex-1 min-w-0">
-                <span className="font-mono text-xs text-white truncate">{item.name}</span>
-                <span className="font-mono text-[10px] text-grey-light ml-2">{item.category.name}</span>
-                {isFurniture && (
-                  <span className="font-mono text-[10px] text-accent ml-2">
-                    {item.furnitureType} {item.elementWidth}×{item.elementDepth}
-                    {item.furnitureType === 'TABLE' && item.defaultChairCount ? ` · ${item.defaultChairCount} chairs` : ''}
-                  </span>
-                )}
-              </div>
-              <span className="font-mono text-[10px] text-grey-light w-10 text-right">{item.unit}</span>
-              {editing === item.id ? (
-                <div className="flex items-center gap-1">
-                  <Input type="number" value={editName} onChange={(e) => setEditName(e.target.value)}
-                    className="w-12 h-7 text-[10px]" />
-                  <Input type="number" value={editTotalQty} onChange={(e) => setEditTotalQty(e.target.value)}
-                    className="w-12 h-7 text-[10px]" />
-                  <button onClick={() => {
-                    fetch(`/api/admin/inventory/${item.id}`, {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ defaultParLevel: parseInt(editName) || 0, totalQty: parseInt(editTotalQty) || 0 }),
-                    }).then(() => { setEditing(null); load() })
-                  }}
-                    className="font-mono text-[10px] text-success">OK</button>
+            {!selectedItem && !isCreating ? (
+              <p className="font-mono text-xs text-grey-light italic">SELECT AN ITEM TO EDIT PROPERTIES</p>
+            ) : (
+              <div className="space-y-3">
+                <Input label="NAME" value={formName} onChange={(e) => setFormName(e.target.value.toUpperCase())} placeholder="ITEM NAME" />
+                <div className="grid grid-cols-3 gap-2">
+                  <Select label="CATEGORY" value={formCat} onChange={(e) => setFormCat(e.target.value)}
+                    options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="CATEGORY" />
+                  <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
+                    options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
+                  <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
                 </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <button onClick={() => { setEditing(item.id); setEditName(item.defaultParLevel.toString()); setEditTotalQty((item.totalQty ?? 0).toString()) }}
-                    className="font-mono text-[10px] text-grey-light hover:text-white">
-                    PAR: {item.defaultParLevel || '-'}
-                  </button>
-                  {isFurniture && (
-                    <span className="font-mono text-[10px] text-grey-light">STOCK: {item.totalQty ?? 0}</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
+                </div>
+
+                {formCategory?.name === 'FURNITURE' && (
+                  <div className="border-t border-grey-mid pt-3 space-y-2">
+                    <p className="font-mono text-[10px] text-grey-light uppercase">Furniture Template</p>
+                    <Select label="TYPE" value={formFurnitureType} onChange={(e) => setFormFurnitureType(e.target.value)}
+                      options={[{ value: 'TABLE', label: 'TABLE' }, { value: 'CHAIR', label: 'CHAIR' }]} placeholder="TYPE" />
+                    <div className="grid grid-cols-3 gap-2">
+                      <Input label="W (cm)" type="number" value={formElemW} onChange={(e) => setFormElemW(e.target.value)} />
+                      <Input label="D (cm)" type="number" value={formElemD} onChange={(e) => setFormElemD(e.target.value)} />
+                      <Select label="SHAPE" value={formElemShape} onChange={(e) => setFormElemShape(e.target.value)}
+                        options={[{ value: 'RECTANGLE', label: 'RECT' }, { value: 'CIRCLE', label: 'CIRCLE' }]} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input label="COLOUR" value={formDefaultColour} onChange={(e) => setFormDefaultColour(e.target.value)} placeholder="#555" />
+                      {formFurnitureType === 'TABLE' && (
+                        <Input label="CHAIRS" type="number" value={formChairCount} onChange={(e) => setFormChairCount(e.target.value)} />
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <Button size="sm" onClick={handleSave} disabled={!formName || !formCat}>
+                    {isCreating ? 'CREATE' : 'SAVE PROPERTIES'}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setSelectedItem(null); setIsCreating(false); resetForm() }}>CANCEL</Button>
+                  {selectedItem && selectedItem.furnitureType != null && (
+                    <Button size="sm" variant="ghost" onClick={async () => {
+                      await fetch(`/api/admin/inventory/${selectedItem.id}/duplicate`, { method: 'POST' }); load()
+                    }}>DUPLICATE</Button>
                   )}
                 </div>
-              )}
-              {isFurniture && (
-                <button onClick={async () => {
-                  await fetch(`/api/admin/inventory/${item.id}/duplicate`, { method: 'POST' })
-                  load()
-                }}
-                  className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-1.5 py-0.5">
-                  DUPLICATE
-                </button>
-              )}
-              <button onClick={() => deleteItem(item.id)}
-                className="font-mono text-[10px] text-danger hover:text-white">✕</button>
-            </div>
-          )
-        })}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      <div className="border-t border-grey-mid pt-4">
+      {/* Categories */}
+      <div className="border border-grey-mid p-4">
         <h2 className="font-mono text-xs font-bold text-white uppercase mb-2">CATEGORIES</h2>
         <div className="flex flex-wrap gap-2">
           {categories.map((c) => (
@@ -341,10 +296,7 @@ export function InventoryClient() {
             </div>
           ))}
         </div>
-        <p className="font-mono text-[10px] text-grey-light mt-2">★ = custom category</p>
       </div>
-      </>
-      )}
     </div>
   )
 }
