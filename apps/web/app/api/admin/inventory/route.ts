@@ -18,10 +18,11 @@ export async function GET(req: NextRequest) {
 
   const items = await prisma.inventoryItem.findMany({
     where,
-    include: { category: true },
+    include: { category: true, _count: { select: { elements: true } } },
     orderBy: { name: 'asc' },
   })
-  return NextResponse.json(items)
+  const result = items.map(({ _count, ...item }) => ({ ...item, placedCount: _count.elements }))
+  return NextResponse.json(result)
 }
 
 export async function POST(req: NextRequest) {

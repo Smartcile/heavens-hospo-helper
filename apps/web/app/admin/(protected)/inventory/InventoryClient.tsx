@@ -7,7 +7,7 @@ import { Select } from '@/components/ui/Select'
 
 interface Category { id: string; name: string; isBuiltIn: boolean; venueId: string | null }
 interface Item {
-  id: string; name: string; categoryId: string; unit: string; defaultParLevel: number; totalQty: number; category: Category
+  id: string; name: string; categoryId: string; unit: string; defaultParLevel: number; totalQty: number; placedCount: number; category: Category
   furnitureType?: string | null; elementWidth?: number | null; elementDepth?: number | null
   elementShape?: string | null; defaultColour?: string | null; defaultChairCount?: number
 }
@@ -22,11 +22,11 @@ export function InventoryClient() {
   const [loading, setLoading] = useState(true)
   const [stock, setStock] = useState<StockSection[]>([])
   const [stockLoading, setStockLoading] = useState(false)
-  const [filterCat, setFilterCat] = useState('')
+  const [activeCat, setActiveCat] = useState('')
   const [showNewCat, setShowNewCat] = useState(false)
   const [newCatName, setNewCatName] = useState('')
 
-  // Property editor state
+  // Property editor
   const [selectedItem, setSelectedItem] = useState<Item | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [formName, setFormName] = useState('')
@@ -113,6 +113,7 @@ export function InventoryClient() {
   async function deleteCategory(id: string) {
     const r = await fetch(`/api/admin/inventory/categories/${id}`, { method: 'DELETE' })
     if (!r.ok) { const d = await r.json(); alert(d.error); return }
+    if (activeCat === id) setActiveCat('')
     load()
   }
 
@@ -122,8 +123,10 @@ export function InventoryClient() {
     load()
   }
 
-  const filtered = filterCat ? items.filter((i) => i.categoryId === filterCat) : items
+  const filtered = activeCat ? items.filter((i) => i.categoryId === activeCat) : items
   const formCategory = categories.find((c) => c.id === formCat)
+  const activeCategory = categories.find((c) => c.id === activeCat)
+  const isFurnitureCat = activeCategory?.name === 'FURNITURE'
 
   if (loading) {
     return <div className="p-8"><p className="font-mono text-sm text-grey-light loading-cursor">LOADING</p></div>
@@ -149,9 +152,27 @@ export function InventoryClient() {
 
       {/* Two-column grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Stock Hierarchy Tree */}
-        <div className="lg:col-span-5">
-          <div className="border border-grey-mid p-4 h-full">
+        {/* Left column: Categories + Inventory Summary */}
+        <div className="lg:col-span-3 flex flex-col gap-6">
+          {/* Categories nav */}
+          <div className="border border-grey-mid p-4">
+            <h2 className="font-mono text-xs font-bold text-white uppercase mb-2">CATEGORIES</h2>
+            <div className="space-y-0.5">
+              <button onClick={() => setActiveCat('')}
+                className={`font-mono text-[10px] uppercase w-full text-left px-2 py-1 border transition-colors ${!activeCat ? 'border-white text-white bg-grey-mid/20' : 'border-transparent text-grey-light hover:text-white hover:border-grey-mid'}`}>
+                ALL ITEMS
+              </button>
+              {categories.map((c) => (
+                <button key={c.id} onClick={() => setActiveCat(c.id)}
+                  className={`font-mono text-[10px] uppercase w-full text-left px-2 py-1 border transition-colors ${activeCat === c.id ? 'border-white text-white bg-grey-mid/20' : 'border-transparent text-grey-light hover:text-white hover:border-grey-mid'}`}>
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Inventory Summary tree */}
+          <div className="border border-grey-mid p-4">
             <h2 className="font-mono text-xs font-bold text-white uppercase mb-3">INVENTORY SUMMARY</h2>
             {stockLoading && <p className="font-mono text-xs text-grey-light">LOADING...</p>}
             {!stockLoading && stock.length === 0 && <p className="font-mono text-xs text-grey-light">No stock hierarchy found. Create sections and place tables on floor plans first.</p>}
@@ -179,43 +200,51 @@ export function InventoryClient() {
           </div>
         </div>
 
-        {/* Right: Item List + Property Editor */}
-        <div className="lg:col-span-7 flex flex-col gap-6">
-          {/* Top: Item List */}
+        {/* Right column: Item list + Property editor */}
+        <div className="lg:col-span-9 flex flex-col gap-6">
+          {/* Top: Item list */}
           <div className="border border-grey-mid p-4">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="font-mono text-xs font-bold text-white uppercase">STANDARD STOCK</h2>
-              <div className="flex items-center gap-2">
-                <Select value={filterCat} onChange={(e) => setFilterCat(e.target.value)}
-                  options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="ALL CATEGORIES" />
-                <Button size="sm" onClick={() => { setSelectedItem(null); setIsCreating(true); resetForm() }}>+ ADD ITEM</Button>
-              </div>
+              <h2 className="font-mono text-xs font-bold text-white uppercase">
+                {isFurnitureCat ? 'FURNITURE STOCK' : activeCat ? 'CATEGORY STOCK' : 'STANDARD STOCK'}
+              </h2>
+              <Button size="sm" onClick={() => {
+                setSelectedItem(null); setIsCreating(true); resetForm()
+                if (activeCat) setFormCat(activeCat)
+              }}>
+                {isFurnitureCat ? '+ ADD TABLE' : '+ ADD ITEM'}
+              </Button>
             </div>
             <div className="space-y-0">
               {filtered.length === 0 && <p className="font-mono text-xs text-grey-light py-2">No items yet.</p>}
               {filtered.map((item) => {
                 const isFurniture = item.furnitureType != null
+                const avail = Math.max(0, (item.totalQty ?? 0) - (item.placedCount ?? 0))
+                const rowSelected = selectedItem?.id === item.id
                 return (
-                  <div key={item.id} className={`flex items-center gap-3 py-2 border-b border-grey-mid last:border-0 ${selectedItem?.id === item.id ? 'bg-grey-mid/20 -mx-4 px-4' : ''}`}>
+                  <div key={item.id} className={`flex items-center gap-3 py-2 border-b border-grey-mid last:border-0 ${rowSelected ? 'bg-grey-mid/20 -mx-4 px-4' : ''}`}>
                     {isFurniture && item.defaultColour && (
                       <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.defaultColour }} />
                     )}
                     <div className="flex-1 min-w-0">
                       <span className="font-mono text-xs text-white block truncate">{item.name}</span>
-                      <span className="font-mono text-[10px] text-grey-light">{item.category.name}</span>
                       {isFurniture && (
-                        <span className="font-mono text-[10px] text-accent ml-2">
+                        <span className="font-mono text-[10px] text-accent">
                           {item.furnitureType} {item.elementWidth}×{item.elementDepth}
                         </span>
                       )}
                     </div>
                     <div className="flex items-center gap-3 text-right flex-shrink-0">
-                      <span className="font-mono text-[10px] text-grey-light w-12">QTY: {item.totalQty ?? 0}</span>
-                      {isFurniture && <span className="font-mono text-[10px] text-accent w-12">AVAIL: {item.totalQty ?? 0}</span>}
+                      <span className="font-mono text-[10px] text-grey-light w-10">QTY {item.totalQty ?? 0}</span>
+                      {isFurniture && (
+                        <span className={`font-mono text-[10px] w-10 ${avail > 0 ? 'text-accent' : 'text-danger'}`}>
+                          AVAIL {avail}
+                        </span>
+                      )}
                       <button onClick={() => { setSelectedItem(item); setIsCreating(false); populateForm(item) }}
-                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase">E</button>
+                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-1.5 py-0.5">E</button>
                       <button onClick={() => deleteItem(item.id)}
-                        className="font-mono text-[10px] text-danger hover:text-white">D</button>
+                        className="font-mono text-[10px] text-danger hover:text-white border border-grey-mid px-1.5 py-0.5">D</button>
                     </div>
                   </div>
                 )
@@ -223,44 +252,71 @@ export function InventoryClient() {
             </div>
           </div>
 
-          {/* Bottom: Property Editor */}
+          {/* Bottom: Property editor */}
           <div className="border border-grey-mid p-4">
             <h2 className="font-mono text-xs font-bold text-white uppercase mb-3">PROPERTIES</h2>
 
             {!selectedItem && !isCreating ? (
-              <p className="font-mono text-xs text-grey-light italic">SELECT AN ITEM TO EDIT PROPERTIES</p>
+              <p className="font-mono text-xs text-grey-light italic">SELECT AN ITEM OR CLICK ADD TO EDIT PROPERTIES</p>
             ) : (
               <div className="space-y-3">
-                <Input label="NAME" value={formName} onChange={(e) => setFormName(e.target.value.toUpperCase())} placeholder="ITEM NAME" />
-                <div className="grid grid-cols-3 gap-2">
-                  <Select label="CATEGORY" value={formCat} onChange={(e) => setFormCat(e.target.value)}
-                    options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="CATEGORY" />
-                  <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
-                    options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
-                  <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
+                {/* Row 1 */}
+                <div className="grid grid-cols-6 gap-2">
+                  <div className="col-span-4">
+                    <Input label="NAME" value={formName} onChange={(e) => setFormName(e.target.value.toUpperCase())} placeholder="ITEM NAME" />
+                  </div>
+                  <div className="col-span-2">
+                    <Select label="CATEGORY" value={formCat} onChange={(e) => setFormCat(e.target.value)}
+                      options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="CATEGORY" />
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
+                {/* Row 2 */}
+                <div className="grid grid-cols-6 gap-2">
+                  <div className="col-span-2">
+                    <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
+                      options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
+                  </div>
+                  <div className="col-span-2">
+                    <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
+                  </div>
+                  <div className="col-span-2">
+                    <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
+                  </div>
                 </div>
 
+                {/* Row 3 — furniture template */}
                 {formCategory?.name === 'FURNITURE' && (
-                  <div className="border-t border-grey-mid pt-3 space-y-2">
-                    <p className="font-mono text-[10px] text-grey-light uppercase">Furniture Template</p>
-                    <Select label="TYPE" value={formFurnitureType} onChange={(e) => setFormFurnitureType(e.target.value)}
-                      options={[{ value: 'TABLE', label: 'TABLE' }, { value: 'CHAIR', label: 'CHAIR' }]} placeholder="TYPE" />
-                    <div className="grid grid-cols-3 gap-2">
-                      <Input label="W (cm)" type="number" value={formElemW} onChange={(e) => setFormElemW(e.target.value)} />
-                      <Input label="D (cm)" type="number" value={formElemD} onChange={(e) => setFormElemD(e.target.value)} />
-                      <Select label="SHAPE" value={formElemShape} onChange={(e) => setFormElemShape(e.target.value)}
-                        options={[{ value: 'RECTANGLE', label: 'RECT' }, { value: 'CIRCLE', label: 'CIRCLE' }]} />
+                  <>
+                    <div className="border-t border-grey-mid pt-3">
+                      <p className="font-mono text-[10px] text-grey-light uppercase mb-2">FURNITURE TEMPLATE</p>
+                      <div className="grid grid-cols-6 gap-2">
+                        <div className="col-span-2">
+                          <Select label="TYPE" value={formFurnitureType} onChange={(e) => setFormFurnitureType(e.target.value)}
+                            options={[{ value: 'TABLE', label: 'TABLE' }, { value: 'CHAIR', label: 'CHAIR' }]} placeholder="TYPE" />
+                        </div>
+                        <div className="col-span-2">
+                          <Select label="SHAPE" value={formElemShape} onChange={(e) => setFormElemShape(e.target.value)}
+                            options={[{ value: 'RECTANGLE', label: 'RECT' }, { value: 'CIRCLE', label: 'CIRCLE' }]} />
+                        </div>
+                        <div className="col-span-1">
+                          <Input label="W CM" type="number" value={formElemW} onChange={(e) => setFormElemW(e.target.value)} />
+                        </div>
+                        <div className="col-span-1">
+                          <Input label="D CM" type="number" value={formElemD} onChange={(e) => setFormElemD(e.target.value)} />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-6 gap-2 mt-2">
+                        <div className="col-span-2">
+                          <Input label="COLOUR" value={formDefaultColour} onChange={(e) => setFormDefaultColour(e.target.value)} placeholder="#555" />
+                        </div>
+                        {formFurnitureType === 'TABLE' && (
+                          <div className="col-span-2">
+                            <Input label="CHAIRS" type="number" value={formChairCount} onChange={(e) => setFormChairCount(e.target.value)} />
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Input label="COLOUR" value={formDefaultColour} onChange={(e) => setFormDefaultColour(e.target.value)} placeholder="#555" />
-                      {formFurnitureType === 'TABLE' && (
-                        <Input label="CHAIRS" type="number" value={formChairCount} onChange={(e) => setFormChairCount(e.target.value)} />
-                      )}
-                    </div>
-                  </div>
+                  </>
                 )}
 
                 <div className="flex gap-2 pt-2">
@@ -277,24 +333,6 @@ export function InventoryClient() {
               </div>
             )}
           </div>
-        </div>
-      </div>
-
-      {/* Categories */}
-      <div className="border border-grey-mid p-4">
-        <h2 className="font-mono text-xs font-bold text-white uppercase mb-2">CATEGORIES</h2>
-        <div className="flex flex-wrap gap-2">
-          {categories.map((c) => (
-            <div key={c.id} className="flex items-center gap-1 bg-grey-dark border border-grey-mid px-2 py-1">
-              <span className="font-mono text-[10px] text-white">{c.name}</span>
-              {c.isBuiltIn ? (
-                <span className="font-mono text-[8px] text-grey-light">(BUILT-IN)</span>
-              ) : (
-                <button onClick={() => deleteCategory(c.id)}
-                  className="font-mono text-[10px] text-danger hover:text-white ml-1">✕</button>
-              )}
-            </div>
-          ))}
         </div>
       </div>
     </div>
