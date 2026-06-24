@@ -487,7 +487,28 @@ staffId). So once anyone ticks a job it's done for the team (the list shows "BY
 <name>"), preventing double-ups. Personally-assigned tasks still show, tagged
 `FOR <name>`, but anyone can complete them.
 
-### Task templates (Phase 2)
+### Budget (Phase 4, built)
+Weighted multi-category monthly budget tool with department-linked breakdowns.
+
+**Models (4):** `BudgetPeriod` (venueId, year, month, totalBudget, dailyWeights Json), `BudgetCategory` (name, percentage, optional departmentId), `BudgetDay` (date @db.Date, isWorkingDay), `BudgetDayAllocation` (amount, note). Categories link to departments via `departmentId String?` with `'__venue__'` sentinel for venue-wide items. REVENUE is a special-cased category at 100% — always present, never removable. Soft-delete on BudgetPeriod and BudgetCategory.
+
+**Math engine (`lib/budget-math.ts`):** `generateDailyBudgetsNormalized(totalBudget, categories, dailyWeights, days, existingAllocations?)` — normalizes weekday weight profile against actual working days in the month, rounds per-day REVENUE to nearest $500, and applies post-rounding correction (never under budget). `computeBreakdowns(result, breakdownCategories)` takes the REVENUE-only result and computes sub-amounts per category as `revenue × cat%` rounded $500. `BreakdownInput`, `DailyBudgetWithBreakdowns`, `BudgetMathResultWithBreakdowns` types are exported.
+
+**API routes:**
+- `GET /api/admin/budget?year=&month=&venueId=` — returns `{ period }` with allocations flattened, or `{ period: null, defaults: { categories } }` when empty — defaults auto-copied from most recent period WITH categories (`categories.some` filter skips empty periods)
+- `POST /api/admin/budget` — create/upsert period + generate BudgetDay rows for all calendar days via `monthDays()`
+- `PUT /api/admin/budget/[id]` — bulk save via `$transaction`: upserts categories (by id with `deletedAt` restore), updates day working flags, upserts BudgetDayAllocation (by `budgetDayId_budgetCategoryId` composite key). Sanitises `departmentId`: `'__venue__'` and `''` → `null` before DB to avoid FK constraint violations
+- `DELETE /api/admin/budget/[id]` — soft-delete via `deletedAt`
+- `POST /api/admin/budget/sync-breakdowns` — receives `{ venueId, sourceCategories }`, iterates all periods for venue, upserts categories by name match, soft-deletes unmatched
+
+**Components:**
+- `BudgetMonthSelector` — dual variant: `grid` (12-month 3×4 CSS grid + year toggle for `/admin/budget`) and `compact` (slim `[←] MON YEAR [→]` + `VIEW ALL MONTHS` button for `/admin/budget/[year]/[month]`). Venue selector at top, auto-defaults to first venue for admins.
+- `BudgetSetupPanel` — 2-column dashboard: left = ALLOCATION (total budget, REVENUE locked at 100%, indented breakdown rows with department Select + `VENUE` option, auto-REMAINDER read-only row, progress bar); right = DAILY WEIGHTING (MON-SUN with 100% validation bar) + SUMMARY (TARGET/ALLOCATED/VARIANCE stats + GENERATE/SAVE/DELETE buttons). `↻ SYNC BREAKDOWNS` pushes categories to all venue months.
+- `BudgetDailyGrid` — ISO week grouping into `lg:grid-cols-2` card grid. Week headers show date range + summed total. Single editable REVENUE input per day (no NOTE). Inline read-only breakdown text `BEV: $945 | REM: $2,205`. State lifted to parent — edits update `allocations` → stats recompute in SUMMARY panel.
+- `BudgetPageClient` — state coordinator. Computes `budgetStats` from `allocations` state. Manages venue selection, API load/save/delete/generate/sync flows.
+- `BudgetLandingClient` — client wrapper for landing page, fetches venues, renders grid variant.
+
+
 `TaskTemplate` + `TaskTemplateItem` hold reusable SOP task sets. Built-in
 templates are seeded with `isBuiltIn: true` / `venueId: null` (global, read-only
 in the UI). Custom templates are venue-scoped. Applying a template
@@ -507,12 +528,178 @@ tasks into a new template. Admin UI lives at `/admin/templates`.
 - Components: `PascalCase.tsx`
 - Client components: always marked `'use client'`
 
+## DOS-MODERN DESIGN SYSTEM
+
+The app uses a custom dark-mode monospace aesthetic. All new UI should follow these
+established patterns from the budget module (the most complete reference implementation).
+
+### Color tokens (from Tailwind config)
+
+| Token | Hex | Usage |
+|-------|-----|-------|
+| `grey-dark` | `#1A1A1A` | Card backgrounds, input backgrounds |
+| `grey-mid` | `#2E2E2E` | Borders, dividers |
+| `grey-light` | `#6B6B6B` | Labels, muted text, placeholders |
+| `accent` | `#E8E8E8` | Hover states |
+| `success` | `#4ADE80` | Confirmation, 100% bars, zero variance |
+| `danger` | `#F87171` | Errors, over-budget, over-100% |
+| `white` | `#FFFFFF` | Primary text, active states |
+| `black` | `#000000` | Page background, table backgrounds |
+
+### Typography
+
+```
+Headings:   font-mono text-xl font-bold uppercase tracking-widest
+Subheads:   font-mono text-xs uppercase text-grey-light tracking-wider
+Body:       font-mono text-xs text-white
+Labels:     font-mono text-xs uppercase text-grey-light
+Numbers:    font-mono text-lg text-white (stats) / font-mono text-xs text-white (inputs)
+Messages:   font-mono text-xs text-success (positive) / text-danger (negative)
+Placeholder: font-mono text-xs text-grey-light (or font-sans for note fields)
+Buttons:    font-mono font-semibold uppercase tracking-wider
+```
+
+### Input fields
+
+```
+Base:       bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none
+Focus:      focus:border-white
+Disabled:   disabled:opacity-40
+Number:     text-right (for alignment)
+Placeholder: placeholder:text-grey-light
+Select:     Matches inputs — use className overrides for font-mono text-xs px-2 py-1.5
+```
+
+### Button variants (from `@/components/ui/Button`)
+
+| Variant | Classes | Use |
+|---------|---------|-----|
+| `primary` | `bg-white text-black border border-white` | Main action (GENERATE GRID, SAVE) |
+| `ghost` | `bg-transparent text-white border border-grey-mid hover:border-white` | Secondary action (SAVE, + ADD, ↻ SYNC) |
+| `danger` | `bg-transparent text-danger border border-danger hover:bg-danger hover:text-black` | Destructive (DELETE, ✕) |
+
+Sizes: `sm` (text-xs px-3 py-1.5), `md` (text-sm px-4 py-2 — default), `lg` (text-base px-6 py-3)
+
+### Layout patterns
+
+**2-column dashboard** — use for setup/configuration pages:
+```
+<div className="border border-grey-mid p-4">
+  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div>LEFT COLUMN</div>
+    <div>RIGHT COLUMN</div>
+  </div>
+</div>
+```
+
+**Section boxes:**
+```
+<div className="border border-grey-mid p-4 space-y-4">
+  <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">SECTION NAME</h3>
+  ...content...
+</div>
+```
+
+**Summary stats** — 3-column mini-grid inside a bordered box:
+```
+<div className="border border-grey-mid p-3 space-y-3">
+  <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">SUMMARY</h3>
+  <div className="grid grid-cols-3 gap-3">
+    <div>
+      <div className="font-mono text-xs uppercase text-grey-light mb-0.5">LABEL</div>
+      <div className="font-mono text-sm text-white">VALUE</div>
+    </div>
+    ...
+  </div>
+</div>
+```
+
+Variance color: `text-success` when 0, `text-[#FACC15]` when non-zero.
+
+**Bottom action bar:**
+```
+<div className="border-t border-grey-mid pt-3 flex items-center gap-2 flex-wrap">
+  buttons...
+</div>
+```
+
+**Indented hierarchy** — nested items under a parent:
+```
+<div className="border-l border-grey-mid ml-2 pl-4 space-y-2">
+  nested content...
+</div>
+```
+
+**Progress bars:**
+```
+<div className="flex-1 h-2 bg-grey-dark border border-grey-mid">
+  <div className="h-full bg-success" style={{ width: `${pct}%` }} />
+</div>
+```
+
+Use `bg-success` when at/under target, `bg-danger` when over.
+
+**Week card grid:**
+```
+<div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+  <div className="border border-grey-mid">
+    <div className="px-3 py-1.5 bg-grey-dark/30 border-b border-grey-mid">
+      HEADER
+    </div>
+    <div className="divide-y divide-grey-mid">
+      rows...
+    </div>
+  </div>
+</div>
+```
+
+### Dual-variant navigation
+
+For drill-down pages: `variant="grid"` (landing) and `variant="compact"` (detail page).
+Grid variant shows a full selector; compact variant shows a slim bar with back/forward + "VIEW ALL" button.
+
+### Auto-default behavior
+
+- When a selector has data but nothing selected → auto-select first item
+- When a form has no data → pre-fill with sensible defaults (e.g. REVENUE at 100%)
+- Single-item lists → hide remove button (prevent empty state)
+- New records → generate `crypto.randomUUID()` for IDs (never empty strings)
+
+### State lifting
+
+Stats that can be edited in a child component should be computed in the parent and passed down:
+```
+Parent:  const stats = computeFrom(allocationsState)
+         <Child stats={stats} onEdit={updateAllocations} />
+Child:   <input onChange={(e) => onEdit(e.target.value)} />
+         <div>{stats.target}</div>
+```
+
+### API patterns
+
+- All routes: session check → venue scoping (MANAGER locked to venue, ADMIN can select) → soft-delete filter (`deletedAt: null`) → return
+- Category IDs: frontend sends `crypto.randomUUID()`, API uses `upsert` with `where: { id }`, never `update` on potentially-new records
+- Sanitise sentinel values before DB: `'__venue__'` and `''` → `null` for nullable FK fields
+- Auto-copy defaults: when requested resource doesn't exist, find most recent match with `some` filter → return as `defaults`
+- Bulk operations: wrap in `prisma.$transaction(async (tx) => { ... })`
+
+
+
+- All primary keys: UUID `@default(uuid())`
+- All tables: `createdAt`, `updatedAt`, `deletedAt` (soft delete)
+- Enums: `SCREAMING_SNAKE_CASE`
+- Task titles, venue/department names: stored and displayed in `UPPERCASE`
+- UI labels, nav items, buttons: `text-transform: uppercase` via Tailwind/CSS
+- API routes: `/api/admin/*` (admin) and `/api/worker/*` (worker)
+- Components: `PascalCase.tsx`
+- Client components: always marked `'use client'`
+
 ## FUTURE INTEGRATION STUBS
 
 | Stub | Location | Phase |
 |---|---|---|
 | SwiftPOS staff sync | `Staff.swiftPosId` field | 2 |
-| Budget splitter | `BudgetPeriod`, `BudgetDayAllocation` models | 4 |
+| Budget splitter | `lib/budget-math.ts`, `BudgetPeriod`/`BudgetCategory`/`BudgetDay`/`BudgetDayAllocation` models | 4 (built) |
 | Training modules | `TrainingModule`, `TrainingStep` models | 3 |
 | Push notifications | Not yet wired | 2 |
 | S3 file uploads | `UPLOAD_PROVIDER=s3` env var stub | 2 |

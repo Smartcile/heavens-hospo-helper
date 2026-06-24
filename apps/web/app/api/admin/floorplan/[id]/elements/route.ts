@@ -110,5 +110,36 @@ export async function PUT(req: NextRequest, { params }: Params) {
     })
   }
 
+  // Validate table label uniqueness (plan-wide)
+  const tableLabels = elements
+    .filter((e: any) => e.type === 'TABLE' && e.label)
+    .map((e: any) => e.label.trim().toUpperCase())
+  if (new Set(tableLabels).size !== tableLabels.length) {
+    return NextResponse.json({ error: 'Duplicate table labels are not allowed within a floor plan' }, { status: 400 })
+  }
+
+  // Validate stock limits (placed on this plan ≤ totalQty)
+  const allLinks = await prisma.elementInventoryItem.findMany({
+    where: { element: { floorPlanId: params.id, deletedAt: null } },
+    select: { itemId: true },
+  })
+  const placedByItem = new Map<string, number>()
+  for (const l of allLinks) {
+    placedByItem.set(l.itemId, (placedByItem.get(l.itemId) ?? 0) + 1)
+  }
+  const itemIds = [...placedByItem.keys()]
+  if (itemIds.length > 0) {
+    const items = await prisma.inventoryItem.findMany({
+      where: { id: { in: itemIds }, deletedAt: null },
+      select: { id: true, totalQty: true },
+    })
+    for (const it of items) {
+      const placed = placedByItem.get(it.id) ?? 0
+      if (placed > (it.totalQty ?? 0)) {
+        return NextResponse.json({ error: `Stock limit exceeded: ${placed} placed but only ${it.totalQty} in stock for item ${it.id}` }, { status: 400 })
+      }
+    }
+  }
+
   return NextResponse.json({ saved: results, deleted: toDelete.length, zonesSaved: zones !== undefined })
 }

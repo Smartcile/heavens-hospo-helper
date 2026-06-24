@@ -1,8 +1,10 @@
-import { BudgetClient } from '@/components/admin/BudgetClient'
+import { BudgetLandingClient } from '@/components/admin/BudgetLandingClient'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
-export default async function BudgetPage() {
+export default async function BudgetLandingPage() {
   const session = await getServerSession(authOptions)
-  return <BudgetClient role={session!.user.role} sessionVenueId={session!.user.venueId} />
+  if (!session) return null
+
+  return <BudgetLandingClient role={session.user.role} sessionVenueId={session.user.venueId} />
 }

@@ -38,7 +38,10 @@ VENUE ── the business / site (timezone drives the daily reset)
 │
 ├─ CALENDAR ── shifts (roster) · time-off · imported events (Google / iCal)
 ├─ NOTICE BOARD ── posts (priority · pin · must-acknowledge)
-└─ BUDGET ── month total split across working days
+└─ BUDGET ── month total → weighted weekday profile → daily REVENUE amounts
+               └─ BREAKDOWN ── department-linked sub-percentages of daily revenue
+                               (e.g. BEVERAGE 21% of daily revenue → FOH)
+                               with auto-REMAINDER for the unallocated portion
 ```
 
 **Scoping is flexible.** A task or a knowledge resource can attach at any level:

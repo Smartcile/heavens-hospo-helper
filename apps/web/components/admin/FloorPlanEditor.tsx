@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -13,6 +13,7 @@ import { FloorPlanPixiCanvas, type ViewState } from '@/components/admin/floorpla
 import { FloorplanToolbar } from '@/components/admin/FloorplanToolbar'
 import { FloorplanInspector } from '@/components/admin/FloorplanInspector'
 import { traceBoothPerimeter } from '@/lib/booth-trace'
+import { pushToast, ToastContainer } from '@/components/ui/Toast'
 
 interface SectionZone {
   id: string
@@ -80,6 +81,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [newTableD, setNewTableD] = useState('80')
   const [newTableColour, setNewTableColour] = useState('#555')
   const [newTableChairs, setNewTableChairs] = useState('0')
+  const [newTableTotalQty, setNewTableTotalQty] = useState('10')
 
   const INVENTORY_TYPES = ['TABLE', 'CHAIR', 'BOOTH_BENCH', 'BAR', 'COUNTER', 'SINK', 'STORAGE', 'KITCHEN_EQUIP']
 
@@ -144,24 +146,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       const furnRes = await fetch('/api/admin/inventory?furniture=true')
       if (furnRes.ok) {
         const fiData = await furnRes.json()
-        // Filter out items already linked to elements on this plan
-        const usedIds = new Set<string>()
-        for (const el of loadedElements) {
-          for (const inv of el.inventoryItems ?? []) if (inv.itemId) usedIds.add(inv.itemId)
-        }
-        // Match old elements without inventory links by properties
-        for (const el of loadedElements) {
-          if (!el.inventoryItems || el.inventoryItems.length === 0) {
-            const match = fiData.find((fi: any) =>
-              fi.furnitureType === el.type &&
-              fi.elementWidth === el.width &&
-              fi.elementDepth === el.depth &&
-              fi.defaultColour === el.fillColour
-            )
-            if (match) usedIds.add(match.id)
-          }
-        }
-        setFurnitureItems(fiData.filter((fi: any) => !usedIds.has(fi.id)))
+        setFurnitureItems(fiData)
         if (fiData.length > 0 && !furnitureCatId) setFurnitureCatId(fiData[0].categoryId)
       }
       const catRes = await fetch('/api/admin/inventory/categories')
@@ -199,28 +184,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     if (selectedIds.length === 0) return
     pushHistory()
     const idSet = new Set(selectedIds)
-    const deletedElements = elements.filter((e) => idSet.has(e.id!))
     setElements((prev) => prev.filter((e) => !idSet.has(e.id!)))
     setSelectedIds([])
-    // Eagerly re-add furniture items from deleted elements
-    const deletedItemIds = new Set<string>()
-    for (const el of deletedElements) {
-      if (el._furnitureItemId) deletedItemIds.add(el._furnitureItemId)
-      const invs: { itemId: string }[] = (el as any).inventoryItems ?? []
-      for (const inv of invs) if (inv.itemId) deletedItemIds.add(inv.itemId)
-    }
-    if (deletedItemIds.size > 0) {
-      fetch('/api/admin/inventory?furniture=true').then(async (r) => {
-        if (r.ok) {
-          const allFi = await r.json()
-          setFurnitureItems((prev) => {
-            const existingIds = new Set(prev.map((f: any) => f.id))
-            const toAdd = allFi.filter((f: any) => deletedItemIds.has(f.id) && !existingIds.has(f.id))
-            return toAdd.length > 0 ? [...prev, ...toAdd] : prev
-          })
-        }
-      })
-    }
   }
 
   function addFromPalette(item: PaletteItem, pos: { x: number; y: number }, furnItem?: any) {
@@ -255,7 +220,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     pushHistory()
     setElements((prev) => [...prev, el])
     setSelectedIds([id])
-    if (furnItem) setFurnitureItems((prev) => prev.filter((fi: any) => fi.id !== furnItem.id))
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -312,17 +276,10 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           return { ...el, _clientId: undefined, _furnitureItemId: undefined }
         })
       )
-      // Recompute palette from current elements
+      // Refresh furniture items after save
       const furnRes = await fetch('/api/admin/inventory?furniture=true')
       if (furnRes.ok) {
-        const allFi = await furnRes.json()
-        const currentUsedIds = new Set<string>()
-        for (const el of elements) {
-          if (el._furnitureItemId) currentUsedIds.add(el._furnitureItemId)
-          const invs: { itemId: string }[] = (el as any).inventoryItems ?? []
-          for (const inv of invs) if (inv.itemId) currentUsedIds.add(inv.itemId)
-        }
-        setFurnitureItems(allFi.filter((fi: any) => !currentUsedIds.has(fi.id)))
+        setFurnitureItems(await furnRes.json())
       }
     }
     setSaving(false)
@@ -338,8 +295,19 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
   const summary = showSummary ? computeSectionSummary(elements, sections) : null
 
+  const furnitureWithAvailability = useMemo(() => {
+    return furnitureItems.map((fi: any) => {
+      const placed = elements.filter((e) => {
+        if (e._furnitureItemId === fi.id) return true
+        return ((e as any).inventoryItems ?? []).some((inv: any) => inv.itemId === fi.id)
+      }).length
+      return { ...fi, availableQty: (fi.totalQty ?? 0) - placed }
+    })
+  }, [furnitureItems, elements])
+
   return (
     <div tabIndex={0} onKeyDown={handleKeyDown} className="flex flex-col h-full outline-none">
+      <ToastContainer />
       <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-grey-mid bg-black flex-wrap">
         <div className="flex items-center gap-3">
           <button onClick={onBack} className="font-mono text-xs uppercase text-grey-light hover:text-white">← BACK</button>
@@ -493,24 +461,28 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 </div>
               )
             })}
-            {furnitureItems.length > 0 && (
+            {furnitureWithAvailability.length > 0 && (
               <div>
                 <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2">INVENTORY</p>
-                {furnitureItems.map((fi: any) => (
+                {furnitureWithAvailability.map((fi: any) => (
                   <div
                     key={`furn_${fi.id}`}
-                    draggable
+                    draggable={fi.availableQty > 0}
                     onDragStart={(e) => {
+                      if (fi.availableQty <= 0) { e.preventDefault(); return }
                       e.dataTransfer.setData('text/plain', `furn_${fi.id}`)
                       const dragImg = new globalThis.Image()
                       dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
                       e.dataTransfer.setDragImage(dragImg, 0, 0)
                     }}
-                    className="flex items-center gap-2 p-1.5 cursor-grab hover:bg-grey-mid transition-colors"
+                    className={`flex items-center gap-2 p-1.5 transition-colors ${fi.availableQty > 0 ? 'cursor-grab hover:bg-grey-mid' : 'cursor-not-allowed opacity-40'}`}
                   >
                     <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: fi.defaultColour ?? '#555' }} />
                     <span className="font-mono text-[10px] text-white truncate">{fi.name}</span>
                     <span className="font-mono text-[8px] text-grey-light ml-auto">{fi.elementWidth}×{fi.elementDepth}</span>
+                    <span className={`font-mono text-[8px] ml-1 ${fi.availableQty > 0 ? 'text-accent' : 'text-danger'}`}>
+                      {fi.availableQty}/{fi.totalQty ?? 0}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -526,6 +498,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     </div>
                     <Input label="Colour" value={newTableColour} onChange={(e) => setNewTableColour(e.target.value)} placeholder="#555" />
                     <Input label="Chairs" type="number" value={newTableChairs} onChange={(e) => setNewTableChairs(e.target.value)} />
+                    <Input label="Stock Qty" type="number" value={newTableTotalQty} onChange={(e) => setNewTableTotalQty(e.target.value)} />
                     <div className="flex gap-1">
                       <button onClick={async () => {
                         const name = (newTableName || `TABLE-${Math.floor(Math.random() * 1000)}`).toUpperCase().trim()
@@ -542,7 +515,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                           body: JSON.stringify({
                             name,
                             categoryId: catId,
-                            unit: 'EA', defaultParLevel: 0,
+                            unit: 'EA', defaultParLevel: 0, totalQty: parseInt(newTableTotalQty) || 10,
                             furnitureType: 'TABLE',
                             elementWidth: parseFloat(newTableW) || 80,
                             elementDepth: parseFloat(newTableD) || 80,
@@ -554,7 +527,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                         if (r.ok) {
                           const created = await r.json()
                           setFurnitureItems((prev) => [...prev, created])
-                          setNewTableOpen(false); setNewTableName(''); setNewTableW('80'); setNewTableD('80'); setNewTableColour('#555'); setNewTableChairs('0')
+                          setNewTableOpen(false); setNewTableName(''); setNewTableW('80'); setNewTableD('80'); setNewTableColour('#555'); setNewTableChairs('0'); setNewTableTotalQty('10')
                         }
                       }}
                         className="font-mono text-[10px] text-success hover:text-white uppercase px-1.5 py-0.5 border border-success flex-1">
@@ -626,6 +599,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             if (type.startsWith('furn_')) {
               const fi = furnitureItems.find((f: any) => `furn_${f.id}` === type)
               if (!fi) return
+              const placed = elements.filter((e) => {
+                if (e._furnitureItemId === fi.id) return true
+                return ((e as any).inventoryItems ?? []).some((inv: any) => inv.itemId === fi.id)
+              }).length
+              const available = (fi.totalQty ?? 0) - placed
+              if (available <= 0) { pushToast('Out of stock. Please add more to inventory.', 'error'); return }
               const paletteItem: PaletteItem = {
                 type: fi.furnitureType ?? 'TABLE',
                 label: fi.name,

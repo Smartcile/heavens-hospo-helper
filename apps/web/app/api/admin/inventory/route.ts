@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name, categoryId, unit, defaultParLevel, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount } = await req.json()
+  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount } = await req.json()
   if (!name || !categoryId) {
     return NextResponse.json({ error: 'name and categoryId are required' }, { status: 400 })
   }
@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
       categoryId,
       unit: unit ?? 'EA',
       defaultParLevel: defaultParLevel ?? 0,
+      totalQty: totalQty ?? 0,
       furnitureType: furnitureType ?? null,
       elementWidth: elementWidth ?? null,
       elementDepth: elementDepth ?? null,

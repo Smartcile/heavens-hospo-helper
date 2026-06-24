@@ -134,10 +134,42 @@ The model that links sections, tasks and knowledge into one followed-up loop.
 
 ---
 
-## PHASE 4 — FINANCE
-✅ **Monthly budget splitter** — set a month total, EVEN SPLIT across working days, mark days closed, with a live allocated-vs-budget balance check (`/admin/budget`)
-✅ **Daily budget allocations** — editable per-day amounts + notes + working-day toggle
-~~Labour cost visibility~~ — DROPPED. Loaded already does this well; HOSPO OPS is an operational "what's on" board, not a finance/analytics tool, so it deliberately stays out of cross-resource cost reporting.
+## PHASE 4 — FINANCE (BUILT 2026-06-24)
+
+✅ **Budget splitter — weighted multi-category model**
+  ✅ `BudgetPeriod` + `BudgetCategory` + `BudgetDay` + `BudgetDayAllocation` — 4-model relational schema
+  ✅ Categories link to departments (`BudgetCategory.departmentId → Department`) or are venue-wide (`__venue__`)
+  ✅ Per-venue, per-month budget periods with `@@unique([venueId, year, month])`
+  ✅ Soft-delete on all budget models, never hard delete
+  ✅ Auto-copy breakdowns forward — GET API returns most recent period's categories as defaults for empty months
+  ✅ `lib/budget-math.ts` — `generateDailyBudgetsNormalized()` with ISO weekday weighting, $500 rounding, and post-rounding correction (never under budget)
+  ✅ `lib/budget-math.ts` — `computeBreakdowns()` for department-level sub-splits of daily revenue
+  ✅ Two-tier REVENUE + BREAKDOWN structure: REVENUE always 100% of the month total; optional department-linked sub-percentages (e.g. BEVERAGE 21%, FOOD 30%) with auto-REMAINDER
+  ✅ APIRoutes: `GET /api/admin/budget` (fetch + defaults), `POST` (create period + day rows), `PUT /api/admin/budget/[id]` (upsert categories/days/allocations in `$transaction`), `DELETE` (soft-delete)
+  ✅ `POST /api/admin/budget/sync-breakdowns` — copies current breakdowns to ALL months in a venue by name matching
+  ✅ Smart auto-copy: GET skips empty periods via `categories.some` filter, finds last period with actual breakdowns
+
+✅ **Budget UI — dual-mode month selector + 2-column dashboard**
+  ✅ `BudgetMonthSelector` — dual variant: `grid` (12-month 3×4 grid + year toggle for landing page) and `compact` (slim `[←] MON YEAR [→]` + `VIEW ALL MONTHS` for monthly page)
+  ✅ Landing page at `/admin/budget` — grid variant, auto-selects first venue
+  ✅ Monthly page at `/admin/budget/[year]/[month]` — compact variant, full budget editor
+  ✅ `BudgetSetupPanel` — 2-column dashboard layout: left = ALLOCATION (total budget + REVENUE + indented breakdowns with department picker + auto-REMAINDER + progress bar), right = DAILY WEIGHTING (MON-SUN inputs with 100% validation) + SUMMARY (TARGET / ALLOCATED / VARIANCE stats + action buttons)
+  ✅ SUMMARу stats update in real-time when editing days in the grid
+  ✅ Venue selector at top of BudgetMonthSelector, auto-defaults to first venue for admins
+  ✅ Default REVENUE category pre-filled at 100% — no manual setup needed for basic use
+  ✅ Department dropdown includes `VENUE` option for venue-wide expenses (admin, sundry, rent)
+  ✅ `↻ SYNC BREAKDOWNS` button — pushes current categories + percentages to all venue months
+
+✅ **BudgetDailyGrid — week cards + inline breakdowns**
+  ✅ ISO week grouping with `WEEK N — MON D MMM TO SUN D MMM` headers
+  ✅ CSS Grid `lg:grid-cols-2` of week cards on desktop, stacked on mobile
+  ✅ Week header shows summed total for that week
+  ✅ Single editable REVENUE input per day (no NOTE field)
+  ✅ Inline read-only breakdown text: `BEV: $945 | FOOD: $1,350 | REMAINDER: $2,205` computed from REVENUE × category%
+  ✅ Weekend rows dimmed, non-working days 40% opacity
+  ✅ State lifted to parent: grid edits update `allocations` → stats recompute → SUMMARY panel updates in real-time
+
+~~Labour cost visibility~~ — DROPPED. Loaded already does this well; HOSPO OPS is an operational "what's on" board, not a finance/analytics tool.
 ☐ **Loaded Reports integration** — export format compatible with Loaded accounting software
 ☐ **Basic labour cost visibility** — estimated hours × rate per department per day
 

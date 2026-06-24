@@ -156,7 +156,37 @@ tap-for-details info. Calendar events can link to a floor plan layout — worker
 auto-switch to the event layout with a banner notification. Multiple views per venue are
 supported (e.g. standard layout vs event mode).
 
-### INVENTORY + STOCKTAKE
+### BUDGET SPLITTER
+
+The app includes a weighted, multi-category monthly budget tool. Go to **Admin → Budget**
+(or **Finance → Budget** in the sidebar) to set up monthly budgets per venue.
+
+**Landing page** (`/admin/budget`) shows a 12-month grid — click any month to open its
+full editor at `/admin/budget/[year]/[month]`.
+
+**Setup**: Enter a **Total Budget ($)** for the month. The **REVENUE** category is
+pre-filled at 100% of the total. Add breakdowns (e.g. BEVERAGE 21%, FOOD 30%) under
+REVENUE — each links to a department (or `VENUE` for venue-wide expenses like admin/rent).
+A read-only **REMAINDER** row auto-computes the unallocated percentage. Breakdowns are
+department-level splits of the daily revenue, not peers of the total.
+
+**Daily Weighting**: Set a MON-SUN percentage profile (must sum to 100%) — e.g. FRI=25%,
+SAT=25%, MON=5%. This drives how the monthly REVENUE distributes across working days.
+
+Click **GENERATE GRID** to compute the daily allocations. The grid shows weeks as card
+boxes with each day's REVENUE amount (editable) and an inline breakdown of department
+splits (read-only). The **SUMMARY** panel in the setup area shows live TARGET / ALLOCATED
+/ VARAINCE stats that update as you edit days.
+
+**Sync breakdowns** across months: set up categories once, click **↻ SYNC BREAKDOWNS**
+to copy them to all months in the venue. Percentages sync too. When browsing to a month
+without a budget, the API auto-copies breakdowns from the most recent period that has them.
+
+All amounts are rounded to the nearest $500. The math engine normalises weekday weights
+against actual working days and applies post-rounding correction so the total never falls
+below budget.
+
+
 The app includes a full inventory management system. Go to **Admin → Inventory** to create
 categories (7 built-in + custom per venue) and items with par levels. The **INVENTORY**
 palette section in the floor plan editor lets you place furniture items (tables/chairs)

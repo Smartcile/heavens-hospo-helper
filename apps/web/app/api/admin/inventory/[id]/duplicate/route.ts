@@ -25,6 +25,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       name: `${original.name} (COPY)`,
       unit: original.unit,
       defaultParLevel: original.defaultParLevel,
+      totalQty: original.totalQty,
       furnitureType: original.furnitureType,
       elementWidth: original.elementWidth,
       elementDepth: original.elementDepth,

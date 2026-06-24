@@ -7,7 +7,7 @@ import { Select } from '@/components/ui/Select'
 
 interface Category { id: string; name: string; isBuiltIn: boolean; venueId: string | null }
 interface Item {
-  id: string; name: string; categoryId: string; unit: string; defaultParLevel: number; category: Category
+  id: string; name: string; categoryId: string; unit: string; defaultParLevel: number; totalQty: number; category: Category
   furnitureType?: string | null; elementWidth?: number | null; elementDepth?: number | null
   elementShape?: string | null; defaultColour?: string | null; defaultChairCount?: number
 }
@@ -33,6 +33,7 @@ export function InventoryClient() {
   const [newCat, setNewCat] = useState('')
   const [newUnit, setNewUnit] = useState('EA')
   const [newPar, setNewPar] = useState('0')
+  const [newTotalQty, setNewTotalQty] = useState('0')
   const [newFurnitureType, setNewFurnitureType] = useState('')
   const [newElemW, setNewElemW] = useState('80')
   const [newElemD, setNewElemD] = useState('80')
@@ -42,6 +43,7 @@ export function InventoryClient() {
   const [newCatName, setNewCatName] = useState('')
   const [editing, setEditing] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const [editTotalQty, setEditTotalQty] = useState('0')
 
   async function load() {
     setLoading(true)
@@ -57,7 +59,7 @@ export function InventoryClient() {
   useEffect(() => { load() }, [])
 
   async function addItem() {
-    const body: any = { name: newName, categoryId: newCat, unit: newUnit, defaultParLevel: parseInt(newPar) || 0 }
+    const body: any = { name: newName, categoryId: newCat, unit: newUnit, defaultParLevel: parseInt(newPar) || 0, totalQty: parseInt(newTotalQty) || 0 }
     const cat = categories.find((c) => c.id === newCat)
     if (cat?.name === 'FURNITURE') {
       body.furnitureType = (newFurnitureType || null) as string | null
@@ -72,7 +74,7 @@ export function InventoryClient() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
-    setNewName(''); setNewCat(''); setNewUnit('EA'); setNewPar('0')
+    setNewName(''); setNewCat(''); setNewUnit('EA'); setNewPar('0'); setNewTotalQty('0')
     setNewFurnitureType(''); setNewElemW('80'); setNewElemD('80'); setNewElemShape('RECTANGLE')
     setNewDefaultColour('#555'); setNewDefaultChairCount('0')
     setShowNewItem(false)
@@ -221,6 +223,7 @@ export function InventoryClient() {
             <Select value={newUnit} onChange={(e) => setNewUnit(e.target.value)}
               options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} className="w-24" />
             <Input type="number" value={newPar} onChange={(e) => setNewPar(e.target.value)} placeholder="PAR" className="w-20" />
+            <Input type="number" value={newTotalQty} onChange={(e) => setNewTotalQty(e.target.value)} placeholder="STOCK" className="w-20" />
           </div>
           {categories.find((c) => c.id === newCat)?.name === 'FURNITURE' && (
             <div className="border-t border-grey-mid pt-3 space-y-2">
@@ -284,15 +287,28 @@ export function InventoryClient() {
               {editing === item.id ? (
                 <div className="flex items-center gap-1">
                   <Input type="number" value={editName} onChange={(e) => setEditName(e.target.value)}
-                    className="w-16 h-7 text-[10px]" />
-                  <button onClick={() => { updatePar(item.id, parseInt(editName) || 0); setEditing(null) }}
+                    className="w-12 h-7 text-[10px]" />
+                  <Input type="number" value={editTotalQty} onChange={(e) => setEditTotalQty(e.target.value)}
+                    className="w-12 h-7 text-[10px]" />
+                  <button onClick={() => {
+                    fetch(`/api/admin/inventory/${item.id}`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ defaultParLevel: parseInt(editName) || 0, totalQty: parseInt(editTotalQty) || 0 }),
+                    }).then(() => { setEditing(null); load() })
+                  }}
                     className="font-mono text-[10px] text-success">OK</button>
                 </div>
               ) : (
-                <button onClick={() => { setEditing(item.id); setEditName(item.defaultParLevel.toString()) }}
-                  className="font-mono text-[10px] text-grey-light hover:text-white w-12 text-right">
-                  PAR: {item.defaultParLevel || '-'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => { setEditing(item.id); setEditName(item.defaultParLevel.toString()); setEditTotalQty((item.totalQty ?? 0).toString()) }}
+                    className="font-mono text-[10px] text-grey-light hover:text-white">
+                    PAR: {item.defaultParLevel || '-'}
+                  </button>
+                  {isFurniture && (
+                    <span className="font-mono text-[10px] text-grey-light">STOCK: {item.totalQty ?? 0}</span>
+                  )}
+                </div>
               )}
               {isFurniture && (
                 <button onClick={async () => {

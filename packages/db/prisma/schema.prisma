@@ -120,6 +120,7 @@ model Department {
   notices Notice[]
   sections Section[]
   checklists Checklist[]
+  budgetCategories BudgetCategory[]
 }
 
 model Staff {
@@ -471,33 +472,63 @@ model ShiftNote {
 model BudgetPeriod {
   id           String    @id @default(uuid())
   venueId      String
-  month        Int       // 1-12
   year         Int
+  month        Int       // 1-12
   totalBudget  Float
-  workingDays  Int       @default(0) // count of working days (derived on save)
-  label        String?   // optional, e.g. "WAGES", "FOOD COST"
+  dailyWeights Json?     // { mon, tue, wed, thu, fri, sat, sun } — each a number, sums to 100
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
 
-  venue       Venue                @relation(fields: [venueId], references: [id])
-  allocations BudgetDayAllocation[]
+  venue      Venue            @relation(fields: [venueId], references: [id])
+  categories BudgetCategory[]
+  days       BudgetDay[]
 
   @@unique([venueId, year, month])
 }
 
-model BudgetDayAllocation {
+model BudgetCategory {
+  id             String    @id @default(uuid())
+  budgetPeriodId String
+  departmentId   String?
+  name           String    // ALL CAPS
+  percentage     Float     // e.g. 30.5
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  period      BudgetPeriod          @relation(fields: [budgetPeriodId], references: [id], onDelete: Cascade)
+  department  Department?           @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  allocations BudgetDayAllocation[]
+}
+
+model BudgetDay {
   id             String    @id @default(uuid())
   budgetPeriodId String
   date           DateTime  @db.Date
-  amount         Float     @default(0)
   isWorkingDay   Boolean   @default(true)
-  note           String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  budgetPeriod BudgetPeriod @relation(fields: [budgetPeriodId], references: [id], onDelete: Cascade)
+  period      BudgetPeriod          @relation(fields: [budgetPeriodId], references: [id], onDelete: Cascade)
+  allocations BudgetDayAllocation[]
 
   @@unique([budgetPeriodId, date])
+}
+
+model BudgetDayAllocation {
+  id               String    @id @default(uuid())
+  budgetDayId      String
+  budgetCategoryId String
+  amount           Float
+  note             String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  day      BudgetDay       @relation(fields: [budgetDayId], references: [id], onDelete: Cascade)
+  category BudgetCategory  @relation(fields: [budgetCategoryId], references: [id], onDelete: Cascade)
+
+  @@unique([budgetDayId, budgetCategoryId])
 }
 
 // --- CHECKLISTS (live task references — single source of truth) ---
@@ -765,6 +796,7 @@ model InventoryItem {
   unit            String   @default("EA")
   defaultParLevel Int      @default(0)
   // Furniture template fields (only for FURNITURE category items)
+  totalQty        Int      @default(0)  // physical items owned, drives availableQty
   furnitureType   String?  // "TABLE" | "CHAIR" | null
   elementWidth    Float?   // cm
   elementDepth    Float?   // cm
