@@ -95,9 +95,11 @@ The model that links sections, tasks and knowledge into one followed-up loop.
     ✅ Worker stocktake screen: dashboard card, scrollable count list, submit IN_PROGRESS or COMPLETED
     ✅ Par level alerts on dashboard: items below threshold flagged
     ✅ FURNITURE category added as built-in; furniture items created in inventory and placed via palette INVENTORY section
-    ✅ Used-once tracking: furniture items removed from palette after save (via ElementInventoryItem)
+    ✅ Stock-aware tracking: `totalQty` field, `placedCount` from API, `availableQty` badges on palette items
+    ✅ Drop gate: blocked when availableQty ≤ 0 with toast notification; live decrement on placement
     ✅ Stock hierarchy tree (`GET /api/admin/stock/hierarchy`) — Section → Table → Inventory Items
-    ✅ STOCK tab on inventory page (read-only tree)
+    ✅ Inventory admin UI: master-detail layout with vertical category nav, real AVAIL column, compact grid form
+    ✅ PUT /api/admin/inventory/[id] route for editing items (totalQty, par, furniture fields)
     ✅ Structure API extended with `floorPlan { tables, chairs, equip }` per section
   ✅ **Per-corner rounding** — 4 corner radius inputs (TL/TR/BR/BL) on any RECTANGLE element, stored in `style.cornerRadius`
   ✅ **Drawable section zones** — drag-to-draw coloured zone rectangles on canvas; pick section from dropdown; zones saved as JSON on FloorPlan; zone fill 0.06 opacity, border 0.4/0.6; auto-rotated watermark; per-zone labelScale
@@ -120,7 +122,13 @@ The model that links sections, tasks and knowledge into one followed-up loop.
   ✅ **Global text scale slider** — 0.5x–3.0x, passed as textScale prop
   ✅ **Asymmetric element labels** — use longer dimension when aspect ratio > 2:1
   ✅ **Save API returns `_clientId` mapping** — client maps temp IDs to real DB IDs post-save
-  ✅ **Save API accepts `inventoryLinks`** — atomic create/remove of ElementInventoryItem rows
+  ✅ **Save API accepts `inventoryLinks`** — atomic create of ElementInventoryItem rows
+  ✅ **Save API stock validation** — blocks save if placed count exceeds totalQty per item
+  ✅ **Save API table label uniqueness** — no duplicate TABLE labels within a plan
+  ✅ **CAD-style inspector** — width/depth range sliders (20-500cm) + preset buttons; seat capacity + linked tables for polygon booths
+  ✅ **Toolbar** — zoom slider (0.2x-5x), dimension overlay toggle, DRAW BOOTH paint mode
+  ✅ **Custom painted booths** — paint 50x50cm grid squares to create snaking banquettes; polygon-clipping union + polygon-offset cushion; saved as POLYGON shape with outer + cushion vertices
+  ✅ **Toast notifications** — reusable `components/ui/Toast.tsx` (error/success/info, DOS-Modern, auto-dismiss)
 
 ## PHASE 3 — TRAINING (prev. Phase 3, unchanged)
 ✅ **Training modules / guides** — authored in admin, with step-by-step content, **photos** (upload) and **video links**

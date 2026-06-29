@@ -239,31 +239,55 @@ scaling). Canvas fills available space via ResizeObserver.
 
 **Palette:** WALL, DOOR, WINDOW, TABLE, CHAIR, COUNTER, BAR, SINK, KITCHEN_EQUIP, STORAGE,
 ENTRY, EXIT, STAIRS, TOILET, PLANT, OTHER (static palette items), plus dynamic **INVENTORY**
-section listing furniture inventory items. Furniture items (tables/chairs) are pre-created in
-the inventory module as FURNITURE-category templates; once placed and saved, they're removed
-from the palette (used-once tracking via `ElementInventoryItem`).
+section listing furniture inventory items with availableQty badges (stock-aware tracking:
+`totalQty - placedOnPlan`, live updates as items are placed). TABLE items are pre-created
+in the inventory module as FURNITURE-category templates. Drop is blocked with a toast
+notification when `availableQty ≤ 0`.
 
 **Canvas features:** middle-click pan, mouse-wheel zoom (0.2x–5x centered on cursor), zoom
-indicator in toolbar. Element drag uses pointer-delta (captured start position + delta) — tracks
-cursor reliably at any speed. Multi-select via Shift/Ctrl+click + rubber-band rectangle. Edge-aware
-grid snapping (snaps to nearest grid line — left OR right edge). GRID snap ON by default.
-Rotation via preset buttons (0°/45°/90°/135°/180°/270°). Global text scale slider (0.5x–3.0x).
-Zone resize handles (8 white squares on selected zone — TL/TC/TR/ML/MR/BL/BC/BR — drag to resize,
-grid-snapped). Per-type styled rendering (table with legs, chair as bracket `[` shape, door with
-swing arc, booth bench with cushion inset, etc.). Bracket `[` is the default chair style with
-per-side checkboxes (T/B/L/R) and 5cm gap from table edge. Zones with auto-rotated watermark
-for portrait orientations. Per-element/zone labelScale input.
+slider in toolbar via `FloorplanToolbar`. Element drag uses pointer-delta (captured start
+position + delta) — tracks cursor reliably at any speed. Multi-select via Shift/Ctrl+click +
+rubber-band rectangle. Edge-aware grid snapping (snaps to nearest grid line — left OR right
+edge). GRID snap ON by default. Rotation via preset buttons (0°/45°/90°/135°/180°/270°).
+Global text scale slider (0.5x–3.0x). Per-type styled rendering (table with legs, chair as
+bracket `[` shape, door with swing arc, booth bench with cushion inset, etc.). Bracket `[`
+is the default chair style with per-side checkboxes (T/B/L/R) and 5cm gap from table edge.
+
+**Dimension overlay:** Toggleable `[ ] DIM` mode in toolbar — draws architectural `|--30--|`
+style width/depth lines outside a selected element's bounding box in blue with monospace labels.
+
+**Right-panel inspector:** `FloorplanInspector` replaces raw number inputs with width/depth
+range sliders (20–500cm) and preset buttons (`60×60`, `80×80`, `120×60`, `200×100`). For
+polygon booth benches, shows Seat Capacity input, linked table checkboxes, and an
+AUTO-CALCULATE button (2 seats per linked table).
 
 **Section zones:** coloured rectangles drawn on canvas with 0.06 fill / 0.4-0.6 border opacity,
 section name watermark, saved as JSON on FloorPlan. Element section grouping overlay (coloured
 border + faint fill when element matches a zone's sectionId). SECTIONS mode button gates zone
-drawing/drag — zones non-interactive otherwise.
+drawing/drag — zones non-interactive otherwise. Zone resize handles (8 white squares — TL/TC/TR/
+ML/MR/BL/BC/BR — drag to resize, grid-snapped). Zones with auto-rotated watermark for portrait
+orientations. Per-element/zone labelScale input.
+
+**Custom painted booths (DRAW BOOTH):** Toolbar toggle shifts the canvas into a paint mode.
+User clicks and drags to paint 50×50cm grid squares (blue preview at 30% opacity); Shift+drag
+erases. On "SAVE SHAPE", `lib/booth-trace.ts` uses `polygon-clipping` to union all painted cells
+into a single outer perimeter, then `polygon-offset` to shrink by 8cm for the cushion inset
+polygon. The result is saved as a `BOOTH_BENCH` element with `shape: 'POLYGON'`, outer vertices
+and cushion vertices stored in the element's `vertices` and `style.cushionVertices`. Rendered
+in PixiJS with the outer polygon as solid fill and the cushion as a transparent stroked inner
+shape. Labels drawn at the polygon centroid. Existing golden dashed bench connectors work
+automatically (same `servedTableIds` logic).
 
 **Data flow:** Bulk SAVE sends all elements as one PUT to `/api/admin/floorplan/[id]/elements`,
 which diffs incoming IDs vs existing DB IDs — soft-deletes removed elements, updates existing,
-creates new ones. The save API also accepts `inventoryLinks` to create/remove
-`ElementInventoryItem` rows atomically. Response includes `_clientId`→real-ID mapping so local
-state updates consistently.
+creates new ones. The save API also accepts `inventoryLinks` to create `ElementInventoryItem`
+rows atomically. Response includes `_clientId`→real-ID mapping so local state updates consistently.
+
+**Save validation:** Two backend checks run on every save:
+- **Stock limits:** counts `ElementInventoryItem` rows per item on this plan, rejects with 400
+  if any item's placed count exceeds its `totalQty`.
+- **Table label uniqueness:** deduplicates table labels within the plan — no two TABLE elements
+  can share the same label.
 
 **Multiple views** per venue (slug-based, one default). Workers see a read-only PixiJS canvas
 at `/w/floorplan` with zoom/pan enabled and a view switcher if venue has multiple plans.
@@ -281,15 +305,22 @@ exiting room bounds. All element interaction is handled via pointer-events-track
 (not per-node), using ref-mutable state for drag operations.
 
 ### Inventory + stocktake (Phase 2, built)
-Full inventory management system: `InventoryCategory` (7 built-in + per-venue custom) and
-`InventoryItem` (venue-id-scoped, links to category, tracks unit and default par level).
+Full inventory management system: `InventoryCategory` (8 built-in including FURNITURE + per-venue custom) and
+`InventoryItem` (venue-id-scoped, links to category, tracks unit, par level, and `totalQty` — physical stock count).
 `ElementInventoryItem` junction links items to floor plan elements with quantity.
-`StocktakeRecord` + `StocktakeLineItem` for periodic stock counts: records have status
-(PENDING/IN_PROGRESS/COMPLETED), assigned to role or staff. Stocktake supports variance
-tracking and manager sign-off.
+`StocktakeRecord` + `StocktakeLineItem` for periodic stock counts.
 
-**Admin pages:** `/admin/inventory` (categories + items CRUD, plus STOCK tab showing hierarchy
-tree — Section → Table → Inventory Items, fetched from `/api/admin/stock/hierarchy`). `/admin/stocktake`
+**Stock-aware tracking:** `InventoryItem.totalQty` is the physical count of items owned. The
+`GET /api/admin/inventory` route returns `placedCount` (from `_count.elements`) so the UI can
+compute `availableQty = totalQty - placedCount` per item. The floor plan palette shows live
+`availableQty/totalQty` badges; drag is blocked when `availableQty ≤ 0` with a toast
+notification. Items always remain visible in the palette (no more used-once filtering).
+
+**Admin pages:** `/admin/inventory` has a master-detail layout — left column (vertical CATEGORIES
+nav + INVENTORY SUMMARY tree), right column (item list with real AVAIL column + compact PROPERTIES
+form in a CSS grid). Dynamic headers (`FURNITURE STOCK`/`STANDARD STOCK`) and buttons
+(`+ ADD TABLE`/`+ ADD ITEM`) based on the selected category. Items can be edited (PUT route)
+and duplicated. `/admin/stocktake` (create/assign/review/sign-off) with variance tracking.
 (create/assign/review/sign-off). Dashboard par level alerts.
 
 **Worker page:** `/w/stocktake` — scrollable count list, submit IN_PROGRESS or COMPLETED.
