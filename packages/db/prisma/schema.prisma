@@ -525,8 +525,8 @@ model BudgetDayAllocation {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  day      BudgetDay       @relation(fields: [budgetDayId], references: [id], onDelete: Cascade)
-  category BudgetCategory  @relation(fields: [budgetCategoryId], references: [id], onDelete: Cascade)
+  day      BudgetDay      @relation(fields: [budgetDayId], references: [id], onDelete: Cascade)
+  category BudgetCategory @relation(fields: [budgetCategoryId], references: [id], onDelete: Cascade)
 
   @@unique([budgetDayId, budgetCategoryId])
 }

@@ -16,6 +16,15 @@ cd /app
 npx prisma db push --schema=packages/db/prisma/schema.prisma --accept-data-loss --skip-generate
 
 echo ""
+echo "▸ Regenerating Prisma Client..."
+npx prisma generate --schema=packages/db/prisma/schema.prisma
+
+echo ""
+echo "▸ Running budget allocation migration..."
+cd /app/packages/db
+npm run db:migrate-budget || echo "⚠ Budget migration step failed (see error above) — continuing to start the app."
+
+echo ""
 echo "▸ Seeding database (safe to re-run)..."
 cd /app/packages/db
 npm run db:seed || echo "⚠ Seed step failed (see error above) — continuing to start the app."

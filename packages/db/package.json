@@ -8,6 +8,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "ts-node --transpile-only prisma/seed.ts",
+    "db:migrate-budget": "ts-node --transpile-only prisma/migrate-budget-day-allocations.ts",
     "db:reset": "prisma migrate reset --force",
     "db:studio": "prisma studio"
   },
