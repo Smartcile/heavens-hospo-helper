@@ -4,75 +4,107 @@ const prisma = new PrismaClient()
 
 async function main() {
   console.log('')
-  console.log('▸ Budget allocation migration check...')
+  console.log('▸ BudgetDayAllocation migration check...')
 
-  const row: { exists: boolean }[] = await prisma.$queryRawUnsafe(
+  const rows: { exists: boolean }[] = await prisma.$queryRawUnsafe(
     `SELECT EXISTS (
       SELECT 1 FROM information_schema.columns
       WHERE table_name = 'BudgetDayAllocation' AND column_name = 'budgetPeriodId'
     ) AS "exists"`
   )
-  if (!row[0]?.exists) {
-    console.log('  ✓ Schema already final (Phase 3) — nothing to migrate.')
+  if (!rows[0]?.exists) {
+    console.log('  ✓ Already migrated — nothing to do.')
     return
   }
 
-  const oldAllocs: { id: string; budgetPeriodId: string; date: Date }[] =
-    await prisma.$queryRawUnsafe(
-      `SELECT id, "budgetPeriodId", date FROM "BudgetDayAllocation"
-       WHERE "budgetDayId" IS NULL AND "budgetPeriodId" IS NOT NULL`
+  console.log('  Old-format columns found — running data migration...')
+
+  // 1. Create BudgetDay table if missing
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "BudgetDay" (
+      "id" TEXT NOT NULL,
+      "budgetPeriodId" TEXT NOT NULL,
+      "date" DATE NOT NULL,
+      "isWorkingDay" BOOLEAN NOT NULL DEFAULT true,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL,
+      CONSTRAINT "BudgetDay_pkey" PRIMARY KEY ("id")
     )
+  `)
 
-  if (oldAllocs.length === 0) {
-    console.log('  ✓ No legacy allocations to migrate.')
-    return
+  // 2. Create BudgetCategory table if missing
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "BudgetCategory" (
+      "id" TEXT NOT NULL,
+      "budgetPeriodId" TEXT NOT NULL,
+      "departmentId" TEXT,
+      "name" TEXT NOT NULL,
+      "percentage" DOUBLE PRECISION NOT NULL,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL,
+      "deletedAt" TIMESTAMP(3),
+      CONSTRAINT "BudgetCategory_pkey" PRIMARY KEY ("id")
+    )
+  `)
+
+  // 3. Add new columns as nullable if missing
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "BudgetDayAllocation" ADD COLUMN IF NOT EXISTS "budgetDayId" TEXT
+  `)
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "BudgetDayAllocation" ADD COLUMN IF NOT EXISTS "budgetCategoryId" TEXT
+  `)
+
+  // 4. Create BudgetDay rows for distinct (budgetPeriodId, date) from legacy allocs
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO "BudgetDay" (id, "budgetPeriodId", date, "isWorkingDay", "createdAt", "updatedAt")
+    SELECT gen_random_uuid()::text, a."budgetPeriodId", a.date, true, NOW(), NOW()
+    FROM (SELECT DISTINCT "budgetPeriodId", date FROM "BudgetDayAllocation" WHERE "budgetDayId" IS NULL AND "budgetPeriodId" IS NOT NULL) a
+    WHERE NOT EXISTS (
+      SELECT 1 FROM "BudgetDay" d WHERE d."budgetPeriodId" = a."budgetPeriodId" AND d.date = a.date
+    )
+  `)
+
+  // 5. Create default REVENUE category per BudgetPeriod that lacks one
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO "BudgetCategory" (id, "budgetPeriodId", name, percentage, "createdAt", "updatedAt")
+    SELECT gen_random_uuid()::text, p.id, 'REVENUE', 100, NOW(), NOW()
+    FROM "BudgetPeriod" p
+    WHERE NOT EXISTS (
+      SELECT 1 FROM "BudgetCategory" c WHERE c."budgetPeriodId" = p.id AND c.name = 'REVENUE' AND c."deletedAt" IS NULL
+    )
+  `)
+
+  // 6. Backfill budgetDayId and budgetCategoryId on old allocations
+  const result: { updated: bigint }[] = await prisma.$queryRawUnsafe(`
+    WITH updated AS (
+      UPDATE "BudgetDayAllocation" a
+      SET "budgetDayId" = d.id, "budgetCategoryId" = c.id
+      FROM "BudgetDay" d, "BudgetCategory" c
+      WHERE a."budgetPeriodId" = d."budgetPeriodId"
+        AND a.date = d.date
+        AND c."budgetPeriodId" = a."budgetPeriodId"
+        AND c.name = 'REVENUE'
+        AND c."deletedAt" IS NULL
+        AND a."budgetDayId" IS NULL
+      RETURNING a.id
+    )
+    SELECT COUNT(*) AS updated FROM updated
+  `)
+  const count = Number(result[0]?.updated ?? 0)
+  console.log(`  ✓ Backfilled ${count} BudgetDayAllocation row(s).`)
+
+  // Verify no rows left behind
+  const remaining: { cnt: bigint }[] = await prisma.$queryRawUnsafe(`
+    SELECT COUNT(*) AS cnt FROM "BudgetDayAllocation" WHERE "budgetDayId" IS NULL AND "budgetPeriodId" IS NOT NULL
+  `)
+  const left = Number(remaining[0]?.cnt ?? 0)
+  if (left > 0) {
+    console.error(`  ⚠ ${left} row(s) still have null budgetDayId — something went wrong.`)
+    process.exit(1)
   }
 
-  console.log(`  Found ${oldAllocs.length} legacy allocation(s) to migrate.`)
-
-  const periodMap = new Map<string, typeof oldAllocs>()
-  for (const a of oldAllocs) {
-    if (!periodMap.has(a.budgetPeriodId)) periodMap.set(a.budgetPeriodId, [])
-    periodMap.get(a.budgetPeriodId)!.push(a)
-  }
-
-  for (const [periodId, allocs] of periodMap) {
-    let revenueCat = await prisma.budgetCategory.findFirst({
-      where: { budgetPeriodId: periodId, deletedAt: null },
-    })
-    if (!revenueCat) {
-      revenueCat = await prisma.budgetCategory.create({
-        data: { budgetPeriodId: periodId, name: 'REVENUE', percentage: 100 },
-      })
-    }
-
-    const dateSet = [...new Set(allocs.map((a) => a.date.toISOString()))]
-    const dayMap = new Map<string, string>()
-    for (const dateStr of dateSet) {
-      const date = new Date(dateStr)
-      let day = await prisma.budgetDay.findFirst({
-        where: { budgetPeriodId: periodId, date },
-      })
-      if (!day) {
-        day = await prisma.budgetDay.create({
-          data: { budgetPeriodId: periodId, date, isWorkingDay: true },
-        })
-      }
-      dayMap.set(dateStr, day.id)
-    }
-
-    for (const a of allocs) {
-      const dayId = dayMap.get(a.date.toISOString())
-      if (!dayId) continue
-      await prisma.budgetDayAllocation.update({
-        where: { id: a.id },
-        data: { budgetDayId: dayId, budgetCategoryId: revenueCat.id },
-      })
-    }
-    console.log(`    Migrated ${allocs.length} allocation(s) in period ${periodId}`)
-  }
-
-  console.log('  ✓ Budget allocation migration complete.')
+  console.log('  ✓ Data migration complete.')
 }
 
 main()

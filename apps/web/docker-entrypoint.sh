@@ -7,6 +7,16 @@ echo "  HOSPO OPS — STARTING"
 echo "============================================"
 
 echo ""
+echo "▸ Regenerating Prisma Client..."
+cd /app
+npx prisma generate --schema=packages/db/prisma/schema.prisma
+
+echo ""
+echo "▸ Running budget allocation migration (pre-sync)..."
+cd /app/packages/db
+npm run db:migrate-budget || echo "⚠ Budget migration step failed (see error above) — continuing to start the app."
+
+echo ""
 echo "▸ Syncing database schema..."
 cd /app
 # db push reconciles the DB to match schema.prisma on every boot. Unlike
@@ -14,15 +24,6 @@ cd /app
 # failed-migration (P3009) state and crash-loop the container — it just makes
 # the schema correct. Idempotent: on an up-to-date DB it's a no-op.
 npx prisma db push --schema=packages/db/prisma/schema.prisma --accept-data-loss --skip-generate
-
-echo ""
-echo "▸ Regenerating Prisma Client..."
-npx prisma generate --schema=packages/db/prisma/schema.prisma
-
-echo ""
-echo "▸ Running budget allocation migration..."
-cd /app/packages/db
-npm run db:migrate-budget || echo "⚠ Budget migration step failed (see error above) — continuing to start the app."
 
 echo ""
 echo "▸ Seeding database (safe to re-run)..."
