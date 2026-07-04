@@ -26,6 +26,9 @@
     "db:seed": {
       "cache": false
     },
+    "test": {
+      "outputs": []
+    },
     "db:reset": {
       "cache": false
     }

@@ -292,14 +292,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     setSaving(false)
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <p className="font-mono text-sm text-grey-light loading-cursor">LOADING</p>
-      </div>
-    )
-  }
-
   const summary = showSummary ? computeSectionSummary(elements, sections) : null
 
   const furnitureWithAvailability = useMemo(() => {
@@ -312,6 +304,14 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       return { ...fi, availableQty: (fi.totalQty ?? 0) - placed }
     })
   }, [furnitureItems, elements])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <p className="font-mono text-sm text-grey-light loading-cursor">LOADING</p>
+      </div>
+    )
+  }
 
   return (
     <div tabIndex={0} onKeyDown={handleKeyDown} className="flex flex-col h-full outline-none">

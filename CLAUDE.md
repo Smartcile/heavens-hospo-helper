@@ -752,6 +752,35 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 | Mobile app wrapper | Capacitor or React Native shell around worker view | 6 |
 | Offline support | Service worker caching for unreliable wifi | 6 |
 
+## TESTING
+
+Every code change that touches component logic or hooks MUST include a Vitest
+regression test. No test, no merge.
+
+**Stack:** `vitest` + `@testing-library/react` + `jsdom`
+**Config:** `apps/web/vitest.config.ts`, setup via `apps/web/vitest-setup.ts`
+**Location:** test files live alongside components (e.g. `FloorPlanEditor.test.tsx`
+next to `FloorPlanEditor.tsx`).
+
+```bash
+npm run test          # runs all tests once (also: npm run test in root via turbo)
+npm run test:watch    # watch mode (inside apps/web)
+npm run lint          # catches hook violations statically (react-hooks/rules-of-hooks: error)
+```
+
+**Hook-order regression test pattern:**
+Mount a component with a prop that triggers an early return (0 hooks), then
+`rerender` with a prop that skips the early return (≥1 hook). Vitest catches the
+resulting React #310 error ("Rendered more hooks than during the previous render")
+as an unhandled render exception and fails the test.
+
+**Pre-push checklist:**
+```bash
+npm run lint && npm run test
+```
+If either fails, the GitHub Actions CI pipeline (`docker-build.yml`) will also fail
+and the Docker image won't be built. Broken code never ships.
+
 ## WHAT NOT TO DO
 
 - **NO hard deletes** — never call `prisma.model.delete()`. Always set `deletedAt`.
