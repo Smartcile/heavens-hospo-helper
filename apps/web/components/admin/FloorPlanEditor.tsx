@@ -126,37 +126,43 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
   useEffect(() => {
     const load = async () => {
-      const r = await fetch(`/api/admin/floorplan/${plan.id}`)
-      let loadedElements: any[] = []
-      if (r.ok) {
-        const data = await r.json()
-        if (data.elements) {
-          loadedElements = data.elements
-          setElements(loadedElements.map((el: any) => ({
-            ...el,
-            labelVisible: el.labelVisible ?? true,
-            sortOrder: el.sortOrder ?? 0,
-            isActive: el.isActive ?? true,
-            chairCount: el.chairCount ?? 0,
-          })))
-          nextIdCounter.current = (data.elements.length || 0) + 1
+      try {
+        const r = await fetch(`/api/admin/floorplan/${plan.id}`)
+        let loadedElements: any[] = []
+        if (r.ok) {
+          const data = await r.json()
+          if (data.elements) {
+            loadedElements = data.elements
+            setElements(loadedElements.map((el: any) => ({
+              ...el,
+              labelVisible: el.labelVisible ?? true,
+              sortOrder: el.sortOrder ?? 0,
+              isActive: el.isActive ?? true,
+              chairCount: el.chairCount ?? 0,
+            })))
+            nextIdCounter.current = (data.elements.length || 0) + 1
+          }
+          if (data.zones) setZones(data.zones)
         }
-        if (data.zones) setZones(data.zones)
-      }
-      const furnRes = await fetch('/api/admin/inventory?furniture=true')
-      if (furnRes.ok) {
-        const fiData = await furnRes.json()
-        setFurnitureItems(fiData)
-        if (fiData.length > 0 && !furnitureCatId) setFurnitureCatId(fiData[0].categoryId)
-      }
-      const catRes = await fetch('/api/admin/inventory/categories')
-      if (catRes.ok) { const cats = await catRes.json(); const fc = cats.find((c: any) => c.name === 'FURNITURE'); if (fc) setFurnitureCatId(fc.id) }
-      const defRes = await fetch('/api/admin/palette-defaults')
-      if (defRes.ok) {
-        const defs: any[] = await defRes.json()
-        const map: Record<string, { width: number; depth: number }> = {}
-        for (const d of defs) map[d.type] = { width: d.width, depth: d.height ?? d.depth }
-        setPaletteDefaults(map)
+        const furnRes = await fetch('/api/admin/inventory?furniture=true')
+        if (furnRes.ok) {
+          const fiData = await furnRes.json()
+          setFurnitureItems(Array.isArray(fiData) ? fiData : [])
+          if (Array.isArray(fiData) && fiData.length > 0 && !furnitureCatId) setFurnitureCatId(fiData[0].categoryId)
+        }
+        const catRes = await fetch('/api/admin/inventory/categories')
+        if (catRes.ok) { const cats = await catRes.json(); const fc = Array.isArray(cats) ? cats.find((c: any) => c.name === 'FURNITURE') : null; if (fc) setFurnitureCatId(fc.id) }
+        const defRes = await fetch('/api/admin/palette-defaults')
+        if (defRes.ok) {
+          const defs: any[] = await defRes.json()
+          if (Array.isArray(defs)) {
+            const map: Record<string, { width: number; depth: number }> = {}
+            for (const d of defs) map[d.type] = { width: d.width, depth: d.height ?? d.depth }
+            setPaletteDefaults(map)
+          }
+        }
+      } catch (e) {
+        console.error('FloorPlanEditor load error:', e)
       }
       setLoading(false)
     }
@@ -279,7 +285,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       // Refresh furniture items after save
       const furnRes = await fetch('/api/admin/inventory?furniture=true')
       if (furnRes.ok) {
-        setFurnitureItems(await furnRes.json())
+        const fiData = await furnRes.json()
+        setFurnitureItems(Array.isArray(fiData) ? fiData : [])
       }
     }
     setSaving(false)
@@ -296,6 +303,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const summary = showSummary ? computeSectionSummary(elements, sections) : null
 
   const furnitureWithAvailability = useMemo(() => {
+    if (!Array.isArray(furnitureItems)) return []
     return furnitureItems.map((fi: any) => {
       const placed = elements.filter((e) => {
         if (e._furnitureItemId === fi.id) return true
@@ -597,6 +605,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             const x = (screenX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
             const y = (screenY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
             if (type.startsWith('furn_')) {
+              if (!Array.isArray(furnitureItems)) return
               const fi = furnitureItems.find((f: any) => `furn_${f.id}` === type)
               if (!fi) return
               const placed = elements.filter((e) => {
