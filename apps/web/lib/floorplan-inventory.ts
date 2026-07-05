@@ -1,4 +1,5 @@
 import polygonClipping from 'polygon-clipping'
+import type { SetupItemInput, InventoryShortage, ChairPlacement, RectangleTable } from '@hospo-ops/types'
 
 export type {
   SetupItemInput,
@@ -58,22 +59,25 @@ export function unionTablePolygons(
   if (tables.length === 0) return []
   if (tables.length === 1) {
     const corners = rectangleToCorners(tables[0])
-    return [[...corners, corners[0]]]
+    const ring: Pair[] = [...corners, corners[0]]
+    return [ring]
   }
   const polygons: Pair[][][] = tables.map((t) => {
     const corners = rectangleToCorners(t)
-    return [[...corners, corners[0]]]
+    const ring: Pair[] = [...corners, corners[0]]
+    return [ring]
   })
   try {
     const result = polygonClipping.union(
       polygons[0],
       ...polygons.slice(1),
     ) as Pair[][][]
-    return result.flatMap((polygon) => polygon)
+    return result.flatMap((polygon) => polygon) as Pair[][]
   } catch {
     return tables.map((t) => {
       const corners = rectangleToCorners(t)
-      return [[...corners, corners[0]]]
+      const ring: Pair[] = [...corners, corners[0]]
+      return ring
     })
   }
 }
