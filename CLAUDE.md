@@ -799,12 +799,12 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/ical.ts` — `feedsForVenue`, `googleEmbedToIcal` | ✅ |
 | `lib/scheduling.ts` — `isTaskDueOnDate`, `describeSchedule`, `formatDateKey` | ✅ |
 | `lib/utils.ts` — all 8 exports | ✅ |
-| `lib/training.ts` — `getStaffTraining`, `getStaffSops` | ⬜ TODO (needs Prisma mock) |
-| `lib/followups.ts` — `checkUntrainedOnCompletion`, `generateVenueFollowUps` | ⬜ TODO (needs Prisma mock) |
-| `lib/external-sync.ts` — `syncVenueCalendar` | ⬜ TODO (needs Prisma mock) |
-| `lib/retrain.ts` — `postRetrainNotice` | ⬜ TODO (needs Prisma mock) |
-| `lib/worker-session.ts` | ⬜ TODO (needs Next.js runtime mock) |
-| `lib/auth.ts` — `authOptions` | ⬜ TODO (needs NextAuth mock) |
+| `lib/training.ts` — `getStaffTraining`, `getStaffSops` | ✅ |
+| `lib/retrain.ts` — `postRetrainNotice` | ✅ |
+| `lib/worker-session.ts` — `workerCookieSecure` | ✅ |
+| `lib/followups.ts` — `checkUntrainedOnCompletion`, `generateVenueFollowUps` | ⬜ TODO |
+| `lib/external-sync.ts` — `syncVenueCalendar` | ⬜ TODO |
+| `lib/auth.ts` — `authOptions` | ⬜ TODO |
 
 ### Component Regression Tests
 
