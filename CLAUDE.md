@@ -822,10 +822,10 @@ pushing, run: `npm run lint && npm run test`.
 | `Button` (ui) — variants, sizes, loading, disabled | ✅ |
 | `Input` (ui) — label, error, onChange | ✅ |
 | `Select` (ui) — options, placeholder, error, onChange | ✅ |
-| `FloorPlanEditor.tsx` — 30+ hooks, useMemo, early return | ⬜ TODO |
-| `BudgetPageClient.tsx` — useCallback + useEffect chain | ⬜ TODO |
-| `CalendarClient.tsx` — 22 useState | ⬜ TODO |
-| `WorkerTasksClient.tsx` — dual early-return paths | ⬜ TODO |
+| `FloorPlanEditor.tsx` — 30+ hooks, useMemo, early return | ⬜ TODO (needs PixiJS mock) |
+| `BudgetPageClient.tsx` — useCallback + useEffect chain | ✅ |
+| `CalendarClient.tsx` — 22 useState | ✅ |
+| `WorkerTasksClient.tsx` — dual early-return paths | ✅ |
 | All other admin/worker components | ⬜ TODO |
 
 ## WHAT NOT TO DO
