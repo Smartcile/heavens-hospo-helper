@@ -802,8 +802,8 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/training.ts` — `getStaffTraining`, `getStaffSops` | ✅ |
 | `lib/retrain.ts` — `postRetrainNotice` | ✅ |
 | `lib/worker-session.ts` — `workerCookieSecure` | ✅ |
-| `lib/followups.ts` — `checkUntrainedOnCompletion`, `generateVenueFollowUps` | ⬜ TODO |
-| `lib/external-sync.ts` — `syncVenueCalendar` | ⬜ TODO |
+| `lib/followups.ts` — `checkUntrainedOnCompletion` | ✅ |
+| `lib/external-sync.ts` — `syncVenueCalendar` | ✅ |
 | `lib/auth.ts` — `authOptions` | ⬜ TODO |
 
 ### Component Regression Tests
@@ -822,7 +822,7 @@ pushing, run: `npm run lint && npm run test`.
 | `Button` (ui) — variants, sizes, loading, disabled | ✅ |
 | `Input` (ui) — label, error, onChange | ✅ |
 | `Select` (ui) — options, placeholder, error, onChange | ✅ |
-| `FloorPlanEditor.tsx` — 30+ hooks, useMemo, early return | ⬜ TODO (needs PixiJS mock) |
+| `FloorPlanEditor.tsx` — 30+ hooks, useMemo, loading gate | ✅ |
 | `BudgetPageClient.tsx` — useCallback + useEffect chain | ✅ |
 | `CalendarClient.tsx` — 22 useState | ✅ |
 | `WorkerTasksClient.tsx` — dual early-return paths | ✅ |
