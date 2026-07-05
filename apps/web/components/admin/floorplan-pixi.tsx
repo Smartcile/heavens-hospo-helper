@@ -3,6 +3,7 @@
 import { useRef, useEffect } from 'react'
 import * as PIXI from 'pixi.js'
 import { isFixture, type ElementData } from '@/components/admin/floorplan-elements'
+import { pointInPolygon } from '@/lib/floorplan-inventory'
 
 interface ZoneP { id: string; x: number; y: number; width: number; height: number; sectionId: string; label?: string }
 
@@ -36,6 +37,7 @@ interface PixiCanvasProps {
   viewRef: React.MutableRefObject<ViewState>
   onElementClick: (id: string | null, ctrlKey?: boolean) => void
   onElementDragEnd: (id: string, x: number, y: number) => void
+  onElementDropToSection?: (id: string, sectionId: string) => void
   onZoneClick: (id: string | null) => void
   onZoneDragEnd: (id: string, x: number, y: number) => void
   onZoneDrawStart: (x: number, y: number) => void
@@ -88,7 +90,7 @@ export function FloorPlanPixiCanvas({
   snapThreshold = 15,
   sectionColours, sectionNames, sectionBoundaries, zoneDrawing, zoneDrawStart, zoneDrawRect, selectedZoneId,
   containerRef, viewRef,
-  onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd,
+  onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd,
   onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange,
   textScale = 1, selRect, onSelRectStart, onSelRectMove, onSelRectEnd,
   rebuildKey, showDimensions = false, boothPainting = false, boothCellsRef, onBoothCellToggle,
@@ -100,8 +102,8 @@ export function FloorPlanPixiCanvas({
   const boundaryRef = useRef<PIXI.Container | null>(null)
   const stateRef = useRef({ snap: snapEnabled, gu: gridUnit })
   const paintPreviewRef = useRef<PIXI.Graphics | null>(null)
-  const cbRef = useRef({ onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, boothPainting, onBoothCellToggle, boothCellsRef })
-  cbRef.current = { onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, boothPainting, onBoothCellToggle, boothCellsRef }
+  const cbRef = useRef({ onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, boothPainting, onBoothCellToggle, boothCellsRef })
+  cbRef.current = { onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, boothPainting, onBoothCellToggle, boothCellsRef }
 
   // Init app once
   useEffect(() => {
@@ -704,6 +706,21 @@ export function FloorPlanPixiCanvas({
           if (snap) {
             rx = Math.max(0, Math.min(snap.x, roomWidth - el.width))
             ry = Math.max(0, Math.min(snap.y, roomDepth - el.depth))
+          }
+        }
+        // Section detection on drop
+        if (!isFixture(el.type) && sectionBoundaries && sectionBoundaries.length > 0) {
+          const cx = rx + el.width / 2; const cy = ry + el.depth / 2
+          for (const b of sectionBoundaries) {
+            const polyPoints = b.shape === 'POLYGON' && b.vertices
+              ? b.vertices.map((v) => ({ x: b.x + v.x, y: b.y + v.y }))
+              : b.shape === 'RECTANGLE'
+                ? [{ x: b.x, y: b.y }, { x: b.x + (b.width ?? 0), y: b.y }, { x: b.x + (b.width ?? 0), y: b.y + (b.height ?? 0) }, { x: b.x, y: b.y + (b.height ?? 0) }]
+                : []
+            if (polyPoints.length >= 3 && pointInPolygon(cx, cy, polyPoints)) {
+              cbRef.current.onElementDropToSection?.(el.id!, b.sectionId)
+              break
+            }
           }
         }
         cbRef.current.onElementDragEnd(el.id!, rx, ry); dd = null

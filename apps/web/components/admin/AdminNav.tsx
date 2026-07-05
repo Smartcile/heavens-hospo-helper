@@ -20,6 +20,7 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/admin/departments', label: 'Departments' },
     { href: '/admin/sections', label: 'Sections' },
     { href: '/admin/floorplan', label: 'Floor Plan' },
+    { href: '/admin/table-profiles', label: 'Table Profiles' },
     { href: '/admin/staff', label: 'Staff' },
     { href: '/admin/inventory', label: 'Inventory' },
   ] },
