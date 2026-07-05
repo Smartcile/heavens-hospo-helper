@@ -84,7 +84,7 @@ export function WorkerStocktakeClient() {
 
         {hasVariance && (
           <div className="bg-danger/10 border-b border-danger px-4 py-2">
-            <p className="font-mono text-[10px] text-danger">SOME COUNTS DON'T MATCH — TAP ITEMS TO REVIEW</p>
+            <p className="font-mono text-[10px] text-danger">SOME COUNTS DON&apos;T MATCH — TAP ITEMS TO REVIEW</p>
           </div>
         )}
 
