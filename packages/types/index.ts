@@ -129,3 +129,68 @@ export interface WorkerTaskView {
     completedAt: Date
   } | null
 }
+
+// ── FLOOR PLAN SPATIAL ENGINE ──
+
+export interface TableProfileBomItem {
+  inventoryItemId: string
+  quantity: number
+  perChair: boolean
+}
+
+export interface TableProfileView {
+  id: string
+  venueId: string
+  name: string
+  type: string
+  capacity: number
+  chairCount: number
+  width: number
+  depth: number
+  shape: string
+  colour: string | null
+  seatingDensity: number | null
+  maxHeadChairs: number
+  isActive: boolean
+  bomItems: TableProfileBomItem[]
+}
+
+export interface SetupItemInput {
+  id: string
+  tableProfileId: string
+  x: number
+  y: number
+  rotation: number
+  width: number
+  depth: number
+  tableGroupId?: string | null
+  label?: string | null
+}
+
+export interface InventoryStockLine {
+  itemId: string
+  name: string
+  available: number
+}
+
+export interface InventoryShortage {
+  itemId: string
+  itemName: string
+  required: number
+  available: number
+  shortage: number
+}
+
+export interface ChairPlacement {
+  x: number
+  y: number
+  rotation: number
+}
+
+export interface RectangleTable {
+  x: number
+  y: number
+  width: number
+  depth: number
+  rotation: number
+}

@@ -99,6 +99,7 @@ model Venue {
   inventoryCategories InventoryCategory[]
   inventoryItems      InventoryItem[]
   paletteDefaults     PaletteDefault[]
+  tableProfiles       TableProfile[]
   stocktakeRecords    StocktakeRecord[]
 }
 
@@ -594,6 +595,8 @@ model Section {
   resources  ResourceSection[]
   checklists Checklist[]
   floorPlanElements FloorPlanElement[]
+  boundaries        SectionBoundary[]
+  setupItems        SetupItem[]
 
   @@index([venueId])
   @@index([departmentId])
@@ -704,6 +707,11 @@ enum ElementShape {
   POLYGON
 }
 
+enum BoundaryShape {
+  RECTANGLE
+  POLYGON
+}
+
 model FloorPlan {
   id         String    @id @default(uuid())
   venueId    String
@@ -721,6 +729,8 @@ model FloorPlan {
 
   venue    Venue              @relation(fields: [venueId], references: [id])
   elements FloorPlanElement[]
+  setups            FloorPlanSetup[]
+  sectionBoundaries SectionBoundary[]
 
   @@unique([venueId, slug])
   @@index([venueId])
@@ -762,6 +772,132 @@ model FloorPlanElement {
   inventoryItems ElementInventoryItem[]
 
   @@index([floorPlanId])
+}
+
+// ── LAYERED FLOOR PLANS ──
+
+model FloorPlanSetup {
+  id              String    @id @default(uuid())
+  floorPlanId     String
+  name            String
+  eventDate       DateTime? @db.Date
+  calendarEventId String?
+  notes           String?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  floorPlan FloorPlan    @relation(fields: [floorPlanId], references: [id])
+  items     SetupItem[]
+  groups    TableGroup[]
+
+  @@index([floorPlanId])
+}
+
+model SetupItem {
+  id             String    @id @default(uuid())
+  setupId        String
+  tableProfileId String
+  x              Float
+  y              Float
+  rotation       Float     @default(0)
+  sectionId      String?
+  tableGroupId   String?
+  label          String?
+  sortOrder      Int       @default(0)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  setup        FloorPlanSetup @relation(fields: [setupId], references: [id], onDelete: Cascade)
+  tableProfile TableProfile   @relation(fields: [tableProfileId], references: [id])
+  section      Section?       @relation(fields: [sectionId], references: [id])
+  tableGroup   TableGroup?    @relation(fields: [tableGroupId], references: [id])
+
+  @@index([setupId])
+}
+
+model TableGroup {
+  id        String    @id @default(uuid())
+  setupId   String
+  name      String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  setup FloorPlanSetup @relation(fields: [setupId], references: [id], onDelete: Cascade)
+  items SetupItem[]
+
+  @@index([setupId])
+}
+
+// ── TABLE PROFILE (BILL OF MATERIALS) ──
+
+model TableProfile {
+  id             String    @id @default(uuid())
+  venueId        String
+  name           String
+  type           String    @default("TABLE")
+  capacity       Int       @default(0)
+  width          Float
+  depth          Float
+  shape          String    @default("RECTANGLE")
+  colour         String?   @default("#555")
+  chairCount     Int       @default(0)
+  seatingDensity Float?
+  maxHeadChairs  Int       @default(1)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  venue    Venue               @relation(fields: [venueId], references: [id])
+  bomItems TableProfileItem[]
+  setups   SetupItem[]
+
+  @@index([venueId])
+}
+
+model TableProfileItem {
+  id              String   @id @default(uuid())
+  tableProfileId  String
+  inventoryItemId String
+  quantity        Int      @default(1)
+  perChair        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  profile TableProfile  @relation(fields: [tableProfileId], references: [id], onDelete: Cascade)
+  item    InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  @@unique([tableProfileId, inventoryItemId])
+  @@index([tableProfileId])
+}
+
+// ── SPATIAL SECTION BOUNDARY ──
+
+model SectionBoundary {
+  id          String        @id @default(uuid())
+  floorPlanId String
+  sectionId   String
+  shape       BoundaryShape @default(RECTANGLE)
+  x           Float
+  y           Float
+  width       Float?
+  height      Float?
+  vertices    Json?
+  zIndex      Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+
+  floorPlan FloorPlan @relation(fields: [floorPlanId], references: [id], onDelete: Cascade)
+  section   Section   @relation(fields: [sectionId], references: [id])
+
+  @@index([floorPlanId])
+  @@index([sectionId])
 }
 
 // --- INVENTORY & STOCKTAKE ---
@@ -809,9 +945,10 @@ model InventoryItem {
   deletedAt       DateTime?
 
   venue     Venue                @relation(fields: [venueId], references: [id])
-  category  InventoryCategory    @relation(fields: [categoryId], references: [id])
-  elements  ElementInventoryItem[]
-  stocktake StocktakeLineItem[]
+  category          InventoryCategory    @relation(fields: [categoryId], references: [id])
+  elements          ElementInventoryItem[]
+  tableProfileItems TableProfileItem[]
+  stocktake         StocktakeLineItem[]
 
   @@index([venueId])
   @@index([categoryId])
