@@ -38,7 +38,7 @@ jobs:
         run: npm run lint
 
       - name: Test
-        run: npm run test
+        run: npx vitest run --config apps/web/vitest.config.ts
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
