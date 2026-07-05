@@ -813,20 +813,15 @@ pushing, run: `npm run lint && npm run test`.
 | `FloorPlanView.test.tsx` — useMemo callback guard (React #310) | ✅ |
 | `FloorPlansClient.test.tsx` — renders with ADMIN/MANAGER roles | ✅ |
 | `AdminNav.test.tsx` — renders nav groups | ✅ |
-| `FloorPlanEditor.tsx` — 30+ hooks, useMemo, early return | ⬜ TODO |
-| `BudgetPageClient.tsx` — useCallback + useEffect chain | ⬜ TODO |
-| `CalendarClient.tsx` — 22 useState | ⬜ TODO |
-| `WorkerTasksClient.tsx` — dual early-return paths | ⬜ TODO |
+| `FloorPlanEditor.tsx` — 30+ hooks, useMemo, loading gate | ✅ |
+| `BudgetPageClient.tsx` — useCallback + useEffect chain | ✅ |
+| `CalendarClient.tsx` — 22 useState | ✅ |
+| `WorkerTasksClient.tsx` — dual early-return paths | ✅ |
 | `FloorplanInspector.tsx` — presets, sliders, booth capacity | ✅ |
 | `FloorplanToolbar.tsx` — zoom, DIM toggle | ✅ |
 | `Button` (ui) — variants, sizes, loading, disabled | ✅ |
 | `Input` (ui) — label, error, onChange | ✅ |
 | `Select` (ui) — options, placeholder, error, onChange | ✅ |
-| `FloorPlanEditor.tsx` — 30+ hooks, useMemo, loading gate | ✅ |
-| `BudgetPageClient.tsx` — useCallback + useEffect chain | ✅ |
-| `CalendarClient.tsx` — 22 useState | ✅ |
-| `WorkerTasksClient.tsx` — dual early-return paths | ✅ |
-| All other admin/worker components | ⬜ TODO |
 
 ## WHAT NOT TO DO
 
