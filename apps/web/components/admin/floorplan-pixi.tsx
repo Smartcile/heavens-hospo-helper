@@ -11,14 +11,23 @@ export interface ViewState {
   zoom: number; panX: number; panY: number
 }
 
+interface SectionBoundaryP {
+  id: string; shape: string; x: number; y: number
+  width?: number | null; height?: number | null
+  vertices?: { x: number; y: number }[] | null
+  sectionId: string; sectionName?: string
+}
+
 interface PixiCanvasProps {
   roomWidth: number; roomDepth: number; gridUnit: number
   elements: ElementData[]
   zones: ZoneP[]
   selectedIds: string[]
   snapEnabled: boolean
+  snapThreshold?: number
   sectionColours: Map<string, string>
   sectionNames: Map<string, string>
+  sectionBoundaries?: SectionBoundaryP[]
   zoneDrawing: boolean
   zoneDrawStart: { x: number; y: number } | null
   zoneDrawRect: { x: number; y: number; w: number; h: number } | null
@@ -76,7 +85,8 @@ function applyRoomTransform(room: PIXI.Container, vs: ViewState) {
 export function FloorPlanPixiCanvas({
   roomWidth, roomDepth, gridUnit,
   elements, zones, selectedIds, snapEnabled,
-  sectionColours, sectionNames, zoneDrawing, zoneDrawStart, zoneDrawRect, selectedZoneId,
+  snapThreshold = 15,
+  sectionColours, sectionNames, sectionBoundaries, zoneDrawing, zoneDrawStart, zoneDrawRect, selectedZoneId,
   containerRef, viewRef,
   onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd,
   onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange,
@@ -85,6 +95,9 @@ export function FloorPlanPixiCanvas({
 }: PixiCanvasProps) {
   const appRef = useRef<PIXI.Application | null>(null)
   const roomRef = useRef<PIXI.Container | null>(null)
+  const baseRef = useRef<PIXI.Container | null>(null)
+  const setupRef = useRef<PIXI.Container | null>(null)
+  const boundaryRef = useRef<PIXI.Container | null>(null)
   const stateRef = useRef({ snap: snapEnabled, gu: gridUnit })
   const paintPreviewRef = useRef<PIXI.Graphics | null>(null)
   const cbRef = useRef({ onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, boothPainting, onBoothCellToggle, boothCellsRef })
@@ -105,6 +118,18 @@ export function FloorPlanPixiCanvas({
     const room = new PIXI.Container()
     roomRef.current = room
     app.stage.addChild(room)
+
+    const baseLayer = new PIXI.Container()
+    baseRef.current = baseLayer
+    room.addChild(baseLayer)
+
+    const boundaryLayer = new PIXI.Container()
+    boundaryRef.current = boundaryLayer
+    room.addChild(boundaryLayer)
+
+    const setupLayer = new PIXI.Container()
+    setupRef.current = setupLayer
+    room.addChild(setupLayer)
 
     const vs = computeView(w, h, roomWidth, roomDepth, 1, 0, 0)
     viewRef.current = vs
@@ -253,6 +278,8 @@ export function FloorPlanPixiCanvas({
   // Rebuild scene
   useEffect(() => {
     const app = appRef.current; const room = roomRef.current
+    const baseLayer = baseRef.current; const setupLayer = setupRef.current
+    const boundaryLayer = boundaryRef.current
     if (!app || !room) return
 
     const sw = app.screen.width; const sh = app.screen.height
@@ -263,25 +290,28 @@ export function FloorPlanPixiCanvas({
     stateRef.current = { snap: snapEnabled, gu: gridUnit }
 
     room.removeChildren()
+    if (baseLayer) { baseLayer.removeChildren(); room.addChild(baseLayer) }
+    if (boundaryLayer) { boundaryLayer.removeChildren(); room.addChild(boundaryLayer) }
+    if (setupLayer) { setupLayer.removeChildren(); room.addChild(setupLayer) }
     const pxScale = vs.baseScale * vs.zoom || 1
 
     // Background
     const bg = new PIXI.Graphics()
     bg.beginFill(0x1A1A1A).lineStyle(2 / pxScale, 0x4A4A4A).drawRect(0, 0, roomWidth, roomDepth).endFill()
     bg.eventMode = 'none'
-    room.addChild(bg)
+    baseLayer?.addChild(bg)
 
     // Grid
     const gd = new PIXI.Graphics(); gd.lineStyle(1 / pxScale, 0x2E2E2E, 0.3)
     for (let i = 0; i <= roomWidth; i += gridUnit) { gd.moveTo(i, 0); gd.lineTo(i, roomDepth) }
     for (let j = 0; j <= roomDepth; j += gridUnit) { gd.moveTo(0, j); gd.lineTo(roomWidth, j) }
-    gd.eventMode = 'none'; room.addChild(gd)
+    gd.eventMode = 'none'; baseLayer?.addChild(gd)
 
     // Booth paint preview
     if (boothPainting && boothCellsRef) {
       const pp = new PIXI.Graphics()
       drawPaintPreview(pp, boothCellsRef.current)
-      pp.eventMode = 'none'; room.addChild(pp)
+      pp.eventMode = 'none'; baseLayer?.addChild(pp)
       paintPreviewRef.current = pp
     } else {
       paintPreviewRef.current = null
@@ -292,14 +322,14 @@ export function FloorPlanPixiCanvas({
       const pr = new PIXI.Graphics()
       pr.lineStyle(1 / pxScale, 0xFFFFFF, 0.3); pr.beginFill(0xFFFFFF, 0.05)
       pr.drawRect(zoneDrawRect.x, zoneDrawRect.y, zoneDrawRect.w, zoneDrawRect.h)
-      pr.endFill(); pr.eventMode = 'none'; room.addChild(pr)
+      pr.endFill(); pr.eventMode = 'none'; baseLayer?.addChild(pr)
     }
     // Selection rectangle
     if (!zoneDrawing && selRect) {
       const sr = new PIXI.Graphics()
       sr.lineStyle(1.5 / pxScale, 0x4488FF, 0.6); sr.beginFill(0x4488FF, 0.1)
       sr.drawRect(selRect.x, selRect.y, selRect.w, selRect.h)
-      sr.endFill(); sr.eventMode = 'none'; room.addChild(sr)
+      sr.endFill(); sr.eventMode = 'none'; baseLayer?.addChild(sr)
     }
 
     // Zones
@@ -327,8 +357,44 @@ export function FloorPlanPixiCanvas({
       }
       if (zoneDrawing) attachZoneDrag(c, z)
       if (zoneDrawing && isSelected) addZoneResizeHandles(c, z, pxScale)
-      room.addChild(c)
+      baseLayer?.addChild(c)
     })
+
+    // Section boundaries
+    if (sectionBoundaries && boundaryLayer) {
+      sectionBoundaries.forEach((b) => {
+        const g = new PIXI.Graphics()
+        const colour = sectionColours.get(b.sectionId) ?? '#4A4A4A'
+        const nc = parseInt(colour.replace('#', ''), 16)
+        g.lineStyle(1.5 / pxScale, nc, 0.35)
+        g.beginFill(nc, 0.04)
+        if (b.shape === 'CIRCLE') {
+          g.drawCircle(b.x, b.y, b.width ?? 50)
+        } else if (b.shape === 'POLYGON' && b.vertices) {
+          g.moveTo(b.x + b.vertices[0].x, b.y + b.vertices[0].y)
+          for (let i = 1; i < b.vertices.length; i++) {
+            g.lineTo(b.x + b.vertices[i].x, b.y + b.vertices[i].y)
+          }
+          g.closePath()
+        } else {
+          g.drawRect(b.x, b.y, b.width ?? 100, b.height ?? 100)
+        }
+        g.endFill()
+        g.eventMode = 'none'
+        boundaryLayer.addChild(g)
+
+        if (b.sectionName) {
+          const bw = b.width ?? 100; const bh = b.height ?? 100
+          const fs = Math.min(bw, bh) * 0.2 * textScale
+          const lbl = new PIXI.Text(b.sectionName, {
+            fontSize: Math.max(8, fs), fill: nc, fontFamily: 'monospace', align: 'center',
+          })
+          lbl.anchor.set(0.5); lbl.x = b.x + bw / 2; lbl.y = b.y + bh / 2
+          lbl.alpha = 0.18; lbl.eventMode = 'none'
+          boundaryLayer.addChild(lbl)
+        }
+      })
+    }
 
     // Build section colour map from zones for element grouping
     const zoneSectionColour = new Map<string, string>()
@@ -513,7 +579,8 @@ export function FloorPlanPixiCanvas({
       }
 
       attachElementDrag(c, el)
-      room.addChild(c)
+      const isFixtureEl = isFixture(el.type)
+      if (isFixtureEl) { baseLayer?.addChild(c) } else { setupLayer?.addChild(c) }
     })
 
     // Bench connectors (rectangular and polygon booths)
@@ -527,10 +594,77 @@ export function FloorPlanPixiCanvas({
         const ddx = tx - bx; const ddy = ty - by; const dist = Math.sqrt(ddx * ddx + ddy * ddy)
         const ux = ddx / dist; const uy = ddy / dist; let p = 0
         while (p < dist) { const seg = Math.min(5, dist - p); l.moveTo(bx + ux * p, by + uy * p); l.lineTo(bx + ux * (p + seg), by + uy * (p + seg)); p += seg + 3 }
-        l.eventMode = 'none'; room.addChild(l)
+        l.eventMode = 'none'; setupLayer?.addChild(l)
       })
     })
   }, [elements, zones, selectedIds, selectedZoneId, zoneDrawing, zoneDrawRect, selRect, roomWidth, roomDepth, gridUnit, snapEnabled, rebuildKey, boothPainting, showDimensions])
+
+  function magneticSnap(
+    item: { x: number; y: number; width: number; depth: number; rotation: number },
+    targets: { x: number; y: number; width: number; depth: number; rotation: number }[],
+    threshold: number,
+  ): { x: number; y: number; rotation: number } | null {
+    if (targets.length === 0 || threshold <= 0) return null
+    const degToRad = Math.PI / 180
+
+    function corners(t: typeof item): [number, number][] {
+      const hw = t.width / 2; const hd = t.depth / 2
+      const cx = t.x + hw; const cy = t.y + hd
+      const cr = Math.cos(t.rotation * degToRad); const sr = Math.sin(t.rotation * degToRad)
+      const local: [number, number][] = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]
+      return local.map(([lx, ly]) => [cx + lx * cr - ly * sr, cy + lx * sr + ly * cr] as [number, number])
+    }
+
+    const itemCorners = corners(item)
+    const itemEdges = itemCorners.map((_, i) => {
+      const j = (i + 1) % 4
+      const [x1, y1] = itemCorners[i]
+      const [x2, y2] = itemCorners[j]
+      const dx = x2 - x1; const dy = y2 - y1
+      const len = Math.sqrt(dx * dx + dy * dy)
+      return { x1, y1, x2, y2, len, ux: dx / len, uy: dy / len,
+        nx: -dy / len, ny: dx / len, midX: (x1 + x2) / 2, midY: (y1 + y2) / 2 }
+    })
+
+    let bestDist = threshold
+    let best: { x: number; y: number; rotation: number } | null = null
+
+    for (const target of targets) {
+      const tc = corners(target)
+      for (let ti = 0; ti < 4; ti++) {
+        const tj = (ti + 1) % 4
+        const [tx1, ty1] = tc[ti]; const [tx2, ty2] = tc[tj]
+        const tdx = tx2 - tx1; const tdy = ty2 - ty1
+        const tlen = Math.sqrt(tdx * tdx + tdy * tdy)
+        const tux = tdx / tlen; const tuy = tdy / tlen
+
+        for (const ie of itemEdges) {
+          const dot = Math.abs(ie.ux * tux + ie.uy * tuy)
+          if (dot < 0.996) continue // ~5deg tolerance
+
+          const dmx = (tx1 + tx2) / 2 - ie.midX
+          const dmy = (ty1 + ty2) / 2 - ie.midY
+          const dist = Math.sqrt(dmx * dmx + dmy * dmy)
+          if (dist >= bestDist) continue
+
+          // Facing: normals should point toward each other
+          const facingDot = (ie.nx * dmx + ie.ny * dmy)
+          if (facingDot <= 0) continue // item normal points away from target edge
+
+          // Overlap check
+          const projMin = Math.min(tx1 * ie.ux + ty1 * ie.uy, tx2 * ie.ux + ty2 * ie.uy)
+          const projMax = Math.max(tx1 * ie.ux + ty1 * ie.uy, tx2 * ie.ux + ty2 * ie.uy)
+          const itemMin = ie.x1 * ie.ux + ie.y1 * ie.uy
+          const itemMax = itemMin + ie.len
+          if (itemMax <= projMin || projMax <= itemMin) continue
+
+          bestDist = dist
+          best = { x: item.x + dmx, y: item.y + dmy, rotation: target.rotation }
+        }
+      }
+    }
+    return best
+  }
 
   function attachElementDrag(node: PIXI.Container, el: ElementData) {
     let dd: { sx: number; sy: number; ex: number; ey: number } | null = null
@@ -562,6 +696,16 @@ export function FloorPlanPixiCanvas({
         if (st.snap) { rx = edgeSnap(rx, el.width, st.gu); ry = edgeSnap(ry, el.depth, st.gu) }
         rx = Math.max(0, Math.min(rx, roomWidth - el.width))
         ry = Math.max(0, Math.min(ry, roomDepth - el.depth))
+        // Magnetic snap against same-type furniture
+        if (!isFixture(el.type)) {
+          const others = elements.filter((e) => e.id !== el.id && e.type === el.type)
+            .map((e) => ({ x: e.x, y: e.y, width: e.width, depth: e.depth, rotation: e.rotation ?? 0 }))
+          const snap = magneticSnap({ x: rx, y: ry, width: el.width, depth: el.depth, rotation: el.rotation ?? 0 }, others, snapThreshold)
+          if (snap) {
+            rx = Math.max(0, Math.min(snap.x, roomWidth - el.width))
+            ry = Math.max(0, Math.min(snap.y, roomDepth - el.depth))
+          }
+        }
         cbRef.current.onElementDragEnd(el.id!, rx, ry); dd = null
       }
       app.stage.on('globalpointermove', onMove); app.stage.on('pointerup', onUp)
