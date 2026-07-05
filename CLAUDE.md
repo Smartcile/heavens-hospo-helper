@@ -781,6 +781,44 @@ npm run lint && npm run test
 If either fails, the GitHub Actions CI pipeline (`docker-build.yml`) will also fail
 and the Docker image won't be built. Broken code never ships.
 
+## TEST COVERAGE
+
+Every new pure function or hook-bearing component MUST have a corresponding
+`*.test.ts` (lib) or `*.test.tsx` (component) file alongside it. Before
+pushing, run: `npm run lint && npm run test`.
+
+### Lib Files
+
+| Target | Coverage |
+|---|---|
+| `lib/array.ts` — `moveItem` | ✅ |
+| `lib/booth-trace.ts` — `traceBoothPerimeter` | ✅ |
+| `lib/breaks.ts` — `nzBreakEntitlement`, `shiftHours`, `formatBreaks` | ✅ |
+| `lib/budget-math.ts` — `generateDailyBudgetsNormalized`, `computeBreakdowns` | ✅ |
+| `lib/calendar.ts` — `monthDays`, `isValidTime`, `dateKeysBetween` | ✅ |
+| `lib/ical.ts` — `feedsForVenue`, `googleEmbedToIcal` | ✅ |
+| `lib/scheduling.ts` — `isTaskDueOnDate`, `describeSchedule`, `formatDateKey` | ✅ |
+| `lib/utils.ts` — all 8 exports | ✅ |
+| `lib/training.ts` — `getStaffTraining`, `getStaffSops` | ⬜ TODO (needs Prisma mock) |
+| `lib/followups.ts` — `checkUntrainedOnCompletion`, `generateVenueFollowUps` | ⬜ TODO (needs Prisma mock) |
+| `lib/external-sync.ts` — `syncVenueCalendar` | ⬜ TODO (needs Prisma mock) |
+| `lib/retrain.ts` — `postRetrainNotice` | ⬜ TODO (needs Prisma mock) |
+| `lib/worker-session.ts` | ⬜ TODO (needs Next.js runtime mock) |
+| `lib/auth.ts` — `authOptions` | ⬜ TODO (needs NextAuth mock) |
+
+### Component Regression Tests
+
+| Target | Coverage |
+|---|---|
+| `FloorPlanView.test.tsx` — useMemo callback guard (React #310) | ✅ |
+| `FloorPlansClient.test.tsx` — renders with ADMIN/MANAGER roles | ✅ |
+| `AdminNav.test.tsx` — renders nav groups | ✅ |
+| `FloorPlanEditor.tsx` — 30+ hooks, useMemo, early return | ⬜ TODO |
+| `BudgetPageClient.tsx` — useCallback + useEffect chain | ⬜ TODO |
+| `CalendarClient.tsx` — 22 useState | ⬜ TODO |
+| `WorkerTasksClient.tsx` — dual early-return paths | ⬜ TODO |
+| All other admin/worker components | ⬜ TODO |
+
 ## WHAT NOT TO DO
 
 - **NO hard deletes** — never call `prisma.model.delete()`. Always set `deletedAt`.
