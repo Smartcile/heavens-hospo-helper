@@ -164,6 +164,8 @@ export interface SetupItemInput {
   width: number
   depth: number
   tableGroupId?: string | null
+  sectionId?: string | null
+  assignedNumber?: string | null
   label?: string | null
 }
 

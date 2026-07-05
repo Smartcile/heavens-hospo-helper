@@ -804,6 +804,7 @@ model SetupItem {
   rotation       Float     @default(0)
   sectionId      String?
   tableGroupId   String?
+  assignedNumber String?
   label          String?
   sortOrder      Int       @default(0)
   isActive       Boolean   @default(true)
@@ -848,6 +849,7 @@ model TableProfile {
   chairCount     Int       @default(0)
   seatingDensity Float?
   maxHeadChairs  Int       @default(1)
+  tableNumbers   Json?
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt

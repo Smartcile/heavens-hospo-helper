@@ -12,7 +12,7 @@ export interface ViewState {
   zoom: number; panX: number; panY: number
 }
 
-interface SectionBoundaryP {
+export interface SectionBoundaryP {
   id: string; shape: string; x: number; y: number
   width?: number | null; height?: number | null
   vertices?: { x: number; y: number }[] | null
@@ -55,6 +55,11 @@ interface PixiCanvasProps {
   boothCellsRef?: React.MutableRefObject<Set<string>>
   onBoothCellToggle?: (col: number, row: number) => void
   rebuildKey?: number
+  // Setup layer
+  setupItems?: { id: string; x: number; y: number; rotation: number; width: number; depth: number; label?: string | null; colour?: string; chairCount?: number; tableGroupId?: string | null }[]
+  setupSelectedIds?: string[]
+  onSetupItemClick?: (id: string | null, ctrlKey?: boolean) => void
+  onSetupItemDragEnd?: (id: string, x: number, y: number) => void
 }
 
 function gridSnap(v: number, u: number) { return Math.round(v / u) * u }
@@ -94,6 +99,7 @@ export function FloorPlanPixiCanvas({
   onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange,
   textScale = 1, selRect, onSelRectStart, onSelRectMove, onSelRectEnd,
   rebuildKey, showDimensions = false, boothPainting = false, boothCellsRef, onBoothCellToggle,
+  setupItems, setupSelectedIds, onSetupItemClick, onSetupItemDragEnd,
 }: PixiCanvasProps) {
   const appRef = useRef<PIXI.Application | null>(null)
   const roomRef = useRef<PIXI.Container | null>(null)
@@ -102,8 +108,8 @@ export function FloorPlanPixiCanvas({
   const boundaryRef = useRef<PIXI.Container | null>(null)
   const stateRef = useRef({ snap: snapEnabled, gu: gridUnit })
   const paintPreviewRef = useRef<PIXI.Graphics | null>(null)
-  const cbRef = useRef({ onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, boothPainting, onBoothCellToggle, boothCellsRef })
-  cbRef.current = { onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, boothPainting, onBoothCellToggle, boothCellsRef }
+  const cbRef = useRef({ onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, boothPainting, onBoothCellToggle, boothCellsRef, onSetupItemClick, onSetupItemDragEnd })
+  cbRef.current = { onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, boothPainting, onBoothCellToggle, boothCellsRef, onSetupItemClick, onSetupItemDragEnd }
 
   // Init app once
   useEffect(() => {
@@ -599,7 +605,58 @@ export function FloorPlanPixiCanvas({
         l.eventMode = 'none'; setupLayer?.addChild(l)
       })
     })
-  }, [elements, zones, selectedIds, selectedZoneId, zoneDrawing, zoneDrawRect, selRect, roomWidth, roomDepth, gridUnit, snapEnabled, rebuildKey, boothPainting, showDimensions])
+
+    // Setup items
+    if (setupItems && setupLayer) {
+      setupItems.forEach((item) => {
+        const c = new PIXI.Container()
+        c.x = item.x; c.y = item.y
+        c.rotation = (item.rotation ?? 0) * (Math.PI / 180)
+        c.eventMode = 'static'; c.cursor = 'pointer'
+
+        const fill = parseInt((item.colour ?? '#555').replace('#', ''), 16)
+        const isSel = setupSelectedIds?.includes(item.id)
+        const g = new PIXI.Graphics()
+        g.lineStyle((isSel ? 2 : 1) / pxScale, isSel ? 0xFFFFFF : 0x666666, 0.9)
+        g.beginFill(fill, 0.7)
+        g.drawRect(0, 0, item.width, item.depth)
+        g.endFill()
+        c.addChild(g)
+
+        // Group outline for grouped items
+        if (item.tableGroupId) {
+          const og = new PIXI.Graphics()
+          og.lineStyle(1.5 / pxScale, 0xFFD700, 0.4)
+          og.drawRect(-2 / pxScale, -2 / pxScale, item.width + 4 / pxScale, item.depth + 4 / pxScale)
+          og.eventMode = 'none'; c.addChild(og)
+        }
+
+        // Label (assigned number or profile name)
+        if (item.label) {
+          const fs = Math.max(8, Math.min(item.width, item.depth) * 0.25 * pxScale * textScale)
+          const lbl = new PIXI.Text(item.label, {
+            fontSize: fs, fill: 0xFFFFFF, fontFamily: 'monospace', align: 'center',
+          })
+          lbl.anchor.set(0.5); lbl.x = item.width / 2; lbl.y = item.depth / 2
+          lbl.eventMode = 'none'; c.addChild(lbl)
+        }
+
+        // Chair count badge
+        const cc = item.chairCount ?? 0
+        if (cc > 0 && item.label) {
+          const badge = new PIXI.Text(`×${cc}`, {
+            fontSize: Math.max(7, Math.min(item.width, item.depth) * 0.14 * pxScale * textScale),
+            fill: 0xCCCCCC, fontFamily: 'monospace',
+          })
+          badge.anchor.set(0, 0.5); badge.x = item.width / 2 + 3; badge.y = item.depth / 2
+          badge.eventMode = 'none'; c.addChild(badge)
+        }
+
+        attachSetupItemDrag(c, item)
+        setupLayer.addChild(c)
+      })
+    }
+  }, [elements, zones, selectedIds, selectedZoneId, zoneDrawing, zoneDrawRect, selRect, roomWidth, roomDepth, gridUnit, snapEnabled, rebuildKey, boothPainting, showDimensions, setupItems, setupSelectedIds, textScale])
 
   function magneticSnap(
     item: { x: number; y: number; width: number; depth: number; rotation: number },
@@ -724,6 +781,54 @@ export function FloorPlanPixiCanvas({
           }
         }
         cbRef.current.onElementDragEnd(el.id!, rx, ry); dd = null
+      }
+      app.stage.on('globalpointermove', onMove); app.stage.on('pointerup', onUp)
+    })
+  }
+
+  function attachSetupItemDrag(node: PIXI.Container, item: { id: string; x: number; y: number; rotation: number; width: number; depth: number }) {
+    let dd: { sx: number; sy: number; ex: number; ey: number } | null = null
+    node.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+      e.stopPropagation()
+      if (cbRef.current.boothPainting) return
+      cbRef.current.onSetupItemClick?.(item.id, e.ctrlKey || e.shiftKey)
+      dd = { sx: e.globalX, sy: e.globalY, ex: node.x, ey: node.y }
+      const app = appRef.current
+      if (!app) return
+      const onMove = (ev: PIXI.FederatedPointerEvent) => {
+        if (!dd) return; const st = stateRef.current
+        const vs = viewRef.current
+        let nx = dd.ex + (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
+        let ny = dd.ey + (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
+        if (st.snap) { nx = edgeSnap(nx, item.width, st.gu); ny = edgeSnap(ny, item.depth, st.gu) }
+        node.x = nx; node.y = ny
+      }
+      const onUp = (ev: PIXI.FederatedPointerEvent) => {
+        app.stage.off('globalpointermove', onMove); app.stage.off('pointerup', onUp)
+        if (!dd) return; const st = stateRef.current
+        const vs = viewRef.current
+        let rx = dd.ex + (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
+        let ry = dd.ey + (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
+        if (st.snap) { rx = edgeSnap(rx, item.width, st.gu); ry = edgeSnap(ry, item.depth, st.gu) }
+        rx = Math.max(0, Math.min(rx, roomWidth - item.width))
+        ry = Math.max(0, Math.min(ry, roomDepth - item.depth))
+        // Section detection
+        if (sectionBoundaries && sectionBoundaries.length > 0) {
+          const cx = rx + item.width / 2; const cy = ry + item.depth / 2
+          for (const b of sectionBoundaries) {
+            const polyPoints = b.shape === 'POLYGON' && b.vertices
+              ? b.vertices.map((v: { x: number; y: number }) => ({ x: b.x + v.x, y: b.y + v.y }))
+              : b.shape === 'RECTANGLE'
+                ? [{ x: b.x, y: b.y }, { x: b.x + (b.width ?? 0), y: b.y }, { x: b.x + (b.width ?? 0), y: b.y + (b.height ?? 0) }, { x: b.x, y: b.y + (b.height ?? 0) }]
+                : []
+            if (polyPoints.length >= 3 && pointInPolygon(cx, cy, polyPoints)) {
+              // Section detected - tagged via onElementDropToSection (same callback works for setup items)
+              cbRef.current.onElementDropToSection?.(item.id, b.sectionId)
+              break
+            }
+          }
+        }
+        cbRef.current.onSetupItemDragEnd?.(item.id, rx, ry); dd = null
       }
       app.stage.on('globalpointermove', onMove); app.stage.on('pointerup', onUp)
     })

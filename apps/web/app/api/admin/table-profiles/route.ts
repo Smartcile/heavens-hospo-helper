@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { Prisma } from '@prisma/client'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { name, type, capacity, width, depth, shape, colour, chairCount, seatingDensity, maxHeadChairs, bomItems } = body
+  const { name, type, capacity, width, depth, shape, colour, chairCount, seatingDensity, maxHeadChairs, tableNumbers, bomItems } = body
 
   if (!name?.trim()) {
     return NextResponse.json({ error: 'name is required' }, { status: 400 })
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
       chairCount: chairCount ?? 0,
       seatingDensity: seatingDensity ?? null,
       maxHeadChairs: maxHeadChairs ?? 1,
+      tableNumbers: Array.isArray(tableNumbers) && tableNumbers.length > 0 ? (tableNumbers as any) : Prisma.DbNull,
       ...(bomItems?.length
         ? { bomItems: { create: bomItems.map((b: { inventoryItemId: string; quantity: number; perChair: boolean }) => ({ inventoryItemId: b.inventoryItemId, quantity: b.quantity, perChair: b.perChair ?? false })) } }
         : {}),

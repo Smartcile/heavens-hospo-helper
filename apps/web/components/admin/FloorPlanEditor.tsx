@@ -8,6 +8,8 @@ import {
   PALETTE_ITEMS,
   computeSectionSummary, type PaletteItem, type ElementData,
 } from '@/components/admin/floorplan-elements'
+import type { SetupItemInput, TableProfileView } from '@hospo-ops/types'
+import type { SectionBoundaryP } from '@/components/admin/floorplan-pixi'
 import { ElementInventoryPanel } from '@/components/admin/ElementInventoryPanel'
 import { FloorPlanPixiCanvas, type ViewState } from '@/components/admin/floorplan-pixi'
 import { FloorplanToolbar } from '@/components/admin/FloorplanToolbar'
@@ -96,6 +98,14 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const boothCellsRef = useRef<Set<string>>(new Set())
   const [textScale, setTextScale] = useState(1)
 
+  // ── Setup layer state ──
+  const [setups, setSetups] = useState<{ id: string; name: string; eventDate?: string }[]>([])
+  const [activeSetupId, setActiveSetupId] = useState<string | null>(null)
+  const [setupItems, setSetupItems] = useState<SetupItemInput[]>([])
+  const [setupSelectedIds, setSetupSelectedIds] = useState<string[]>([])
+  const [tableProfiles, setTableProfiles] = useState<TableProfileView[]>([])
+  const [sectionBoundaries, setSectionBoundaries] = useState<SectionBoundaryP[]>([])
+
   const historyRef = useRef<{ past: ElementData[][]; future: ElementData[][] }>({ past: [], future: [] })
 
   function pushHistory() {
@@ -117,6 +127,72 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     const next = future.pop()!
     past.push(JSON.parse(JSON.stringify(elements)))
     setElements(next)
+  }
+
+  // ── Setup layer functions ──
+
+  function assignTableNumber(profileId: string, existingItems: SetupItemInput[]): string | null {
+    const profile = tableProfiles.find(p => p.id === profileId)
+    const pool = (profile as any)?.tableNumbers
+    if (!pool || !Array.isArray(pool) || pool.length === 0) return null
+    const used = new Set(
+      existingItems
+        .filter(i => i.tableProfileId === profileId && i.assignedNumber)
+        .map(i => i.assignedNumber!)
+    )
+    const sorted = [...pool].map(String).sort((a, b) => Number(a) - Number(b))
+    for (const num of sorted) { if (!used.has(num)) return num }
+    return null
+  }
+
+  async function handleSetupChange(setupId: string | null) {
+    setActiveSetupId(setupId)
+    setSetupSelectedIds([])
+    if (!setupId) { setSetupItems([]); return }
+    const r = await fetch(`/api/admin/floorplan/${plan.id}/setups/${setupId}`)
+    if (!r.ok) return
+    const data = await r.json()
+    const items: SetupItemInput[] = (data.items || []).map((i: any) => ({
+      id: i.id,
+      tableProfileId: i.tableProfileId,
+      x: i.x, y: i.y, rotation: i.rotation ?? 0,
+      width: i.tableProfile?.width ?? 80,
+      depth: i.tableProfile?.depth ?? 80,
+      tableGroupId: i.tableGroupId ?? null,
+      assignedNumber: i.assignedNumber ?? null,
+      label: i.assignedNumber ?? i.label ?? null,
+    }))
+    setSetupItems(items)
+  }
+
+  async function handleNewSetup() {
+    const name = prompt('Setup name:')
+    if (!name?.trim()) return
+    const r = await fetch(`/api/admin/floorplan/${plan.id}/setups`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim().toUpperCase() }),
+    })
+    if (!r.ok) return
+    const created = await r.json()
+    setSetups(prev => [...prev, created])
+    handleSetupChange(created.id)
+  }
+
+  async function handleDeleteSetup() {
+    if (!activeSetupId || !confirm('Delete this setup?')) return
+    await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}`, { method: 'DELETE' })
+    setSetups(prev => prev.filter(s => s.id !== activeSetupId))
+    handleSetupChange(null)
+  }
+
+  function handleSetupItemDragEnd(id: string, x: number, y: number) {
+    pushHistory()
+    setSetupItems(prev => prev.map(i => i.id === id ? { ...i, x, y } : i))
+  }
+
+  function handleSetupItemDropToSection(id: string, sectionId: string) {
+    setSetupItems(prev => prev.map(i => i.id === id ? { ...i, sectionId } : i))
   }
 
   const [rebuildKey, setRebuildKey] = useState(0)
@@ -164,6 +240,10 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       } catch (e) {
         console.error('FloorPlanEditor load error:', e)
       }
+      // Background loads for setup layer
+      fetch(`/api/admin/floorplan/${plan.id}/setups`).then(r => { if (r.ok) r.json().then((d: any[]) => setSetups(d)) }).catch(() => {})
+      fetch('/api/admin/table-profiles').then(r => { if (r.ok) r.json().then((d: any[]) => setTableProfiles(d)) }).catch(() => {})
+      fetch(`/api/admin/floorplan/${plan.id}/section-boundaries`).then(r => { if (r.ok) r.json().then((d: any[]) => setSectionBoundaries(d)) }).catch(() => {})
       setLoading(false)
     }
     load()
@@ -288,6 +368,32 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         const fiData = await furnRes.json()
         setFurnitureItems(Array.isArray(fiData) ? fiData : [])
       }
+    }
+    // Save setup items
+    if (activeSetupId && setupItems.length > 0) {
+      try {
+        const saveItems = setupItems.map(i => ({
+          ...i,
+          id: i.id.startsWith('new_setup_') ? undefined : i.id,
+          _clientId: i.id,
+          label: i.assignedNumber ?? undefined,
+          sectionId: i.sectionId ?? null,
+          tableGroupId: i.tableGroupId ?? null,
+        }))
+        const r = await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}/items`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: saveItems }),
+        })
+        if (r.ok) {
+          const res = await r.json()
+          const clientToReal = new Map((res.saved ?? []).map((s: any) => [s._clientId, s.id]))
+          setSetupItems(prev => prev.map(i => {
+            const realId = clientToReal.get(i.id) as string | undefined
+            return realId ? { ...i, id: realId } : i
+          }))
+        }
+      } catch {}
     }
     setSaving(false)
   }
@@ -495,6 +601,45 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 ))}
               </div>
             )}
+            {/* TableProfile palette (setup mode) */}
+            {activeSetupId && tableProfiles.length > 0 && (
+              <div>
+                <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2">TABLE PROFILES</p>
+                {tableProfiles.map(tp => {
+                  const pool = (tp as any)?.tableNumbers
+                  const poolArr: string[] = Array.isArray(pool) ? pool.map(String) : []
+                  const used = new Set(
+                    setupItems
+                      .filter(i => i.tableProfileId === tp.id && i.assignedNumber)
+                      .map(i => i.assignedNumber!)
+                  )
+                  const available = poolArr.filter(n => !used.has(n))
+                  const canDrag = poolArr.length === 0 || available.length > 0
+                  return (
+                    <div key={tp.id} draggable={canDrag}
+                      onDragStart={(e) => {
+                        if (!canDrag) { e.preventDefault(); pushToast(`All table numbers for ${tp.name} are in use.`, 'error'); return }
+                        e.dataTransfer.setData('text/plain', `tp_${tp.id}`)
+                        const dragImg = new globalThis.Image()
+                        dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+                        e.dataTransfer.setDragImage(dragImg, 0, 0)
+                      }}
+                      className={`flex items-center gap-2 p-1.5 transition-colors ${canDrag ? 'cursor-grab hover:bg-grey-mid' : 'cursor-not-allowed opacity-40'}`}
+                    >
+                      <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: tp.colour ?? '#555' }} />
+                      <span className="font-mono text-[10px] text-white truncate">{tp.name}</span>
+                      <span className="font-mono text-[8px] text-grey-light ml-auto">{tp.width}×{tp.depth}</span>
+                      <span className="font-mono text-[8px] text-grey-light">{tp.chairCount}S</span>
+                      {poolArr.length > 0 && (
+                        <span className={`font-mono text-[8px] ml-1 ${available.length > 0 ? 'text-success' : 'text-danger'}`}>
+                          {available.length}/{poolArr.length}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
             {(furnitureItems.length > 0 || true) && (
               <div className="border-t border-grey-mid pt-1 mt-1">
                 {newTableOpen ? (
@@ -591,6 +736,23 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           </div>
         )}
 
+        {/* Setup toolbar */}
+        {setups.length > 0 && (
+          <div className="flex items-center gap-2 border-b border-grey-mid px-3 py-1.5">
+            <span className="font-mono text-[10px] uppercase text-grey-light tracking-wider">SETUP:</span>
+            <select
+              value={activeSetupId ?? ''}
+              onChange={(e) => handleSetupChange(e.target.value || null)}
+              className="bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-2 py-1 outline-none"
+            >
+              <option value="">— BASE PLAN —</option>
+              {setups.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <Button size="sm" onClick={handleNewSetup}>+ NEW</Button>
+            {activeSetupId && <Button size="sm" variant="danger" onClick={handleDeleteSetup}>DELETE</Button>}
+          </div>
+        )}
+
         <div
           ref={containerRef}
           className="flex-1 overflow-hidden bg-black"
@@ -624,6 +786,35 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 circle: fi.elementShape === 'CIRCLE',
               }
               addFromPalette(paletteItem, { x, y }, fi)
+              return
+            }
+            // TableProfile drop (setup mode)
+            if (type.startsWith('tp_') && activeSetupId) {
+              const tpId = type.replace('tp_', '')
+              const tp = tableProfiles.find(p => p.id === tpId)
+              if (!tp) return
+              const pool = (tp as any)?.tableNumbers
+              const poolArr: string[] = Array.isArray(pool) ? pool.map(String) : []
+              const assignedNumber = assignTableNumber(tp.id, setupItems)
+              if (poolArr.length > 0 && assignedNumber === null) {
+                pushToast(`All table numbers for ${tp.name} are assigned.`, 'error')
+                return
+              }
+              const id = `new_setup_${nextIdCounter.current++}`
+              const gu = plan.gridUnit
+              const item: SetupItemInput = {
+                id,
+                tableProfileId: tp.id,
+                assignedNumber,
+                x: snapEnabled ? snap(x, gu) - tp.width / 2 : x - tp.width / 2,
+                y: snapEnabled ? snap(y, gu) - tp.depth / 2 : y - tp.depth / 2,
+                rotation: 0,
+                width: tp.width,
+                depth: tp.depth,
+                label: assignedNumber ?? tp.name,
+              }
+              pushHistory()
+              setSetupItems(prev => [...prev, item])
               return
             }
             const item = [...PALETTE_ITEMS, ...customPresets].find((p) => p.type === type)
@@ -699,6 +890,14 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   return ex < rx + rw && ex + ew > rx && ey < ry + rh && ey + ed > ry
                 })
                 setSelectedIds(hits.map((e) => e.id!))
+                // Also select setup items intersecting the rectangle
+                if (activeSetupId) {
+                  const selected = setupItems.filter(item =>
+                    item.x < rx + rw && item.x + item.width > rx &&
+                    item.y < ry + rh && item.y + item.depth > ry
+                  ).map(i => i.id)
+                  setSetupSelectedIds(selected)
+                }
                 return null
               })
             }}
@@ -707,6 +906,22 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             boothPainting={boothPainting}
             boothCellsRef={boothCellsRef}
             onBoothCellToggle={() => setBoothPaintKey(k => k + 1)}
+            setupItems={activeSetupId ? setupItems.map(i => ({
+              ...i,
+              colour: tableProfiles.find(tp => tp.id === i.tableProfileId)?.colour ?? '#555',
+              chairCount: tableProfiles.find(tp => tp.id === i.tableProfileId)?.chairCount ?? 0,
+            })) : undefined}
+            setupSelectedIds={activeSetupId ? setupSelectedIds : []}
+            onSetupItemClick={(id, ctrlKey) => {
+              if (!id) { setSetupSelectedIds([]); return }
+              setSetupSelectedIds(prev =>
+                ctrlKey ? (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+                  : prev.length === 1 && prev[0] === id ? prev : [id]
+              )
+            }}
+            onSetupItemDragEnd={handleSetupItemDragEnd}
+            sectionBoundaries={activeSetupId ? sectionBoundaries : undefined}
+            onElementDropToSection={activeSetupId ? handleSetupItemDropToSection : undefined}
           />
         </div>
 

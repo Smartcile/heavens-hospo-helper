@@ -75,6 +75,8 @@ export function TableProfilesClient() {
   const [newBomItemId, setNewBomItemId] = useState('')
   const [newBomQty, setNewBomQty] = useState('1')
   const [newBomPerChair, setNewBomPerChair] = useState(false)
+  const [tagInput, setTagInput] = useState('')
+  const [tableNumbers, setTableNumbers] = useState<string[]>([])
 
   const selectedProfile = profiles.find((p) => p.id === selectedId)
 
@@ -121,6 +123,7 @@ export function TableProfilesClient() {
         setChairCount(String(p.chairCount))
         setSeatingDensity(p.seatingDensity != null ? String(p.seatingDensity) : '')
         setMaxHeadChairs(String(p.maxHeadChairs))
+        setTableNumbers(Array.isArray((p as any).tableNumbers) ? (p as any).tableNumbers.map(String) : [])
         loadBom(p.id)
       }
     }
@@ -140,6 +143,8 @@ export function TableProfilesClient() {
     setSeatingDensity('')
     setMaxHeadChairs('1')
     setBomItems([])
+    setTableNumbers([])
+    setTagInput('')
   }
 
   async function handleSave() {
@@ -157,6 +162,7 @@ export function TableProfilesClient() {
       chairCount: parseInt(chairCount) || 0,
       seatingDensity: seatingDensity ? parseFloat(seatingDensity) : null,
       maxHeadChairs: parseInt(maxHeadChairs) || 1,
+      tableNumbers: tableNumbers.length > 0 ? tableNumbers : null,
     }
 
     let profileId = selectedId
@@ -309,6 +315,40 @@ export function TableProfilesClient() {
                   <Input value={colour} onChange={(e) => setColour(e.target.value)} className="flex-1" />
                 </div>
               </div>
+            </div>
+
+            {/* Table numbers tag input */}
+            <div>
+              <label className="font-mono text-xs uppercase text-grey-light block mb-1">TABLE NUMBERS</label>
+              <div className="flex flex-wrap gap-1 mb-1.5">
+                {tableNumbers.map((n, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 bg-grey-mid border border-grey-light px-1.5 py-0.5 font-mono text-[10px] text-white">
+                    {n}
+                    <button onClick={() => setTableNumbers(prev => prev.filter((_, j) => j !== i))}
+                      className="text-grey-light hover:text-danger">×</button>
+                  </span>
+                ))}
+              </div>
+              <Input
+                value={tagInput}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (v.endsWith(',')) {
+                    const num = v.replace(/,/g, '').trim()
+                    if (num && !tableNumbers.includes(num)) setTableNumbers(prev => [...prev, num])
+                    setTagInput('')
+                  } else { setTagInput(v) }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    const num = tagInput.trim()
+                    if (num && !tableNumbers.includes(num)) setTableNumbers(prev => [...prev, num])
+                    setTagInput('')
+                  }
+                }}
+                placeholder="TYPE NUMBER, PRESS ENTER..."
+              />
             </div>
 
             {/* Seating params */}

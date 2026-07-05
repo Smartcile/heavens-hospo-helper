@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { Prisma } from '@prisma/client'
 
 interface Params { params: { id: string } }
 
@@ -43,6 +44,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.chairCount !== undefined) data.chairCount = parseInt(String(body.chairCount)) || 0
   if (body.seatingDensity !== undefined) data.seatingDensity = body.seatingDensity ? parseFloat(String(body.seatingDensity)) : null
   if (body.maxHeadChairs !== undefined) data.maxHeadChairs = parseInt(String(body.maxHeadChairs)) || 1
+  if (body.tableNumbers !== undefined) data.tableNumbers = Array.isArray(body.tableNumbers) && body.tableNumbers.length > 0 ? body.tableNumbers : Prisma.DbNull
 
   const updated = await prisma.tableProfile.update({
     where: { id: params.id },
