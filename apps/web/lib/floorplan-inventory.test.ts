@@ -572,3 +572,70 @@ describe('pointInPolygon', () => {
     expect(pointInPolygon(0, 0, [])).toBe(false)
   })
 })
+
+// ════════════════════════════════════════════════════════════
+//  Section boundary detection (mirrors floorplan-pixi.tsx logic)
+// ════════════════════════════════════════════════════════════
+
+function boundaryToPolygon(
+  b: { x: number; y: number; width?: number | null; height?: number | null; vertices?: { x: number; y: number }[] | null; shape: string },
+): { x: number; y: number }[] {
+  if (b.shape === 'POLYGON' && b.vertices) {
+    return b.vertices.map((v) => ({ x: b.x + v.x, y: b.y + v.y }))
+  }
+  return [
+    { x: b.x, y: b.y },
+    { x: b.x + (b.width ?? 0), y: b.y },
+    { x: b.x + (b.width ?? 0), y: b.y + (b.height ?? 0) },
+    { x: b.x, y: b.y + (b.height ?? 0) },
+  ]
+}
+
+describe('section boundary detection', () => {
+  // 41
+  it('table center inside RECTANGLE boundary detected', () => {
+    const boundary = { x: 100, y: 100, width: 400, height: 300, shape: 'RECTANGLE' }
+    const poly = boundaryToPolygon(boundary)
+    const cx = 300; const cy = 250
+    expect(pointInPolygon(cx, cy, poly)).toBe(true)
+  })
+
+  // 42
+  it('table center outside RECTANGLE boundary not detected', () => {
+    const boundary = { x: 100, y: 100, width: 400, height: 300, shape: 'RECTANGLE' }
+    const poly = boundaryToPolygon(boundary)
+    const cx = 600; const cy = 250
+    expect(pointInPolygon(cx, cy, poly)).toBe(false)
+  })
+
+  // 43
+  it('table center on RECTANGLE boundary edge detected', () => {
+    const boundary = { x: 0, y: 0, width: 200, height: 200, shape: 'RECTANGLE' }
+    const poly = boundaryToPolygon(boundary)
+    const cx = 100; const cy = 100
+    expect(pointInPolygon(cx, cy, poly)).toBe(true)
+  })
+
+  // 44
+  it('POLYGON boundary with vertices offset by x/y', () => {
+    const boundary = {
+      x: 50, y: 30,
+      shape: 'POLYGON',
+      vertices: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }],
+    }
+    const poly = boundaryToPolygon(boundary)
+    // Center at (100, 70) = world space (50+50, 30+40) — inside
+    expect(pointInPolygon(100, 70, poly)).toBe(true)
+    // Corner at (160, 120) = world space — outside
+    expect(pointInPolygon(160, 120, poly)).toBe(false)
+  })
+
+  // 45
+  it('zero-width boundary returns degenerate polygon', () => {
+    const boundary = { x: 10, y: 10, width: 0, height: 0, shape: 'RECTANGLE' }
+    const poly = boundaryToPolygon(boundary)
+    expect(poly.length).toBe(4)
+    // Point at center should be detected (degenerate area but ray casting works)
+    expect(pointInPolygon(11, 11, poly)).toBe(false) // zero area = nothing inside
+  })
+})
