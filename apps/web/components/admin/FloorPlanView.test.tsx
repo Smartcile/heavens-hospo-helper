@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 
 function BuggyComponent({ items }: { items: any[] | null }) {
   const result = useMemo(() => {
-    return items.map((i: any) => i + 1)
+    return (items ?? []).map((i: any) => i + 1)
   }, [items])
   return <div>{result.length}</div>
 }
@@ -12,7 +12,7 @@ function BuggyComponent({ items }: { items: any[] | null }) {
 function FixedComponent({ items }: { items: any[] | null }) {
   const result = useMemo(() => {
     if (!Array.isArray(items)) return []
-    return items.map((i: any) => i + 1)
+    return (items ?? []).map((i: any) => i + 1)
   }, [items])
   return <div>{result.length}</div>
 }
