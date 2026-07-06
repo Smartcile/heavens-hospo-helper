@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
-import { Prisma } from '@prisma/client'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -46,7 +45,7 @@ export async function POST(req: NextRequest) {
       chairCount: chairCount ?? 0,
       seatingDensity: seatingDensity ?? null,
       maxHeadChairs: maxHeadChairs ?? 1,
-      tableNumbers: Array.isArray(tableNumbers) && tableNumbers.length > 0 ? (tableNumbers as any) : Prisma.DbNull,
+      ...(Array.isArray(tableNumbers) && tableNumbers.length > 0 ? { tableNumbers } : {}),
       ...(bomItems?.length
         ? { bomItems: { create: bomItems.map((b: { inventoryItemId: string; quantity: number; perChair: boolean }) => ({ inventoryItemId: b.inventoryItemId, quantity: b.quantity, perChair: b.perChair ?? false })) } }
         : {}),

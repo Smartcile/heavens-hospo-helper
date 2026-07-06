@@ -67,7 +67,7 @@ export function TableProfilesClient() {
   const [width, setWidth] = useState('80')
   const [depth, setDepth] = useState('80')
   const [shape, setShape] = useState('RECTANGLE')
-  const [colour, setColour] = useState('#555')
+  const [colour, setColour] = useState('#4A90D9')
   const [chairCount, setChairCount] = useState('0')
   const [seatingDensity, setSeatingDensity] = useState('')
   const [maxHeadChairs, setMaxHeadChairs] = useState('1')
@@ -138,7 +138,7 @@ export function TableProfilesClient() {
     setWidth('80')
     setDepth('80')
     setShape('RECTANGLE')
-    setColour('#555')
+    setColour('#4A90D9')
     setChairCount('0')
     setSeatingDensity('')
     setMaxHeadChairs('1')
@@ -311,7 +311,13 @@ export function TableProfilesClient() {
               <div>
                 <label className="font-mono text-xs uppercase text-grey-light block mb-1">COLOUR</label>
                 <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 border border-grey-mid" style={{ backgroundColor: colour }} />
+                  <input
+                    type="color"
+                    value={colour}
+                    onChange={(e) => setColour(e.target.value)}
+                    className="w-8 h-8 border border-grey-mid cursor-pointer bg-transparent p-0"
+                  />
+                  <div className="w-6 h-6 border border-grey-mid flex-shrink-0" style={{ backgroundColor: colour || '#555' }} />
                   <Input value={colour} onChange={(e) => setColour(e.target.value)} className="flex-1" />
                 </div>
               </div>
