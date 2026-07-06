@@ -639,3 +639,39 @@ describe('section boundary detection', () => {
     expect(pointInPolygon(11, 11, poly)).toBe(false) // zero area = nothing inside
   })
 })
+
+// ════════════════════════════════════════════════════════════
+//  Integration: setups with BOM profiles
+// ════════════════════════════════════════════════════════════
+
+describe('calculateSetupInventory — integration with TableProfile BOM', () => {
+  it('tallies BOM with perChair/perTable distinction from profiles', () => {
+    const profiles = mProfiles([
+      profile('tp-8', '8-SEAT ROUND', 8, null, 80, 80, 1, [
+        { inventoryItemId: 'inv-table-round', quantity: 1, perChair: false },
+        { inventoryItemId: 'inv-chair', quantity: 1, perChair: true },
+        { inventoryItemId: 'inv-fork', quantity: 4, perChair: true },
+        { inventoryItemId: 'inv-salt', quantity: 1, perChair: false },
+      ]),
+    ])
+    const items: SetupItemInput[] = Array.from({ length: 3 }, (_, i) => ({
+      id: `si-${i}`,
+      tableProfileId: 'tp-8',
+      x: i * 100, y: 0, rotation: 0,
+      width: 80, depth: 80,
+    }))
+    // 3 tables → 3 table-round (per-table), 24 chairs (3*8), 96 forks (3*4 per-chair = 4*24), 3 salt (per-table)
+    const inv = mInventory([
+      stock('inv-table-round', 'ROUND TABLE 80CM', 3),
+      stock('inv-chair', 'DINING CHAIR', 20),    // 4 short
+      stock('inv-fork', 'DINNER FORK', 96),
+      stock('inv-salt', 'SALT SHAKER', 3),
+    ])
+    const r = calculateSetupInventory(items, profiles, inv)
+    expect(r).toHaveLength(1)
+    expect(r[0].itemId).toBe('inv-chair')
+    expect(r[0].required).toBe(24)
+    expect(r[0].available).toBe(20)
+    expect(r[0].shortage).toBe(4)
+  })
+})

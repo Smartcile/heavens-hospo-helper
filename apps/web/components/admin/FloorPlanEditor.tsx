@@ -11,10 +11,12 @@ import {
 import type { SetupItemInput, TableProfileView } from '@hospo-ops/types'
 import type { SectionBoundaryP } from '@/components/admin/floorplan-pixi'
 import { ElementInventoryPanel } from '@/components/admin/ElementInventoryPanel'
+import { SetupInventoryPanel } from '@/components/admin/SetupInventoryPanel'
 import { FloorPlanPixiCanvas, type ViewState } from '@/components/admin/floorplan-pixi'
 import { FloorplanToolbar } from '@/components/admin/FloorplanToolbar'
 import { FloorplanInspector } from '@/components/admin/FloorplanInspector'
 import { traceBoothPerimeter } from '@/lib/booth-trace'
+import { calculateSetupInventory } from '@/lib/floorplan-inventory'
 import { pushToast, ToastContainer } from '@/components/ui/Toast'
 
 interface SectionZone {
@@ -105,6 +107,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [setupSelectedIds, setSetupSelectedIds] = useState<string[]>([])
   const [tableProfiles, setTableProfiles] = useState<TableProfileView[]>([])
   const [sectionBoundaries, setSectionBoundaries] = useState<SectionBoundaryP[]>([])
+  const [allInventoryItems, setAllInventoryItems] = useState<any[]>([])
+  const [shortages, setShortages] = useState<any[] | null>(null)
+  const [checkingInventory, setCheckingInventory] = useState(false)
 
   const historyRef = useRef<{ past: ElementData[][]; future: ElementData[][] }>({ past: [], future: [] })
 
@@ -195,6 +200,64 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     setSetupItems(prev => prev.map(i => i.id === id ? { ...i, sectionId } : i))
   }
 
+  function handleInventoryCheck() {
+    if (!activeSetupId) return
+    setCheckingInventory(true)
+    const profilesMap = new Map(
+      tableProfiles.map((tp: any) => [
+        tp.id,
+        {
+          id: tp.id, name: tp.name, chairCount: tp.chairCount,
+          seatingDensity: tp.seatingDensity, width: tp.width, depth: tp.depth, maxHeadChairs: tp.maxHeadChairs,
+          bomItems: (tp.bomItems ?? []).map((b: any) => ({
+            inventoryItemId: b.inventoryItemId ?? b.item?.id,
+            quantity: b.quantity,
+            perChair: b.perChair ?? false,
+          })),
+        },
+      ])
+    )
+    const invMap = new Map(
+      allInventoryItems.map((i: any) => [i.id, { itemId: i.id, name: i.name, available: i.totalQty ?? 0 }])
+    )
+    const result = calculateSetupInventory(setupItems, profilesMap, invMap)
+    setShortages(result)
+    setCheckingInventory(false)
+  }
+
+  async function handleGroup() {
+    if (!activeSetupId) return
+    const selected = setupItems.filter(i => setupSelectedIds.includes(i.id))
+    const profileIds = new Set(selected.map(i => i.tableProfileId))
+    if (profileIds.size > 1) {
+      pushToast('All items in a group must have the same table profile.', 'error')
+      return
+    }
+    const r = await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}/groups`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: null, itemIds: setupSelectedIds }),
+    })
+    if (r.ok) {
+      const group = await r.json()
+      setSetupItems(prev => prev.map(i =>
+        setupSelectedIds.includes(i.id) ? { ...i, tableGroupId: group.id } : i
+      ))
+      setSetupSelectedIds([])
+    }
+  }
+
+  async function handleUngroup() {
+    if (!activeSetupId) return
+    const item = setupItems.find(i => i.id === setupSelectedIds[0])
+    if (!item?.tableGroupId) return
+    await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}/groups/${item.tableGroupId}`, { method: 'DELETE' })
+    setSetupItems(prev => prev.map(i =>
+      i.tableGroupId === item.tableGroupId ? { ...i, tableGroupId: null } : i
+    ))
+    setSetupSelectedIds([])
+  }
+
   const [rebuildKey, setRebuildKey] = useState(0)
   const [editRoomW, setEditRoomW] = useState(plan.roomWidth.toString())
   const [editRoomD, setEditRoomD] = useState(plan.roomDepth.toString())
@@ -244,6 +307,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       fetch(`/api/admin/floorplan/${plan.id}/setups`).then(r => { if (r.ok) r.json().then((d: any[]) => setSetups(d)) }).catch(() => {})
       fetch('/api/admin/table-profiles').then(r => { if (r.ok) r.json().then((d: any[]) => setTableProfiles(d)) }).catch(() => {})
       fetch(`/api/admin/floorplan/${plan.id}/section-boundaries`).then(r => { if (r.ok) r.json().then((d: any[]) => setSectionBoundaries(d)) }).catch(() => {})
+      fetch('/api/admin/inventory').then(r => { if (r.ok) r.json().then((d: any[]) => setAllInventoryItems(d)) }).catch(() => {})
       setLoading(false)
     }
     load()
@@ -750,6 +814,13 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             </select>
             <Button size="sm" onClick={handleNewSetup}>+ NEW</Button>
             {activeSetupId && <Button size="sm" variant="danger" onClick={handleDeleteSetup}>DELETE</Button>}
+            {activeSetupId && setupSelectedIds.length >= 2 && (
+              <Button size="sm" variant="ghost" onClick={handleGroup}>GROUP</Button>
+            )}
+            {activeSetupId && setupSelectedIds.length === 1 && (() => {
+              const grouped = setupItems.find(i => i.id === setupSelectedIds[0] && i.tableGroupId)
+              return grouped ? <Button size="sm" variant="danger" onClick={handleUngroup}>UNGROUP</Button> : null
+            })()}
           </div>
         )}
 
@@ -927,6 +998,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
         {/* Right panel — always rendered */}
         <div className="w-56 flex-shrink-0 border-l border-grey-mid overflow-y-auto bg-grey-dark p-3 space-y-3">
+          <SetupInventoryPanel
+            activeSetupId={activeSetupId}
+            shortages={shortages}
+            onCheck={handleInventoryCheck}
+            checking={checkingInventory}
+          />
           {selectedIds.length > 0 && selected ? (
             <>
               {selectedIds.length > 1 && (

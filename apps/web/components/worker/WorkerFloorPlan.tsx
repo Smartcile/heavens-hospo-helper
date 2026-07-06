@@ -23,6 +23,10 @@ export function WorkerFloorPlan() {
   const [infoPanel, setInfoPanel] = useState<WorkerElement | null>(null)
   const [zoomLevel, setZoomLevel] = useState(1)
   const [rebuildKey, setRebuildKey] = useState(0)
+  const [setups, setSetups] = useState<any[]>([])
+  const [activeSetupId, setActiveSetupId] = useState<string | null>(null)
+  const [setupItems, setSetupItems] = useState<any[]>([])
+  const [setupBanner, setSetupBanner] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<ViewState>({ baseScale: 1, ox: 0, oy: 0, zoom: 1, panX: 0, panY: 0 })
 
@@ -30,7 +34,11 @@ export function WorkerFloorPlan() {
     setLoading(true)
     const params = view ? `?view=${view}` : ''
     const r = await fetch(`/api/worker/floorplan${params}`)
-    if (r.ok) setPlan(await r.json())
+    if (r.ok) {
+      const data = await r.json()
+      setPlan(data)
+      loadSetups(data.id)
+    }
     setLoading(false)
   }
 
@@ -53,6 +61,22 @@ export function WorkerFloorPlan() {
     setActiveView(slug)
     loadPlan(slug)
     setInfoPanel(null)
+  }
+
+  async function loadSetups(planId: string) {
+    const r = await fetch(`/api/worker/floorplan/setups?planId=${planId}`)
+    if (r.ok) setSetups(await r.json())
+  }
+
+  async function handleSetupChange(setupId: string | null) {
+    setActiveSetupId(setupId)
+    if (!setupId) { setSetupItems([]); setSetupBanner(null); return }
+    const r = await fetch(`/api/worker/floorplan/setups/${setupId}`)
+    if (r.ok) {
+      const data = await r.json()
+      setSetupItems(data.items ?? [])
+      setSetupBanner(data.name)
+    }
   }
 
   if (loading) {
@@ -87,6 +111,13 @@ export function WorkerFloorPlan() {
           </p>
         </div>
       )}
+      {setupBanner && (
+        <div className="bg-accent/20 border-b border-accent px-4 py-2">
+          <p className="font-mono text-xs text-accent uppercase text-center">
+            SETUP — {setupBanner}
+          </p>
+        </div>
+      )}
         <div className="flex items-center justify-between px-4 py-3 border-b border-grey-mid">
           <div>
             <h1 className="font-mono text-sm font-bold uppercase tracking-widest text-white">FLOOR PLAN</h1>
@@ -98,6 +129,16 @@ export function WorkerFloorPlan() {
               <select value={activeView ?? plan.slug} onChange={(e) => switchView(e.target.value)}
                 className="bg-grey-dark border border-grey-mid text-white font-mono text-xs uppercase p-2">
                 {views.map((v) => <option key={v.slug} value={v.slug}>{v.name}{v.isDefault ? ' (DEFAULT)' : ''}</option>)}
+              </select>
+            )}
+            {setups.length > 0 && (
+              <select
+                value={activeSetupId ?? ''}
+                onChange={(e) => handleSetupChange(e.target.value || null)}
+                className="bg-grey-dark border border-grey-mid text-white font-mono text-xs uppercase p-2"
+              >
+                <option value="">— DEFAULT —</option>
+                {setups.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             )}
           </div>
@@ -129,6 +170,8 @@ export function WorkerFloorPlan() {
             onZoneDrawEnd={() => {}}
             onViewChange={(z) => setZoomLevel(z)}
             rebuildKey={rebuildKey}
+            setupItems={setupItems}
+            setupSelectedIds={[]}
           />
       </div>
 
