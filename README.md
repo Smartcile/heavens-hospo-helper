@@ -143,18 +143,40 @@ The full model and the build plan are documented in
 [`ECOSYSTEM.md`](./ECOSYSTEM.md).
 
 ### FLOOR PLANNER
-The app includes a to-scale venue floor plan editor for admins and a read-only view for
-staff. Go to **Admin → Floor Plan** to create a plan (set room dimensions in real cm),
-then use the interactive PixiJS canvas to drag furniture/elements from the palette (walls,
-doors, tables, chairs, counters, bars, sinks, etc.) onto a grid-snapped canvas. Tables and
-chairs can be pre-created in the **Inventory** module (FURNITURE category) and placed via
-the palette's INVENTORY section — once placed and saved, they're removed from the palette
-(used-once tracking). Features: zoom/pan, multi-select, zone drawing, per-corner rounding,
-bracket chairs, section assignment, capacities, undo/redo, and PDF export. Staff see the
-plan on their phone at **Menu → Floor Plan**, with section-colour-coded elements and
-tap-for-details info. Calendar events can link to a floor plan layout — workers
-auto-switch to the event layout with a banner notification. Multiple views per venue are
-supported (e.g. standard layout vs event mode).
+
+The floor planner is a full inventory-aware spatial planning engine built on PixiJS v7.
+Go to **Admin → Floor Plan** to create a to-scale venue layout with walls, fixtures, and
+permanent structures (the base plan). Features: zoom/pan, multi-select, zone drawing,
+per-corner rounding, bracket chairs, section assignment, capacities, undo/redo, PDF export.
+
+**Layered Setups:** Once a base plan exists, use the SETUP dropdown to create event-specific
+furniture layouts (e.g. "WEDDING RECEPTION", "CONFERENCE"). Each setup can have its own table
+arrangement, saved independently from the base plan. Switch between setups in the toolbar.
+
+**Table Profiles & BOM:** Define table types at **Admin → Table Profiles**. Each profile has
+dimensions, colour, seat count, seating density (cm per chair), head chair caps, and a Bill of
+Materials (BOM) — linking to inventory items with per-chair or per-table quantities. Physical
+table numbers (e.g. "20", "21") are managed via tag input and auto-assigned on placement.
+
+**Canvas Features:** 3-layer PixiJS rendering (base/fixtures layer, section boundary layer,
+interactive setup layer). Magnetic edge snapping auto-aligns tables flush against neighbours.
+Section boundary polygons detect which station a table sits in on drop. Rubber-band lasso
+selection works across both elements and setup items.
+
+**Grouping & Banquet Joinery:** Select multiple same-profile tables and click GROUP to form
+a banquet block. The engine computes the composite perimeter and distributes chairs evenly
+along exposed edges, respecting head-of-table constraints (no cramming chairs on short sides).
+
+**Inventory Check:** The right panel INVENTORY CHECK runs `calculateSetupInventory` for
+the active setup — comparing required items (from BOM) against total venue stock and
+showing shortages in red. Fires on button click, never during drag (60fps canvas stays smooth).
+
+**Worker View:** Staff see floor plans at **Menu → Floor Plan** with a read-only PixiJS
+canvas. A setup switcher dropdown (alongside the view switcher) lets them switch between
+event layouts. Assigned table numbers display as labels. Calendar events can link to setups.
+
+**API:** 11 new API routes for TableProfile CRUD, FloorPlanSetup CRUD, SetupItem bulk save,
+TableGroup management, SectionBoundary CRUD, and worker setup views.
 
 ### BUDGET SPLITTER
 
@@ -188,12 +210,12 @@ below budget.
 
 
 The app includes a full inventory management system. Go to **Admin → Inventory** to create
-categories (7 built-in + custom per venue) and items with par levels. The **INVENTORY**
-palette section in the floor plan editor lets you place furniture items (tables/chairs)
-directly from inventory onto the canvas — each furniture item can only be placed once
-per floor plan. **Admin → Stocktake** creates stock counts, assigns them to a role or
-staff member, and tracks variance on sign-off. Staff complete stocktakes on their phone
-at **Menu → Stocktake** with a scrollable count list. The dashboard shows par level
+categories (7 built-in + custom per venue) and items with par levels. Furniture items are
+linked to Table Profiles via BOM (Bill of Materials) — each table type defines which
+inventory items it requires and in what quantities. **Admin → Table Profiles** manages
+the profile definitions. **Admin → Stocktake** creates stock counts, assigns them to a
+role or staff member, and tracks variance on sign-off. Staff complete stocktakes on their
+phone at **Menu → Stocktake** with a scrollable count list. The dashboard shows par level
 alerts for items below threshold. The **STOCK** tab in the inventory page shows a
 hierarchy tree (Section → Table → Inventory Items).
 

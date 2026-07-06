@@ -304,6 +304,89 @@ ViewState` shared with parent for coordinate conversion on drops. Canvas clamp p
 exiting room bounds. All element interaction is handled via pointer-events-tracking on the stage
 (not per-node), using ref-mutable state for drag operations.
 
+### Inventory-Aware Spatial Planning Engine (Phase 3+, built 2026-07)
+
+The floor planner has been upgraded from a basic drawing tool into a layered, inventory-aware
+spatial planning engine suitable for large event centers. The canvas uses three distinct
+`PIXI.Container` layers controlled by `FloorPlanPixiCanvas`:
+
+- **baseLayer** — static walls, fixtures, zones (locked / non-interactive in setup mode)
+- **sectionBoundaryLayer** — translucent section boundary polygons with colour fills and name watermarks
+- **setupLayer** — interactive tables/furniture (draggable, selectable, snappable)
+
+**Layered Floor Plans:** A `FloorPlanBase` (the existing `FloorPlan` model with permanent walls
+and fixtures) can have many `FloorPlanSetups` — named furniture layouts for specific events
+(e.g. "WEDDING RECEPTION", "CONFERENCE"). Each `SetupItem` records X/Y coordinates and
+references a `TableProfile`. Setups are saved independently via `PUT /api/admin/floorplan/[id]/setups/[setupId]/items`.
+
+**Table Profiles (Bill of Materials):** A `TableProfile` defines a table type (e.g. "8-SEAT ROUND",
+"BANQUET 25") with dimensions, colour, `chairCount`, `seatingDensity` (cm per chair), and
+`maxHeadChairs` (caps chairs on short edges). Each profile has a BOM via `TableProfileItem` —
+linking to `InventoryItem` records with `quantity` and a `perChair` toggle (per-chair items
+scale with seat count, per-table items don't). Profiles also carry `tableNumbers` (physical
+identifiers like `["20","21","22"]`) for auto-assignment.
+
+**Setup Editor:** `FloorPlanEditor.tsx` has been extended with a setup toolbar (switcher
+dropdown, +NEW, DELETE, GROUP/UNGROUP buttons). When a setup is active, the palette shows
+`TableProfile` records instead of static items. Dragging a profile onto the canvas creates a
+`SetupItem` with auto-assigned lowest-available `tableNumber` from the pool. Available/pool
+counts are shown as badges (`3/5`). Canvas rubber-band selection works for setup items.
+
+**Magnetic Edge Snapping:** When a `SetupItem` is dragged close to another same-profile item,
+the canvas detects edge proximity (parallelism, distance, facing, overlap), auto-aligns
+rotation, and snaps the item flush against the target edge. Configurable `snapThreshold`
+(default 15cm). Fires on `pointerup` only.
+
+**Section Boundary Detection:** `pointInPolygon` (ray-casting algorithm in
+`lib/floorplan-inventory.ts`) runs on `pointerup` to determine which `SectionBoundary`
+polygon (RECTANGLE or POLYGON shape) a dropped table sits inside, auto-assigning its
+`sectionId`. RECTANGLE boundaries are auto-converted to 4-vertex polygons.
+
+**Inventory Calculation Engine:** `calculateSetupInventory(setupItems, profiles, inventory)` in
+`lib/floorplan-inventory.ts` is a pure function that tallies BOM items across all placed tables,
+compares against total venue inventory, and returns sorted shortages. For grouped tables, it
+computes the union polygon via `polygon-clipping`, calculates exposed perimeter, and determines
+max chairs from perimeter / `seatingDensity` (with `maxHeadChairs` capping). The
+`SetupInventoryPanel` component renders shortages in the right panel on demand.
+
+**Banquet Joinery:** `SetupItem`s can be grouped via `TableGroup`. Grouping is validated at the
+API layer — all items must share the same `TableProfile`. Grouped tables get gold dashed
+outlines on the canvas. `computeGroupChairs` uses `polygon-clipping` to union table polygons,
+then `distributeChairsAlongPerimeter` places chair indicators evenly along the exposed perimeter
+with outward-facing normals.
+
+**Head-of-Table Constraint:** On rectangular tables, edges parallel to the short dimension are
+identified as "head edges". Chair count on head edges is capped at `maxHeadChairs × headMultiplier`
+(where `headMultiplier` = round(edgeLen / min(width, depth))). This prevents cramming chairs
+on the narrow ends of banquet tables.
+
+**API routes for the new models:**
+| Route | Methods | Purpose |
+|-------|---------|---------|
+| `/api/admin/table-profiles` | GET, POST | List/create table profiles |
+| `/api/admin/table-profiles/[id]` | GET, PUT, DELETE | Single profile CRUD |
+| `/api/admin/table-profiles/[id]/bom` | GET, PUT | BOM item management |
+| `/api/admin/floorplan/[id]/setups` | GET, POST | List/create setups |
+| `/api/admin/floorplan/[id]/setups/[setupId]` | GET, PUT, DELETE | Setup CRUD |
+| `/api/admin/floorplan/[id]/setups/[setupId]/items` | PUT | Bulk save setup items |
+| `/api/admin/floorplan/[id]/setups/[setupId]/groups` | GET, POST | List/create groups |
+| `/api/admin/floorplan/[id]/setups/[setupId]/groups/[groupId]` | GET, PUT, DELETE | Group CRUD |
+| `/api/admin/floorplan/[id]/section-boundaries` | GET, PUT | Section boundary CRUD |
+| `/api/worker/floorplan/setups` | GET | Worker setup list |
+| `/api/worker/floorplan/setups/[id]` | GET | Worker setup detail |
+| `/admin/table-profiles` | page | TableProfile management UI |
+
+**Worker View:** `WorkerFloorPlan` has been extended with a setup switcher dropdown (alongside
+the existing view switcher). Workers can switch between the base plan and any setup. Setup
+items render on the read-only canvas with auto-assigned numbers as labels. A setup banner
+shows the active setup name.
+
+**Vitest Coverage:** 206 tests across 28 files. `lib/floorplan-inventory.test.ts` has 46 tests
+covering `calculateSetupInventory`, `rectangleToCorners`, `unionTablePolygons`,
+`polygonPerimeter`, `distributeChairsAlongPerimeter`, `computeGroupChairs`, `computeEffectiveChairs`,
+`pointInPolygon`, section boundary detection, and BOM integration. `TableProfilesClient.test.tsx`
+(10 tests) and `SetupInventoryPanel.test.tsx` (7 tests) cover the new components.
+
 ### Inventory + stocktake (Phase 2, built)
 Full inventory management system: `InventoryCategory` (8 built-in including FURNITURE + per-venue custom) and
 `InventoryItem` (venue-id-scoped, links to category, tracks unit, par level, and `totalQty` — physical stock count).
@@ -735,9 +818,9 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 | Push notifications | Not yet wired | 2 |
 | S3 file uploads | `UPLOAD_PROVIDER=s3` env var stub | 2 |
 | Inventory delete protection | API check against ElementInventoryItem + StocktakeLineItem | 2 |
-| Inventory floor plan sync | Auto-create inventory items from element counts | 2 |
-| Chair snap-to-table edge | Auto-snap chairs to table edges on drag-end | 2 |
-| Two-layer canvas | Fixtures bottom, furniture top | 2 |
+| Inventory floor plan sync | Auto-create inventory items from element counts | 2 (built — replaced by TableProfile BOM system) |
+| Chair snap-to-table edge | Auto-snap chairs to table edges on drag-end | 2 (built — `distributeChairsAlongPerimeter`) |
+| Two-layer canvas | Fixtures bottom, furniture top | 2 (built — 3-layer PixiJS canvas: baseLayer + sectionBoundaryLayer + setupLayer) |
 | MyHR onboarding export | Generate onboarding doc from training modules | 3 |
 | Reordering / required-for-role gating | Drag-order modules, block shifts until mandatory training done | 3 |
 | Loaded Reports integration | Export format compatible with Loaded accounting | 4 |
@@ -804,6 +887,7 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/worker-session.ts` — `workerCookieSecure` | ✅ |
 | `lib/followups.ts` — `checkUntrainedOnCompletion` | ✅ |
 | `lib/external-sync.ts` — `syncVenueCalendar` | ✅ |
+| `lib/floorplan-inventory.ts` — `calculateSetupInventory`, `pointInPolygon`, geometry fns | ✅ (46 tests) |
 | `lib/auth.ts` — `authOptions` | ⬜ TODO |
 
 ### Component Regression Tests
@@ -822,6 +906,8 @@ pushing, run: `npm run lint && npm run test`.
 | `Button` (ui) — variants, sizes, loading, disabled | ✅ |
 | `Input` (ui) — label, error, onChange | ✅ |
 | `Select` (ui) — options, placeholder, error, onChange | ✅ |
+| `TableProfilesClient.tsx` — render, loading, fetch, headings, empty state, selection, form | ✅ (10 tests) |
+| `SetupInventoryPanel.tsx` — button states, shortage list, idle, empty, disabled | ✅ (7 tests) |
 
 ## WHAT NOT TO DO
 

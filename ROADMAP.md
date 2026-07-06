@@ -128,7 +128,25 @@ The model that links sections, tasks and knowledge into one followed-up loop.
   ✅ **CAD-style inspector** — width/depth range sliders (20-500cm) + preset buttons; seat capacity + linked tables for polygon booths
   ✅ **Toolbar** — zoom slider (0.2x-5x), dimension overlay toggle, DRAW BOOTH paint mode
   ✅ **Custom painted booths** — paint 50x50cm grid squares to create snaking banquettes; polygon-clipping union + polygon-offset cushion; saved as POLYGON shape with outer + cushion vertices
-  ✅ **Toast notifications** — reusable `components/ui/Toast.tsx` (error/success/info, DOS-Modern, auto-dismiss)
+   ✅ **Toast notifications** — reusable `components/ui/Toast.tsx` (error/success/info, DOS-Modern, auto-dismiss)
+
+## PHASE 2.5 — INVENTORY-AWARE SPATIAL PLANNING ENGINE (BUILT 2026-07)
+
+✅ **Layered floor plans** — `FloorPlanSetup` + `SetupItem` models: a base plan (walls/fixtures) can have many named furniture setups. Admin setup toolbar with switcher, create, delete.
+✅ **Table Profiles (BOM)** — `TableProfile` + `TableProfileItem` models: each profile defines a table type with capacity, dimensions, colour, `chairCount`, `seatingDensity`, `maxHeadChairs`, and `tableNumbers`. BOM items link to inventory items with `perChair` toggle.
+✅ **TableProfile management UI** — `/admin/table-profiles` page: left panel list, right panel form with tag input for `tableNumbers`, inline BOM add/remove.
+✅ **Table auto-assignment** — when a profile is dragged onto the canvas, the lowest available `tableNumber` from the pool is auto-assigned. Used numbers display as labels. Pool exhaustion shows error toast.
+✅ **Magnetic edge snapping** — same-profile tables snap flush together on drag end (parallel edge detection, overlap, facing, rotation alignment).
+✅ **Section boundary detection** — `pointInPolygon` on drop to auto-assign `sectionId`. `SectionBoundary` model with RECTANGLE/POLYGON support.
+✅ **Inventory calculation engine** — `calculateSetupInventory()` pure function: tallies BOM items, compares against venue inventory, returns sorted shortages. Panel D shows real-time shortages on CHECK button click.
+✅ **Banquet joinery** — `TableGroup` model: same-profile tables can be grouped. `computeGroupChairs` unions polygons via `polygon-clipping`, computes exposed perimeter, distributes chairs via `distributeChairsAlongPerimeter`.
+✅ **Head-of-table constraint** — on rectangular tables, short edges ("head") are capped at `maxHeadChairs × headMultiplier` chairs, preventing chair crowding.
+✅ **PixiJS 3-layer canvas** — `baseLayer` (walls/fixtures), `sectionBoundaryLayer` (translucent polygons), `setupLayer` (interactive tables with drag/snap/select).
+✅ **Worker setup view** — `/w/floorplan` with setup switcher dropdown, setup banner, read-only canvas with setup items.
+✅ **Grouping UI** — GROUP/UNGROUP buttons in setup toolbar, same-profile validation, optimistic state updates.
+✅ **11 new API routes** — CRUD for `TableProfile`, `FloorPlanSetup`, `SetupItem`, `TableGroup`, `SectionBoundary`.
+✅ **Vitest** — 206 tests across 28 files. `floorplan-inventory.test.ts`: 46 tests including BOM integration, head constraint, section detection.
+✅ **CI** — All commits pass Docker build + push.
 
 ## PHASE 3 — TRAINING (prev. Phase 3, unchanged)
 ✅ **Training modules / guides** — authored in admin, with step-by-step content, **photos** (upload) and **video links**
