@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum Role {
@@ -101,6 +100,12 @@ model Venue {
   paletteDefaults     PaletteDefault[]
   tableProfiles       TableProfile[]
   stocktakeRecords    StocktakeRecord[]
+  suppliers           Supplier[]
+  unitsOfMeasure      UnitOfMeasure[]
+  recipes             Recipe[]
+  wooIntegrations     WooIntegration[]
+  menuItems           MenuItem[]
+  wooOrders           WooOrder[]
 }
 
 model Department {
@@ -423,6 +428,7 @@ model CalendarEvent {
   deletedAt      DateTime?
 
   venue Venue @relation(fields: [venueId], references: [id])
+  wooOrders WooOrder[]
 
   @@unique([venueId, source, uid])
   @@index([venueId, startsAt])
@@ -910,10 +916,18 @@ enum StocktakeStatus {
   COMPLETED
 }
 
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  CANCELLED
+}
+
 model InventoryCategory {
   id        String   @id @default(uuid())
   venueId   String?
   name      String
+  tab       String?
   isBuiltIn Boolean  @default(false)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -922,6 +936,7 @@ model InventoryCategory {
 
   venue Venue?         @relation(fields: [venueId], references: [id])
   items InventoryItem[]
+  fallbackItems InventoryItem[] @relation("FallbackCategory")
 
   @@unique([venueId, name])
 }
@@ -946,11 +961,28 @@ model InventoryItem {
   updatedAt       DateTime @updatedAt
   deletedAt       DateTime?
 
+  // --- Deep inventory fields ---
+  supplierId         String?
+  countingUnitId     String?
+  orderingUnitId     String?
+  yieldPercentage    Float?
+  costPrice          Float?
+  expiryDate         DateTime?
+  fallbackCategoryId String?
+
+  allergyInfo   String? // e.g. "GLUTEN, DAIRY, NUTS" for display on recipe ingredients
+
   venue     Venue                @relation(fields: [venueId], references: [id])
   category          InventoryCategory    @relation(fields: [categoryId], references: [id])
+  supplier          Supplier?            @relation(fields: [supplierId], references: [id])
+  countingUnit      UnitOfMeasure?       @relation("CountingUOM", fields: [countingUnitId], references: [id])
+  orderingUnit      UnitOfMeasure?       @relation("OrderingUOM", fields: [orderingUnitId], references: [id])
+  fallbackCategory  InventoryCategory?   @relation("FallbackCategory", fields: [fallbackCategoryId], references: [id])
   elements          ElementInventoryItem[]
   tableProfileItems TableProfileItem[]
   stocktake         StocktakeLineItem[]
+  supplierCodes     SupplierItemCode[]
+  recipeLineItems   RecipeLineItem[]
 
   @@index([venueId])
   @@index([categoryId])
@@ -1027,4 +1059,207 @@ model PaletteDefault {
 
   @@unique([venueId, type])
   @@index([venueId])
+}
+
+// --- DEEP INVENTORY: SUPPLIERS & UOM ---
+
+model Supplier {
+  id        String    @id @default(uuid())
+  venueId   String
+  name      String
+  contact   String?
+  email     String?
+  phone     String?
+  notes     String?
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  venue    Venue              @relation(fields: [venueId], references: [id])
+  itemCodes SupplierItemCode[]
+  items     InventoryItem[]
+
+  @@index([venueId])
+}
+
+model UnitOfMeasure {
+  id               String  @id @default(uuid())
+  name             String
+  baseUnit         String
+  conversionRatio  Float
+  venueId          String?
+  isBuiltIn        Boolean @default(false)
+  isActive         Boolean @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  deletedAt        DateTime?
+
+  venue              Venue?           @relation(fields: [venueId], references: [id])
+  countingItems      InventoryItem[]  @relation("CountingUOM")
+  orderingItems      InventoryItem[]  @relation("OrderingUOM")
+  recipeYields       Recipe[]         @relation("RecipeYield")
+  recipeLineItems    RecipeLineItem[]
+  supplierItemCodes  SupplierItemCode[]
+
+  @@unique([venueId, name])
+  @@index([venueId])
+}
+
+model SupplierItemCode {
+  id              String   @id @default(uuid())
+  supplierId      String
+  inventoryItemId String
+  supplierSku     String
+  purchasePrice   Float?
+  orderingUnitId  String?
+  isPreferred     Boolean  @default(false)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  supplier      Supplier       @relation(fields: [supplierId], references: [id])
+  inventoryItem InventoryItem  @relation(fields: [inventoryItemId], references: [id])
+  orderingUnit  UnitOfMeasure? @relation(fields: [orderingUnitId], references: [id])
+
+  @@unique([supplierId, inventoryItemId])
+  @@index([supplierId])
+  @@index([inventoryItemId])
+}
+
+// --- RECIPE ENGINE (RECURSIVE BOM) ---
+
+model Recipe {
+  id          String    @id @default(uuid())
+  venueId     String
+  name        String
+  yieldQty    Float
+  yieldUnitId String
+  instructions String?
+  prepTime    Int?
+  isActive    Boolean   @default(true)
+  version     Int       @default(1)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  venue       Venue            @relation(fields: [venueId], references: [id])
+  yieldUnit   UnitOfMeasure    @relation("RecipeYield", fields: [yieldUnitId], references: [id])
+  lineItems   RecipeLineItem[] @relation("ParentRecipe")
+  parentOf    RecipeLineItem[] @relation("ChildRecipe")
+  menuItems   MenuItem[]
+
+  @@index([venueId])
+}
+
+model RecipeLineItem {
+  id               String   @id @default(uuid())
+  recipeId         String
+  qty              Float
+  uomId            String
+  sortOrder        Int      @default(0)
+  inventoryItemId  String?
+  childRecipeId    String?
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  recipe         Recipe          @relation("ParentRecipe", fields: [recipeId], references: [id])
+  uom            UnitOfMeasure   @relation(fields: [uomId], references: [id])
+  inventoryItem  InventoryItem?  @relation(fields: [inventoryItemId], references: [id])
+  childRecipe    Recipe?         @relation("ChildRecipe", fields: [childRecipeId], references: [id])
+
+  @@index([recipeId])
+  @@index([inventoryItemId])
+  @@index([childRecipeId])
+}
+
+// --- WOOCOMMERCE & MENU MAPPING ---
+
+model WooIntegration {
+  id              String    @id @default(uuid())
+  venueId         String
+  storeUrl        String
+  consumerKey     String
+  consumerSecret  String
+  webhookSecret   String?
+  lastSyncAt      DateTime?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@unique([venueId])
+}
+
+model MenuItem {
+  id              String    @id @default(uuid())
+  venueId         String
+  name            String
+  recipeId        String
+  price           Float     @default(0)
+  wooProductId    String?   @unique
+  wooCategoryId   String?
+  imageUrl        String?
+  description     String?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  venue       Venue          @relation(fields: [venueId], references: [id])
+  recipe      Recipe         @relation(fields: [recipeId], references: [id])
+  orderItems  WooOrderItem[]
+
+  @@index([venueId])
+  @@index([wooProductId])
+}
+
+// --- ORDERS & AUTO-SEATING ---
+
+model WooOrder {
+  id                String      @id @default(uuid())
+  venueId           String
+  wooOrderId        String      @unique
+  customerName      String?
+  customerEmail     String?
+  customerPhone     String?
+  partySize         Int?
+  fulfillmentDate   DateTime?
+  status            OrderStatus @default(PENDING)
+  totalAmount       Float?
+  notes             String?
+  calendarEventId   String?
+  syncedAt          DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  deletedAt         DateTime?
+
+  venue          Venue           @relation(fields: [venueId], references: [id])
+  calendarEvent  CalendarEvent?  @relation(fields: [calendarEventId], references: [id])
+  items          WooOrderItem[]
+
+  @@index([venueId])
+  @@index([wooOrderId])
+  @@index([status])
+  @@index([calendarEventId])
+}
+
+model WooOrderItem {
+  id         String   @id @default(uuid())
+  orderId    String
+  menuItemId String
+  qty        Int      @default(1)
+  unitPrice  Float?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  order    WooOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id])
+
+  @@index([orderId])
+  @@index([menuItemId])
 }

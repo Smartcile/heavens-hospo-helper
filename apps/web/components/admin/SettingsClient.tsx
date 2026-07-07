@@ -56,12 +56,37 @@ export function SettingsClient({
   const [intSaving, setIntSaving] = useState(false)
   const [intMessage, setIntMessage] = useState('')
 
+  // WooCommerce
+  const [wcStoreUrl, setWcStoreUrl] = useState('')
+  const [wcConsumerKey, setWcConsumerKey] = useState('')
+  const [wcConsumerSecret, setWcConsumerSecret] = useState('')
+  const [wcWebhookSecret, setWcWebhookSecret] = useState('')
+  const [wcActive, setWcActive] = useState(false)
+  const [wcSaving, setWcSaving] = useState(false)
+  const [wcMessage, setWcMessage] = useState('')
+  const [wcLastSync, setWcLastSync] = useState<string | null>(null)
+
   useEffect(() => {
     fetch('/api/admin/venues').then((r) => r.json()).then((data: Venue[]) => {
       setVenues(data)
       const v = data.find((x) => x.id === (role === 'ADMIN' ? data[0]?.id : sessionVenueId)) ?? data[0]
       if (v) applyVenue(v)
     })
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/admin/settings/woocommerce')
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (d) {
+          setWcStoreUrl(d.wcStoreUrl ?? '')
+          setWcConsumerKey(d.wcConsumerKey ?? '')
+          setWcConsumerSecret(d.wcConsumerSecret ?? '')
+          setWcWebhookSecret(d.wcWebhookSecret ?? '')
+          setWcActive(d.wcActive ?? false)
+          setWcLastSync(d.lastSyncAt ?? null)
+        }
+      })
   }, [])
 
   function applyVenue(v: Venue) {
@@ -119,6 +144,32 @@ export function SettingsClient({
     } else setIntMessage('SAVE FAILED')
   }
 
+  async function saveWooCommerce() {
+    setWcSaving(true); setWcMessage('')
+    const r = await fetch('/api/admin/settings/woocommerce', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        wcStoreUrl: wcStoreUrl,
+        wcConsumerKey: wcConsumerKey,
+        wcConsumerSecret: wcConsumerSecret,
+        wcWebhookSecret: wcWebhookSecret,
+        wcActive,
+      }),
+    })
+    setWcSaving(false)
+    if (r.ok) {
+      const d = await r.json()
+      setWcConsumerKey(d.wcConsumerKey ?? '')
+      setWcConsumerSecret(d.wcConsumerSecret ?? '')
+      setWcWebhookSecret(d.wcWebhookSecret ?? '')
+      setWcLastSync(d.lastSyncAt ?? null)
+      setWcMessage('SAVED')
+    } else {
+      setWcMessage('SAVE FAILED')
+    }
+  }
+
   return (
     <div className="p-6 space-y-8">
       <h1 className="font-mono text-xl font-bold uppercase tracking-widest">SETTINGS</h1>
@@ -139,6 +190,37 @@ export function SettingsClient({
           <Select label="Auto-refresh / re-sync interval" value={refresh} onChange={(e) => setRefresh(e.target.value)} options={REFRESH_OPTIONS} />
           {intMessage && <p className={`font-mono text-xs ${intMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{intMessage}</p>}
           <Button onClick={saveIntegrations} loading={intSaving} size="sm">SAVE INTEGRATIONS</Button>
+        </div>
+      </div>
+
+      {/* WooCommerce */}
+      <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">
+        <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">WOOCOMMERCE</h2>
+        <p className="font-mono text-xs text-grey-light mb-3">
+          CONNECT YOUR WOOCOMMERCE STORE TO SYNC ORDERS AND AUTO-ALLOCATE INVENTORY. THE WEBHOOK SECRET IS USED TO VERIFY INCOMING ORDER NOTIFICATIONS.
+        </p>
+        <div className="space-y-3">
+          <Input label="STORE URL" value={wcStoreUrl} onChange={(e) => setWcStoreUrl(e.target.value)} placeholder="https://yourshop.co.nz" />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="CONSUMER KEY" type="password" value={wcConsumerKey} onChange={(e) => setWcConsumerKey(e.target.value)} placeholder={wcConsumerKey ? '••••••••' : 'ck_...'} autoComplete="off" />
+            <Input label="CONSUMER SECRET" type="password" value={wcConsumerSecret} onChange={(e) => setWcConsumerSecret(e.target.value)} placeholder={wcConsumerSecret ? '••••••••' : 'cs_...'} autoComplete="off" />
+          </div>
+          <Input label="WEBHOOK SECRET" type="password" value={wcWebhookSecret} onChange={(e) => setWcWebhookSecret(e.target.value)} placeholder={wcWebhookSecret ? '••••••••' : 'whsec_...'} autoComplete="off" />
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setWcActive(!wcActive)}
+              className={`font-mono text-xs uppercase px-3 py-1.5 border ${wcActive ? 'border-success text-success' : 'border-grey-mid text-grey-light'}`}
+            >
+              {wcActive ? 'ACTIVE' : 'INACTIVE'}
+            </button>
+            {wcLastSync && (
+              <span className="font-mono text-[10px] text-grey-light">
+                LAST SYNC: {new Date(wcLastSync).toLocaleString()}
+              </span>
+            )}
+          </div>
+          {wcMessage && <p className={`font-mono text-xs ${wcMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{wcMessage}</p>}
+          <Button onClick={saveWooCommerce} loading={wcSaving} size="sm">SAVE WOOCOMMERCE</Button>
         </div>
       </div>
 

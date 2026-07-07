@@ -1,6 +1,6 @@
 # HOSPO OPS — AI CODING CONTEXT
 
-HOSPO OPS is a self-hosted, web-based hospitality operations platform. It gives venue managers a dashboard to create and assign recurring tasks, and gives floor staff a fast mobile interface (accessed via printed QR code + PIN) to complete those tasks.
+HOSPO OPS is a self-hosted hospitality ERP and operations platform. It manages venues, staff, tasks, inventory, recipes, floor plans, budgets, and WooCommerce integration with auto-seating, recipe explosion, and inventory deduction.
 
 > Behavioural working rules live in the global `~/.claude/CLAUDE.md` (apply to all projects).
 
@@ -9,17 +9,18 @@ HOSPO OPS is a self-hosted, web-based hospitality operations platform. It gives 
 | Layer | Version |
 |---|---|
 | Language | TypeScript (strict mode) |
-| Framework | Next.js 14+ (App Router) |
+| Framework | Next.js 14.2 (App Router) |
 | Database | PostgreSQL 16 |
-| ORM | Prisma 5 |
-| Styling | Tailwind CSS 3 |
+| ORM | Prisma 7 (PG adapter) |
+| Styling | Tailwind CSS 4 (CSS-first @theme) |
 | Containerisation | Docker Compose |
-| Reverse Proxy | Nginx (inside Docker Compose) |
 | Repo Structure | Turborepo monorepo |
 | Auth (admin) | NextAuth.js v4 — Credentials provider |
 | Auth (worker) | Custom PIN flow — JWT in HTTP-only cookie |
 | QR Generation | `qrcode` npm package |
-| Canvas / Floor Plans | `pixi.js` v7.3.3 (`konva` + `react-konva` still present but unused) |
+| Canvas / Floor Plans | `pixi.js` v7.3.3 |
+| Testing | Vitest 3 + @testing-library/react + jsdom |
+| Linting | ESLint 9 (flat config) + eslint-config-next 15 |
 
 ## MONOREPO STRUCTURE
 
@@ -47,19 +48,21 @@ hospo-ops/
 │       ├── lib/                    # Utilities, auth config, worker-session
 │       └── public/uploads/         # Local file uploads (dev only)
 ├── packages/
-│   ├── db/                         # Prisma schema + migrations + seed
+│   ├── db/                         # Prisma 7 schema + PG adapter + seed
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma
+│   │   │   ├── schema.prisma       # 52 models (core + ERP)
 │   │   │   └── migrations/
-│   │   └── index.ts                # Exported Prisma client (global singleton)
+│   │   ├── prisma.config.ts        # Prisma 7 config (datasource, seed)
+│   │   └── index.ts                # Exported Prisma client (global singleton, PG pool)
 │   ├── types/                      # Shared TypeScript types/interfaces
-│   └── config/                     # Shared Tailwind config
+│   └── config/                     # Lightweight package (tailwind.config.ts migrated to CSS @theme)
 ├── .github/workflows/
 │   └── docker-build.yml            # CI: builds image, pushes to GHCR
 ├── apps/web/Dockerfile             # Single-stage image (build + runtime)
-├── apps/web/docker-entrypoint.sh   # Runs migrate + seed, then `next start`
+├── apps/web/docker-entrypoint.sh   # Runs db push + seed, then `next start`
 ├── docker-compose.yml              # Canonical stack — PULLS image from GHCR
 ├── .env.example                    # Env template for compose / Portainer
+├── start.ps1                       # Local dev launcher (kills stale processes, starts Postgres, syncs DB, starts dev)
 ├── CLAUDE.md                       # This file
 ├── README.md                       # User-facing setup guide
 └── ROADMAP.md                      # Phased feature roadmap
@@ -381,7 +384,7 @@ the existing view switcher). Workers can switch between the base plan and any se
 items render on the read-only canvas with auto-assigned numbers as labels. A setup banner
 shows the active setup name.
 
-**Vitest Coverage:** 206 tests across 28 files. `lib/floorplan-inventory.test.ts` has 46 tests
+**Vitest Coverage:** 211 tests across 29 files. `lib/floorplan-inventory.test.ts` has 46 tests
 covering `calculateSetupInventory`, `rectangleToCorners`, `unionTablePolygons`,
 `polygonPerimeter`, `distributeChairsAlongPerimeter`, `computeGroupChairs`, `computeEffectiveChairs`,
 `pointInPolygon`, section boundary detection, and BOM integration. `TableProfilesClient.test.tsx`
@@ -542,17 +545,15 @@ Since switching from Konva to PixiJS:
   — Konva's draggable + React caused unresolvable event target and race condition bugs.
 - Full-screen via ResizeObserver (no hardcoded stageW/stageH or CANVAS_PAD).
 - Canvas clamp prevents elements exiting room bounds.
-- `konva` + `react-konva` are unused but remain in package.json for now.
+- `konva` + `react-konva` have been removed from package.json.
 
 ### PixiJS canvas rendering
 The floor plan canvas uses `pixi.js` v7.3.3 via a custom `FloorPlanPixiCanvas` component
 (no React-Pixi wrapper — raw PIXI.Application managed in a ref). SSR is avoided by using
 `next/dynamic` with `ssr: false` for both admin editor and worker view (no special SSR
 handling needed — PixiJS doesn't crash on SSR, but it has no DOM node until mounted).
-The `konva` and `react-konva` packages remain in `package.json` but are unused; they can
-be removed when convenient. The `npm overrides` for React 18 in root `package.json` can be
-removed when `react-konva` is removed (they exist because `react-konva@18` requires React 18
-while `next-auth` peer-deps allow React 19).
+The `konva` and `react-konva` packages have been removed from `package.json`.
+The `npm overrides` for React 18 in root `package.json` have been removed (they existed only because `react-konva@18` required React 18 while `next-auth` peer-deps allow React 19).
 
 ### Task scheduling
 Tasks are filtered on-demand (no generation table). `lib/scheduling.ts`
@@ -808,6 +809,31 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 - Components: `PascalCase.tsx`
 - Client components: always marked `'use client'`
 
+## ERP & WOOCOMMERCE (BUILT 2026-07)
+
+### Schema: 52 models (43 core + 9 ERP)
+New models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`, `RecipeLineItem` (recursive BOM), `WooIntegration`, `MenuItem`, `WooOrder`, `WooOrderItem`. `@@unique([venueId])` on WooIntegration.
+
+### Recipe Explosion Engine (`lib/inventory-engine.ts`)
+Recursive BOM parser: walks `RecipeLineItem` tree, converts all quantities to base units via UOM conversion ratios, returns flattened `Map<inventoryItemId, requiredBaseQty>`. DAG-safe cycle detection via visited set. 5 Vitest tests with mocked PrismaClient.
+
+### WooCommerce Webhook (`/api/webhooks/woocommerce`)
+Receives `order.created` / `order.updated`. HMAC-SHA256 signature auth. Guards against self-triggered loops (`_updated_by: hospo-ops`). Upserts `WooOrder` + `WooOrderItem` in transaction. Runs `explodeRecipe` per line item, stores exploded ingredients as JSON on order items. Auto-seating engine: greedy first-fit bin-packing on partySize → `CalendarEvent` → `FloorPlanSetup` → `SetupItem` → `TableGroup`.
+
+### Cron Jobs (`/api/cron/`)
+- `woocommerce-sync`: daily product sync from WooCommerce REST API (Basic auth) → upserts `MenuItem` records
+- `expiry-scan`: sweeps expired `InventoryItem`s, traces BOM to parent WooCommerce products, applies `fallbackCategoryId`
+- Both authenticated via `Authorization: Bearer <CRON_SECRET>` header
+
+### Inventory Tabs
+`InventoryCategory.tab` (FOOD, BEVERAGE, null). 20 built-in categories auto-seeded. FOOD tab: PROTEIN, DAIRY, PRODUCE, DRY GOODS, BAKERY, CONDIMENTS. BEVERAGE tab: LIQUOR, WINE, BEER, SOFT DRINK, JUICE, COFFEE. OTHER tab: existing equipment categories. Deep inventory fields: `countingUnitId`, `orderingUnitId`, `yieldPercentage`, `costPrice`, `expiryDate`, `fallbackCategoryId`, `allergyInfo`.
+
+### Recipes & Menu Items (combined page)
+`/admin/recipes` merged with `/admin/menu-items` (redirects). Recipe editor has LINK TO MENU toggle with price + WooCommerce fields. Tag-input for Woo categories. Searchable Combobox for ingredient/sub-recipe selection with grouped dropdown. Orphaned WooCommerce products shown in yellow.
+
+### EOD Reconciliation (`/api/admin/inventory/reconcile`)
+Aggregates exploded ingredients from completed orders, tallies `requiredBaseQty` per inventory item. Returned as reconciliation report. Deferred inventory deduction (Phase 5).
+
 ## FUTURE INTEGRATION STUBS
 
 | Stub | Location | Phase |
@@ -888,6 +914,7 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/followups.ts` — `checkUntrainedOnCompletion` | ✅ |
 | `lib/external-sync.ts` — `syncVenueCalendar` | ✅ |
 | `lib/floorplan-inventory.ts` — `calculateSetupInventory`, `pointInPolygon`, geometry fns | ✅ (46 tests) |
+| `lib/inventory-engine.ts` — `explodeRecipe` (recursive BOM explosion) | ✅ (5 tests) |
 | `lib/auth.ts` — `authOptions` | ⬜ TODO |
 
 ### Component Regression Tests

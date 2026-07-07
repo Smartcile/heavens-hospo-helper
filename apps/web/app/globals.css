@@ -1,22 +1,41 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
 
-:root {
-  --black: #0A0A0A;
-  --white: #F5F5F5;
-  --grey-dark: #1A1A1A;
-  --grey-mid: #2E2E2E;
-  --grey-light: #6B6B6B;
-  --accent: #E8E8E8;
-  --success: #4ADE80;
-  --danger: #F87171;
-  --warning: #FACC15;
+@theme {
+  --color-black: #0A0A0A;
+  --color-white: #F5F5F5;
+  --color-grey-dark: #1A1A1A;
+  --color-grey-mid: #2E2E2E;
+  --color-grey-light: #6B6B6B;
+  --color-accent: #E8E8E8;
+  --color-success: #4ADE80;
+  --color-danger: #F87171;
+  --color-warning: #FACC15;
 
   --font-mono: 'JetBrains Mono', 'IBM Plex Mono', monospace;
   --font-sans: 'Inter', system-ui, sans-serif;
+
+  --radius-none: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-full: 9999px;
+
+  --shadow-none: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+
+  --animate-blink: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
 * {
@@ -25,28 +44,22 @@
 
 html,
 body {
-  background-color: var(--black);
-  color: var(--white);
+  background-color: var(--color-black);
+  color: var(--color-white);
   font-family: var(--font-sans);
 }
 
-/* Remove all border-radius globally */
-*, *::before, *::after {
-  border-radius: 0 !important;
-}
-
-/* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 4px;
   height: 4px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--grey-dark);
+  background: var(--color-grey-dark);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--grey-mid);
+  background: var(--color-grey-mid);
 }
 
 @layer components {
@@ -63,7 +76,7 @@ body {
   }
 
   .input {
-    @apply bg-grey-dark border border-grey-mid text-white font-sans text-sm px-3 py-2 w-full outline-none focus:border-white transition-colors placeholder:text-grey-light;
+    @apply bg-grey-dark border border-grey-mid text-white font-sans text-sm px-3 py-2 w-full outline-hidden focus:border-white transition-colors placeholder:text-grey-light;
   }
 
   .label {

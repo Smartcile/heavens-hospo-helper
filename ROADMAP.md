@@ -16,17 +16,16 @@
 
 ---
 
-## PHASE 2 — INTELLIGENCE
-✅ **Per-venue timezone** — daily reset, worker view, dashboard, and overdue all use each venue's local day
-✅ **Proper admin email auth** — real email + password login for ADMIN/MANAGER (bcrypt); floor staff keep QR + PIN; legacy `swiftPosId`-as-login backfilled automatically
-☐ **Unified staff sync (COMING SOON)** — one profile linked across SwiftPOS / MyHR / LoadedReports via per-system ID fields (editable now); planned: CSV import then API sync, matching on email + system IDs
-✅ **Calendar — roster + time off (v1)** — month overview with shift roster (times), time-off request→approve workflow, and a duty-days overlay (from task schedules); managers manage it in admin, staff see their own shifts + request time off on their phone
-☐ **Calendar — events + guest numbers** — manual venue events + expected covers per day on the same calendar (next round)
-☐ **Calendar sync (external)** — pull venue events/bookings from Microsoft Graph / Outlook alongside the native calendar
-✅ **Recurring + overdue engine** — cron-aware scheduling (CUSTOM cron now actually evaluated, fixing daily/weekly/cron due-dates) plus missed-task tracking surfaced on the dashboard ("MISSED — LAST 7 DAYS") via `/api/admin/overdue`
-☐ **Push notifications** — web push or email alerts for overdue/incomplete tasks at end of shift
-✅ **Task templates library** — pre-built hospo SOP task sets (bar open, kitchen close, etc.) + custom templates, one-click apply to a department, and "save department as template" snapshot
-☐ **S3 file uploads** — replace local disk uploads with S3-compatible object storage
+## PHASE 2 — INTELLIGENCE & ERP UPGRADE
+✅ **ERP Upgrade** — Prisma 7 (PG adapter), Turborepo 2.10, ESLint 9 flat config, Vitest 3, Tailwind CSS 4, Node.js 22
+✅ **Deep Inventory** — Supplier model, UnitOfMeasure with base unit conversion, InventoryItem deep fields (costPrice, yield%, expiryDate, allergyInfo), inventory tabs (FOOD/BEVERAGE/OTHER), supplier item codes
+✅ **Recipe Engine** — Nested Recipe/RecipeLineItem with recursive BOM, explodeRecipe utility with cycle detection, searchable Combobox for ingredient selection
+✅ **Menu Items** — Combined with Recipes page (LINK TO MENU toggle), WooCommerce product ID + category mapping
+✅ **WooCommerce Integration** — Webhook handler (HMAC auth, order upsert, recipe explosion, auto-seating), product sync cron, expiry scan cron, EOD reconciliation
+✅ **Settings** — WooCommerce section (store URL, consumer key/secret, webhook secret, active toggle with lastSync display)
+✅ **Orders Dashboard** — Read-only table sorted by fulfillmentDate, expandable line items, auto-seating status indicator
+☐ **Phase 5: Inventory Deduction** — Reverse UOM conversion from base units → item counts during EOD reconciliation
+☐ **Phase 6: Time Clock & Payroll** — Geo-fenced time punches, shift auto-calculation, payroll export
 
 ---
 
@@ -222,5 +221,8 @@ The model that links sections, tasks and knowledge into one followed-up loop.
 - No cron engine — task scheduling is filtered on read, not generated in advance
 - File uploads are local disk only — not suitable for multi-server deployments
 - No rate limiting on PIN login endpoint — to be added before public exposure
-- `konva` + `react-konva` still in package.json (unused) — leftover from PixiJS migration, can be removed
-- npm overrides forcing React 18 in root `package.json` exist only for `react-konva` — remove overrides when konva packages are cleaned up
+- Konva + react-konva removed from dependencies
+- ESLint moved to flat config with eslint-config-next 15
+- Prisma 7 PG adapter: `prisma.config.ts` replaces `package.json#prisma`; schema `datasource.url` removed in favour of config file + PG pool
+- `ts-node` replaced with `tsx` for seed scripts
+- Tailwind CSS 4: config migrated to CSS `@theme` directives; `tailwind.config.ts` deleted

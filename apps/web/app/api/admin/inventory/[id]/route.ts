@@ -16,7 +16,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount } = await req.json()
+  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo } = await req.json()
 
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = name.toUpperCase().trim()
@@ -30,6 +30,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (elementShape !== undefined) data.elementShape = elementShape || null
   if (defaultColour !== undefined) data.defaultColour = defaultColour || null
   if (defaultChairCount !== undefined) data.defaultChairCount = parseInt(String(defaultChairCount)) || 0
+  if (countingUnitId !== undefined) data.countingUnitId = countingUnitId || null
+  if (orderingUnitId !== undefined) data.orderingUnitId = orderingUnitId || null
+  if (yieldPercentage !== undefined) data.yieldPercentage = yieldPercentage ? parseFloat(String(yieldPercentage)) : null
+  if (costPrice !== undefined) data.costPrice = costPrice ? parseFloat(String(costPrice)) : null
+  if (expiryDate !== undefined) data.expiryDate = expiryDate ? new Date(expiryDate) : null
+  if (fallbackCategoryId !== undefined) data.fallbackCategoryId = fallbackCategoryId || null
+  if (allergyInfo !== undefined) data.allergyInfo = allergyInfo || null
 
   const updated = await prisma.inventoryItem.update({
     where: { id: params.id },
@@ -37,4 +44,24 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     include: { category: true },
   })
   return NextResponse.json(updated)
+}
+
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const item = await prisma.inventoryItem.findFirst({
+    where: { id: params.id, deletedAt: null },
+    select: { id: true, venueId: true },
+  })
+  if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (session.user.role === 'MANAGER' && item.venueId !== session.user.venueId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  await prisma.inventoryItem.update({
+    where: { id: params.id },
+    data: { deletedAt: new Date() },
+  })
+  return NextResponse.json({ ok: true })
 }

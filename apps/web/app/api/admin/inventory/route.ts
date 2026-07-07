@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount } = await req.json()
+  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo } = await req.json()
   if (!name || !categoryId) {
     return NextResponse.json({ error: 'name and categoryId are required' }, { status: 400 })
   }
@@ -48,6 +48,13 @@ export async function POST(req: NextRequest) {
       elementShape: elementShape ?? null,
       defaultColour: defaultColour ?? null,
       defaultChairCount: defaultChairCount ?? 0,
+      countingUnitId: countingUnitId || null,
+      orderingUnitId: orderingUnitId || null,
+      yieldPercentage: yieldPercentage ? parseFloat(String(yieldPercentage)) : null,
+      costPrice: costPrice ? parseFloat(String(costPrice)) : null,
+      expiryDate: expiryDate ? new Date(expiryDate) : null,
+      fallbackCategoryId: fallbackCategoryId || null,
+      allergyInfo: allergyInfo || null,
     },
   })
   return NextResponse.json(item, { status: 201 })

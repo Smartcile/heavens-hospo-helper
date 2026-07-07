@@ -20,12 +20,15 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/admin/departments', label: 'Departments' },
     { href: '/admin/sections', label: 'Sections' },
     { href: '/admin/floorplan', label: 'Floor Plan' },
-    { href: '/admin/table-profiles', label: 'Table Profiles' },
     { href: '/admin/staff', label: 'Staff' },
-    { href: '/admin/inventory', label: 'Inventory' },
+    { href: '/admin/suppliers', label: 'Suppliers' },
+    { href: '/admin/uoms', label: 'Units of Measure' },
   ] },
   { label: 'Operations', items: [
     { href: '/admin/stocktake', label: 'Stocktake' },
+    { href: '/admin/inventory', label: 'Inventory' },
+    { href: '/admin/recipes', label: 'Recipes & Menu Items' },
+    { href: '/admin/orders', label: 'Orders' },
   ] },
   { label: 'Work', items: [
     { href: '/admin/tasks', label: 'Tasks & Checklists' },
