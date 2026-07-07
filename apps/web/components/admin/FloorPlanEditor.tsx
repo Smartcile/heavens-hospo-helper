@@ -1025,36 +1025,40 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           </div>
         )}
 
-        {/* Setup toolbar */}
-        {setups.length > 0 && (
-          <div className="flex items-center gap-2 border-b border-grey-mid px-3 py-1.5">
-            <span className="font-mono text-[10px] uppercase text-grey-light tracking-wider">SETUP:</span>
-            <select
-              value={activeSetupId ?? ''}
-              onChange={(e) => handleSetupChange(e.target.value || null)}
-              className="bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-2 py-1 outline-none"
-            >
-              <option value="">— BASE PLAN —</option>
-              {setups.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-            <Button size="sm" onClick={handleNewSetup}>+ NEW</Button>
-            {activeSetupId && <Button size="sm" variant="ghost" onClick={handleGenerateSeating}>⚡ GENERATE</Button>}
-            {activeSetupId && <Button size="sm" variant="danger" onClick={handleDeleteSetup}>DELETE</Button>}
-            {activeSetupId && <span className="font-mono text-[9px] uppercase text-grey-light tracking-wider">🔒 BASE PLAN LOCKED</span>}
-            {activeSetupId && setupSelectedIds.length >= 2 && (
-              <Button size="sm" variant="ghost" onClick={handleGroup}>GROUP</Button>
-            )}
-            {activeSetupId && setupSelectedIds.length === 1 && (() => {
-              const grouped = setupItems.find(i => i.id === setupSelectedIds[0] && i.tableGroupId)
-              return grouped ? <Button size="sm" variant="danger" onClick={handleUngroup}>UNGROUP</Button> : null
-            })()}
-            {activeSetupId && (
-              <span className="font-mono text-[10px] uppercase text-success tracking-wider ml-auto">
-                TOTAL: {setupGrand.tables} TBL · {setupGrand.seats} PAX
-              </span>
-            )}
-          </div>
-        )}
+        {/* Setup toolbar — always visible so the first setup can be created */}
+        <div className="flex items-center gap-2 border-b border-grey-mid px-3 py-1.5">
+          {setups.length > 0 ? (
+            <>
+              <span className="font-mono text-[10px] uppercase text-grey-light tracking-wider">SETUP:</span>
+              <select
+                value={activeSetupId ?? ''}
+                onChange={(e) => handleSetupChange(e.target.value || null)}
+                className="bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-2 py-1 outline-none"
+              >
+                <option value="">— BASE PLAN —</option>
+                {setups.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </>
+          ) : (
+            <span className="font-mono text-[10px] uppercase text-grey-light tracking-wider">SETUP: NONE — CREATE ONE TO START PLANNING</span>
+          )}
+          <Button size="sm" onClick={handleNewSetup}>+ NEW</Button>
+          {activeSetupId && <Button size="sm" variant="ghost" onClick={handleGenerateSeating}>⚡ GENERATE</Button>}
+          {activeSetupId && <Button size="sm" variant="danger" onClick={handleDeleteSetup}>DELETE</Button>}
+          {activeSetupId && <span className="font-mono text-[9px] uppercase text-grey-light tracking-wider">🔒 BASE PLAN LOCKED</span>}
+          {activeSetupId && setupSelectedIds.length >= 2 && (
+            <Button size="sm" variant="ghost" onClick={handleGroup}>GROUP</Button>
+          )}
+          {activeSetupId && setupSelectedIds.length === 1 && (() => {
+            const grouped = setupItems.find(i => i.id === setupSelectedIds[0] && i.tableGroupId)
+            return grouped ? <Button size="sm" variant="danger" onClick={handleUngroup}>UNGROUP</Button> : null
+          })()}
+          {activeSetupId && (
+            <span className="font-mono text-[10px] uppercase text-success tracking-wider ml-auto">
+              TOTAL: {setupGrand.tables} TBL · {setupGrand.seats} PAX
+            </span>
+          )}
+        </div>
 
         <div
           ref={containerRef}
