@@ -1,12 +1,21 @@
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { Pool } from 'pg'
-import { config } from 'dotenv'
-
-config()
 
 declare global {
   var __prisma: PrismaClient | undefined
+}
+
+if (!process.env.DATABASE_URL) {
+  require('dotenv').config()
+}
+
+if (!process.env.DATABASE_URL) {
+  throw new Error(
+    'DATABASE_URL environment variable is required.\n' +
+    'When running in Docker ensure DB_USER and DB_PASSWORD are set in your Portainer stack env vars.\n' +
+    'For local dev create packages/db/.env with DATABASE_URL=postgresql://...'
+  )
 }
 
 const pool = new Pool({

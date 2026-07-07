@@ -23,7 +23,7 @@ cd /app
 # `migrate deploy` it keeps no migration history, so it can't get stuck in a
 # failed-migration (P3009) state and crash-loop the container — it just makes
 # the schema correct. Idempotent: on an up-to-date DB it's a no-op.
-npx prisma db push --schema=packages/db/prisma/schema.prisma --accept-data-loss
+npx prisma db push --schema=packages/db/prisma/schema.prisma --accept-data-loss --url="$DATABASE_URL"
 
 echo ""
 echo "▸ Seeding database (safe to re-run)..."
