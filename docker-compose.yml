@@ -72,6 +72,8 @@ services:
       # Phase 1: uploaded task photos are stored on the local volume below.
       UPLOAD_PROVIDER: local
       UPLOAD_PATH: /app/uploads
+      # Cron job authentication for product sync and expiry scan.
+      CRON_SECRET: ${CRON_SECRET:-}
     volumes:
       # Task completion photos persist here across redeploys.
       - uploads_data:/app/uploads
