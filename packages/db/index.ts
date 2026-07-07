@@ -1,6 +1,5 @@
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
-import { Pool } from 'pg'
 
 declare global {
   var __prisma: PrismaClient | undefined
@@ -10,12 +9,7 @@ if (!process.env.DATABASE_URL) {
   require('dotenv').config()
 }
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 5,
-})
-
-const adapter = new PrismaPg(pool)
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
 
 export const prisma =
   global.__prisma ??
