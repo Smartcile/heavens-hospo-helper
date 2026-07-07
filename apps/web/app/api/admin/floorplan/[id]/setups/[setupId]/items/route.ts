@@ -48,7 +48,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
       rotation: item.rotation ?? 0,
       sectionId: item.sectionId ?? null,
       tableGroupId: item.tableGroupId ?? null,
+      assignedNumber: item.assignedNumber ?? null,
       label: item.label ?? null,
+      chairEdges: item.chairEdges ?? undefined,
       sortOrder: item.sortOrder ?? 0,
       isActive: item.isActive ?? true,
     }

@@ -322,6 +322,99 @@ export function calculateSetupInventory(
   return shortages
 }
 
+// ── Per-section live totals (tables + seats per zone) ──
+
+export interface SectionZoneRect {
+  sectionId: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface SectionTotal {
+  sectionId: string | null
+  tables: number
+  seats: number
+}
+
+function centreOf(item: SetupItemInput): { x: number; y: number } {
+  return { x: item.x + item.width / 2, y: item.y + item.depth / 2 }
+}
+
+function zoneSectionAt(cx: number, cy: number, zones: SectionZoneRect[]): string | null {
+  for (const z of zones) {
+    if (cx >= z.x && cx <= z.x + z.width && cy >= z.y && cy <= z.y + z.height) return z.sectionId
+  }
+  return null
+}
+
+function soloSeats(item: SetupItemInput, profile?: TableProfileWithBom): number {
+  const e = item.chairEdges
+  if (e) return (e.top ?? 0) + (e.bottom ?? 0) + (e.left ?? 0) + (e.right ?? 0)
+  return profile?.chairCount ?? 0
+}
+
+/**
+ * Tally tables + effective seats per section zone. Grouped tables are counted as a
+ * unit (rules-based effective chairs) and assigned to the zone under their centroid.
+ */
+export function computeSetupSectionTotals(
+  setupItems: SetupItemInput[],
+  zones: SectionZoneRect[],
+  profiles: Map<string, TableProfileWithBom>,
+): SectionTotal[] {
+  const tally = new Map<string | null, { tables: number; seats: number }>()
+  const bump = (sectionId: string | null, tables: number, seats: number) => {
+    const cur = tally.get(sectionId) ?? { tables: 0, seats: 0 }
+    cur.tables += tables; cur.seats += seats
+    tally.set(sectionId, cur)
+  }
+
+  // Split into groups (>=2 same-profile members) and solo items
+  const groups = new Map<string, SetupItemInput[]>()
+  const solos: SetupItemInput[] = []
+  for (const item of setupItems) {
+    if (item.tableGroupId) {
+      if (!groups.has(item.tableGroupId)) groups.set(item.tableGroupId, [])
+      groups.get(item.tableGroupId)!.push(item)
+    } else {
+      solos.push(item)
+    }
+  }
+
+  for (const item of solos) {
+    const c = centreOf(item)
+    bump(zoneSectionAt(c.x, c.y, zones), 1, soloSeats(item, profiles.get(item.tableProfileId)))
+  }
+
+  for (const members of groups.values()) {
+    if (members.length === 1) {
+      const item = members[0]
+      const c = centreOf(item)
+      bump(zoneSectionAt(c.x, c.y, zones), 1, soloSeats(item, profiles.get(item.tableProfileId)))
+      continue
+    }
+    const profile = profiles.get(members[0].tableProfileId)
+    const tables: RectangleTable[] = members.map((m) => ({ x: m.x, y: m.y, width: m.width, depth: m.depth, rotation: m.rotation }))
+    const seats = profile
+      ? computeEffectiveChairs(tables, {
+          chairCount: profile.chairCount,
+          seatingDensity: profile.seatingDensity,
+          width: profile.width,
+          depth: profile.depth,
+          maxHeadChairs: profile.maxHeadChairs,
+        })
+      : 0
+    // Assign the group to the zone under its centroid
+    const cx = members.reduce((s, m) => s + m.x + m.width / 2, 0) / members.length
+    const cy = members.reduce((s, m) => s + m.y + m.depth / 2, 0) / members.length
+    bump(zoneSectionAt(cx, cy, zones), members.length, seats)
+  }
+
+  return [...tally.entries()].map(([sectionId, v]) => ({ sectionId, tables: v.tables, seats: v.seats }))
+}
+
 // ── Point-in-Polygon ──
 
 export function pointInPolygon(

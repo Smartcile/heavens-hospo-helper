@@ -812,6 +812,7 @@ model SetupItem {
   tableGroupId   String?
   assignedNumber String?
   label          String?
+  chairEdges     Json?
   sortOrder      Int       @default(0)
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())

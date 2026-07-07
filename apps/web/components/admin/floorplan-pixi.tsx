@@ -56,10 +56,19 @@ interface PixiCanvasProps {
   onBoothCellToggle?: (col: number, row: number) => void
   rebuildKey?: number
   // Setup layer
-  setupItems?: { id: string; x: number; y: number; rotation: number; width: number; depth: number; label?: string | null; colour?: string; chairCount?: number; tableGroupId?: string | null }[]
+  setupItems?: { id: string; tableProfileId?: string; x: number; y: number; rotation: number; width: number; depth: number; label?: string | null; colour?: string; chairCount?: number; tableGroupId?: string | null; chairEdges?: { top: number; bottom: number; left: number; right: number } | null }[]
   setupSelectedIds?: string[]
   onSetupItemClick?: (id: string | null, ctrlKey?: boolean) => void
   onSetupItemDragEnd?: (id: string, x: number, y: number) => void
+  onSetupChairEdge?: (id: string, edge: 'top' | 'bottom' | 'left' | 'right', delta: number) => void
+  onSetupItemRotate?: (id: string, rotation: number) => void
+  onSetupItemsJoin?: (draggedId: string, targetId: string) => void
+  // Precomputed merged-group outlines + redistributed chairs (room coords)
+  setupGroups?: { id: string; outline: [number, number][][]; chairs: { x: number; y: number }[] }[]
+  // Live per-section totals, keyed by sectionId → shown as a badge on each zone
+  zoneTotals?: Record<string, { tables: number; seats: number }>
+  // When a setup is active, dim + lock the base plan (walls/fixtures/zones)
+  setupActive?: boolean
 }
 
 function gridSnap(v: number, u: number) { return Math.round(v / u) * u }
@@ -99,7 +108,7 @@ export function FloorPlanPixiCanvas({
   onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange,
   textScale = 1, selRect, onSelRectStart, onSelRectMove, onSelRectEnd,
   rebuildKey, showDimensions = false, boothPainting = false, boothCellsRef, onBoothCellToggle,
-  setupItems, setupSelectedIds, onSetupItemClick, onSetupItemDragEnd,
+  setupItems, setupSelectedIds, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, setupGroups, zoneTotals, setupActive = false,
 }: PixiCanvasProps) {
   const appRef = useRef<PIXI.Application | null>(null)
   const roomRef = useRef<PIXI.Container | null>(null)
@@ -107,9 +116,12 @@ export function FloorPlanPixiCanvas({
   const setupRef = useRef<PIXI.Container | null>(null)
   const boundaryRef = useRef<PIXI.Container | null>(null)
   const stateRef = useRef({ snap: snapEnabled, gu: gridUnit })
+  // Keep current room dimensions available to the init-effect handlers (which have [] deps)
+  const dimsRef = useRef({ roomWidth, roomDepth, gridUnit })
+  dimsRef.current = { roomWidth, roomDepth, gridUnit }
   const paintPreviewRef = useRef<PIXI.Graphics | null>(null)
-  const cbRef = useRef({ onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, boothPainting, onBoothCellToggle, boothCellsRef, onSetupItemClick, onSetupItemDragEnd })
-  cbRef.current = { onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, boothPainting, onBoothCellToggle, boothCellsRef, onSetupItemClick, onSetupItemDragEnd }
+  const cbRef = useRef({ onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, boothPainting, onBoothCellToggle, boothCellsRef, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin })
+  cbRef.current = { onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, boothPainting, onBoothCellToggle, boothCellsRef, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin }
 
   // Init app once
   useEffect(() => {
@@ -190,7 +202,7 @@ export function FloorPlanPixiCanvas({
     let paintDragging: { col: number; row: number } | null = null
     function paintCellToggle(cx: number, cy: number, shiftKey: boolean) {
       const col = Math.floor(cx / 50); const row = Math.floor(cy / 50)
-      if (col < 0 || row < 0 || col >= Math.ceil(roomWidth / 50) || row >= Math.ceil(roomDepth / 50)) return
+      if (col < 0 || row < 0 || col >= Math.ceil(dimsRef.current.roomWidth / 50) || row >= Math.ceil(dimsRef.current.roomDepth / 50)) return
       const cells = cbRef.current.boothCellsRef?.current
       if (!cells) return
       const key = `${col},${row}`
@@ -273,7 +285,7 @@ export function FloorPlanPixiCanvas({
         app.renderer.resize(Math.round(width), Math.round(height))
         app.stage.hitArea = new PIXI.Rectangle(0, 0, width, height)
         const vs = viewRef.current
-        const nv = computeView(width, height, roomWidth, roomDepth, vs.zoom, vs.panX, vs.panY)
+        const nv = computeView(width, height, dimsRef.current.roomWidth, dimsRef.current.roomDepth, vs.zoom, vs.panX, vs.panY)
         Object.assign(vs, nv)
         applyRoomTransform(room, vs)
       }
@@ -301,6 +313,8 @@ export function FloorPlanPixiCanvas({
     if (baseLayer) { baseLayer.removeChildren(); room.addChild(baseLayer) }
     if (boundaryLayer) { boundaryLayer.removeChildren(); room.addChild(boundaryLayer) }
     if (setupLayer) { setupLayer.removeChildren(); room.addChild(setupLayer) }
+    // Two-layer lock: dim + disable the base plan while a setup is active
+    if (baseLayer) { baseLayer.alpha = setupActive ? 0.5 : 1; baseLayer.eventMode = setupActive ? 'none' : 'auto' }
     const pxScale = vs.baseScale * vs.zoom || 1
 
     // Background
@@ -362,6 +376,16 @@ export function FloorPlanPixiCanvas({
         wm.anchor.set(0.5); wm.x = z.width / 2; wm.y = z.height / 2; wm.alpha = 0.15; wm.eventMode = 'none'
         if (isPortrait) wm.rotation = -Math.PI / 2
         c.addChild(wm)
+      }
+      // Live totals badge
+      const zt = zoneTotals?.[z.sectionId]
+      if (zt && (zt.tables > 0 || zt.seats > 0)) {
+        const badge = new PIXI.Text(`${zt.tables} TBL · ${zt.seats} PAX`, {
+          fontSize: Math.max(12, Math.min(z.width, z.height) * 0.06) * textScale,
+          fill: 0xFFFFFF, fontFamily: 'monospace',
+        })
+        badge.x = 6; badge.y = 6; badge.alpha = 1; badge.eventMode = 'none'
+        c.addChild(badge)
       }
       if (zoneDrawing) attachZoneDrag(c, z)
       if (zoneDrawing && isSelected) addZoneResizeHandles(c, z, pxScale)
@@ -606,6 +630,25 @@ export function FloorPlanPixiCanvas({
       })
     })
 
+    // Merged group outlines + redistributed chairs (room coords)
+    if (setupGroups && setupLayer) {
+      setupGroups.forEach((grp) => {
+        const og = new PIXI.Graphics()
+        og.lineStyle(2 / pxScale, 0xFFD700, 0.7)
+        grp.outline.forEach((ring) => {
+          if (ring.length < 2) return
+          og.moveTo(ring[0][0], ring[0][1])
+          for (let i = 1; i < ring.length; i++) og.lineTo(ring[i][0], ring[i][1])
+          og.closePath()
+        })
+        og.eventMode = 'none'; setupLayer.addChild(og)
+        const cg = new PIXI.Graphics()
+        cg.beginFill(0x3A3A4A).lineStyle(0.75 / pxScale, 0x888888)
+        grp.chairs.forEach((ch) => cg.drawCircle(ch.x, ch.y, 6))
+        cg.endFill(); cg.eventMode = 'none'; setupLayer.addChild(cg)
+      })
+    }
+
     // Setup items
     if (setupItems && setupLayer) {
       setupItems.forEach((item) => {
@@ -623,13 +666,7 @@ export function FloorPlanPixiCanvas({
         g.endFill()
         c.addChild(g)
 
-        // Group outline for grouped items
-        if (item.tableGroupId) {
-          const og = new PIXI.Graphics()
-          og.lineStyle(1.5 / pxScale, 0xFFD700, 0.4)
-          og.drawRect(-2 / pxScale, -2 / pxScale, item.width + 4 / pxScale, item.depth + 4 / pxScale)
-          og.eventMode = 'none'; c.addChild(og)
-        }
+        // (Grouped items get a single merged outline drawn above, in room coords)
 
         // Label (assigned number or profile name)
         if (item.label) {
@@ -641,8 +678,30 @@ export function FloorPlanPixiCanvas({
           lbl.eventMode = 'none'; c.addChild(lbl)
         }
 
-        // Chair count badge
-        const cc = item.chairCount ?? 0
+        // Chairs — per-edge placement (grouped tables get merged chairs elsewhere)
+        const edges = item.chairEdges ?? null
+        const chairR = 6; const chairOff = 9
+        const singleSel = isSel && (setupSelectedIds?.length ?? 0) === 1 && !item.tableGroupId
+        if (edges && !item.tableGroupId) {
+          const chairG = new PIXI.Graphics()
+          chairG.beginFill(0x3A3A4A).lineStyle(0.75 / pxScale, 0x888888)
+          const drawEdge = (edge: 'top' | 'bottom' | 'left' | 'right', n: number) => {
+            for (let k = 0; k < n; k++) {
+              let cx = 0, cy = 0
+              if (edge === 'top') { cx = item.width * (k + 0.5) / n; cy = -chairOff }
+              else if (edge === 'bottom') { cx = item.width * (k + 0.5) / n; cy = item.depth + chairOff }
+              else if (edge === 'left') { cx = -chairOff; cy = item.depth * (k + 0.5) / n }
+              else { cx = item.width + chairOff; cy = item.depth * (k + 0.5) / n }
+              chairG.drawCircle(cx, cy, chairR)
+            }
+          }
+          drawEdge('top', edges.top); drawEdge('bottom', edges.bottom)
+          drawEdge('left', edges.left); drawEdge('right', edges.right)
+          chairG.endFill(); chairG.eventMode = 'none'; c.addChild(chairG)
+        }
+
+        // Chair total badge
+        const cc = edges ? (edges.top + edges.bottom + edges.left + edges.right) : (item.chairCount ?? 0)
         if (cc > 0 && item.label) {
           const badge = new PIXI.Text(`×${cc}`, {
             fontSize: Math.max(7, Math.min(item.width, item.depth) * 0.14 * pxScale * textScale),
@@ -653,16 +712,56 @@ export function FloorPlanPixiCanvas({
         }
 
         attachSetupItemDrag(c, item)
+
+        // Interactive edge tabs (+chair / −chair) + rotation handle when singly selected
+        if (singleSel) {
+          const tabOff = 22; const tabHalf = 8
+          const edgeMids: Record<'top' | 'bottom' | 'left' | 'right', [number, number]> = {
+            top: [item.width / 2, -tabOff],
+            bottom: [item.width / 2, item.depth + tabOff],
+            left: [-tabOff, item.depth / 2],
+            right: [item.width + tabOff, item.depth / 2],
+          }
+          ;(['top', 'bottom', 'left', 'right'] as const).forEach((edge) => {
+            const [mx, my] = edgeMids[edge]
+            const tab = new PIXI.Graphics()
+            tab.beginFill(0x1A1A1A, 0.9).lineStyle(1 / pxScale, 0x4488FF, 0.9)
+            tab.drawRect(mx - tabHalf, my - tabHalf, tabHalf * 2, tabHalf * 2).endFill()
+            const cnt = edges ? edges[edge] : 0
+            const tt = new PIXI.Text(`${cnt}`, { fontSize: Math.max(6, 9 * pxScale * textScale) / pxScale, fill: 0x88AAFF, fontFamily: 'monospace' })
+            tt.anchor.set(0.5); tt.x = mx; tt.y = my; tt.eventMode = 'none'; tab.addChild(tt)
+            tab.eventMode = 'static'; tab.cursor = 'pointer'
+            tab.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+              e.stopPropagation()
+              const delta = e.button === 2 ? -1 : 1
+              cbRef.current.onSetupChairEdge?.(item.id, edge, delta)
+            })
+            c.addChild(tab)
+          })
+          // Rotation handle
+          const rotOff = 34
+          const stem = new PIXI.Graphics()
+          stem.lineStyle(1 / pxScale, 0x4488FF, 0.8)
+          stem.moveTo(item.width / 2, 0); stem.lineTo(item.width / 2, -rotOff)
+          stem.eventMode = 'none'; c.addChild(stem)
+          const handle = new PIXI.Graphics()
+          handle.beginFill(0x4488FF, 0.9).lineStyle(1 / pxScale, 0xFFFFFF, 0.9)
+          handle.drawCircle(item.width / 2, -rotOff, 7).endFill()
+          handle.eventMode = 'static'; handle.cursor = 'grab'
+          attachRotationHandle(handle, c, item)
+          c.addChild(handle)
+        }
+
         setupLayer.addChild(c)
       })
     }
-  }, [elements, zones, selectedIds, selectedZoneId, zoneDrawing, zoneDrawRect, selRect, roomWidth, roomDepth, gridUnit, snapEnabled, rebuildKey, boothPainting, showDimensions, setupItems, setupSelectedIds, textScale])
+  }, [elements, zones, selectedIds, selectedZoneId, zoneDrawing, zoneDrawRect, selRect, roomWidth, roomDepth, gridUnit, snapEnabled, rebuildKey, boothPainting, showDimensions, setupItems, setupSelectedIds, setupGroups, zoneTotals, setupActive, textScale])
 
   function magneticSnap(
     item: { x: number; y: number; width: number; depth: number; rotation: number },
     targets: { x: number; y: number; width: number; depth: number; rotation: number }[],
     threshold: number,
-  ): { x: number; y: number; rotation: number } | null {
+  ): { x: number; y: number; rotation: number; targetIndex: number } | null {
     if (targets.length === 0 || threshold <= 0) return null
     const degToRad = Math.PI / 180
 
@@ -686,9 +785,10 @@ export function FloorPlanPixiCanvas({
     })
 
     let bestDist = threshold
-    let best: { x: number; y: number; rotation: number } | null = null
+    let best: { x: number; y: number; rotation: number; targetIndex: number } | null = null
 
-    for (const target of targets) {
+    for (let targetIndex = 0; targetIndex < targets.length; targetIndex++) {
+      const target = targets[targetIndex]
       const tc = corners(target)
       for (let ti = 0; ti < 4; ti++) {
         const tj = (ti + 1) % 4
@@ -718,7 +818,7 @@ export function FloorPlanPixiCanvas({
           if (itemMax <= projMin || projMax <= itemMin) continue
 
           bestDist = dist
-          best = { x: item.x + dmx, y: item.y + dmy, rotation: target.rotation }
+          best = { x: item.x + dmx, y: item.y + dmy, rotation: target.rotation, targetIndex }
         }
       }
     }
@@ -786,7 +886,7 @@ export function FloorPlanPixiCanvas({
     })
   }
 
-  function attachSetupItemDrag(node: PIXI.Container, item: { id: string; x: number; y: number; rotation: number; width: number; depth: number }) {
+  function attachSetupItemDrag(node: PIXI.Container, item: { id: string; tableProfileId?: string; x: number; y: number; rotation: number; width: number; depth: number; tableGroupId?: string | null }) {
     let dd: { sx: number; sy: number; ex: number; ey: number } | null = null
     node.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
       e.stopPropagation()
@@ -812,6 +912,21 @@ export function FloorPlanPixiCanvas({
         if (st.snap) { rx = edgeSnap(rx, item.width, st.gu); ry = edgeSnap(ry, item.depth, st.gu) }
         rx = Math.max(0, Math.min(rx, roomWidth - item.width))
         ry = Math.max(0, Math.min(ry, roomDepth - item.depth))
+        // Magnetic snap + auto-join against same-profile setup tables
+        let joinTargetId: string | null = null
+        const candidates = (setupItems ?? []).filter((s) => s.id !== item.id && s.tableProfileId === item.tableProfileId)
+        const snap = magneticSnap(
+          { x: rx, y: ry, width: item.width, depth: item.depth, rotation: item.rotation ?? 0 },
+          candidates.map((s) => ({ x: s.x, y: s.y, width: s.width, depth: s.depth, rotation: s.rotation ?? 0 })),
+          snapThreshold,
+        )
+        if (snap) {
+          rx = Math.max(0, Math.min(snap.x, roomWidth - item.width))
+          ry = Math.max(0, Math.min(snap.y, roomDepth - item.depth))
+          const target = candidates[snap.targetIndex]
+          // Join only if not already in the same group
+          if (target && (!item.tableGroupId || target.tableGroupId !== item.tableGroupId)) joinTargetId = target.id
+        }
         // Section detection
         if (sectionBoundaries && sectionBoundaries.length > 0) {
           const cx = rx + item.width / 2; const cy = ry + item.depth / 2
@@ -828,7 +943,37 @@ export function FloorPlanPixiCanvas({
             }
           }
         }
-        cbRef.current.onSetupItemDragEnd?.(item.id, rx, ry); dd = null
+        cbRef.current.onSetupItemDragEnd?.(item.id, rx, ry)
+        if (joinTargetId) cbRef.current.onSetupItemsJoin?.(item.id, joinTargetId)
+        dd = null
+      }
+      app.stage.on('globalpointermove', onMove); app.stage.on('pointerup', onUp)
+    })
+  }
+
+  function attachRotationHandle(handle: PIXI.Graphics, container: PIXI.Container, item: { id: string; rotation: number }) {
+    let rd: { startAng: number; startRot: number; px: number; py: number } | null = null
+    handle.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+      e.stopPropagation()
+      const app = appRef.current
+      if (!app) return
+      const P = container.getGlobalPosition()
+      rd = { startAng: Math.atan2(e.globalY - P.y, e.globalX - P.x), startRot: item.rotation ?? 0, px: P.x, py: P.y }
+      let latest = item.rotation ?? 0
+      const onMove = (ev: PIXI.FederatedPointerEvent) => {
+        if (!rd) return
+        const ang = Math.atan2(ev.globalY - rd.py, ev.globalX - rd.px)
+        let rot = rd.startRot + (ang - rd.startAng) * (180 / Math.PI)
+        rot = ((rot % 360) + 360) % 360
+        if (stateRef.current.snap) rot = Math.round(rot / 15) * 15
+        latest = rot
+        container.rotation = rot * (Math.PI / 180) // live visual feedback
+      }
+      const onUp = () => {
+        app.stage.off('globalpointermove', onMove); app.stage.off('pointerup', onUp)
+        if (!rd) return
+        rd = null
+        cbRef.current.onSetupItemRotate?.(item.id, latest) // commit once
       }
       app.stage.on('globalpointermove', onMove); app.stage.on('pointerup', onUp)
     })

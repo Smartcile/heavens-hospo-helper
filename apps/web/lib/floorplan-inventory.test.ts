@@ -7,6 +7,7 @@ import {
   distributeChairsAlongPerimeter,
   computeGroupChairs,
   computeEffectiveChairs,
+  computeSetupSectionTotals,
   pointInPolygon,
   type SetupItemInput,
   type TableProfileWithBom,
@@ -673,5 +674,48 @@ describe('calculateSetupInventory — integration with TableProfile BOM', () => 
     expect(r[0].required).toBe(24)
     expect(r[0].available).toBe(20)
     expect(r[0].shortage).toBe(4)
+  })
+})
+
+describe('computeSetupSectionTotals', () => {
+  const zones = [
+    { sectionId: 'secA', x: 0, y: 0, width: 200, height: 200 },
+    { sectionId: 'secB', x: 300, y: 0, width: 200, height: 200 },
+  ]
+  const profiles = mProfiles([profile('tp', '4-TOP', 4, null, 80, 80, 1, [])])
+
+  it('tallies solo tables into the zone under their centre', () => {
+    const items = [
+      table('t1', 'tp', 50, 50),   // centre (90,90) → secA
+      table('t2', 'tp', 350, 50),  // centre (390,90) → secB
+      table('t3', 'tp', 600, 600), // outside all zones → null
+    ]
+    const totals = computeSetupSectionTotals(items, zones, profiles)
+    const a = totals.find(t => t.sectionId === 'secA')!
+    const b = totals.find(t => t.sectionId === 'secB')!
+    const none = totals.find(t => t.sectionId === null)!
+    expect(a).toMatchObject({ tables: 1, seats: 4 })
+    expect(b).toMatchObject({ tables: 1, seats: 4 })
+    expect(none).toMatchObject({ tables: 1, seats: 4 })
+  })
+
+  it('counts a group as a unit assigned to its centroid zone', () => {
+    const items = [
+      table('g1a', 'tp', 20, 20, 80, 80, 0, 'grp'),
+      table('g1b', 'tp', 100, 20, 80, 80, 0, 'grp'),
+    ]
+    const totals = computeSetupSectionTotals(items, zones, profiles)
+    const a = totals.find(t => t.sectionId === 'secA')!
+    expect(a.tables).toBe(2)
+    expect(a.seats).toBe(8) // seatingDensity null → 2 * chairCount
+    expect(totals).toHaveLength(1)
+  })
+
+  it('uses per-edge chair counts for solo seats when present', () => {
+    const items: SetupItemInput[] = [
+      { ...table('t1', 'tp', 50, 50), chairEdges: { top: 2, bottom: 1, left: 0, right: 0 } },
+    ]
+    const totals = computeSetupSectionTotals(items, zones, profiles)
+    expect(totals.find(t => t.sectionId === 'secA')!.seats).toBe(3)
   })
 })

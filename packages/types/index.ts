@@ -155,6 +155,9 @@ export interface TableProfileView {
   bomItems: TableProfileBomItem[]
 }
 
+export type TableEdge = 'top' | 'bottom' | 'left' | 'right'
+export type EdgeChairs = Record<TableEdge, number>
+
 export interface SetupItemInput {
   id: string
   tableProfileId: string
@@ -167,6 +170,7 @@ export interface SetupItemInput {
   sectionId?: string | null
   assignedNumber?: string | null
   label?: string | null
+  chairEdges?: EdgeChairs | null
 }
 
 export interface InventoryStockLine {
