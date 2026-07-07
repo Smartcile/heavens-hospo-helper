@@ -335,15 +335,21 @@ dropdown, +NEW, DELETE, GROUP/UNGROUP buttons). When a setup is active, the pale
 `SetupItem` with auto-assigned lowest-available `tableNumber` from the pool. Available/pool
 counts are shown as badges (`3/5`). Canvas rubber-band selection works for setup items.
 
-**Magnetic Edge Snapping:** When a `SetupItem` is dragged close to another same-profile item,
-the canvas detects edge proximity (parallelism, distance, facing, overlap), auto-aligns
-rotation, and snaps the item flush against the target edge. Configurable `snapThreshold`
-(default 15cm). Fires on `pointerup` only.
+**Magnetic Edge Snapping + auto-join:** When a `SetupItem` is dragged close to another
+same-profile item, the canvas detects edge proximity (parallelism, distance, facing, overlap)
+and snaps the item flush against the target edge (`snapThreshold`, default 15cm; fires on
+`pointerup`). A flush snap also **auto-joins** the two into a `TableGroup` — new joins use a
+client-side temp group id (`new_group_*`) that `handleSave` materialises into a real
+`TableGroup` row once items have DB ids. Grouped tables then **move as a unit**.
 
-**Section Boundary Detection:** `pointInPolygon` (ray-casting algorithm in
-`lib/floorplan-inventory.ts`) runs on `pointerup` to determine which `SectionBoundary`
-polygon (RECTANGLE or POLYGON shape) a dropped table sits inside, auto-assigning its
-`sectionId`. RECTANGLE boundaries are auto-converted to 4-vertex polygons.
+**Section detection + live totals:** On drop/drag-end a table auto-tags to the section **zone**
+(the coloured rectangles drawn in SECTIONS mode) its centre lands in — this replaced the
+`SectionBoundary` path in the editor (the model/API remain but nothing in the editor creates
+boundaries). `computeSetupSectionTotals(setupItems, zones, profiles)` in
+`lib/floorplan-inventory.ts` then tallies tables + effective seats per zone (grouped tables
+counted as a unit via `computeEffectiveChairs`); the canvas draws a live `N TBL · M PAX` badge
+on each zone and the setup toolbar shows the grand total. `pointInPolygon` (ray-casting) still
+backs the geometry.
 
 **Inventory Calculation Engine:** `calculateSetupInventory(setupItems, profiles, inventory)` in
 `lib/floorplan-inventory.ts` is a pure function that tallies BOM items across all placed tables,
@@ -384,11 +390,31 @@ the existing view switcher). Workers can switch between the base plan and any se
 items render on the read-only canvas with auto-assigned numbers as labels. A setup banner
 shows the active setup name.
 
-**Vitest Coverage:** 211 tests across 29 files. `lib/floorplan-inventory.test.ts` has 46 tests
-covering `calculateSetupInventory`, `rectangleToCorners`, `unionTablePolygons`,
-`polygonPerimeter`, `distributeChairsAlongPerimeter`, `computeGroupChairs`, `computeEffectiveChairs`,
-`pointInPolygon`, section boundary detection, and BOM integration. `TableProfilesClient.test.tsx`
-(10 tests) and `SetupInventoryPanel.test.tsx` (7 tests) cover the new components.
+**Interactive overhaul (2026-07):** the setup layer became the single interactive table layer
+and the loop was closed end-to-end:
+- **Direct-manipulation editing** — select a `SetupItem` to delete (Delete key / panel), rotate
+  (on-canvas drag handle + preset buttons), and set chairs by **clicking table edges** (left =
+  add, right = remove) up to capacity/head caps. Per-edge counts live in `SetupItem.chairEdges`
+  (`Json?`); `lib/floorplan-chairs.ts` holds the pure `adjustEdgeChairs` / `defaultEdgeChairs` /
+  `maxChairsForEdge` logic.
+- **Auto-join on proximity** (see Magnetic Edge Snapping above) with grouped-move.
+- **Merged-group rendering** — grouped tables draw one union outline (`unionTablePolygons`) with
+  chairs redistributed evenly (`computeGroupChairs`) instead of N separate rectangles.
+- **Live per-area totals** and **section auto-tagging via zones** (see Section detection above).
+- **Two-layer UX** — while a setup is active the base plan dims + locks (`baseLayer.eventMode
+  = 'none'`) and base-only tools (SECTIONS / DRAW BOOTH) hide; a "BASE PLAN LOCKED" note shows.
+- **Per-event auto-layout** — the setup toolbar's **⚡ GENERATE** runs `planAutoSeat` in
+  `lib/auto-seat.ts` (greedy first-fit bin-packing extracted from the WooCommerce auto-seater)
+  to place + number tables for a target party size.
+- **Fixes** — undo/redo now snapshots `{ elements, setupItems, zones }`; stale room-dimension
+  closure in the Pixi init effect fixed; the dead Konva `FloorPlanElementVisual` renderer removed.
+
+**Vitest Coverage:** 232 tests across 31 files. `lib/floorplan-inventory.test.ts` has 49 tests
+covering `calculateSetupInventory`, geometry helpers, `computeGroupChairs`,
+`computeEffectiveChairs`, `computeSetupSectionTotals`, `pointInPolygon`, and BOM integration.
+`lib/floorplan-chairs.test.ts` (11) covers per-edge chair logic and `lib/auto-seat.test.ts` (7)
+covers the bin-packing planner. `TableProfilesClient.test.tsx` (10) and `SetupInventoryPanel.test.tsx`
+(7) cover the new components.
 
 ### Inventory + stocktake (Phase 2, built)
 Full inventory management system: `InventoryCategory` (8 built-in including FURNITURE + per-venue custom) and
@@ -913,7 +939,9 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/worker-session.ts` — `workerCookieSecure` | ✅ |
 | `lib/followups.ts` — `checkUntrainedOnCompletion` | ✅ |
 | `lib/external-sync.ts` — `syncVenueCalendar` | ✅ |
-| `lib/floorplan-inventory.ts` — `calculateSetupInventory`, `pointInPolygon`, geometry fns | ✅ (46 tests) |
+| `lib/floorplan-inventory.ts` — `calculateSetupInventory`, `computeSetupSectionTotals`, `pointInPolygon`, geometry fns | ✅ (49 tests) |
+| `lib/floorplan-chairs.ts` — `adjustEdgeChairs`, `defaultEdgeChairs`, `maxChairsForEdge` | ✅ (11 tests) |
+| `lib/auto-seat.ts` — `planAutoSeat` (bin-packing layout) | ✅ (7 tests) |
 | `lib/inventory-engine.ts` — `explodeRecipe` (recursive BOM explosion) | ✅ (5 tests) |
 | `lib/auth.ts` — `authOptions` | ⬜ TODO |
 

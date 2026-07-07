@@ -1,4 +1,5 @@
-# HOSPO OPS — Phase 1 stack (Next.js admin + worker app + PostgreSQL).
+# HOSPO OPS — self-hosted hospitality operations platform
+# (Next.js admin + worker app + PostgreSQL 16).
 #
 # The app image is built by GitHub Actions and published to GHCR, so Portainer
 # just PULLS it. Deploy as a Stack in Portainer (Stacks → Add stack → Repository),
@@ -16,14 +17,19 @@
 #   APP_PORT                (optional)  host port the app is published on (default 3000)
 #   APP_NAME                (optional)  display / white-label name (default "HOSPO OPS")
 #   DB_USER                 (optional)  database username (default hospo_ops_user)
+#   CRON_SECRET             (optional)  bearer token for the cron endpoints
+#                                       (WooCommerce product sync + expiry scan)
 #
-# On first start the app container auto-runs DB migrations and seeds the demo
-# data (1 venue, 3 departments, 4 logins, example tasks + QR codes). Seeding is
-# safe to re-run, so redeploys won't duplicate anything.
+# On first start the app container regenerates the Prisma client, reconciles the
+# DB schema (`prisma db push`), and seeds the demo data (1 venue, departments,
+# logins, example tasks + QR codes). All steps are idempotent — redeploys won't
+# duplicate anything.
 #
-# Default logins after first deploy (change these in Settings):
-#   admin@demo.com / 0000   bar@demo.com / 1111
-#   kitchen@demo.com / 2222 foh@demo.com / 3333
+# Default logins after first deploy (CHANGE THESE in Settings):
+#   Admin/manager web login (email + password):
+#     admin@demo.com / admin1234    bar@demo.com / bar1234
+#     kitchen@demo.com / kitchen1234  foh@demo.com / foh1234
+#   Floor worker login (QR + PIN):  0000 · 1111 · 2222 · 3333
 
 services:
   db:

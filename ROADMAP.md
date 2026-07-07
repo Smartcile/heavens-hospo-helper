@@ -34,7 +34,7 @@
 ✅ **External embeds** — paste a Loaded public-roster link and/or a Google Calendar embed link in Settings → Integrations, pick an auto-refresh interval; shown live as panels on the Calendar page (PLANNER / LOADED ROSTER / EVENTS tabs).
 ✅ **External calendar IMPORT** — Google Calendar + any `.ics`/webcal feed are parsed server-side and shown as events directly on the PLANNER month grid (and day modal). Re-synced on the chosen interval (or SYNC NOW) and reconciled by event UID: changed events update in place, removed events drop off — no double-ups (`CalendarEvent` model, `lib/ical.ts` parser with RRULE expansion, `lib/external-sync.ts`, `POST /api/admin/calendar/sync`). Loaded's public-roster SPA has no anonymous feed, so it stays embed-only unless an `.ics` subscribe link is available.
 ✅ **NZ break entitlements** — 10-min rest / 30-min meal breaks auto-calculated per shift length and shown on each roster shift (admin + worker), with a reference table in Settings
-✅ **Live structure map** — `/admin/structure` renders the real venue → department → staff / tasks / training tree (collapsible, with counts); the planned Section layer shows as a placeholder. Read-only visual review.
+✅ **Live structure map** — `/admin/structure` renders the real venue → department → section → staff / tasks / training tree (collapsible, with counts), plus `floorPlan { tables, chairs, equip }` per section. Read-only visual review.
 ✅ **Mobile-friendly admin nav** — burger menu + off-canvas drawer on phones, static sidebar on desktop.
 
 ## SECTION ECOSYSTEM (BUILT 2026-06-16) — see ECOSYSTEM.md
@@ -144,8 +144,24 @@ The model that links sections, tasks and knowledge into one followed-up loop.
 ✅ **Worker setup view** — `/w/floorplan` with setup switcher dropdown, setup banner, read-only canvas with setup items.
 ✅ **Grouping UI** — GROUP/UNGROUP buttons in setup toolbar, same-profile validation, optimistic state updates.
 ✅ **11 new API routes** — CRUD for `TableProfile`, `FloorPlanSetup`, `SetupItem`, `TableGroup`, `SectionBoundary`.
-✅ **Vitest** — 206 tests across 28 files. `floorplan-inventory.test.ts`: 46 tests including BOM integration, head constraint, section detection.
+✅ **Vitest** — `floorplan-inventory.test.ts` covers BOM integration, head constraint, section detection.
 ✅ **CI** — All commits pass Docker build + push.
+
+## PHASE 2.6 — INTERACTIVE TABLE PLANNER OVERHAUL (BUILT 2026-07)
+
+Made the setup layer the single interactive table layer and wired the promised behaviours
+end-to-end (several were aspirational in Phase 2.5). Supersedes the "magnetic snapping" and
+"section boundary detection" bullets above.
+
+✅ **Setup-item editing** — select / delete (Delete key + panel) / rotate (on-canvas **drag handle** + preset buttons); deletions and assigned table numbers now persist.
+✅ **Direct-manipulation chairs** — set chairs by **clicking table edges** (left = add, right = remove) up to capacity + head caps; per-edge counts stored in `SetupItem.chairEdges` (`Json?`); pure logic in `lib/floorplan-chairs.ts`.
+✅ **Auto-join on proximity** — dragging same-profile tables flush snaps + **joins** them into a `TableGroup` (client temp group → real row on save); groups move as a unit.
+✅ **Merged-group rendering** — one union outline + chairs redistributed evenly around the exposed perimeter (rules-based, head caps), replacing N separate rectangles.
+✅ **Live per-area totals** — each zone shows a running `N TBL · M PAX` badge + toolbar grand total; tables auto-tag to the zone under their centre (`computeSetupSectionTotals`).
+✅ **Two-layer UX** — base plan dims + locks while a setup is active; base-only tools (SECTIONS / DRAW BOOTH) hidden in setup mode.
+✅ **Per-event auto-layout** — **⚡ GENERATE** places + numbers tables for a party size via `lib/auto-seat.ts` (bin-packing extracted from the WooCommerce auto-seater).
+✅ **Fixes** — undo/redo now covers setups + zones; stale room-dimension closure in the Pixi init effect; dead Konva `FloorPlanElementVisual` removed.
+✅ **Vitest** — 232 tests across 31 files (added `floorplan-chairs.test.ts` ×11, `auto-seat.test.ts` ×7, section-totals ×3).
 
 ## PHASE 3 — TRAINING (prev. Phase 3, unchanged)
 ✅ **Training modules / guides** — authored in admin, with step-by-step content, **photos** (upload) and **video links**

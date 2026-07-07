@@ -123,8 +123,7 @@ HOSPO OPS is an **operational board**: one place that shows what's going on, wit
 the work and the knowledge that backs it linked together. The spine is:
 
 ```
-Venue → Department → Section* → tasks + training/SOPs/FAQs → completion → follow-up
-                                                                  (*planned layer)
+Venue → Department → Section → tasks + training/SOPs/FAQs → completion → follow-up
 ```
 
 - A **task** can be scoped venue-wide, to a department, to a section, or to one
@@ -132,9 +131,10 @@ Venue → Department → Section* → tasks + training/SOPs/FAQs → completion 
   photo), which feeds the dashboard and the overdue tracker.
 - Tasks and knowledge (SOPs, training, how-tos) bundle together per area so the
   guide is one tap from the task.
-- Coming next: **sections** (bar / coffee / cabinet / floor under a department)
-  and **follow-up triggers** — a missed or incorrectly-done task auto-assigns its
-  training, and a task done by an untrained person prompts a manager to upskill.
+- **Sections** (bar / coffee / cabinet / floor under a department) and **follow-up
+  triggers** are built: a missed or incorrectly-done task auto-assigns its training,
+  and a task done by an untrained person prompts a manager to upskill
+  (`/admin/followups`).
 
 **See it live:** open **Admin → Structure** (`/admin/structure`) for a tree of how
 your venues, departments, staff, tasks and training are currently linked.
@@ -158,25 +158,40 @@ dimensions, colour, seat count, seating density (cm per chair), head chair caps,
 Materials (BOM) — linking to inventory items with per-chair or per-table quantities. Physical
 table numbers (e.g. "20", "21") are managed via tag input and auto-assigned on placement.
 
-**Canvas Features:** 3-layer PixiJS rendering (base/fixtures layer, section boundary layer,
-interactive setup layer). Magnetic edge snapping auto-aligns tables flush against neighbours.
-Section boundary polygons detect which station a table sits in on drop. Rubber-band lasso
-selection works across both elements and setup items.
+**Two-layer editing:** The base plan (walls, fixtures, section zones) and the movable tables
+live on separate layers. Pick a setup from the SETUP dropdown and the base plan **dims and
+locks** so you only move furniture; the palette switches to your Table Profiles. Deselect the
+setup to edit the base plan again. Rubber-band lasso selection works across the canvas.
 
-**Grouping & Banquet Joinery:** Select multiple same-profile tables and click GROUP to form
-a banquet block. The engine computes the composite perimeter and distributes chairs evenly
-along exposed edges, respecting head-of-table constraints (no cramming chairs on short sides).
+**Direct-manipulation tables:** Drag a Table Profile onto the canvas to place a table (with an
+auto-assigned number). Select it to **rotate via a drag handle** (or the preset angle buttons)
+and set chairs by **clicking the table's edges** — left-click adds a chair to that side,
+right-click removes one, up to the profile's capacity and head-of-table caps. Delete key or the
+panel button removes tables.
 
-**Inventory Check:** The right panel INVENTORY CHECK runs `calculateSetupInventory` for
-the active setup — comparing required items (from BOM) against total venue stock and
-showing shortages in red. Fires on button click, never during drag (60fps canvas stays smooth).
+**Auto-join (banquet joinery):** Drag two same-profile tables flush together and they **snap
+and join automatically** into one banquet block (or use the GROUP button). A joined block moves
+as a unit, renders as a single outline, and its chairs redistribute **evenly around the exposed
+perimeter**, respecting head-of-table constraints (no cramming chairs on short sides).
+
+**Live per-area totals:** Each section zone shows a running `N TBL · M PAX` badge, and the setup
+toolbar shows the grand total — both update as you drag tables in and out. A table auto-tags to
+the zone its centre lands in.
+
+**Auto-generate a layout:** Click **⚡ GENERATE**, enter a party size, and the planner places and
+numbers enough tables to cover it (greedy first-fit bin-packing over your Table Profiles) for you
+to fine-tune.
+
+**Inventory Check:** The right panel INVENTORY CHECK runs `calculateSetupInventory` for the
+active setup — comparing required items (from each profile's BOM) against total venue stock and
+showing shortages in red.
 
 **Worker View:** Staff see floor plans at **Menu → Floor Plan** with a read-only PixiJS
 canvas. A setup switcher dropdown (alongside the view switcher) lets them switch between
 event layouts. Assigned table numbers display as labels. Calendar events can link to setups.
 
-**API:** 11 new API routes for TableProfile CRUD, FloorPlanSetup CRUD, SetupItem bulk save,
-TableGroup management, SectionBoundary CRUD, and worker setup views.
+**API:** routes for TableProfile CRUD, FloorPlanSetup CRUD, SetupItem bulk save, TableGroup
+management, SectionBoundary CRUD, and worker setup views.
 
 ### BUDGET SPLITTER
 
