@@ -19,6 +19,8 @@
 #   DB_USER                 (optional)  database username (default hospo_ops_user)
 #   CRON_SECRET             (optional)  bearer token for the cron endpoints
 #                                       (WooCommerce product sync + expiry scan)
+#   IMAGE_TAG               (optional)  Docker image tag to pull (default latest,
+#                                       or set to develop for the latest fixes)
 #
 # On first start the app container regenerates the Prisma client, reconciles the
 # DB schema (`prisma db push`), and seeds the demo data (1 venue, departments,
@@ -49,7 +51,7 @@ services:
       retries: 5
 
   app:
-    image: ghcr.io/smartcile/heavens-hospo-helper:latest
+    image: ghcr.io/smartcile/heavens-hospo-helper:${IMAGE_TAG:-latest}
     container_name: hospo-ops-app
     restart: unless-stopped
     pull_policy: always
