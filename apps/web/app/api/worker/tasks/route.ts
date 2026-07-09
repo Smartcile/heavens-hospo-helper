@@ -1,12 +1,30 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { getTodayDate } from '@/lib/utils'
 import { isTaskDueOnDate } from '@/lib/scheduling'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  if (req.nextUrl.searchParams.get('edit') === '1') {
+    const tasks = await prisma.task.findMany({
+      where: {
+        venueId: session.venueId,
+        isActive: true,
+        deletedAt: null,
+        ...(session.departmentId ? { departmentId: session.departmentId } : {}),
+      },
+      include: {
+        department: { select: { id: true, name: true } },
+        section: { select: { id: true, name: true } },
+        requiredTraining: { select: { moduleId: true, module: { select: { kind: true } } } },
+      },
+      orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
+    })
+    return NextResponse.json(tasks)
+  }
 
   // "Today" is the venue's local calendar day, so daily tasks reset at the
   // venue's local midnight rather than UTC midnight.
@@ -99,4 +117,56 @@ export async function GET() {
   })
 
   return NextResponse.json({ tasks: result, checklists: checklistResult, firstName: session.firstName })
+}
+
+export async function POST(req: NextRequest) {
+  const session = await getWorkerSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.role !== 'ADMIN' && session.role !== 'MANAGER')
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const body = await req.json()
+  const {
+    title, description, departmentId, sectionId, completionType,
+    scheduleType, scheduleDays, customCron, intervalMonths,
+    monthlyOption, monthlyDay, requiredTrainingIds,
+  } = body
+
+  if (!title?.trim()) return NextResponse.json({ error: 'TITLE IS REQUIRED' }, { status: 400 })
+  if (scheduleType === 'WEEKLY' && (!scheduleDays || scheduleDays.length === 0))
+    return NextResponse.json({ error: 'SELECT AT LEAST ONE DAY FOR WEEKLY SCHEDULE' }, { status: 400 })
+  if (scheduleType === 'CUSTOM' && !customCron?.trim())
+    return NextResponse.json({ error: 'CRON EXPRESSION IS REQUIRED FOR CUSTOM SCHEDULE' }, { status: 400 })
+
+  let resolvedDeptId = departmentId || null
+  const resolvedSectionId = sectionId || null
+  if (sectionId && !departmentId) {
+    const s = await prisma.section.findUnique({ where: { id: sectionId }, select: { departmentId: true } })
+    if (s) resolvedDeptId = s.departmentId
+  }
+
+  const task = await prisma.task.create({
+    data: {
+      title: title.toUpperCase().trim(),
+      description: description?.trim() || null,
+      venueId: session.venueId,
+      departmentId: resolvedDeptId,
+      sectionId: resolvedSectionId,
+      completionType: completionType || 'TICK',
+      scheduleType: scheduleType || 'DAILY',
+      scheduleDays: scheduleType === 'DAILY' ? [] : scheduleDays || [],
+      customCron: scheduleType === 'CUSTOM' ? customCron : null,
+      intervalMonths: Math.max(1, intervalMonths || 1),
+      monthlyOption: scheduleType === 'MONTHLY' ? (monthlyOption || 'FIRST_DAY') : null,
+      monthlyDay: scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? (monthlyDay || 1) : null,
+    },
+  })
+
+  if (requiredTrainingIds?.length) {
+    await prisma.taskRequiredTraining.createMany({
+      data: requiredTrainingIds.map((moduleId: string) => ({ taskId: task.id, moduleId })),
+    })
+  }
+
+  return NextResponse.json(task, { status: 201 })
 }

@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
     venueId,
     departmentId: matched.departmentId,
     firstName: matched.firstName,
+    role: matched.role,
   })
 
   const response = NextResponse.json({ success: true, firstName: matched.firstName })

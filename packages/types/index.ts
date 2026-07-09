@@ -108,6 +108,7 @@ export interface WorkerSession {
   venueId: string
   departmentId: string | null
   firstName: string
+  role: Role
   expiresAt: number
 }
 
