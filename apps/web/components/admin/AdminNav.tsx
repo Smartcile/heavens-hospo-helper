@@ -43,6 +43,7 @@ const NAV_GROUPS: NavGroup[] = [
   { label: 'Finance', items: [
     { href: '/admin/budget', label: 'Budget' },
     { href: '/admin/reports', label: 'Reports' },
+    { href: '/admin/gift-cards', label: 'Gift Cards' },
   ] },
 ]
 

@@ -106,6 +106,7 @@ model Venue {
   wooIntegrations     WooIntegration[]
   menuItems           MenuItem[]
   wooOrders           WooOrder[]
+  giftCards           GiftCard[]
 }
 
 model Department {
@@ -924,6 +925,15 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum GiftCardStatus {
+  DRAFT
+  ISSUED
+  SENT
+  REDEEMED
+  VOIDED
+  EXPIRED
+}
+
 model InventoryCategory {
   id        String   @id @default(uuid())
   venueId   String?
@@ -1241,6 +1251,7 @@ model WooOrder {
   venue          Venue           @relation(fields: [venueId], references: [id])
   calendarEvent  CalendarEvent?  @relation(fields: [calendarEventId], references: [id])
   items          WooOrderItem[]
+  giftCards      GiftCard[]
 
   @@index([venueId])
   @@index([wooOrderId])
@@ -1263,4 +1274,31 @@ model WooOrderItem {
 
   @@index([orderId])
   @@index([menuItemId])
+}
+
+model GiftCard {
+  id            String         @id @default(uuid())
+  venueId       String
+  number        String         @unique
+  amount        Float
+  customerName  String?
+  customerEmail String?
+  message       String?
+  status        GiftCardStatus @default(DRAFT)
+  wooOrderId    String?
+  issuedAt      DateTime?
+  sentAt        DateTime?
+  expiresAt     DateTime?
+  pdfPath       String?
+  notes         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
+
+  venue    Venue     @relation(fields: [venueId], references: [id])
+  wooOrder WooOrder? @relation(fields: [wooOrderId], references: [id])
+
+  @@index([venueId])
+  @@index([number])
+  @@index([status])
 }

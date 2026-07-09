@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createHmac } from 'crypto'
 import { prisma } from '@hospo-ops/db'
 import { explodeRecipe } from '@/lib/inventory-engine'
+import { getNextNumber } from '@/lib/gift-cards'
 import type { PrismaClient, OrderStatus } from '@prisma/client'
 
 // ═══════════════════════════════════════════
@@ -232,6 +233,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── 8. Gift card auto-detection (best-effort) ──
+  try {
+    await detectGiftCards(lineItems, venueId, order, customerName, customerEmail)
+  } catch (e) {
+    console.error('Gift card detection failed (non-blocking):', e)
+  }
+
   return NextResponse.json({ success: true, orderId: order.id, topic })
 }
 
@@ -251,6 +259,40 @@ function mapWooStatus(status: string): string {
     failed: 'CANCELLED',
   }
   return map[s] ?? 'PENDING'
+}
+
+async function detectGiftCards(
+  lineItems: any[],
+  venueId: string,
+  order: { id: string; wooOrderId: string },
+  customerName: string,
+  customerEmail: string | null,
+) {
+  for (const li of lineItems) {
+    const sku = String(li.sku ?? li.product_id ?? '').toUpperCase()
+    if (!sku.includes('GIFT')) continue
+
+    const amount = parseFloat(li.total ?? li.price ?? '0')
+    if (amount <= 0) continue
+
+    const qty = li.quantity ?? 1
+    for (let i = 0; i < qty; i++) {
+      const year = new Date().getFullYear()
+      const number = await getNextNumber(venueId, year)
+
+      await prisma.giftCard.create({
+        data: {
+          venueId,
+          number,
+          amount: amount / qty,
+          customerName: customerName || null,
+          customerEmail,
+          wooOrderId: order.wooOrderId,
+          notes: `Auto-created from WooCommerce order #${order.wooOrderId} (SKU: ${sku})`,
+        },
+      })
+    }
+  }
 }
 
 function extractMetaInt(meta: any[], keys: string[]): number | null {
