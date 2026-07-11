@@ -6,5 +6,5 @@ export default async function BudgetLandingPage() {
   const session = await getServerSession(authOptions)
   if (!session) return null
 
-  return <BudgetLandingClient role={session.user.role} sessionVenueId={session.user.venueId} defaultVenueId={session.user.defaultVenueId ?? null} />
+  return <BudgetLandingClient role={session.user.role} sessionVenueId={session.user.venueId} defaultVenueId={session.user.defaultVenueId ?? undefined} />
 }

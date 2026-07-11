@@ -142,7 +142,7 @@ function NavGroups({
   )
 }
 
-function Brand({ appName, role, venueId, defaultVenueId }: { appName: string; role: string; venueId: string; defaultVenueId: string | null }) {
+function Brand({ appName, role, venueId, defaultVenueId }: { appName: string; role: string; venueId: string; defaultVenueId: string | null | undefined }) {
   return (
     <div className="border-b border-grey-mid">
       <div className="p-4">
@@ -167,7 +167,7 @@ function SignOutButton() {
   )
 }
 
-export function AdminNav({ role, venueId, defaultVenueId }: { role: string; venueId: string; defaultVenueId: string | null }) {
+export function AdminNav({ role, venueId, defaultVenueId }: { role: string; venueId: string; defaultVenueId: string | null | undefined }) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {

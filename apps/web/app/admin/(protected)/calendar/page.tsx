@@ -6,6 +6,6 @@ import { authOptions } from '@/lib/auth'
 export default async function CalendarPage() {
   const session = await getServerSession(authOptions)
   const cookieStore = cookies()
-  const activeVenueId = cookieStore.get('admin-active-venue')?.value ?? session!.user.defaultVenueId ?? null
+  const activeVenueId = cookieStore.get('admin-active-venue')?.value ?? session!.user.defaultVenueId ?? undefined
   return <CalendarClient role={session!.user.role} sessionVenueId={session!.user.venueId} defaultVenueId={activeVenueId} />
 }

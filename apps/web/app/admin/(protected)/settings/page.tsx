@@ -9,7 +9,7 @@ export default async function SettingsPage() {
       staffId={session!.user.id}
       role={session!.user.role}
       sessionVenueId={session!.user.venueId}
-      defaultVenueId={session!.user.defaultVenueId ?? null}
+      defaultVenueId={session!.user.defaultVenueId ?? undefined}
     />
   )
 }

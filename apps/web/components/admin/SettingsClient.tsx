@@ -32,7 +32,7 @@ export function SettingsClient({
   staffId: string
   role: string
   sessionVenueId: string
-  defaultVenueId: string | null
+  defaultVenueId: string | null | undefined
 }) {
   // Change password
   const [newPassword, setNewPassword] = useState('')

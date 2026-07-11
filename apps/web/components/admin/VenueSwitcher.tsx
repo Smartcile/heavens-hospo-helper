@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 
 interface Venue { id: string; name: string }
 
-export function VenueSwitcher({ role, venueId, defaultVenueId }: { role: string; venueId: string; defaultVenueId: string | null }) {
+export function VenueSwitcher({ role, venueId, defaultVenueId }: { role: string; venueId: string; defaultVenueId: string | null | undefined }) {
   const [venues, setVenues] = useState<Venue[]>([])
   const [active, setActive] = useState('')
 

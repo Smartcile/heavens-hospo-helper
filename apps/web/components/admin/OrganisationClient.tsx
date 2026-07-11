@@ -53,7 +53,7 @@ const DEPT_COLOURS = [
   { value: '#6B6B6B', label: 'GREY' },
 ]
 
-export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId: string | null }) {
+export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId: string | null | undefined }) {
   const [venues, setVenues] = useState<Venue[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedVenueId, setSelectedVenueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
