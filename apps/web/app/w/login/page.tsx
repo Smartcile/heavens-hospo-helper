@@ -66,13 +66,11 @@ function PinPad({ venueId }: { venueId: string }) {
         </div>
 
         {/* PIN display */}
-        <div className="flex justify-center gap-4">
-          {[0, 1, 2, 3].map((i) => (
+        <div className="flex justify-center gap-4 min-h-[24px]">
+          {[...pin].map((_, i) => (
             <div
               key={i}
-              className={`w-4 h-4 border-2 transition-colors ${
-                i < pin.length ? 'bg-white border-white' : 'bg-transparent border-grey-mid'
-              }`}
+              className="w-4 h-4 border-2 bg-white border-white transition-colors"
             />
           ))}
         </div>

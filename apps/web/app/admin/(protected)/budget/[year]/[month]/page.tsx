@@ -21,7 +21,7 @@ export default async function BudgetMonthPage({
   return (
     <BudgetPageClient
       role={session.user.role}
-      sessionVenueId={session.user.venueId}
+      sessionVenueId={session.user.venueId} defaultVenueId={session.user.defaultVenueId ?? null}
       year={year}
       month={month}
     />

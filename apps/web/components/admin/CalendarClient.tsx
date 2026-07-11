@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { formatBreaks } from '@/lib/breaks'
+import { getActiveVenueId } from '@/lib/active-venue'
 
 interface ShiftItem { id: string; staffId: string; staffName: string; departmentName: string | null; startTime: string; endTime: string }
 interface TimeOffItem { id: string; staffId: string; staffName: string; status: string }
@@ -25,6 +26,7 @@ interface Venue {
   externalRefreshMinutes?: number
 }
 interface StaffLite { id: string; firstName: string; lastName: string; venueId: string }
+interface LiveFloorStaff { id: string; staffName: string; departmentName: string | null; clockIn: string; isActive: boolean; geoValid: boolean }
 type CalView = 'planner' | 'loaded' | 'events'
 
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
@@ -34,17 +36,18 @@ function keyOf(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
-export function CalendarClient({ role, sessionVenueId }: { role: string; sessionVenueId: string }) {
+export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1) // 1-12
-  const [venueId, setVenueId] = useState(role === 'MANAGER' ? sessionVenueId : '')
+  const [venueId, setVenueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [days, setDays] = useState<Record<string, DayData>>({})
   const [pending, setPending] = useState<Pending[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [staff, setStaff] = useState<StaffLite[]>([])
   const [floorPlans, setFloorPlans] = useState<FloorPlanLite[]>([])
   const [loading, setLoading] = useState(true)
+  const [liveFloor, setLiveFloor] = useState<LiveFloorStaff[]>([])
 
   const [view, setView] = useState<CalView>('planner')
   const [refreshTick, setRefreshTick] = useState(0)
@@ -101,6 +104,29 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
     }
   }
 
+  async function loadLiveFloor() {
+    if (!venueId) { setLiveFloor([]); return }
+    try {
+      const r = await fetch(`/api/admin/timeclock?venueId=${venueId}&active=1`)
+      const data = await r.json()
+      setLiveFloor(data.map((t: any) => ({
+        id: t.id,
+        staffName: `${t.staff.firstName} ${t.staff.lastName}`,
+        departmentName: t.staff.department?.name ?? null,
+        clockIn: new Date(t.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isActive: t.isActive,
+        geoValid: t.geoValid,
+      })))
+    } catch { setLiveFloor([]) }
+  }
+
+  // Auto-refresh live floor every 30s
+  useEffect(() => {
+    if (view !== 'planner' || !venueId) return
+    const interval = setInterval(loadLiveFloor, 30000)
+    return () => clearInterval(interval)
+  }, [view, venueId])
+
   async function linkEventToPlan(eventId: string, slug: string, name: string) {
     await fetch(`/api/admin/calendar/${eventId}`, {
       method: 'PATCH',
@@ -111,7 +137,7 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
   }
 
   useEffect(() => { loadMeta() }, [venueId])
-  useEffect(() => { load() }, [year, month, venueId])
+  useEffect(() => { load(); loadLiveFloor() }, [year, month, venueId])
 
   // Auto-refresh the embedded views at the venue's chosen interval.
   useEffect(() => {
@@ -272,6 +298,30 @@ export function CalendarClient({ role, sessionVenueId }: { role: string; session
                 <div className="flex gap-2">
                   <button onClick={() => reviewRequest(p.id, 'APPROVED')} className="font-mono text-xs uppercase text-success hover:opacity-80 transition-opacity">APPROVE</button>
                   <button onClick={() => reviewRequest(p.id, 'DECLINED')} className="font-mono text-xs uppercase text-danger hover:opacity-80 transition-opacity">DECLINE</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Live floor */}
+      {view === 'planner' && liveFloor.length > 0 && (
+        <div className="bg-grey-dark border border-grey-mid">
+          <div className="p-3 border-b border-grey-mid font-mono text-xs uppercase tracking-wider text-success flex items-center gap-2">
+            <span className="inline-block w-2 h-2 bg-success animate-pulse" />
+            LIVE FLOOR ({liveFloor.length} CLOCKED IN)
+          </div>
+          <div className="divide-y divide-grey-mid">
+            {liveFloor.map((s) => (
+              <div key={s.id} className="p-3 flex items-center justify-between gap-3">
+                <div>
+                  <span className="font-mono text-xs text-white">{s.staffName}</span>
+                  {s.departmentName && <span className="font-mono text-xs text-grey-light ml-2">[{s.departmentName}]</span>}
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="font-mono text-xs text-grey-light">{s.clockIn}</span>
+                  {!s.geoValid && <span className="font-mono text-xs text-danger">OFFSITE</span>}
                 </div>
               </div>
             ))}

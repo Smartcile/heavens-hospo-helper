@@ -61,7 +61,7 @@ function emptyStep(): Step {
 
 interface ChecklistLite { id: string; name: string; departmentId: string | null }
 
-export function TrainingClient({ role, sessionVenueId }: { role: string; sessionVenueId: string }) {
+export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [modules, setModules] = useState<TrainingModule[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [tasks, setTasks] = useState<TaskLite[]>([])

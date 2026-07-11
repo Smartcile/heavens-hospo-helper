@@ -5,6 +5,17 @@ import bcrypt from 'bcryptjs'
 async function main() {
   console.log('Seeding database...')
 
+  // Clean up old BAR department and its staff/training references
+  const oldBarDept = await prisma.department.findUnique({ where: { id: '00000000-0000-0000-0000-000000000010' } })
+  if (oldBarDept?.name === 'BAR') {
+    await prisma.department.update({ where: { id: oldBarDept.id }, data: { deletedAt: new Date() } })
+  }
+  // Soft-delete old staff accounts that no longer exist in this seed
+  await prisma.staff.updateMany({
+    where: { id: '00000000-0000-0000-0000-000000000023' },
+    data: { deletedAt: null, isActive: true },
+  })
+
   // Create venue
   const venue = await prisma.venue.upsert({
     where: { id: '00000000-0000-0000-0000-000000000001' },
@@ -19,26 +30,14 @@ async function main() {
   })
 
   // Create departments
-  const deptBar = await prisma.department.upsert({
+  const deptBOH = await prisma.department.upsert({
     where: { id: '00000000-0000-0000-0000-000000000010' },
     update: {},
     create: {
       id: '00000000-0000-0000-0000-000000000010',
-      name: 'BAR',
+      name: 'BACK OF HOUSE',
       venueId: venue.id,
-      colour: '#6B6B6B',
-      isActive: true,
-    },
-  })
-
-  const deptKitchen = await prisma.department.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000011' },
-    update: {},
-    create: {
-      id: '00000000-0000-0000-0000-000000000011',
-      name: 'KITCHEN',
-      venueId: venue.id,
-      colour: '#4ADE80',
+      colour: '#FACC15',
       isActive: true,
     },
   })
@@ -58,13 +57,15 @@ async function main() {
   // Create staff. Admin/manager profiles log into the web panel with
   // email + password; PINs remain for QR + numpad worker login.
   const pinAdmin = await bcrypt.hash('0000', 10)
-  const pinManager1 = await bcrypt.hash('1111', 10)
-  const pinManager2 = await bcrypt.hash('2222', 10)
-  const pinManager3 = await bcrypt.hash('3333', 10)
+  const pinManager = await bcrypt.hash('1111', 10)
   const pwAdmin = await bcrypt.hash('admin1234', 10)
-  const pwBar = await bcrypt.hash('bar1234', 10)
-  const pwKitchen = await bcrypt.hash('kitchen1234', 10)
+  const pwBoh = await bcrypt.hash('boh1234', 10)
   const pwFoh = await bcrypt.hash('foh1234', 10)
+  // Staff PINs
+  const pinStaff1 = await bcrypt.hash('1234', 10)
+  const pinStaff2 = await bcrypt.hash('2345', 10)
+  const pinStaff3 = await bcrypt.hash('3456', 10)
+  const pinStaff4 = await bcrypt.hash('4567', 10)
 
   const adminStaff = await prisma.staff.upsert({
     where: { id: '00000000-0000-0000-0000-000000000020' },
@@ -82,36 +83,21 @@ async function main() {
     },
   })
 
-  const barManager = await prisma.staff.upsert({
+  const bohManager = await prisma.staff.upsert({
     where: { id: '00000000-0000-0000-0000-000000000021' },
-    update: { email: 'bar@demo.com', password: pwBar },
+    update: { email: 'boh@demo.com', password: pwBoh },
     create: {
       id: '00000000-0000-0000-0000-000000000021',
-      firstName: 'BAR',
+      firstName: 'BOH',
       lastName: 'MANAGER',
-      pin: pinManager1,
-      email: 'bar@demo.com',
-      password: pwBar,
+      pin: pinManager,
+      email: 'boh@demo.com',
+      password: pwBoh,
       role: Role.MANAGER,
       venueId: venue.id,
-      departmentId: deptBar.id,
-      isActive: true,
-    },
-  })
-
-  const kitchenManager = await prisma.staff.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000022' },
-    update: { email: 'kitchen@demo.com', password: pwKitchen },
-    create: {
-      id: '00000000-0000-0000-0000-000000000022',
-      firstName: 'KITCHEN',
-      lastName: 'MANAGER',
-      pin: pinManager2,
-      email: 'kitchen@demo.com',
-      password: pwKitchen,
-      role: Role.MANAGER,
-      venueId: venue.id,
-      departmentId: deptKitchen.id,
+      departmentId: deptBOH.id,
+      hourlyRate: 28,
+      employmentType: 'FULL_TIME',
       isActive: true,
     },
   })
@@ -123,12 +109,84 @@ async function main() {
       id: '00000000-0000-0000-0000-000000000023',
       firstName: 'FOH',
       lastName: 'MANAGER',
-      pin: pinManager3,
+      pin: pinManager,
       email: 'foh@demo.com',
       password: pwFoh,
       role: Role.MANAGER,
       venueId: venue.id,
       departmentId: deptFOH.id,
+      hourlyRate: 28,
+      employmentType: 'FULL_TIME',
+      isActive: true,
+    },
+  })
+
+  // Dummy STAFF members for testing
+  const staffBoh1 = await prisma.staff.upsert({
+    where: { id: '00000000-0000-0000-0000-000000000030' },
+    update: { email: 'chef@demo.com' },
+    create: {
+      id: '00000000-0000-0000-0000-000000000030',
+      firstName: 'ALEX',
+      lastName: 'CHEN',
+      pin: pinStaff1,
+      email: 'chef@demo.com',
+      role: Role.STAFF,
+      venueId: venue.id,
+      departmentId: deptBOH.id,
+      hourlyRate: 25,
+      employmentType: 'FULL_TIME',
+      isActive: true,
+    },
+  })
+
+  const staffBoh2 = await prisma.staff.upsert({
+    where: { id: '00000000-0000-0000-0000-000000000031' },
+    update: {},
+    create: {
+      id: '00000000-0000-0000-0000-000000000031',
+      firstName: 'JORDAN',
+      lastName: 'PATEL',
+      pin: pinStaff2,
+      role: Role.STAFF,
+      venueId: venue.id,
+      departmentId: deptBOH.id,
+      hourlyRate: 23.5,
+      employmentType: 'PART_TIME',
+      isActive: true,
+    },
+  })
+
+  const staffFoh1 = await prisma.staff.upsert({
+    where: { id: '00000000-0000-0000-0000-000000000032' },
+    update: {},
+    create: {
+      id: '00000000-0000-0000-0000-000000000032',
+      firstName: 'SAM',
+      lastName: 'WILSON',
+      pin: pinStaff3,
+      role: Role.STAFF,
+      venueId: venue.id,
+      departmentId: deptFOH.id,
+      hourlyRate: 24,
+      employmentType: 'FULL_TIME',
+      isActive: true,
+    },
+  })
+
+  const staffFoh2 = await prisma.staff.upsert({
+    where: { id: '00000000-0000-0000-0000-000000000033' },
+    update: {},
+    create: {
+      id: '00000000-0000-0000-0000-000000000033',
+      firstName: 'TAYLOR',
+      lastName: 'REED',
+      pin: pinStaff4,
+      role: Role.STAFF,
+      venueId: venue.id,
+      departmentId: deptFOH.id,
+      hourlyRate: 22,
+      employmentType: 'CASUAL',
       isActive: true,
     },
   })
@@ -156,59 +214,8 @@ async function main() {
     })
   }
 
-  // BAR tasks
-  const barDailyTasks = [
-    { title: 'WIPE DOWN ALL BAR SURFACES', description: 'Clean all countertops, taps, and back bar surfaces' },
-    { title: 'RESTOCK GLASS FRIDGE', description: 'Ensure glass fridge is fully stocked and organised' },
-    { title: 'CHECK BEER LINE PRESSURE', description: 'Verify all keg pressures are within acceptable range' },
-    { title: 'CLEAN COFFEE MACHINE', description: 'Backflush, clean group heads and steam wands' },
-    { title: 'COUNT OPENING FLOAT', description: 'Count and verify opening cash float matches POS record' },
-  ]
-
-  for (let i = 0; i < barDailyTasks.length; i++) {
-    await prisma.task.upsert({
-      where: { id: `00000000-0000-0000-0001-${String(i).padStart(12, '0')}` },
-      update: {},
-      create: {
-        id: `00000000-0000-0000-0001-${String(i).padStart(12, '0')}`,
-        ...barDailyTasks[i],
-        venueId: venue.id,
-        departmentId: deptBar.id,
-        completionType: i === 4 ? CompletionType.TICK_NOTE : CompletionType.TICK,
-        scheduleType: ScheduleType.DAILY,
-        scheduleDays: [],
-        sortOrder: i,
-        isActive: true,
-      },
-    })
-  }
-
-  const barWeeklyTasks = [
-    { title: 'DEEP CLEAN BEHIND BAR', description: 'Move all equipment and clean floor and walls behind bar', days: [1] },
-    { title: 'AUDIT SPIRITS INVENTORY', description: 'Count and record all spirit bottles, note any shortages', days: [1] },
-  ]
-
-  for (let i = 0; i < barWeeklyTasks.length; i++) {
-    const { days, ...task } = barWeeklyTasks[i]
-    await prisma.task.upsert({
-      where: { id: `00000000-0000-0000-0002-${String(i).padStart(12, '0')}` },
-      update: {},
-      create: {
-        id: `00000000-0000-0000-0002-${String(i).padStart(12, '0')}`,
-        ...task,
-        venueId: venue.id,
-        departmentId: deptBar.id,
-        completionType: CompletionType.TICK_NOTE,
-        scheduleType: ScheduleType.WEEKLY,
-        scheduleDays: days,
-        sortOrder: barDailyTasks.length + i,
-        isActive: true,
-      },
-    })
-  }
-
-  // KITCHEN tasks
-  const kitchenDailyTasks = [
+  // BOH tasks
+  const bohDailyTasks = [
     { title: 'CHECK FRIDGE TEMPERATURES', description: 'Record all fridge and freezer temperatures in log', type: CompletionType.TICK_NOTE },
     { title: 'SANITISE ALL PREP SURFACES', description: 'Clean and sanitise all cutting boards and prep benches', type: CompletionType.TICK },
     { title: 'CHECK OIL LEVELS IN FRYERS', description: 'Inspect oil quality and refill or change as needed', type: CompletionType.TICK },
@@ -216,16 +223,16 @@ async function main() {
     { title: 'EMPTY AND CLEAN BIN AREA', description: 'Empty all bins, wash bin area, replace liners', type: CompletionType.TICK_PHOTO },
   ]
 
-  for (let i = 0; i < kitchenDailyTasks.length; i++) {
-    const { type, ...task } = kitchenDailyTasks[i]
+  for (let i = 0; i < bohDailyTasks.length; i++) {
+    const { type, ...task } = bohDailyTasks[i]
     await prisma.task.upsert({
-      where: { id: `00000000-0000-0000-0003-${String(i).padStart(12, '0')}` },
+      where: { id: `00000000-0000-0000-0001-${String(i).padStart(12, '0')}` },
       update: {},
       create: {
-        id: `00000000-0000-0000-0003-${String(i).padStart(12, '0')}`,
+        id: `00000000-0000-0000-0001-${String(i).padStart(12, '0')}`,
         ...task,
         venueId: venue.id,
-        departmentId: deptKitchen.id,
+        departmentId: deptBOH.id,
         completionType: type,
         scheduleType: ScheduleType.DAILY,
         scheduleDays: [],
@@ -235,25 +242,25 @@ async function main() {
     })
   }
 
-  const kitchenWeeklyTasks = [
+  const bohWeeklyTasks = [
     { title: 'CLEAN BEHIND ALL EQUIPMENT', description: 'Pull out ovens, fryers, and fridges to clean underneath and behind', days: [1] },
     { title: 'CALIBRATE THERMOMETERS', description: 'Test and calibrate all probe thermometers against reference', days: [3] },
   ]
 
-  for (let i = 0; i < kitchenWeeklyTasks.length; i++) {
-    const { days, ...task } = kitchenWeeklyTasks[i]
+  for (let i = 0; i < bohWeeklyTasks.length; i++) {
+    const { days, ...task } = bohWeeklyTasks[i]
     await prisma.task.upsert({
-      where: { id: `00000000-0000-0000-0004-${String(i).padStart(12, '0')}` },
+      where: { id: `00000000-0000-0000-0002-${String(i).padStart(12, '0')}` },
       update: {},
       create: {
-        id: `00000000-0000-0000-0004-${String(i).padStart(12, '0')}`,
+        id: `00000000-0000-0000-0002-${String(i).padStart(12, '0')}`,
         ...task,
         venueId: venue.id,
-        departmentId: deptKitchen.id,
+        departmentId: deptBOH.id,
         completionType: CompletionType.TICK_NOTE,
         scheduleType: ScheduleType.WEEKLY,
         scheduleDays: days,
-        sortOrder: kitchenDailyTasks.length + i,
+        sortOrder: bohDailyTasks.length + i,
         isActive: true,
       },
     })
@@ -313,23 +320,12 @@ async function main() {
 
   // QR Codes
   await prisma.qRCode.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000030' },
-    update: {},
-    create: {
-      id: '00000000-0000-0000-0000-000000000030',
-      venueId: venue.id,
-      label: 'BAR ENTRY QR',
-      isActive: true,
-    },
-  })
-
-  await prisma.qRCode.upsert({
     where: { id: '00000000-0000-0000-0000-000000000031' },
     update: {},
     create: {
       id: '00000000-0000-0000-0000-000000000031',
       venueId: venue.id,
-      label: 'KITCHEN ENTRY QR',
+      label: 'BOH ENTRY QR',
       isActive: true,
     },
   })
@@ -363,35 +359,9 @@ async function main() {
   }[] = [
     {
       id: '00000000-0000-0000-00a0-000000000001',
-      name: 'BAR OPEN',
-      description: 'Opening checklist for the bar.',
-      category: 'BAR',
-      items: [
-        { title: 'COUNT OPENING FLOAT', completionType: 'TICK_NOTE' },
-        { title: 'TURN ON COFFEE MACHINE AND CALIBRATE', completionType: 'TICK' },
-        { title: 'CHECK BEER LINE PRESSURE', completionType: 'TICK' },
-        { title: 'STOCK GLASS FRIDGE AND GARNISHES', completionType: 'TICK' },
-        { title: 'WIPE DOWN ALL BAR SURFACES', completionType: 'TICK' },
-      ],
-    },
-    {
-      id: '00000000-0000-0000-00a0-000000000002',
-      name: 'BAR CLOSE',
-      description: 'Closing checklist for the bar.',
-      category: 'BAR',
-      items: [
-        { title: 'CLEAN AND BACKFLUSH COFFEE MACHINE', completionType: 'TICK' },
-        { title: 'EMPTY AND CLEAN DRIP TRAYS', completionType: 'TICK' },
-        { title: 'CASH UP AND RECORD TAKINGS', completionType: 'TICK_NOTE' },
-        { title: 'LOCK SPIRITS AND SECURE TILL', completionType: 'TICK' },
-        { title: 'PHOTO OF CLEAN BAR FOR HANDOVER', completionType: 'TICK_PHOTO' },
-      ],
-    },
-    {
-      id: '00000000-0000-0000-00a0-000000000003',
-      name: 'KITCHEN OPEN',
-      description: 'Opening checklist for the kitchen.',
-      category: 'KITCHEN',
+      name: 'BOH OPEN',
+      description: 'Opening checklist for back of house.',
+      category: 'BOH',
       items: [
         { title: 'RECORD ALL FRIDGE AND FREEZER TEMPERATURES', completionType: 'TICK_NOTE' },
         { title: 'CHECK OIL LEVELS AND QUALITY IN FRYERS', completionType: 'TICK' },
@@ -401,20 +371,20 @@ async function main() {
       ],
     },
     {
-      id: '00000000-0000-0000-00a0-000000000004',
-      name: 'KITCHEN CLOSE',
-      description: 'Closing checklist for the kitchen.',
-      category: 'KITCHEN',
+      id: '00000000-0000-0000-00a0-000000000002',
+      name: 'BOH CLOSE',
+      description: 'Closing checklist for back of house.',
+      category: 'BOH',
       items: [
         { title: 'RECORD CLOSING FRIDGE TEMPERATURES', completionType: 'TICK_NOTE' },
         { title: 'CLEAN AND DEGREASE COOKLINE', completionType: 'TICK' },
         { title: 'EMPTY AND SANITISE BINS', completionType: 'TICK' },
         { title: 'WRAP, LABEL AND DATE ALL OPEN STOCK', completionType: 'TICK' },
-        { title: 'PHOTO OF CLEAN KITCHEN FOR HANDOVER', completionType: 'TICK_PHOTO' },
+        { title: 'PHOTO OF CLEAN BOH FOR HANDOVER', completionType: 'TICK_PHOTO' },
       ],
     },
     {
-      id: '00000000-0000-0000-00a0-000000000005',
+      id: '00000000-0000-0000-00a0-000000000003',
       name: 'FOH OPEN',
       description: 'Opening checklist for front of house.',
       category: 'FRONT OF HOUSE',
@@ -427,7 +397,7 @@ async function main() {
       ],
     },
     {
-      id: '00000000-0000-0000-00a0-000000000006',
+      id: '00000000-0000-0000-00a0-000000000004',
       name: 'FOH CLOSE',
       description: 'Closing checklist for front of house.',
       category: 'FRONT OF HOUSE',
@@ -439,7 +409,7 @@ async function main() {
       ],
     },
     {
-      id: '00000000-0000-0000-00a0-000000000007',
+      id: '00000000-0000-0000-00a0-000000000005',
       name: 'WEEKLY DEEP CLEAN',
       description: 'Weekly deep-clean tasks (defaults to Monday).',
       category: 'GENERAL',
@@ -480,7 +450,6 @@ async function main() {
   }
 
   // --- Example training modules (Phase 3) ---
-  const coffeeTaskId = '00000000-0000-0000-0001-000000000003' // CLEAN COFFEE MACHINE
   const trainingModules: {
     id: string
     title: string
@@ -519,22 +488,6 @@ async function main() {
         { title: 'HAND WASHING', content: 'Wash hands for 20 seconds on arrival, after breaks, and between tasks.' },
         { title: 'TEMPERATURE DANGER ZONE', content: 'Keep cold food below 5°C and hot food above 60°C. Record fridge temps daily.' },
         { title: 'CROSS-CONTAMINATION', content: 'Use separate boards and utensils for raw and ready-to-eat foods.' },
-      ],
-    },
-    {
-      id: '00000000-0000-0000-00b0-000000000003',
-      title: 'HOW TO CLEAN THE COFFEE MACHINE',
-      description: 'Step-by-step end-of-day clean, linked to the daily task.',
-      category: 'BAR',
-      departmentId: deptBar.id,
-      linkedTaskId: coffeeTaskId,
-      requiresSignOff: false,
-      isOnboarding: false,
-      onboardingOrder: 0,
-      steps: [
-        { title: 'BACKFLUSH', content: 'Insert the blind filter, add cleaning powder, and run the backflush cycle 5 times.' },
-        { title: 'GROUP HEADS', content: 'Remove and scrub the group heads and gaskets with the group brush.' },
-        { title: 'STEAM WAND', content: 'Purge the steam wand and wipe it down. Soak the tip if milk has dried on.', videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
       ],
     },
   ]
@@ -579,11 +532,15 @@ async function main() {
 
   console.log('Seed complete.')
   console.log('Admin/manager web logins (email / password):')
-  console.log('  admin@demo.com   / admin1234    (ADMIN)')
-  console.log('  bar@demo.com     / bar1234      (BAR MANAGER)')
-  console.log('  kitchen@demo.com / kitchen1234  (KITCHEN MANAGER)')
-  console.log('  foh@demo.com     / foh1234      (FOH MANAGER)')
-  console.log('Worker QR + PIN logins: 0000 / 1111 / 2222 / 3333')
+  console.log('  admin@demo.com / admin1234    (ADMIN)')
+  console.log('  boh@demo.com   / boh1234      (BOH MANAGER)')
+  console.log('  foh@demo.com   / foh1234      (FOH MANAGER)')
+  console.log('')
+  console.log('Staff PIN logins:')
+  console.log('  1234 (Alex Chen - BOH FULL_TIME)')
+  console.log('  2345 (Jordan Patel - BOH PART_TIME)')
+  console.log('  3456 (Sam Wilson - FOH FULL_TIME)')
+  console.log('  4567 (Taylor Reed - FOH CASUAL)')
 }
 
 main()

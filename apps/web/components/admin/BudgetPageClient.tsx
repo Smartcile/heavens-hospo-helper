@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { BudgetMonthSelector } from '@/components/admin/BudgetMonthSelector'
 import { BudgetSetupPanel } from '@/components/admin/BudgetSetupPanel'
 import { BudgetDailyGrid } from '@/components/admin/BudgetDailyGrid'
+import { getActiveVenueId } from '@/lib/active-venue'
 import { generateDailyBudgetsNormalized, computeBreakdowns } from '@/lib/budget-math'
 import type {
   DayWeight,
@@ -46,10 +47,11 @@ const DEFAULT_WEIGHTS: DayWeight = { mon: 5, tue: 5, wed: 10, thu: 15, fri: 25, 
 export function BudgetPageClient({
   role,
   sessionVenueId,
+  defaultVenueId,
   year,
   month,
 }: {
-  role: string; sessionVenueId: string; year: number; month: number
+  role: string; sessionVenueId: string; defaultVenueId?: string; year: number; month: number
 }) {
   const [period, setPeriod] = useState<ApiPeriod | null>(null)
   const [loading, setLoading] = useState(true)
@@ -59,7 +61,7 @@ export function BudgetPageClient({
   const [message, setMessage] = useState('')
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
-  const [selectedVenueId, setSelectedVenueId] = useState(role === 'MANAGER' ? sessionVenueId : '')
+  const [selectedVenueId, setSelectedVenueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [revenueCategoryId, setRevenueCategoryId] = useState(crypto.randomUUID())
 
   const [totalBudget, setTotalBudget] = useState(0)

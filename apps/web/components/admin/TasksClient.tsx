@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { moveItem } from '@/lib/array'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
+import { getActiveVenueId } from '@/lib/active-venue'
 
 interface Task {
   id: string
@@ -87,7 +88,7 @@ const SCHEDULE_OPTIONS = [
 ]
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
-export function TasksClient({ role, sessionVenueId }: { role: string; sessionVenueId: string }) {
+export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -102,7 +103,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [filterVenue, setFilterVenue] = useState(role === 'MANAGER' ? sessionVenueId : '')
+  const [filterVenue, setFilterVenue] = useState(getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [filterDept, setFilterDept] = useState('')
   const [filterSection, setFilterSection] = useState('')
   const [search, setSearch] = useState('')
@@ -114,7 +115,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
   const [clEditing, setClEditing] = useState<Checklist | 'new' | null>(null)
   const [clName, setClName] = useState('')
   const [clDesc, setClDesc] = useState('')
-  const [clVenueId, setClVenueId] = useState(role === 'MANAGER' ? sessionVenueId : '')
+  const [clVenueId, setClVenueId] = useState(getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [clDeptId, setClDeptId] = useState('')
   const [clSectionId, setClSectionId] = useState('')
   const [clSelected, setClSelected] = useState<string[]>([])
@@ -151,7 +152,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
   // --- Task modal ---
   function openCreate() {
     setEditing(null)
-    setForm({ ...EMPTY_FORM, venueId: role === 'MANAGER' ? sessionVenueId : '' })
+    setForm({ ...EMPTY_FORM, venueId: getActiveVenueId(role, sessionVenueId, defaultVenueId) })
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
   }

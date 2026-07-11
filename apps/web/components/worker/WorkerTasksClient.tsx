@@ -6,7 +6,6 @@ import type { WorkerTaskView } from '@hospo-ops/types'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
-import { WorkerHamburgerMenu } from '@/components/worker/WorkerHamburgerMenu'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { moveItem } from '@/lib/array'
 
@@ -459,8 +458,8 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   if (allDone && !isEditMode) {
     return (
       <div className="min-h-screen bg-black flex flex-col">
-        <div className="px-4 pt-6 pb-4 border-b border-grey-mid flex items-start justify-end">
-          <WorkerHamburgerMenu firstName={firstName} />
+        <div className="px-4 pt-6 pb-4 border-b border-grey-mid">
+          <div />
         </div>
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-6">
           <div className="w-16 h-16 border-4 border-success flex items-center justify-center">
@@ -506,7 +505,6 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                 {isEditMode ? 'EDIT MODE ON' : 'EDIT MODE'}
               </button>
             )}
-            <WorkerHamburgerMenu firstName={firstName} />
           </div>
         </div>
 

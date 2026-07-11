@@ -5,6 +5,7 @@ declare module 'next-auth' {
   interface User {
     role: string
     venueId: string
+    defaultVenueId: string | null
   }
 
   interface Session {
@@ -14,6 +15,7 @@ declare module 'next-auth' {
       email: string
       role: string
       venueId: string
+      defaultVenueId: string | null
     }
   }
 }
@@ -23,5 +25,6 @@ declare module 'next-auth/jwt' {
     id: string
     role: string
     venueId: string
+    defaultVenueId: string | null
   }
 }

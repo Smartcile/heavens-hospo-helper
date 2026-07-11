@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Badge } from '@/components/ui/Badge'
+import { getActiveVenueId } from '@/lib/active-venue'
 import { formatTime } from '@/lib/utils'
 
 interface Note {
@@ -43,9 +44,9 @@ function localToday() {
   return `${y}-${m}-${day}`
 }
 
-export function ReviewClient({ role, sessionVenueId }: { role: string; sessionVenueId: string }) {
+export function ReviewClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [date, setDate] = useState(localToday())
-  const [venueId, setVenueId] = useState(role === 'MANAGER' ? sessionVenueId : '')
+  const [venueId, setVenueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [staff, setStaff] = useState<StaffRow[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [modules, setModules] = useState<ModuleLite[]>([])

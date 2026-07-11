@@ -75,6 +75,11 @@ model Venue {
   icalFeedUrl            String?   // any .ics subscribe link (e.g. a Loaded/roster calendar feed) — imported
   externalRefreshMinutes Int     @default(0) // 0 = manual refresh only
   lastExternalSyncAt     DateTime? // last successful calendar import
+  // Geo-fence for timeclock punches (centre point + allowed radius in metres).
+  // Null means geo-fencing is off for this venue.
+  geoLat                 Float?
+  geoLon                 Float?
+  geoRadius              Int?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   deletedAt  DateTime?
@@ -107,6 +112,8 @@ model Venue {
   menuItems           MenuItem[]
   wooOrders           WooOrder[]
   giftCards           GiftCard[]
+  timeClocks          TimeClock[]
+  payPeriods          PayPeriod[]
 }
 
 model Department {
@@ -147,6 +154,9 @@ model Staff {
   swiftPosId      String?   // SwiftPOS staff id
   myHrId          String?   // MyHR id
   loadedReportsId String?   // LoadedReports id
+  hourlyRate      Float?    // pay rate per hour
+  employmentType  String?   // FULL_TIME | PART_TIME | CASUAL
+  defaultVenueId  String?   // admin's preferred default venue across all modules
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
@@ -164,6 +174,8 @@ model Staff {
   followUps            FollowUp[]
   stocktakeCompletions StocktakeRecord[] @relation("stocktakeCompletedBy")
   stocktakeAssignments StocktakeRecord[] @relation("stocktakeAssignedTo")
+  timeClocks           TimeClock[]
+  payrollEntries       PayrollEntry[]
 }
 
 model Task {
@@ -456,6 +468,76 @@ model TimeOffRequest {
   @@index([venueId, status])
   @@index([staffId])
 }
+
+// ── TIME CLOCK + PAYROLL ──
+
+// A single clock-in/out session (one shift's worth of actual time).
+// A staff member can have at most one active session at a time (enforced via
+// the API layer — not a DB constraint because Prisma doesn't support partial
+// unique indexes).
+model TimeClock {
+  id          String    @id @default(uuid())
+  staffId     String
+  venueId     String
+  clockIn     DateTime
+  clockOut    DateTime?  // null until punched out
+  isActive    Boolean   @default(true)
+  clockInLat  Float?
+  clockInLon  Float?
+  clockOutLat Float?
+  clockOutLon Float?
+  geoValid    Boolean   @default(true)
+  note        String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  staff Staff @relation(fields: [staffId], references: [id])
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@index([staffId, clockIn])
+  @@index([venueId, clockIn])
+  @@index([isActive])
+}
+
+// A pay cycle for a venue. Entries are calculated when the period is CLOSED.
+model PayPeriod {
+  id        String   @id @default(uuid())
+  venueId   String
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  status    String   @default("OPEN") // OPEN | CLOSED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  venue   Venue          @relation(fields: [venueId], references: [id])
+  entries PayrollEntry[]
+
+  @@index([venueId, startDate])
+}
+
+// Per-staff calculated hours for one pay period. Created by the period-closing
+// engine; re-closing a CLOSED period deletes old entries and recalculates.
+model PayrollEntry {
+  id          String   @id @default(uuid())
+  payPeriodId String
+  staffId     String
+  totalHours  Float
+  hourlyRate  Float
+  totalPay    Float
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  payPeriod PayPeriod @relation(fields: [payPeriodId], references: [id])
+  staff     Staff     @relation(fields: [staffId], references: [id])
+
+  @@unique([payPeriodId, staffId])
+}
+
+// ── SHIFT NOTES ──
 
 // Manager end-of-day notes about a person for a given shift date. An
 // "AREA TO WORK ON" can be linked to a training module assigned to address it.
@@ -1285,6 +1367,7 @@ model GiftCard {
   customerEmail String?
   message       String?
   status        GiftCardStatus @default(DRAFT)
+  isInternal    Boolean        @default(false)
   wooOrderId    String?
   issuedAt      DateTime?
   sentAt        DateTime?

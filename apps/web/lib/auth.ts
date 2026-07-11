@@ -41,6 +41,7 @@ export const authOptions: NextAuthOptions = {
           email: staff.email ?? credentials.email,
           role: staff.role,
           venueId: staff.venueId,
+          defaultVenueId: staff.defaultVenueId ?? null,
         }
       },
     }),
@@ -51,6 +52,7 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id
         token.role = user.role
         token.venueId = user.venueId
+        token.defaultVenueId = user.defaultVenueId
       }
       return token
     },
@@ -59,6 +61,7 @@ export const authOptions: NextAuthOptions = {
         session.user.id = token.id as string
         session.user.role = token.role as string
         session.user.venueId = token.venueId as string
+        session.user.defaultVenueId = (token.defaultVenueId as string) ?? null
       }
       return session
     },

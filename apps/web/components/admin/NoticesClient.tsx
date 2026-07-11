@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
+import { getActiveVenueId } from '@/lib/active-venue'
 import { formatDate } from '@/lib/utils'
 
 interface Notice {
@@ -36,7 +37,7 @@ const PRIORITY_OPTIONS = [
 
 const EMPTY = { title: '', body: '', priority: 'INFO', departmentId: '', pinned: false, requiresAck: false }
 
-export function NoticesClient({ role, sessionVenueId }: { role: string; sessionVenueId: string }) {
+export function NoticesClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [notices, setNotices] = useState<Notice[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -44,7 +45,7 @@ export function NoticesClient({ role, sessionVenueId }: { role: string; sessionV
 
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Notice | null>(null)
-  const [form, setForm] = useState({ ...EMPTY, venueId: role === 'MANAGER' ? sessionVenueId : '' })
+  const [form, setForm] = useState({ ...EMPTY, venueId: getActiveVenueId(role, sessionVenueId, defaultVenueId) })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -68,7 +69,7 @@ export function NoticesClient({ role, sessionVenueId }: { role: string; sessionV
 
   function openCreate() {
     setEditing(null)
-    setForm({ ...EMPTY, venueId: role === 'MANAGER' ? sessionVenueId : '' })
+    setForm({ ...EMPTY, venueId: getActiveVenueId(role, sessionVenueId, defaultVenueId) })
     setError(''); setOpen(true)
   }
   function openEdit(n: Notice) {

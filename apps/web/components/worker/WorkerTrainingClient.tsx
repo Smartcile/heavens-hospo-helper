@@ -2,7 +2,6 @@
 
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { WorkerHamburgerMenu } from '@/components/worker/WorkerHamburgerMenu'
 
 interface Step {
   id: string
@@ -171,7 +170,6 @@ function TrainingInner() {
             <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">MY TRAINING</h1>
             <p className="font-mono text-xs text-grey-light mt-0.5 uppercase">{done} OF {items.length} COMPLETE</p>
           </div>
-          <WorkerHamburgerMenu firstName={firstName} />
         </div>
         <div className="mt-3 bg-grey-mid h-1.5">
           <div className="h-full bg-success transition-all duration-500" style={{ width: `${items.length ? (done / items.length) * 100 : 0}%` }} />

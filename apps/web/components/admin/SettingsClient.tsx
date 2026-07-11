@@ -27,10 +27,12 @@ export function SettingsClient({
   staffId,
   role,
   sessionVenueId,
+  defaultVenueId,
 }: {
   staffId: string
   role: string
   sessionVenueId: string
+  defaultVenueId: string | null
 }) {
   // Change password
   const [newPassword, setNewPassword] = useState('')
@@ -45,6 +47,11 @@ export function SettingsClient({
   const [pinSaving, setPinSaving] = useState(false)
   const [pinMessage, setPinMessage] = useState('')
   const [pinError, setPinError] = useState('')
+
+  // Default venue
+  const [defVenueId, setDefVenueId] = useState(defaultVenueId ?? '')
+  const [defSaving, setDefSaving] = useState(false)
+  const [defMessage, setDefMessage] = useState('')
 
   // Integrations
   const [venues, setVenues] = useState<Venue[]>([])
@@ -248,6 +255,37 @@ export function SettingsClient({
       </div>
 
       <div className="max-w-md grid md:grid-cols-2 gap-6">
+        {/* Default venue (admin only) */}
+        {role === 'ADMIN' && (
+          <div className="border-l-4 border-l-grey-mid pl-4">
+            <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">DEFAULT VENUE</h2>
+            <p className="font-mono text-xs text-grey-light mb-3">AUTO-SELECT THIS VENUE IN ALL ADMIN MODULES.</p>
+            <div className="space-y-3">
+              <Select
+                value={defVenueId}
+                onChange={(e) => { setDefVenueId(e.target.value); setDefMessage('') }}
+                options={[{ value: '', label: 'NONE (ALL VENUES)' }, ...venues.map((v) => ({ value: v.id, label: v.name }))]}
+              />
+              {defMessage && <p className="font-mono text-xs text-success">{defMessage}</p>}
+              <Button
+                size="sm"
+                loading={defSaving}
+                onClick={async () => {
+                  setDefSaving(true); setDefMessage('')
+                  const r = await fetch(`/api/admin/staff/${staffId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ defaultVenueId: defVenueId || null }),
+                  })
+                  setDefSaving(false)
+                  if (r.ok) setDefMessage('SAVED — SIGN OUT & BACK IN TO APPLY.')
+                }}
+              >
+                SAVE DEFAULT
+              </Button>
+            </div>
+          </div>
+        )}
         {/* Change password */}
         <div className="border-l-4 border-l-grey-mid pl-4">
           <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">CHANGE PASSWORD</h2>

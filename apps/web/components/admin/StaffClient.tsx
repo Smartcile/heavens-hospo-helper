@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { StaffTrainingModal } from '@/components/admin/StaffTrainingModal'
+import { getActiveVenueId } from '@/lib/active-venue'
 
 interface StaffMember {
   id: string
@@ -18,6 +19,8 @@ interface StaffMember {
   departmentId: string | null
   isActive: boolean
   profilePhotoUrl: string | null
+  hourlyRate: number | null
+  employmentType: string | null
   swiftPosId: string | null
   myHrId: string | null
   loadedReportsId: string | null
@@ -39,6 +42,8 @@ interface FormState {
   role: string
   venueId: string
   departmentId: string
+  hourlyRate: string
+  employmentType: string
   swiftPosId: string
   myHrId: string
   loadedReportsId: string
@@ -54,6 +59,8 @@ const EMPTY_FORM: FormState = {
   role: 'STAFF',
   venueId: '',
   departmentId: '',
+  hourlyRate: '',
+  employmentType: '',
   swiftPosId: '',
   myHrId: '',
   loadedReportsId: '',
@@ -66,7 +73,7 @@ const ROLE_OPTIONS = [
   { value: 'ADMIN', label: 'ADMIN' },
 ]
 
-export function StaffClient({ role, sessionVenueId }: { role: string; sessionVenueId: string }) {
+export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -100,7 +107,7 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
 
   function openCreate() {
     setEditing(null)
-    setForm({ ...EMPTY_FORM, venueId: isAdmin ? '' : sessionVenueId })
+    setForm({ ...EMPTY_FORM, venueId: isAdmin ? getActiveVenueId(role, sessionVenueId, defaultVenueId) : sessionVenueId })
     setError('')
     setModalOpen(true)
   }
@@ -119,6 +126,8 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
       swiftPosId: s.swiftPosId ?? '',
       myHrId: s.myHrId ?? '',
       loadedReportsId: s.loadedReportsId ?? '',
+      hourlyRate: s.hourlyRate != null ? String(s.hourlyRate) : '',
+      employmentType: s.employmentType ?? '',
       sectionIds: (s.sections ?? []).map((x) => x.sectionId),
     })
     setError('')
@@ -168,6 +177,8 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
       swiftPosId: form.swiftPosId || null,
       myHrId: form.myHrId || null,
       loadedReportsId: form.loadedReportsId || null,
+      hourlyRate: form.hourlyRate ? Number(form.hourlyRate) : null,
+      employmentType: form.employmentType || null,
       sectionIds: form.sectionIds,
     }
     if (form.pin) body.pin = form.pin
@@ -335,6 +346,29 @@ export function StaffClient({ role, sessionVenueId }: { role: string; sessionVen
             onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
             options={deptOptions}
           />
+
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Hourly Rate ($)"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.hourlyRate}
+              onChange={(e) => setForm({ ...form, hourlyRate: e.target.value })}
+              placeholder="23.50"
+            />
+            <Select
+              label="Employment Type"
+              value={form.employmentType}
+              onChange={(e) => setForm({ ...form, employmentType: e.target.value })}
+              options={[
+                { value: '', label: 'NOT SET' },
+                { value: 'FULL_TIME', label: 'FULL TIME' },
+                { value: 'PART_TIME', label: 'PART TIME' },
+                { value: 'CASUAL', label: 'CASUAL' },
+              ]}
+            />
+          </div>
 
           {formSections.length > 0 && (
             <div className="flex flex-col gap-1">

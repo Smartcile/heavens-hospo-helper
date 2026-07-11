@@ -7,7 +7,7 @@ import { formatDate } from '@/lib/utils'
 import fs from 'fs'
 import path from 'path'
 
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -16,6 +16,21 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   })
   if (!card) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  const { customerName, customerEmail, amount, message, isInternal } = await req.json()
+
+  if (!amount || amount <= 0) return NextResponse.json({ error: 'Amount is required' }, { status: 400 })
+
+  await prisma.giftCard.update({
+    where: { id: params.id },
+    data: {
+      customerName: customerName || null,
+      customerEmail: customerEmail || null,
+      amount,
+      message: message || null,
+      isInternal: isInternal ?? false,
+    },
+  })
+
   const pdfDir = path.join(process.cwd(), 'public', 'uploads', 'gift-cards')
   if (!fs.existsSync(pdfDir)) fs.mkdirSync(pdfDir, { recursive: true })
 
@@ -23,10 +38,10 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
   const doc = generateGiftCardPdf({
     number: card.number,
-    amount: card.amount,
-    customerName: card.customerName || '',
+    amount,
+    customerName: customerName || '',
     issueDate: formatDate(new Date()),
-    message: card.message || undefined,
+    message: message || undefined,
   })
 
   const buffer = giftCardPdfToBuffer(doc)

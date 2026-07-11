@@ -5,21 +5,18 @@ import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { VenueSwitcher } from '@/components/admin/VenueSwitcher'
 
 interface NavItem { href: string; label: string; exact?: boolean }
-interface NavGroup { label: string; items: NavItem[] }
+interface NavGroup { label: string; items: NavItem[]; href?: string }
 
 const NAV_GROUPS: NavGroup[] = [
-  { label: 'Overview', items: [
+  { label: 'Overview', href: '/admin', items: [
     { href: '/admin', label: 'Dashboard', exact: true },
     { href: '/admin/structure', label: 'Structure' },
     { href: '/admin/calendar', label: 'Calendar' },
   ] },
-  { label: 'Organisation', items: [
-    { href: '/admin/venues', label: 'Venues' },
-    { href: '/admin/departments', label: 'Departments' },
-    { href: '/admin/sections', label: 'Sections' },
-    { href: '/admin/floorplan', label: 'Floor Plan' },
+  { label: 'Venue', href: '/admin/venues', items: [
     { href: '/admin/staff', label: 'Staff' },
     { href: '/admin/suppliers', label: 'Suppliers' },
     { href: '/admin/uoms', label: 'Units of Measure' },
@@ -42,6 +39,7 @@ const NAV_GROUPS: NavGroup[] = [
   ] },
   { label: 'Finance', items: [
     { href: '/admin/budget', label: 'Budget' },
+    { href: '/admin/payroll', label: 'Payroll' },
     { href: '/admin/reports', label: 'Reports' },
     { href: '/admin/gift-cards', label: 'Gift Cards' },
   ] },
@@ -54,8 +52,13 @@ function isItemActive(item: NavItem, pathname: string) {
 }
 
 function groupForPath(pathname: string): string | null {
-  const g = NAV_GROUPS.find((grp) => grp.items.some((it) => isItemActive(it, pathname)))
-  return g?.label ?? null
+  // Find the last (most specific) matching group — avoids /admin
+  // matching both Overview and Venue when path is /admin/venues.
+  const match = [...NAV_GROUPS].reverse().find((grp) =>
+    grp.items.some((it) => isItemActive(it, pathname)) ||
+    (grp.href && pathname.startsWith(grp.href))
+  )
+  return match?.label ?? null
 }
 
 function ItemLink({ item, pathname, onNavigate }: { item: NavItem; pathname: string; onNavigate?: () => void }) {
@@ -92,18 +95,40 @@ function NavGroups({
       {NAV_GROUPS.map((group) => {
         const open = openGroups.has(group.label)
         const hasActive = group.items.some((it) => isItemActive(it, pathname))
+          || (group.href ? pathname === group.href : false)
         return (
           <div key={group.label} className="mb-1">
-            <button
-              onClick={() => toggleGroup(group.label)}
-              className={cn(
-                'w-full flex items-center justify-between px-4 py-2 font-mono text-[10px] uppercase tracking-widest transition-colors',
-                hasActive ? 'text-white' : 'text-grey-light hover:text-white'
-              )}
-            >
-              <span>{group.label}</span>
-              <span className="text-grey-light">{open ? '▾' : '▸'}</span>
-            </button>
+            {group.href ? (
+              <div className="flex items-center">
+                <Link
+                  href={group.href}
+                  onClick={onNavigate}
+                  className={cn(
+                    'flex-1 px-4 py-2 font-mono text-xs uppercase tracking-widest transition-colors',
+                    hasActive ? 'text-white' : 'text-grey-light hover:text-white'
+                  )}
+                >
+                  {group.label}
+                </Link>
+                <button
+                  onClick={() => toggleGroup(group.label)}
+                  className="px-2 py-2 text-grey-light hover:text-white font-mono text-xs"
+                >
+                  {open ? '▾' : '▸'}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => toggleGroup(group.label)}
+                className={cn(
+                  'w-full flex items-center justify-between px-4 py-2 font-mono text-xs uppercase tracking-widest transition-colors',
+                  hasActive ? 'text-white' : 'text-grey-light hover:text-white'
+                )}
+              >
+                <span>{group.label}</span>
+                <span className="text-grey-light">{open ? '▾' : '▸'}</span>
+              </button>
+            )}
             {open && group.items.map((item) => (
               <ItemLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
             ))}
@@ -117,11 +142,14 @@ function NavGroups({
   )
 }
 
-function Brand({ appName }: { appName: string }) {
+function Brand({ appName, role, venueId, defaultVenueId }: { appName: string; role: string; venueId: string; defaultVenueId: string | null }) {
   return (
-    <div className="p-4 border-b border-grey-mid">
-      <div className="font-mono font-bold text-sm uppercase tracking-widest text-white">{appName}</div>
-      <div className="font-mono text-xs text-grey-light mt-0.5">ADMIN PANEL</div>
+    <div className="border-b border-grey-mid">
+      <div className="p-4">
+        <div className="font-mono font-bold text-sm uppercase tracking-widest text-white">{appName}</div>
+        <div className="font-mono text-xs text-grey-light mt-0.5">ADMIN PANEL</div>
+      </div>
+      <VenueSwitcher role={role} venueId={venueId} defaultVenueId={defaultVenueId} />
     </div>
   )
 }
@@ -139,7 +167,7 @@ function SignOutButton() {
   )
 }
 
-export function AdminNav() {
+export function AdminNav({ role, venueId, defaultVenueId }: { role: string; venueId: string; defaultVenueId: string | null }) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
@@ -152,15 +180,13 @@ export function AdminNav() {
   useEffect(() => {
     setOpen(false)
     const active = groupForPath(pathname)
-    if (active) setOpenGroups((prev) => new Set(prev).add(active))
+    if (active) setOpenGroups(new Set([active]))
   }, [pathname])
 
   function toggleGroup(label: string) {
     setOpenGroups((prev) => {
-      const next = new Set(prev)
-      if (next.has(label)) next.delete(label)
-      else next.add(label)
-      return next
+      if (prev.has(label)) return new Set() // close if already open
+      return new Set([label])                // open only this one
     })
   }
 
@@ -168,7 +194,7 @@ export function AdminNav() {
     <>
       {/* Desktop sidebar */}
       <aside className="hidden md:flex w-56 sticky top-0 h-screen bg-grey-dark border-r border-grey-mid flex-col">
-        <Brand appName={appName} />
+        <Brand appName={appName} role={role} venueId={venueId} defaultVenueId={defaultVenueId} />
         <NavGroups pathname={pathname} openGroups={openGroups} toggleGroup={toggleGroup} />
         <SignOutButton />
       </aside>

@@ -38,10 +38,6 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { customerName, customerEmail, amount, message } = await req.json()
-
-  if (!amount || amount <= 0) return NextResponse.json({ error: 'Amount is required' }, { status: 400 })
-
   const year = new Date().getFullYear()
   const number = await getNextNumber(session.user.venueId, year)
 
@@ -49,10 +45,7 @@ export async function POST(req: NextRequest) {
     data: {
       venueId: session.user.venueId,
       number,
-      amount,
-      customerName: customerName || null,
-      customerEmail: customerEmail || null,
-      message: message || null,
+      amount: 0,
     },
   })
 

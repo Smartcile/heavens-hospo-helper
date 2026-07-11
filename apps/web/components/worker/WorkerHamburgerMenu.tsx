@@ -58,6 +58,14 @@ export function WorkerHamburgerMenu({ firstName }: Props) {
       action: () => go('/w/tasks'),
     },
     {
+      label: 'TIME CLOCK',
+      sub: 'CLOCK IN / OUT',
+      icon: (
+        <path strokeLinecap="square" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      ),
+      action: () => go('/w/timeclock'),
+    },
+    {
       label: 'MY SCHEDULE',
       sub: 'SHIFTS & TIME OFF',
       icon: (

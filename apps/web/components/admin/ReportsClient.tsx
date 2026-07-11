@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
+import { getActiveVenueId } from '@/lib/active-venue'
 import { formatDateTime } from '@/lib/utils'
 
 interface Completion {
@@ -22,7 +23,7 @@ interface Completion {
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string }
 
-export function ReportsClient({ role, sessionVenueId }: { role: string; sessionVenueId: string }) {
+export function ReportsClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [completions, setCompletions] = useState<Completion[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -30,7 +31,7 @@ export function ReportsClient({ role, sessionVenueId }: { role: string; sessionV
   const [loading, setLoading] = useState(true)
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
-  const [filterVenue, setFilterVenue] = useState(role === 'MANAGER' ? sessionVenueId : '')
+  const [filterVenue, setFilterVenue] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [filterDept, setFilterDept] = useState('')
   const [filterFrom, setFilterFrom] = useState('')
   const [filterTo, setFilterTo] = useState('')

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
+import { getActiveVenueId } from '@/lib/active-venue'
 import { Badge } from '@/components/ui/Badge'
 import Image from 'next/image'
 
@@ -27,7 +28,7 @@ interface FormState {
 
 const EMPTY_FORM: FormState = { label: '', venueId: '' }
 
-export function QRCodesClient({ role, sessionVenueId }: { role: string; sessionVenueId: string }) {
+export function QRCodesClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [codes, setCodes] = useState<QRCodeItem[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [loading, setLoading] = useState(true)
@@ -51,7 +52,7 @@ export function QRCodesClient({ role, sessionVenueId }: { role: string; sessionV
   useEffect(() => { load() }, [])
 
   function openCreate() {
-    setForm({ ...EMPTY_FORM, venueId: role === 'MANAGER' ? sessionVenueId : '' })
+    setForm({ ...EMPTY_FORM, venueId: getActiveVenueId(role, sessionVenueId, defaultVenueId) })
     setError('')
     setModalOpen(true)
   }

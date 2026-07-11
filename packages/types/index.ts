@@ -112,6 +112,47 @@ export interface WorkerSession {
   expiresAt: number
 }
 
+// ── TIME CLOCK + PAYROLL ──
+
+export interface TimeClockView {
+  id: string
+  staffId: string
+  venueId: string
+  clockIn: Date
+  clockOut: Date | null
+  isActive: boolean
+  geoValid: boolean
+  note: string | null
+  staff: { firstName: string; lastName: string; department: { name: string } | null }
+}
+
+export interface TimeClockStatus {
+  isClockedIn: boolean
+  activeSession: TimeClockView | null
+  todayMinutes: number
+  recentSessions: TimeClockView[]
+}
+
+export interface PayPeriodView {
+  id: string
+  venueId: string
+  startDate: string
+  endDate: string
+  status: string
+  entryCount: number
+}
+
+export interface PayrollEntryView {
+  id: string
+  payPeriodId: string
+  staffId: string
+  totalHours: number
+  hourlyRate: number
+  totalPay: number
+  note: string | null
+  staff: { firstName: string; lastName: string; employmentType: string | null }
+}
+
 export interface WorkerTaskView {
   id: string
   title: string

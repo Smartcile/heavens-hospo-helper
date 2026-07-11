@@ -669,6 +669,150 @@ tasks into a new template. Admin UI lives at `/admin/templates`.
 - Components: `PascalCase.tsx`
 - Client components: always marked `'use client'`
 
+## SEED DATA CONVENTIONS
+
+When modifying the seed file (`packages/db/prisma/seed.ts`), follow these patterns:
+
+### Fixed IDs for reproducibility
+Every seed entity uses a hardcoded UUID in the `00000000-0000-0000-XXXX-0000000000YY` pattern where `XXXX` is an entity-group prefix and `YY` is a zero-padded counter. This makes upserts idempotent and safe to re-run.
+
+| Prefix | Entity |
+|--------|--------|
+| `0001` | Department tasks (daily) |
+| `0002` | Department tasks (weekly) |
+| `0010` | Departments |
+| `0020` | Staff |
+| `0030` | QR Codes |
+| `00a0` | Task templates |
+| `00b0` | Training modules |
+
+### Staff seeding pattern
+```typescript
+const pwHash = await bcrypt.hash('password', 10)
+const staff = await prisma.staff.upsert({
+  where: { id: 'FIXED-UUID-HERE' },
+  update: { email: 'user@demo.com', password: pwHash },  // update keeps login current
+  create: {
+    id: 'FIXED-UUID-HERE',
+    firstName: 'FIRST',       // UPPERCASE
+    lastName: 'LAST',          // UPPERCASE
+    pin: pinHash,
+    email: 'user@demo.com',
+    password: pwHash,
+    role: Role.MANAGER,
+    venueId: venue.id,
+    departmentId: deptX.id,
+    hourlyRate: 25,            // optional, for payroll
+    employmentType: 'FULL_TIME', // optional: FULL_TIME | PART_TIME | CASUAL
+    isActive: true,
+  },
+})
+```
+
+### Department seeding pattern
+```typescript
+const dept = await prisma.department.upsert({
+  where: { id: 'FIXED-UUID' },
+  update: {},
+  create: {
+    id: 'FIXED-UUID',
+    name: 'BACK OF HOUSE',    // UPPERCASE
+    venueId: venue.id,
+    colour: '#FACC15',        // hex colour for UI badge
+    isActive: true,
+  },
+})
+```
+
+### Task seeding pattern
+```typescript
+const dailyTasks = [
+  { title: 'TASK TITLE', description: 'What to do', type: CompletionType.TICK },
+  { title: 'TASK WITH PHOTO', description: 'Snap a pic', type: CompletionType.TICK_PHOTO },
+]
+for (let i = 0; i < dailyTasks.length; i++) {
+  const { type, ...task } = dailyTasks[i]
+  await prisma.task.upsert({
+    where: { id: `00000000-0000-0000-0001-${String(i).padStart(12, '0')}` },
+    update: {},
+    create: {
+      id: `00000000-0000-0000-0001-${String(i).padStart(12, '0')}`,
+      ...task,
+      venueId: venue.id,
+      departmentId: dept.id,
+      completionType: type,
+      scheduleType: ScheduleType.DAILY,
+      scheduleDays: [],
+      sortOrder: i,
+      isActive: true,
+    },
+  })
+}
+
+// Weekly tasks use scheduleDays: [dayOfWeek] (0=Sun, 1=Mon, ...)
+const weeklyTasks = [
+  { title: 'WEEKLY CLEAN', description: 'Deep clean', days: [1] }, // Monday
+]
+for (let i = 0; i < weeklyTasks.length; i++) {
+  const { days, ...task } = weeklyTasks[i]
+  await prisma.task.upsert({
+    where: { id: `00000000-0000-0000-0002-${String(i).padStart(12, '0')}` },
+    update: {},
+    create: {
+      id: `00000000-0000-0000-0002-${String(i).padStart(12, '0')}`,
+      ...task,
+      venueId: venue.id,
+      departmentId: dept.id,
+      completionType: CompletionType.TICK_NOTE,
+      scheduleType: ScheduleType.WEEKLY,
+      scheduleDays: days,
+      sortOrder: dailyTasks.length + i,
+      isActive: true,
+    },
+  })
+}
+```
+
+### Template seeding pattern
+Built-in templates use `upsert` with `update: { name, description, category, isBuiltIn: true }` so re-seeding refreshes them. Items are deleted and recreated via `deleteMany` + `createMany` to stay in sync:
+
+```typescript
+await prisma.taskTemplate.upsert({
+  where: { id: tpl.id },
+  update: { name: tpl.name, description: tpl.description, category: tpl.category, isBuiltIn: true },
+  create: { id: tpl.id, name: tpl.name, description: tpl.description, category: tpl.category, isBuiltIn: true, venueId: null },
+})
+await prisma.taskTemplateItem.deleteMany({ where: { templateId: tpl.id } })
+await prisma.taskTemplateItem.createMany({ data: items })
+```
+
+### Training module seeding pattern
+Same pattern as templates — `upsert` the module, `deleteMany` + `createMany` for steps:
+
+```typescript
+await prisma.trainingModule.upsert({
+  where: { id: m.id },
+  update: { title, description, category, departmentId, linkedTaskId, ... },
+  create: { id: m.id, title, description, category, venueId: venue.id, departmentId, ... },
+})
+await prisma.trainingStep.deleteMany({ where: { moduleId: m.id } })
+await prisma.trainingStep.createMany({ data: steps })
+```
+
+### Removing a department
+To remove a department from the seed, delete its `prisma.department.upsert()` block, its staff, its tasks, its QR codes, and its templates/training. Reassign staff IDs or soft-delete them. Update the console output at the bottom of `main()`.
+
+### Console output
+Always end `main()` with a clear login summary:
+```typescript
+console.log('Seed complete.')
+console.log('Admin/manager web logins (email / password):')
+console.log('  user@demo.com / password    (ROLE)')
+console.log('')
+console.log('Staff PIN logins:')
+console.log('  1234 (First Last - DEPT TYPE)')
+```
+
 ## DOS-MODERN DESIGN SYSTEM
 
 The app uses a custom dark-mode monospace aesthetic. All new UI should follow these
