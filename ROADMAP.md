@@ -37,7 +37,8 @@
 ✅ **External embeds** — paste a Loaded public-roster link and/or a Google Calendar embed link in Settings → Integrations, pick an auto-refresh interval; shown live as panels on the Calendar page (PLANNER / LOADED ROSTER / EVENTS tabs).
 ✅ **External calendar IMPORT** — Google Calendar + any `.ics`/webcal feed are parsed server-side and shown as events directly on the PLANNER month grid (and day modal). Re-synced on the chosen interval (or SYNC NOW) and reconciled by event UID: changed events update in place, removed events drop off — no double-ups (`CalendarEvent` model, `lib/ical.ts` parser with RRULE expansion, `lib/external-sync.ts`, `POST /api/admin/calendar/sync`). Loaded's public-roster SPA has no anonymous feed, so it stays embed-only unless an `.ics` subscribe link is available.
 ✅ **NZ break entitlements** — 10-min rest / 30-min meal breaks auto-calculated per shift length and shown on each roster shift (admin + worker), with a reference table in Settings
-✅ **Live structure map** — `/admin/structure` renders the real venue → department → section → staff / tasks / training tree (collapsible, with counts), plus `floorPlan { tables, chairs, equip }` per section. Read-only visual review.
+✅ **Live structure map** — `/admin/structure` has a **TREE** tab (real venue → department → section → staff / tasks / training tree, collapsible, with counts, plus `floorPlan { tables, chairs, equip }` per section) and a **MAP** tab: an interactive React Flow link graph (`@xyflow/react`) for mapping workflows — nodes for every entity, edges for every relationship (list→task, how-to, requires-training, embeds, related, scoping, assignment), click-to-focus highlighting, type filters, minimap. Read-only visual review.
+✅ **Split-screen landing** — `/` is now a split screen (VENUE/worker link + inline admin login); the standalone `/admin/login` page was removed and all admin auth redirects point to `/`.
 ✅ **Mobile-friendly admin nav** — burger menu + off-canvas drawer on phones, static sidebar on desktop.
 
 ## SECTION ECOSYSTEM (BUILT 2026-06-16) — see ECOSYSTEM.md
@@ -246,12 +247,15 @@ end-to-end (several were aspirational in Phase 2.5). Supersedes the "magnetic sn
 - `ts-node` replaced with `tsx` for seed scripts
 - Tailwind CSS 4: config migrated to CSS `@theme` directives; `tailwind.config.ts` deleted
 - Inventory delete protection — API checks against ElementInventoryItem + StocktakeLineItem before allowing soft-delete of categories/items
-- Chair snap-to-table edge — auto-snap chairs to nearest table edge on drag-end
-- Two-layer canvas rendering — dedicated FIXTURE layer below FURNITURE layer in PixiJS (currently done via type-sort in the element array)
+- Chair snap-to-table edge — auto-snap chairs to nearest table edge on drag-end (built — `distributeChairsAlongPerimeter` + head constraint)
+- Two-layer canvas rendering — dedicated FIXTURE layer below FURNITURE layer in PixiJS (built — 3-layer canvas: baseLayer + sectionBoundaryLayer + setupLayer)
 - PNG export — PixiJS-based image export replacing old Konva `toDataURL`
 - `.npmrc` with `hoist=true` ensures npm workspace transitive dependencies resolve in CI
 
 ## RECENT FIXES (2026-07)
+- **Prisma.DbNull 400 fix** — removed `Prisma.DbNull` usage from TableProfile POST/PUT routes; `tableNumbers` field uses conditional spreading instead; empty arrays no longer block saves.
+- **Native colour picker** — TableProfile form uses `<input type="color">` alongside hex text input; default changed from `#555` (grey) to `#4A90D9` (blue); preview swatch has `|| '#555'` fallback.
+- **Setup item magnetic snapping** — `attachSetupItemDrag` calls `magneticSnap` on `pointerup` for same-profile setup items; auto-joins into a `TableGroup` on flush contact.
 - **Budget migration ordering** — `docker-entrypoint.sh` now runs data migration (BudgetDayAllocation → BudgetDay + BudgetCategory) BEFORE `prisma db push`, so live databases with old-format rows safely transition instead of crash-looping
 - **FloorPlanEditor hook-ordering fix** — moved `useMemo` above loading gate to prevent React error #310 in production; `Array.isArray` guard prevents `furnitureItems.map()` crashes
 - **CI quality gate** — `docker-build.yml` runs `npm run lint` and `npx vitest run` before the Docker build; broken code never ships
