@@ -140,8 +140,6 @@ export async function getStaffTraining(staffId: string): Promise<{
                 .map((ct) => ({ id: ct.task.id, title: ct.task.title })),
             }
           : null,
-        linkedTasks: (s.stepTasks ?? []).map((st: any) => ({ id: st.task.id, title: st.task.title })),
-        linkedModules: (s.stepModules ?? []).map((sm: any) => ({ id: sm.module.id, title: sm.module.title, kind: sm.module.kind })),
         linkedTasks: (s.stepTasks ?? []).map((st) => ({ id: st.task.id, title: st.task.title })),
         linkedModules: (s.stepModules ?? []).map((sm) => ({ id: sm.module.id, title: sm.module.title, kind: sm.module.kind })),
       })),
@@ -230,6 +228,8 @@ export async function getStaffSops(staffId: string): Promise<{
               .map((ct) => ({ id: ct.task.id, title: ct.task.title })),
           }
         : null,
+      linkedTasks: [],
+      linkedModules: [],
     })),
   }))
 

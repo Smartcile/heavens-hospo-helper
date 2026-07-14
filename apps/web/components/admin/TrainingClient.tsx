@@ -40,10 +40,14 @@ interface TrainingModule {
     videoUrl: string | null
     linkedTaskId: string | null
     linkedChecklistId: string | null
+    stepTasks?: { taskId: string }[]
+    stepModules?: { moduleId: string }[]
   }[]
   department: { id: string; name: string } | null
   linkedTask: { id: string; title: string } | null
   resourceSections: { sectionId: string }[]
+  moduleDepartments?: { departmentId: string }[]
+  moduleTasks?: { taskId: string }[]
   _count: { completions: number }
 }
 

@@ -11,6 +11,8 @@ interface Step {
   imageUrl: string | null
   videoUrl: string | null
   linkedChecklist: { id: string; name: string; tasks: { id: string; title: string }[] } | null
+  linkedTasks?: { id: string; title: string }[]
+  linkedModules?: { id: string; title: string; kind: string }[]
 }
 
 interface TrainingItem {
