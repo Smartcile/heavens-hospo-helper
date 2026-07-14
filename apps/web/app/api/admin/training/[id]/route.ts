@@ -15,6 +15,8 @@ interface IncomingStep {
   videoUrl?: string | null
   linkedTaskId?: string | null
   linkedChecklistId?: string | null
+  taskIds?: string[]
+  linkedModuleIds?: string[]
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {
@@ -24,10 +26,18 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const trainingModule = await prisma.trainingModule.findUnique({
     where: { id: params.id },
     include: {
-      steps: { orderBy: { order: 'asc' } },
+      steps: {
+        orderBy: { order: 'asc' },
+        include: {
+          stepTasks: { select: { taskId: true } },
+          stepModules: { select: { moduleId: true } },
+        },
+      },
       department: { select: { id: true, name: true } },
       linkedTask: { select: { id: true, title: true } },
       resourceSections: { select: { sectionId: true } },
+      moduleDepartments: { select: { departmentId: true } },
+      moduleTasks: { select: { taskId: true } },
       linksFrom: { select: { toModuleId: true } },
     },
   })

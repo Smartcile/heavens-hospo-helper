@@ -707,7 +707,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   return (
     <div tabIndex={0} onKeyDown={handleKeyDown} className="flex flex-col h-full outline-none">
       <ToastContainer />
-      <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-grey-mid bg-black flex-wrap">
+      {/* ── TOP BAR ── */}
+      <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-grey-mid bg-black">
         <div className="flex items-center gap-3">
           <button onClick={onBack} className="font-mono text-xs uppercase text-grey-light hover:text-white">← BACK</button>
           <h1 className="font-mono text-sm font-bold uppercase tracking-widest text-white">{plan.name}</h1>
@@ -730,32 +731,93 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               if (r.ok) setRebuildKey((k) => k + 1)
             }}
               className="font-mono text-[10px] text-success hover:text-white uppercase px-1 py-0.5 border border-success">
-              SAVE ROOM
+              APPLY
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <FloorplanToolbar zoom={zoomLevel} onZoomChange={(z) => { setZoomLevel(z); viewRef.current.zoom = z; setRebuildKey((k) => k + 1) }}
-            showDimensions={showDimensions} onShowDimensionsChange={setShowDimensions} />
-          <div className="flex items-center gap-1">
-            <span className="font-mono text-[8px] text-grey-light">TEXT</span>
-            <input type="range" min="0.5" max="3" step="0.1" value={textScale} onChange={(e) => setTextScale(parseFloat(e.target.value))}
-              className="w-16 accent-white" />
-            <span className="font-mono text-[9px] text-grey-light w-5">{textScale.toFixed(1)}×</span>
-          </div>
-          <button onClick={() => setPaletteOpen(!paletteOpen)}
-            className={`font-mono text-xs uppercase px-2 py-1 border ${paletteOpen ? 'border-white text-white' : 'border-grey-mid text-grey-light'} hover:border-white transition-colors`}>
-            PALETTE
+        <div className="flex items-center gap-2">
+          <Button onClick={handleSave} loading={saving} size="sm">SAVE</Button>
+          <button onClick={undo} className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid px-2 py-1">↶</button>
+          <button onClick={redo} className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid px-2 py-1">↷</button>
+        </div>
+      </div>
+
+      {/* ── LAYER TOGGLE ── */}
+      <div className="flex items-center justify-between px-4 py-1.5 border-b border-grey-mid bg-grey-dark">
+        <div className="flex items-center">
+          <button onClick={() => handleSetupChange(null)}
+            className={`font-mono text-xs uppercase px-3 py-1 border-l border-t border-b ${!activeSetupId ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'}`}>
+            BASE PLAN
           </button>
-          <label className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
-            <input type="checkbox" checked={snapEnabled} onChange={() => setSnapEnabled(!snapEnabled)} className="accent-white" />
-            GRID
-          </label>
-          <label className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
-            <input type="checkbox" checked={snap45Enabled} onChange={() => setSnap45Enabled(!snap45Enabled)} className="accent-white" />
-            45°
-          </label>
-          {!activeSetupId && (
+          <button onClick={() => {
+            if (!activeSetupId && setups.length === 0) handleNewSetup()
+            else if (!activeSetupId && setups.length > 0) handleSetupChange(setups[0].id)
+          }}
+            className={`font-mono text-xs uppercase px-3 py-1 border ${activeSetupId ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'}`}>
+            TABLE LAYOUT
+          </button>
+          {activeSetupId && setups.length > 0 && (
+            <div className="flex items-center ml-3 gap-1">
+              <select
+                value={activeSetupId}
+                onChange={(e) => handleSetupChange(e.target.value || null)}
+                className="bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-2 py-1 outline-none"
+              >
+                {setups.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <button onClick={handleNewSetup}
+                className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5 border border-grey-mid">
+                + NEW
+              </button>
+              <button onClick={handleDeleteSetup}
+                className="font-mono text-[10px] text-danger hover:text-white uppercase px-1.5 py-0.5 border border-red-800/50">
+                DELETE
+              </button>
+            </div>
+          )}
+        </div>
+        {activeSetupId && (
+          <span className="font-mono text-[10px] uppercase text-success tracking-wider">
+            {setupGrand.tables} TBL · {setupGrand.seats} PAX
+          </span>
+        )}
+      </div>
+
+      {/* ── CONTEXT TOOLBAR ── */}
+      <div className="flex items-center gap-2 px-4 py-1.5 border-b border-grey-mid bg-black flex-wrap">
+        <label className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+          <input type="checkbox" checked={snapEnabled} onChange={() => setSnapEnabled(!snapEnabled)} className="accent-white" />
+          GRID
+        </label>
+        {activeSetupId ? (
+          <>
+            <button onClick={handleGenerateSeating}
+              className="font-mono text-[10px] uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-accent hover:text-accent">
+              ⚡ GENERATE
+            </button>
+            {setupSelectedIds.length >= 2 && (
+              <button onClick={handleGroup}
+                className="font-mono text-[10px] uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-white">
+                GROUP
+              </button>
+            )}
+            {setupSelectedIds.length === 1 && (() => {
+              const grouped = setupItems.find(i => i.id === setupSelectedIds[0] && i.tableGroupId)
+              return grouped ? (
+                <button onClick={handleUngroup}
+                  className="font-mono text-[10px] uppercase px-2 py-1 border border-red-800/50 text-danger hover:border-red-700">
+                  UNGROUP
+                </button>
+              ) : null
+            })()}
+            <span className="font-mono text-[9px] text-grey-light ml-1">BASE PLAN LOCKED</span>
+          </>
+        ) : (
+          <>
+            <label className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+              <input type="checkbox" checked={snap45Enabled} onChange={() => setSnap45Enabled(!snap45Enabled)} className="accent-white" />
+              45°
+            </label>
             <button onClick={() => {
               if (zoneDrawing) { setZoneDrawing(false); setZoneDrawStart(null); setZoneDrawRect(null) }
               else { setZoneDrawing(true); setBoothPainting(false) }
@@ -763,8 +825,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               className={`font-mono text-[10px] uppercase px-2 py-1 border ${zoneDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
               SECTIONS {zoneDrawing ? '· ON' : ''}
             </button>
-          )}
-          {!activeSetupId && (
             <button onClick={() => {
               if (boothPainting) { setBoothPainting(false); boothCellsRef.current.clear(); setBoothPaintKey(k => k + 1) }
               else { setBoothPainting(true); setZoneDrawing(false); setSelectedIds([]) }
@@ -772,125 +832,140 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               className={`font-mono text-[10px] uppercase px-2 py-1 border ${boothPainting ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
               DRAW BOOTH {boothPainting ? '· ON' : ''}
             </button>
-          )}
-          {boothPainting && boothCellsRef.current.size > 0 && (
-            <button onClick={() => {
-              const result = traceBoothPerimeter(boothCellsRef.current)
-              if (!result) return
-              const label = nextLabel('BOOTH_BENCH', elements)
-              const id = `new_${nextIdCounter.current++}`
-              const el: ElementData = {
-                id, type: 'BOOTH_BENCH', shape: 'POLYGON', label, labelVisible: true,
-                x: result.bx, y: result.by, width: result.bw, depth: result.bd,
-                vertices: result.outerVertices, rotation: 0, fillColour: '#3D3D4D',
-                opacity: 1, zIndex: elements.length + 1, sortOrder: elements.length, isActive: true,
-                style: { cushionVertices: result.cushionVertices }, chairCount: 0,
-              }
-              pushHistory()
-              setElements(prev => [...prev, el])
-              setSelectedIds([id])
-              boothCellsRef.current.clear()
-              setBoothPainting(false)
-              setBoothPaintKey(k => k + 1)
-            }}
-              className="font-mono text-[10px] text-success hover:text-white uppercase px-2 py-1 border border-success">
-              SAVE SHAPE ({boothCellsRef.current.size} BLOCKS)
+            {boothPainting && boothCellsRef.current.size > 0 && (
+              <button onClick={() => {
+                const result = traceBoothPerimeter(boothCellsRef.current)
+                if (!result) return
+                const label = nextLabel('BOOTH_BENCH', elements)
+                const id = `new_${nextIdCounter.current++}`
+                const el: ElementData = {
+                  id, type: 'BOOTH_BENCH', shape: 'POLYGON', label, labelVisible: true,
+                  x: result.bx, y: result.by, width: result.bw, depth: result.bd,
+                  vertices: result.outerVertices, rotation: 0, fillColour: '#3D3D4D',
+                  opacity: 1, zIndex: elements.length + 1, sortOrder: elements.length, isActive: true,
+                  style: { cushionVertices: result.cushionVertices }, chairCount: 0,
+                }
+                pushHistory()
+                setElements(prev => [...prev, el])
+                setSelectedIds([id])
+                boothCellsRef.current.clear()
+                setBoothPainting(false)
+                setBoothPaintKey(k => k + 1)
+              }}
+                className="font-mono text-[10px] text-success hover:text-white uppercase px-2 py-1 border border-success">
+                SAVE SHAPE ({boothCellsRef.current.size} BLOCKS)
+              </button>
+            )}
+            <button onClick={() => setShowSummary(!showSummary)}
+              className={`font-mono text-[10px] uppercase px-2 py-1 border ${showSummary ? 'border-success text-success' : 'border-grey-mid text-grey-light hover:border-success'}`}>
+              SUMMARY
             </button>
-          )}
-          <button onClick={() => setShowSummary(!showSummary)}
-            className={`font-mono text-[10px] uppercase px-2 py-1 border ${showSummary ? 'border-success text-success' : 'border-grey-mid text-grey-light'} hover:border-success transition-colors`}>
-            SUMMARY
-          </button>
-          <Button onClick={handleSave} loading={saving} size="sm">SAVE</Button>
-          <button onClick={undo} className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid px-2 py-1">↶</button>
-          <button onClick={redo} className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid px-2 py-1">↷</button>
+          </>
+        )}
+        <span className="flex-1" />
+        <div className="flex items-center gap-1">
+          <span className="font-mono text-[8px] text-grey-light">TEXT</span>
+          <input type="range" min="0.5" max="3" step="0.1" value={textScale} onChange={(e) => setTextScale(parseFloat(e.target.value))}
+            className="w-16 accent-white" />
+          <span className="font-mono text-[9px] text-grey-light w-5">{textScale.toFixed(1)}×</span>
         </div>
+        <FloorplanToolbar zoom={zoomLevel} onZoomChange={(z) => { setZoomLevel(z); viewRef.current.zoom = z; setRebuildKey((k) => k + 1) }}
+          showDimensions={showDimensions} onShowDimensionsChange={setShowDimensions} />
+        <button onClick={() => setPaletteOpen(!paletteOpen)}
+          className={`font-mono text-xs uppercase px-2 py-1 border ${paletteOpen ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:border-white transition-colors'}`}>
+          PALETTE
+        </button>
       </div>
 
       <div className="flex flex-1 min-h-0">
         {paletteOpen && (
           <div className="w-44 flex-shrink-0 border-r border-grey-mid overflow-y-auto bg-grey-dark p-2 space-y-1">
-            {(['FIXTURE', 'FURNITURE'] as const).map((cat) => {
-              const items = [...PALETTE_ITEMS, ...customPresets].filter((i) => i.category === cat)
-              if (items.length === 0) return null
-              return (
-                <div key={cat}>
-                  <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2 first:mt-0">{cat}</p>
-                  {items.map((item) => {
-                    const def = paletteDefaults[item.type]
-                    const dispW = def?.width ?? item.w; const dispD = def?.depth ?? item.d
-                    return (
-                      <div key={item.type}>
-                        <div
-                          draggable
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData('text/plain', item.type)
-                            const dragImg = new globalThis.Image()
-                            dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-                            e.dataTransfer.setDragImage(dragImg, 0, 0)
-                          }}
-                          onContextMenu={(e) => { e.preventDefault(); setRightClickItem(rightClickItem === item.type ? null : item.type); setEditDefW(dispW.toString()); setEditDefD(dispD.toString()) }}
-                          className="flex items-center gap-2 p-1.5 cursor-grab hover:bg-grey-mid transition-colors"
-                        >
-                          <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.fill }} />
-                          <span className="font-mono text-[10px] text-white uppercase truncate">{item.label}</span>
-                          <span className="font-mono text-[8px] text-grey-light ml-auto">{dispW}×{dispD}</span>
-                        </div>
-                        {rightClickItem === item.type && (
-                          <div className="flex items-center gap-1 px-1 pb-1">
-                            <input type="number" value={editDefW} onChange={(e) => setEditDefW(e.target.value)}
-                              className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[8px] px-1 py-0.5 text-center" />
-                            <span className="text-grey-light text-[8px]">×</span>
-                            <input type="number" value={editDefD} onChange={(e) => setEditDefD(e.target.value)}
-                              className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[8px] px-1 py-0.5 text-center" />
-                            <button onClick={async () => {
-                              const w = parseFloat(editDefW) || dispW; const d = parseFloat(editDefD) || dispD
-                              await fetch('/api/admin/palette-defaults', {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ items: [{ type: item.type, width: w, depth: d }] }),
-                              })
-                              setPaletteDefaults((prev) => ({ ...prev, [item.type]: { width: w, depth: d } }))
-                              setRightClickItem(null)
-                            }}
-                              className="font-mono text-[8px] text-success hover:text-white uppercase">OK</button>
-                            <button onClick={() => setRightClickItem(null)}
-                              className="font-mono text-[8px] text-grey-light hover:text-white uppercase">✕</button>
+            {/* ── BASE PLAN PALETTE ── */}
+            {!activeSetupId && (
+              <>
+                {(['FIXTURE', 'FURNITURE'] as const).map((cat) => {
+                  const items = [...PALETTE_ITEMS, ...customPresets].filter((i) => i.category === cat)
+                  if (items.length === 0) return null
+                  return (
+                    <div key={cat}>
+                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2 first:mt-0">{cat}</p>
+                      {items.map((item) => {
+                        const def = paletteDefaults[item.type]
+                        const dispW = def?.width ?? item.w; const dispD = def?.depth ?? item.d
+                        return (
+                          <div key={item.type}>
+                            <div
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData('text/plain', item.type)
+                                const dragImg = new globalThis.Image()
+                                dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+                                e.dataTransfer.setDragImage(dragImg, 0, 0)
+                              }}
+                              onContextMenu={(e) => { e.preventDefault(); setRightClickItem(rightClickItem === item.type ? null : item.type); setEditDefW(dispW.toString()); setEditDefD(dispD.toString()) }}
+                              className="flex items-center gap-2 p-1.5 cursor-grab hover:bg-grey-mid transition-colors"
+                            >
+                              <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.fill }} />
+                              <span className="font-mono text-[10px] text-white uppercase truncate">{item.label}</span>
+                              <span className="font-mono text-[8px] text-grey-light ml-auto">{dispW}×{dispD}</span>
+                            </div>
+                            {rightClickItem === item.type && (
+                              <div className="flex items-center gap-1 px-1 pb-1">
+                                <input type="number" value={editDefW} onChange={(e) => setEditDefW(e.target.value)}
+                                  className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[8px] px-1 py-0.5 text-center" />
+                                <span className="text-grey-light text-[8px]">×</span>
+                                <input type="number" value={editDefD} onChange={(e) => setEditDefD(e.target.value)}
+                                  className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[8px] px-1 py-0.5 text-center" />
+                                <button onClick={async () => {
+                                  const w = parseFloat(editDefW) || dispW; const d = parseFloat(editDefD) || dispD
+                                  await fetch('/api/admin/palette-defaults', {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ items: [{ type: item.type, width: w, depth: d }] }),
+                                  })
+                                  setPaletteDefaults((prev) => ({ ...prev, [item.type]: { width: w, depth: d } }))
+                                  setRightClickItem(null)
+                                }}
+                                  className="font-mono text-[8px] text-success hover:text-white uppercase">OK</button>
+                                <button onClick={() => setRightClickItem(null)}
+                                  className="font-mono text-[8px] text-grey-light hover:text-white uppercase">✕</button>
+                              </div>
+                            )}
                           </div>
-                        )}
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+                {furnitureWithAvailability.length > 0 && (
+                  <div>
+                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2">INVENTORY</p>
+                    {furnitureWithAvailability.map((fi: any) => (
+                      <div
+                        key={`furn_${fi.id}`}
+                        draggable={fi.availableQty > 0}
+                        onDragStart={(e) => {
+                          if (fi.availableQty <= 0) { e.preventDefault(); return }
+                          e.dataTransfer.setData('text/plain', `furn_${fi.id}`)
+                          const dragImg = new globalThis.Image()
+                          dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+                          e.dataTransfer.setDragImage(dragImg, 0, 0)
+                        }}
+                        className={`flex items-center gap-2 p-1.5 transition-colors ${fi.availableQty > 0 ? 'cursor-grab hover:bg-grey-mid' : 'cursor-not-allowed opacity-40'}`}
+                      >
+                        <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: fi.defaultColour ?? '#555' }} />
+                        <span className="font-mono text-[10px] text-white truncate">{fi.name}</span>
+                        <span className="font-mono text-[8px] text-grey-light ml-auto">{fi.elementWidth}×{fi.elementDepth}</span>
+                        <span className={`font-mono text-[8px] ml-1 ${fi.availableQty > 0 ? 'text-accent' : 'text-danger'}`}>
+                          {fi.availableQty}/{fi.totalQty ?? 0}
+                        </span>
                       </div>
-                    )
-                  })}
-                </div>
-              )
-            })}
-            {furnitureWithAvailability.length > 0 && (
-              <div>
-                <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2">INVENTORY</p>
-                {furnitureWithAvailability.map((fi: any) => (
-                  <div
-                    key={`furn_${fi.id}`}
-                    draggable={fi.availableQty > 0}
-                    onDragStart={(e) => {
-                      if (fi.availableQty <= 0) { e.preventDefault(); return }
-                      e.dataTransfer.setData('text/plain', `furn_${fi.id}`)
-                      const dragImg = new globalThis.Image()
-                      dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-                      e.dataTransfer.setDragImage(dragImg, 0, 0)
-                    }}
-                    className={`flex items-center gap-2 p-1.5 transition-colors ${fi.availableQty > 0 ? 'cursor-grab hover:bg-grey-mid' : 'cursor-not-allowed opacity-40'}`}
-                  >
-                    <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: fi.defaultColour ?? '#555' }} />
-                    <span className="font-mono text-[10px] text-white truncate">{fi.name}</span>
-                    <span className="font-mono text-[8px] text-grey-light ml-auto">{fi.elementWidth}×{fi.elementDepth}</span>
-                    <span className={`font-mono text-[8px] ml-1 ${fi.availableQty > 0 ? 'text-accent' : 'text-danger'}`}>
-                      {fi.availableQty}/{fi.totalQty ?? 0}
-                    </span>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
-            {/* TableProfile palette (setup mode) */}
+            {/* ── TABLE LAYOUT PALETTE ── */}
             {activeSetupId && tableProfiles.length > 0 && (
               <div>
                 <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2">TABLE PROFILES</p>
@@ -929,136 +1004,105 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 })}
               </div>
             )}
-            {(furnitureItems.length > 0 || true) && (
-              <div className="border-t border-grey-mid pt-1 mt-1">
-                {newTableOpen ? (
-                  <div className="space-y-1 px-1">
-                    <Input label="Name" value={newTableName} onChange={(e) => setNewTableName(e.target.value)} placeholder="TABLE" />
-                    <div className="grid grid-cols-2 gap-1">
-                      <Input label="W" type="number" value={newTableW} onChange={(e) => setNewTableW(e.target.value)} />
-                      <Input label="D" type="number" value={newTableD} onChange={(e) => setNewTableD(e.target.value)} />
-                    </div>
-                    <Input label="Colour" value={newTableColour} onChange={(e) => setNewTableColour(e.target.value)} placeholder="#555" />
-                    <Input label="Chairs" type="number" value={newTableChairs} onChange={(e) => setNewTableChairs(e.target.value)} />
-                    <Input label="Stock Qty" type="number" value={newTableTotalQty} onChange={(e) => setNewTableTotalQty(e.target.value)} />
-                    <div className="flex gap-1">
-                      <button onClick={async () => {
-                        const name = (newTableName || `TABLE-${Math.floor(Math.random() * 1000)}`).toUpperCase().trim()
-                        if (!name) return
-                        let catId = furnitureCatId
-                        if (!catId) {
-                          const cre = await fetch('/api/admin/inventory/categories')
-                          if (cre.ok) { const cats = await cre.json(); const fc = cats.find((c: any) => c.name === 'FURNITURE'); if (fc) { catId = fc.id; setFurnitureCatId(fc.id) } }
-                        }
-                        if (!catId) return
-                        const r = await fetch('/api/admin/inventory', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            name,
-                            categoryId: catId,
-                            unit: 'EA', defaultParLevel: 0, totalQty: parseInt(newTableTotalQty) || 10,
-                            furnitureType: 'TABLE',
-                            elementWidth: parseFloat(newTableW) || 80,
-                            elementDepth: parseFloat(newTableD) || 80,
-                            elementShape: 'RECTANGLE',
-                            defaultColour: newTableColour,
-                            defaultChairCount: parseInt(newTableChairs) || 0,
-                          }),
-                        })
-                        if (r.ok) {
-                          const created = await r.json()
-                          setFurnitureItems((prev) => [...prev, created])
-                          setNewTableOpen(false); setNewTableName(''); setNewTableW('80'); setNewTableD('80'); setNewTableColour('#555'); setNewTableChairs('0'); setNewTableTotalQty('10')
-                        }
-                      }}
-                        className="font-mono text-[10px] text-success hover:text-white uppercase px-1.5 py-0.5 border border-success flex-1">
-                        CREATE
+            {!activeSetupId && (
+              <>
+                {(furnitureItems.length > 0 || true) && (
+                  <div className="border-t border-grey-mid pt-1 mt-1">
+                    {newTableOpen ? (
+                      <div className="space-y-1 px-1">
+                        <Input label="Name" value={newTableName} onChange={(e) => setNewTableName(e.target.value)} placeholder="TABLE" />
+                        <div className="grid grid-cols-2 gap-1">
+                          <Input label="W" type="number" value={newTableW} onChange={(e) => setNewTableW(e.target.value)} />
+                          <Input label="D" type="number" value={newTableD} onChange={(e) => setNewTableD(e.target.value)} />
+                        </div>
+                        <Input label="Colour" value={newTableColour} onChange={(e) => setNewTableColour(e.target.value)} placeholder="#555" />
+                        <Input label="Chairs" type="number" value={newTableChairs} onChange={(e) => setNewTableChairs(e.target.value)} />
+                        <Input label="Stock Qty" type="number" value={newTableTotalQty} onChange={(e) => setNewTableTotalQty(e.target.value)} />
+                        <div className="flex gap-1">
+                          <button onClick={async () => {
+                            const name = (newTableName || `TABLE-${Math.floor(Math.random() * 1000)}`).toUpperCase().trim()
+                            if (!name) return
+                            let catId = furnitureCatId
+                            if (!catId) {
+                              const cre = await fetch('/api/admin/inventory/categories')
+                              if (cre.ok) { const cats = await cre.json(); const fc = cats.find((c: any) => c.name === 'FURNITURE'); if (fc) { catId = fc.id; setFurnitureCatId(fc.id) } }
+                            }
+                            if (!catId) return
+                            const r = await fetch('/api/admin/inventory', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                name,
+                                categoryId: catId,
+                                unit: 'EA', defaultParLevel: 0, totalQty: parseInt(newTableTotalQty) || 10,
+                                furnitureType: 'TABLE',
+                                elementWidth: parseFloat(newTableW) || 80,
+                                elementDepth: parseFloat(newTableD) || 80,
+                                elementShape: 'RECTANGLE',
+                                defaultColour: newTableColour,
+                                defaultChairCount: parseInt(newTableChairs) || 0,
+                              }),
+                            })
+                            if (r.ok) {
+                              const created = await r.json()
+                              setFurnitureItems((prev) => [...prev, created])
+                              setNewTableOpen(false); setNewTableName(''); setNewTableW('80'); setNewTableD('80'); setNewTableColour('#555'); setNewTableChairs('0'); setNewTableTotalQty('10')
+                            }
+                          }}
+                            className="font-mono text-[10px] text-success hover:text-white uppercase px-1.5 py-0.5 border border-success flex-1">
+                            CREATE
+                          </button>
+                          <button onClick={() => setNewTableOpen(false)}
+                            className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5">
+                            CANCEL
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={() => setNewTableOpen(true)}
+                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-1 w-full text-left">
+                        + NEW TABLE
                       </button>
-                      <button onClick={() => setNewTableOpen(false)}
-                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5">
-                        CANCEL
-                      </button>
-                    </div>
+                    )}
                   </div>
-                ) : (
-                  <button onClick={() => setNewTableOpen(true)}
-                    className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-1 w-full text-left">
-                    + NEW TABLE
-                  </button>
                 )}
-              </div>
-            )}
-            <div className="border-t border-grey-mid pt-2 mt-2">
-              {presetFormOpen ? (
-                <div className="space-y-1 px-1">
-                  <Input label="Name" value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="E.G. TABLE-60X60" />
-                  <div className="grid grid-cols-2 gap-1">
-                    <Input label="W" type="number" value={presetW.toString()} onChange={(e) => setPresetW(parseInt(e.target.value) || 80)} />
-                    <Input label="D" type="number" value={presetD.toString()} onChange={(e) => setPresetD(parseInt(e.target.value) || 80)} />
-                  </div>
-                  <Input label="Colour" value={presetFill} onChange={(e) => setPresetFill(e.target.value)} placeholder="#555" />
-                  <div className="flex gap-1">
-                    <button onClick={() => {
-                      if (!presetName.trim()) return
-                      const p: PaletteItem = { type: presetName.toUpperCase().trim(), label: presetName.toUpperCase().trim(), w: presetW, d: presetD, fill: presetFill, category: 'FURNITURE' }
-                      setCustomPresets((prev) => [...prev, p])
-                      setPresetName(''); setPresetW(80); setPresetD(80); setPresetFill('#555')
-                      setPresetFormOpen(false)
-                    }}
-                      className="font-mono text-[10px] text-success hover:text-white uppercase px-1.5 py-0.5 border border-success flex-1">
-                      ADD
+                <div className="border-t border-grey-mid pt-2 mt-2">
+                  {presetFormOpen ? (
+                    <div className="space-y-1 px-1">
+                      <Input label="Name" value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="E.G. TABLE-60X60" />
+                      <div className="grid grid-cols-2 gap-1">
+                        <Input label="W" type="number" value={presetW.toString()} onChange={(e) => setPresetW(parseInt(e.target.value) || 80)} />
+                        <Input label="D" type="number" value={presetD.toString()} onChange={(e) => setPresetD(parseInt(e.target.value) || 80)} />
+                      </div>
+                      <Input label="Colour" value={presetFill} onChange={(e) => setPresetFill(e.target.value)} placeholder="#555" />
+                      <div className="flex gap-1">
+                        <button onClick={() => {
+                          if (!presetName.trim()) return
+                          const p: PaletteItem = { type: presetName.toUpperCase().trim(), label: presetName.toUpperCase().trim(), w: presetW, d: presetD, fill: presetFill, category: 'FURNITURE' }
+                          setCustomPresets((prev) => [...prev, p])
+                          setPresetName(''); setPresetW(80); setPresetD(80); setPresetFill('#555')
+                          setPresetFormOpen(false)
+                        }}
+                          className="font-mono text-[10px] text-success hover:text-white uppercase px-1.5 py-0.5 border border-success flex-1">
+                          ADD
+                        </button>
+                        <button onClick={() => setPresetFormOpen(false)}
+                          className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5">
+                          CANCEL
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => setPresetFormOpen(true)}
+                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-1 w-full text-left">
+                      + ADD PRESET
                     </button>
-                    <button onClick={() => setPresetFormOpen(false)}
-                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5">
-                      CANCEL
-                    </button>
-                  </div>
+                  )}
                 </div>
-              ) : (
-                <button onClick={() => setPresetFormOpen(true)}
-                  className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-1 w-full text-left">
-                  + ADD PRESET
-                </button>
-              )}
-            </div>
+              </>
+            )}
           </div>
         )}
-
-        {/* Setup toolbar — always visible so the first setup can be created */}
-        <div className="flex items-center gap-2 border-b border-grey-mid px-3 py-1.5">
-          {setups.length > 0 ? (
-            <>
-              <span className="font-mono text-[10px] uppercase text-grey-light tracking-wider">SETUP:</span>
-              <select
-                value={activeSetupId ?? ''}
-                onChange={(e) => handleSetupChange(e.target.value || null)}
-                className="bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-2 py-1 outline-none"
-              >
-                <option value="">— BASE PLAN —</option>
-                {setups.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </>
-          ) : (
-            <span className="font-mono text-[10px] uppercase text-grey-light tracking-wider">SETUP: NONE — CREATE ONE TO START PLANNING</span>
-          )}
-          <Button size="sm" onClick={handleNewSetup}>+ NEW</Button>
-          {activeSetupId && <Button size="sm" variant="ghost" onClick={handleGenerateSeating}>⚡ GENERATE</Button>}
-          {activeSetupId && <Button size="sm" variant="danger" onClick={handleDeleteSetup}>DELETE</Button>}
-          {activeSetupId && <span className="font-mono text-[9px] uppercase text-grey-light tracking-wider">🔒 BASE PLAN LOCKED</span>}
-          {activeSetupId && setupSelectedIds.length >= 2 && (
-            <Button size="sm" variant="ghost" onClick={handleGroup}>GROUP</Button>
-          )}
-          {activeSetupId && setupSelectedIds.length === 1 && (() => {
-            const grouped = setupItems.find(i => i.id === setupSelectedIds[0] && i.tableGroupId)
-            return grouped ? <Button size="sm" variant="danger" onClick={handleUngroup}>UNGROUP</Button> : null
-          })()}
-          {activeSetupId && (
-            <span className="font-mono text-[10px] uppercase text-success tracking-wider ml-auto">
-              TOTAL: {setupGrand.tables} TBL · {setupGrand.seats} PAX
-            </span>
-          )}
-        </div>
 
         <div
           ref={containerRef}
@@ -1262,156 +1306,212 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             const first = sel[0]
             const profile = first ? tableProfiles.find(p => p.id === first.tableProfileId) : null
             const sectionName = first?.sectionId ? sectionMap.get(first.sectionId)?.name : null
+            const edges = first?.chairEdges ?? { top: 0, bottom: 0, left: 0, right: 0 }
+            const totalChairs = edges.top + edges.bottom + edges.left + edges.right
             return (
               <>
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs font-bold text-white uppercase truncate">
-                    {sel.length > 1 ? `${sel.length} TABLES` : (first?.label || profile?.name || 'TABLE')}
-                  </span>
-                  <button onClick={deleteSetupSelected}
-                    className="font-mono text-[10px] text-danger hover:text-white uppercase border border-danger px-1.5 py-0.5">
-                    DELETE{sel.length > 1 ? ` ${sel.length}` : ''}
-                  </button>
-                </div>
-                {profile && (
-                  <p className="font-mono text-[10px] text-grey-light uppercase">PROFILE: {profile.name} · {profile.chairCount}S</p>
-                )}
-                {sel.length === 1 && (
-                  <p className="font-mono text-[10px] text-grey-light uppercase">SECTION: {sectionName ?? 'NONE'}</p>
-                )}
-                <p className="font-mono text-[10px] text-grey-light uppercase">Rotation</p>
-                <div className="flex flex-wrap gap-1">
-                  {[0, 45, 90, 135, 180, 270].map((angle) => (
-                    <button key={angle} onClick={() => rotateSetupSelected(angle)}
-                      className={`font-mono text-[10px] px-2 py-1 border ${first && Math.round(first.rotation) === angle ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
-                      {angle}°
+                {/* ── TABLE IDENTITY ── */}
+                <div className="border border-grey-mid p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 flex-shrink-0 border border-grey-mid" style={{ backgroundColor: profile?.colour ?? '#555' }} />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-mono text-xs font-bold text-white uppercase truncate">
+                        {sel.length > 1 ? `${sel.length} TABLES` : (first?.label || profile?.name || 'TABLE')}
+                      </p>
+                      {profile && (
+                        <p className="font-mono text-[9px] text-grey-light">{profile.name} · {profile.chairCount}S CAP</p>
+                      )}
+                    </div>
+                    <button onClick={deleteSetupSelected}
+                      className="font-mono text-[10px] text-danger hover:text-white uppercase border border-red-800/50 px-1.5 py-0.5 flex-shrink-0">
+                      ×
                     </button>
-                  ))}
+                  </div>
+                  {sel.length === 1 && (
+                    <p className="font-mono text-[10px] text-grey-light uppercase pt-1 border-t border-grey-mid">
+                      SECTION: {sectionName ?? 'NONE'}
+                      {first.tableGroupId && <span className="text-accent ml-1">· GROUPED</span>}
+                    </p>
+                  )}
                 </div>
-                {sel.length >= 2 && <p className="font-mono text-[10px] text-grey-light italic">Use GROUP in the toolbar to join tables.</p>}
+
+                {/* ── ROTATION ── */}
+                {sel.length === 1 && (
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">ROTATION</p>
+                    <div className="flex flex-wrap gap-1">
+                      {[0, 45, 90, 135, 180, 270].map((angle) => (
+                        <button key={angle} onClick={() => rotateSetupSelected(angle)}
+                          className={`font-mono text-[10px] px-2 py-1 border ${first && Math.round(first.rotation) === angle ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
+                          {angle}°
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── CHAIRS ── */}
+                {sel.length === 1 && !first?.tableGroupId && (
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">CHAIRS ({totalChairs})</p>
+                      <button onClick={() => handleSetupChairEdge(first.id, 'top', -edges.top)}
+                        className="font-mono text-[9px] text-danger hover:text-white border border-red-800/50 px-1">CLEAR</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1">
+                      {(['top', 'bottom', 'left', 'right'] as const).map((edge) => (
+                        <div key={edge} className="flex items-center justify-between border border-grey-mid p-1.5">
+                          <span className="font-mono text-[10px] text-grey-light uppercase">{edge}</span>
+                          <div className="flex items-center gap-0.5">
+                            <button onClick={() => handleSetupChairEdge(first.id, edge, -1)}
+                              className="font-mono text-[10px] text-grey-light hover:text-white px-1 py-0.5 border border-grey-mid hover:border-white">
+                              −
+                            </button>
+                            <span className="font-mono text-[11px] text-white w-5 text-center">{edges[edge]}</span>
+                            <button onClick={() => handleSetupChairEdge(first.id, edge, 1)}
+                              className="font-mono text-[10px] text-grey-light hover:text-white px-1 py-0.5 border border-grey-mid hover:border-accent hover:text-accent">
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {sel.length >= 2 && (
+                  <div className="border border-grey-mid p-3">
+                    <p className="font-mono text-[10px] text-grey-light">Select GROUP from the toolbar to join these tables.</p>
+                  </div>
+                )}
               </>
             )
           })() : selectedIds.length > 0 && selected ? (
             <>
               {selectedIds.length > 1 && (
-                <p className="font-mono text-[10px] text-accent uppercase">{selectedIds.length} ELEMENTS SELECTED</p>
-              )}
-              <div className="flex items-center justify-between">
-                <input value={selected.type}
-                  onChange={(e) => updateElement(selected.id!, { type: e.target.value.toUpperCase() || 'OTHER' })}
-                  className="font-mono text-xs font-bold text-white bg-transparent border-0 p-0 outline-none w-24" />
-                <button onClick={deleteSelected}
-                  className="font-mono text-[10px] text-danger hover:text-white uppercase border border-danger px-1.5 py-0.5">
-                  DELETE{selectedIds.length > 1 ? ` ${selectedIds.length}` : ''}
-                </button>
-              </div>
-              {INVENTORY_TYPES.includes(selected.type) && (
-                <div className="flex border-b border-grey-mid -mx-3 px-3 pb-2">
-                  <button onClick={() => setShowInvTab(false)}
-                    className={`font-mono text-[10px] uppercase px-2 py-1 ${!showInvTab ? 'border-b border-white text-white' : 'text-grey-light'}`}>
-                    PROPERTIES
-                  </button>
-                  <button onClick={() => setShowInvTab(true)}
-                    className={`font-mono text-[10px] uppercase px-2 py-1 ${showInvTab ? 'border-b border-white text-white' : 'text-grey-light'}`}>
-                    INVENTORY
+                <div className="border border-grey-mid p-3">
+                  <p className="font-mono text-[10px] text-accent uppercase">{selectedIds.length} ELEMENTS SELECTED</p>
+                  <button onClick={deleteSelected}
+                    className="mt-2 font-mono text-[10px] text-danger hover:text-white uppercase border border-red-800/50 px-2 py-1 w-full">
+                    DELETE {selectedIds.length}
                   </button>
                 </div>
               )}
-              {showInvTab && INVENTORY_TYPES.includes(selected.type) && selected.id ? (
-                <ElementInventoryPanel elementId={selected.id} floorPlanId={plan.id} />
-              ) : (
+              {selectedIds.length === 1 && (
                 <>
-                  <Input label="Label" value={selected.label ?? ''}
-                    onChange={(e) => updateElement(selected.id!, { label: e.target.value.toUpperCase() || null })} />
-                  <label className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none">
-                    <input type="checkbox" checked={selected.labelVisible !== false}
-                      onChange={(e) => updateElement(selected.id!, { labelVisible: e.target.checked })}
-                      className="accent-white" />
-                    SHOW LABEL
-                  </label>
-                  <Input label="Label Scale" type="number" min="0.5" max="3" step="0.1" value={((selected.style as any)?.labelScale ?? 1).toString()}
-                    onChange={(e) => updateElement(selected.id!, { style: { ...(selected.style ?? {}), labelScale: Math.max(0.5, Math.min(3, parseFloat(e.target.value) || 1)) } })} />
-                  {selected.type === 'BOOTH_BENCH' && (
-                    <div className="space-y-1">
-                      <p className="font-mono text-[10px] text-grey-light uppercase">Serves Tables</p>
-                      {elements.filter((e) => e.type === 'TABLE').map((t) => {
-                        const served: string[] = (selected.style as any)?.servedTableIds ?? []
-                        const checked = served.includes(t.id!)
-                        return (
-                          <label key={t.id} className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none">
-                            <input type="checkbox" checked={checked}
-                              onChange={() => {
-                                const s: string[] = [...served]
-                                if (checked) { const idx = s.indexOf(t.id!); if (idx >= 0) s.splice(idx, 1) }
-                                else { s.push(t.id!) }
-                                updateElement(selected.id!, { style: { ...(selected.style ?? {}), servedTableIds: s } })
-                              }}
-                              className="accent-white" />
-                            <span>{t.label || t.type}</span>
-                          </label>
-                        )
-                      })}
-                      {elements.filter((e) => e.type === 'TABLE').length === 0 && (
-                        <p className="font-mono text-[10px] text-grey-light italic">No tables on plan</p>
-                      )}
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 flex-shrink-0 border border-grey-mid" style={{ backgroundColor: selected.fillColour ?? '#666' }} />
+                      <div className="min-w-0 flex-1">
+                        <input value={selected.type}
+                          onChange={(e) => updateElement(selected.id!, { type: e.target.value.toUpperCase() || 'OTHER' })}
+                          className="font-mono text-xs font-bold text-white bg-transparent border-0 p-0 outline-none w-full" />
+                      </div>
+                      <button onClick={deleteSelected}
+                        className="font-mono text-[10px] text-danger hover:text-white uppercase border border-red-800/50 px-1.5 py-0.5 flex-shrink-0">
+                        ×
+                      </button>
                     </div>
-                  )}
-                  <Input label="Fill Colour" value={selected.fillColour ?? ''}
-                    onChange={(e) => updateElement(selected.id!, { fillColour: e.target.value || null })} placeholder="#555" />
-                  {selected.shape === 'RECTANGLE' && (
-                    <div>
-                      <p className="font-mono text-[10px] text-grey-light uppercase mb-1">Corner Radius</p>
-                      <div className="grid grid-cols-4 gap-1">
-                        {['TL', 'TR', 'BR', 'BL'].map((label, idx) => {
-                          const cr: number[] = ((selected.style as any)?.cornerRadius) ?? [0, 0, 0, 0]
-                          return (
-                            <Input key={label} label={label} type="number" min="0" max={Math.min(selected.width, selected.depth) / 2}
-                              value={cr[idx]?.toString() ?? '0'}
-                              onChange={(e) => {
-                                const next = [...cr]
-                                next[idx] = Math.min(parseInt(e.target.value) || 0, Math.min(selected.width, selected.depth) / 2)
-                                updateElement(selected.id!, { style: { ...(selected.style ?? {}), cornerRadius: next } })
-                              }} />
-                          )
-                        })}
+                    {selected.sectionId && (
+                      <p className="font-mono text-[10px] text-grey-light uppercase pt-1 border-t border-grey-mid">
+                        {sectionMap.get(selected.sectionId)?.name ?? selected.sectionId}
+                      </p>
+                    )}
+                  </div>
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">SIZE</p>
+                    <FloorplanInspector selectedElement={selected} elements={elements}
+                      onChange={(patch) => updateElement(selected.id!, patch)} />
+                  </div>
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">LABEL & STYLE</p>
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 flex-shrink-0 border border-grey-mid" style={{ backgroundColor: selected.fillColour ?? '#666' }} />
+                      <Input label="Fill" value={selected.fillColour ?? ''}
+                        onChange={(e) => updateElement(selected.id!, { fillColour: e.target.value || null })} placeholder="#555" />
+                    </div>
+                    <Input label="Label" value={selected.label ?? ''}
+                      onChange={(e) => updateElement(selected.id!, { label: e.target.value.toUpperCase() || null })} />
+                    <label className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+                      <input type="checkbox" checked={selected.labelVisible !== false}
+                        onChange={(e) => updateElement(selected.id!, { labelVisible: e.target.checked })}
+                        className="accent-white" />
+                      SHOW LABEL
+                    </label>
+                    {selected.shape === 'RECTANGLE' && (
+                      <div>
+                        <p className="font-mono text-[10px] text-grey-light uppercase mb-1">Corner Radius</p>
+                        <div className="grid grid-cols-4 gap-1">
+                          {['TL', 'TR', 'BR', 'BL'].map((label, idx) => {
+                            const cr: number[] = ((selected.style as any)?.cornerRadius) ?? [0, 0, 0, 0]
+                            return (
+                              <Input key={label} label={label} type="number" min="0" max={Math.min(selected.width, selected.depth) / 2}
+                                value={cr[idx]?.toString() ?? '0'}
+                                onChange={(e) => {
+                                  const next = [...cr]
+                                  next[idx] = Math.min(parseInt(e.target.value) || 0, Math.min(selected.width, selected.depth) / 2)
+                                  updateElement(selected.id!, { style: { ...(selected.style ?? {}), cornerRadius: next } })
+                                }} />
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    <Input label="Opacity" type="number" min="0" max="1" step="0.1"
+                      value={selected.opacity.toString()}
+                      onChange={(e) => updateElement(selected.id!, { opacity: Math.min(1, Math.max(0, parseFloat(e.target.value) || 1)) })} />
+                    <Input label="Label Scale" type="number" min="0.5" max="3" step="0.1" value={((selected.style as any)?.labelScale ?? 1).toString()}
+                      onChange={(e) => updateElement(selected.id!, { style: { ...(selected.style ?? {}), labelScale: Math.max(0.5, Math.min(3, parseFloat(e.target.value) || 1)) } })} />
+                  </div>
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">ROTATION</p>
+                    <div className="flex flex-wrap gap-1">
+                      {[0, 45, 90, 135, 180, 270].map((angle) => (
+                        <button key={angle} onClick={() => updateElement(selected.id!, { rotation: angle })}
+                          className={`font-mono text-[10px] px-2 py-1 border ${Math.round(selected.rotation ?? 0) === angle ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
+                          {angle}°
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">POSITION</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input label="X (cm)" type="number" step="10" value={Math.round(selected.x).toString()}
+                        onChange={(e) => updateElement(selected.id!, { x: parseFloat(e.target.value) || 0 })}
+                        onBlur={() => { if (selected.id) updateElement(selected.id, { x: snap(selected.x, plan.gridUnit) }) }} />
+                      <Input label="Y (cm)" type="number" step="10" value={Math.round(selected.y).toString()}
+                        onChange={(e) => updateElement(selected.id!, { y: parseFloat(e.target.value) || 0 })}
+                        onBlur={() => { if (selected.id) updateElement(selected.id, { y: snap(selected.y, plan.gridUnit) }) }} />
+                    </div>
+                  </div>
+                  {INVENTORY_TYPES.includes(selected.type) && (
+                    <div className="border border-grey-mid p-3">
+                      <button onClick={() => setShowInvTab(!showInvTab)}
+                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase w-full text-left mb-2">
+                        {showInvTab ? '▼ INVENTORY' : '▶ INVENTORY'}
+                      </button>
+                      {showInvTab && selected.id ? (
+                        <ElementInventoryPanel elementId={selected.id} floorPlanId={plan.id} />
+                      ) : showInvTab ? null : null}
+                      <div className="space-y-2">
+                        <Select label="Section" value={selected.sectionId ?? ''}
+                          onChange={(e) => updateElement(selected.id!, { sectionId: e.target.value || null })}
+                          options={sections.map((s) => ({ value: s.id, label: s.name }))} placeholder="NONE" />
+                        <Input label="Capacity" type="number" value={selected.capacity?.toString() ?? ''}
+                          onChange={(e) => updateElement(selected.id!, { capacity: e.target.value ? parseInt(e.target.value) : null })} />
                       </div>
                     </div>
                   )}
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input label="X (cm)" type="number" step="10" value={Math.round(selected.x).toString()}
-                      onChange={(e) => updateElement(selected.id!, { x: parseFloat(e.target.value) || 0 })}
-                      onBlur={() => { if (selected.id) updateElement(selected.id, { x: snap(selected.x, plan.gridUnit) }) }} />
-                    <Input label="Y (cm)" type="number" step="10" value={Math.round(selected.y).toString()}
-                      onChange={(e) => updateElement(selected.id!, { y: parseFloat(e.target.value) || 0 })}
-                      onBlur={() => { if (selected.id) updateElement(selected.id, { y: snap(selected.y, plan.gridUnit) }) }} />
-                  </div>
-                  <FloorplanInspector selectedElement={selected} elements={elements}
-                    onChange={(patch) => updateElement(selected.id!, patch)} />
-                  <p className="font-mono text-[10px] text-grey-light uppercase">Rotation</p>
-                  <div className="flex flex-wrap gap-1">
-                    {[0, 45, 90, 135, 180, 270].map((angle) => (
-                      <button key={angle} onClick={() => updateElement(selected.id!, { rotation: angle })}
-                        className={`font-mono text-[10px] px-2 py-1 border ${Math.round(selected.rotation) === angle ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
-                        {angle}°
-                      </button>
-                    ))}
-                  </div>
-                  <Input label="Opacity" type="number" min="0" max="1" step="0.1"
-                    value={selected.opacity.toString()}
-                    onChange={(e) => updateElement(selected.id!, { opacity: Math.min(1, Math.max(0, parseFloat(e.target.value) || 1)) })} />
-                  <Select label="Section" value={selected.sectionId ?? ''}
-                    onChange={(e) => updateElement(selected.id!, { sectionId: e.target.value || null })}
-                    options={sections.map((s) => ({ value: s.id, label: s.name }))} placeholder="NONE" />
-                  <Input label="Capacity" type="number" value={selected.capacity?.toString() ?? ''}
-                    onChange={(e) => updateElement(selected.id!, { capacity: e.target.value ? parseInt(e.target.value) : null })} />
                   {selected.type === 'TABLE' && (
-                    <>
-                      <Input label="Chair Count" type="number" min="0" value={(selected.chairCount ?? 0).toString()}
+                    <div className="border border-grey-mid p-3 space-y-2">
+                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">CHAIRS</p>
+                      <Input label="Count" type="number" min="0" value={(selected.chairCount ?? 0).toString()}
                         onChange={(e) => updateElement(selected.id!, { chairCount: parseInt(e.target.value) || 0 })} />
-                      <Select label="Chair Style" value={((selected.style as any)?.chairStyle ?? 'bracket') as string}
+                      <Select label="Style" value={((selected.style as any)?.chairStyle ?? 'bracket') as string}
                         onChange={(e) => updateElement(selected.id!, { style: { ...(selected.style ?? {}), chairStyle: e.target.value } })}
                         options={[{ value: 'round', label: 'ROUND' }, { value: 'bracket', label: 'BRACKET' }]} />
-                      <p className="font-mono text-[10px] text-grey-light uppercase">Chairs On Sides</p>
+                      <p className="font-mono text-[10px] text-grey-light uppercase">On Sides</p>
                       <div className="grid grid-cols-2 gap-1">
                         {['top', 'bottom', 'left', 'right'].map((side) => {
                           const sides: string[] = ((selected.style as any)?.chairSides) ?? ['top', 'bottom', 'left', 'right']
@@ -1429,14 +1529,39 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                           )
                         })}
                       </div>
-                    </>
+                    </div>
+                  )}
+                  {selected.type === 'BOOTH_BENCH' && (
+                    <div className="border border-grey-mid p-3 space-y-2">
+                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">SERVES TABLES</p>
+                      {elements.filter((e) => e.type === 'TABLE').map((t) => {
+                        const served: string[] = (selected.style as any)?.servedTableIds ?? []
+                        const checked = served.includes(t.id!)
+                        return (
+                          <label key={t.id} className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none py-0.5">
+                            <input type="checkbox" checked={checked}
+                              onChange={() => {
+                                const s: string[] = [...served]
+                                if (checked) { const idx = s.indexOf(t.id!); if (idx >= 0) s.splice(idx, 1) }
+                                else { s.push(t.id!) }
+                                updateElement(selected.id!, { style: { ...(selected.style ?? {}), servedTableIds: s } })
+                              }}
+                              className="accent-white" />
+                            <span>{t.label || t.type}</span>
+                          </label>
+                        )
+                      })}
+                      {elements.filter((e) => e.type === 'TABLE').length === 0 && (
+                        <p className="font-mono text-[10px] text-grey-light italic">No tables on plan</p>
+                      )}
+                    </div>
                   )}
                   {selected.style !== undefined && (
-                      <button onClick={() => updateElement(selected.id!, { style: null })}
-                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1">
-                        RESET STYLE
-                      </button>
-                    )}
+                    <button onClick={() => updateElement(selected.id!, { style: null })}
+                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1 w-full">
+                      RESET STYLE
+                    </button>
+                  )}
                 </>
               )}
             </>

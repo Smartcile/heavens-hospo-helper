@@ -138,8 +138,10 @@ Venue → Department → Section → tasks + training/SOPs/FAQs → completion �
   and a task done by an untrained person prompts a manager to upskill
   (`/admin/followups`).
 
-**See it live:** open **Admin → Structure** (`/admin/structure`) for a tree of how
-your venues, departments, staff, tasks and training are currently linked.
+**See it live:** open **Admin → Structure** (`/admin/structure`). The **TREE** tab
+shows a collapsible tree of how your venues, departments, staff, tasks and training
+are linked; the **MAP** tab is an interactive link graph for mapping out workflows —
+click any node to trace how lists talk to tasks and training/SOP.
 
 The full model and the build plan are documented in
 [`ECOSYSTEM.md`](./ECOSYSTEM.md).

@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
-import { Combobox } from '@/components/ui/Combobox'
+import { SearchSelect } from '@/components/ui/SearchSelect'
+import { ListBox, ListRow } from '@/components/ui/ListBox'
+import { Modal } from '@/components/ui/Modal'
 
 interface Recipe {
   id: string; name: string; yieldQty: number; yieldUnitId: string; instructions: string | null
@@ -64,6 +66,11 @@ export function RecipesClient() {
   const [newItemId, setNewItemId] = useState('')
   const [newItemQty, setNewItemQty] = useState('1')
   const [newItemUomId, setNewItemUomId] = useState('')
+
+  // Ingredient edit popup (edits a line item in place — nothing removed from the list)
+  const [editingLineId, setEditingLineId] = useState<string | null>(null)
+  const [editLineQty, setEditLineQty] = useState('1')
+  const [editLineUomId, setEditLineUomId] = useState('')
 
   function resetForm() {
     setFormName(''); setFormYieldQty('1'); setFormYieldUnitId('')
@@ -168,6 +175,23 @@ export function RecipesClient() {
     setLineItems((prev) => prev.filter((li) => (li._clientId ?? li.id) !== clientId))
   }
 
+  function openLineEdit(li: LineItem) {
+    const cid = li._clientId ?? li.id ?? ''
+    setEditingLineId(cid)
+    setEditLineQty(String(li.qty))
+    setEditLineUomId(li.uomId)
+  }
+
+  function saveLineEdit() {
+    if (!editingLineId) return
+    setLineItems((prev) => prev.map((li) => {
+      const cid = li._clientId ?? li.id ?? ''
+      if (cid !== editingLineId) return li
+      return { ...li, qty: parseFloat(editLineQty) || 1, uomId: editLineUomId }
+    }))
+    setEditingLineId(null)
+  }
+
   async function handleSave() {
     if (!formName.trim() || !formYieldUnitId) return
     setSaving(true)
@@ -224,50 +248,52 @@ export function RecipesClient() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-3">
-          <div className="border border-grey-mid p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-mono text-xs font-bold text-white uppercase">ITEMS ({recipes.length + orphanItems.length})</h2>
-              <Button size="sm" onClick={() => { setSelectedId(null); setIsCreating(true); resetForm() }}>+ ADD</Button>
-            </div>
-            <div className="mb-2">
+          <ListBox
+            title="ITEMS"
+            count={recipes.length + orphanItems.length}
+            action={<Button size="sm" onClick={() => { setSelectedId(null); setIsCreating(true); resetForm() }}>+ ADD</Button>}
+          >
+            <div className="p-2">
               <Input value={recipeSearch} onChange={(e) => setRecipeSearch(e.target.value.toUpperCase())} placeholder="SEARCH..." />
             </div>
-            <div className="space-y-0.5 max-h-[60vh] overflow-y-auto">
+            <div className="max-h-[60vh] overflow-y-auto divide-y divide-grey-mid">
               {filteredRecipes.map((r) => (
-                <button key={r.id} onClick={() => { setIsCreating(false); setSelectedId(r.id) }}
-                  className={`w-full text-left px-2 py-1.5 font-mono text-xs uppercase border ${selectedId === r.id && !isCreating ? 'border-white text-white' : 'border-transparent text-grey-light hover:border-grey-mid hover:text-white'}`}>
-                  <div className="flex items-center gap-1">
-                    <span className="block truncate flex-1">{r.name}</span>
-                    {r.menuItem && <span className="font-mono text-[8px] text-success border border-success px-1 shrink-0">MENU</span>}
+                <ListRow key={r.id} active={selectedId === r.id && !isCreating} onClick={() => { setIsCreating(false); setSelectedId(r.id) }}>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1">
+                      <span className="block truncate flex-1 font-mono text-xs uppercase text-white">{r.name}</span>
+                      {r.menuItem && <span className="font-mono text-[8px] text-success border border-success px-1 shrink-0">MENU</span>}
+                    </div>
+                    <span className="block text-[10px] text-grey-light">
+                      v{r.version} · {r.yieldQty} {r.yieldUnit?.name ?? ''}{r.menuItem ? ` · $${r.menuItem.price.toFixed(2)}` : ''}
+                    </span>
+                    {r.menuItem?.wooCategoryId && (() => {
+                      const cats = r.menuItem.wooCategoryId.split(',').map((c: string) => c.trim()).filter(Boolean)
+                      return cats.map((cat: string) => (
+                        <span key={cat} className="inline-block mt-0.5 mr-1 font-mono text-[8px] text-[#c4a530] border border-[#c4a530] px-1">{cat}</span>
+                      ))
+                    })()}
                   </div>
-                  <span className="block text-[10px] text-grey-light normal-case">
-                    v{r.version} · {r.yieldQty} {r.yieldUnit?.name ?? ''}{r.menuItem ? ` · $${r.menuItem.price.toFixed(2)}` : ''}
-                  </span>
-                  {r.menuItem?.wooCategoryId && (() => {
-                    const cats = r.menuItem.wooCategoryId.split(',').map((c: string) => c.trim()).filter(Boolean)
-                    return cats.map((cat: string) => (
-                      <span key={cat} className="inline-block mt-0.5 mr-1 font-mono text-[8px] text-[#c4a530] border border-[#c4a530] px-1">{cat}</span>
-                    ))
-                  })()}
-                </button>
+                </ListRow>
               ))}
               {filteredOrphans.length > 0 && filteredRecipes.length > 0 && (
-                <div className="border-t border-grey-mid my-1 pt-1 px-2">
+                <div className="px-3 py-1">
                   <span className="font-mono text-[9px] text-warning uppercase">NEEDS RECIPE</span>
                 </div>
               )}
               {filteredOrphans.map((o) => (
-                <button key={o.id} onClick={() => populateOrphan(o)}
-                  className="w-full text-left px-2 py-1.5 font-mono text-xs uppercase border border-transparent text-[#c4a530] hover:border-grey-mid hover:text-white">
-                  <span className="block truncate">{o.name}</span>
-                  <span className="block text-[10px] text-grey-light normal-case">IMPORTED · ${o.price.toFixed(2)}</span>
-                </button>
+                <ListRow key={o.id} onClick={() => populateOrphan(o)}>
+                  <div className="min-w-0 flex-1">
+                    <span className="block truncate font-mono text-xs uppercase text-[#c4a530]">{o.name}</span>
+                    <span className="block text-[10px] text-grey-light">IMPORTED · ${o.price.toFixed(2)}</span>
+                  </div>
+                </ListRow>
               ))}
               {filteredRecipes.length === 0 && filteredOrphans.length === 0 && (
-                <p className="font-mono text-xs text-grey-light px-2 py-1">No recipes yet.</p>
+                <p className="font-mono text-xs text-grey-light px-3 py-2">No recipes yet.</p>
               )}
             </div>
-          </div>
+          </ListBox>
         </div>
 
         <div className="lg:col-span-9">
@@ -308,41 +334,34 @@ export function RecipesClient() {
                 </div>
 
                 {/* Line Items */}
-                <div className="border border-grey-mid p-3 space-y-3">
-                  <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">
-                    INGREDIENTS & SUB-RECIPES ({lineItems.length})
-                  </h3>
-                  {lineItems.length > 0 && (
-                    <div className="space-y-1">
-                      {lineItems.map((li) => {
+                <div className="space-y-3">
+                  <ListBox title="INGREDIENTS & SUB-RECIPES" count={lineItems.length}>
+                    {lineItems.length === 0 ? (
+                      <p className="font-mono text-xs text-grey-light px-3 py-2">NO INGREDIENTS YET.</p>
+                    ) : (
+                      lineItems.map((li) => {
                         const cid = li._clientId ?? li.id ?? ''
                         const uom = uoms.find((u) => u.id === li.uomId)
                         return (
-                          <div key={cid} className="flex items-center gap-2 text-xs font-mono">
-                            <span className="text-white flex-1 uppercase">{li.inventoryItemName ?? li.childRecipeName ?? '—'}</span>
+                          <ListRow key={cid}>
+                            <span className="text-white flex-1 min-w-0 truncate font-mono text-xs uppercase">{li.inventoryItemName ?? li.childRecipeName ?? '—'}</span>
                             {li.allergyInfo && li.allergyInfo.split(',').map((a: string) => a.trim()).filter(Boolean).map((allergen: string) => (
                               <span key={allergen} className="font-mono text-[8px] text-[#c4a530] border border-[#c4a530] px-1">{allergen}</span>
                             ))}
-                            <span className="text-grey-light">×{li.qty} {uom?.name ?? ''}</span>
-                            {li.childRecipeId && <span className="text-[10px] text-warning">SUB-RECIPE</span>}
-                            <button onClick={() => {
-                              if (li.inventoryItemId) { setNewItemType('inventory') } else { setNewItemType('recipe') }
-                              setNewItemId(li.inventoryItemId ?? li.childRecipeId ?? '')
-                              setNewItemQty(String(li.qty))
-                              setNewItemUomId(li.uomId)
-                              removeLineItem(cid)
-                            }}
-                              className="font-mono text-[10px] text-[#c4a530] border border-[#c4a530] px-1.5 py-0.5 hover:text-white hover:border-white uppercase"
+                            <span className="font-mono text-xs text-grey-light shrink-0">×{li.qty} {uom?.name ?? ''}</span>
+                            {li.childRecipeId && <span className="font-mono text-[10px] text-warning shrink-0">SUB-RECIPE</span>}
+                            <button onClick={() => openLineEdit(li)}
+                              className="font-mono text-[10px] text-[#c4a530] border border-[#c4a530] px-1.5 py-0.5 hover:text-white hover:border-white uppercase shrink-0"
                             >EDIT</button>
-                            <button onClick={() => removeLineItem(cid)} className="text-danger hover:text-white">✕</button>
-                          </div>
+                            <button onClick={() => removeLineItem(cid)} className="font-mono text-xs text-grey-light hover:text-danger shrink-0">✕</button>
+                          </ListRow>
                         )
-                      })}
-                    </div>
-                  )}
+                      })
+                    )}
+                  </ListBox>
 
                   <div className="flex items-center gap-2">
-                    <Combobox value={newItemId} onChange={(v) => {
+                    <SearchSelect value={newItemId} onChange={(v) => {
                       setNewItemId(v)
                       if (v) {
                         const isRecipe = otherRecipes.some((r) => r.id === v)
@@ -426,6 +445,35 @@ export function RecipesClient() {
           </div>
         </div>
       </div>
+
+      <Modal isOpen={editingLineId != null} onClose={() => setEditingLineId(null)} title="EDIT INGREDIENT" size="sm">
+        {(() => {
+          const li = lineItems.find((x) => (x._clientId ?? x.id ?? '') === editingLineId)
+          return (
+            <div className="space-y-4">
+              <div>
+                <label className="font-mono text-xs uppercase text-grey-light block mb-1">ITEM</label>
+                <p className="font-mono text-xs uppercase text-white">{li?.inventoryItemName ?? li?.childRecipeName ?? '—'}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">QTY</label>
+                  <Input type="number" step="0.01" value={editLineQty} onChange={(e) => setEditLineQty(e.target.value)} />
+                </div>
+                <div>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">UNIT</label>
+                  <Select value={editLineUomId} onChange={(e) => setEditLineUomId(e.target.value)}
+                    options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="UOM" />
+                </div>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <Button onClick={saveLineEdit} disabled={!editLineUomId}>SAVE</Button>
+                <Button variant="ghost" onClick={() => setEditingLineId(null)}>CANCEL</Button>
+              </div>
+            </div>
+          )
+        })()}
+      </Modal>
     </div>
   )
 }

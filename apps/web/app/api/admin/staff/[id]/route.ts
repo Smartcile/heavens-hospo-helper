@@ -8,6 +8,23 @@ interface Params {
   params: { id: string }
 }
 
+export async function GET(_req: NextRequest, { params }: Params) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const staff = await prisma.staff.findUnique({
+    where: { id: params.id },
+    select: {
+      id: true, firstName: true, lastName: true, email: true, role: true, venueId: true,
+      departmentId: true, isActive: true, hourlyRate: true, employmentType: true,
+      swiftPosId: true, myHrId: true, loadedReportsId: true,
+      sections: { select: { sectionId: true } },
+    },
+  })
+  if (!staff) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  return NextResponse.json(staff)
+}
+
 export async function PUT(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -20,6 +37,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     email,
     password,
     role,
+    venueId,
     departmentId,
     isActive,
     hourlyRate,
@@ -34,6 +52,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   if (firstName !== undefined) updates.firstName = String(firstName).toUpperCase().trim()
   if (lastName !== undefined) updates.lastName = String(lastName).toUpperCase().trim()
+  // Only ADMIN can move a staff member to another venue.
+  if (venueId !== undefined && session.user.role === 'ADMIN') updates.venueId = venueId
   if (departmentId !== undefined) updates.departmentId = departmentId ?? null
   if (isActive !== undefined) updates.isActive = isActive
   if (hourlyRate !== undefined) updates.hourlyRate = hourlyRate != null ? Number(hourlyRate) : null

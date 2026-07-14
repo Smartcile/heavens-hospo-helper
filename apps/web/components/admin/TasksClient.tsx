@@ -456,6 +456,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                         >
                           <span className="font-mono text-xs text-white truncate">{i + 1}. {t?.title ?? '(task removed)'}</span>
                           <div className="flex gap-2 flex-shrink-0">
+                            {t && <button type="button" onClick={() => openEdit(t)} className="font-mono text-xs uppercase text-grey-light hover:text-white">EDIT</button>}
                             <button type="button" disabled={i === 0} onClick={() => setClSelected((p) => moveItem(p, i, i - 1))} className="font-mono text-xs text-grey-light hover:text-white disabled:opacity-30">↑</button>
                             <button type="button" disabled={i === clSelected.length - 1} onClick={() => setClSelected((p) => moveItem(p, i, i + 1))} className="font-mono text-xs text-grey-light hover:text-white disabled:opacity-30">↓</button>
                             <button type="button" onClick={() => setClSelected((p) => p.filter((x) => x !== id))} className="font-mono text-xs text-grey-light hover:text-danger">✕</button>

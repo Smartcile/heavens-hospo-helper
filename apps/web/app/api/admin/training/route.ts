@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
     sectionIds,
     linkedResourceIds,
     departmentIds,
+    taskIds,
   } = body as {
     title: string
     description?: string

@@ -50,6 +50,45 @@ export async function GET() {
       select: { id: true, type: true, sectionId: true, label: true, _count: { select: { inventoryItems: true } } },
     }),
   ])
+
+  // Workflow links per task (mirrors the MAP edges): which checklists list a
+  // task (list-task), which training is its how-to guide (how-to), and which
+  // training it requires (requires). Rendered as coloured tags on each task.
+  const [linkChecklists, linkTraining] = await Promise.all([
+    prisma.checklist.findMany({
+      where: { deletedAt: null, venueId: { in: venueIds } },
+      select: { id: true, name: true, appearFromTime: true, tasks: { select: { taskId: true } } },
+    }),
+    prisma.trainingModule.findMany({
+      where: { deletedAt: null, venueId: { in: venueIds } },
+      select: {
+        id: true, title: true, kind: true, linkedTaskId: true,
+        steps: { select: { linkedTaskId: true } },
+        moduleTasks: { select: { taskId: true } },
+        requiredByTasks: { select: { taskId: true } },
+        _count: { select: { steps: true } },
+      },
+    }),
+  ])
+  type TaskLink = { label: string; colour: string; kind: string; targetId: string; targetType: string; targetSub: string }
+  const linksByTask = new Map<string, TaskLink[]>()
+  const pushLink = (taskId: string, link: TaskLink) => {
+    const arr = linksByTask.get(taskId) ?? []
+    if (!arr.some((l) => l.kind === link.kind && l.targetId === link.targetId)) arr.push(link)
+    linksByTask.set(taskId, arr)
+  }
+  for (const c of linkChecklists) {
+    const sub = `${c.tasks.length} TASK${c.tasks.length !== 1 ? 'S' : ''}${c.appearFromTime ? ` · FROM ${c.appearFromTime}` : ''}`
+    for (const ct of c.tasks) pushLink(ct.taskId, { label: c.name, colour: '#4ADE80', kind: 'list', targetId: c.id, targetType: 'CHECKLIST', targetSub: sub })
+  }
+  for (const m of linkTraining) {
+    const sub = `${m.kind} · ${m._count.steps} STEP${m._count.steps !== 1 ? 'S' : ''}`
+    const tType = m.kind === 'TRAINING' ? 'TRAINING MODULE' : m.kind
+    if (m.linkedTaskId) pushLink(m.linkedTaskId, { label: m.title, colour: '#F97316', kind: 'how-to', targetId: m.id, targetType: tType, targetSub: sub })
+    for (const mt of m.moduleTasks) pushLink(mt.taskId, { label: m.title, colour: '#F97316', kind: 'how-to', targetId: m.id, targetType: tType, targetSub: sub })
+    for (const st of m.steps) if (st.linkedTaskId) pushLink(st.linkedTaskId, { label: m.title, colour: '#F97316', kind: 'how-to', targetId: m.id, targetType: tType, targetSub: sub })
+    for (const rt of m.requiredByTasks) pushLink(rt.taskId, { label: m.title, colour: '#F87171', kind: 'requires', targetId: m.id, targetType: tType, targetSub: sub })
+  }
   const staffIdsBySection = new Map<string, string[]>()
   for (const ss of staffSections) {
     const arr = staffIdsBySection.get(ss.sectionId) ?? []
@@ -76,6 +115,7 @@ export async function GET() {
     active: t.isActive,
     scope: t.assignedToStaffId ? 'PERSON' : t.sectionId ? 'SECTION' : t.departmentId ? 'DEPARTMENT' : 'VENUE',
     assignee: t.assignedToStaffId ? staffName.get(t.assignedToStaffId) ?? null : null,
+    links: linksByTask.get(t.id) ?? [],
   })
   const fmtTraining = (t: (typeof training)[number]) => ({
     id: t.id,

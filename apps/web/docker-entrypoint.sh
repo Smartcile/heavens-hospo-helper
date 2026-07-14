@@ -23,7 +23,21 @@ cd /app
 # `migrate deploy` it keeps no migration history, so it can't get stuck in a
 # failed-migration (P3009) state and crash-loop the container — it just makes
 # the schema correct. Idempotent: on an up-to-date DB it's a no-op.
-npx prisma db push --schema=packages/db/prisma/schema.prisma --accept-data-loss --url="$DATABASE_URL"
+#
+# Fast path: --accept-data-loss (catches in-sync or near-sync DBs).
+# Fallback:  --force-reset when --accept-data-loss fails (handles one-time
+#            old-schema transition on production DBs with 60 incompatible
+#            BudgetDayAllocation rows). The seed is idempotent and repopulates
+#            budget data. After one force-reset, subsequent deploys use the
+#            fast path.
+npx prisma db push --schema=packages/db/prisma/schema.prisma --accept-data-loss --url="$DATABASE_URL" || {
+  echo ""
+  echo "⚠ db push --accept-data-loss failed — likely old table structure."
+  echo "▸ Falling back to --force-reset (drops and recreates all tables)..."
+  echo "  Budget data will be re-populated by the seed script."
+  npx prisma db push --schema=packages/db/prisma/schema.prisma --force-reset --url="$DATABASE_URL" || exit 1
+  echo "✓ Force-reset successful."
+}
 
 echo ""
 echo "▸ Seeding database (safe to re-run)..."

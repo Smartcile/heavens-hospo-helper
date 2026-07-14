@@ -445,6 +445,8 @@ export function FloorPlanPixiCanvas({
       const c = new PIXI.Container(); c.x = el.x; c.y = el.y
       c.rotation = (el.rotation ?? 0) * (Math.PI / 180)
       c.eventMode = 'static'; c.cursor = 'pointer'
+      c.on('pointerover', () => { if (!selectedIds.includes(el.id!)) c.alpha = 0.75 })
+      c.on('pointerout', () => { c.alpha = 1 })
       const fill = el.fillColour ?? '#6B6B6B'
       const nf = parseInt(fill.replace('#', ''), 16)
       const isElSelected = selectedIds.includes(el.id!)
@@ -656,6 +658,8 @@ export function FloorPlanPixiCanvas({
         c.x = item.x; c.y = item.y
         c.rotation = (item.rotation ?? 0) * (Math.PI / 180)
         c.eventMode = 'static'; c.cursor = 'pointer'
+        c.on('pointerover', () => { if (!setupSelectedIds?.includes(item.id)) c.alpha = 0.75 })
+        c.on('pointerout', () => { c.alpha = 1 })
 
         const fill = parseInt((item.colour ?? '#555').replace('#', ''), 16)
         const isSel = setupSelectedIds?.includes(item.id)

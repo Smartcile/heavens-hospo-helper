@@ -57,6 +57,7 @@ export function FloorPlansClient({ role, venueId: sessionVenueId }: { role: stri
   }
 
   async function handleCreate() {
+    if (!selectedVenueId) { setCreateError('SELECT A VENUE FIRST'); return }
     const { name, slug, roomWidth, roomDepth, gridUnit } = createForm
     if (!name.trim() || !slug.trim()) { setCreateError('NAME AND SLUG REQUIRED'); return }
     setCreating(true); setCreateError('')
@@ -71,8 +72,9 @@ export function FloorPlansClient({ role, venueId: sessionVenueId }: { role: stri
       setCreateForm({ name: '', slug: '', roomWidth: '2000', roomDepth: '1500', gridUnit: '50' })
       loadPlans()
     } else {
-      const d = await r.json()
-      setCreateError(d.error ?? 'CREATE FAILED')
+      let err = 'CREATE FAILED'
+      try { const d = await r.json(); err = d.error ?? err } catch { /* body is not JSON */ }
+      setCreateError(err)
     }
   }
 

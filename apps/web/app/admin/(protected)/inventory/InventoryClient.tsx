@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { Modal } from '@/components/ui/Modal'
 import { TableProfileForm } from '@/components/admin/TableProfileForm'
 
 interface Category { id: string; name: string; isBuiltIn: boolean; venueId: string | null; tab: string | null }
@@ -51,7 +52,7 @@ export function InventoryClient() {
   const [formExpiryDate, setFormExpiryDate] = useState('')
   const [formFallbackCatId, setFormFallbackCatId] = useState('')
   const [formAllergyInfo, setFormAllergyInfo] = useState('')
-  const [showDeepFields, setShowDeepFields] = useState(false)
+  const [showDeepFields, setShowDeepFields] = useState(true)
 
   // Table profile editor
   const [showTableProfile, setShowTableProfile] = useState(false)
@@ -61,7 +62,7 @@ export function InventoryClient() {
   function resetForm() {
     setFormName(''); setFormCat(''); setFormUnit('EA'); setFormPar('0'); setFormTotalQty('0')
     setFormCountingUnitId(''); setFormOrderingUnitId(''); setFormYield(''); setFormCostPrice('')
-    setFormExpiryDate(''); setFormFallbackCatId(''); setFormAllergyInfo(''); setShowDeepFields(false)
+    setFormExpiryDate(''); setFormFallbackCatId(''); setFormAllergyInfo(''); setShowDeepFields(true)
   }
 
   function populateForm(item: Item) {
@@ -411,66 +412,6 @@ export function InventoryClient() {
                           {idx < catItemList.length - 1 && (
                             <div className="mx-3 border-b border-grey-mid" />
                           )}
-
-                          {/* Inline property editor for non-furniture items */}
-                          {selectedItem?.id === item.id && !isFurnitureItem && (
-                            <div className="border-t border-grey-mid bg-grey-dark p-4 space-y-3">
-                              <div className="grid grid-cols-6 gap-2">
-                                <div className="col-span-4">
-                                  <Input label="NAME" value={formName} onChange={(e) => setFormName(e.target.value.toUpperCase())} placeholder="ITEM NAME" />
-                                </div>
-                                <div className="col-span-2">
-                                  <Select label="CATEGORY" value={formCat} onChange={(e) => setFormCat(e.target.value)}
-                                    options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="CATEGORY" />
-                                </div>
-                              </div>
-                              <div className="grid grid-cols-6 gap-2">
-                                <div className="col-span-2">
-                                  <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
-                                    options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
-                                </div>
-                                <div className="col-span-2">
-                                  <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
-                                </div>
-                                <div className="col-span-2">
-                                  <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
-                                </div>
-                              </div>
-                              <button onClick={() => setShowDeepFields(!showDeepFields)}
-                                className="font-mono text-[10px] uppercase text-grey-light hover:text-white">
-                                {showDeepFields ? '▾ DEEP INVENTORY' : '▸ DEEP INVENTORY'}
-                              </button>
-                              {showDeepFields && (
-                                <div className="grid grid-cols-6 gap-2 border-t border-grey-mid pt-3">
-                                  <div className="col-span-3">
-                                    <Select label="COUNTING UOM" value={formCountingUnitId} onChange={(e) => setFormCountingUnitId(e.target.value)}
-                                      options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
-                                  </div>
-                                  <div className="col-span-3">
-                                    <Select label="ORDERING UOM" value={formOrderingUnitId} onChange={(e) => setFormOrderingUnitId(e.target.value)}
-                                      options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
-                                  </div>
-                                  <div className="col-span-2">
-                                    <Input label="YIELD %" type="number" step="0.1" value={formYield} onChange={(e) => setFormYield(e.target.value)} />
-                                  </div>
-                                  <div className="col-span-2">
-                                    <Input label="COST PRICE" type="number" step="0.01" value={formCostPrice} onChange={(e) => setFormCostPrice(e.target.value)} />
-                                  </div>
-                                  <div className="col-span-2">
-                                    <Input label="EXPIRY DATE" type="date" value={formExpiryDate} onChange={(e) => setFormExpiryDate(e.target.value)} />
-                                  </div>
-                                  <div className="col-span-3">
-                                    <Select label="FALLBACK CATEGORY" value={formFallbackCatId} onChange={(e) => setFormFallbackCatId(e.target.value)}
-                                      options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="—" />
-                                  </div>
-                                </div>
-                              )}
-                              <div className="flex gap-2">
-                                <Button size="sm" onClick={handleSave} disabled={!formName || !formCat}>SAVE</Button>
-                                <Button size="sm" variant="ghost" onClick={() => { setSelectedItem(null); resetForm() }}>CANCEL</Button>
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )
                     })}
@@ -612,6 +553,68 @@ export function InventoryClient() {
           )}
         </div>
       </div>
+
+      <Modal isOpen={selectedItem != null} onClose={() => { setSelectedItem(null); resetForm() }} title="EDIT ITEM" size="lg">
+        <div className="space-y-3">
+          <div className="grid grid-cols-6 gap-2">
+            <div className="col-span-4">
+              <Input label="NAME" value={formName} onChange={(e) => setFormName(e.target.value.toUpperCase())} placeholder="ITEM NAME" />
+            </div>
+            <div className="col-span-2">
+              <Select label="CATEGORY" value={formCat} onChange={(e) => setFormCat(e.target.value)}
+                options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="CATEGORY" />
+            </div>
+          </div>
+          <div className="grid grid-cols-6 gap-2">
+            <div className="col-span-2">
+              <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
+                options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
+            </div>
+            <div className="col-span-2">
+              <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
+            </div>
+            <div className="col-span-2">
+              <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
+            </div>
+          </div>
+          <button onClick={() => setShowDeepFields(!showDeepFields)}
+            className="font-mono text-[10px] uppercase text-grey-light hover:text-white">
+            {showDeepFields ? '▾ DEEP INVENTORY' : '▸ DEEP INVENTORY'}
+          </button>
+          {showDeepFields && (
+            <div className="grid grid-cols-6 gap-2 border-t border-grey-mid pt-3">
+              <div className="col-span-3">
+                <Select label="COUNTING UOM" value={formCountingUnitId} onChange={(e) => setFormCountingUnitId(e.target.value)}
+                  options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
+              </div>
+              <div className="col-span-3">
+                <Select label="ORDERING UOM" value={formOrderingUnitId} onChange={(e) => setFormOrderingUnitId(e.target.value)}
+                  options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
+              </div>
+              <div className="col-span-2">
+                <Input label="YIELD %" type="number" step="0.1" value={formYield} onChange={(e) => setFormYield(e.target.value)} />
+              </div>
+              <div className="col-span-2">
+                <Input label="COST PRICE" type="number" step="0.01" value={formCostPrice} onChange={(e) => setFormCostPrice(e.target.value)} />
+              </div>
+              <div className="col-span-2">
+                <Input label="EXPIRY DATE" type="date" value={formExpiryDate} onChange={(e) => setFormExpiryDate(e.target.value)} />
+              </div>
+              <div className="col-span-3">
+                <Select label="FALLBACK CATEGORY" value={formFallbackCatId} onChange={(e) => setFormFallbackCatId(e.target.value)}
+                  options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="—" />
+              </div>
+              <div className="col-span-3">
+                <Input label="ALLERGENS" value={formAllergyInfo} onChange={(e) => setFormAllergyInfo(e.target.value.toUpperCase())} placeholder="GLUTEN, DAIRY, NUTS" />
+              </div>
+            </div>
+          )}
+          <div className="flex gap-2 pt-2">
+            <Button onClick={handleSave} disabled={!formName || !formCat}>SAVE</Button>
+            <Button variant="ghost" onClick={() => { setSelectedItem(null); resetForm() }}>CANCEL</Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

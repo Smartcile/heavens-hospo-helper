@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
+import { Modal } from '@/components/ui/Modal'
+import { TaskEditModal } from '@/components/admin/TaskEditModal'
+import { TrainingEditModal } from '@/components/admin/TrainingEditModal'
+import { StaffEditModal } from '@/components/admin/StaffEditModal'
 
 const StructureGraph = dynamic(
   () => import('@/components/admin/StructureGraph').then((m) => m.StructureGraph),
@@ -9,7 +13,8 @@ const StructureGraph = dynamic(
 )
 
 interface StaffNode { id: string; name: string; role: string }
-interface TaskNode { id: string; title: string; schedule: string; active: boolean; scope: string; assignee: string | null }
+interface TaskLink { label: string; colour: string; kind: string; targetId: string; targetType: string; targetSub: string }
+interface TaskNode { id: string; title: string; schedule: string; active: boolean; scope: string; assignee: string | null; links?: TaskLink[] }
 interface TrainingNode { id: string; title: string; kind: string; signOff: boolean; linkedToTask: boolean }
 interface SectionNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; floorPlan?: { tables: number; chairs: number; equip: number } }
 interface DeptNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; training: TrainingNode[]; sections: SectionNode[] }
@@ -39,6 +44,9 @@ export function StructureClient({ role }: { role: string }) {
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [view, setView] = useState<'tree' | 'map'>('tree')
+  const [connection, setConnection] = useState<{ task: TaskNode; link: TaskLink } | null>(null)
+  const [editMode, setEditMode] = useState(false)
+  const [editTarget, setEditTarget] = useState<{ type: 'task' | 'training' | 'staff'; id: string } | null>(null)
 
   async function load() {
     setLoading(true)
@@ -62,6 +70,22 @@ export function StructureClient({ role }: { role: string }) {
       return next
     })
 
+  function allKeys(): string[] {
+    const keys: string[] = []
+    for (const v of venues) {
+      keys.push(`v:${v.id}`, `vws:${v.id}`, `vwt:${v.id}`, `vwr:${v.id}`)
+      for (const d of v.departments) {
+        keys.push(`d:${d.id}`, `ds:${d.id}`, `dt:${d.id}`, `dr:${d.id}`)
+        for (const sec of d.sections) {
+          keys.push(`s:${sec.id}`, `ss:${sec.id}`, `st:${sec.id}`, `sf:${sec.id}`)
+        }
+      }
+    }
+    return keys
+  }
+  const expandAll = () => setOpen(new Set(allKeys()))
+  const collapseAll = () => setOpen(new Set())
+
   function Group({ k, label, count }: { k: string; label: string; count: number }) {
     if (count === 0) return null
     return (
@@ -74,10 +98,15 @@ export function StructureClient({ role }: { role: string }) {
 
   function StaffList({ items }: { items: StaffNode[] }) {
     return (
-      <div className="pl-5 space-y-0.5">
+      <div className="pl-5 divide-y divide-grey-mid border-t border-grey-mid">
         {items.map((s) => (
-          <div key={s.id} className="font-mono text-xs text-white">
-            {s.name} <span className="text-grey-light">· {s.role}</span>
+          <div
+            key={s.id}
+            onClick={editMode ? () => setEditTarget({ type: 'staff', id: s.id }) : undefined}
+            className={`font-mono text-xs text-white py-1 flex items-center gap-2 ${editMode ? 'cursor-pointer hover:bg-grey-mid/20 -mx-2 px-2' : ''}`}
+          >
+            <span>{s.name} <span className="text-grey-light">· {s.role}</span></span>
+            {editMode && <span className="ml-auto font-mono text-[10px] uppercase text-accent">EDIT</span>}
           </div>
         ))}
       </div>
@@ -85,13 +114,30 @@ export function StructureClient({ role }: { role: string }) {
   }
   function TaskList({ items }: { items: TaskNode[] }) {
     return (
-      <div className="pl-5 space-y-0.5">
+      <div className="pl-5 divide-y divide-grey-mid border-t border-grey-mid">
         {items.map((t) => (
-          <div key={t.id} className="font-mono text-xs text-white flex flex-wrap items-center gap-2">
+          <div
+            key={t.id}
+            onClick={editMode ? () => setEditTarget({ type: 'task', id: t.id }) : undefined}
+            className={`font-mono text-xs text-white flex flex-wrap items-center gap-2 py-1 ${editMode ? 'cursor-pointer hover:bg-grey-mid/20 -mx-2 px-2' : ''}`}
+          >
             <span className={t.active ? '' : 'text-grey-light line-through'}>{t.title}</span>
             <ScopeTag scope={t.scope} />
             <span className="text-grey-light text-[10px] uppercase">{t.schedule}</span>
             {t.assignee && <span className="text-accent text-[10px]">→ {t.assignee}</span>}
+            {(t.links ?? []).map((l, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setConnection({ task: t, link: l }) }}
+                className="inline-flex items-center gap-1 font-mono text-[10px] uppercase px-1.5 py-0.5 border-l-2 hover:bg-grey-mid/30 transition-colors cursor-pointer"
+                style={{ borderColor: l.colour, color: l.colour }}
+                title={`${l.kind === 'requires' ? 'REQUIRES TRAINING' : l.kind === 'how-to' ? 'HOW-TO GUIDE' : 'IN LIST'}: ${l.label} — CLICK FOR DETAILS`}
+              >
+                {l.kind === 'requires' ? '⊢ ' : l.kind === 'how-to' ? '↳ ' : '☰ '}{l.label}
+              </button>
+            ))}
+            {editMode && <span className="ml-auto font-mono text-[10px] uppercase text-accent">EDIT</span>}
           </div>
         ))}
       </div>
@@ -99,13 +145,18 @@ export function StructureClient({ role }: { role: string }) {
   }
   function TrainingList({ items }: { items: TrainingNode[] }) {
     return (
-      <div className="pl-5 space-y-0.5">
+      <div className="pl-5 divide-y divide-grey-mid border-t border-grey-mid">
         {items.map((t) => (
-          <div key={t.id} className="font-mono text-xs text-white flex flex-wrap items-center gap-2">
+          <div
+            key={t.id}
+            onClick={editMode ? () => setEditTarget({ type: 'training', id: t.id }) : undefined}
+            className={`font-mono text-xs text-white flex flex-wrap items-center gap-2 py-1 ${editMode ? 'cursor-pointer hover:bg-grey-mid/20 -mx-2 px-2' : ''}`}
+          >
             {t.title}
             <span className="text-grey-light text-[10px] uppercase">{t.kind}</span>
             {t.signOff && <span className="text-warning text-[10px] uppercase">sign-off</span>}
             {t.linkedToTask && <span className="text-success text-[10px] uppercase">↔ task</span>}
+            {editMode && <span className="ml-auto font-mono text-[10px] uppercase text-accent">EDIT</span>}
           </div>
         ))}
       </div>
@@ -132,13 +183,20 @@ export function StructureClient({ role }: { role: string }) {
             </button>
           </div>
           {view === 'tree' && (
-            <button onClick={load} className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors">REFRESH</button>
+            <>
+              <button onClick={() => setEditMode((v) => !v)} className={`font-mono text-xs uppercase border px-3 py-1.5 transition-colors ${editMode ? 'bg-accent text-black border-accent' : 'border-grey-mid text-white hover:border-white'}`}>{editMode ? 'EDIT MODE: ON' : 'EDIT MODE'}</button>
+              <button onClick={expandAll} className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors">EXPAND ALL</button>
+              <button onClick={collapseAll} className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors">COLLAPSE ALL</button>
+              <button onClick={load} className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors">REFRESH</button>
+            </>
           )}
         </div>
       </div>
       <p className="font-mono text-xs text-grey-light">
         {view === 'tree'
-          ? <>LIVE VIEW OF HOW EVERYTHING LINKS — VENUE → DEPARTMENT → <span className="text-white">SECTION</span> → STAFF · TASKS · TRAINING.</>
+          ? editMode
+            ? <span className="text-accent">EDIT MODE ON — CLICK ANY STAFF, TASK OR TRAINING ITEM TO EDIT IT.</span>
+            : <>LIVE VIEW OF HOW EVERYTHING LINKS — VENUE → DEPARTMENT → <span className="text-white">SECTION</span> → STAFF · TASKS · TRAINING.</>
           : <>VISUAL LINK MAP — TRACE HOW <span className="text-white">LISTS</span>, <span className="text-white">TASKS</span> AND <span className="text-white">TRAINING/SOP</span> CONNECT TO MAP OUT WORKFLOWS.</>}
       </p>
 
@@ -270,6 +328,50 @@ export function StructureClient({ role }: { role: string }) {
       {role === 'MANAGER' && (
         <p className="font-mono text-[10px] text-grey-light">SHOWING YOUR VENUE ONLY.</p>
       )}
+
+      {editTarget?.type === 'task' && (
+        <TaskEditModal taskId={editTarget.id} role={role} onClose={() => setEditTarget(null)} onSaved={() => { setEditTarget(null); load() }} />
+      )}
+      {editTarget?.type === 'training' && (
+        <TrainingEditModal moduleId={editTarget.id} onClose={() => setEditTarget(null)} onSaved={() => { setEditTarget(null); load() }} />
+      )}
+      {editTarget?.type === 'staff' && (
+        <StaffEditModal staffId={editTarget.id} role={role} onClose={() => setEditTarget(null)} onSaved={() => { setEditTarget(null); load() }} />
+      )}
+
+      <Modal isOpen={connection != null} onClose={() => setConnection(null)} title="CONNECTION" size="sm">
+        {connection && (() => {
+          const { task, link } = connection
+          const meta = link.kind === 'requires'
+            ? { title: 'REQUIRES TRAINING', desc: 'This task can only be completed by staff who hold this training (competency). Staff without it are flagged for follow-up.', from: task.title, arrow: 'REQUIRES', to: link.label, href: `/admin/training?module=${link.targetId}` }
+            : link.kind === 'how-to'
+            ? { title: 'HOW-TO GUIDE', desc: 'This training/SOP is the how-to guide for the task. It surfaces alongside the task so staff can learn how to do it.', from: link.label, arrow: 'GUIDES', to: task.title, href: `/admin/training?module=${link.targetId}` }
+            : { title: 'IN CHECKLIST', desc: 'This task is part of the checklist. Editing the task updates it everywhere the checklist is used.', from: link.label, arrow: 'INCLUDES', to: task.title, href: `/admin/tasks` }
+          return (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-3 h-3 border-l-2" style={{ borderColor: link.colour }} />
+                <span className="font-mono text-xs uppercase tracking-wider" style={{ color: link.colour }}>{meta.title}</span>
+              </div>
+              <div className="border border-grey-mid divide-y divide-grey-mid">
+                <div className="px-3 py-2 font-mono text-xs text-white uppercase">{meta.from}</div>
+                <div className="px-3 py-1 font-mono text-[10px] uppercase tracking-widest" style={{ color: link.colour }}>↓ {meta.arrow}</div>
+                <div className="px-3 py-2 font-mono text-xs text-white uppercase">{meta.to}</div>
+              </div>
+              <p className="font-mono text-xs text-grey-light">{meta.desc}</p>
+              <div className="border-l-2 pl-3 py-1 space-y-0.5" style={{ borderColor: link.colour }}>
+                <div className="font-mono text-[10px] uppercase tracking-wider text-grey-light">YOU CLICKED · {link.targetType}</div>
+                <div className="font-mono text-xs text-white uppercase">{link.label}</div>
+                <div className="font-mono text-[10px] uppercase text-grey-light">{link.targetSub}</div>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <a href={meta.href} target="_blank" rel="noreferrer" className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors">OPEN ↗</a>
+                <button onClick={() => setConnection(null)} className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:text-white hover:border-white transition-colors">CLOSE</button>
+              </div>
+            </div>
+          )
+        })()}
+      </Modal>
     </div>
   )
 }

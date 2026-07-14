@@ -6,8 +6,10 @@ guide: once you understand the spine (venue → department → section → work 
 knowledge → completion → follow-up), every screen makes sense.
 
 > **See it live:** the admin panel has a **Structure** page (`/admin/structure`)
-> that renders this tree from your real data — venues, departments, staff, tasks
-> and training, with counts. Use it as a visual review while we build the rest out.
+> with two views. The **TREE** tab renders this hierarchy from your real data —
+> venues, departments, staff, tasks and training, with counts. The **MAP** tab is
+> an interactive link graph of the whole web (nodes + relationship edges) for
+> mapping out workflows. Use it as a visual review while we build the rest out.
 
 ---
 
@@ -173,8 +175,11 @@ generalisation + one new link** — not a rebuild. All four phases are now live:
   `@@unique([venueId, staffId, kind, taskId, dueDate])`. In-app for now; push /
   WhatsApp is the next step.
 
-> The **Structure** page (`/admin/structure`) now renders the full live tree:
-> venue → department → **section** → staff / tasks / training.
+> The **Structure** page (`/admin/structure`) now renders the full live tree
+> (TREE tab): venue → department → **section** → staff / tasks / training — and a
+> **MAP** tab: an interactive link graph where you can click a node to trace how
+> lists, tasks and training/SOP connect (edges for list→task, how-to,
+> requires-training, embeds, related, scoping and assignment).
 
 ---
 

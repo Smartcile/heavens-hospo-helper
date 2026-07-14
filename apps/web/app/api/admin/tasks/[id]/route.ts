@@ -8,6 +8,24 @@ interface Params {
   params: { id: string }
 }
 
+export async function GET(_req: NextRequest, { params }: Params) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const task = await prisma.task.findUnique({
+    where: { id: params.id },
+    select: {
+      id: true, title: true, description: true, venueId: true, departmentId: true, sectionId: true,
+      assignedToStaffId: true,
+      completionType: true, scheduleType: true, scheduleDays: true, customCron: true,
+      intervalMonths: true, monthlyOption: true, monthlyDay: true, isActive: true,
+      requiredTraining: { select: { moduleId: true } },
+    },
+  })
+  if (!task) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  return NextResponse.json(task)
+}
+
 export async function PUT(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
