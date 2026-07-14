@@ -24,6 +24,9 @@
 ✅ **WooCommerce Integration** — Webhook handler (HMAC auth, order upsert, recipe explosion, auto-seating), product sync cron, expiry scan cron, EOD reconciliation
 ✅ **Settings** — WooCommerce section (store URL, consumer key/secret, webhook secret, active toggle with lastSync display)
 ✅ **Orders Dashboard** — Read-only table sorted by fulfillmentDate, expandable line items, auto-seating status indicator
+✅ **Gift Cards** — Full lifecycle: bulk-create blank cards (YYYYNNNN numbering), issue with customer details + amount (jspdf PDF template), send via nodemailer/SMTP, WooCommerce webhook auto-detection (SKU matching), status workflow (DRAFT → ISSUED → SENT → REDEEMED/VOIDED/EXPIRED), admin UI with card pool + issue panel
+☐ **Gift Cards — persistent SMTP settings** — store SMTP credentials in Settings page or env vars so they don't need re-entry each send
+☐ **Gift Cards — WooCommerce order auto-completion** — when a gift card is issued for a WooCommerce-linked order, call the WooCommerce REST API to mark the order completed and add a private note with the gift card number
 ☐ **Phase 5: Inventory Deduction** — Reverse UOM conversion from base units → item counts during EOD reconciliation
 ☐ **Phase 6: Time Clock & Payroll** — Geo-fenced time punches, shift auto-calculation, payroll export
 
@@ -242,3 +245,7 @@ end-to-end (several were aspirational in Phase 2.5). Supersedes the "magnetic sn
 - Prisma 7 PG adapter: `prisma.config.ts` replaces `package.json#prisma`; schema `datasource.url` removed in favour of config file + PG pool
 - `ts-node` replaced with `tsx` for seed scripts
 - Tailwind CSS 4: config migrated to CSS `@theme` directives; `tailwind.config.ts` deleted
+- Inventory delete protection — API checks against ElementInventoryItem + StocktakeLineItem before allowing soft-delete of categories/items
+- Chair snap-to-table edge — auto-snap chairs to nearest table edge on drag-end
+- Two-layer canvas rendering — dedicated FIXTURE layer below FURNITURE layer in PixiJS (currently done via type-sort in the element array)
+- PNG export — PixiJS-based image export replacing old Konva `toDataURL`
