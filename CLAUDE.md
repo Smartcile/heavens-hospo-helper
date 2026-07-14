@@ -29,10 +29,10 @@ hospo-ops/
 ├── apps/
 │   └── web/                        # Next.js app (admin + worker UI)
 │       ├── app/
+│       │   ├── page.tsx            # / — split-screen landing (worker link + admin login)
 │       │   ├── admin/
-│       │   │   ├── (protected)/    # Auth-gated admin routes (/admin/*)
-│       │   │   │   └── floorplan/  # Floor plan editor (/admin/floorplan)
-│       │   │   └── login/          # /admin/login — public
+│       │   │   └── (protected)/    # Auth-gated admin routes (/admin/*)
+│       │   │       └── floorplan/  # Floor plan editor (/admin/floorplan)
 │       │   ├── w/
 │       │   │   ├── (authenticated)/# PIN-gated worker routes (/w/*)
 │       │   │   │   └── floorplan/  # Worker floor plan view (/w/floorplan)
@@ -452,11 +452,27 @@ LoadedReports. These are editable in the Staff form now; automated sync is a
 future item (see ROADMAP). `email` doubles as a natural cross-system match key.
 
 ### Live structure map
-`/admin/structure` (`StructureClient` + `GET /api/admin/structure`) renders the
-live entity tree — venue → department → section → staff / tasks / training, plus a
-venue-wide bucket — as collapsible nodes with counts. Manager sees own venue,
-admin sees all. The API also extends with `floorPlan { tables, chairs, equip }`
-per section. It's a read-only visual review.
+`/admin/structure` (`StructureClient`) has two views, toggled by a **TREE / MAP** tab:
+
+- **TREE** (`GET /api/admin/structure`) renders the live entity tree — venue →
+  department → section → staff / tasks / training, plus a venue-wide bucket — as
+  collapsible nodes with counts. The API also extends with
+  `floorPlan { tables, chairs, equip }` per section.
+- **MAP** (`GET /api/admin/structure/graph`) is an interactive node-graph
+  (`StructureGraph`, React Flow / `@xyflow/react`, dynamic `ssr:false`) for
+  mapping out workflows — how **lists** talk to **tasks** and **training/SOP**.
+  Nodes are laid out left→right in workflow order (venue → department → section →
+  staff → checklist → task → training) and edges encode every real relationship:
+  `contains`/`member`/`works` (hierarchy), `scope` (dept/section scoping),
+  `assigned` (task→person), `list-task` (checklist→task), `how-to`
+  (module/step→task via `linkedTask`/`ModuleTask`/`StepLinkedTask`), `requires`
+  (`TaskRequiredTraining`), `embeds` (step→checklist), `related` (`ResourceLink`).
+  Click a node to focus it (its links highlight/animate, the rest dim); type-chip
+  filters hide/show any layer; venue selector, drag, zoom, minimap. Layout/focus
+  logic lives in the pure, unit-tested `lib/structure-graph.ts`
+  (`buildGraphLayout`, `focusNeighbours`).
+
+Manager sees own venue, admin sees all. Both views are read-only visual reviews.
 
 ### Responsive admin nav
 `AdminNav` renders a static sidebar on `md+` and, on mobile, a fixed top bar with
@@ -542,7 +558,8 @@ write-up in `ECOSYSTEM.md`; keep it in sync.
 ### Route structure
 - Admin routes live under `app/admin/(protected)/` — the inner route group applies the auth layout without affecting URL structure.
 - Worker routes live under `app/w/(authenticated)/` — same pattern.
-- Login pages (`/admin/login`, `/w/login`) are outside the protected groups so they don't inherit the auth check.
+- The **landing page (`/`)** is a split screen: the left panel links to the worker area (`/w/login`); the right panel is the admin email/password login (inline `signIn`). There is **no separate `/admin/login` page** — the old one was removed and its login form now lives on `/`. NextAuth `signIn` page, the middleware guard on `/admin/*`, the protected admin layout, and the AdminNav sign-out all redirect to `/`. The worker venue picker also has an "ADMIN PANEL" box that links back to `/`.
+- Worker login (`/w/login`) is outside the authenticated group so it doesn't inherit the auth check.
 
 ### Soft deletes everywhere
 Every model has `deletedAt DateTime?`. Set `deletedAt: new Date()` to delete. Never use Prisma `delete()`. Always add `where: { deletedAt: null }` to all queries.

@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
 
     const modules = await prisma.trainingModule.findMany({
       where: { venueId: session.venueId, deletedAt: null, isActive: true },
-      select: { id: true, title: true, venueId: true, kind: true },
+      select: { id: true, title: true, venueId: true, kind: true, description: true },
       orderBy: { title: 'asc' },
     })
     return NextResponse.json(modules)

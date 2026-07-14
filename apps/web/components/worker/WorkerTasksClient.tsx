@@ -6,6 +6,7 @@ import type { WorkerTaskView } from '@hospo-ops/types'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
+import { Combobox } from '@/components/ui/Combobox'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { moveItem } from '@/lib/array'
 
@@ -39,7 +40,7 @@ interface ChecklistFull {
 
 interface Department { id: string; name: string; venueId: string; colour: string | null }
 interface Section { id: string; name: string; departmentId: string; venueId: string }
-interface TrainingLite { id: string; title: string; venueId: string; kind: string }
+interface TrainingLite { id: string; title: string; venueId: string; kind: string; description: string | null }
 
 const EMPTY_TASK_FORM: TaskForm = {
   title: '', description: '', departmentId: '', sectionId: '',
@@ -105,6 +106,35 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   const [clSelected, setClSelected] = useState<string[]>([])
   const [clSaving, setClSaving] = useState(false)
   const [clError, setClError] = useState('')
+
+  // Quick task form
+  const [quickOpen, setQuickOpen] = useState(false)
+  const [quickTitle, setQuickTitle] = useState('')
+  const [quickDesc, setQuickDesc] = useState('')
+  const [quickDue, setQuickDue] = useState('')
+  const [quickRollover, setQuickRollover] = useState(false)
+  const [quickSaving, setQuickSaving] = useState(false)
+
+  async function handleQuickTask() {
+    if (!quickTitle.trim()) return
+    setQuickSaving(true)
+    const r = await fetch('/api/worker/quick-task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: quickTitle,
+        description: quickDesc || null,
+        dueDate: quickDue || null,
+        rolloverEnabled: quickRollover,
+      }),
+    })
+    setQuickSaving(false)
+    if (r.ok) {
+      setQuickOpen(false)
+      setQuickTitle(''); setQuickDesc(''); setQuickDue(''); setQuickRollover(false)
+      load()
+    }
+  }
 
   const expiryMinutes = Number(process.env.NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES ?? 15)
 
@@ -399,6 +429,9 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <CompletionTypeIcon type={t.completionType} />
               {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
+              {(t.rolledOverFrom || (t.isOneOff && t.dueDate && !t.isCompleted)) && (
+                <span className="font-mono text-xs text-warning uppercase">⚠ ROLLED OVER</span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -433,6 +466,9 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               <CompletionTypeIcon type={t.completionType} />
               {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
               {t.guide && <span className="font-mono text-xs text-grey-light">📖 GUIDE</span>}
+              {(t.rolledOverFrom || (t.isOneOff && t.dueDate && !t.isCompleted)) && (
+                <span className="font-mono text-xs text-warning uppercase">⚠ ROLLED OVER</span>
+              )}
             </div>
           </div>
         </div>
@@ -495,6 +531,12 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setQuickOpen(!quickOpen); setQuickTitle(''); setQuickDesc(''); setQuickDue(''); setQuickRollover(false) }}
+              className="font-mono text-xs uppercase font-bold tracking-wider px-3 py-2 border border-success text-success hover:bg-success hover:text-black transition-colors"
+            >
+              + QUICK TASK
+            </button>
             {isAdminOrManager && (
               <button
                 onClick={() => { const next = !isEditMode; setIsEditMode(next); if (next && editDepts.length === 0) loadEditData() }}
@@ -507,6 +549,48 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             )}
           </div>
         </div>
+
+        {/* Quick task form */}
+        {quickOpen && (
+          <div className="mt-3 border border-success/30 bg-grey-dark p-3 space-y-2">
+            <h3 className="font-mono text-xs uppercase text-success tracking-wider">QUICK SIDE-WORK TASK</h3>
+            <input
+              value={quickTitle}
+              onChange={(e) => setQuickTitle(e.target.value)}
+              placeholder="WHAT NEEDS DOING?"
+              className="w-full bg-black border border-grey-mid text-white font-mono text-sm px-3 py-2 outline-none focus:border-white placeholder:text-grey-light"
+            />
+            <textarea
+              value={quickDesc}
+              onChange={(e) => setQuickDesc(e.target.value)}
+              placeholder="EXTRA DETAILS (OPTIONAL)..."
+              rows={2}
+              className="w-full bg-black border border-grey-mid text-white font-sans text-xs px-3 py-2 outline-none focus:border-white resize-none placeholder:text-grey-light"
+            />
+            <div className="flex items-center gap-3 flex-wrap">
+              <label className="flex items-center gap-2 font-mono text-xs text-grey-light">
+                <input type="date" value={quickDue} onChange={(e) => setQuickDue(e.target.value)}
+                  className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white" />
+                DUE DATE
+              </label>
+              <label className="flex items-center gap-2 font-mono text-xs text-grey-light cursor-pointer">
+                <input type="checkbox" checked={quickRollover} onChange={(e) => setQuickRollover(e.target.checked)}
+                  className="accent-success w-4 h-4" />
+                ROLL OVER IF NOT DONE
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleQuickTask} disabled={quickSaving}
+                className="font-mono text-xs uppercase font-bold tracking-wider px-4 py-2 bg-success text-black hover:opacity-90 disabled:opacity-40">
+                {quickSaving ? 'SAVING_' : 'CREATE'}
+              </button>
+              <button onClick={() => setQuickOpen(false)}
+                className="font-mono text-xs uppercase px-4 py-2 border border-grey-mid text-grey-light hover:border-white hover:text-white">
+                CANCEL
+              </button>
+            </div>
+          </div>
+        )}
 
         {isEditMode && isAdminOrManager && (
           <div className="mt-3 py-2 px-3 border border-warning text-warning font-mono text-xs uppercase tracking-widest flex items-center gap-2">
@@ -581,6 +665,9 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                           <CompletionTypeIcon type={t.completionType} />
                           {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
                           {t.guide && <span className="font-mono text-xs text-grey-light">📖 GUIDE</span>}
+                          {(t.rolledOverFrom || (t.isOneOff && t.dueDate && !t.isCompleted)) && (
+                            <span className="font-mono text-xs text-warning uppercase">⚠ ROLLED OVER</span>
+                          )}
                         </div>
                       </div>
                     </button>
@@ -847,22 +934,13 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             )}
 
             {editTraining.filter(m => m.kind === 'TRAINING').length > 0 && (
-              <div className="flex flex-col gap-1">
-                <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Required Training</label>
-                <div className="flex flex-wrap gap-1">
-                  {editTraining.filter(m => m.kind === 'TRAINING').map(m => (
-                    <button key={m.id} type="button" onClick={() => toggleRequired(m.id)}
-                      className={`font-mono text-xs px-2 py-1.5 border transition-colors ${
-                        taskForm.requiredTrainingIds.includes(m.id)
-                          ? 'bg-warning text-black border-warning'
-                          : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
-                      }`}
-                    >
-                      {m.title}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <Combobox
+                label="Required Training"
+                options={editTraining.filter(m => m.kind === 'TRAINING').map(m => ({ value: m.id, label: m.title, description: m.description }))}
+                selected={taskForm.requiredTrainingIds}
+                onChange={(ids) => setTaskForm({ ...taskForm, requiredTrainingIds: ids })}
+                placeholder="Search training..."
+              />
             )}
 
             {taskEditing && (
@@ -979,12 +1057,12 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                 )}
               </div>
 
-              <Select value=""
-                onChange={(e) => { if (e.target.value) setClSelected([...clSelected, e.target.value]) }}
-                options={[
-                  { value: '', label: '+ ADD A TASK\u2026' },
-                  ...editTasks.filter(et => !clSelected.includes(et.id)).map(et => ({ value: et.id, label: et.title })),
-                ]} />
+              <Combobox
+                options={editTasks.filter(et => !clSelected.includes(et.id)).map(et => ({ value: et.id, label: et.title, description: et.description }))}
+                selected={clSelected}
+                onChange={(ids) => setClSelected(ids)}
+                placeholder="+ ADD A TASK..."
+              />
             </div>
 
             {clError && <p className="font-mono text-xs text-danger">{clError}</p>}

@@ -94,5 +94,12 @@ export async function POST(req: NextRequest) {
     },
   })
 
+  if (reqIds.length > 0) {
+    await prisma.trainingModule.updateMany({
+      where: { id: { in: reqIds } },
+      data: { linkedTaskId: task.id },
+    })
+  }
+
   return NextResponse.json(task, { status: 201 })
 }

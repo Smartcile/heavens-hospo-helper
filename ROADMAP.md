@@ -164,7 +164,7 @@ end-to-end (several were aspirational in Phase 2.5). Supersedes the "magnetic sn
 ✅ **Two-layer UX** — base plan dims + locks while a setup is active; base-only tools (SECTIONS / DRAW BOOTH) hidden in setup mode.
 ✅ **Per-event auto-layout** — **⚡ GENERATE** places + numbers tables for a party size via `lib/auto-seat.ts` (bin-packing extracted from the WooCommerce auto-seater).
 ✅ **Fixes** — undo/redo now covers setups + zones; stale room-dimension closure in the Pixi init effect; dead Konva `FloorPlanElementVisual` removed.
-✅ **Vitest** — 232 tests across 31 files (added `floorplan-chairs.test.ts` ×11, `auto-seat.test.ts` ×7, section-totals ×3).
+✅ **Vitest** — 143 tests across 25 files covering libs (budget-math, scheduling, breaks, calendar, ical, booth-trace, training, retrain, followups, external-sync, worker-session, utils, array), admin components (AdminNav, FloorPlanEditor, FloorPlansClient, FloorplanInspector, FloorplanToolbar, BudgetPageClient, CalendarClient), UI primitives (Button, Input, Select), and worker components (WorkerTasksClient). Regression test for React error #310 included. CI gate runs `lint && test` before Docker build.
 
 ## PHASE 3 — TRAINING (prev. Phase 3, unchanged)
 ✅ **Training modules / guides** — authored in admin, with step-by-step content, **photos** (upload) and **video links**
@@ -241,7 +241,7 @@ end-to-end (several were aspirational in Phase 2.5). Supersedes the "magnetic sn
 - File uploads are local disk only — not suitable for multi-server deployments
 - No rate limiting on PIN login endpoint — to be added before public exposure
 - Konva + react-konva removed from dependencies
-- ESLint moved to flat config with eslint-config-next 15
+- ESLint moved to flat config with eslint-config-next 15; `.eslintrc.json` enforces `react-hooks/rules-of-hooks: error` to block conditional hook calls in CI
 - Prisma 7 PG adapter: `prisma.config.ts` replaces `package.json#prisma`; schema `datasource.url` removed in favour of config file + PG pool
 - `ts-node` replaced with `tsx` for seed scripts
 - Tailwind CSS 4: config migrated to CSS `@theme` directives; `tailwind.config.ts` deleted
@@ -249,3 +249,9 @@ end-to-end (several were aspirational in Phase 2.5). Supersedes the "magnetic sn
 - Chair snap-to-table edge — auto-snap chairs to nearest table edge on drag-end
 - Two-layer canvas rendering — dedicated FIXTURE layer below FURNITURE layer in PixiJS (currently done via type-sort in the element array)
 - PNG export — PixiJS-based image export replacing old Konva `toDataURL`
+- `.npmrc` with `hoist=true` ensures npm workspace transitive dependencies resolve in CI
+
+## RECENT FIXES (2026-07)
+- **Budget migration ordering** — `docker-entrypoint.sh` now runs data migration (BudgetDayAllocation → BudgetDay + BudgetCategory) BEFORE `prisma db push`, so live databases with old-format rows safely transition instead of crash-looping
+- **FloorPlanEditor hook-ordering fix** — moved `useMemo` above loading gate to prevent React error #310 in production; `Array.isArray` guard prevents `furnitureItems.map()` crashes
+- **CI quality gate** — `docker-build.yml` runs `npm run lint` and `npx vitest run` before the Docker build; broken code never ships

@@ -1,6 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import dynamic from 'next/dynamic'
+
+const StructureGraph = dynamic(
+  () => import('@/components/admin/StructureGraph').then((m) => m.StructureGraph),
+  { ssr: false, loading: () => <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p> },
+)
 
 interface StaffNode { id: string; name: string; role: string }
 interface TaskNode { id: string; title: string; schedule: string; active: boolean; scope: string; assignee: string | null }
@@ -32,6 +38,7 @@ export function StructureClient({ role }: { role: string }) {
   const [venues, setVenues] = useState<VenueNode[]>([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState<Set<string>>(new Set())
+  const [view, setView] = useState<'tree' | 'map'>('tree')
 
   async function load() {
     setLoading(true)
@@ -109,13 +116,35 @@ export function StructureClient({ role }: { role: string }) {
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="font-mono text-xl font-bold uppercase tracking-widest">STRUCTURE</h1>
-        <button onClick={load} className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors">REFRESH</button>
+        <div className="flex items-center gap-2">
+          <div className="flex border border-grey-mid">
+            <button
+              onClick={() => setView('tree')}
+              className={`font-mono text-xs uppercase px-3 py-1.5 transition-colors ${view === 'tree' ? 'bg-white text-black' : 'text-grey-light hover:text-white'}`}
+            >
+              TREE
+            </button>
+            <button
+              onClick={() => setView('map')}
+              className={`font-mono text-xs uppercase px-3 py-1.5 transition-colors ${view === 'map' ? 'bg-white text-black' : 'text-grey-light hover:text-white'}`}
+            >
+              MAP
+            </button>
+          </div>
+          {view === 'tree' && (
+            <button onClick={load} className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors">REFRESH</button>
+          )}
+        </div>
       </div>
       <p className="font-mono text-xs text-grey-light">
-        LIVE VIEW OF HOW EVERYTHING LINKS — VENUE → DEPARTMENT → <span className="text-white">SECTION</span> → STAFF · TASKS · TRAINING.
+        {view === 'tree'
+          ? <>LIVE VIEW OF HOW EVERYTHING LINKS — VENUE → DEPARTMENT → <span className="text-white">SECTION</span> → STAFF · TASKS · TRAINING.</>
+          : <>VISUAL LINK MAP — TRACE HOW <span className="text-white">LISTS</span>, <span className="text-white">TASKS</span> AND <span className="text-white">TRAINING/SOP</span> CONNECT TO MAP OUT WORKFLOWS.</>}
       </p>
 
-      {loading ? (
+      {view === 'map' ? (
+        <StructureGraph />
+      ) : loading ? (
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
       ) : venues.length === 0 ? (
         <p className="font-mono text-xs text-grey-light">NO VENUES FOUND.</p>

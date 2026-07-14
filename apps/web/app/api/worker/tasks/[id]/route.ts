@@ -70,6 +70,17 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         data: requiredTrainingIds.map((moduleId: string) => ({ taskId: task.id, moduleId })),
       })
     }
+    // Sync linkedTaskId back to modules (bidirectional)
+    await prisma.trainingModule.updateMany({
+      where: { linkedTaskId: task.id, id: { notIn: requiredTrainingIds } },
+      data: { linkedTaskId: null },
+    })
+    if (requiredTrainingIds.length > 0) {
+      await prisma.trainingModule.updateMany({
+        where: { id: { in: requiredTrainingIds } },
+        data: { linkedTaskId: task.id },
+      })
+    }
   }
 
   return NextResponse.json(task)

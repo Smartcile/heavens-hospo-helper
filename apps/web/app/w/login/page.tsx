@@ -186,6 +186,15 @@ function VenuePicker() {
             </button>
           ))}
         </div>
+
+        <button
+          onClick={() => router.push('/')}
+          className="w-full border border-grey-mid p-4 text-center hover:border-white transition-colors active:bg-black"
+        >
+          <span className="font-mono text-xs uppercase tracking-wider text-grey-light">
+            ← ADMIN PANEL
+          </span>
+        </button>
       </div>
     </div>
   )

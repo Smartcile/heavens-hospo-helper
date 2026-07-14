@@ -158,7 +158,7 @@ function SignOutButton() {
   return (
     <div className="p-4 border-t border-grey-mid">
       <button
-        onClick={() => signOut({ callbackUrl: '/admin/login' })}
+        onClick={() => signOut({ callbackUrl: '/' })}
         className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors tracking-wider"
       >
         SIGN OUT
@@ -209,7 +209,7 @@ export function AdminNav({ role, venueId, defaultVenueId }: { role: string; venu
           </svg>
         </button>
         <div className="font-mono font-bold text-sm uppercase tracking-widest text-white truncate">{appName}</div>
-        <button onClick={() => signOut({ callbackUrl: '/admin/login' })} className="font-mono text-[10px] uppercase tracking-wider text-grey-light hover:text-danger transition-colors px-1">
+        <button onClick={() => signOut({ callbackUrl: '/' })} className="font-mono text-[10px] uppercase tracking-wider text-grey-light hover:text-danger transition-colors px-1">
           EXIT
         </button>
       </header>

@@ -137,6 +137,26 @@ function TrainingInner() {
                   </div>
                 </div>
               )}
+              {(s.linkedTasks ?? []).length > 0 && (
+                <div className="border border-grey-mid">
+                  <div className="px-3 py-2 border-b border-grey-mid font-mono text-xs uppercase text-grey-light">LINKED TASKS</div>
+                  <div className="divide-y divide-grey-mid">
+                    {s.linkedTasks!.map((t: any) => (
+                      <div key={t.id} className="px-3 py-2 font-mono text-xs text-white">{t.title}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(s.linkedModules ?? []).length > 0 && (
+                <div className="border border-grey-mid">
+                  <div className="px-3 py-2 border-b border-grey-mid font-mono text-xs uppercase text-grey-light">LINKED MODULES</div>
+                  <div className="divide-y divide-grey-mid">
+                    {s.linkedModules!.map((m: any) => (
+                      <div key={m.id} className="px-3 py-2 font-mono text-xs text-white">{m.title} <span className="text-grey-light">({m.kind})</span></div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ))}
 

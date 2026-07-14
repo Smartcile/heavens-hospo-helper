@@ -160,16 +160,20 @@ export interface WorkerTaskView {
   completionType: string
   departmentName: string | null
   sectionName: string | null
-  assigneeName: string | null      // nominally assigned to this person (still shared)
+  assigneeName: string | null
   guide: { id: string; title: string } | null
   isCompleted: boolean
-  completedByName: string | null   // who ticked it (shared list — done for everyone)
+  completedByName: string | null
   completion: {
     id: string
     note: string | null
     photoUrl: string | null
     completedAt: Date
   } | null
+  isOneOff: boolean
+  dueDate: string | null
+  rolloverEnabled: boolean
+  rolledOverFrom: string | null
 }
 
 // ── FLOOR PLAN SPATIAL ENGINE ──

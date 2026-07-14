@@ -18,6 +18,8 @@ export interface StaffTrainingItem {
     imageUrl: string | null
     videoUrl: string | null
     linkedChecklist: { id: string; name: string; tasks: { id: string; title: string }[] } | null
+    linkedTasks: { id: string; title: string }[]
+    linkedModules: { id: string; title: string; kind: string }[]
   }[]
   source: 'ONBOARDING' | 'DEPARTMENT' | 'ASSIGNED'
   assignmentReason: string | null
@@ -75,6 +77,8 @@ export async function getStaffTraining(staffId: string): Promise<{
               tasks: { orderBy: { sortOrder: 'asc' }, include: { task: { select: { id: true, title: true, deletedAt: true } } } },
             },
           },
+          stepTasks: { include: { task: { select: { id: true, title: true } } } },
+          stepModules: { include: { module: { select: { id: true, title: true, kind: true } } } },
         },
       },
       department: { select: { id: true, name: true } },
@@ -136,6 +140,10 @@ export async function getStaffTraining(staffId: string): Promise<{
                 .map((ct) => ({ id: ct.task.id, title: ct.task.title })),
             }
           : null,
+        linkedTasks: (s.stepTasks ?? []).map((st: any) => ({ id: st.task.id, title: st.task.title })),
+        linkedModules: (s.stepModules ?? []).map((sm: any) => ({ id: sm.module.id, title: sm.module.title, kind: sm.module.kind })),
+        linkedTasks: (s.stepTasks ?? []).map((st) => ({ id: st.task.id, title: st.task.title })),
+        linkedModules: (s.stepModules ?? []).map((sm) => ({ id: sm.module.id, title: sm.module.title, kind: sm.module.kind })),
       })),
       source,
       assignmentReason: reasonByModule.get(m.id) ?? null,

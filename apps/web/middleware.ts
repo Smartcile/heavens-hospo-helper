@@ -5,11 +5,11 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
   // Admin routes — check NextAuth session
-  if (pathname.startsWith('/admin') && !pathname.startsWith('/admin/login')) {
+  if (pathname.startsWith('/admin')) {
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET })
     if (!token) {
       const loginUrl = req.nextUrl.clone()
-      loginUrl.pathname = '/admin/login'
+      loginUrl.pathname = '/'
       return NextResponse.redirect(loginUrl)
     }
   }
@@ -18,5 +18,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/((?!login).*)'],
+  matcher: ['/admin/:path*'],
 }

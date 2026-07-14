@@ -135,6 +135,7 @@ model Department {
   sections Section[]
   checklists Checklist[]
   budgetCategories BudgetCategory[]
+  moduleDepartments ModuleDepartment[]
 }
 
 model Staff {
@@ -195,6 +196,11 @@ model Task {
   monthlyDay        Int?         // MONTHLY + SPECIFIC_DAY: day of month (1-31, clamped)
   isActive          Boolean      @default(true)
   sortOrder         Int          @default(0)
+  // One-off / side-work task
+  isOneOff          Boolean      @default(false) // ad-hoc task (not recurring)
+  dueDate           DateTime?    @db.Date       // must be completed by this date
+  rolloverEnabled   Boolean      @default(false) // if not done by dueDate, show again next day
+  rolledOverFrom    DateTime?    @db.Date       // if this is a rollover copy, the original date
   version           Int          @default(1) // bumped on a "significant change" (drives re-train)
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
@@ -205,10 +211,12 @@ model Task {
   section          Section?         @relation(fields: [sectionId], references: [id])
   taskCompletions  TaskCompletion[]
   trainingSteps    TrainingStep[]   @relation("StepLinkedTask")
+  stepTasks        StepTask[]
   trainingModules  TrainingModule[] @relation("ModuleLinkedTask")
   requiredTraining TaskRequiredTraining[]
   checklistLinks   ChecklistTask[]
   followUps        FollowUp[]
+  moduleTasks      ModuleTask[]
 }
 
 model TaskCompletion {
@@ -302,6 +310,33 @@ model TrainingModule {
   linksFrom   ResourceLink[] @relation("ResourceLinkFrom")
   linksTo     ResourceLink[] @relation("ResourceLinkTo")
   followUps   FollowUp[]
+  moduleDepartments ModuleDepartment[]
+  moduleTasks       ModuleTask[]
+  stepModules       StepModule[]
+
+  @@index([venueId])
+}
+
+model ModuleDepartment {
+  id         String @id @default(uuid())
+  moduleId   String
+  departmentId String
+
+  module     TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  department Department     @relation(fields: [departmentId], references: [id])
+
+  @@unique([moduleId, departmentId])
+}
+
+model ModuleTask {
+  id       String @id @default(uuid())
+  moduleId String
+  taskId   String
+
+  module   TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  task     Task           @relation(fields: [taskId], references: [id])
+
+  @@unique([moduleId, taskId])
 }
 
 model TrainingStep {
@@ -320,6 +355,32 @@ model TrainingStep {
   module          TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   linkedTask      Task?          @relation("StepLinkedTask", fields: [linkedTaskId], references: [id])
   linkedChecklist Checklist?     @relation(fields: [linkedChecklistId], references: [id])
+  stepTasks       StepTask[]
+  stepModules     StepModule[]
+}
+
+// Many-to-many: step ↔ task
+model StepTask {
+  id     String @id @default(uuid())
+  stepId String
+  taskId String
+
+  step TrainingStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  task Task         @relation(fields: [taskId], references: [id])
+
+  @@unique([stepId, taskId])
+}
+
+// Many-to-many: step ↔ other training modules (for cross-linking SOPs, HOWTOs, etc.)
+model StepModule {
+  id       String @id @default(uuid())
+  stepId   String
+  moduleId String
+
+  step   TrainingStep   @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  module TrainingModule @relation(fields: [moduleId], references: [id])
+
+  @@unique([stepId, moduleId])
 }
 
 // Individual assignment of a module to a person (upskill / area to work on).

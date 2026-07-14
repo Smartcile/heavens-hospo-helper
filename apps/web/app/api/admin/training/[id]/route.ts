@@ -63,6 +63,14 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.onboardingOrder !== undefined) updates.onboardingOrder = body.onboardingOrder
   if (body.isActive !== undefined) updates.isActive = !!body.isActive
 
+  if (body.departmentIds !== undefined) {
+    const ids: string[] = Array.isArray(body.departmentIds) ? body.departmentIds : []
+    updates.moduleDepartments = { deleteMany: {}, create: ids.map((departmentId: string) => ({ departmentId })) }
+  }
+  if (body.taskIds !== undefined) {
+    const ids: string[] = Array.isArray(body.taskIds) ? body.taskIds : []
+    updates.moduleTasks = { deleteMany: {}, create: ids.map((taskId: string) => ({ taskId })) }
+  }
   if (body.sectionIds !== undefined) {
     const ids: string[] = Array.isArray(body.sectionIds) ? body.sectionIds : []
     updates.resourceSections = { deleteMany: {}, create: ids.map((sectionId: string) => ({ sectionId })) }
@@ -84,6 +92,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
         videoUrl: s.videoUrl?.trim() || null,
         linkedTaskId: s.linkedTaskId || null,
         linkedChecklistId: s.linkedChecklistId || null,
+        stepTasks: s.taskIds?.length ? { create: s.taskIds.map((tid: string) => ({ taskId: tid })) } : undefined,
+        stepModules: s.linkedModuleIds?.length ? { create: s.linkedModuleIds.map((mid: string) => ({ moduleId: mid })) } : undefined,
       })),
     }
   }

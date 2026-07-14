@@ -9,7 +9,7 @@ export default async function AdminProtectedLayout({ children }: { children: Rea
   const session = await getServerSession(authOptions)
 
   if (!session) {
-    redirect('/admin/login')
+    redirect('/')
   }
 
   const cookieStore = cookies()

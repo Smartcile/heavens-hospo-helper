@@ -65,6 +65,28 @@ export async function GET(req: NextRequest) {
 
   const todayTasks = tasks.filter((t) => isTaskDueOnDate(t, today))
 
+  // ── Rollover handling ──
+  // A rolled-over one-off completed on its dueDate should not reappear today.
+  const rolledTasks = todayTasks.filter((t) => t.isOneOff && t.rolloverEnabled && t.dueDate)
+  if (rolledTasks.length > 0) {
+    const rolledCompletions = await prisma.taskCompletion.findMany({
+      where: {
+        taskId: { in: rolledTasks.map((t) => t.id) },
+        scheduledDate: { in: [...new Set(rolledTasks.map((t) => new Date(t.dueDate!)))] },
+      },
+      select: { taskId: true, id: true, note: true, photoUrl: true, completedAt: true, staff: { select: { firstName: true, lastName: true } } },
+      orderBy: { completedAt: 'desc' },
+    })
+    const completedMap = new Map(rolledCompletions.map((c) => [c.taskId, c]))
+    // Attach the completion from the due date to the task so the UI marks it done
+    for (const t of rolledTasks) {
+      const c = completedMap.get(t.id)
+      if (c && !t.taskCompletions.some((tc) => tc.id === c.id)) {
+        ;(t as any).taskCompletions = [c]
+      }
+    }
+  }
+
   // Resolve names for any personally-assigned tasks (shown as a tag, still shared).
   const assigneeIds = [...new Set(todayTasks.map((t) => t.assignedToStaffId).filter(Boolean))] as string[]
   const assignees = assigneeIds.length
@@ -106,13 +128,16 @@ export async function GET(req: NextRequest) {
       departmentName: t.department?.name ?? null,
       sectionName: t.section?.name ?? null,
       assigneeName: t.assignedToStaffId ? assigneeName.get(t.assignedToStaffId) ?? null : null,
-      // A linked how-to guide, if one exists for this task.
       guide: t.trainingModules[0] ?? null,
       isCompleted: t.taskCompletions.length > 0,
       completedByName: c ? `${c.staff.firstName} ${c.staff.lastName}` : null,
       completion: c
         ? { id: c.id, note: c.note, photoUrl: c.photoUrl, completedAt: c.completedAt }
         : null,
+      isOneOff: t.isOneOff,
+      dueDate: t.dueDate,
+      rolloverEnabled: t.rolloverEnabled,
+      rolledOverFrom: t.rolledOverFrom,
     }
   })
 
@@ -165,6 +190,10 @@ export async function POST(req: NextRequest) {
   if (requiredTrainingIds?.length) {
     await prisma.taskRequiredTraining.createMany({
       data: requiredTrainingIds.map((moduleId: string) => ({ taskId: task.id, moduleId })),
+    })
+    await prisma.trainingModule.updateMany({
+      where: { id: { in: requiredTrainingIds } },
+      data: { linkedTaskId: task.id },
     })
   }
 

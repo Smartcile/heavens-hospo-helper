@@ -40,6 +40,18 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.requiredTrainingIds !== undefined) {
     const reqIds: string[] = Array.isArray(body.requiredTrainingIds) ? body.requiredTrainingIds : []
     updates.requiredTraining = { deleteMany: {}, create: reqIds.map((moduleId: string) => ({ moduleId })) }
+
+    // Sync linkedTaskId back to the training modules (bidirectional link)
+    await prisma.trainingModule.updateMany({
+      where: { linkedTaskId: params.id, id: { notIn: reqIds } },
+      data: { linkedTaskId: null },
+    })
+    if (reqIds.length > 0) {
+      await prisma.trainingModule.updateMany({
+        where: { id: { in: reqIds } },
+        data: { linkedTaskId: params.id },
+      })
+    }
   }
 
   // "Significant change" → bump version + post a re-train notice to the group.

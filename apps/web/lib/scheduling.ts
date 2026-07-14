@@ -8,6 +8,9 @@ export interface SchedulableTask {
   monthlyOption?: string | null
   monthlyDay?: number | null
   createdAt?: Date | string | null
+  isOneOff?: boolean
+  dueDate?: Date | string | null
+  rolloverEnabled?: boolean
 }
 
 const DOW_SHORT = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
@@ -87,6 +90,17 @@ export function describeSchedule(t: SchedulableTask): string {
  * `scheduledDate` (@db.Date) and `formatDateKey` round-trip dates.
  */
 export function isTaskDueOnDate(task: SchedulableTask, date: Date): boolean {
+  // One-off / side-work tasks: due on their dueDate, and roll over until completed
+  if (task.isOneOff) {
+    if (!task.dueDate) return task.scheduleType === 'DAILY'
+    const due = new Date(task.dueDate)
+    const dueKey = `${due.getUTCFullYear()}-${String(due.getUTCMonth() + 1).padStart(2, '0')}-${String(due.getUTCDate()).padStart(2, '0')}`
+    const dateKey = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+    if (dateKey === dueKey) return true // exact due date
+    if (task.rolloverEnabled && dateKey >= dueKey) return true // rolled over
+    return false
+  }
+
   switch (task.scheduleType) {
     case 'DAILY':
       return true

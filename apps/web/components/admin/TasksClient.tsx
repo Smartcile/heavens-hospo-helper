@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
+import { Combobox } from '@/components/ui/Combobox'
 import { moveItem } from '@/lib/array'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { getActiveVenueId } from '@/lib/active-venue'
@@ -37,7 +38,7 @@ interface Task {
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string; colour: string | null }
 interface Section { id: string; name: string; departmentId: string; venueId: string }
-interface TrainingLite { id: string; title: string; venueId: string; kind: string }
+interface TrainingLite { id: string; title: string; venueId: string; kind: string; description: string | null }
 
 interface ChecklistCardTask { id: string; title: string; isActive: boolean; version: number }
 interface Checklist {
@@ -107,7 +108,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [filterDept, setFilterDept] = useState('')
   const [filterSection, setFilterSection] = useState('')
   const [search, setSearch] = useState('')
-  const [filterUsage, setFilterUsage] = useState('')
+  const [filterUsage, setFilterUsage] = useState('nolist')
   const [requireRetrain, setRequireRetrain] = useState(false)
   const [changeSummary, setChangeSummary] = useState('')
 
@@ -464,7 +465,14 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                     })
                   )}
                 </div>
-                <Select value="" onChange={(e) => { if (e.target.value) addToChecklist(e.target.value) }} options={clAddOptions} />
+                <Combobox
+                  options={tasks
+                    .filter((t) => t.venueId === clVenueId && (clSectionId ? t.sectionId === clSectionId : clDeptId ? t.departmentId === clDeptId : true))
+                    .map((t) => ({ value: t.id, label: t.title, description: t.description }))}
+                  selected={clSelected}
+                  onChange={(ids) => setClSelected(ids)}
+                  placeholder="+ ADD A TASK..."
+                />
               </div>
 
               {clError && <p className="font-mono text-xs text-danger">{clError}</p>}
@@ -525,15 +533,14 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           <Select label="Section (optional)" value={form.sectionId} onChange={(e) => setForm({ ...form, sectionId: e.target.value })} options={formSectionOptions} />
 
           {trainingOptions.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Required training (competency)</label>
-              <div className="flex flex-wrap gap-1">
-                {trainingOptions.map((m) => (
-                  <button key={m.id} type="button" onClick={() => toggleRequired(m.id)} className={`font-mono text-xs px-2 py-1.5 border transition-colors ${form.requiredTrainingIds.includes(m.id) ? 'bg-white text-black border-white' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>{m.title}</button>
-                ))}
-              </div>
-              <p className="font-mono text-xs text-grey-light">IF SOMEONE COMPLETES THIS TASK WITHOUT THE TICKED TRAINING, A FOLLOW-UP IS RAISED FOR A MANAGER.</p>
-            </div>
+            <Combobox
+              label="Required training (competency)"
+              options={trainingOptions.map((m) => ({ value: m.id, label: m.title, description: m.description ?? undefined }))}
+              selected={form.requiredTrainingIds}
+              onChange={(ids) => setForm({ ...form, requiredTrainingIds: ids })}
+              onPreview={(id) => window.open(`/admin/training?module=${id}`, '_blank')}
+              placeholder="Search training modules..."
+            />
           )}
 
           <div className="grid grid-cols-2 gap-3">

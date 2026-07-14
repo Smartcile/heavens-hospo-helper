@@ -7,14 +7,17 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
+import { Combobox, ComboboxHandle } from '@/components/ui/Combobox'
 
 interface Step {
   title: string
   content: string
   imageUrl: string | null
-  videoUrl: string
   linkedTaskId: string
   linkedChecklistId: string
+  videoUrl: string
+  taskIds: string[]
+  linkedModuleIds: string[]
 }
 
 interface TrainingModule {
@@ -56,7 +59,7 @@ const KIND_OPTIONS = [
 ]
 
 function emptyStep(): Step {
-  return { title: '', content: '', imageUrl: null, videoUrl: '', linkedTaskId: '', linkedChecklistId: '' }
+  return { title: '', content: '', imageUrl: null, videoUrl: '', linkedTaskId: '', linkedChecklistId: '', taskIds: [], linkedModuleIds: [] }
 }
 
 interface ChecklistLite { id: string; name: string; departmentId: string | null }
@@ -76,6 +79,11 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
   const [category, setCategory] = useState('')
   const [kind, setKind] = useState('TRAINING')
   const [sectionIds, setSectionIds] = useState<string[]>([])
+  const [departmentIds, setDepartmentIds] = useState<string[]>([])
+  const [taskIds, setTaskIds] = useState<string[]>([])
+  const deptRef = useRef<ComboboxHandle>(null)
+  const taskRef = useRef<ComboboxHandle>(null)
+  const sectionRef = useRef<ComboboxHandle>(null)
   const [departmentId, setDepartmentId] = useState('')
   const [linkedTaskId, setLinkedTaskId] = useState('')
   const [requiresSignOff, setRequiresSignOff] = useState(false)
@@ -111,7 +119,7 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
     setEditing(null)
     setTitle(''); setDescription(''); setCategory('')
     setKind('TRAINING'); setSectionIds([])
-    setDepartmentId(''); setLinkedTaskId('')
+    setDepartmentIds([]); setTaskIds([]); setDepartmentId(''); setLinkedTaskId('')
     setRequiresSignOff(false); setIsOnboarding(false)
     setReqRetrain(false); setChangeSummary('')
     setSteps([emptyStep()])
@@ -122,6 +130,8 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
     setEditing(m)
     setTitle(m.title); setDescription(m.description ?? ''); setCategory(m.category ?? '')
     setKind(m.kind ?? 'TRAINING'); setSectionIds((m.resourceSections ?? []).map((r) => r.sectionId))
+    setDepartmentIds((m.moduleDepartments ?? []).map((md: any) => md.departmentId))
+    setTaskIds((m.moduleTasks ?? []).map((mt: any) => mt.taskId))
     setDepartmentId(m.departmentId ?? ''); setLinkedTaskId(m.linkedTaskId ?? '')
     setRequiresSignOff(m.requiresSignOff); setIsOnboarding(m.isOnboarding)
     setReqRetrain(false); setChangeSummary('')
@@ -134,6 +144,8 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
             videoUrl: s.videoUrl ?? '',
             linkedTaskId: s.linkedTaskId ?? '',
             linkedChecklistId: s.linkedChecklistId ?? '',
+            taskIds: (s.stepTasks ?? []).map((st: any) => st.taskId),
+            linkedModuleIds: (s.stepModules ?? []).map((sm: any) => sm.moduleId),
           }))
         : [emptyStep()]
     )
@@ -166,7 +178,9 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
     setSaving(true); setError('')
     const payload = {
       title, description, category, kind,
-      sectionIds,
+      sectionIds: sectionRef.current?.getFinalSelection() ?? sectionIds,
+      departmentIds: deptRef.current?.getFinalSelection() ?? departmentIds,
+      taskIds: taskRef.current?.getFinalSelection() ?? taskIds,
       departmentId: departmentId || null,
       linkedTaskId: linkedTaskId || null,
       requiresSignOff, isOnboarding,
@@ -178,6 +192,8 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
         videoUrl: s.videoUrl || null,
         linkedTaskId: s.linkedTaskId || null,
         linkedChecklistId: s.linkedChecklistId || null,
+        taskIds: s.taskIds.length ? s.taskIds : undefined,
+        linkedModuleIds: s.linkedModuleIds.length ? s.linkedModuleIds : undefined,
       })),
     }
     const url = editing ? `/api/admin/training/${editing.id}` : '/api/admin/training'
@@ -272,30 +288,34 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
             <Input label="Category (optional)" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="BAR" />
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Select label="Auto-assign to department" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} options={deptOptions} />
-            <Select label="Link to a task (optional)" value={linkedTaskId} onChange={(e) => setLinkedTaskId(e.target.value)} options={taskOptions} />
+            <Combobox
+              ref={deptRef}
+              label="Auto-assign to departments"
+              options={deptOptions.filter(o => o.value !== '').map(d => ({ value: d.value, label: d.label }))}
+              selected={departmentIds}
+              onChange={setDepartmentIds}
+              placeholder="Search departments..."
+            />
+            <Combobox
+              ref={taskRef}
+              label="Link to tasks (optional)"
+              options={taskOptions.filter(o => o.value !== '').map(t => ({ value: t.value, label: t.label }))}
+              selected={taskIds}
+              onChange={setTaskIds}
+              onPreview={(id) => window.open(`/admin/tasks?task=${id}`, '_blank')}
+              placeholder="Search tasks..."
+            />
           </div>
 
           {formSections.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Show in sections (optional)</label>
-              <div className="flex flex-wrap gap-1">
-                {formSections.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => toggleSection(s.id)}
-                    className={`font-mono text-xs px-2 py-1.5 border transition-colors ${
-                      sectionIds.includes(s.id)
-                        ? 'bg-white text-black border-white'
-                        : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
-                    }`}
-                  >
-                    {s.name}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <Combobox
+              ref={sectionRef}
+              label="Show in sections (optional)"
+              options={formSections.map(s => ({ value: s.id, label: s.name }))}
+              selected={sectionIds}
+              onChange={setSectionIds}
+              placeholder="Search sections..."
+            />
           )}
 
           <div className="flex flex-wrap gap-4">
@@ -327,8 +347,24 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
                 <Input value={s.videoUrl} onChange={(e) => updateStep(i, { videoUrl: e.target.value })} placeholder="VIDEO LINK (YOUTUBE/VIMEO, OPTIONAL)" />
                 <Select value={s.linkedChecklistId} onChange={(e) => updateStep(i, { linkedChecklistId: e.target.value })} options={stepChecklistOptions} />
                 {s.linkedChecklistId && (
-                  <p className="font-mono text-[10px] uppercase text-grey-light">THIS LIST APPEARS IN THE TRAINING TO TICK OFF IN PERSON.</p>
+                  <p className="font-mono text-xs uppercase text-grey-light">THIS LIST APPEARS IN THE TRAINING TO TICK OFF IN PERSON.</p>
                 )}
+                <Combobox
+                  label="Linked tasks"
+                  options={tasks.map((t: any) => ({ value: t.id, label: t.title }))}
+                  selected={s.taskIds}
+                  onChange={(ids) => updateStep(i, { taskIds: ids })}
+                  onPreview={(id) => window.open(`/admin/tasks?task=${id}`, '_blank')}
+                  placeholder="Search tasks..."
+                />
+                <Combobox
+                  label="Linked training / SOPs"
+                  options={modules.filter((m: any) => !editing || m.id !== editing.id).map((m: any) => ({ value: m.id, label: m.title, description: `${m.kind} · ${m.category ?? ''}` }))}
+                  selected={s.linkedModuleIds}
+                  onChange={(ids) => updateStep(i, { linkedModuleIds: ids })}
+                  onPreview={(id) => window.open(`/admin/training?module=${id}`, '_blank')}
+                  placeholder="Search modules..."
+                />
                 <div className="flex items-center gap-2">
                   <input
                     ref={(el) => { fileRefs.current[i] = el }}

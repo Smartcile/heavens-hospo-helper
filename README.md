@@ -106,11 +106,13 @@ After seeding, the following accounts exist.
 
 ## HOW TO ACCESS THE ADMIN PANEL
 
-1. Open `http://your-server-ip:3000/admin/login`
-2. Enter your email and password
+1. Open `http://your-server-ip:3000/` — the landing page is a split screen
+2. Enter your email and password in the **ADMIN PANEL** area on the right
 3. You will land on the Dashboard
 
-The worker login (for QR scanning) is at `http://your-server-ip:3000/w/login`.
+The worker login (for QR scanning) is the **VENUE** side of the landing page, or
+directly at `http://your-server-ip:3000/w/login`. The worker venue picker also
+has an **ADMIN PANEL** button that returns to the landing page.
 
 On a phone, the admin panel collapses to a **burger menu** (top-left) that slides
 out the navigation; on desktop the sidebar is always visible.
