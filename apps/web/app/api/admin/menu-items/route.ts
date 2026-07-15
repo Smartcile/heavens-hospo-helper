@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { pushProduct } from '@/lib/woo-push'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -36,5 +37,11 @@ export async function POST(req: NextRequest) {
     },
     include: { recipe: { select: { id: true, name: true } } },
   })
+
+  // Push the new link to WooCommerce (best-effort — logs to SyncLog, never throws)
+  if (item.wooProductId) {
+    await pushProduct(item.id)
+  }
+
   return NextResponse.json(item, { status: 201 })
 }

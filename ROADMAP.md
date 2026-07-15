@@ -22,8 +22,9 @@
 ✅ **Recipe Engine** — Nested Recipe/RecipeLineItem with recursive BOM, explodeRecipe utility with cycle detection, searchable Combobox for ingredient selection
 ✅ **Menu Items** — Combined with Recipes page (LINK TO MENU toggle), WooCommerce product ID + category mapping
 ✅ **WooCommerce Integration** — Webhook handler (HMAC auth, order upsert, recipe explosion, auto-seating), product sync cron, expiry scan cron, EOD reconciliation
+✅ **WooCommerce Two-Way Sync** — Product webhooks (created/updated/deleted) for instant Woo→app product sync, app→Woo push (product name/price/category on save + order status changes), echo guard (`_updated_by` + 2-min window), internal cron scheduler (15-min product pull + daily expiry scan, no host crontab), SyncLog model + `/admin/sync` dashboard (PULL/PUSH NOW buttons, live activity feed with error visibility)
 ✅ **Settings** — WooCommerce section (store URL, consumer key/secret, webhook secret, active toggle with lastSync display)
-✅ **Orders Dashboard** — Read-only table sorted by fulfillmentDate, expandable line items, auto-seating status indicator
+✅ **Orders Dashboard** — Table sorted by fulfillmentDate, expandable line items, auto-seating status indicator, STATUS dropdown (pushes to WooCommerce)
 ✅ **Gift Cards** — Full lifecycle: bulk-create blank cards (YYYYNNNN numbering), issue with customer details + amount (jspdf PDF template), send via nodemailer/SMTP, WooCommerce webhook auto-detection (SKU matching), status workflow (DRAFT → ISSUED → SENT → REDEEMED/VOIDED/EXPIRED), admin UI with card pool + issue panel
 ☐ **Gift Cards — persistent SMTP settings** — store SMTP credentials in Settings page or env vars so they don't need re-entry each send
 ☐ **Gift Cards — WooCommerce order auto-completion** — when a gift card is issued for a WooCommerce-linked order, call the WooCommerce REST API to mark the order completed and add a private note with the gift card number

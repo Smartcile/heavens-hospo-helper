@@ -3,11 +3,15 @@ import { createHmac } from 'crypto'
 import { prisma } from '@hospo-ops/db'
 import { explodeRecipe } from '@/lib/inventory-engine'
 import { getNextNumber } from '@/lib/gift-cards'
+import { upsertProductFromWoo } from '@/lib/woo-sync'
+import { isSelfEcho } from '@/lib/woo-push'
+import { logSync } from '@/lib/sync-log'
 import type { PrismaClient, OrderStatus } from '@prisma/client'
 
 // ═══════════════════════════════════════════
 // WooCommerce Webhook Handler
-// Receives order.created / order.updated events
+// Receives order.created / order.updated and
+// product.created / product.updated / product.deleted events
 // Endpoint: POST /api/webhooks/woocommerce
 // Auth: HMAC-SHA256 signature verification
 // ═══════════════════════════════════════════
@@ -17,8 +21,15 @@ export async function POST(req: NextRequest) {
   const rawBody = await req.text()
   const signature = req.headers.get('x-wc-webhook-signature')
   const topic = req.headers.get('x-wc-webhook-topic') ?? 'unknown'
+  const entity = topic.startsWith('product') ? 'PRODUCT' : 'ORDER'
 
   if (!signature) {
+    await logSync({
+      direction: 'WEBHOOK',
+      entity,
+      status: 'ERROR',
+      message: `WEBHOOK REJECTED (${topic.toUpperCase()}) — MISSING SIGNATURE HEADER`,
+    })
     return NextResponse.json({ error: 'Missing signature header' }, { status: 401 })
   }
 
@@ -40,6 +51,12 @@ export async function POST(req: NextRequest) {
   }
 
   if (!matched) {
+    await logSync({
+      direction: 'WEBHOOK',
+      entity,
+      status: 'ERROR',
+      message: `WEBHOOK REJECTED (${topic.toUpperCase()}) — SIGNATURE DID NOT MATCH ANY VENUE`,
+    })
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
 
@@ -50,14 +67,33 @@ export async function POST(req: NextRequest) {
   try {
     body = JSON.parse(rawBody)
   } catch {
+    await logSync({
+      venueId,
+      direction: 'WEBHOOK',
+      entity,
+      status: 'ERROR',
+      message: `WEBHOOK REJECTED (${topic.toUpperCase()}) — INVALID JSON PAYLOAD`,
+    })
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  // ── 4. Infinite-loop guard: skip orders we pushed ourselves ──
+  // ── 4. Infinite-loop guard: skip echoes of our own recent pushes ──
   const metaData: any[] = body.meta_data ?? []
-  const updatedBy = metaData.find((m: any) => m.key === '_updated_by')
-  if (updatedBy?.value === 'hospo-ops') {
+  if (isSelfEcho(metaData)) {
+    await logSync({
+      venueId,
+      direction: 'WEBHOOK',
+      entity,
+      status: 'SKIPPED',
+      externalId: String(body.id ?? ''),
+      message: `WEBHOOK SKIPPED (${topic.toUpperCase()}) — ECHO OF OUR OWN PUSH`,
+    })
     return NextResponse.json({ message: 'Skipped (self-triggered)' }, { status: 200 })
+  }
+
+  // ── 5. Product topics: upsert / soft-delete the MenuItem ──
+  if (entity === 'PRODUCT') {
+    return handleProductWebhook(venueId, matched.id, topic, body)
   }
 
   const wooOrderId = String(body.id)
@@ -74,9 +110,9 @@ export async function POST(req: NextRequest) {
   const fulfillmentDate = extractMetaDate(metaData, ['pickup_date', 'fulfillment_date', 'event_date'])
   const notes = body.customer_note?.trim() || null
 
-  // ── 5. Upsert order + line items in a transaction ──
+  // ── 6. Upsert order + line items in a transaction ──
   const order = await prisma.$transaction(async (tx) => {
-    // 5a. Upsert WooOrder
+    // 6a. Upsert WooOrder
     const woo = await tx.wooOrder.upsert({
       where: { wooOrderId },
       update: {
@@ -105,7 +141,7 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // 5b. Sync line items — delete removed, upsert incoming
+    // 6b. Sync line items — delete removed, upsert incoming
     const existingIds = new Set(
       (await tx.wooOrderItem.findMany({
         where: { orderId: woo.id },
@@ -165,7 +201,7 @@ export async function POST(req: NextRequest) {
       await tx.wooOrderItem.deleteMany({ where: { id: { in: toDelete } } })
     }
 
-    // 5c. Bump lastSyncAt on the integration
+    // 6c. Bump lastSyncAt on the integration
     await tx.wooIntegration.update({
       where: { id: matched.id },
       data: { lastSyncAt: new Date() },
@@ -174,7 +210,7 @@ export async function POST(req: NextRequest) {
     return woo
   })
 
-  // ── 6. Inventory deduction (recipe explosion → meta storage) ──
+  // ── 7. Inventory deduction (recipe explosion → meta storage) ──
   // Phase 5 will reconcile base units back to item counts using reverse-UOM lookup.
   // For now we explode the recipe tree and store the result on each line item.
   for (const li of lineItems) {
@@ -224,23 +260,110 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── 7. Auto-seating engine (best-effort) ──
+  // ── 8. Auto-seating engine (best-effort) ──
   if (partySize && partySize > 0 && fulfillmentDate) {
     try {
       await tryAutoSeat(order, venueId, partySize, fulfillmentDate)
     } catch (e) {
       console.error('Auto-seating failed (non-blocking):', e)
+      await logSync({
+        venueId,
+        direction: 'WEBHOOK',
+        entity: 'ORDER',
+        status: 'ERROR',
+        externalId: wooOrderId,
+        message: `AUTO-SEATING FAILED FOR ORDER #${wooOrderId} (ORDER STILL SYNCED)`,
+        detail: { error: String(e) },
+      })
     }
   }
 
-  // ── 8. Gift card auto-detection (best-effort) ──
+  // ── 9. Gift card auto-detection (best-effort) ──
   try {
     await detectGiftCards(lineItems, venueId, order, customerName, customerEmail)
   } catch (e) {
     console.error('Gift card detection failed (non-blocking):', e)
   }
 
+  await logSync({
+    venueId,
+    direction: 'WEBHOOK',
+    entity: 'ORDER',
+    status: 'SUCCESS',
+    externalId: wooOrderId,
+    message: `ORDER #${wooOrderId} SYNCED (${topic.toUpperCase()}) — ${lineItems.length} LINE ITEMS, STATUS ${mapWooStatus(wooStatus)}`,
+    detail: { topic, status: wooStatus, lineItems: lineItems.length, totalAmount },
+  })
+
   return NextResponse.json({ success: true, orderId: order.id, topic })
+}
+
+// Handle product.created / product.updated / product.deleted webhooks.
+async function handleProductWebhook(venueId: string, integrationId: string, topic: string, body: any) {
+  const wooProductId = String(body.id ?? '')
+  if (!wooProductId) {
+    await logSync({
+      venueId,
+      direction: 'WEBHOOK',
+      entity: 'PRODUCT',
+      status: 'ERROR',
+      message: `PRODUCT WEBHOOK (${topic.toUpperCase()}) — PAYLOAD HAS NO PRODUCT ID`,
+    })
+    return NextResponse.json({ error: 'Missing product id' }, { status: 400 })
+  }
+
+  try {
+    if (topic === 'product.deleted') {
+      const existing = await prisma.menuItem.findFirst({
+        where: { wooProductId, venueId, deletedAt: null },
+      })
+      if (existing) {
+        await prisma.menuItem.update({
+          where: { id: existing.id },
+          data: { deletedAt: new Date(), isActive: false },
+        })
+      }
+      await logSync({
+        venueId,
+        direction: 'WEBHOOK',
+        entity: 'PRODUCT',
+        status: existing ? 'SUCCESS' : 'SKIPPED',
+        externalId: wooProductId,
+        message: existing
+          ? `PRODUCT #${wooProductId} DELETED IN WOOCOMMERCE — MENU ITEM ${existing.name} SOFT-DELETED`
+          : `PRODUCT #${wooProductId} DELETED IN WOOCOMMERCE — NO LOCAL MENU ITEM TO REMOVE`,
+      })
+      return NextResponse.json({ success: true, topic })
+    }
+
+    const outcome = await upsertProductFromWoo(venueId, body)
+    await prisma.wooIntegration.update({
+      where: { id: integrationId },
+      data: { lastSyncAt: new Date() },
+    })
+    await logSync({
+      venueId,
+      direction: 'WEBHOOK',
+      entity: 'PRODUCT',
+      status: 'SUCCESS',
+      externalId: wooProductId,
+      message: `PRODUCT #${wooProductId} ${body.name ? String(body.name).toUpperCase() : ''} ${outcome.toUpperCase()} FROM WEBHOOK (${topic.toUpperCase()})`.replace(/\s+/g, ' '),
+      detail: { topic, outcome },
+    })
+    return NextResponse.json({ success: true, topic, outcome })
+  } catch (e) {
+    console.error('Product webhook failed:', e)
+    await logSync({
+      venueId,
+      direction: 'WEBHOOK',
+      entity: 'PRODUCT',
+      status: 'ERROR',
+      externalId: wooProductId,
+      message: `PRODUCT WEBHOOK FAILED (${topic.toUpperCase()}) FOR #${wooProductId}`,
+      detail: { error: String(e) },
+    })
+    return NextResponse.json({ error: 'Product sync failed' }, { status: 500 })
+  }
 }
 
 // ═══════════════════════════════════════════

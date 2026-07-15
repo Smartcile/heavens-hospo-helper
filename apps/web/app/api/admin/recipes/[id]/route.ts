@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { pushProduct } from '@/lib/woo-push'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -92,6 +93,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   })
 
   const result = { ...(updated as any), menuItem: (updated as any)?.menuItems?.[0] ?? null }
+
+  // Push linked menu item changes to WooCommerce (best-effort — logs to SyncLog)
+  const linkedMenuItem = (updated as any)?.menuItems?.[0]
+  if (linkedMenuItem?.wooProductId) {
+    await pushProduct(linkedMenuItem.id)
+  }
+
   return NextResponse.json(result)
 }
 

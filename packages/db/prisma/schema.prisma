@@ -114,6 +114,7 @@ model Venue {
   giftCards           GiftCard[]
   timeClocks          TimeClock[]
   payPeriods          PayPeriod[]
+  syncLogs            SyncLog[]
 }
 
 model Department {
@@ -1077,6 +1078,23 @@ enum GiftCardStatus {
   EXPIRED
 }
 
+enum SyncDirection {
+  PULL
+  PUSH
+  WEBHOOK
+}
+
+enum SyncEntity {
+  PRODUCT
+  ORDER
+}
+
+enum SyncStatus {
+  SUCCESS
+  ERROR
+  SKIPPED
+}
+
 model InventoryCategory {
   id        String   @id @default(uuid())
   venueId   String?
@@ -1444,5 +1462,27 @@ model GiftCard {
 
   @@index([venueId])
   @@index([number])
+  @@index([status])
+}
+
+// --- WOOCOMMERCE SYNC LOG ---
+
+model SyncLog {
+  id         String        @id @default(uuid())
+  venueId    String?
+  direction  SyncDirection
+  entity     SyncEntity
+  status     SyncStatus
+  externalId String?
+  message    String
+  detail     Json?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  deletedAt  DateTime?
+
+  venue Venue? @relation(fields: [venueId], references: [id])
+
+  @@index([venueId])
+  @@index([createdAt])
   @@index([status])
 }

@@ -150,6 +150,8 @@ cd packages/db && npx prisma studio
 | `APP_NAME` | App display name (white-label) |
 | `APP_URL` | Public URL used for QR code generation |
 | `DEFAULT_TIMEZONE` | Fallback timezone (e.g. Pacific/Auckland) |
+| `INTERNAL_CRON` | Built-in scheduler (Woo product pull + expiry scan). Default true; `false` = use external scheduler |
+| `CRON_SECRET` | Bearer token for the /api/cron endpoints (external schedulers only) |
 | `WORKER_SESSION_SECRET` | JWT secret for worker PIN sessions |
 | `WORKER_SESSION_EXPIRY_MINUTES` | Worker auto-logout timeout (default: 15) |
 | `UPLOAD_PROVIDER` | `local` (Phase 1) — future: `s3` |
@@ -998,18 +1000,26 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 
 ## ERP & WOOCOMMERCE (BUILT 2026-07)
 
-### Schema: 52 models (43 core + 9 ERP)
-New models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`, `RecipeLineItem` (recursive BOM), `WooIntegration`, `MenuItem`, `WooOrder`, `WooOrderItem`. `@@unique([venueId])` on WooIntegration.
+### Schema: 53 models (43 core + 10 ERP)
+New models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`, `RecipeLineItem` (recursive BOM), `WooIntegration`, `MenuItem`, `WooOrder`, `WooOrderItem`, `SyncLog`. `@@unique([venueId])` on WooIntegration.
 
 ### Recipe Explosion Engine (`lib/inventory-engine.ts`)
 Recursive BOM parser: walks `RecipeLineItem` tree, converts all quantities to base units via UOM conversion ratios, returns flattened `Map<inventoryItemId, requiredBaseQty>`. DAG-safe cycle detection via visited set. 5 Vitest tests with mocked PrismaClient.
 
 ### WooCommerce Webhook (`/api/webhooks/woocommerce`)
-Receives `order.created` / `order.updated`. HMAC-SHA256 signature auth. Guards against self-triggered loops (`_updated_by: hospo-ops`). Upserts `WooOrder` + `WooOrderItem` in transaction. Runs `explodeRecipe` per line item, stores exploded ingredients as JSON on order items. Auto-seating engine: greedy first-fit bin-packing on partySize → `CalendarEvent` → `FloorPlanSetup` → `SetupItem` → `TableGroup`.
+Receives `order.created` / `order.updated` AND `product.created` / `product.updated` / `product.deleted` (branched on `x-wc-webhook-topic`). HMAC-SHA256 signature auth. Echo guard: pushes stamp `_updated_by: hospo-ops` + `_hospo_ops_pushed_at`; `isSelfEcho()` (lib/woo-push.ts) skips webhooks arriving within 2 min of our own push — genuine later edits still sync. Orders: upserts `WooOrder` + `WooOrderItem` in transaction, runs `explodeRecipe` per line item, stores exploded ingredients as JSON on order items. Products: `upsertProductFromWoo()` / soft-delete on `product.deleted`. Auto-seating engine: greedy first-fit bin-packing on partySize → `CalendarEvent` → `FloorPlanSetup` → `SetupItem` → `TableGroup`. Every event logs to `SyncLog`.
 
-### Cron Jobs (`/api/cron/`)
-- `woocommerce-sync`: daily product sync from WooCommerce REST API (Basic auth) → upserts `MenuItem` records
-- `expiry-scan`: sweeps expired `InventoryItem`s, traces BOM to parent WooCommerce products, applies `fallbackCategoryId`
+### Two-Way Sync (built 2026-07)
+- **Pull (Woo → app):** `lib/woo-sync.ts` `runProductPull(venueId?)` — paginated product fetch, upserts `MenuItem`s, logs to `SyncLog`.
+- **Push (app → Woo):** `lib/woo-push.ts` — `pushProduct()` fires on menu item / recipe menu-link save (name/price/category → `PUT wc/v3/products/{id}`); `pushOrderStatus()` fires on order status change via `PATCH /api/admin/orders/[id]` (Orders page STATUS dropdown). All pushes best-effort: log to `SyncLog`, never throw, never block the save.
+- **Sync dashboard:** `/admin/sync` (`SyncClient`) — PULL/PUSH NOW buttons (`POST /api/admin/sync/pull|push`), live `SyncLog` feed (`GET /api/admin/sync/log`, 10s auto-refresh, direction/status filters, errors in red).
+
+### Internal Cron Scheduler (`instrumentation.ts` + `lib/internal-cron.ts`)
+Started once on server boot via Next's `instrumentationHook` (enabled in next.config.mjs). Minute tick; pure `dueJobs(state, now, tz)` decides what fires (Vitest-covered). Jobs: product pull every 15 min (`runProductPull`), expiry scan daily 03:00 in `DEFAULT_TIMEZONE` (`runExpiryScan` in `lib/expiry-scan.ts`). Fully self-contained — no host crontab. Disable with `INTERNAL_CRON=false`. Dev hot-reload guarded via `globalThis.__hospoInternalCron`.
+
+### Cron Endpoints (`/api/cron/`) — external scheduler fallback
+- `woocommerce-sync`: thin wrapper over `runProductPull()`
+- `expiry-scan`: thin wrapper over `runExpiryScan()` — sweeps expired `InventoryItem`s, traces BOM to parent WooCommerce products, applies `fallbackCategoryId`
 - Both authenticated via `Authorization: Bearer <CRON_SECRET>` header
 
 ### Inventory Tabs
@@ -1104,6 +1114,8 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/floorplan-chairs.ts` — `adjustEdgeChairs`, `defaultEdgeChairs`, `maxChairsForEdge` | ✅ (11 tests) |
 | `lib/auto-seat.ts` — `planAutoSeat` (bin-packing layout) | ✅ (7 tests) |
 | `lib/inventory-engine.ts` — `explodeRecipe` (recursive BOM explosion) | ✅ (5 tests) |
+| `lib/woo-push.ts` — `mapStatusToWoo`, payload builders, `isSelfEcho` echo guard | ✅ |
+| `lib/internal-cron.ts` — `dueJobs`, `localParts` (scheduler due-checks) | ✅ |
 | `lib/auth.ts` — `authOptions` | ⬜ TODO |
 
 ### Component Regression Tests

@@ -17,8 +17,12 @@
 #   APP_PORT                (optional)  host port the app is published on (default 3000)
 #   APP_NAME                (optional)  display / white-label name (default "HOSPO OPS")
 #   DB_USER                 (optional)  database username (default hospo_ops_user)
-#   CRON_SECRET             (optional)  bearer token for the cron endpoints
-#                                       (WooCommerce product sync + expiry scan)
+#   INTERNAL_CRON           (optional)  built-in scheduler for WooCommerce product
+#                                       sync (every 15 min) + daily expiry scan.
+#                                       Default true — no host crontab needed.
+#   CRON_SECRET             (optional)  bearer token for the /api/cron endpoints
+#                                       (only needed for EXTERNAL schedulers or
+#                                       manual curl triggers)
 #   IMAGE_TAG               (optional)  Docker image tag to pull (default latest,
 #                                       or set to develop for the latest fixes)
 #
@@ -80,7 +84,10 @@ services:
       # Phase 1: uploaded task photos are stored on the local volume below.
       UPLOAD_PROVIDER: local
       UPLOAD_PATH: /app/uploads
-      # Cron job authentication for product sync and expiry scan.
+      # Internal cron scheduler (WooCommerce product sync + expiry scan).
+      # Runs inside the app container — no host crontab needed.
+      INTERNAL_CRON: ${INTERNAL_CRON:-true}
+      # Bearer auth for the /api/cron endpoints (external schedulers only).
       CRON_SECRET: ${CRON_SECRET:-}
     volumes:
       # Task completion photos persist here across redeploys.

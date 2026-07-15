@@ -24,11 +24,34 @@ const STATUS_STYLES: Record<string, string> = {
   CANCELLED: 'text-danger border-danger',
 }
 
+const ORDER_STATUSES = ['PENDING', 'PROCESSING', 'COMPLETED', 'CANCELLED']
+
 export function OrdersClient() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [reconciling, setReconciling] = useState(false)
+  const [updatingId, setUpdatingId] = useState<string | null>(null)
+
+  async function handleStatusChange(orderId: string, status: string) {
+    setUpdatingId(orderId)
+    try {
+      const r = await fetch(`/api/admin/orders/${orderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+      if (r.ok) {
+        setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status } : o)))
+        pushToast(`STATUS UPDATED — PUSHED TO WOOCOMMERCE`, 'success')
+      } else {
+        pushToast('STATUS UPDATE FAILED', 'error')
+      }
+    } catch {
+      pushToast('STATUS UPDATE FAILED', 'error')
+    }
+    setUpdatingId(null)
+  }
 
   async function handleReconcile() {
     setReconciling(true)
@@ -137,6 +160,22 @@ export function OrdersClient() {
                   {/* Expanded: line items */}
                   {expanded && (
                     <div className="border-t border-grey-mid bg-grey-dark/20 px-6 py-3">
+                      <div className="flex items-center gap-3 mb-3">
+                        <span className="font-mono text-[10px] text-grey-light uppercase">STATUS</span>
+                        <select
+                          value={o.status}
+                          disabled={updatingId === o.id}
+                          onChange={(e) => handleStatusChange(o.id, e.target.value)}
+                          className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white disabled:opacity-40 uppercase"
+                        >
+                          {ORDER_STATUSES.map((s) => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </select>
+                        <span className="font-mono text-[9px] text-grey-light uppercase">
+                          {updatingId === o.id ? 'PUSHING TO WOOCOMMERCE...' : 'CHANGES PUSH TO WOOCOMMERCE'}
+                        </span>
+                      </div>
                       {o.items && o.items.length > 0 ? (
                         <div className="space-y-1">
                           <p className="font-mono text-[10px] text-grey-light uppercase mb-2">LINE ITEMS</p>
