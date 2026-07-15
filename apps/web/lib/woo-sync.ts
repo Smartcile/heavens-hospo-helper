@@ -21,6 +21,14 @@ export function wooAuthHeader(consumerKey: string, consumerSecret: string): stri
   return `Basic ${Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64')}`
 }
 
+// WooCommerce sends an UNSIGNED activation ping (form body "webhook_id=N")
+// when a webhook is saved or re-activated, and requires a 2xx response —
+// otherwise wp-admin shows "Delivery URL returned response code: 401" and
+// the webhook is disabled. There is nothing to process in a ping.
+export function isWebhookPing(rawBody: string): boolean {
+  return /^webhook_id=\d+$/.test(rawBody.trim())
+}
+
 async function fetchWooProducts(storeUrl: string, consumerKey: string, consumerSecret: string): Promise<any[]> {
   const baseUrl = storeUrl.replace(/\/+$/, '')
   const products: any[] = []

@@ -3,7 +3,7 @@ import { createHmac } from 'crypto'
 import { prisma } from '@hospo-ops/db'
 import { explodeRecipe } from '@/lib/inventory-engine'
 import { getNextNumber } from '@/lib/gift-cards'
-import { upsertProductFromWoo } from '@/lib/woo-sync'
+import { upsertProductFromWoo, isWebhookPing } from '@/lib/woo-sync'
 import { isSelfEcho } from '@/lib/woo-push'
 import { logSync } from '@/lib/sync-log'
 import type { PrismaClient, OrderStatus } from '@prisma/client'
@@ -22,6 +22,19 @@ export async function POST(req: NextRequest) {
   const signature = req.headers.get('x-wc-webhook-signature')
   const topic = req.headers.get('x-wc-webhook-topic') ?? 'unknown'
   const entity = topic.startsWith('product') ? 'PRODUCT' : 'ORDER'
+
+  // ── 1a. Acknowledge WooCommerce's unsigned activation ping ──
+  // Sent when a webhook is saved/activated in wp-admin; must get a 2xx or
+  // WooCommerce marks the webhook as failed and disables it.
+  if (isWebhookPing(rawBody)) {
+    await logSync({
+      direction: 'WEBHOOK',
+      entity,
+      status: 'SUCCESS',
+      message: `WEBHOOK ACTIVATION PING ACKNOWLEDGED (${rawBody.trim().toUpperCase()})`,
+    })
+    return NextResponse.json({ message: 'Webhook ping acknowledged' }, { status: 200 })
+  }
 
   if (!signature) {
     await logSync({

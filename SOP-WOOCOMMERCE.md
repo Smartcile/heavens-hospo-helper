@@ -198,6 +198,7 @@ and a product pull appears in the feed within ~15 seconds of startup.
 
 | Issue | Check |
 |-------|-------|
+| `Delivery URL returned response code: 401` when SAVING a webhook in wp-admin | Update HOSPO OPS — older versions rejected WooCommerce's unsigned activation ping. Current versions acknowledge it (a `WEBHOOK ACTIVATION PING ACKNOWLEDGED` row appears on `/admin/sync`). After updating, re-save the webhook and set its Status back to Active. |
 | Nothing on the SYNC dashboard | Verify the integration is ACTIVE in Settings and credentials are saved. Check container logs for `[internal-cron] started`. |
 | Orders not appearing | Look for red `WEBHOOK REJECTED` rows on `/admin/sync`. `SIGNATURE DID NOT MATCH` means the webhook Secret in WordPress doesn't exactly match the Webhook Secret in Settings. No rows at all → verify the Delivery URL is reachable from WordPress (WooCommerce → Settings → Advanced → Webhooks → Logs). |
 | Webhooks blocked behind Cloudflare Access | Add a **Bypass** policy for `/api/webhooks/*` — WordPress can't pass a Cloudflare login. The endpoint is HMAC-verified by the app itself. |
