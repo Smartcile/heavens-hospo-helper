@@ -281,10 +281,26 @@ for plain compose). Everything else is derived automatically.
 | `APP_NAME` | No | `HOSPO OPS` | Display / white-label name |
 | `DB_USER` | No | `hospo_ops_user` | PostgreSQL username |
 | `WORKER_SESSION_EXPIRY_MINUTES` | No | `15` | Worker auto-logout timeout |
+| `INTERNAL_CRON` | No | `true` | Built-in scheduler (WooCommerce product sync every 15 min + daily expiry scan). Set `false` to use an external scheduler instead |
+| `CRON_SECRET` | No | — | Bearer token for the `/api/cron/*` endpoints — only needed for external schedulers or manual triggers |
 
 > `DATABASE_URL` and `NEXTAUTH_URL` are **not** set by hand — the compose file
 > builds `DATABASE_URL` from `DB_USER`/`DB_PASSWORD` and derives `NEXTAUTH_URL`
 > from `APP_URL`. Uploads always go to the `uploads_data` volume.
+
+---
+
+## WOOCOMMERCE SYNC (OPTIONAL)
+
+HOSPO OPS syncs two-way with a WooCommerce store — orders and products flow in
+via webhooks (instant), product/order-status changes push back automatically,
+and a built-in scheduler handles the backstop product pull. **No host crontab
+or OS access is needed**, so this works the same on Portainer, plain compose,
+or any managed container platform.
+
+- Setup guide: [`SOP-WOOCOMMERCE.md`](SOP-WOOCOMMERCE.md)
+- Live sync monitor: **Admin → Woo Sync** (`/admin/sync`) — every pull, push,
+  and webhook is logged there with errors in red, plus manual PULL/PUSH buttons.
 
 ---
 
@@ -303,6 +319,8 @@ If you expose the app through a Cloudflare Tunnel:
    - `/w/*` — worker PIN login + task view
    - `/api/worker/*` — worker API
    - `/api/upload/*` — task photos
+   - `/api/webhooks/*` — WooCommerce webhooks (HMAC-verified by the app itself)
+   - `/api/cron/*` — only if you use an external scheduler (bearer-token protected)
 
    Keep `/admin/*` and `/api/admin/*` behind Access for an extra auth layer if
    you like — the app still requires its own admin login on top.

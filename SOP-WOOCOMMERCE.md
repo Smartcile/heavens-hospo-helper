@@ -19,6 +19,10 @@ The scheduler is **built into the app container** — there is nothing to
 configure on the host machine, so this works on any Docker host or managed
 platform (Portainer, Railway, Render, Fly.io, etc.).
 
+> **Already running an older version?** See
+> [Updating an Existing Deployment](#updating-an-existing-deployment-pre-two-way-sync-versions)
+> below — the upgrade is a re-pull plus three new webhooks.
+
 ---
 
 ## Phase 1: WordPress / WooCommerce Prep
@@ -130,12 +134,73 @@ every 10 seconds and shows every pull, push, and webhook — errors in red.
 
 ---
 
+## Updating an Existing Deployment (pre two-way-sync versions)
+
+Already running HOSPO OPS with the old WooCommerce integration (daily cron +
+order webhook only)? Follow these steps to upgrade. Your existing integration
+credentials, orders, and menu items are untouched.
+
+### 1. Pull the new image and redeploy
+
+- **Portainer (Repository stack):** open the stack → **Pull and redeploy**.
+  The compose file is re-read from the repo, so the new settings come with it.
+- **Plain docker compose:**
+
+  ```bash
+  cd heavens-hospo-helper
+  git pull
+  docker compose pull
+  docker compose up -d
+  ```
+
+The new `SyncLog` database table is created automatically on container start
+(`prisma db push` runs in the entrypoint) — no manual migration needed.
+
+### 2. docker-compose / environment changes
+
+| Setting | Change needed |
+|---------|---------------|
+| `INTERNAL_CRON` | **Nothing** — new optional variable, defaults to `true` (scheduler on). Only set it (to `false`) if you want to keep your external cron setup. |
+| `CRON_SECRET` | Now **optional**. Previously required for the product sync — the internal scheduler doesn't use it. Keep it only if you keep external cron jobs. |
+| Compose file itself | If you maintain a **modified copy** of `docker-compose.yml`, add the new env line to the `app` service: `INTERNAL_CRON: ${INTERNAL_CRON:-true}`. Stock compose users get this automatically via `git pull` / stack re-pull. |
+
+> **Heads up:** if your image tag is pinned (e.g. `IMAGE_TAG=v1.x`), bump it —
+> `latest` (or `develop`) includes the two-way sync.
+
+### 3. Remove the old host crontab entries
+
+The old SOP had you add curl jobs to the host crontab (2:00 AM product sync,
+3:00 AM expiry scan). The internal scheduler now covers both, so remove them:
+
+```bash
+crontab -e
+# delete the two lines hitting /api/cron/woocommerce-sync and /api/cron/expiry-scan
+```
+
+(Leaving them is harmless — the endpoints are idempotent — but redundant.)
+
+### 4. Add the new product webhooks in WooCommerce
+
+Your existing `Order updated` webhook keeps working unchanged. Add webhooks
+**2–4** from Phase 3 (`Product created` / `Product updated` /
+`Product deleted`) using the **same Webhook Secret** so product changes sync
+instantly instead of overnight.
+
+### 5. Verify
+
+Open **HOSPO OPS → Woo Sync** (new sidebar entry under Operations) and run
+through Phase 5. Container logs should show `[internal-cron] started` on boot,
+and a product pull appears in the feed within ~15 seconds of startup.
+
+---
+
 ## Troubleshooting
 
 | Issue | Check |
 |-------|-------|
 | Nothing on the SYNC dashboard | Verify the integration is ACTIVE in Settings and credentials are saved. Check container logs for `[internal-cron] started`. |
 | Orders not appearing | Look for red `WEBHOOK REJECTED` rows on `/admin/sync`. `SIGNATURE DID NOT MATCH` means the webhook Secret in WordPress doesn't exactly match the Webhook Secret in Settings. No rows at all → verify the Delivery URL is reachable from WordPress (WooCommerce → Settings → Advanced → Webhooks → Logs). |
+| Webhooks blocked behind Cloudflare Access | Add a **Bypass** policy for `/api/webhooks/*` — WordPress can't pass a Cloudflare login. The endpoint is HMAC-verified by the app itself. |
 | Products not syncing instantly | Verify the three product webhooks from Phase 3 exist and are Active. The 15-minute pull will still catch changes. |
 | Product pull empty / PULL FAILED | Verify Consumer Key/Secret have Read/Write permissions. Check STORE URL has no trailing slash. The error row's detail includes the HTTP status. |
 | Pushes failing (`PUSH FAILED — HTTP 401`) | Consumer Key permissions must be `Read/Write`, not `Read`. |
