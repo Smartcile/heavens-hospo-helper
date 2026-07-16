@@ -1,6 +1,7 @@
 import { prisma } from '@hospo-ops/db'
 import { logSync } from '@/lib/sync-log'
 import { wooAuthHeader } from '@/lib/woo-sync'
+import { oauthSignedUrl } from '@/lib/woo-oauth'
 import type { MenuItem, OrderStatus, WooIntegration } from '@prisma/client'
 
 // ── WooCommerce Push (App → WordPress) ────────────────────────────────
@@ -93,6 +94,15 @@ async function wooPut(
     const sep = url.includes('?') ? '&' : '?'
     response = await fetch(
       `${url}${sep}consumer_key=${encodeURIComponent(integration.consumerKey)}&consumer_secret=${encodeURIComponent(integration.consumerSecret)}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body },
+    )
+  }
+
+  // Final fallback: OAuth 1.0a signed request — required when WordPress
+  // can't detect HTTPS behind a proxy/tunnel (see woo-oauth.ts).
+  if (response.status === 401) {
+    response = await fetch(
+      oauthSignedUrl('PUT', url, integration.consumerKey, integration.consumerSecret),
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body },
     )
   }

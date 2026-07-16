@@ -1,5 +1,6 @@
 import { prisma } from '@hospo-ops/db'
 import { logSync } from '@/lib/sync-log'
+import { oauthSignedUrl } from '@/lib/woo-oauth'
 
 // ── WooCommerce Product Pull ──────────────────────────────────────────
 // Shared by: the internal scheduler, GET /api/cron/woocommerce-sync,
@@ -54,12 +55,22 @@ async function fetchWooProducts(storeUrl: string, consumerKey: string, consumerS
       )
     }
 
+    // Behind proxies/tunnels (e.g. Cloudflare) WordPress often fails to detect
+    // HTTPS (is_ssl() false) and rejects plain credentials with
+    // "woocommerce_rest_cannot_view". OAuth 1.0a signed requests are
+    // WooCommerce's required method in that case.
+    if (response.status === 401) {
+      response = await fetch(oauthSignedUrl('GET', url, consumerKey, consumerSecret), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
     const text = await response.text()
 
     if (!response.ok) {
       throw new Error(
         response.status === 401
-          ? `HTTP 401 from ${baseUrl} (tried header AND query-string auth) — re-check the Consumer Key/Secret in Settings (re-paste both; saved dots keep the OLD value) and confirm the key has Read/Write permission: ${text.slice(0, 300)}`
+          ? `HTTP 401 from ${baseUrl} (tried header, query-string AND OAuth1 auth) — re-check the Consumer Key/Secret in Settings (re-paste both; saved dots keep the OLD value) and confirm the key has Read/Write permission: ${text.slice(0, 300)}`
           : `HTTP ${response.status} from ${baseUrl}: ${text.slice(0, 300)}`,
       )
     }
@@ -113,7 +124,7 @@ export async function upsertProductFromWoo(
     data: {
       venueId,
       name,
-      recipeId: '', // placeholder — link recipe manually in admin
+      recipeId: null, // link recipe manually in admin (Recipes & Menu Items)
       price,
       wooProductId,
       wooCategoryId: categoryId,

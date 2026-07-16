@@ -1370,7 +1370,7 @@ model MenuItem {
   id              String    @id @default(uuid())
   venueId         String
   name            String
-  recipeId        String
+  recipeId        String?
   price           Float     @default(0)
   wooProductId    String?   @unique
   wooCategoryId   String?
@@ -1382,7 +1382,7 @@ model MenuItem {
   deletedAt       DateTime?
 
   venue       Venue          @relation(fields: [venueId], references: [id])
-  recipe      Recipe         @relation(fields: [recipeId], references: [id])
+  recipe      Recipe?        @relation(fields: [recipeId], references: [id])
   orderItems  WooOrderItem[]
 
   @@index([venueId])
