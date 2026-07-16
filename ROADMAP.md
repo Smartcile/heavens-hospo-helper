@@ -229,6 +229,28 @@ end-to-end (several were aspirational in Phase 2.5). Supersedes the "magnetic sn
 
 ---
 
+## FOOD HEALTH & SAFETY DIARY (with ESP32 temperature logging)
+☐ **Digital H&S diary** — daily food-safety records (cooking/cooling temps, cleaning
+  sign-offs, pest checks, staff illness, corrective actions) replacing the paper diary;
+  worker entry via the existing PIN flow, manager sign-off, exportable history for
+  council/EHO verification audits (NZ Food Act 2014 / Food Control Plan friendly)
+☐ **ESP32 sensor integration** — battery/WiFi ESP32 + DS18B20/SHT sensor nodes POST
+  readings to an authenticated ingest endpoint (`/api/sensors/reading`, per-device API
+  key); one node per fridge/freezer/hot-hold unit
+☐ **Automatic fridge/freezer logging** — continuous temperature history per unit,
+  min/max per day auto-recorded into the diary (no more manual twice-daily checks)
+☐ **Threshold alerts** — configurable safe ranges per unit; out-of-range for N minutes
+  raises a Notice/follow-up (and later Teams/push) — e.g. fridge >5°C, freezer >-15°C
+☐ **Delivery temperature checks** — handheld probe workflow on goods-in: worker scans/
+  selects the delivery, records probe temp (or reads from a BLE/ESP32 probe), links to
+  supplier + inventory receipt; auto-flags rejections outside safe range
+☐ **Cook/cool probe logging** — optional ESP32 probe capture for cooking and cooling
+  curves tied to recipes (2h/4h cooling rule validation)
+☐ **Sensor fleet dashboard** — device battery/last-seen/calibration-due view, offline
+  device alerts (a silent sensor is a compliance gap)
+
+---
+
 ## PHASE 6 — SCALE
 ☐ **Multi-tenant SaaS mode** — white-label per business, isolated data per tenant
 ☐ **Role-based permission system** — granular permissions beyond ADMIN/MANAGER/STAFF

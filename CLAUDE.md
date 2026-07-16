@@ -1052,6 +1052,7 @@ Aggregates exploded ingredients from completed orders, tallies `requiredBaseQty`
 | Microsoft Teams notifications | Send task overdue alerts to Teams channels | 5 |
 | Outlook calendar sync | Overlay venue events on task schedule view | 5 |
 | SwiftPOS deep sync | Roster data → automatic task assignment | 5 |
+| Food H&S diary + ESP32 temp logging | Digital food-safety diary; ESP32 sensor ingest endpoint, fridge/delivery/cook-probe temps, threshold alerts (see ROADMAP) | 5 |
 | Multi-tenant SaaS mode | White-label per business, isolated data per tenant | 6 |
 | Role-based permission system | Granular permissions beyond ADMIN/MANAGER/STAFF | 6 |
 | Public API | REST API for third-party integrations | 6 |
