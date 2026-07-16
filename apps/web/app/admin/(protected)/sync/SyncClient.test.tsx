@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { SyncClient } from '@/app/admin/(protected)/sync/SyncClient'
 
 describe('SyncClient', () => {
@@ -91,5 +91,54 @@ describe('SyncClient', () => {
       expect(screen.getByText('ALL DIRECTIONS')).toBeTruthy()
       expect(screen.getByText('ALL STATUSES')).toBeTruthy()
     })
+  })
+
+  it('clicking an event expands a detail box with the failure reason', async () => {
+    ;(fetch as any).mockResolvedValue({
+      ok: true,
+      json: async () => [
+        {
+          id: 'log-err',
+          direction: 'PULL',
+          entity: 'PRODUCT',
+          status: 'ERROR',
+          externalId: null,
+          message: 'PRODUCT PULL FAILED FOR https://example.com',
+          detail: { error: 'HTTP 401 from https://example.com: unauthorized' },
+          createdAt: '2026-07-16T01:00:00Z',
+        },
+      ],
+    })
+    render(<SyncClient />)
+    await waitFor(() => {
+      expect(screen.getByText('PRODUCT PULL FAILED FOR https://example.com')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('PRODUCT PULL FAILED FOR https://example.com'))
+    expect(screen.getByText(/HTTP 401 from https:\/\/example\.com/)).toBeTruthy()
+    expect(screen.getByText(/EXTERNAL ID/)).toBeTruthy()
+  })
+
+  it('expanded event without detail shows a fallback note', async () => {
+    ;(fetch as any).mockResolvedValue({
+      ok: true,
+      json: async () => [
+        {
+          id: 'log-plain',
+          direction: 'WEBHOOK',
+          entity: 'ORDER',
+          status: 'SUCCESS',
+          externalId: '55',
+          message: 'ORDER #55 SYNCED',
+          detail: null,
+          createdAt: '2026-07-16T01:00:00Z',
+        },
+      ],
+    })
+    render(<SyncClient />)
+    await waitFor(() => {
+      expect(screen.getByText('ORDER #55 SYNCED')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText('ORDER #55 SYNCED'))
+    expect(screen.getByText('NO ADDITIONAL DETAIL RECORDED FOR THIS EVENT')).toBeTruthy()
   })
 })

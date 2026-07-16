@@ -36,18 +36,46 @@ async function fetchWooProducts(storeUrl: string, consumerKey: string, consumerS
 
   // Paginate until a short page comes back (WooCommerce caps per_page at 100)
   for (;;) {
-    const response = await fetch(`${baseUrl}/wp-json/wc/v3/products?per_page=100&page=${page}`, {
+    const url = `${baseUrl}/wp-json/wc/v3/products?per_page=100&page=${page}`
+    let response = await fetch(url, {
       headers: {
         Authorization: wooAuthHeader(consumerKey, consumerSecret),
         'Content-Type': 'application/json',
       },
     })
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch products from ${storeUrl}: HTTP ${response.status}`)
+    // Many WordPress hosts strip the Authorization header before it reaches
+    // PHP, which makes Basic auth fail with 401 even when the keys are right.
+    // WooCommerce's documented fallback is query-string credentials (HTTPS).
+    if (response.status === 401) {
+      response = await fetch(
+        `${url}&consumer_key=${encodeURIComponent(consumerKey)}&consumer_secret=${encodeURIComponent(consumerSecret)}`,
+        { headers: { 'Content-Type': 'application/json' } },
+      )
     }
 
-    const batch: any[] = await response.json()
+    const text = await response.text()
+
+    if (!response.ok) {
+      throw new Error(
+        response.status === 401
+          ? `HTTP 401 from ${baseUrl} (tried header AND query-string auth) — re-check the Consumer Key/Secret in Settings (re-paste both; saved dots keep the OLD value) and confirm the key has Read/Write permission: ${text.slice(0, 300)}`
+          : `HTTP ${response.status} from ${baseUrl}: ${text.slice(0, 300)}`,
+      )
+    }
+
+    let batch: any
+    try {
+      batch = JSON.parse(text)
+    } catch {
+      throw new Error(
+        `Non-JSON response from ${baseUrl} (check STORE URL points at the WordPress root and no security plugin is intercepting /wp-json): ${text.slice(0, 300)}`,
+      )
+    }
+    if (!Array.isArray(batch)) {
+      throw new Error(`Unexpected response shape from ${baseUrl}: ${JSON.stringify(batch).slice(0, 300)}`)
+    }
+
     products.push(...batch)
     if (batch.length < 100) break
     page++

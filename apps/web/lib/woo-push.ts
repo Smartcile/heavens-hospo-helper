@@ -76,16 +76,29 @@ async function wooPut(
   payload: unknown,
 ): Promise<{ ok: boolean; status: number; body: string }> {
   const baseUrl = integration.storeUrl.replace(/\/+$/, '')
-  const response = await fetch(`${baseUrl}/wp-json/wc/v3/${path}`, {
+  const url = `${baseUrl}/wp-json/wc/v3/${path}`
+  const body = JSON.stringify(payload)
+
+  let response = await fetch(url, {
     method: 'PUT',
     headers: {
       Authorization: wooAuthHeader(integration.consumerKey, integration.consumerSecret),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body,
   })
-  const body = await response.text()
-  return { ok: response.ok, status: response.status, body }
+
+  // Fallback for hosts that strip the Authorization header (see woo-sync.ts).
+  if (response.status === 401) {
+    const sep = url.includes('?') ? '&' : '?'
+    response = await fetch(
+      `${url}${sep}consumer_key=${encodeURIComponent(integration.consumerKey)}&consumer_secret=${encodeURIComponent(integration.consumerSecret)}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body },
+    )
+  }
+
+  const responseBody = await response.text()
+  return { ok: response.ok, status: response.status, body: responseBody }
 }
 
 // Push a menu item's name / price / category to its linked WooCommerce product.

@@ -11,6 +11,7 @@ interface SyncLogRow {
   status: 'SUCCESS' | 'ERROR' | 'SKIPPED'
   externalId: string | null
   message: string
+  detail: unknown
   createdAt: string
 }
 
@@ -35,6 +36,7 @@ export function SyncClient() {
   const [pushing, setPushing] = useState(false)
   const [directionFilter, setDirectionFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     const params = new URLSearchParams()
@@ -153,30 +155,54 @@ export function SyncClient() {
               <div className="col-span-1">STATUS</div>
               <div className="col-span-6">MESSAGE</div>
             </div>
-            {logs.map((l) => (
-              <div
-                key={l.id}
-                className="grid grid-cols-1 md:grid-cols-12 gap-2 px-4 py-2 border-b border-grey-mid last:border-0 items-center font-mono"
-              >
-                <div className="md:col-span-2">
-                  <span className="text-[10px] text-grey-light">{new Date(l.createdAt).toLocaleString()}</span>
+            {logs.map((l) => {
+              const expanded = expandedId === l.id
+              return (
+                <div key={l.id} className="border-b border-grey-mid last:border-0">
+                  <button
+                    onClick={() => setExpandedId(expanded ? null : l.id)}
+                    className="w-full grid grid-cols-1 md:grid-cols-12 gap-2 px-4 py-2 items-center font-mono text-left hover:bg-grey-mid/10"
+                  >
+                    <div className="md:col-span-2 flex items-center gap-2">
+                      <span className={`text-[10px] ${expanded ? 'text-white' : 'text-grey-light'}`}>{expanded ? '▾' : '▸'}</span>
+                      <span className="text-[10px] text-grey-light">{new Date(l.createdAt).toLocaleString()}</span>
+                    </div>
+                    <div className="md:col-span-2">
+                      <span className="text-[10px] text-white uppercase">{DIRECTION_LABELS[l.direction] ?? l.direction}</span>
+                    </div>
+                    <div className="md:col-span-1">
+                      <span className="text-[10px] text-grey-light uppercase">{l.entity}</span>
+                    </div>
+                    <div className="md:col-span-1">
+                      <span className={`text-[10px] uppercase border px-1.5 py-0.5 ${STATUS_STYLES[l.status] ?? ''}`}>
+                        {l.status}
+                      </span>
+                    </div>
+                    <div className="md:col-span-6">
+                      <span className={`text-xs ${l.status === 'ERROR' ? 'text-danger' : 'text-white'}`}>{l.message}</span>
+                    </div>
+                  </button>
+
+                  {/* Expanded: full event detail */}
+                  {expanded && (
+                    <div className="border-t border-grey-mid bg-grey-dark/40 px-6 py-3 space-y-2">
+                      <div className="flex flex-wrap gap-6 font-mono text-[10px] text-grey-light uppercase">
+                        <span>EXTERNAL ID: {l.externalId ?? '—'}</span>
+                        <span>EVENT ID: {l.id}</span>
+                        <span>{new Date(l.createdAt).toLocaleString()}</span>
+                      </div>
+                      {l.detail != null ? (
+                        <pre className="font-mono text-[10px] text-white whitespace-pre-wrap break-all bg-black border border-grey-mid p-3 max-h-64 overflow-y-auto">
+                          {JSON.stringify(l.detail, null, 2)}
+                        </pre>
+                      ) : (
+                        <p className="font-mono text-[10px] text-grey-light uppercase">NO ADDITIONAL DETAIL RECORDED FOR THIS EVENT</p>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div className="md:col-span-2">
-                  <span className="text-[10px] text-white uppercase">{DIRECTION_LABELS[l.direction] ?? l.direction}</span>
-                </div>
-                <div className="md:col-span-1">
-                  <span className="text-[10px] text-grey-light uppercase">{l.entity}</span>
-                </div>
-                <div className="md:col-span-1">
-                  <span className={`text-[10px] uppercase border px-1.5 py-0.5 ${STATUS_STYLES[l.status] ?? ''}`}>
-                    {l.status}
-                  </span>
-                </div>
-                <div className="md:col-span-6">
-                  <span className={`text-xs ${l.status === 'ERROR' ? 'text-danger' : 'text-white'}`}>{l.message}</span>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
