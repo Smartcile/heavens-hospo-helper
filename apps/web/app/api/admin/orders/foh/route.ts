@@ -3,12 +3,6 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 
-// ── FOH Operations View ───────────────────────────────────────────────
-// Returns orders for a date grouped by table with category totals.
-//
-// GET /api/admin/orders/foh?date=YYYY-MM-DD
-// ──────────────────────────────────────────────────────────────────────
-
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -37,30 +31,41 @@ export async function GET(req: NextRequest) {
           menuItem: { select: { id: true, name: true, price: true, dietaryInfo: true, recipeId: true } },
         },
       },
-      calendarEvent: {
-        include: {
-          setups: {
-            include: {
-              items: {
-                where: { deletedAt: null },
-                include: { tableProfile: { select: { id: true, name: true, capacity: true } } },
-                orderBy: { assignedNumber: 'asc' },
-              },
-            },
-          },
-        },
-      },
     },
     orderBy: { fulfillmentDate: 'asc' },
   })
+
+  // Resolve table assignments via FloorPlanSetups linked by calendarEventId
+  const eventIds = [...new Set(orders.map((o) => o.calendarEventId).filter(Boolean))] as string[]
+  const setups = eventIds.length > 0
+    ? await prisma.floorPlanSetup.findMany({
+        where: { calendarEventId: { in: eventIds }, deletedAt: null },
+        include: {
+          items: {
+            where: { deletedAt: null },
+            include: { tableProfile: { select: { id: true, name: true, capacity: true } } },
+            orderBy: { assignedNumber: 'asc' },
+          },
+        },
+      })
+    : []
+
+  const setupsByEvent = new Map<string, (typeof setups)>()
+  for (const s of setups) {
+    if (!s.calendarEventId) continue
+    const arr = setupsByEvent.get(s.calendarEventId) ?? []
+    arr.push(s)
+    setupsByEvent.set(s.calendarEventId, arr)
+  }
 
   const result = []
 
   for (const order of orders) {
     const tables: { number: string; capacity: number }[] = []
 
-    if (order.calendarEvent?.setups) {
-      for (const setup of order.calendarEvent.setups) {
+    if (order.calendarEventId) {
+      const eventSetups = setupsByEvent.get(order.calendarEventId) ?? []
+      for (const setup of eventSetups) {
         for (const si of setup.items) {
           if (si.assignedNumber) {
             tables.push({ number: si.assignedNumber, capacity: si.tableProfile?.capacity ?? 0 })

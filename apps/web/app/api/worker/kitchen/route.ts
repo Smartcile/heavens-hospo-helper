@@ -2,13 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { jwtVerify } from 'jose'
 
-// ── Worker Kitchen View ───────────────────────────────────────────────
-// Returns today's order items grouped by table with dietary info.
-//
-// GET /api/worker/kitchen
-// Auth: hospo-worker-session JWT cookie
-// ──────────────────────────────────────────────────────────────────────
-
 async function getVenueId(req: NextRequest): Promise<string | null> {
   const token = req.cookies.get('hospo-worker-session')?.value
   if (!token) return null
@@ -42,31 +35,41 @@ export async function GET(req: NextRequest) {
           menuItem: { select: { id: true, name: true, dietaryInfo: true } },
         },
       },
-      calendarEvent: {
-        include: {
-          setups: {
-            include: {
-              items: {
-                where: { deletedAt: null },
-                include: { tableProfile: { select: { capacity: true } } },
-                orderBy: { assignedNumber: 'asc' },
-              },
-            },
-          },
-        },
-      },
     },
     orderBy: { fulfillmentDate: 'asc' },
   })
 
-  const tableItems: Record<string, { tableNumber: string; items: { name: string; dietaryInfo: string | null; qty: number; kitchenStatus: string }[] }> = {}
+  const eventIds = [...new Set(orders.map((o) => o.calendarEventId).filter(Boolean))] as string[]
+  const setups = eventIds.length > 0
+    ? await prisma.floorPlanSetup.findMany({
+        where: { calendarEventId: { in: eventIds }, deletedAt: null },
+        include: {
+          items: {
+            where: { deletedAt: null },
+            include: { tableProfile: { select: { capacity: true } } },
+            orderBy: { assignedNumber: 'asc' },
+          },
+        },
+      })
+    : []
+
+  const setupsByEvent = new Map<string, (typeof setups)>()
+  for (const s of setups) {
+    if (!s.calendarEventId) continue
+    const arr = setupsByEvent.get(s.calendarEventId) ?? []
+    arr.push(s)
+    setupsByEvent.set(s.calendarEventId, arr)
+  }
+
+  const tableItems: Record<string, { tableNumber: string; items: { orderId: string; name: string; dietaryInfo: string | null; qty: number; kitchenStatus: string }[] }> = {}
   const unassignedItems: { orderId: string; name: string; dietaryInfo: string | null; qty: number; kitchenStatus: string }[] = []
 
   for (const order of orders) {
     const tables: string[] = []
 
-    if (order.calendarEvent?.setups) {
-      for (const setup of order.calendarEvent.setups) {
+    if (order.calendarEventId) {
+      const eventSetups = setupsByEvent.get(order.calendarEventId) ?? []
+      for (const setup of eventSetups) {
         for (const si of setup.items) {
           if (si.assignedNumber) tables.push(si.assignedNumber)
         }
@@ -79,7 +82,7 @@ export async function GET(req: NextRequest) {
         name: item.menuItem?.name ?? 'UNKNOWN',
         dietaryInfo: item.menuItem?.dietaryInfo ?? null,
         qty: item.qty,
-        kitchenStatus: item.kitchenStatus,
+        kitchenStatus: item.kitchenStatus as string,
       }
 
       if (tables.length > 0) {

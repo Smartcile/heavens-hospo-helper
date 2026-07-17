@@ -1294,7 +1294,6 @@ model SupplierItemCode {
   orderingUnitId  String?
   isPreferred     Boolean  @default(false)
   notes         String?
-  kitchenStatus KitchenStatus @default(PENDING)
   createdAt     DateTime  @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -1436,6 +1435,7 @@ model WooOrderItem {
   qty        Int      @default(1)
   unitPrice  Float?
   notes      String?
+  kitchenStatus KitchenStatus @default(PENDING)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
