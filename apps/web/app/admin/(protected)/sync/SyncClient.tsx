@@ -33,6 +33,7 @@ export function SyncClient() {
   const [logs, setLogs] = useState<SyncLogRow[]>([])
   const [loading, setLoading] = useState(true)
   const [pulling, setPulling] = useState(false)
+  const [pullingOrders, setPullingOrders] = useState(false)
   const [pushing, setPushing] = useState(false)
   const [directionFilter, setDirectionFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -74,6 +75,23 @@ export function SyncClient() {
     load()
   }
 
+  async function handlePullOrders() {
+    setPullingOrders(true)
+    try {
+      const r = await fetch('/api/admin/sync/pull-orders', { method: 'POST' })
+      const d = await r.json()
+      if (r.ok) {
+        pushToast(String(d.message ?? 'ORDER PULL COMPLETE').toUpperCase(), 'success')
+      } else {
+        pushToast(String(d.error ?? 'ORDER PULL FAILED').toUpperCase(), 'error')
+      }
+    } catch {
+      pushToast('ORDER PULL FAILED', 'error')
+    }
+    setPullingOrders(false)
+    load()
+  }
+
   async function handlePush() {
     setPushing(true)
     try {
@@ -102,10 +120,13 @@ export function SyncClient() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">WOOCOMMERCE SYNC</h1>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="ghost" onClick={handlePull} disabled={pulling || pushing}>
+          <Button size="sm" variant="ghost" onClick={handlePull} disabled={pulling || pushing || pullingOrders}>
             {pulling ? 'PULLING...' : '↓ PULL PRODUCTS NOW'}
           </Button>
-          <Button size="sm" variant="ghost" onClick={handlePush} disabled={pulling || pushing}>
+          <Button size="sm" variant="ghost" onClick={handlePullOrders} disabled={pulling || pushing || pullingOrders}>
+            {pullingOrders ? 'PULLING...' : '↓ PULL ORDERS NOW'}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={handlePush} disabled={pulling || pushing || pullingOrders}>
             {pushing ? 'PUSHING...' : '↑ PUSH PRODUCTS NOW'}
           </Button>
         </div>
