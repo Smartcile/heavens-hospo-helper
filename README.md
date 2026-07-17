@@ -293,14 +293,18 @@ for plain compose). Everything else is derived automatically.
 ## WOOCOMMERCE SYNC (OPTIONAL)
 
 HOSPO OPS syncs two-way with a WooCommerce store — orders and products flow in
-via webhooks (instant), product/order-status changes push back automatically,
-and a built-in scheduler handles the backstop product pull. **No host crontab
+via webhooks (instant) and a built-in REST API pull (product + order, every 15 min),
+product/order-status changes push back automatically. **No host crontab
 or OS access is needed**, so this works the same on Portainer, plain compose,
 or any managed container platform.
 
 - Setup guide: [`SOP-WOOCOMMERCE.md`](SOP-WOOCOMMERCE.md)
 - Live sync monitor: **Admin → Woo Sync** (`/admin/sync`) — every pull, push,
-  and webhook is logged there with errors in red, plus manual PULL/PUSH buttons.
+  and webhook is logged there with errors in red, plus manual PULL PRODUCTS / PULL ORDERS / PUSH buttons.
+- FOH operations view: **Admin → Orders → FOH VIEW** tab — bookings by date with table
+  assignments, dietary info, and category totals.
+- Kitchen view: workers access **Menu → KITCHEN** (`/w/kitchen`) for today's orders
+  grouped by table with dietary badges.
 
 ---
 

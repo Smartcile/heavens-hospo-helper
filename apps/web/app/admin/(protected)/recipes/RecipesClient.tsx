@@ -13,7 +13,7 @@ interface Recipe {
   prepTime: number | null; version: number; isActive: boolean
   yieldUnit?: { id: string; name: string }
   lineItems?: LineItem[]
-  menuItem?: { id: string; price: number; wooProductId: string | null; wooCategoryId: string | null } | null
+  menuItem?: { id: string; price: number; wooProductId: string | null; wooCategoryId: string | null; dietaryInfo: string | null } | null
 }
 
 interface LineItem {

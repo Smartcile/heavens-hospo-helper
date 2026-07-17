@@ -1010,26 +1010,33 @@ Recursive BOM parser: walks `RecipeLineItem` tree, converts all quantities to ba
 Receives `order.created` / `order.updated` AND `product.created` / `product.updated` / `product.deleted` (branched on `x-wc-webhook-topic`). HMAC-SHA256 signature auth. Echo guard: pushes stamp `_updated_by: hospo-ops` + `_hospo_ops_pushed_at`; `isSelfEcho()` (lib/woo-push.ts) skips webhooks arriving within 2 min of our own push — genuine later edits still sync. Orders: upserts `WooOrder` + `WooOrderItem` in transaction, runs `explodeRecipe` per line item, stores exploded ingredients as JSON on order items. Products: `upsertProductFromWoo()` / soft-delete on `product.deleted`. Auto-seating engine: greedy first-fit bin-packing on partySize → `CalendarEvent` → `FloorPlanSetup` → `SetupItem` → `TableGroup`. Every event logs to `SyncLog`.
 
 ### Two-Way Sync (built 2026-07)
-- **Pull (Woo → app):** `lib/woo-sync.ts` `runProductPull(venueId?)` — paginated product fetch, upserts `MenuItem`s, logs to `SyncLog`.
+- **Pull (Woo → app):** `lib/woo-sync.ts` `runProductPull(venueId?)` — paginated product fetch, upserts `MenuItem`s, logs to `SyncLog`. `lib/woo-orders-sync.ts` `runOrderPull(venueId?)` — paginated order fetch, upserts `WooOrder` + `WooOrderItem`, runs recipe explosion, auto-seating, and gift card detection per order, logs to `SyncLog`.
 - **Push (app → Woo):** `lib/woo-push.ts` — `pushProduct()` fires on menu item / recipe menu-link save (name/price/category → `PUT wc/v3/products/{id}`); `pushOrderStatus()` fires on order status change via `PATCH /api/admin/orders/[id]` (Orders page STATUS dropdown). All pushes best-effort: log to `SyncLog`, never throw, never block the save.
-- **Sync dashboard:** `/admin/sync` (`SyncClient`) — PULL/PUSH NOW buttons (`POST /api/admin/sync/pull|push`), live `SyncLog` feed (`GET /api/admin/sync/log`, 10s auto-refresh, direction/status filters, errors in red).
+- **Sync dashboard:** `/admin/sync` (`SyncClient`) — PULL PRODUCTS / PULL ORDERS / PUSH PRODUCTS NOW buttons (`POST /api/admin/sync/pull|pull-orders|push`), live `SyncLog` feed (`GET /api/admin/sync/log`, 10s auto-refresh, direction/status filters, errors in red).
 
 ### Internal Cron Scheduler (`instrumentation.ts` + `lib/internal-cron.ts`)
-Started once on server boot via Next's `instrumentationHook` (enabled in next.config.mjs). Minute tick; pure `dueJobs(state, now, tz)` decides what fires (Vitest-covered). Jobs: product pull every 15 min (`runProductPull`), expiry scan daily 03:00 in `DEFAULT_TIMEZONE` (`runExpiryScan` in `lib/expiry-scan.ts`). Fully self-contained — no host crontab. Disable with `INTERNAL_CRON=false`. Dev hot-reload guarded via `globalThis.__hospoInternalCron`.
+Started once on server boot via Next's `instrumentationHook` (enabled in next.config.mjs). Minute tick; pure `dueJobs(state, now, tz)` decides what fires (Vitest-covered). Jobs: product pull every 15 min (`runProductPull`), order pull every 15 min (`runOrderPull`), expiry scan daily 03:00 in `DEFAULT_TIMEZONE` (`runExpiryScan` in `lib/expiry-scan.ts`). Fully self-contained — no host crontab. Disable with `INTERNAL_CRON=false`. Dev hot-reload guarded via `globalThis.__hospoInternalCron`.
 
 ### Cron Endpoints (`/api/cron/`) — external scheduler fallback
 - `woocommerce-sync`: thin wrapper over `runProductPull()`
+- `woocommerce-orders-sync`: thin wrapper over `runOrderPull()`
 - `expiry-scan`: thin wrapper over `runExpiryScan()` — sweeps expired `InventoryItem`s, traces BOM to parent WooCommerce products, applies `fallbackCategoryId`
-- Both authenticated via `Authorization: Bearer <CRON_SECRET>` header
+- All authenticated via `Authorization: Bearer <CRON_SECRET>` header
 
 ### Inventory Tabs
 `InventoryCategory.tab` (FOOD, BEVERAGE, null). 20 built-in categories auto-seeded. FOOD tab: PROTEIN, DAIRY, PRODUCE, DRY GOODS, BAKERY, CONDIMENTS. BEVERAGE tab: LIQUOR, WINE, BEER, SOFT DRINK, JUICE, COFFEE. OTHER tab: existing equipment categories. Deep inventory fields: `countingUnitId`, `orderingUnitId`, `yieldPercentage`, `costPrice`, `expiryDate`, `fallbackCategoryId`, `allergyInfo`.
 
 ### Recipes & Menu Items (combined page)
-`/admin/recipes` merged with `/admin/menu-items` (redirects). Recipe editor has LINK TO MENU toggle with price + WooCommerce fields. Tag-input for Woo categories. Searchable Combobox for ingredient/sub-recipe selection with grouped dropdown. Orphaned WooCommerce products shown in yellow.
+`/admin/recipes` merged with `/admin/menu-items` (redirects). Recipe editor has LINK TO MENU toggle with price + WooCommerce fields. Tag-input for Woo categories. Searchable Combobox for ingredient/sub-recipe selection with popover modal. Orphaned WooCommerce products shown in yellow. 23 allergen toggle buttons (Almond, Barley, Brazil Nut, Cashew, Crustacean, Egg, Fish, Hazelnut, Lupin, Macadamia, Milk, Mollusc, Oats, Peanut, Pecan, Pine nut, Pistachio, Rye, Sesame, Soy, Sulphites, Walnut, Wheat) — stored as comma-separated `dietaryInfo` on `MenuItem`.
 
 ### EOD Reconciliation (`/api/admin/inventory/reconcile`)
 Aggregates exploded ingredients from completed orders, tallies `requiredBaseQty` per inventory item. Returned as reconciliation report. Deferred inventory deduction (Phase 5).
+
+### FOH Operations View (`/admin/orders` — FOH VIEW tab)
+`GET /api/admin/orders/foh?date=` returns bookings for a date with table assignments (via CalendarEvent → FloorPlanSetup → SetupItem chain), line items with dietary info, and category totals. Admin UI has tabbed ORDERS / FOH VIEW with date picker, booking cards (party size, tables, line items, status), and right sidebar showing dish totals by inventory category.
+
+### Kitchen Worker View (`/w/kitchen`)
+`GET /api/worker/kitchen` (JWT via `jose`) returns today's order items grouped by table with dietary badges, unassigned items section, and prep totals grid. Auto-refreshes every 15s. Worker hamburger menu has KITCHEN tile. Admin nav has KITCHEN under Operations. Groundwork for future live service mode: `KitchenStatus` enum (PENDING/COOKING/READY/SERVED) on `WooOrderItem.kitchenStatus`.
 
 ## FUTURE INTEGRATION STUBS
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
-import { verify } from 'jsonwebtoken'
+import { jwtVerify } from 'jose'
 
 // ── Worker Kitchen View ───────────────────────────────────────────────
 // Returns today's order items grouped by table with dietary info.
@@ -13,8 +13,9 @@ async function getVenueId(req: NextRequest): Promise<string | null> {
   const token = req.cookies.get('hospo-worker-session')?.value
   if (!token) return null
   try {
-    const payload = verify(token, process.env.WORKER_SESSION_SECRET || '') as { staffId: string; venueId: string }
-    return payload.venueId || null
+    const secret = new TextEncoder().encode(process.env.WORKER_SESSION_SECRET || '')
+    const { payload } = await jwtVerify(token, secret)
+    return (payload as { venueId: string }).venueId || null
   } catch {
     return null
   }

@@ -6,7 +6,7 @@
 
 | Flow | Mechanism | Speed |
 |------|-----------|-------|
-| Orders (Woo → HOSPO OPS) | Webhook | Instant |
+| Orders (Woo → HOSPO OPS) | Webhook + built-in 15-minute REST API pull | Instant / 15 min worst case |
 | Products (Woo → HOSPO OPS) | Webhooks + built-in 15-minute pull | Instant / 15 min worst case |
 | Products (HOSPO OPS → Woo) | Automatic push on save + manual PUSH button | Instant |
 | Order status (HOSPO OPS → Woo) | Automatic push on status change | Instant |
@@ -88,6 +88,7 @@ Advanced → Webhooks → Add Webhook**. All of them share the same settings:
 The app container runs its own internal scheduler:
 
 - **Product pull** — every 15 minutes (backstop for the product webhooks)
+- **Order pull** — every 15 minutes (backstop for the order webhooks)
 - **Expiry scan** — daily at 03:00 (`DEFAULT_TIMEZONE`, default Pacific/Auckland)
 
 No host crontab, no external scheduler, no OS access required. This works
@@ -106,6 +107,8 @@ EventBridge, etc.):
    ```cron
    # Product sync — 2:00 AM daily
    0 2 * * * curl -s -o /dev/null -H "Authorization: Bearer <YOUR_CRON_SECRET>" https://<your-app-domain>/api/cron/woocommerce-sync
+   # Order sync — 2:30 AM daily
+   30 2 * * * curl -s -o /dev/null -H "Authorization: Bearer <YOUR_CRON_SECRET>" https://<your-app-domain>/api/cron/woocommerce-orders-sync
    # Expiry scan — 3:00 AM daily
    0 3 * * * curl -s -o /dev/null -H "Authorization: Bearer <YOUR_CRON_SECRET>" https://<your-app-domain>/api/cron/expiry-scan
    ```
@@ -119,7 +122,9 @@ every 10 seconds and shows every pull, push, and webhook — errors in red.
 
 1. Click **↓ PULL PRODUCTS NOW** — you should see a `PULLED N PRODUCTS...`
    SUCCESS row, and the imported products under **Recipes & Menu Items**.
-2. Create a test order in WooCommerce — a `ORDER #... SYNCED (ORDER.UPDATED)`
+2. Click **↓ PULL ORDERS NOW** — historical orders populate the **Orders** page
+   and the **FOH VIEW** tab.
+3. Create a test order in WooCommerce — a `ORDER #... SYNCED (ORDER.UPDATED)`
    WEBHOOK row appears within seconds, and the order shows on **Orders**.
 3. Edit a product in WooCommerce — a `PRODUCT #... UPDATED FROM WEBHOOK` row
    appears and the menu item updates.
@@ -200,7 +205,7 @@ and a product pull appears in the feed within ~15 seconds of startup.
 |-------|-------|
 | `Delivery URL returned response code: 401` when SAVING a webhook in wp-admin | Update HOSPO OPS — older versions rejected WooCommerce's unsigned activation ping. Current versions acknowledge it (a `WEBHOOK ACTIVATION PING ACKNOWLEDGED` row appears on `/admin/sync`). After updating, re-save the webhook and set its Status back to Active. |
 | Nothing on the SYNC dashboard | Verify the integration is ACTIVE in Settings and credentials are saved. Check container logs for `[internal-cron] started`. |
-| Orders not appearing | Look for red `WEBHOOK REJECTED` rows on `/admin/sync`. `SIGNATURE DID NOT MATCH` means the webhook Secret in WordPress doesn't exactly match the Webhook Secret in Settings. No rows at all → verify the Delivery URL is reachable from WordPress (WooCommerce → Settings → Advanced → Webhooks → Logs). |
+| Orders not appearing | Click **↓ PULL ORDERS NOW** on `/admin/sync` to fetch historical orders via the REST API. For webhook issues, look for red `WEBHOOK REJECTED` rows on `/admin/sync`. `SIGNATURE DID NOT MATCH` means the webhook Secret in WordPress doesn't exactly match the Webhook Secret in Settings. No rows at all → verify the Delivery URL is reachable from WordPress (WooCommerce → Settings → Advanced → Webhooks → Logs). |
 | Webhooks blocked behind Cloudflare Access | Add a **Bypass** policy for `/api/webhooks/*` — WordPress can't pass a Cloudflare login. The endpoint is HMAC-verified by the app itself. |
 | Products not syncing instantly | Verify the three product webhooks from Phase 3 exist and are Active. The 15-minute pull will still catch changes. |
 | Product pull empty / PULL FAILED | Click the event row on `/admin/sync` — the dark detail box shows the exact response. `HTTP 401`: many hosts strip the Authorization header; the app automatically retries with query-string auth, so a persistent 401 means the Consumer Key/Secret are wrong (re-paste BOTH in Settings — masked dots keep the old value) or lack Read/Write permission. Also check STORE URL has no trailing slash. |
