@@ -30,7 +30,7 @@ interface InvItem { id: string; name: string; unit: string; allergyInfo?: string
 interface RecipeBrief { id: string; name: string }
 
 interface OrphanMenuItem {
-  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null
+  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null; dietaryInfo: string | null
 }
 
 function generateId() { return crypto.randomUUID() }
@@ -56,6 +56,10 @@ export function RecipesClient() {
   const [formWooProductId, setFormWooProductId] = useState('')
   const [formWooCategories, setFormWooCategories] = useState<string[]>([])
   const [wooCatInput, setWooCatInput] = useState('')
+  const [formExistingMenuItemId, setFormExistingMenuItemId] = useState<string | null>(null)
+  const [formDietaryInfo, setFormDietaryInfo] = useState<string[]>([])
+
+  const ALLERGENS = ['ALMOND','BARLEY','BRAZIL NUT','CASHEW','CRUSTACEAN','EGG','FISH','HAZELNUT','LUPIN','MACADAMIA','MILK','MOLLUSC','OATS','PEANUT','PECAN','PINE NUT','PISTACHIO','RYE','SESAME','SOY','SULPHITES','WALNUT','WHEAT']
 
   const [uoms, setUoms] = useState<Uom[]>([])
   const [inventoryItems, setInventoryItems] = useState<InvItem[]>([])
@@ -77,6 +81,8 @@ export function RecipesClient() {
     setFormInstructions(''); setFormPrepTime(''); setLineItems([])
     setNewItemId(''); setNewItemQty('1'); setNewItemUomId('')
     setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([]); setWooCatInput('')
+    setFormDietaryInfo([])
+    setFormExistingMenuItemId(null)
   }
 
   function populateForm(r: Recipe) {
@@ -95,8 +101,10 @@ export function RecipesClient() {
       setFormPrice(String(r.menuItem.price))
       setFormWooProductId(r.menuItem.wooProductId ?? '')
       setFormWooCategories(r.menuItem.wooCategoryId ? r.menuItem.wooCategoryId.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
+      setFormDietaryInfo(r.menuItem.dietaryInfo ? r.menuItem.dietaryInfo.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
     } else {
     setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([]); setWooCatInput('')
+    setFormDietaryInfo([])
     }
   }
 
@@ -106,6 +114,8 @@ export function RecipesClient() {
     setFormInstructions(''); setFormPrepTime(''); setLineItems([])
     setLinkToMenu(true); setFormPrice(String(o.price))
     setFormWooProductId(o.wooProductId ?? ''); setFormWooCategories(o.wooCategoryId ? o.wooCategoryId.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
+    setFormDietaryInfo(o.dietaryInfo ? o.dietaryInfo.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
+    setFormExistingMenuItemId(o.id)
   }
 
   async function load() {
@@ -210,6 +220,8 @@ export function RecipesClient() {
       price: linkToMenu ? parseFloat(formPrice) || 0 : undefined,
       wooProductId: linkToMenu ? (formWooProductId || null) : undefined,
       wooCategoryId: linkToMenu ? (formWooCategories.length > 0 ? formWooCategories.join(', ') : null) : undefined,
+      existingMenuItemId: formExistingMenuItemId || undefined,
+      dietaryInfo: linkToMenu ? (formDietaryInfo.length > 0 ? formDietaryInfo.join(',') : null) : undefined,
     }
     if (isCreating) {
       const r = await fetch('/api/admin/recipes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -428,6 +440,27 @@ export function RecipesClient() {
                             className="flex-1 min-w-[120px] bg-transparent border-none outline-hidden text-white font-mono text-xs placeholder:text-grey-light"
                           />
                         </div>
+                      </div>
+                    </div>
+                  )}
+                  {linkToMenu && (
+                    <div>
+                      <label className="font-mono text-xs uppercase text-grey-light block mb-2">ALLERGENS</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {ALLERGENS.map((a) => (
+                          <button
+                            key={a}
+                            type="button"
+                            onClick={() => setFormDietaryInfo((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a])}
+                            className={`font-mono text-[10px] px-2 py-1 border transition-colors uppercase ${
+                              formDietaryInfo.includes(a)
+                                ? 'bg-white text-black border-white'
+                                : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
+                            }`}
+                          >
+                            {a}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )}

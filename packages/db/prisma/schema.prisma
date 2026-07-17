@@ -1095,6 +1095,13 @@ enum SyncStatus {
   SKIPPED
 }
 
+enum KitchenStatus {
+  PENDING
+  COOKING
+  READY
+  SERVED
+}
+
 model InventoryCategory {
   id        String   @id @default(uuid())
   venueId   String?
@@ -1286,8 +1293,9 @@ model SupplierItemCode {
   purchasePrice   Float?
   orderingUnitId  String?
   isPreferred     Boolean  @default(false)
-  notes           String?
-  createdAt       DateTime @default(now())
+  notes         String?
+  kitchenStatus KitchenStatus @default(PENDING)
+  createdAt     DateTime  @default(now())
   updatedAt       DateTime @updatedAt
 
   supplier      Supplier       @relation(fields: [supplierId], references: [id])
@@ -1376,6 +1384,7 @@ model MenuItem {
   wooCategoryId   String?
   imageUrl        String?
   description     String?
+  dietaryInfo     String?
   isActive        Boolean   @default(true)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

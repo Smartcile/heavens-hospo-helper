@@ -101,7 +101,9 @@ export function SearchSelect({ options, groups, value, onChange, placeholder, cl
           onFocus={() => { setOpen(true); setQuery('') }}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-hidden focus:border-white placeholder:text-grey-light"
+          className={`w-full bg-black border font-mono text-xs px-3 py-2 outline-none placeholder:text-grey-light ${
+            open ? 'border-white text-white' : 'border-grey-mid text-white focus:border-white'
+          }`}
         />
         {value && (
           <button
@@ -113,37 +115,57 @@ export function SearchSelect({ options, groups, value, onChange, placeholder, cl
         )}
       </div>
       {open && (
-        <div className="absolute top-full left-0 mt-1 bg-black border border-grey-mid max-h-48 overflow-y-auto z-50 shadow-lg min-w-full">
-          {filtered.length === 0 ? (
-            <div className="px-3 py-2 font-mono text-[10px] text-grey-light uppercase">NO RESULTS</div>
-          ) : (
-            filtered.map((o, i) => {
-              const groupHeader = groups ? groupIndices.find((g) => g.startIdx === allOptions.indexOf(o)) : null
-              return (
-                <div key={o.value}>
-                  {groupHeader && (
-                    <div className="px-3 py-1 font-mono text-[9px] uppercase text-grey-light border-b border-grey-mid bg-grey-dark/50">
-                      {groupHeader.label}
-                    </div>
-                  )}
-                  <button
-                    onClick={() => select(o.value)}
-                    onMouseEnter={() => setHighlightIdx(i)}
-                    className={`block w-full text-left px-3 py-1.5 font-mono text-xs uppercase truncate ${
-                      i === highlightIdx
-                        ? 'bg-grey-mid/30 text-white'
-                        : value === o.value
-                        ? 'bg-grey-mid/20 text-white'
-                        : 'text-grey-light hover:bg-grey-mid/20 hover:text-white'
-                    }`}
-                  >
-                    {o.label}
-                  </button>
-                </div>
-              )
-            })
-          )}
-        </div>
+        <>
+          <div className="fixed inset-0 bg-black/60 z-40" onClick={() => { setOpen(false); setQuery('') }} />
+          <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] pointer-events-none">
+            <div className="bg-black border border-grey-mid w-full max-w-lg max-h-[60vh] flex flex-col shadow-2xl pointer-events-auto">
+              <div className="flex items-center justify-between px-4 py-2 border-b border-grey-mid bg-grey-dark/30">
+                <span className="font-mono text-[10px] text-grey-light uppercase">
+                  {filtered.length} RESULTS
+                </span>
+                <button
+                  onClick={() => { setOpen(false); setQuery('') }}
+                  className="font-mono text-xs text-grey-light hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="overflow-y-auto flex-1">
+                {filtered.length === 0 ? (
+                  <div className="px-4 py-6 text-center">
+                    <p className="font-mono text-xs text-grey-light uppercase">NO RESULTS</p>
+                  </div>
+                ) : (
+                  filtered.map((o, i) => {
+                    const groupHeader = groups ? groupIndices.find((g) => g.startIdx === allOptions.indexOf(o)) : null
+                    return (
+                      <div key={o.value}>
+                        {groupHeader && (
+                          <div className="px-4 py-1.5 font-mono text-[9px] uppercase text-grey-light border-b border-grey-mid bg-grey-dark/50">
+                            {groupHeader.label}
+                          </div>
+                        )}
+                        <button
+                          onClick={() => select(o.value)}
+                          onMouseEnter={() => setHighlightIdx(i)}
+                          className={`block w-full text-left px-4 py-2 font-mono text-xs uppercase ${
+                            i === highlightIdx
+                              ? 'bg-grey-mid/30 text-white'
+                              : value === o.value
+                              ? 'bg-grey-mid/20 text-white'
+                              : 'text-grey-light hover:bg-grey-mid/20 hover:text-white'
+                          }`}
+                        >
+                          {o.label}
+                        </button>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )

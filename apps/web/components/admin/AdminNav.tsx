@@ -29,6 +29,7 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/admin/recipes', label: 'Recipes & Menu Items' },
     { href: '/admin/orders', label: 'Orders' },
     { href: '/admin/sync', label: 'Woo Sync' },
+    { href: '/w/kitchen', label: 'Kitchen' },
   ] },
   { label: 'Work', items: [
     { href: '/admin/tasks', label: 'Tasks & Checklists' },
