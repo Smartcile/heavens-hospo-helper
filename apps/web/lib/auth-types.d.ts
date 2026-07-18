@@ -6,6 +6,7 @@ declare module 'next-auth' {
     role: string
     venueId: string
     defaultVenueId: string | undefined
+    venueIsDemo: boolean
   }
 
   interface Session {
@@ -16,6 +17,7 @@ declare module 'next-auth' {
       role: string
       venueId: string
       defaultVenueId: string | undefined
+      venueIsDemo: boolean
     }
   }
 }
@@ -26,5 +28,6 @@ declare module 'next-auth/jwt' {
     role: string
     venueId: string
     defaultVenueId: string | undefined
+    venueIsDemo: boolean
   }
 }

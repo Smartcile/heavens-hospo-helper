@@ -35,6 +35,15 @@ export async function PUT(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // Demo venues cannot have WooCommerce integrations
+  const venue = await prisma.venue.findUnique({
+    where: { id: session.user.venueId, deletedAt: null },
+    select: { isDemo: true },
+  })
+  if (venue?.isDemo) {
+    return NextResponse.json({ error: 'WooCommerce is not available for demo venues' }, { status: 400 })
+  }
+
   const { wcStoreUrl, wcConsumerKey, wcConsumerSecret, wcWebhookSecret, wcActive } = await req.json()
 
   const data: Record<string, unknown> = {}

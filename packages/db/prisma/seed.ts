@@ -2,74 +2,180 @@ import { prisma } from '../index'
 import { Role, CompletionType, ScheduleType } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
+// ── UUID helpers ──
+function d(id: string) {
+  return `00000000-0000-0000-00d0-${id.padStart(12, '0')}`
+}
+
+// Legacy seeded entity prefixes (from the original seed — cleaned up from any
+// non-demo venue on redeploy)
+const LEGACY_TASK_PREFIXES = ['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009']
+const LEGACY_TASK_PATTERNS = LEGACY_TASK_PREFIXES.map((p) => `00000000-0000-0000-${p}-`)
+const LEGACY_DEMO_VENUE_ID = '00000000-0000-0000-0000-000000000001'
+const LEGACY_STAFF_IDS = [
+  '00000000-0000-0000-0000-000000000021', // BOH MANAGER
+  '00000000-0000-0000-0000-000000000023', // FOH MANAGER
+  '00000000-0000-0000-0000-000000000030', // ALEX CHEN
+  '00000000-0000-0000-0000-000000000031', // JORDAN PATEL
+  '00000000-0000-0000-0000-000000000032', // SAM WILSON
+  '00000000-0000-0000-0000-000000000033', // TAYLOR REED
+]
+const LEGACY_CHECKLIST_PREFIX = '00000000-0000-0000-00c0-'
+const LEGACY_TRAINING_PREFIX = '00000000-0000-0000-00b0-'
+const LEGACY_TEMPLATE_PREFIX = '00000000-0000-0000-00a0-'
+const LEGACY_QR_IDS = [
+  '00000000-0000-0000-0000-000000000031',
+  '00000000-0000-0000-0000-000000000032',
+]
+const LEGACY_TRAINING_IDS = Array.from({ length: 9 }, (_, i) =>
+  `00000000-0000-0000-00b0-${String(i + 1).padStart(12, '0')}`
+)
+const LEGACY_TEMPLATE_IDS = Array.from({ length: 5 }, (_, i) =>
+  `00000000-0000-0000-00a0-${String(i + 1).padStart(12, '0')}`
+)
+
+async function cleanupLegacyData() {
+  const legacyVenue = await prisma.venue.findUnique({
+    where: { id: LEGACY_DEMO_VENUE_ID, deletedAt: null },
+  })
+
+  if (!legacyVenue) {
+    // Fresh install — no legacy venue exists, nothing to clean.
+    return
+  }
+
+  const isStillDemo = legacyVenue.name === 'DEMO VENUE — AUCKLAND'
+
+  if (isStillDemo) {
+    // Venue 0001 is still the untouched demo venue. Mark it as demo, then
+    // clean out its legacy entities (they'll be replaced by new-ID ones in
+    // the new demo venue).
+    await prisma.venue.update({
+      where: { id: legacyVenue.id },
+      data: { isDemo: true },
+    })
+    await softDeleteLegacyEntities(legacyVenue.id)
+    return
+  }
+
+  // Venue 0001 was renamed — it's a real venue now. Only soft-delete
+  // demo-looking entities from it (tasks, checklists, training, QR codes,
+  // and staff that haven't been repurposed). Never touch departments or
+  // staff 0020 (bootstrap admin).
+  await safeCleanFromVenue(legacyVenue.id)
+}
+
+async function softDeleteLegacyEntities(venueId: string) {
+  // Tasks (all legacy prefixes)
+  for (const pattern of LEGACY_TASK_PATTERNS) {
+    await prisma.task.updateMany({
+      where: { venueId, id: { startsWith: pattern }, deletedAt: null },
+      data: { deletedAt: new Date() },
+    })
+  }
+
+  // Checklists
+  await prisma.checklist.updateMany({
+    where: { venueId, id: { startsWith: LEGACY_CHECKLIST_PREFIX }, deletedAt: null },
+    data: { deletedAt: new Date() },
+  })
+  await prisma.checklistTask.deleteMany({
+    where: { checklist: { venueId, id: { startsWith: LEGACY_CHECKLIST_PREFIX } } },
+  })
+
+  // Training modules
+  await prisma.trainingModule.updateMany({
+    where: { venueId, id: { in: LEGACY_TRAINING_IDS }, deletedAt: null },
+    data: { deletedAt: new Date() },
+  })
+  await prisma.trainingStep.deleteMany({
+    where: { moduleId: { in: LEGACY_TRAINING_IDS } },
+  })
+  await prisma.trainingAssignment.deleteMany({
+    where: { moduleId: { in: LEGACY_TRAINING_IDS } },
+  })
+
+  // Templates
+  await prisma.taskTemplate.updateMany({
+    where: { id: { startsWith: LEGACY_TEMPLATE_PREFIX }, deletedAt: null },
+    data: { deletedAt: new Date() },
+  })
+  await prisma.taskTemplateItem.deleteMany({
+    where: { templateId: { startsWith: LEGACY_TEMPLATE_PREFIX } },
+  })
+
+  // QR codes
+  await prisma.qRCode.updateMany({
+    where: { venueId, id: { in: LEGACY_QR_IDS }, deletedAt: null },
+    data: { deletedAt: new Date() },
+  })
+
+  // Staff (except admin 0020)
+  for (const id of LEGACY_STAFF_IDS) {
+    const s = await prisma.staff.findUnique({ where: { id, venueId } })
+    if (s) {
+      await prisma.staff.updateMany({
+        where: { id, deletedAt: null },
+        data: { deletedAt: new Date(), isActive: false, email: null },
+      })
+    }
+  }
+}
+
+async function safeCleanFromVenue(venueId: string) {
+  // Only remove demo entities from a non-demo venue.
+  // Staff: skip if repurposed (email changed from @demo.com). Staff 0020 never touched.
+  for (const id of LEGACY_STAFF_IDS) {
+    const s = await prisma.staff.findUnique({ where: { id, venueId } })
+    if (!s || s.deletedAt) continue
+    // If email was changed from the @demo.com pattern, it's been repurposed — keep it.
+    if (s.email && !s.email.endsWith('@demo.com')) continue
+    // Soft-delete and null the email so the new demo staff can reuse @demo.com emails.
+    await prisma.staff.updateMany({
+      where: { id, deletedAt: null },
+      data: { deletedAt: new Date(), isActive: false, email: null },
+    })
+  }
+
+  // Tasks, checklists, training, templates, QR codes — all known legacy IDs can go
+  await softDeleteLegacyEntities(venueId)
+}
+
 async function main() {
   console.log('Seeding database...')
 
-  // Clean up old BAR department and its staff/training references
-  const oldBarDept = await prisma.department.findUnique({ where: { id: '00000000-0000-0000-0000-000000000010' } })
-  if (oldBarDept?.name === 'BAR') {
-    await prisma.department.update({ where: { id: oldBarDept.id }, data: { deletedAt: new Date() } })
-  }
-  // Soft-delete old staff accounts that no longer exist in this seed
-  await prisma.staff.updateMany({
-    where: { id: '00000000-0000-0000-0000-000000000023' },
-    data: { deletedAt: null, isActive: true },
-  })
+  // ─── Phase 0: Legacy cleanup ─────────────────────────────────────────
+  await cleanupLegacyData()
 
-  // Create venue
-  const venue = await prisma.venue.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000001' },
-    update: {},
+  // ─── Phase 1: Demo venue ─────────────────────────────────────────────
+  const existingNonDemo = await prisma.venue.findFirst({
+    where: { deletedAt: null, isDemo: false },
+  })
+  // Enable demo by default on a fresh install; disable when real venues already exist
+  const demoIsActive = !existingNonDemo
+
+  const demoVenue = await prisma.venue.upsert({
+    where: { id: d('000000000001') },
+    update: { name: 'DEMO VENUE — AUCKLAND', isDemo: true },
     create: {
-      id: '00000000-0000-0000-0000-000000000001',
+      id: d('000000000001'),
       name: 'DEMO VENUE — AUCKLAND',
       address: '123 Demo Street, Auckland 1010',
       timezone: 'Pacific/Auckland',
-      isActive: true,
+      isActive: demoIsActive,
+      isDemo: true,
     },
   })
 
-  // Create departments
-  const deptBOH = await prisma.department.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000010' },
-    update: {},
-    create: {
-      id: '00000000-0000-0000-0000-000000000010',
-      name: 'BACK OF HOUSE',
-      venueId: venue.id,
-      colour: '#FACC15',
-      isActive: true,
-    },
-  })
-
-  const deptFOH = await prisma.department.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000012' },
-    update: {},
-    create: {
-      id: '00000000-0000-0000-0000-000000000012',
-      name: 'FRONT OF HOUSE',
-      venueId: venue.id,
-      colour: '#F5F5F5',
-      isActive: true,
-    },
-  })
-
-  // Create staff. Admin/manager profiles log into the web panel with
-  // email + password; PINs remain for QR + numpad worker login.
+  // ─── Phase 2: Bootstrap admin ────────────────────────────────────────
+  // Always seeded; NEVER credential-reset on re-deploy. update: {} preserves
+  // whatever the admin changed their password/email to.
   const pinAdmin = await bcrypt.hash('0000', 10)
-  const pinManager = await bcrypt.hash('1111', 10)
   const pwAdmin = await bcrypt.hash('admin1234', 10)
-  const pwBoh = await bcrypt.hash('boh1234', 10)
-  const pwFoh = await bcrypt.hash('foh1234', 10)
-  // Staff PINs
-  const pinStaff1 = await bcrypt.hash('1234', 10)
-  const pinStaff2 = await bcrypt.hash('2345', 10)
-  const pinStaff3 = await bcrypt.hash('3456', 10)
-  const pinStaff4 = await bcrypt.hash('4567', 10)
 
   const adminStaff = await prisma.staff.upsert({
     where: { id: '00000000-0000-0000-0000-000000000020' },
-    update: { email: 'admin@demo.com', password: pwAdmin },
+    update: {},
     create: {
       id: '00000000-0000-0000-0000-000000000020',
       firstName: 'ADMIN',
@@ -78,23 +184,57 @@ async function main() {
       email: 'admin@demo.com',
       password: pwAdmin,
       role: Role.ADMIN,
-      venueId: venue.id,
+      venueId: demoVenue.id,
       isActive: true,
     },
   })
 
-  const bohManager = await prisma.staff.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000021' },
-    update: { email: 'boh@demo.com', password: pwBoh },
+  // ─── Phase 3: Demo departments ───────────────────────────────────────
+  const deptBOH = await prisma.department.upsert({
+    where: { id: d('000000000010') },
+    update: {},
     create: {
-      id: '00000000-0000-0000-0000-000000000021',
+      id: d('000000000010'),
+      name: 'BACK OF HOUSE',
+      venueId: demoVenue.id,
+      colour: '#FACC15',
+      isActive: true,
+    },
+  })
+
+  const deptFOH = await prisma.department.upsert({
+    where: { id: d('000000000012') },
+    update: {},
+    create: {
+      id: d('000000000012'),
+      name: 'FRONT OF HOUSE',
+      venueId: demoVenue.id,
+      colour: '#F5F5F5',
+      isActive: true,
+    },
+  })
+
+  // ─── Phase 4: Demo staff ────────────────────────────────────────────
+  const pwBoh = await bcrypt.hash('boh1234', 10)
+  const pwFoh = await bcrypt.hash('foh1234', 10)
+  const pinManager = await bcrypt.hash('1111', 10)
+  const pinStaff1 = await bcrypt.hash('1234', 10)
+  const pinStaff2 = await bcrypt.hash('2345', 10)
+  const pinStaff3 = await bcrypt.hash('3456', 10)
+  const pinStaff4 = await bcrypt.hash('4567', 10)
+
+  const bohManager = await prisma.staff.upsert({
+    where: { id: d('000000000021') },
+    update: { email: 'boh@demo.com' },
+    create: {
+      id: d('000000000021'),
       firstName: 'BOH',
       lastName: 'MANAGER',
       pin: pinManager,
       email: 'boh@demo.com',
       password: pwBoh,
       role: Role.MANAGER,
-      venueId: venue.id,
+      venueId: demoVenue.id,
       departmentId: deptBOH.id,
       hourlyRate: 28,
       employmentType: 'FULL_TIME',
@@ -103,17 +243,17 @@ async function main() {
   })
 
   const fohManager = await prisma.staff.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000023' },
-    update: { email: 'foh@demo.com', password: pwFoh },
+    where: { id: d('000000000022') },
+    update: { email: 'foh@demo.com' },
     create: {
-      id: '00000000-0000-0000-0000-000000000023',
+      id: d('000000000022'),
       firstName: 'FOH',
       lastName: 'MANAGER',
       pin: pinManager,
       email: 'foh@demo.com',
       password: pwFoh,
       role: Role.MANAGER,
-      venueId: venue.id,
+      venueId: demoVenue.id,
       departmentId: deptFOH.id,
       hourlyRate: 28,
       employmentType: 'FULL_TIME',
@@ -121,18 +261,17 @@ async function main() {
     },
   })
 
-  // Dummy STAFF members for testing
   const staffBoh1 = await prisma.staff.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000030' },
-    update: { email: 'chef@demo.com' },
+    where: { id: d('000000000030') },
+    update: {},
     create: {
-      id: '00000000-0000-0000-0000-000000000030',
+      id: d('000000000030'),
       firstName: 'ALEX',
       lastName: 'CHEN',
       pin: pinStaff1,
       email: 'chef@demo.com',
       role: Role.STAFF,
-      venueId: venue.id,
+      venueId: demoVenue.id,
       departmentId: deptBOH.id,
       hourlyRate: 25,
       employmentType: 'FULL_TIME',
@@ -141,15 +280,15 @@ async function main() {
   })
 
   const staffBoh2 = await prisma.staff.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000031' },
+    where: { id: d('000000000031') },
     update: {},
     create: {
-      id: '00000000-0000-0000-0000-000000000031',
+      id: d('000000000031'),
       firstName: 'JORDAN',
       lastName: 'PATEL',
       pin: pinStaff2,
       role: Role.STAFF,
-      venueId: venue.id,
+      venueId: demoVenue.id,
       departmentId: deptBOH.id,
       hourlyRate: 23.5,
       employmentType: 'PART_TIME',
@@ -158,15 +297,15 @@ async function main() {
   })
 
   const staffFoh1 = await prisma.staff.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000032' },
+    where: { id: d('000000000032') },
     update: {},
     create: {
-      id: '00000000-0000-0000-0000-000000000032',
+      id: d('000000000032'),
       firstName: 'SAM',
       lastName: 'WILSON',
       pin: pinStaff3,
       role: Role.STAFF,
-      venueId: venue.id,
+      venueId: demoVenue.id,
       departmentId: deptFOH.id,
       hourlyRate: 24,
       employmentType: 'FULL_TIME',
@@ -175,15 +314,15 @@ async function main() {
   })
 
   const staffFoh2 = await prisma.staff.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000033' },
+    where: { id: d('000000000033') },
     update: {},
     create: {
-      id: '00000000-0000-0000-0000-000000000033',
+      id: d('000000000033'),
       firstName: 'TAYLOR',
       lastName: 'REED',
       pin: pinStaff4,
       role: Role.STAFF,
-      venueId: venue.id,
+      venueId: demoVenue.id,
       departmentId: deptFOH.id,
       hourlyRate: 22,
       employmentType: 'CASUAL',
@@ -191,34 +330,9 @@ async function main() {
     },
   })
 
-  // --- One-time migration for existing installs ---
-  // Earlier builds stored the admin login email in `swiftPosId` and used the
-  // PIN as the password. Backfill the new email/password fields from those so
-  // nobody is locked out, and free up swiftPosId for real SwiftPOS ids.
-  const legacyAdmins = await prisma.staff.findMany({
-    where: {
-      role: { in: [Role.ADMIN, Role.MANAGER] },
-      deletedAt: null,
-      email: null,
-      swiftPosId: { contains: '@' },
-    },
-  })
-  for (const s of legacyAdmins) {
-    await prisma.staff.update({
-      where: { id: s.id },
-      data: {
-        email: s.swiftPosId!.toLowerCase().trim(),
-        password: s.password ?? s.pin, // reuse existing bcrypt hash if no password yet
-        swiftPosId: null,
-      },
-    })
-  }
+  // ─── Phase 5: Demo tasks ────────────────────────────────────────────
 
-  // ── TASKS ────────────────────────────────────────────────────────────────
-  // ID prefix: 0001=daily, 0002=weekly, 0003=monthly, 0004=one-off
-  // BOH = BOH department, FOH = FOH dept, VEN = whole venue
-
-  // ── BOH DAILY (8 tasks, varied types) ──
+  // BOH DAILY (8 tasks, varied types)
   const bohDailyTasks = [
     { title: 'CHECK FRIDGE TEMPERATURES', description: 'Record all fridge and freezer temperatures. Alert manager if any unit is outside safe range.', type: CompletionType.TICK_NOTE },
     { title: 'SANITISE ALL PREP SURFACES', description: 'Clean and sanitise cutting boards, prep benches, and utensil stations.', type: CompletionType.TICK },
@@ -233,12 +347,12 @@ async function main() {
   for (let i = 0; i < bohDailyTasks.length; i++) {
     const { type, ...task } = bohDailyTasks[i]
     await prisma.task.upsert({
-      where: { id: `00000000-0000-0000-0001-${String(i).padStart(12, '0')}` },
+      where: { id: d(`0001${String(i).padStart(12, '0')}`) },
       update: {},
       create: {
-        id: `00000000-0000-0000-0001-${String(i).padStart(12, '0')}`,
+        id: d(`0001${String(i).padStart(12, '0')}`),
         ...task,
-        venueId: venue.id,
+        venueId: demoVenue.id,
         departmentId: deptBOH.id,
         completionType: type,
         scheduleType: ScheduleType.DAILY,
@@ -249,7 +363,7 @@ async function main() {
     })
   }
 
-  // ── BOH WEEKLY (4 tasks, varied days) ──
+  // BOH WEEKLY (4 tasks, varied days)
   const bohWeeklyTasks = [
     { title: 'DEEP CLEAN BEHIND ALL EQUIPMENT', description: 'Pull out ovens, fryers, and fridges. Sweep, mop, and sanitise the full floor area behind cookline.', days: [1] },
     { title: 'CALIBRATE ALL PROBE THERMOMETERS', description: 'Test every probe against the ice-water method (0°C). Log readings and replace any out-of-spec units.', days: [3] },
@@ -260,12 +374,12 @@ async function main() {
   for (let i = 0; i < bohWeeklyTasks.length; i++) {
     const { days, ...task } = bohWeeklyTasks[i]
     await prisma.task.upsert({
-      where: { id: `00000000-0000-0000-0002-${String(i).padStart(12, '0')}` },
+      where: { id: d(`0002${String(i).padStart(12, '0')}`) },
       update: {},
       create: {
-        id: `00000000-0000-0000-0002-${String(i).padStart(12, '0')}`,
+        id: d(`0002${String(i).padStart(12, '0')}`),
         ...task,
-        venueId: venue.id,
+        venueId: demoVenue.id,
         departmentId: deptBOH.id,
         completionType: CompletionType.TICK_NOTE,
         scheduleType: ScheduleType.WEEKLY,
@@ -276,7 +390,7 @@ async function main() {
     })
   }
 
-  // ── BOH MONTHLY (2 tasks, 1st and 15th) ──
+  // BOH MONTHLY (3 tasks)
   const bohMonthlyTasks = [
     { title: 'DEEP CLEAN EXHAUST HOODS AND FILTERS', description: 'Remove hood filters, soak in degreaser overnight. Wipe down hood interior and replace filters.', monthlyOption: 'FIRST_DAY' },
     { title: 'AUDIT AND ROTATE CHEMICAL STOCK', description: 'Count all cleaning chemicals. Check expiry dates. Rotate stock and place reorder for low items.', monthlyOption: 'FIFTEENTH' },
@@ -286,12 +400,12 @@ async function main() {
   for (let i = 0; i < bohMonthlyTasks.length; i++) {
     const { monthlyOption, ...task } = bohMonthlyTasks[i]
     await prisma.task.upsert({
-      where: { id: `00000000-0000-0000-0003-${String(i).padStart(12, '0')}` },
+      where: { id: d(`0003${String(i).padStart(12, '0')}`) },
       update: {},
       create: {
-        id: `00000000-0000-0000-0003-${String(i).padStart(12, '0')}`,
+        id: d(`0003${String(i).padStart(12, '0')}`),
         ...task,
-        venueId: venue.id,
+        venueId: demoVenue.id,
         departmentId: deptBOH.id,
         completionType: i === 2 ? CompletionType.TICK_PHOTO : CompletionType.TICK_NOTE,
         scheduleType: 'MONTHLY',
@@ -304,13 +418,13 @@ async function main() {
     })
   }
 
-  // ── FOH DAILY (8 tasks, varied types) ──
+  // FOH DAILY (8 tasks)
   const fohDailyTasks = [
     { title: 'POLISH ALL CUTLERY AND GLASSWARE', description: 'Ensure no water spots or smudges on all service cutlery, wine glasses, and water glasses.', type: CompletionType.TICK },
     { title: 'CHECK AND FILL CONDIMENT STATIONS', description: 'Salt, pepper, sauces, napkins, and toothpicks all fully stocked and wiped down.', type: CompletionType.TICK },
     { title: 'INSPECT ALL TABLE SETTINGS', description: 'Walk every table — check alignment, spacing, clean tablecloths, and correct place-setting layout.', type: CompletionType.TICK },
     { title: 'CHECK CUSTOMER BATHROOMS', description: 'Inspect soap, paper, and cleanliness. Replenish supplies. Photo of each bathroom at open.', type: CompletionType.TICK_PHOTO },
-    { title: 'BRIEF FLOOR TEAM ON SPECIALS', description: 'Run through today\'s specials, 86\'d items, allergens, and large-party bookings with the whole floor team.', type: CompletionType.TICK_NOTE },
+    { title: 'BRIEF FLOOR TEAM ON SPECIALS', description: "Run through today's specials, 86'd items, allergens, and large-party bookings with the whole floor team.", type: CompletionType.TICK_NOTE },
     { title: 'WIPE DOWN ALL MENUS AND DRINKS LISTS', description: 'Sanitise every physical menu, wine list, and specials card. Replace any torn or stained copies.', type: CompletionType.TICK },
     { title: 'COUNT AND VERIFY OPENING FLOAT', description: 'Count the cash float against the POS record. Log any discrepancy and sign off with a manager.', type: CompletionType.TICK_NOTE },
     { title: 'SWEEP AND SPOT-MOP ENTRYWAY', description: 'Sweep the front entrance, mats, and foyer area. Spot-mop any visible marks. Check for trip hazards.', type: CompletionType.TICK },
@@ -319,12 +433,12 @@ async function main() {
   for (let i = 0; i < fohDailyTasks.length; i++) {
     const { type, ...task } = fohDailyTasks[i]
     await prisma.task.upsert({
-      where: { id: `00000000-0000-0000-0005-${String(i).padStart(12, '0')}` },
+      where: { id: d(`0005${String(i).padStart(12, '0')}`) },
       update: {},
       create: {
-        id: `00000000-0000-0000-0005-${String(i).padStart(12, '0')}`,
+        id: d(`0005${String(i).padStart(12, '0')}`),
         ...task,
-        venueId: venue.id,
+        venueId: demoVenue.id,
         departmentId: deptFOH.id,
         completionType: type,
         scheduleType: ScheduleType.DAILY,
@@ -335,7 +449,7 @@ async function main() {
     })
   }
 
-  // ── FOH WEEKLY (4 tasks, varied days) ──
+  // FOH WEEKLY (4 tasks)
   const fohWeeklyTasks = [
     { title: 'DEEP CLEAN ALL BOOTHS AND UPHOLSTERY', description: 'Vacuum all booth seats, spot-clean any stains. Wipe down booth backs and dividers.', days: [1] },
     { title: 'POLISH ALL GLASS DOORS AND MIRRORS', description: 'Use glass cleaner on every internal glass door, partition, and decorative mirror. Streak-free finish required.', days: [2] },
@@ -346,12 +460,12 @@ async function main() {
   for (let i = 0; i < fohWeeklyTasks.length; i++) {
     const { days, ...task } = fohWeeklyTasks[i]
     await prisma.task.upsert({
-      where: { id: `00000000-0000-0000-0006-${String(i).padStart(12, '0')}` },
+      where: { id: d(`0006${String(i).padStart(12, '0')}`) },
       update: {},
       create: {
-        id: `00000000-0000-0000-0006-${String(i).padStart(12, '0')}`,
+        id: d(`0006${String(i).padStart(12, '0')}`),
         ...task,
-        venueId: venue.id,
+        venueId: demoVenue.id,
         departmentId: deptFOH.id,
         completionType: CompletionType.TICK_NOTE,
         scheduleType: ScheduleType.WEEKLY,
@@ -362,7 +476,7 @@ async function main() {
     })
   }
 
-  // ── FOH MONTHLY (2 tasks) ──
+  // FOH MONTHLY (2 tasks)
   const fohMonthlyTasks = [
     { title: 'AUDIT LOST PROPERTY AND LOG', description: 'Check the lost-property drawer. Log any unclaimed items older than 30 days and escalate to the venue manager.', monthlyOption: 'FIRST_DAY' },
     { title: 'REVIEW AND UPDATE RESERVATION SYSTEM', description: 'Audit the next 6 weeks of reservations for double-bookings or gaps. Update table-allocation notes in the system.', monthlyOption: 'LAST_DAY' },
@@ -371,12 +485,12 @@ async function main() {
   for (let i = 0; i < fohMonthlyTasks.length; i++) {
     const { monthlyOption, ...task } = fohMonthlyTasks[i]
     await prisma.task.upsert({
-      where: { id: `00000000-0000-0000-0007-${String(i).padStart(12, '0')}` },
+      where: { id: d(`0007${String(i).padStart(12, '0')}`) },
       update: {},
       create: {
-        id: `00000000-0000-0000-0007-${String(i).padStart(12, '0')}`,
+        id: d(`0007${String(i).padStart(12, '0')}`),
         ...task,
-        venueId: venue.id,
+        venueId: demoVenue.id,
         departmentId: deptFOH.id,
         completionType: CompletionType.TICK_NOTE,
         scheduleType: 'MONTHLY',
@@ -389,7 +503,7 @@ async function main() {
     })
   }
 
-  // ── WHOLE-VENUE DAILY (3 tasks — show for everyone regardless of dept) ──
+  // WHOLE-VENUE DAILY (3 tasks)
   const venueDailyTasks = [
     { title: 'CHECK ALL FIRE EXITS ARE CLEAR', description: 'Walk every fire exit — ensure the path is unobstructed and the door opens freely from inside.', type: CompletionType.TICK },
     { title: 'TEST FIRE ALARM PANEL INDICATOR', description: 'Confirm the panel shows a green ready light. Note any amber or red warnings in the log for the manager.', type: CompletionType.TICK_NOTE },
@@ -399,12 +513,12 @@ async function main() {
   for (let i = 0; i < venueDailyTasks.length; i++) {
     const { type, ...task } = venueDailyTasks[i]
     await prisma.task.upsert({
-      where: { id: `00000000-0000-0000-0008-${String(i).padStart(12, '0')}` },
+      where: { id: d(`0008${String(i).padStart(12, '0')}`) },
       update: {},
       create: {
-        id: `00000000-0000-0000-0008-${String(i).padStart(12, '0')}`,
+        id: d(`0008${String(i).padStart(12, '0')}`),
         ...task,
-        venueId: venue.id,
+        venueId: demoVenue.id,
         departmentId: null,
         completionType: type,
         scheduleType: ScheduleType.DAILY,
@@ -415,7 +529,7 @@ async function main() {
     })
   }
 
-  // ── WHOLE-VENUE WEEKLY (2 tasks) ──
+  // WHOLE-VENUE WEEKLY (2 tasks)
   const venueWeeklyTasks = [
     { title: 'TEST EMERGENCY LIGHTING SYSTEM', description: 'Kill the main lighting circuit and confirm all emergency exit lights illuminate for at least 30 seconds. Record test in log.', days: [1] },
     { title: 'CHECK FIRST-AID KIT CONTENTS', description: 'Open every first-aid kit on site. Restock any used items. Check expiry dates on sterile dressings. Sign the inspection card.', days: [1] },
@@ -424,12 +538,12 @@ async function main() {
   for (let i = 0; i < venueWeeklyTasks.length; i++) {
     const { days, ...task } = venueWeeklyTasks[i]
     await prisma.task.upsert({
-      where: { id: `00000000-0000-0000-0009-${String(i).padStart(12, '0')}` },
+      where: { id: d(`0009${String(i).padStart(12, '0')}`) },
       update: {},
       create: {
-        id: `00000000-0000-0000-0009-${String(i).padStart(12, '0')}`,
+        id: d(`0009${String(i).padStart(12, '0')}`),
         ...task,
-        venueId: venue.id,
+        venueId: demoVenue.id,
         departmentId: null,
         completionType: CompletionType.TICK_NOTE,
         scheduleType: ScheduleType.WEEKLY,
@@ -440,7 +554,7 @@ async function main() {
     })
   }
 
-  // ── ONE-OFF / SIDE-WORK TASKS (4 tasks — test rollover) ──
+  // ONE-OFF / SIDE-WORK TASKS (4 tasks — test rollover)
   const today = new Date()
   const todayStr = `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, '0')}-${String(today.getUTCDate()).padStart(2, '0')}`
   const yesterday = new Date(today)
@@ -461,12 +575,12 @@ async function main() {
     const dueStr = `${dueDate.getUTCFullYear()}-${String(dueDate.getUTCMonth() + 1).padStart(2, '0')}-${String(dueDate.getUTCDate()).padStart(2, '0')}`
 
     await prisma.task.upsert({
-      where: { id: `00000000-0000-0000-0004-${String(i).padStart(12, '0')}` },
+      where: { id: d(`0004${String(i).padStart(12, '0')}`) },
       update: {},
       create: {
-        id: `00000000-0000-0000-0004-${String(i).padStart(12, '0')}`,
+        id: d(`0004${String(i).padStart(12, '0')}`),
         ...task,
-        venueId: venue.id,
+        venueId: demoVenue.id,
         departmentId: deptId,
         completionType: type,
         scheduleType: ScheduleType.DAILY,
@@ -481,13 +595,13 @@ async function main() {
     })
   }
 
-  // ── CHECKLISTS ────────────────────────────────────────────────────────────
+  // ─── Phase 6: Demo checklists ────────────────────────────────────────
 
   async function upsertChecklist(id: string, name: string, desc: string | null, deptId: string | null, appearFrom: string | null, taskIds: string[]) {
     await prisma.checklist.upsert({
       where: { id },
       update: { name, description: desc, departmentId: deptId, appearFromTime: appearFrom },
-      create: { id, name, description: desc, venueId: venue.id, departmentId: deptId, appearFromTime: appearFrom },
+      create: { id, name, description: desc, venueId: demoVenue.id, departmentId: deptId, appearFromTime: appearFrom },
     })
     await prisma.checklistTask.deleteMany({ where: { checklistId: id } })
     await prisma.checklistTask.createMany({
@@ -495,20 +609,18 @@ async function main() {
     })
   }
 
-  // Collect task IDs
-  const bohDailyIds = bohDailyTasks.map((_, i) => `00000000-0000-0000-0001-${String(i).padStart(12, '0')}`)
-  const bohWeeklyIds = bohWeeklyTasks.map((_, i) => `00000000-0000-0000-0002-${String(i).padStart(12, '0')}`)
-  const fohDailyIds = fohDailyTasks.map((_, i) => `00000000-0000-0000-0005-${String(i).padStart(12, '0')}`)
-  const fohWeeklyIds = fohWeeklyTasks.map((_, i) => `00000000-0000-0000-0006-${String(i).padStart(12, '0')}`)
-  const venueDailyIds = venueDailyTasks.map((_, i) => `00000000-0000-0000-0008-${String(i).padStart(12, '0')}`)
-  const venueWeeklyIds = venueWeeklyTasks.map((_, i) => `00000000-0000-0000-0009-${String(i).padStart(12, '0')}`)
-  const bohMonthlyIds = bohMonthlyTasks.map((_, i) => `00000000-0000-0000-0003-${String(i).padStart(12, '0')}`)
-  const fohMonthlyIds = fohMonthlyTasks.map((_, i) => `00000000-0000-0000-0007-${String(i).padStart(12, '0')}`)
-  const oneOffIds = oneOffTasks.map((_, i) => `00000000-0000-0000-0004-${String(i).padStart(12, '0')}`)
+  const bohDailyIds = bohDailyTasks.map((_, i) => d(`0001${String(i).padStart(12, '0')}`))
+  const bohWeeklyIds = bohWeeklyTasks.map((_, i) => d(`0002${String(i).padStart(12, '0')}`))
+  const fohDailyIds = fohDailyTasks.map((_, i) => d(`0005${String(i).padStart(12, '0')}`))
+  const fohWeeklyIds = fohWeeklyTasks.map((_, i) => d(`0006${String(i).padStart(12, '0')}`))
+  const venueDailyIds = venueDailyTasks.map((_, i) => d(`0008${String(i).padStart(12, '0')}`))
+  const venueWeeklyIds = venueWeeklyTasks.map((_, i) => d(`0009${String(i).padStart(12, '0')}`))
+  const bohMonthlyIds = bohMonthlyTasks.map((_, i) => d(`0003${String(i).padStart(12, '0')}`))
+  const fohMonthlyIds = fohMonthlyTasks.map((_, i) => d(`0007${String(i).padStart(12, '0')}`))
+  const oneOffIds = oneOffTasks.map((_, i) => d(`0004${String(i).padStart(12, '0')}`))
 
-  // BOH OPEN — appears from 07:00
   await upsertChecklist(
-    '00000000-0000-0000-00c0-000000000001',
+    d('00c0000000000001'),
     'BOH OPEN',
     'Morning opening routine for the kitchen.',
     deptBOH.id,
@@ -516,9 +628,8 @@ async function main() {
     [...bohDailyIds.slice(0, 5), bohDailyIds[5], bohDailyIds[7]]
   )
 
-  // BOH CLOSE — appears from 16:00
   await upsertChecklist(
-    '00000000-0000-0000-00c0-000000000002',
+    d('00c0000000000002'),
     'BOH CLOSE',
     'End-of-shift close down.',
     deptBOH.id,
@@ -526,9 +637,8 @@ async function main() {
     [bohDailyIds[2], bohDailyIds[4], bohDailyIds[6]]
   )
 
-  // BOH WEEKLY CLEAN — appears from 08:00 on Monday only
   await upsertChecklist(
-    '00000000-0000-0000-00c0-000000000003',
+    d('00c0000000000003'),
     'BOH WEEKLY CLEAN',
     'Monday morning deep-clean routine.',
     deptBOH.id,
@@ -536,9 +646,8 @@ async function main() {
     [...bohWeeklyIds, ...bohMonthlyIds.slice(0, 2)]
   )
 
-  // FOH OPEN — appears from 09:00
   await upsertChecklist(
-    '00000000-0000-0000-00c0-000000000004',
+    d('00c0000000000004'),
     'FOH OPEN',
     'Morning opening routine for front of house.',
     deptFOH.id,
@@ -546,9 +655,8 @@ async function main() {
     [...fohDailyIds.slice(0, 5), fohDailyIds[6], fohDailyIds[7]]
   )
 
-  // FOH CLOSE — appears from 17:00
   await upsertChecklist(
-    '00000000-0000-0000-00c0-000000000005',
+    d('00c0000000000005'),
     'FOH CLOSE',
     'End-of-shift close down for the floor.',
     deptFOH.id,
@@ -556,9 +664,8 @@ async function main() {
     [fohDailyIds[0], fohDailyIds[3], fohDailyIds[5]]
   )
 
-  // FOH WEEKLY — appears from 10:00 on Tuesday
   await upsertChecklist(
-    '00000000-0000-0000-00c0-000000000006',
+    d('00c0000000000006'),
     'FOH WEEKLY ROUTINE',
     'Mid-week maintenance tasks.',
     deptFOH.id,
@@ -566,9 +673,8 @@ async function main() {
     fohWeeklyIds
   )
 
-  // SIDE WORK — whole venue, no time gate (always visible)
   await upsertChecklist(
-    '00000000-0000-0000-00c0-000000000007',
+    d('00c0000000000007'),
     'SIDE WORK',
     'Ad-hoc and one-off tasks from the team. Any department can pick these up.',
     null,
@@ -576,9 +682,8 @@ async function main() {
     [...oneOffIds, bohDailyIds[6], fohDailyIds[5]]
   )
 
-  // WHOLE VENUE — no time gate
   await upsertChecklist(
-    '00000000-0000-0000-00c0-000000000008',
+    d('00c0000000000008'),
     'WHOLE VENUE',
     'Safety and facility tasks for everyone.',
     null,
@@ -588,93 +693,79 @@ async function main() {
 
   // QR Codes
   await prisma.qRCode.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000031' },
+    where: { id: d('000000000031') },
     update: {},
-    create: { id: '00000000-0000-0000-0000-000000000031', venueId: venue.id, label: 'BOH ENTRY QR', isActive: true },
+    create: { id: d('000000000031'), venueId: demoVenue.id, label: 'BOH ENTRY QR', isActive: true },
   })
 
   await prisma.qRCode.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000032' },
+    where: { id: d('000000000032') },
     update: {},
-    create: { id: '00000000-0000-0000-0000-000000000032', venueId: venue.id, label: 'FOH ENTRY QR', isActive: true },
+    create: { id: d('000000000032'), venueId: demoVenue.id, label: 'FOH ENTRY QR', isActive: true },
   })
 
-  // --- Built-in task templates (Phase 2) ---
-  // Curated SOP sets an admin can apply to any department in one click.
-  // Re-seeding refreshes the items so built-ins stay in sync with the code.
-  const builtInTemplates: {
-    id: string
-    name: string
-    description: string
-    category: string
-    items: {
-      title: string
-      description?: string
-      completionType?: 'TICK' | 'TICK_NOTE' | 'TICK_PHOTO'
-      scheduleType?: 'DAILY' | 'WEEKLY'
-      scheduleDays?: number[]
-    }[]
-  }[] = [
+  // ─── Phase 7: Built-in task templates ────────────────────────────────
+  const builtInTemplates = [
     {
-      id: '00000000-0000-0000-00a0-000000000001',
+      id: d('00a0000000000001'),
       name: 'BOH OPEN',
       description: 'Opening checklist for back of house.',
       category: 'BOH',
       items: [
-        { title: 'RECORD ALL FRIDGE AND FREEZER TEMPERATURES', completionType: 'TICK_NOTE' },
-        { title: 'CHECK OIL LEVELS AND QUALITY IN FRYERS', completionType: 'TICK' },
-        { title: 'SANITISE ALL PREP SURFACES', completionType: 'TICK' },
-        { title: 'CHECK DELIVERIES AGAINST DOCKETS', completionType: 'TICK_NOTE' },
-        { title: 'PREP MISE EN PLACE FOR SERVICE', completionType: 'TICK' },
+        { title: 'RECORD ALL FRIDGE AND FREEZER TEMPERATURES', completionType: 'TICK_NOTE' as const },
+        { title: 'CHECK OIL LEVELS AND QUALITY IN FRYERS', completionType: 'TICK' as const },
+        { title: 'SANITISE ALL PREP SURFACES', completionType: 'TICK' as const },
+        { title: 'CHECK DELIVERIES AGAINST DOCKETS', completionType: 'TICK_NOTE' as const },
+        { title: 'PREP MISE EN PLACE FOR SERVICE', completionType: 'TICK' as const },
       ],
     },
     {
-      id: '00000000-0000-0000-00a0-000000000002',
+      id: d('00a0000000000002'),
       name: 'BOH CLOSE',
       description: 'Closing checklist for back of house.',
       category: 'BOH',
       items: [
-        { title: 'RECORD CLOSING FRIDGE TEMPERATURES', completionType: 'TICK_NOTE' },
-        { title: 'CLEAN AND DEGREASE COOKLINE', completionType: 'TICK' },
-        { title: 'EMPTY AND SANITISE BINS', completionType: 'TICK' },
-        { title: 'WRAP, LABEL AND DATE ALL OPEN STOCK', completionType: 'TICK' },
-        { title: 'PHOTO OF CLEAN BOH FOR HANDOVER', completionType: 'TICK_PHOTO' },
+        { title: 'RECORD CLOSING FRIDGE TEMPERATURES', completionType: 'TICK_NOTE' as const },
+        { title: 'CLEAN AND DEGREASE COOKLINE', completionType: 'TICK' as const },
+        { title: 'EMPTY AND SANITISE BINS', completionType: 'TICK' as const },
+        { title: 'WRAP, LABEL AND DATE ALL OPEN STOCK', completionType: 'TICK' as const },
+        { title: 'PHOTO OF CLEAN BOH FOR HANDOVER', completionType: 'TICK_PHOTO' as const },
       ],
     },
     {
-      id: '00000000-0000-0000-00a0-000000000003',
+      id: d('00a0000000000003'),
       name: 'FOH OPEN',
       description: 'Opening checklist for front of house.',
       category: 'FRONT OF HOUSE',
       items: [
-        { title: 'POLISH ALL CUTLERY AND GLASSWARE', completionType: 'TICK' },
-        { title: 'SET ALL TABLES TO STANDARD LAYOUT', completionType: 'TICK' },
-        { title: 'FILL CONDIMENT AND NAPKIN STATIONS', completionType: 'TICK' },
-        { title: 'CHECK AND CLEAN CUSTOMER BATHROOMS', completionType: 'TICK_PHOTO' },
-        { title: 'BRIEF FLOOR TEAM ON SPECIALS AND ALLERGENS', completionType: 'TICK_NOTE' },
+        { title: 'POLISH ALL CUTLERY AND GLASSWARE', completionType: 'TICK' as const },
+        { title: 'SET ALL TABLES TO STANDARD LAYOUT', completionType: 'TICK' as const },
+        { title: 'FILL CONDIMENT AND NAPKIN STATIONS', completionType: 'TICK' as const },
+        { title: 'CHECK AND CLEAN CUSTOMER BATHROOMS', completionType: 'TICK_PHOTO' as const },
+        { title: 'BRIEF FLOOR TEAM ON SPECIALS AND ALLERGENS', completionType: 'TICK_NOTE' as const },
       ],
     },
     {
-      id: '00000000-0000-0000-00a0-000000000004',
+      id: d('00a0000000000004'),
       name: 'FOH CLOSE',
       description: 'Closing checklist for front of house.',
       category: 'FRONT OF HOUSE',
       items: [
-        { title: 'CLEAR, WIPE AND RESET ALL TABLES', completionType: 'TICK' },
-        { title: 'STACK AND CHARGE EFTPOS TERMINALS', completionType: 'TICK' },
-        { title: 'SWEEP AND MOP FLOOR', completionType: 'TICK' },
-        { title: 'RESTOCK FOR NEXT SERVICE', completionType: 'TICK' },
+        { title: 'CLEAR, WIPE AND RESET ALL TABLES', completionType: 'TICK' as const },
+        { title: 'STACK AND CHARGE EFTPOS TERMINALS', completionType: 'TICK' as const },
+        { title: 'SWEEP AND MOP FLOOR', completionType: 'TICK' as const },
+        { title: 'RESTOCK FOR NEXT SERVICE', completionType: 'TICK' as const },
       ],
     },
     {
-      id: '00000000-0000-0000-00a0-000000000005',
+      id: d('00a0000000000005'),
       name: 'WEEKLY DEEP CLEAN',
       description: 'Weekly deep-clean tasks (defaults to Monday).',
       category: 'GENERAL',
       items: [
-        { title: 'DEEP CLEAN BEHIND ALL EQUIPMENT', completionType: 'TICK_PHOTO', scheduleType: 'WEEKLY', scheduleDays: [1] },
-        { title: 'DESCALE SINKS AND TAPS', completionType: 'TICK', scheduleType: 'WEEKLY', scheduleDays: [1] },
-        { title: 'FULL STOCKTAKE AND REORDER', completionType: 'TICK_NOTE', scheduleType: 'WEEKLY', scheduleDays: [1] },
+        { title: 'DEEP CLEAN BEHIND ALL EQUIPMENT', completionType: 'TICK_PHOTO' as const, scheduleType: 'WEEKLY' as const, scheduleDays: [1] },
+        { title: 'DESCALE SINKS AND TAPS', completionType: 'TICK' as const, scheduleType: 'WEEKLY' as const, scheduleDays: [1] },
+        { title: 'FULL STOCKTAKE AND REORDER', completionType: 'TICK_NOTE' as const, scheduleType: 'WEEKLY' as const, scheduleDays: [1] },
       ],
     },
   ]
@@ -683,16 +774,8 @@ async function main() {
     await prisma.taskTemplate.upsert({
       where: { id: tpl.id },
       update: { name: tpl.name, description: tpl.description, category: tpl.category, isBuiltIn: true },
-      create: {
-        id: tpl.id,
-        name: tpl.name,
-        description: tpl.description,
-        category: tpl.category,
-        isBuiltIn: true,
-        venueId: null,
-      },
+      create: { id: tpl.id, name: tpl.name, description: tpl.description, category: tpl.category, isBuiltIn: true, venueId: null },
     })
-    // Keep items in sync with code on every seed.
     await prisma.taskTemplateItem.deleteMany({ where: { templateId: tpl.id } })
     await prisma.taskTemplateItem.createMany({
       data: tpl.items.map((item, i) => ({
@@ -707,9 +790,7 @@ async function main() {
     })
   }
 
-  // --- Example training modules (Phase 3) ---
-  // Varied: TRAINING / SOP / FAQ / HOWTO kinds, with and without sign-off,
-  // onboarding and non-onboarding, linked to tasks and checklists.
+  // ─── Phase 8: Demo training modules ──────────────────────────────────
   const trainingModules: {
     id: string
     title: string
@@ -723,9 +804,8 @@ async function main() {
     kind: string
     steps: { title?: string; content: string; videoUrl?: string; imageUrl?: string; linkedChecklistId?: string }[]
   }[] = [
-    // ── ONBOARDING (all staff, no sign-off) ──
     {
-      id: '00000000-0000-0000-00b0-000000000001',
+      id: d('00b0000000000001'),
       title: 'WELCOME & VENUE INDUCTION',
       description: 'Start here on your first shift — covers the basics for every new team member. [TRAINING · SELF-COMPLETE · ONBOARDING]',
       category: 'ONBOARDING',
@@ -739,10 +819,8 @@ async function main() {
         { title: 'USING THIS APP', content: 'Each shift, scan the QR at your area and enter your PIN to see your tasks. Tick them off as you go.' },
       ],
     },
-
-    // ── ONBOARDING (all staff, requires sign-off) ──
     {
-      id: '00000000-0000-0000-00b0-000000000002',
+      id: d('00b0000000000002'),
       title: 'FOOD SAFETY BASICS',
       description: 'Core hygiene and food-handling rules every staff member must know. [TRAINING · SIGN-OFF REQUIRED · ONBOARDING · WHOLE VENUE]',
       category: 'FOOD SAFETY',
@@ -756,16 +834,14 @@ async function main() {
         { title: 'CROSS-CONTAMINATION', content: 'Use separate colour-coded boards for raw meat (red), poultry (yellow), seafood (blue), and ready-to-eat (white).' },
       ],
     },
-
-    // ── BOH TRAINING (department-scoped, requires sign-off, linked to task) ──
     {
-      id: '00000000-0000-0000-00b0-000000000003',
+      id: d('00b0000000000003'),
       title: 'FRYER SAFETY & OIL MANAGEMENT',
       description: 'How to safely check, change, and dispose of fryer oil. Linked to the daily fryer task. [TRAINING · SIGN-OFF REQUIRED · ONBOARDING · BOH ONLY]',
       category: 'BOH',
       kind: 'TRAINING',
       departmentId: deptBOH.id,
-      linkedTaskId: '00000000-0000-0000-0001-000000000002',
+      linkedTaskId: d('0001000000000002'),
       requiresSignOff: true,
       isOnboarding: true,
       onboardingOrder: 3,
@@ -776,10 +852,8 @@ async function main() {
         { title: 'DISPOSAL', content: 'Used oil goes into the yellow collection drum out back — never down the drain. Record volume on the oil-log sheet.' },
       ],
     },
-
-    // ── BOH TRAINING (chemical safety, requires sign-off) ──
     {
-      id: '00000000-0000-0000-00b0-000000000005',
+      id: d('00b0000000000005'),
       title: 'CHEMICAL HANDLING & SAFETY',
       description: 'Correct use of cleaning chemicals, PPE, and spill response. [TRAINING · SIGN-OFF REQUIRED · ONBOARDING · BOH ONLY]',
       category: 'BOH',
@@ -794,10 +868,8 @@ async function main() {
         { title: 'SPILL RESPONSE', content: 'For small spills: wear gloves, apply absorbent granules, sweep into the yellow waste bag. For large spills: evacuate the area and notify a manager immediately.' },
       ],
     },
-
-    // ── FOH TRAINING (self-complete, no sign-off) ──
     {
-      id: '00000000-0000-0000-00b0-000000000004',
+      id: d('00b0000000000004'),
       title: 'FOH SERVICE STANDARDS',
       description: 'Table-setting, greeting, and service flow standards. [TRAINING · SELF-COMPLETE · ONBOARDING · FOH ONLY]',
       category: 'FOH',
@@ -807,15 +879,13 @@ async function main() {
       isOnboarding: true,
       onboardingOrder: 3,
       steps: [
-        { title: 'TABLE SETTINGS', content: 'Cutlery 2cm from table edge. Wine glass at 1 o\'clock, water at 11 o\'clock. Napkin folded centre.', imageUrl: 'https://placehold.co/600x400/FACC15/0A0A0A?text=Place+Setting+Diagram' },
+        { title: 'TABLE SETTINGS', content: "Cutlery 2cm from table edge. Wine glass at 1 o'clock, water at 11 o'clock. Napkin folded centre.", imageUrl: 'https://placehold.co/600x400/FACC15/0A0A0A?text=Place+Setting+Diagram' },
         { title: 'GREETING GUESTS', content: 'Welcome within 30 seconds of seating. Offer water immediately. Introduce yourself by name.' },
         { title: 'ALLERGEN AWARENESS', content: 'Always ask about allergies when taking orders. Mark dockets clearly. Confirm with kitchen before serving.' },
       ],
     },
-
-    // ── SOP (BOH, linked to checklist) ──
     {
-      id: '00000000-0000-0000-00b0-000000000006',
+      id: d('00b0000000000006'),
       title: 'BOH MORNING OPENING PROCEDURE',
       description: 'Standard operating procedure for kitchen open — follow the BOH OPEN checklist. [SOP · SELF-COMPLETE · BOH ONLY]',
       category: 'BOH',
@@ -826,14 +896,12 @@ async function main() {
       onboardingOrder: 5,
       steps: [
         { title: 'ARRIVE AND CHECK IN', content: 'Scan the BOH QR code at the kitchen entrance. Clock in and review today\'s task list.' },
-        { title: 'TEMPERATURE CHECKS FIRST', content: 'Before anything else, record all fridge and freezer temperatures. Any unit outside 0-5°C (fridge) or below -18°C (freezer) must be reported immediately.', linkedChecklistId: '00000000-0000-0000-00c0-000000000001' },
+        { title: 'TEMPERATURE CHECKS FIRST', content: 'Before anything else, record all fridge and freezer temperatures. Any unit outside 0-5°C (fridge) or below -18°C (freezer) must be reported immediately.', linkedChecklistId: d('00c0000000000001') },
         { title: 'MISE EN PLACE', content: 'Set up your station with everything you need for service. Check prep levels against the par sheet.', imageUrl: 'https://placehold.co/600x400/4ADE80/0A0A0A?text=Mise+En+Place+Setup' },
       ],
     },
-
-    // ── SOP (FOH, linked to checklist) ──
     {
-      id: '00000000-0000-0000-00b0-000000000007',
+      id: d('00b0000000000007'),
       title: 'FOH END-OF-NIGHT CLOSE',
       description: 'Standard operating procedure for closing the floor. Linked to the FOH CLOSE checklist. [SOP · SELF-COMPLETE · FOH ONLY]',
       category: 'FOH',
@@ -844,14 +912,12 @@ async function main() {
       onboardingOrder: 0,
       steps: [
         { title: 'LAST GUEST LEAVES', content: 'Once the last guest has left, begin closing duties. Do not rush guests — let them finish naturally.' },
-        { title: 'CLEAR AND RESET', content: 'Clear all tables, wipe down, and reset to the standard layout for tomorrow\'s service. Stack chairs on tables in the area being mopped.', linkedChecklistId: '00000000-0000-0000-00c0-000000000005' },
+        { title: 'CLEAR AND RESET', content: "Clear all tables, wipe down, and reset to the standard layout for tomorrow's service. Stack chairs on tables in the area being mopped.", linkedChecklistId: d('00c0000000000005') },
         { title: 'EFTPOS AND TILL', content: 'Close out all terminals. Print the end-of-day report. Count the float and lock it in the safe. Both a manager and the closing staff member must sign the cash-up sheet.' },
       ],
     },
-
-    // ── FAQ (whole-venue, no sign-off) ──
     {
-      id: '00000000-0000-0000-00b0-000000000008',
+      id: d('00b0000000000008'),
       title: 'COMMON ALLERGEN QUESTIONS',
       description: 'Quick reference for the most common dietary and allergen questions from guests. [FAQ · SELF-COMPLETE · WHOLE VENUE]',
       category: 'ALLERGENS',
@@ -865,22 +931,20 @@ async function main() {
         { title: 'NUT ALLERGY', content: 'We use almond meal in two desserts and peanut oil in one fryer. All other fryers use canola. Check the allergen matrix posted above the pass before answering any nut question.' },
       ],
     },
-
-    // ── HOWTO (BOH, self-complete, linked to task) ──
     {
-      id: '00000000-0000-0000-00b0-000000000009',
+      id: d('00b0000000000009'),
       title: 'HOW TO READ THE FRIDGE TEMP LOG',
       description: 'Step-by-step guide to the daily temperature recording sheet. Linked to the fridge temp task. [HOWTO · SELF-COMPLETE · BOH ONLY]',
       category: 'BOH',
       kind: 'HOWTO',
       departmentId: deptBOH.id,
-      linkedTaskId: '00000000-0000-0000-0001-000000000000',
+      linkedTaskId: d('0001000000000000'),
       requiresSignOff: false,
       isOnboarding: true,
       onboardingOrder: 7,
       steps: [
         { title: 'FIND THE LOG SHEET', content: 'The temperature log clipboard hangs on the cool-room door. Each fridge and freezer has its own column.' },
-        { title: 'RECORDING', content: 'Write the actual temperature reading from the unit\'s display. Do NOT write the target temperature. If the reading is outside range, circle it in RED.' },
+        { title: 'RECORDING', content: "Write the actual temperature reading from the unit's display. Do NOT write the target temperature. If the reading is outside range, circle it in RED." },
         { title: 'SIGN AND DATE', content: 'Write your initials and the time in the STAFF column. If you circled any readings, notify the manager on duty immediately — do not wait until end of shift.' },
       ],
     },
@@ -905,7 +969,7 @@ async function main() {
         title: m.title,
         description: m.description,
         category: m.category,
-        venueId: venue.id,
+        venueId: demoVenue.id,
         departmentId: m.departmentId ?? null,
         linkedTaskId: m.linkedTaskId ?? null,
         requiresSignOff: m.requiresSignOff,
@@ -928,31 +992,27 @@ async function main() {
     })
   }
 
-  // ── INDIVIDUAL TRAINING ASSIGNMENTS ──
-  // Assign specific modules to specific staff with a reason.
+  // ─── Phase 9: Training assignments ──────────────────────────────────
   await prisma.trainingAssignment.deleteMany({ where: { moduleId: { in: trainingModules.map((m) => m.id) } } })
   await prisma.trainingAssignment.createMany({
     data: [
-      // Alex Chen (BOH staff) — assigned Fryer Safety
-      { staffId: staffBoh1.id, moduleId: '00000000-0000-0000-00b0-000000000003', reason: 'UPSKILL' },
-      // Alex Chen — assigned Chemical Handling
-      { staffId: staffBoh1.id, moduleId: '00000000-0000-0000-00b0-000000000005', reason: 'AREA TO WORK ON' },
-      // Jordan Patel (BOH staff) — assigned How to Read Fridge Temp Log
-      { staffId: staffBoh2.id, moduleId: '00000000-0000-0000-00b0-000000000009', reason: 'AREA TO WORK ON' },
-      // Sam Wilson (FOH staff) — assigned FOH End-of-Night Close
-      { staffId: staffFoh1.id, moduleId: '00000000-0000-0000-00b0-000000000007', reason: 'UPSKILL' },
-      // Taylor Reed (FOH casual) — assigned FOH Service Standards
-      { staffId: staffFoh2.id, moduleId: '00000000-0000-0000-00b0-000000000004', reason: 'ONBOARDING' },
+      { staffId: staffBoh1.id, moduleId: d('00b0000000000003'), reason: 'UPSKILL' },
+      { staffId: staffBoh1.id, moduleId: d('00b0000000000005'), reason: 'AREA TO WORK ON' },
+      { staffId: staffBoh2.id, moduleId: d('00b0000000000009'), reason: 'AREA TO WORK ON' },
+      { staffId: staffFoh1.id, moduleId: d('00b0000000000007'), reason: 'UPSKILL' },
+      { staffId: staffFoh2.id, moduleId: d('00b0000000000004'), reason: 'ONBOARDING' },
     ],
   })
 
   console.log('Seed complete.')
+  console.log(`Demo venue: ${demoVenue.name} [isDemo=${demoVenue.isDemo}, isActive=${demoVenue.isActive}]`)
+  console.log('')
   console.log('Admin/manager web logins (email / password):')
   console.log('  admin@demo.com / admin1234    (ADMIN)')
-  console.log('  boh@demo.com   / boh1234      (BOH MANAGER)')
-  console.log('  foh@demo.com   / foh1234      (FOH MANAGER)')
+  console.log('  boh@demo.com   / boh1234      (BOH MANAGER — demo venue)')
+  console.log('  foh@demo.com   / foh1234      (FOH MANAGER — demo venue)')
   console.log('')
-  console.log('Staff PIN logins:')
+  console.log('Staff PIN logins (demo venue):')
   console.log('  1234 (Alex Chen - BOH FULL_TIME)')
   console.log('  2345 (Jordan Patel - BOH PART_TIME)')
   console.log('  3456 (Sam Wilson - FOH FULL_TIME)')
@@ -963,9 +1023,8 @@ async function main() {
   console.log(`  FOH: ${fohDailyTasks.length} daily + ${fohWeeklyTasks.length} weekly + ${fohMonthlyTasks.length} monthly`)
   console.log(`  VENUE: ${venueDailyTasks.length} daily + ${venueWeeklyTasks.length} weekly`)
   console.log(`  ONE-OFF: ${oneOffTasks.length}`)
-  console.log(`  CHECKLISTS: 8 (BOH OPEN, BOH CLOSE, BOH WEEKLY CLEAN, FOH OPEN, FOH CLOSE, FOH WEEKLY, SIDE WORK, WHOLE VENUE)`)
-  console.log(`  TEMPLATES: ${builtInTemplates.length} built-in`)
-  console.log(`  TRAINING: ${trainingModules.length} modules (TRAINING x5, SOP x2, FAQ x1, HOWTO x1) with 5 individual assignments`)
+  console.log(`  CHECKLISTS: 8`)
+  console.log(`  TRAINING: ${trainingModules.length} modules with 5 individual assignments`)
 }
 
 main()

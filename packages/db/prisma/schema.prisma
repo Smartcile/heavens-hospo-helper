@@ -69,6 +69,7 @@ model Venue {
   address    String?
   timezone   String    @default("Pacific/Auckland")
   isActive   Boolean   @default(true)
+  isDemo     Boolean   @default(false) // seeded demo venue — read-only for non-admins, excluded from syncs
   // External embeds (pasteable links shown live in the app)
   loadedRosterUrl        String?
   googleCalendarUrl      String?   // also imported into the planner via its derived iCal feed

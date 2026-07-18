@@ -692,6 +692,23 @@ tasks into a new template. Admin UI lives at `/admin/templates`.
 
 When modifying the seed file (`packages/db/prisma/seed.ts`), follow these patterns:
 
+### Demo venue architecture
+
+A seeded **demo venue** (`Venue.isDemo: true`, id `00000000-0000-0000-00d0-000000000001`)
+holds all sample data — departments, staff, tasks, checklists, training. The demo venue is
+separate from real user data and can be disabled in **Settings → DEMO VENUE** (admin only).
+
+| Area | Behaviour |
+|---|---|
+| Auth login | `authorize()` blocks MANAGER login when demo venue is disabled (`isActive: false`). ADMIN always logs in. `venueIsDemo` is stamped in the NextAuth JWT/session. |
+| Write blocking | `middleware.ts` + `lib/demo-block.ts` (pure, tested) blocks non-GET requests to `/api/admin/*` for demo-venue managers (403 "read-only"). ADMIN bypasses. Workers (task completions etc.) are NOT blocked. |
+| Sync isolation | `woo-sync.ts`, `woo-orders-sync.ts`, `webhook/woocommerce` filter integrations by `venue: { isDemo: false }`. `external-sync.ts` excludes demo venues. `expiry-scan.ts` skips demo-venue items. Woo settings PUT is blocked for demo venues. |
+| Venue visibility | Disabled demo venues are hidden from `/api/venues` (worker picker), `/api/admin/venues` (admin switcher), and overdue tasks are filtered out (`NOT: { isDemo: true, isActive: false }`). |
+| Seed lifecycle | Fresh install: demo created **active**. Existing install with real venues: demo created **disabled**. Legacy demo entities (old `...0001` prefix UUIDs) are auto-cleaned from non-demo venues on every seed run — staff are kept if their email was changed (repurposed account), otherwise soft-deleted with `email: null` to free the `@demo.com` email. The bootstrap admin (`...0020`) is NEVER touched and its credentials are NEVER reset on re-deploy (`update: {}`). |
+
+New demo entities use UUID pattern `00000000-0000-0000-00d0-XXXXXXXXXXXX` (prefix `00d0`).
+The helper `d(id)` in seed.ts generates these: `d('000000000020')` → demo admin staff UUID.
+
 ### Fixed IDs for reproducibility
 Every seed entity uses a hardcoded UUID in the `00000000-0000-0000-XXXX-0000000000YY` pattern where `XXXX` is an entity-group prefix and `YY` is a zero-padded counter. This makes upserts idempotent and safe to re-run.
 
@@ -1115,6 +1132,7 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/utils.ts` — all 8 exports | ✅ |
 | `lib/training.ts` — `getStaffTraining`, `getStaffSops` | ✅ |
 | `lib/retrain.ts` — `postRetrainNotice` | ✅ |
+| `lib/demo-block.ts` — `shouldBlockDemoWrite` | ✅ (14 tests) |
 | `lib/worker-session.ts` — `workerCookieSecure` | ✅ |
 | `lib/followups.ts` — `checkUntrainedOnCompletion` | ✅ |
 | `lib/external-sync.ts` — `syncVenueCalendar` | ✅ |

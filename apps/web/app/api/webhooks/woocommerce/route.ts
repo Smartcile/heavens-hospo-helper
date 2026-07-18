@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
 
   // ── 2. Resolve venue by trying all active WooIntegration webhook secrets ──
   const integrations = await prisma.wooIntegration.findMany({
-    where: { isActive: true, deletedAt: null, webhookSecret: { not: null } },
+    where: { isActive: true, deletedAt: null, webhookSecret: { not: null }, venue: { isDemo: false } },
     include: { venue: true },
   })
 

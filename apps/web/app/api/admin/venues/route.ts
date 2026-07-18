@@ -9,6 +9,7 @@ export async function GET() {
 
   const where = {
     deletedAt: null,
+    NOT: { isDemo: true, isActive: false },
     ...(session.user.role === 'MANAGER' ? { id: session.user.venueId } : {}),
   }
 

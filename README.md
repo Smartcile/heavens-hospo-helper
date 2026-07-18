@@ -94,13 +94,32 @@ After seeding, the following accounts exist.
 | Role | Email | Password |
 |---|---|---|
 | Admin | `admin@demo.com` | `admin1234` |
-| Bar Manager | `bar@demo.com` | `bar1234` |
-| Kitchen Manager | `kitchen@demo.com` | `kitchen1234` |
-| FOH Manager | `foh@demo.com` | `foh1234` |
+| BOH Manager (demo) | `boh@demo.com` | `boh1234` |
+| FOH Manager (demo) | `foh@demo.com` | `foh1234` |
 
-**Floor worker login (QR + PIN):** `0000` (admin) · `1111` (bar) · `2222` (kitchen) · `3333` (foh)
+> **The admin account is the bootstrap login for every install.** The BOH/FOH
+> manager accounts live in the seeded **demo venue** (see below). Re-deploying
+> never resets credentials — once you change the admin password it stays.
 
-**Change these immediately in production.** Passwords are changed via **Settings** in the admin panel.
+**Floor worker login (QR + PIN):** `0000` (admin) · `1111` (manager) · `1234` (BOH staff) · `2345` (BOH staff) · `3456` (FOH staff) · `4567` (FOH staff)
+
+**Change these immediately in production.** Passwords and PINs are changed via **Settings** in the admin panel.
+
+### Demo venue
+
+The seed creates a **DEMO VENUE — AUCKLAND** — a full sample venue with departments, staff,
+tasks, checklists, and training modules. On a fresh install it is **enabled** so you can
+evaluate the app immediately. On an existing install with real venues it is created **disabled**.
+
+- **Disable/enable** in **Settings → DEMO VENUE** (admin only). When disabled the demo
+  venue is hidden from worker login, admin venue lists, and dashboards.
+- **Read-only for managers**: demo-venue managers can use the venue (tick tasks, complete
+  stocktakes) but all configuration edits (tasks, checklists, staff, training, settings)
+  are blocked. Only an **ADMIN**-role login can edit demo data.
+- **Isolated from syncs**: the demo venue is excluded from WooCommerce product/order sync,
+  calendar imports, webhooks, and expiry scans.
+- **Legacy cleanup**: on redeploy, the seed automatically cleans up demo data from any
+  non-demo venue (a prior design placed demo data into the first venue).
 
 ---
 

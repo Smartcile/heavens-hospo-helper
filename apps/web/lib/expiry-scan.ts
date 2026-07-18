@@ -22,6 +22,7 @@ export async function runExpiryScan(): Promise<ExpiryScanResult> {
     where: {
       expiryDate: { lte: now },
       deletedAt: null,
+      venue: { isDemo: false },
     },
     include: {
       category: { select: { id: true, name: true } },

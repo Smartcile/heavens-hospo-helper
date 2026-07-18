@@ -28,9 +28,15 @@ export const authOptions: NextAuthOptions = {
             isActive: true,
             role: { in: ['ADMIN', 'MANAGER'] },
           },
+          include: { venue: { select: { isDemo: true, isActive: true } } },
         })
 
         if (!staff?.password) return null
+
+        // Block manager login when the demo venue is disabled (but allow ADMIN).
+        if (staff.role !== 'ADMIN' && staff.venue.isDemo && !staff.venue.isActive) {
+          return null
+        }
 
         const isValid = await bcrypt.compare(credentials.password, staff.password)
         if (!isValid) return null
@@ -42,6 +48,7 @@ export const authOptions: NextAuthOptions = {
           role: staff.role,
           venueId: staff.venueId,
           defaultVenueId: staff.defaultVenueId ?? undefined,
+          venueIsDemo: staff.venue.isDemo,
         }
       },
     }),
@@ -53,6 +60,7 @@ export const authOptions: NextAuthOptions = {
         token.role = user.role
         token.venueId = user.venueId
         token.defaultVenueId = user.defaultVenueId
+        token.venueIsDemo = user.venueIsDemo
       }
       return token
     },
@@ -62,6 +70,7 @@ export const authOptions: NextAuthOptions = {
         session.user.role = token.role as string
         session.user.venueId = token.venueId as string
         session.user.defaultVenueId = (token.defaultVenueId as string) ?? undefined
+        session.user.venueIsDemo = (token.venueIsDemo as boolean) ?? false
       }
       return session
     },

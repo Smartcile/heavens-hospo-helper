@@ -268,7 +268,7 @@ async function fetchWooOrders(
 
 export async function runOrderPull(venueId?: string): Promise<OrderPullResult[]> {
   const integrations = await prisma.wooIntegration.findMany({
-    where: { isActive: true, deletedAt: null, ...(venueId ? { venueId } : {}) },
+    where: { isActive: true, deletedAt: null, venue: { isDemo: false }, ...(venueId ? { venueId } : {}) },
   })
 
   const results: OrderPullResult[] = []

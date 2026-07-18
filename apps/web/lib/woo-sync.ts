@@ -138,7 +138,7 @@ export async function upsertProductFromWoo(
 // Pull products for all active integrations (or a single venue).
 export async function runProductPull(venueId?: string): Promise<ProductPullResult[]> {
   const integrations = await prisma.wooIntegration.findMany({
-    where: { isActive: true, deletedAt: null, ...(venueId ? { venueId } : {}) },
+    where: { isActive: true, deletedAt: null, venue: { isDemo: false }, ...(venueId ? { venueId } : {}) },
   })
 
   const results: ProductPullResult[] = []

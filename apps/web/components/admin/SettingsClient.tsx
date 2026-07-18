@@ -28,11 +28,13 @@ export function SettingsClient({
   role,
   sessionVenueId,
   defaultVenueId,
+  venueIsDemo,
 }: {
   staffId: string
   role: string
   sessionVenueId: string
   defaultVenueId: string | null | undefined
+  venueIsDemo: boolean
 }) {
   // Change password
   const [newPassword, setNewPassword] = useState('')
@@ -73,6 +75,12 @@ export function SettingsClient({
   const [wcMessage, setWcMessage] = useState('')
   const [wcLastSync, setWcLastSync] = useState<string | null>(null)
 
+  // Demo venue
+  const [demoVenue, setDemoVenue] = useState<{ id: string; name: string; isActive: boolean } | null>(null)
+  const [demoIsActive, setDemoIsActive] = useState(false)
+  const [demoSaving, setDemoSaving] = useState(false)
+  const [demoMessage, setDemoMessage] = useState('')
+
   useEffect(() => {
     fetch('/api/admin/venues').then((r) => r.json()).then((data: Venue[]) => {
       setVenues(data)
@@ -95,6 +103,18 @@ export function SettingsClient({
         }
       })
   }, [])
+
+  useEffect(() => {
+    if (role !== 'ADMIN') return
+    fetch('/api/admin/settings/demo-venue')
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (d?.venue) {
+          setDemoVenue(d.venue)
+          setDemoIsActive(d.venue.isActive)
+        }
+      })
+  }, [role])
 
   function applyVenue(v: Venue) {
     setVenueId(v.id)
@@ -177,6 +197,25 @@ export function SettingsClient({
     }
   }
 
+  async function toggleDemoVenue() {
+    if (!demoVenue) return
+    setDemoSaving(true); setDemoMessage('')
+    const next = !demoIsActive
+    const r = await fetch('/api/admin/settings/demo-venue', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isActive: next }),
+    })
+    setDemoSaving(false)
+    if (r.ok) {
+      const d = await r.json()
+      setDemoIsActive(d.venue.isActive)
+      setDemoMessage(`DEMO VENUE ${d.venue.isActive ? 'ENABLED' : 'DISABLED'}`)
+    } else {
+      setDemoMessage('UPDATE FAILED')
+    }
+  }
+
   return (
     <div className="p-6 space-y-8">
       <h1 className="font-mono text-xl font-bold uppercase tracking-widest">SETTINGS</h1>
@@ -230,6 +269,31 @@ export function SettingsClient({
           <Button onClick={saveWooCommerce} loading={wcSaving} size="sm">SAVE WOOCOMMERCE</Button>
         </div>
       </div>
+
+      {/* Demo Venue (admin only) */}
+      {role === 'ADMIN' && demoVenue && (
+        <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">
+          <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">DEMO VENUE</h2>
+          <p className="font-mono text-xs text-grey-light mb-3">
+            THE DEMO VENUE IS A SEEDED SAMPLE VENUE FOR EVALUATION AND PRESENTATION. WHEN DISABLED IT IS HIDDEN FROM WORKER VIEWS, VENUE LISTS, AND MANAGER LOGINS. ADMIN LOGIN AND DIRECT ACCESS STILL WORK. DEMO DATA IS READ-ONLY FOR NON-ADMIN USERS AND IS EXCLUDED FROM ALL SYNCS.
+          </p>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={toggleDemoVenue}
+                disabled={demoSaving}
+                className={`font-mono text-xs uppercase px-3 py-1.5 border ${demoIsActive ? 'border-success text-success' : 'border-grey-mid text-grey-light'} disabled:opacity-40`}
+              >
+                {demoIsActive ? 'ENABLED' : 'DISABLED'}
+              </button>
+              <span className="font-mono text-xs text-grey-light">
+                {demoVenue.name}
+              </span>
+            </div>
+            {demoMessage && <p className={`font-mono text-xs ${demoMessage.includes('FAILED') ? 'text-danger' : 'text-success'}`}>{demoMessage}</p>}
+          </div>
+        </div>
+      )}
 
       {/* NZ break entitlements reference */}
       <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">

@@ -108,7 +108,7 @@ export async function syncVenueCalendar(venueId: string): Promise<SyncResult> {
 /** Sync every active venue (used when an admin syncs with no venue selected). */
 export async function syncAllVenues(): Promise<SyncResult> {
   const venues = await prisma.venue.findMany({
-    where: { deletedAt: null, OR: [{ googleCalendarUrl: { not: null } }, { icalFeedUrl: { not: null } }] },
+    where: { deletedAt: null, isDemo: false, OR: [{ googleCalendarUrl: { not: null } }, { icalFeedUrl: { not: null } }] },
     select: { id: true },
   })
   let imported = 0
