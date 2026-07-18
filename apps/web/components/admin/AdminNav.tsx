@@ -146,14 +146,14 @@ function NavGroups({
   )
 }
 
-function Brand({ appName, role, venueId, defaultVenueId }: { appName: string; role: string; venueId: string; defaultVenueId: string | null | undefined }) {
+function Brand({ appName, role, venueId, defaultVenueId, availableVenueIds }: { appName: string; role: string; venueId: string; defaultVenueId: string | null | undefined; availableVenueIds: string[] }) {
   return (
     <div className="border-b border-grey-mid">
       <div className="p-4">
         <div className="font-mono font-bold text-sm uppercase tracking-widest text-white">{appName}</div>
         <div className="font-mono text-xs text-grey-light mt-0.5">ADMIN PANEL</div>
       </div>
-      <VenueSwitcher role={role} venueId={venueId} defaultVenueId={defaultVenueId} />
+      <VenueSwitcher role={role} venueId={venueId} defaultVenueId={defaultVenueId} availableVenueIds={availableVenueIds} />
     </div>
   )
 }
@@ -171,7 +171,7 @@ function SignOutButton() {
   )
 }
 
-export function AdminNav({ role, venueId, defaultVenueId }: { role: string; venueId: string; defaultVenueId: string | null | undefined }) {
+export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds }: { role: string; venueId: string; defaultVenueId: string | null | undefined; availableVenueIds: string[] }) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
@@ -198,7 +198,7 @@ export function AdminNav({ role, venueId, defaultVenueId }: { role: string; venu
     <>
       {/* Desktop sidebar */}
       <aside className="hidden md:flex w-56 sticky top-0 h-screen bg-grey-dark border-r border-grey-mid flex-col">
-        <Brand appName={appName} role={role} venueId={venueId} defaultVenueId={defaultVenueId} />
+        <Brand appName={appName} role={role} venueId={venueId} defaultVenueId={defaultVenueId} availableVenueIds={availableVenueIds} />
         <NavGroups pathname={pathname} openGroups={openGroups} toggleGroup={toggleGroup} />
         <SignOutButton />
       </aside>
@@ -223,13 +223,7 @@ export function AdminNav({ role, venueId, defaultVenueId }: { role: string; venu
         <div className="md:hidden fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/70" onClick={() => setOpen(false)} aria-hidden />
           <aside className="absolute left-0 top-0 h-full w-64 bg-grey-dark border-r border-grey-mid flex flex-col shadow-2xl">
-            <div className="p-4 border-b border-grey-mid flex items-start justify-between">
-              <div>
-                <div className="font-mono font-bold text-sm uppercase tracking-widest text-white">{appName}</div>
-                <div className="font-mono text-xs text-grey-light mt-0.5">ADMIN PANEL</div>
-              </div>
-              <button onClick={() => setOpen(false)} aria-label="Close menu" className="font-mono text-base leading-none text-grey-light hover:text-white transition-colors p-1">✕</button>
-            </div>
+            <Brand appName={appName} role={role} venueId={venueId} defaultVenueId={defaultVenueId} availableVenueIds={availableVenueIds} />
             <NavGroups pathname={pathname} openGroups={openGroups} toggleGroup={toggleGroup} onNavigate={() => setOpen(false)} />
             <SignOutButton />
           </aside>

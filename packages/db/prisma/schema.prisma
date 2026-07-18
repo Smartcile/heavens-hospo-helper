@@ -70,6 +70,10 @@ model Venue {
   timezone   String    @default("Pacific/Auckland")
   isActive   Boolean   @default(true)
   isDemo     Boolean   @default(false) // seeded demo venue — read-only for non-admins, excluded from syncs
+  sharingEnabled       Boolean   @default(false) // venue can share/receive staff, products, and WooCommerce data
+  sharedWooVenueId     String?   // source venue for WooCommerce sync (source-venue model)
+  sharedWooVenue       Venue?    @relation("SharedWooVenue", fields: [sharedWooVenueId], references: [id])
+  wooSourceFor         Venue[]   @relation("SharedWooVenue")
   // External embeds (pasteable links shown live in the app)
   loadedRosterUrl        String?
   googleCalendarUrl      String?   // also imported into the planner via its derived iCal feed
@@ -116,6 +120,8 @@ model Venue {
   timeClocks          TimeClock[]
   payPeriods          PayPeriod[]
   syncLogs            SyncLog[]
+  staffVenues         StaffVenue[]
+  menuItemVenues      MenuItemVenue[]
 }
 
 model Department {
@@ -179,6 +185,7 @@ model Staff {
   stocktakeAssignments StocktakeRecord[] @relation("stocktakeAssignedTo")
   timeClocks           TimeClock[]
   payrollEntries       PayrollEntry[]
+  staffVenues          StaffVenue[]
 }
 
 model Task {
@@ -765,6 +772,18 @@ model StaffSection {
   section Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
 
   @@unique([staffId, sectionId])
+}
+
+model StaffVenue {
+  id        String   @id @default(uuid())
+  staffId   String
+  venueId   String
+  createdAt DateTime @default(now())
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, venueId])
 }
 
 // Resource ⇄ Section (a resource can be shared across many sections).
@@ -1393,9 +1412,25 @@ model MenuItem {
   venue       Venue          @relation(fields: [venueId], references: [id])
   recipe      Recipe?        @relation(fields: [recipeId], references: [id])
   orderItems  WooOrderItem[]
+  venueShares MenuItemVenue[]
 
   @@index([venueId])
   @@index([wooProductId])
+}
+
+model MenuItemVenue {
+  id           String   @id @default(uuid())
+  menuItemId   String
+  venueId      String
+  priceOverride Float?  // venue-specific price (null = use menuItem.price)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  venue    Venue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@unique([menuItemId, venueId])
+  @@index([venueId])
 }
 
 // --- ORDERS & AUTO-SEATING ---

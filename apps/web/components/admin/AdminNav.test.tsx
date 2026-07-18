@@ -28,13 +28,13 @@ describe('AdminNav', () => {
 
   it('renders without crashing', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { container } = render(<AdminNav role="ADMIN" venueId="v1" defaultVenueId={undefined} />)
+    const { container } = render(<AdminNav role="ADMIN" venueId="v1" defaultVenueId={undefined} availableVenueIds={[]} />)
     expect(container).toBeTruthy()
   })
 
   it('renders navigation group labels', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { getByText } = render(<AdminNav role="ADMIN" venueId="v1" defaultVenueId={undefined} />)
+    const { getByText } = render(<AdminNav role="ADMIN" venueId="v1" defaultVenueId={undefined} availableVenueIds={[]} />)
     expect(getByText('Venue')).toBeTruthy()
     expect(getByText('Overview')).toBeTruthy()
   })

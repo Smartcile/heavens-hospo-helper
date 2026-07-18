@@ -13,6 +13,8 @@ interface Venue {
   googleCalendarUrl: string | null
   icalFeedUrl: string | null
   externalRefreshMinutes: number
+  sharingEnabled: boolean
+  sharedWooVenueId: string | null
 }
 
 const REFRESH_OPTIONS = [
@@ -81,6 +83,13 @@ export function SettingsClient({
   const [demoSaving, setDemoSaving] = useState(false)
   const [demoMessage, setDemoMessage] = useState('')
 
+  // Venue sharing
+  const [sharingEnabled, setSharingEnabled] = useState(false)
+  const [sharedWooVenueId, setSharedWooVenueId] = useState('')
+  const [shareSaving, setShareSaving] = useState(false)
+  const [shareMessage, setShareMessage] = useState('')
+  const [shareVenues, setShareVenues] = useState<{ id: string; name: string }[]>([])
+
   useEffect(() => {
     fetch('/api/admin/venues').then((r) => r.json()).then((data: Venue[]) => {
       setVenues(data)
@@ -116,12 +125,22 @@ export function SettingsClient({
       })
   }, [role])
 
+  useEffect(() => {
+    fetch('/api/admin/venues')
+      .then((r) => r.json())
+      .then((data: Venue[]) => {
+        setShareVenues(data.filter((v) => v.sharingEnabled).map((v) => ({ id: v.id, name: v.name })))
+      })
+  }, [venueId])
+
   function applyVenue(v: Venue) {
     setVenueId(v.id)
     setLoadedUrl(v.loadedRosterUrl ?? '')
     setGoogleUrl(v.googleCalendarUrl ?? '')
     setIcalUrl(v.icalFeedUrl ?? '')
     setRefresh(String(v.externalRefreshMinutes ?? 0))
+    setSharingEnabled(v.sharingEnabled ?? false)
+    setSharedWooVenueId(v.sharedWooVenueId ?? '')
   }
 
   function onPickVenue(id: string) {
@@ -216,6 +235,26 @@ export function SettingsClient({
     }
   }
 
+  async function saveSharing() {
+    if (!venueId) return
+    setShareSaving(true); setShareMessage('')
+    const r = await fetch(`/api/admin/venues/${venueId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sharingEnabled,
+        sharedWooVenueId: sharedWooVenueId || null,
+      }),
+    })
+    setShareSaving(false)
+    if (r.ok) {
+      setShareMessage('SAVED')
+    } else {
+      const d = await r.json()
+      setShareMessage(d.error ?? 'SAVE FAILED')
+    }
+  }
+
   return (
     <div className="p-6 space-y-8">
       <h1 className="font-mono text-xl font-bold uppercase tracking-widest">SETTINGS</h1>
@@ -294,6 +333,48 @@ export function SettingsClient({
           </div>
         </div>
       )}
+
+      {/* Venue sharing */}
+      <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">
+        <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">VENUE SHARING</h2>
+        <p className="font-mono text-xs text-grey-light mb-3">
+          ENABLE SHARING TO ALLOW THIS VENUE&apos;S PRODUCTS, STAFF AND WOOCOMMERCE CONNECTION TO BE USED BY OTHER VENUES. VENUES LINKED TO THIS ONE WILL PULL PRODUCTS AND ORDERS FROM THE SAME WOOCOMMERCE STORE.
+        </p>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSharingEnabled(!sharingEnabled)}
+              className={`font-mono text-xs uppercase px-3 py-1.5 border ${sharingEnabled ? 'border-success text-success' : 'border-grey-mid text-grey-light'}`}
+            >
+              {sharingEnabled ? 'ENABLED' : 'DISABLED'}
+            </button>
+            <span className="font-mono text-xs text-grey-light">VENUE SHARING</span>
+          </div>
+
+          {sharingEnabled && (
+            <Select
+              label="WOOCOMMERCE SOURCE VENUE"
+              value={sharedWooVenueId}
+              onChange={(e) => setSharedWooVenueId(e.target.value)}
+              options={[
+                { value: '', label: 'NONE (USE OWN WOOCOMMERCE)' },
+                ...shareVenues
+                  .filter((v) => v.id !== venueId)
+                  .map((v) => ({ value: v.id, label: v.name })),
+              ]}
+            />
+          )}
+
+          <p className="font-mono text-[10px] text-grey-light">
+            {sharingEnabled
+              ? 'OTHER VENUES CAN NOW USE THIS VENUE AS THEIR WOOCOMMERCE SOURCE. SET THE WOOCOMMERCE SOURCE ABOVE TO PULL PRODUCTS AND ORDERS FROM ANOTHER VENUE.'
+              : 'TURN ON SHARING TO ALLOW OTHER VENUES TO PULL FROM THIS VENUE.'}
+          </p>
+
+          {shareMessage && <p className={`font-mono text-xs ${shareMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{shareMessage}</p>}
+          <Button onClick={saveSharing} loading={shareSaving} size="sm">SAVE SHARING</Button>
+        </div>
+      </div>
 
       {/* NZ break entitlements reference */}
       <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">

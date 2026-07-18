@@ -65,9 +65,18 @@ export function buildOrderStatusPayload(status: OrderStatus, now: Date = new Dat
   }
 }
 
+async function resolveWooVenueId(venueId: string): Promise<string> {
+  const venue = await prisma.venue.findUnique({
+    where: { id: venueId, deletedAt: null },
+    select: { sharedWooVenueId: true },
+  })
+  return venue?.sharedWooVenueId ?? venueId
+}
+
 async function getIntegration(venueId: string): Promise<WooIntegration | null> {
+  const wcVenueId = await resolveWooVenueId(venueId)
   return prisma.wooIntegration.findFirst({
-    where: { venueId, isActive: true, deletedAt: null },
+    where: { venueId: wcVenueId, isActive: true, deletedAt: null },
   })
 }
 

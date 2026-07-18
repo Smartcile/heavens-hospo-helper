@@ -12,12 +12,24 @@ export async function GET(_req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // Resolve shared Woo source venue
+  let wcVenueId = session.user.venueId
+  const venue = await prisma.venue.findUnique({
+    where: { id: session.user.venueId, deletedAt: null },
+    select: { sharedWooVenueId: true },
+  })
+  const sharedSourceId = venue?.sharedWooVenueId ?? null
+  if (sharedSourceId) wcVenueId = sharedSourceId
+
   const existing = await prisma.wooIntegration.findFirst({
-    where: { venueId: session.user.venueId, deletedAt: null },
+    where: { venueId: wcVenueId, deletedAt: null },
   })
 
   if (!existing) {
-    return NextResponse.json({ wcStoreUrl: '', wcConsumerKey: '', wcConsumerSecret: '', wcWebhookSecret: '', wcActive: false, lastSyncAt: null })
+    return NextResponse.json({
+      wcStoreUrl: '', wcConsumerKey: '', wcConsumerSecret: '', wcWebhookSecret: '',
+      wcActive: false, lastSyncAt: null, sharedWooVenueId: sharedSourceId, readOnly: !!sharedSourceId,
+    })
   }
 
   return NextResponse.json({
@@ -28,6 +40,8 @@ export async function GET(_req: NextRequest) {
     wcWebhookSecret: maskSecret(existing.webhookSecret),
     wcActive: existing.isActive,
     lastSyncAt: existing.lastSyncAt,
+    sharedWooVenueId: sharedSourceId,
+    readOnly: !!sharedSourceId,
   })
 }
 
@@ -35,13 +49,16 @@ export async function PUT(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Demo venues cannot have WooCommerce integrations
+  // Venues using a shared Woo source cannot configure their own WooCommerce
   const venue = await prisma.venue.findUnique({
     where: { id: session.user.venueId, deletedAt: null },
-    select: { isDemo: true },
+    select: { isDemo: true, sharedWooVenueId: true },
   })
   if (venue?.isDemo) {
     return NextResponse.json({ error: 'WooCommerce is not available for demo venues' }, { status: 400 })
+  }
+  if (venue?.sharedWooVenueId) {
+    return NextResponse.json({ error: 'WooCommerce is managed by the shared source venue' }, { status: 400 })
   }
 
   const { wcStoreUrl, wcConsumerKey, wcConsumerSecret, wcWebhookSecret, wcActive } = await req.json()

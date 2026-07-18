@@ -21,6 +21,7 @@ export default async function AdminProtectedLayout({ children }: { children: Rea
         role={session.user.role}
         venueId={session.user.venueId}
         defaultVenueId={session.user.defaultVenueId ?? null}
+        availableVenueIds={session.user.availableVenueIds ?? []}
       />
       <main className="flex-1 flex flex-col h-screen overflow-y-auto pt-14 md:pt-0">
         <OrgTabs />

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { getAccessibleVenueIds } from '@/lib/venue-scope'
 
 export async function GET() {
   const session = await getServerSession(authOptions)
@@ -10,7 +11,9 @@ export async function GET() {
   const where = {
     deletedAt: null,
     NOT: { isDemo: true, isActive: false },
-    ...(session.user.role === 'MANAGER' ? { id: session.user.venueId } : {}),
+    ...(session.user.role === 'MANAGER'
+      ? { id: { in: getAccessibleVenueIds(session) } }
+      : {}),
   }
 
   const venues = await prisma.venue.findMany({

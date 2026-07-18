@@ -12,13 +12,16 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const isAdmin = session.user.role === 'ADMIN'
-  const isOwnVenueManager = session.user.role === 'MANAGER' && session.user.venueId === params.id
+  const isOwnVenueManager = session.user.role === 'MANAGER' && (
+    session.user.venueId === params.id ||
+    (session.user.availableVenueIds ?? []).includes(params.id)
+  )
   if (!isAdmin && !isOwnVenueManager) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const body = await req.json()
-  const { name, address, timezone, isActive, loadedRosterUrl, googleCalendarUrl, icalFeedUrl, externalRefreshMinutes } = body
+  const { name, address, timezone, isActive, loadedRosterUrl, googleCalendarUrl, icalFeedUrl, externalRefreshMinutes, sharingEnabled, sharedWooVenueId } = body
 
   const data: Record<string, unknown> = {}
   // Integration settings — editable by an admin or the venue's own manager.
@@ -26,6 +29,23 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (googleCalendarUrl !== undefined) data.googleCalendarUrl = googleCalendarUrl?.trim() || null
   if (icalFeedUrl !== undefined) data.icalFeedUrl = icalFeedUrl?.trim() || null
   if (externalRefreshMinutes !== undefined) data.externalRefreshMinutes = Number(externalRefreshMinutes) || 0
+  // Venue sharing settings
+  if (sharingEnabled !== undefined) data.sharingEnabled = sharingEnabled
+  if (sharedWooVenueId !== undefined) {
+    if (sharedWooVenueId && sharedWooVenueId !== params.id) {
+      // Validate that the source venue exists, is active, and has sharing enabled
+      const source = await prisma.venue.findFirst({
+        where: { id: sharedWooVenueId, deletedAt: null, isActive: true, sharingEnabled: true },
+        select: { id: true },
+      })
+      if (!source) {
+        return NextResponse.json({ error: 'Source venue not found, inactive, or sharing not enabled' }, { status: 400 })
+      }
+      data.sharedWooVenueId = sharedWooVenueId
+    } else {
+      data.sharedWooVenueId = null
+    }
+  }
   // Core venue fields — admin only.
   if (isAdmin) {
     if (name !== undefined) data.name = String(name).toUpperCase().trim()

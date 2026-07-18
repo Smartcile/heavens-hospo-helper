@@ -28,7 +28,10 @@ export const authOptions: NextAuthOptions = {
             isActive: true,
             role: { in: ['ADMIN', 'MANAGER'] },
           },
-          include: { venue: { select: { isDemo: true, isActive: true } } },
+          include: {
+            venue: { select: { isDemo: true, isActive: true } },
+            staffVenues: { select: { venueId: true } },
+          },
         })
 
         if (!staff?.password) return null
@@ -41,6 +44,22 @@ export const authOptions: NextAuthOptions = {
         const isValid = await bcrypt.compare(credentials.password, staff.password)
         if (!isValid) return null
 
+        // Build available venue IDs: home venue + shared assignments (for MANAGER);
+        // all non-deleted venues for ADMIN.
+        let availableVenueIds: string[] = [staff.venueId]
+        if (staff.role === 'ADMIN') {
+          const allVenues = await prisma.venue.findMany({
+            where: { deletedAt: null },
+            select: { id: true },
+          })
+          availableVenueIds = allVenues.map((v) => v.id)
+        } else {
+          availableVenueIds = [
+            staff.venueId,
+            ...staff.staffVenues.map((sv) => sv.venueId),
+          ]
+        }
+
         return {
           id: staff.id,
           name: `${staff.firstName} ${staff.lastName}`,
@@ -49,6 +68,7 @@ export const authOptions: NextAuthOptions = {
           venueId: staff.venueId,
           defaultVenueId: staff.defaultVenueId ?? undefined,
           venueIsDemo: staff.venue.isDemo,
+          availableVenueIds,
         }
       },
     }),
@@ -61,6 +81,7 @@ export const authOptions: NextAuthOptions = {
         token.venueId = user.venueId
         token.defaultVenueId = user.defaultVenueId
         token.venueIsDemo = user.venueIsDemo
+        token.availableVenueIds = user.availableVenueIds
       }
       return token
     },
@@ -71,6 +92,7 @@ export const authOptions: NextAuthOptions = {
         session.user.venueId = token.venueId as string
         session.user.defaultVenueId = (token.defaultVenueId as string) ?? undefined
         session.user.venueIsDemo = (token.venueIsDemo as boolean) ?? false
+        session.user.availableVenueIds = (token.availableVenueIds as string[]) ?? []
       }
       return session
     },

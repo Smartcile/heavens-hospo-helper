@@ -267,8 +267,18 @@ async function fetchWooOrders(
 }
 
 export async function runOrderPull(venueId?: string): Promise<OrderPullResult[]> {
+  // Resolve shared Woo venue (source-venue model)
+  let effectiveVenueId = venueId
+  if (venueId) {
+    const v = await prisma.venue.findUnique({
+      where: { id: venueId, deletedAt: null },
+      select: { sharedWooVenueId: true },
+    })
+    if (v?.sharedWooVenueId) effectiveVenueId = v.sharedWooVenueId
+  }
+
   const integrations = await prisma.wooIntegration.findMany({
-    where: { isActive: true, deletedAt: null, venue: { isDemo: false }, ...(venueId ? { venueId } : {}) },
+    where: { isActive: true, deletedAt: null, venue: { isDemo: false }, ...(effectiveVenueId ? { venueId: effectiveVenueId } : {}) },
   })
 
   const results: OrderPullResult[] = []
