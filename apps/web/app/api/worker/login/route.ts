@@ -20,10 +20,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Venue not available' }, { status: 404 })
   }
 
-  // Find staff matching PIN in this venue
+  // Find staff matching PIN in this venue (home venue OR shared venue)
   const staffList = await prisma.staff.findMany({
     where: {
-      venueId,
+      OR: [
+        { venueId },
+        { staffVenues: { some: { venueId } } },
+      ],
       isActive: true,
       deletedAt: null,
       pin: { not: null },

@@ -10,6 +10,10 @@ interface MenuItem {
   wooProductId: string | null; wooCategoryId: string | null
   imageUrl: string | null; description: string | null; isActive: boolean
   recipe?: { id: string; name: string }
+  sharedFromVenueName?: string
+  sharedFromVenueId?: string
+  sharedPriceOverride?: number | null
+  menuItemVenueId?: string
 }
 
 interface RecipeBrief { id: string; name: string }
@@ -108,8 +112,15 @@ export function MenuItemsClient() {
               {items.map((m) => (
                 <button key={m.id} onClick={() => { setIsCreating(false); setSelectedId(m.id) }}
                   className={`w-full text-left px-2 py-1.5 font-mono text-xs uppercase border ${selectedId === m.id && !isCreating ? 'border-white text-white' : 'border-transparent text-grey-light hover:border-grey-mid hover:text-white'}`}>
-                  <span className="block truncate">{m.name}</span>
-                  <span className="block text-[10px] text-grey-light normal-case">${m.price.toFixed(2)} · {m.recipe?.name ?? 'NO RECIPE'}</span>
+                  <span className="block truncate">
+                    {m.name}
+                    {m.sharedFromVenueName && (
+                      <span className="ml-1 font-mono text-[9px] text-[#60A5FA] normal-case">(SHARED FROM {m.sharedFromVenueName})</span>
+                    )}
+                  </span>
+                  <span className="block text-[10px] text-grey-light normal-case">
+                    ${(m.sharedPriceOverride ?? m.price).toFixed(2)} · {m.recipe?.name ?? 'NO RECIPE'}
+                  </span>
                 </button>
               ))}
               {items.length === 0 && <p className="font-mono text-xs text-grey-light px-2 py-1">No menu items yet.</p>}

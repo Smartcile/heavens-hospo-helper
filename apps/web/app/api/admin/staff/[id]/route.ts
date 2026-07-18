@@ -19,6 +19,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       departmentId: true, isActive: true, hourlyRate: true, employmentType: true,
       swiftPosId: true, myHrId: true, loadedReportsId: true,
       sections: { select: { sectionId: true } },
+      staffVenues: { select: { venueId: true } },
     },
   })
   if (!staff) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -46,6 +47,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     swiftPosId,
     myHrId,
     loadedReportsId,
+    venueIds,
   } = body
 
   const updates: Record<string, unknown> = {}
@@ -121,8 +123,20 @@ export async function PUT(req: NextRequest, { params }: Params) {
       hourlyRate: true,
       employmentType: true,
       defaultVenueId: true,
+      staffVenues: { select: { venueId: true } },
     },
   })
+
+  // Sync additional venue assignments
+  if (venueIds !== undefined) {
+    const ids: string[] = Array.isArray(venueIds) ? venueIds : []
+    await prisma.staffVenue.deleteMany({ where: { staffId: params.id } })
+    if (ids.length > 0) {
+      await prisma.staffVenue.createMany({
+        data: ids.map((venueId) => ({ staffId: params.id, venueId })),
+      })
+    }
+  }
 
   return NextResponse.json(staff)
 }

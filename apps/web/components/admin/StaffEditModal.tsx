@@ -16,6 +16,7 @@ interface StaffData {
   hourlyRate: number | null; employmentType: string | null
   swiftPosId: string | null; myHrId: string | null; loadedReportsId: string | null
   sections: { sectionId: string }[]
+  staffVenues: { venueId: string }[]
 }
 
 const ROLE_OPTIONS = [
@@ -31,6 +32,7 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
   const [departments, setDepartments] = useState<Department[]>([])
   const [sections, setSections] = useState<Section[]>([])
   const [sectionIds, setSectionIds] = useState<string[]>([])
+  const [venueIds, setVenueIds] = useState<string[]>([])
   const [pin, setPin] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(true)
@@ -48,6 +50,7 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
       if (!active) return
       setStaff(s)
       setSectionIds((s.sections ?? []).map((x: { sectionId: string }) => x.sectionId))
+      setVenueIds((s.staffVenues ?? []).map((x: { venueId: string }) => x.venueId))
       setVenues(Array.isArray(v) ? v : [])
       setDepartments(Array.isArray(d) ? d : [])
       setSections(Array.isArray(sec) ? sec : [])
@@ -61,6 +64,9 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
   }
   function toggleSection(id: string) {
     setSectionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+  function toggleVenue(id: string) {
+    setVenueIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
   const isWebUser = staff ? (staff.role === 'ADMIN' || staff.role === 'MANAGER') : false
@@ -78,6 +84,7 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
       hourlyRate: staff.hourlyRate, employmentType: staff.employmentType || null,
       swiftPosId: staff.swiftPosId || null, myHrId: staff.myHrId || null, loadedReportsId: staff.loadedReportsId || null,
       sectionIds,
+      venueIds,
     }
     if (pin) body.pin = pin
     if (password) body.password = password
@@ -126,6 +133,18 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
               <div className="flex flex-wrap gap-1">
                 {formSections.map((s) => (
                   <button key={s.id} type="button" onClick={() => toggleSection(s.id)} className={`font-mono text-xs px-2 py-1.5 border transition-colors ${sectionIds.includes(s.id) ? 'bg-white text-black border-white' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>{s.name}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Shared/extra venues — available venues other than home venue */}
+          {venues.length > 1 && (
+            <div className="flex flex-col gap-1">
+              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">SHARED VENUES (OPTIONAL)</label>
+              <div className="flex flex-wrap gap-1">
+                {venues.filter((v) => v.id !== staff.venueId).map((v) => (
+                  <button key={v.id} type="button" onClick={() => toggleVenue(v.id)} className={`font-mono text-xs px-2 py-1.5 border transition-colors ${venueIds.includes(v.id) ? 'bg-white text-black border-white' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>{v.name}</button>
                 ))}
               </div>
             </div>

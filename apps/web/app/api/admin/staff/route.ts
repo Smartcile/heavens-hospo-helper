@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import bcrypt from 'bcryptjs'
+import { getAccessibleVenueIds } from '@/lib/venue-scope'
 
 const STAFF_SELECT = {
   id: true,
@@ -21,6 +22,7 @@ const STAFF_SELECT = {
   venue: { select: { id: true, name: true } },
   department: { select: { id: true, name: true } },
   sections: { select: { sectionId: true } },
+  staffVenues: { select: { venueId: true } },
 } as const
 
 export async function GET(req: NextRequest) {
@@ -29,11 +31,12 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const venueId = searchParams.get('venueId')
+  const accessibleVenueIds = getAccessibleVenueIds(session)
 
   const where = {
     deletedAt: null,
     ...(venueId ? { venueId } : {}),
-    ...(session.user.role === 'MANAGER' ? { venueId: session.user.venueId } : {}),
+    ...(session.user.role === 'MANAGER' ? { venueId: { in: accessibleVenueIds } } : {}),
   }
 
   const staff = await prisma.staff.findMany({
@@ -43,6 +46,15 @@ export async function GET(req: NextRequest) {
   })
 
   return NextResponse.json(staff)
+}
+
+async function syncStaffVenues(staffId: string, venueIds: string[]) {
+  await prisma.staffVenue.deleteMany({ where: { staffId } })
+  if (venueIds.length > 0) {
+    await prisma.staffVenue.createMany({
+      data: venueIds.map((venueId) => ({ staffId, venueId })),
+    })
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -63,6 +75,7 @@ export async function POST(req: NextRequest) {
     myHrId,
     loadedReportsId,
     sectionIds,
+    venueIds,
   } = body
 
   const finalRole = role ?? 'STAFF'
@@ -125,6 +138,11 @@ export async function POST(req: NextRequest) {
     },
     select: STAFF_SELECT,
   })
+
+  // Sync additional venue assignments
+  if (Array.isArray(venueIds) && venueIds.length > 0) {
+    await syncStaffVenues(staff.id, venueIds)
+  }
 
   return NextResponse.json(staff, { status: 201 })
 }
