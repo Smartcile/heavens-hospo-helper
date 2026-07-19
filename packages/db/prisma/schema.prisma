@@ -144,6 +144,20 @@ model Department {
   checklists Checklist[]
   budgetCategories BudgetCategory[]
   moduleDepartments ModuleDepartment[]
+  linkedFrom        DepartmentLink[] @relation("FromDepartment")
+  linkedTo          DepartmentLink[] @relation("ToDepartment")
+}
+
+model DepartmentLink {
+  id                String   @id @default(uuid())
+  fromDepartmentId  String
+  toDepartmentId    String
+  createdAt         DateTime @default(now())
+
+  fromDepartment    Department @relation("FromDepartment", fields: [fromDepartmentId], references: [id], onDelete: Cascade)
+  toDepartment      Department @relation("ToDepartment", fields: [toDepartmentId], references: [id], onDelete: Cascade)
+
+  @@unique([fromDepartmentId, toDepartmentId])
 }
 
 model Staff {

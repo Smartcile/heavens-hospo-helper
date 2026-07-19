@@ -11,10 +11,21 @@ export async function GET(req: NextRequest) {
   const venueId = searchParams.get('venueId')
   const departmentId = searchParams.get('departmentId')
 
+  // Resolve linked department IDs — when filtering by a department, also show
+  // tasks from departments linked TO it.
+  let departmentIds: string[] | undefined
+  if (departmentId) {
+    const links = await prisma.departmentLink.findMany({
+      where: { fromDepartmentId: departmentId },
+      select: { toDepartmentId: true },
+    })
+    departmentIds = [departmentId, ...links.map((l) => l.toDepartmentId)]
+  }
+
   const where = {
     deletedAt: null,
     ...(venueId ? { venueId } : {}),
-    ...(departmentId ? { departmentId } : {}),
+    ...(departmentIds ? { departmentId: { in: departmentIds } } : {}),
     ...(session.user.role === 'MANAGER' ? { venueId: session.user.venueId } : {}),
   }
 

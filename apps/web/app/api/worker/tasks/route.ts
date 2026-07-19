@@ -8,13 +8,27 @@ export async function GET(req: NextRequest) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // Resolve linked department IDs — staff see tasks from their home department
+  // AND any departments linked to it.
+  let linkedDepartmentIds: string[] = []
+  if (session.departmentId) {
+    const links = await prisma.departmentLink.findMany({
+      where: { fromDepartmentId: session.departmentId },
+      select: { toDepartmentId: true },
+    })
+    linkedDepartmentIds = links.map((l) => l.toDepartmentId)
+  }
+  const departmentIds = session.departmentId
+    ? [session.departmentId, ...linkedDepartmentIds]
+    : null
+
   if (req.nextUrl.searchParams.get('edit') === '1') {
     const tasks = await prisma.task.findMany({
       where: {
         venueId: session.venueId,
         isActive: true,
         deletedAt: null,
-        ...(session.departmentId ? { departmentId: session.departmentId } : {}),
+        ...(departmentIds ? { departmentId: { in: departmentIds } } : {}),
       },
       include: {
         department: { select: { id: true, name: true } },
@@ -40,7 +54,7 @@ export async function GET(req: NextRequest) {
     venueId: session.venueId,
     isActive: true,
     deletedAt: null,
-    ...(session.departmentId ? { departmentId: session.departmentId } : {}),
+    ...(departmentIds ? { departmentId: { in: departmentIds } } : {}),
   }
 
   const tasks = await prisma.task.findMany({
@@ -101,7 +115,7 @@ export async function GET(req: NextRequest) {
       deletedAt: null,
       isActive: true,
       venueId: session.venueId,
-      ...(session.departmentId ? { OR: [{ departmentId: session.departmentId }, { departmentId: null }] } : {}),
+      ...(departmentIds ? { OR: [{ departmentId: { in: departmentIds } }, { departmentId: null }] } : {}),
     },
     select: {
       id: true,

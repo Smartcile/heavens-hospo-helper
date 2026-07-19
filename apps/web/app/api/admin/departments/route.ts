@@ -18,7 +18,10 @@ export async function GET(req: NextRequest) {
 
   const departments = await prisma.department.findMany({
     where,
-    include: { venue: { select: { id: true, name: true } } },
+    include: {
+      venue: { select: { id: true, name: true } },
+      linkedTo: { include: { toDepartment: { select: { id: true, name: true, colour: true } } } },
+    },
     orderBy: [{ venueId: 'asc' }, { name: 'asc' }],
   })
 

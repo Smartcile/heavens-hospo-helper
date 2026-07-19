@@ -29,6 +29,7 @@ interface Department {
   colour: string | null
   isActive: boolean
   sections: DeptSection[]
+  linkedTo?: { toDepartment: { id: string; name: string; colour: string | null } }[]
 }
 
 interface Venue {
@@ -77,6 +78,8 @@ export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { r
   const [dColour, setDColour] = useState('#6B6B6B')
   const [dSaving, setDSaving] = useState(false)
   const [dError, setDError] = useState('')
+  const [dLinkedIds, setDLinkedIds] = useState<string[]>([])
+  const [dLinkSearch, setDLinkSearch] = useState('')
 
   // Section form
   const [secModalOpen, setSecModalOpen] = useState(false)
@@ -107,6 +110,7 @@ export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { r
           name: d.name,
           colour: d.colour,
           isActive: d.isActive,
+          linkedTo: d.linkedTo ?? [],
           sections: sections
             .filter((s: any) => s.departmentId === d.id)
             .map((s: any) => ({
@@ -191,12 +195,15 @@ export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { r
   function openDeptCreate() {
     setDeptEditing(null)
     setDName(''); setDColour('#6B6B6B')
+    setDLinkedIds([]); setDLinkSearch('')
     setDError(''); setDeptModalOpen(true)
   }
 
   function openDeptEdit(d: Department) {
     setDeptEditing(d)
     setDName(d.name); setDColour(d.colour ?? '#6B6B6B')
+    setDLinkedIds((d.linkedTo ?? []).map((l) => l.toDepartment.id))
+    setDLinkSearch('')
     setDError(''); setDeptModalOpen(true)
   }
 
@@ -212,7 +219,7 @@ export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { r
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(
         deptEditing
-          ? { name: dName, colour: dColour }
+          ? { name: dName, colour: dColour, linkedDepartmentIds: dLinkedIds }
           : { name: dName, venueId: selectedVenueId, colour: dColour }
       ),
     })
@@ -220,6 +227,15 @@ export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { r
     setDSaving(false)
     if (!r.ok) { const d = await r.json(); setDError(d.error ?? 'FAILED'); return }
     setDeptModalOpen(false); load()
+  }
+
+  // Linked department helpers
+  function addLinkedDept(id: string) {
+    if (!dLinkedIds.includes(id)) setDLinkedIds((prev) => [...prev, id])
+    setDLinkSearch('')
+  }
+  function removeLinkedDept(id: string) {
+    setDLinkedIds((prev) => prev.filter((x) => x !== id))
   }
 
   async function handleDeptDelete(id: string) {
@@ -418,6 +434,68 @@ export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { r
             </div>
             <Input value={dColour} onChange={(e) => setDColour(e.target.value)} className="font-mono" />
           </div>
+
+          {/* Linked departments — only shown when editing (not creating) */}
+          {deptEditing && (
+            <div>
+              <label className="font-mono text-xs uppercase text-grey-light tracking-wider mb-1 block">LINKED DEPARTMENTS</label>
+              <p className="font-mono text-[10px] text-grey-light mb-2">
+                TASKS AND CHECKLISTS FROM LINKED DEPARTMENTS WILL ALSO SHOW FOR THIS DEPARTMENT&apos;S STAFF.
+              </p>
+
+              {/* Selected linked departments as removable tags */}
+              {dLinkedIds.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {dLinkedIds.map((id) => {
+                    const dep = selectedVenue?.departments.find((x) => x.id === id)
+                    return (
+                      <span key={id} className="inline-flex items-center gap-1 font-mono text-xs px-2 py-1 bg-grey-dark border border-grey-mid text-white">
+                        {dep?.colour && (
+                          <span className="w-2 h-2 inline-block border border-grey-mid" style={{ backgroundColor: dep.colour }} />
+                        )}
+                        {dep?.name ?? id}
+                        <button onClick={() => removeLinkedDept(id)} className="ml-1 text-grey-light hover:text-danger font-mono text-sm leading-none">&times;</button>
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Search + dropdown */}
+              <div className="relative">
+                <input
+                  type="text"
+                  value={dLinkSearch}
+                  onChange={(e) => setDLinkSearch(e.target.value)}
+                  placeholder="SEARCH DEPARTMENTS"
+                  className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white placeholder:text-grey-light"
+                />
+                {dLinkSearch.trim() && (
+                  <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-black border border-grey-mid max-h-32 overflow-y-auto">
+                    {selectedVenue?.departments
+                      .filter((d) => d.id !== deptEditing.id && !dLinkedIds.includes(d.id) && d.name.toLowerCase().includes(dLinkSearch.toLowerCase()))
+                      .slice(0, 20)
+                      .map((d) => (
+                        <button
+                          key={d.id}
+                          onClick={() => addLinkedDept(d.id)}
+                          className="w-full text-left px-2 py-1.5 font-mono text-xs text-grey-light hover:bg-grey-dark hover:text-white flex items-center gap-2"
+                        >
+                          {d.colour && (
+                            <span className="w-2 h-2 inline-block border border-grey-mid flex-shrink-0" style={{ backgroundColor: d.colour }} />
+                          )}
+                          <span className="truncate">{d.name}</span>
+                        </button>
+                      ))}
+                    {dLinkSearch.trim() && selectedVenue?.departments.filter((d) => d.id !== deptEditing.id && !dLinkedIds.includes(d.id) && d.name.toLowerCase().includes(dLinkSearch.toLowerCase())).length === 0 && (
+                      <p className="px-2 py-1.5 font-mono text-xs text-grey-light">NO MATCHING DEPARTMENTS</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {dError && <p className="font-mono text-xs text-danger">{dError}</p>}
           <div className="flex gap-2 pt-2">
             <Button onClick={handleDeptSave} loading={dSaving}>SAVE</Button>
