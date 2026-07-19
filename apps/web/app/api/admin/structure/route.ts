@@ -38,7 +38,7 @@ export async function GET() {
     }),
   ])
 
-  const [sections, staffSections, floorPlanElements] = await Promise.all([
+  const [sections, staffSections, floorPlanElements, deptLinks] = await Promise.all([
     prisma.section.findMany({
       where: { deletedAt: null, venueId: { in: venueIds } },
       select: { id: true, name: true, colour: true, departmentId: true },
@@ -49,8 +49,19 @@ export async function GET() {
       where: { deletedAt: null, sectionId: { not: null }, floorPlan: { deletedAt: null } },
       select: { id: true, type: true, sectionId: true, label: true, _count: { select: { inventoryItems: true } } },
     }),
+    prisma.departmentLink.findMany({
+      where: { fromDepartment: { venueId: { in: venueIds } } },
+      select: { fromDepartmentId: true, toDepartment: { select: { id: true, name: true, colour: true } } },
+    }),
   ])
 
+  // Build map of departmentId → linked department info
+  const deptLinksByDept = new Map<string, { id: string; name: string; colour: string | null }[]>()
+  for (const dl of deptLinks) {
+    const arr = deptLinksByDept.get(dl.fromDepartmentId) ?? []
+    arr.push(dl.toDepartment)
+    deptLinksByDept.set(dl.fromDepartmentId, arr)
+  }
   // Workflow links per task (mirrors the MAP edges): which checklists list a
   // task (list-task), which training is its how-to guide (how-to), and which
   // training it requires (requires). Rendered as coloured tags on each task.
@@ -136,6 +147,7 @@ export async function GET() {
         id: d.id,
         name: d.name,
         colour: d.colour,
+        linkedDepartments: deptLinksByDept.get(d.id) ?? [],
         // Department-level lists exclude items pushed down into a section.
         staff: vStaff.filter((s) => s.departmentId === d.id).map(fmtStaff),
         tasks: vTasks.filter((t) => t.departmentId === d.id && !t.sectionId).map(fmtTask),

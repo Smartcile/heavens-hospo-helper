@@ -355,6 +355,11 @@ export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { r
                           <span className={`font-mono text-xs ${dept.isActive ? 'text-success' : 'text-danger'}`}>
                             {dept.isActive ? 'ON' : 'OFF'}
                           </span>
+                          {(dept.linkedTo ?? []).length > 0 && (
+                            <span className="font-mono text-[10px] text-[#60A5FA]">
+                              LINKED: {(dept.linkedTo ?? []).map((l) => l.toDepartment.name).join(', ')}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <button onClick={() => openSecCreate(dept.id)}

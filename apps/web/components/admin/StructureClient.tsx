@@ -17,7 +17,7 @@ interface TaskLink { label: string; colour: string; kind: string; targetId: stri
 interface TaskNode { id: string; title: string; schedule: string; active: boolean; scope: string; assignee: string | null; links?: TaskLink[] }
 interface TrainingNode { id: string; title: string; kind: string; signOff: boolean; linkedToTask: boolean }
 interface SectionNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; floorPlan?: { tables: number; chairs: number; equip: number } }
-interface DeptNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; training: TrainingNode[]; sections: SectionNode[] }
+interface DeptNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; training: TrainingNode[]; sections: SectionNode[]; linkedDepartments?: { id: string; name: string; colour: string | null }[] }
 interface VenueNode {
   id: string
   name: string
@@ -251,6 +251,11 @@ export function StructureClient({ role }: { role: string }) {
                               <Chevron open={isOpen(`d:${d.id}`)} />
                               {d.colour && <span className="inline-block w-2.5 h-2.5 border border-grey-mid" style={{ backgroundColor: d.colour }} />}
                               {d.name}
+                              {d.linkedDepartments && d.linkedDepartments.length > 0 && (
+                                <span className="font-mono text-[9px] text-[#60A5FA] normal-case">
+                                  → {d.linkedDepartments.map((l) => l.name).join(', ')}
+                                </span>
+                              )}
                             </span>
                             <span className="flex items-center gap-1.5">
                               <Count>{d.staff.length} STAFF</Count>
