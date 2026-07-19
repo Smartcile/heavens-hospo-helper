@@ -121,6 +121,29 @@ evaluate the app immediately. On an existing install with real venues it is crea
 - **Legacy cleanup**: on redeploy, the seed automatically cleans up demo data from any
   non-demo venue (a prior design placed demo data into the first venue).
 
+### Venue sharing
+
+Venues can opt into sharing via **Settings → VENUE SHARING**. When enabled:
+
+- **Staff** can be assigned to multiple venues (**Staff → Edit → SHARED VENUES**). Workers
+  can then clock in at any assigned venue. Multi-venue managers see a venue dropdown in the
+  sidebar instead of a single-venue label.
+- **Products (menu items)** can be shared to other venues with optional per-venue price
+  overrides. Shared items appear with a blue `(SHARED FROM X)` badge on the **Menu Items** page.
+- **WooCommerce** uses a **source-venue model** — one venue connects to WooCommerce, other
+  venues pull products and orders through it by setting a **WooCommerce Source Venue** in
+  Settings. The sync dashboard, webhooks, and push all route through the source venue.
+
+### Department linking
+
+Departments can be linked to share tasks and checklists. **Admin → Venues → DEPARTMENTS → EDIT**
+on any department — search and add other departments in the **LINKED DEPARTMENTS** section.
+Linked departments appear as blue badges in the department list and structure tree.
+
+When departments are linked, staff in one department see tasks and checklists from all
+linked departments alongside their own. Linked-department tasks show up in both the worker
+task list and the admin Tasks page.
+
 ---
 
 ## HOW TO ACCESS THE ADMIN PANEL
