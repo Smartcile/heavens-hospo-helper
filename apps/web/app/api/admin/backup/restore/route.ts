@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
 
     const models = Object.keys(backup.data)
     // Order matters: create parent tables first (no FK dependencies), then children
-    const orderedModels = [
+    const ordered = [
       'Venue', 'Department', 'Section', 'Staff', 'StaffVenue', 'StaffSection',
       'DepartmentLink',
       'Task', 'TaskRequiredTraining', 'TrainingModule', 'TrainingStep', 'TrainingAssignment', 'TrainingCompletion',
@@ -95,8 +95,9 @@ export async function POST(req: NextRequest) {
       'TrainingModuleLink',
       'GiftCard',
       'TimeClock', 'PayPeriod',
-      ...models.filter((m) => !orderedModels.includes(m)),
-    ].filter((m) => models.includes(m))
+    ]
+    // Include any remaining models not in our ordered list
+    const orderedModels = [...ordered, ...models.filter((m) => !ordered.includes(m))].filter((m) => models.includes(m))
 
     for (const model of orderedModels) {
       const rows = backup.data[model]

@@ -297,7 +297,7 @@ export function BookingClient() {
             </div>
           )}
           {editing && (
-            <Select label="STATUS" value={editing.status} onChange={(v) => updateStatus(editing.id, v)} options={STATUS_OPTIONS} />
+            <Select label="STATUS" value={editing.status} onChange={(e) => updateStatus(editing.id, e.target.value)} options={STATUS_OPTIONS} />
           )}
           {editing ? (
             <div className="flex gap-2 pt-2">

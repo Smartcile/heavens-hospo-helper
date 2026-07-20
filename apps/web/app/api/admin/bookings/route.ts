@@ -134,10 +134,10 @@ export async function POST(req: NextRequest) {
       // Remove duplicate profiles for items without numbers (count free inventory)
       const dedupedProfiles: AutoSeatProfile[] = []
       for (const p of filteredProfiles) {
-        if (p.tableNumbers.length > 0) {
+        if (p.tableNumbers && p.tableNumbers.length > 0) {
           dedupedProfiles.push(p)
         } else {
-          const existing = dedupedProfiles.find((d) => d.id === p.id && d.tableNumbers.length === 0)
+          const existing = dedupedProfiles.find((d) => d.id === p.id && (!d.tableNumbers || d.tableNumbers.length === 0))
           if (existing) {
             existing.capacity += p.capacity
             existing.chairCount += p.chairCount
@@ -147,9 +147,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const placements = planAutoSeat(parseInt(String(partySize)), dedupedProfiles, {
-        usedNumbers: [...usedNumbers, ...bookedNumbers],
-      })
+      const placements = planAutoSeat(parseInt(String(partySize)), dedupedProfiles)
 
       if (placements.length > 0) {
         // Create CalendarEvent for calendar display
