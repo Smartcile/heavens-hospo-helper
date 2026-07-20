@@ -90,6 +90,16 @@ export function SettingsClient({
   const [shareMessage, setShareMessage] = useState('')
   const [shareVenues, setShareVenues] = useState<{ id: string; name: string }[]>([])
 
+  // Backup & restore (admin only)
+  const [backupLoading, setBackupLoading] = useState(false)
+  const [backupMessage, setBackupMessage] = useState('')
+  const [backupError, setBackupError] = useState('')
+  const [restoreFile, setRestoreFile] = useState<File | null>(null)
+  const [restoreLoading, setRestoreLoading] = useState(false)
+  const [restoreMessage, setRestoreMessage] = useState('')
+  const [restoreError, setRestoreError] = useState('')
+  const [confirmRestore, setConfirmRestore] = useState(false)
+
   useEffect(() => {
     fetch('/api/admin/venues').then((r) => r.json()).then((data: Venue[]) => {
       setVenues(data)
@@ -235,6 +245,40 @@ export function SettingsClient({
     }
   }
 
+  async function handleBackup() {
+    setBackupLoading(true); setBackupError(''); setBackupMessage('')
+    try {
+      const r = await fetch('/api/admin/backup')
+      if (!r.ok) { const d = await r.json(); setBackupError(d.error ?? 'BACKUP FAILED'); setBackupLoading(false); return }
+      const blob = await r.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const disposition = r.headers.get('Content-Disposition') ?? ''
+      const match = disposition.match(/filename="(.+)"/)
+      a.download = match?.[1] ?? 'hospo-ops-backup.sql'
+      a.click()
+      URL.revokeObjectURL(url)
+      setBackupMessage('DOWNLOADED')
+    } catch (err: any) {
+      setBackupError(err.message ?? 'BACKUP FAILED')
+    }
+    setBackupLoading(false)
+  }
+
+  async function handleRestore() {
+    if (!restoreFile) { setRestoreError('SELECT A FILE'); return }
+    setRestoreLoading(true); setRestoreError(''); setRestoreMessage('')
+    const form = new FormData()
+    form.append('file', restoreFile)
+    const r = await fetch('/api/admin/backup/restore', { method: 'POST', body: form })
+    if (!r.ok) { const d = await r.json(); setRestoreError(d.error ?? 'RESTORE FAILED'); setRestoreLoading(false); return }
+    const d = await r.json()
+    setRestoreMessage(`RESTORED · ${d.models ?? 'DATABASE'} · RE-SEEDING RECOMMENDED`)
+    setConfirmRestore(false); setRestoreFile(null)
+    setRestoreLoading(false)
+  }
+
   async function saveSharing() {
     if (!venueId) return
     setShareSaving(true); setShareMessage('')
@@ -330,6 +374,57 @@ export function SettingsClient({
               </span>
             </div>
             {demoMessage && <p className={`font-mono text-xs ${demoMessage.includes('FAILED') ? 'text-danger' : 'text-success'}`}>{demoMessage}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* Backup & Restore (admin only) */}
+      {role === 'ADMIN' && (
+        <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">
+          <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">BACKUP & RESTORE</h2>
+          <p className="font-mono text-xs text-grey-light mb-3">
+            DOWNLOAD A FULL DATABASE BACKUP. RESTORE THIS FILE ON A FRESH INSTALL TO MIGRATE ALL DATA. RESTORE DROPS AND RECREATES THE ENTIRE DATABASE — USE WITH CAUTION.
+          </p>
+          <div className="space-y-4">
+            {/* Backup */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button onClick={handleBackup} loading={backupLoading} size="sm" variant="ghost">DOWNLOAD BACKUP</Button>
+              {backupMessage && <span className="font-mono text-xs text-success">{backupMessage}</span>}
+              {backupError && <span className="font-mono text-xs text-danger">{backupError}</span>}
+            </div>
+
+            {/* Restore */}
+            <div className="border-t border-grey-mid pt-3">
+              <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider mb-2">RESTORE FROM BACKUP</h3>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <label className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors cursor-pointer">
+                    {restoreFile ? restoreFile.name : 'CHOOSE FILE'}
+                    <input type="file" accept=".sql,.json" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) { setRestoreFile(f); setConfirmRestore(false); setRestoreError(''); setRestoreMessage('') } }} />
+                  </label>
+                  {restoreFile && (
+                    <span className="font-mono text-xs text-grey-light">({(restoreFile.size / 1024 / 1024).toFixed(1)} MB)</span>
+                  )}
+                </div>
+                {restoreFile && !confirmRestore && (
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="danger" onClick={() => setConfirmRestore(true)}>CONFIRM RESTORE — DESTROYS CURRENT DATA</Button>
+                  </div>
+                )}
+                {restoreFile && confirmRestore && (
+                  <div className="space-y-2">
+                    <p className="font-mono text-xs text-danger font-bold uppercase">THIS WILL DELETE ALL CURRENT DATA AND REPLACE IT WITH THE BACKUP. CANNOT BE UNDONE.</p>
+                    <div className="flex items-center gap-2">
+                      <Button onClick={handleRestore} loading={restoreLoading} variant="danger">RESTORE DATABASE</Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setConfirmRestore(false); setRestoreFile(null) }}>CANCEL</Button>
+                    </div>
+                  </div>
+                )}
+                {restoreMessage && <p className="font-mono text-xs text-success">{restoreMessage}</p>}
+                {restoreError && <p className="font-mono text-xs text-danger">{restoreError}</p>}
+              </div>
+            </div>
           </div>
         </div>
       )}
