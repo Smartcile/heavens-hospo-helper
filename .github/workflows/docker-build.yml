@@ -35,11 +35,15 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: packages/db
+
       - name: Lint
         run: npm run lint
 
       - name: Test
-        run: npx vitest run --config apps/web/vitest.config.ts
+        run: npx turbo run test
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
