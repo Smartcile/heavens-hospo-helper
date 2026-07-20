@@ -16,7 +16,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrl, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId } = await req.json()
+  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrl, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId, shelfLifeDays, canFreeze, freezerShelfLifeDays } = await req.json()
 
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = name.toUpperCase().trim()
@@ -48,15 +48,22 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (serviceIntervalDays !== undefined) data.serviceIntervalDays = serviceIntervalDays ? parseInt(String(serviceIntervalDays)) || null : null
   if (lastServicedAt !== undefined) data.lastServicedAt = lastServicedAt ? new Date(lastServicedAt) : null
   // Auto-compute nextServiceAt from lastServicedAt + serviceIntervalDays unless explicitly provided
-  if (nextServiceAt !== undefined) {
-    data.nextServiceAt = nextServiceAt ? new Date(nextServiceAt) : null
+  if (nextServiceAt != null && nextServiceAt !== '') {
+    data.nextServiceAt = new Date(nextServiceAt)
   } else if (data.lastServicedAt && data.serviceIntervalDays) {
     const next = new Date(data.lastServicedAt as Date)
     next.setDate(next.getDate() + (data.serviceIntervalDays as number))
     data.nextServiceAt = next
+  } else {
+    data.nextServiceAt = null
   }
   if (maintenanceNotes !== undefined) data.maintenanceNotes = maintenanceNotes || null
   if (supplierId !== undefined) data.supplierId = supplierId || null
+
+  // Food shelf life
+  if (shelfLifeDays !== undefined) data.shelfLifeDays = shelfLifeDays ? parseInt(String(shelfLifeDays)) || null : null
+  if (canFreeze !== undefined) data.canFreeze = !!canFreeze
+  if (freezerShelfLifeDays !== undefined) data.freezerShelfLifeDays = freezerShelfLifeDays ? parseInt(String(freezerShelfLifeDays)) || null : null
 
   const updated = await prisma.inventoryItem.update({
     where: { id: params.id },
@@ -70,8 +77,10 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const permanent = req.nextUrl.searchParams.get('permanent') === '1'
+
   const item = await prisma.inventoryItem.findFirst({
-    where: { id: params.id, deletedAt: null },
+    where: { id: params.id },
     select: { id: true, venueId: true },
   })
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -79,9 +88,14 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  await prisma.inventoryItem.update({
-    where: { id: params.id },
-    data: { deletedAt: new Date() },
-  })
+  if (permanent) {
+    // Hard delete — permanently remove
+    await prisma.inventoryItem.delete({ where: { id: params.id } })
+  } else {
+    await prisma.inventoryItem.update({
+      where: { id: params.id },
+      data: { deletedAt: new Date() },
+    })
+  }
   return NextResponse.json({ ok: true })
 }

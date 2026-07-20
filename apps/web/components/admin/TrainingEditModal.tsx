@@ -191,7 +191,6 @@ export function TrainingEditModal({ moduleId, onClose, onSaved }: { moduleId: st
           <Textarea label="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} />
           <div className="grid grid-cols-2 gap-3">
             <Select label="Type" value={kind} onChange={(e) => setKind(e.target.value)} options={KIND_OPTIONS} />
-            <Input label="Category (optional)" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="BAR" />
           </div>
           <Select label="Auto-assign to department (single)" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} options={deptOptions} />
           <div className="grid grid-cols-2 gap-3">

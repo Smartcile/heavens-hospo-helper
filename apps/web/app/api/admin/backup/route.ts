@@ -44,6 +44,8 @@ export async function GET(req: NextRequest) {
   const includeUploads = req.nextUrl.searchParams.get('uploads') === '1'
 
   try {
+    // When uploads requested, skip pg_dump — JSON path includes file data
+    if (!includeUploads) {
     // Try native pg_dump first (fast, handles all data types)
     const dumpFile = path.join(process.cwd(), '..', `${randomUUID()}.sql`)
     const escaped = dbUrl.replace(/"/g, '\\"')
@@ -62,6 +64,7 @@ export async function GET(req: NextRequest) {
           'Cache-Control': 'no-cache',
         },
       })
+    }
     }
 
     // Fallback: JSON-based backup via Prisma (works without pg_dump)

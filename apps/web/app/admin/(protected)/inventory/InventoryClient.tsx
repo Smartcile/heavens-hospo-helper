@@ -14,6 +14,7 @@ interface Item {
   furnitureType?: string | null; elementWidth?: number | null; elementDepth?: number | null
   elementShape?: string | null; defaultColour?: string | null; defaultChairCount?: number
   countingUnitId?: string | null; orderingUnitId?: string | null; yieldPercentage?: number | null; costPrice?: number | null; expiryDate?: string | null; fallbackCategoryId?: string | null; allergyInfo?: string | null
+  shelfLifeDays?: number | null; canFreeze?: boolean; freezerShelfLifeDays?: number | null
   // Equipment / tool tracking
   imageUrl?: string | null; storageSectionId?: string | null; storageNotes?: string | null
   serialNumber?: string | null; purchaseDate?: string | null; warrantyExpiry?: string | null
@@ -38,6 +39,8 @@ export function InventoryClient() {
   const [newCatName, setNewCatName] = useState('')
   const [showCatModal, setShowCatModal] = useState(false)
   const [editingCat, setEditingCat] = useState<Category | null>(null)
+  const [showDeleted, setShowDeleted] = useState(false)
+  const [deletedItems, setDeletedItems] = useState<Item[]>([])
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [showCatDropdown, setShowCatDropdown] = useState(false)
   const [activeTab, setActiveTab] = useState<'FOOD' | 'BEVERAGE' | 'OTHER'>(() => {
@@ -69,6 +72,9 @@ export function InventoryClient() {
   const [formFallbackCatId, setFormFallbackCatId] = useState('')
   const [formAllergyInfo, setFormAllergyInfo] = useState('')
   const [showDeepFields, setShowDeepFields] = useState(true)
+  const [formShelfLifeDays, setFormShelfLifeDays] = useState('')
+  const [formCanFreeze, setFormCanFreeze] = useState(false)
+  const [formFreezerShelfLifeDays, setFormFreezerShelfLifeDays] = useState('')
 
   // Equipment / tool tracking
   const [formImageUrl, setFormImageUrl] = useState('')
@@ -98,6 +104,7 @@ export function InventoryClient() {
     setFormName(''); setFormCat(''); setFormUnit('EA'); setFormPar('0'); setFormTotalQty('0')
     setFormCountingUnitId(''); setFormOrderingUnitId(''); setFormYield(''); setFormCostPrice('')
     setFormExpiryDate(''); setFormFallbackCatId(''); setFormAllergyInfo(''); setShowDeepFields(true)
+    setFormShelfLifeDays(''); setFormCanFreeze(false); setFormFreezerShelfLifeDays('')
     setFormImageUrl(''); setFormStorageSectionId(''); setFormStorageNotes('')
     setFormSerialNumber(''); setFormPurchaseDate(''); setFormWarrantyExpiry('')
     setFormServiceIntervalDays(''); setFormLastServicedAt(''); setFormNextServiceAt('')
@@ -112,6 +119,9 @@ export function InventoryClient() {
     setFormCostPrice(item.costPrice != null ? String(item.costPrice) : '')
     setFormExpiryDate(item.expiryDate ?? ''); setFormFallbackCatId(item.fallbackCategoryId ?? '')
     setFormAllergyInfo(item.allergyInfo ?? '')
+    setFormShelfLifeDays(item.shelfLifeDays != null ? String(item.shelfLifeDays) : '')
+    setFormCanFreeze(!!item.canFreeze)
+    setFormFreezerShelfLifeDays(item.freezerShelfLifeDays != null ? String(item.freezerShelfLifeDays) : '')
     setFormImageUrl(item.imageUrl ?? '')
     setFormStorageSectionId(item.storageSectionId ?? '')
     setFormStorageNotes(item.storageNotes ?? '')
@@ -127,7 +137,7 @@ export function InventoryClient() {
     setShowDeepFields(itemCat?.showDeepFields ?? false)
     setShowEquipmentFields(itemCat?.showEquipmentFields ?? false)
     setCatShowDeep(itemCat?.showDeepFields ?? (itemCat?.tab === 'FOOD' || itemCat?.tab === 'BEVERAGE'))
-    setCatShowEquip(itemCat?.showEquipmentFields ?? (itemCat?.tab == null))
+    setCatShowEquip(itemCat?.showEquipmentFields ?? (itemCat?.tab == null || itemCat?.name === 'TABLES'))
   }
 
   async function load() {
@@ -168,6 +178,22 @@ export function InventoryClient() {
     setStockLoading(false)
   }
 
+  async function loadDeleted() {
+    const r = await fetch('/api/admin/inventory?deleted=true')
+    if (r.ok) setDeletedItems(await r.json())
+  }
+
+  async function restoreItem(id: string) {
+    await fetch(`/api/admin/inventory/${id}/restore`, { method: 'POST' })
+    load(); loadDeleted()
+  }
+
+  async function purgeItem(id: string) {
+    if (!confirm('PERMANENTLY DELETE THIS ITEM? THIS CANNOT BE UNDONE.')) return
+    await fetch(`/api/admin/inventory/${id}?permanent=1`, { method: 'DELETE' })
+    load(); loadDeleted()
+  }
+
   useEffect(() => { load(); loadStock() }, [])
 
   useEffect(() => {
@@ -200,7 +226,18 @@ export function InventoryClient() {
           {showEquipmentFields ? '▾ EQUIPMENT / TOOL TRACKING' : '▸ EQUIPMENT / TOOL TRACKING'}
         </button>
         {showEquipmentFields && (
-          <div className="border-t border-grey-mid pt-3 space-y-3">
+          <div className="border-t border-grey-mid pt-3 space-y-3" onPaste={(e) => {
+            const items = e.clipboardData?.items
+            if (items) {
+              for (const item of Array.from(items)) {
+                if (item.type.startsWith('image/')) {
+                  const file = item.getAsFile()
+                  if (file) uploadImage(file)
+                  break
+                }
+              }
+            }
+          }}>
             <div className="flex items-center gap-2">
               <input ref={(el) => { if (el) el.style.display = 'none' }} id="inv-img-upload" type="file" accept="image/*"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }}
@@ -279,6 +316,9 @@ export function InventoryClient() {
       nextServiceAt: formNextServiceAt || null,
       maintenanceNotes: formMaintenanceNotes || null,
       supplierId: formSupplierId || null,
+      shelfLifeDays: formShelfLifeDays ? parseInt(formShelfLifeDays) : null,
+      canFreeze: formCanFreeze,
+      freezerShelfLifeDays: formFreezerShelfLifeDays ? parseInt(formFreezerShelfLifeDays) : null,
     }
     if (isCreating) {
       if (!body.name || !body.categoryId) return
@@ -319,6 +359,8 @@ export function InventoryClient() {
 
   function startCreate(catId: string) {
     const cat = categories.find((c) => c.id === catId)
+    // Auto-expand collapsed category
+    if (cat) setCollapsed((prev) => { const next = new Set(prev); next.delete(cat.name); return next })
     if (cat?.name === 'TABLES') {
       setEditProfileId(null)
       setShowTableProfile(true)
@@ -330,7 +372,7 @@ export function InventoryClient() {
       setShowDeepFields(cat?.showDeepFields ?? false)
       setShowEquipmentFields(cat?.showEquipmentFields ?? false)
       setCatShowDeep(cat?.showDeepFields ?? (cat?.tab === 'FOOD' || cat?.tab === 'BEVERAGE'))
-      setCatShowEquip(cat?.showEquipmentFields ?? (cat?.tab == null))
+      setCatShowEquip(cat?.showEquipmentFields ?? (cat?.tab == null || cat?.name === 'TABLES'))
     }
   }
 
@@ -369,6 +411,7 @@ export function InventoryClient() {
             ))}
           </div>
           <Button size="sm" onClick={() => { setEditingCat(null); setNewCatName(''); setNewCatTab('FOOD'); setShowCatModal(true) }} variant="ghost">+ CATEGORY</Button>
+          <Button size="sm" onClick={() => { if (!showDeleted) loadDeleted(); setShowDeleted(!showDeleted) }} variant="ghost">{showDeleted ? 'HIDE DELETED' : 'SHOW DELETED'}</Button>
         </div>
       </div>
 
@@ -502,6 +545,28 @@ export function InventoryClient() {
           })}
         </div>
 
+        {/* Restore deleted items */}
+        {showDeleted && (
+          <div className="border border-grey-mid border-dashed">
+            <div className="px-3 py-2 border-b border-grey-mid font-mono text-xs font-bold text-white uppercase bg-grey-dark/50">DELETED ITEMS</div>
+            {deletedItems.length === 0 ? (
+              <p className="px-3 py-3 font-mono text-xs text-grey-light">No deleted items.</p>
+            ) : (
+              <div className="divide-y divide-grey-mid">
+                {deletedItems.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between px-3 py-2">
+                    <span className="font-mono text-xs text-grey-light line-through">{item.name}</span>
+                    <div className="flex gap-2">
+                      <button onClick={() => restoreItem(item.id)} className="font-mono text-[10px] text-success hover:text-white border border-grey-mid px-1.5 py-0.5">RESTORE</button>
+                      <button onClick={() => purgeItem(item.id)} className="font-mono text-[10px] text-danger hover:text-white border border-grey-mid px-1.5 py-0.5">PURGE</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Right: Summary + TableProfileForm */}
         <div className="lg:col-span-4 space-y-4">
           {/* Category stock summary for FOOD/BEVERAGE */}
@@ -557,7 +622,7 @@ export function InventoryClient() {
           )}
 
           {showTableProfile && (
-            <div className="border border-grey-mid p-4">
+            <Modal isOpen={showTableProfile} onClose={() => { setShowTableProfile(false); setEditProfileId(null) }} title={editProfileId ? 'EDIT TABLE' : 'NEW TABLE'} size="lg">
               <TableProfileForm
                 onSaved={() => { setShowTableProfile(false); setEditProfileId(null); load() }}
                 onCancel={() => { setShowTableProfile(false); setEditProfileId(null) }}
@@ -569,7 +634,7 @@ export function InventoryClient() {
                   }
                 }}
               />
-            </div>
+            </Modal>
           )}
         </div>
       </div>
@@ -616,16 +681,29 @@ export function InventoryClient() {
             </div>
           </div>
           <div className="grid grid-cols-6 gap-2">
-            <div className="col-span-2">
-              <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
-                options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
+            <div className={`${catShowDeep ? 'col-span-3' : 'col-span-2'}`}>
+              {catShowDeep ? (
+                <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
+              ) : (
+                <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
+                  options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
+              )}
             </div>
-            <div className="col-span-2">
-              <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
-            </div>
-            <div className="col-span-2">
-              <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
-            </div>
+            {catShowDeep ? (
+              <div className="col-span-3">
+                <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
+                  options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
+              </div>
+            ) : (
+              <>
+                <div className="col-span-2">
+                  <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
+                </div>
+                <div className="col-span-2">
+                  <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
+                </div>
+              </>
+            )}
           </div>
           {catShowDeep && (
             <button onClick={() => setShowDeepFields(!showDeepFields)}
@@ -650,17 +728,24 @@ export function InventoryClient() {
                 <Input label="COST PRICE" type="number" step="0.01" value={formCostPrice} onChange={(e) => setFormCostPrice(e.target.value)} />
               </div>
               <div className="col-span-2">
-                <Input label="EXPIRY DATE" type="date" value={formExpiryDate} onChange={(e) => setFormExpiryDate(e.target.value)} />
+                <Input label="SHELF LIFE (DAYS)" type="number" value={formShelfLifeDays} onChange={(e) => setFormShelfLifeDays(e.target.value)} placeholder="e.g. 7" />
               </div>
               <div className="col-span-3">
-                <Select label="FALLBACK CATEGORY" value={formFallbackCatId} onChange={(e) => setFormFallbackCatId(e.target.value)}
-                  options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="—" />
+                <label className="flex items-center gap-2 cursor-pointer pt-1">
+                  <input type="checkbox" checked={formCanFreeze} onChange={(e) => setFormCanFreeze(e.target.checked)} className="accent-white" />
+                  <span className="font-mono text-[10px] uppercase text-grey-light">CAN BE FROZEN</span>
+                </label>
               </div>
-          <div className="col-span-3">
-              <AllergenPicker value={formAllergyInfo} onChange={(v) => setFormAllergyInfo(v)} label="ALLERGENS" />
-          </div>
-        </div>
-            )}
+              {formCanFreeze && (
+                <div className="col-span-3">
+                  <Input label="FREEZER SHELF LIFE (DAYS)" type="number" value={formFreezerShelfLifeDays} onChange={(e) => setFormFreezerShelfLifeDays(e.target.value)} placeholder="e.g. 90" />
+                </div>
+              )}
+              <div className="col-span-6">
+                <AllergenPicker value={formAllergyInfo} onChange={(v) => setFormAllergyInfo(v)} label="ALLERGENS" />
+              </div>
+            </div>
+          )}
             {showEquipmentFields && renderEquipmentFields()}
             <div className="flex gap-2 pt-2">
               <Button onClick={handleSave} disabled={!formName || !formCat}>{isCreating ? 'CREATE' : 'SAVE'}</Button>

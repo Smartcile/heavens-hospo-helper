@@ -256,6 +256,9 @@ export function RecipesClient() {
     const groups: { label: string; options: { value: string; label: string }[] }[] = []
     const byCat = new Map<string, { value: string; label: string }[]>()
     for (const i of inventoryItems) {
+      // Filter out OTHER-tab items (equipment, tools, cleaning, etc.)
+      const tab = i.category?.tab
+      if (tab !== 'FOOD' && tab !== 'BEVERAGE' && tab != null) continue
       const catName = i.category?.name ?? 'UNCATEGORISED'
       const arr = byCat.get(catName) ?? []
       arr.push({ value: i.id, label: i.name })
@@ -399,10 +402,11 @@ export function RecipesClient() {
                       if (v) {
                         const isRecipe = otherRecipes.some((r) => r.id === v)
                         setNewItemType(isRecipe ? 'recipe' : 'inventory')
-                        if (!isRecipe) {
+                        if (!isRecipe && uoms.length > 0) {
                           const inv = inventoryItems.find((i) => i.id === v)
                           if (inv?.unit) {
-                            const match = uoms.find((u) => u.name.toUpperCase() === inv.unit.toUpperCase() || u.baseUnit === inv.unit.toUpperCase())
+                            const u = inv.unit.toUpperCase().trim()
+                            const match = uoms.find((um) => um.name.toUpperCase() === u || um.baseUnit?.toUpperCase() === u || um.name.toUpperCase().startsWith(u))
                             if (match) setNewItemUomId(match.id)
                           }
                         }
@@ -503,9 +507,9 @@ export function RecipesClient() {
                                       <button key={a} type="button"
                                         onClick={() => setFormDietaryInfo((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a])}
                                         className={`font-mono text-[9px] uppercase px-1.5 py-0.5 border transition-colors ${
-                                          selected ? 'bg-white text-black border-white' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
+                                          selected ? 'bg-[#c4a530]/10 text-[#c4a530] border-[#c4a530]/50' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
                                         }`}>
-                                        {a}
+                                        {selected ? '✓ ' : ''}{a}
                                       </button>
                                     )
                                   })}

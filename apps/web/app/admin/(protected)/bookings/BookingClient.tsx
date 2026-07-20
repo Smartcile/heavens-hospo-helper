@@ -34,7 +34,7 @@ const STATUS_COLORS: Record<string, string> = {
   CONFIRMED: '#4ADE80', PENDING: '#FACC15', SEATED: '#60A5FA', COMPLETED: '#6B6B6B', CANCELLED: '#F87171', NO_SHOW: '#F87171',
 }
 
-const SLOT_W = 28
+const SLOT_W = 22
 const START_HOUR = 6
 const END_HOUR = 24
 const TOTAL_SLOTS = (END_HOUR - START_HOUR) * 4
@@ -143,7 +143,7 @@ export function BookingClient() {
     setEditing(null)
     setFormName(''); setFormPhone(''); setFormEmail('')
     setFormPartySize('2'); setFormStartTime('18:00'); setFormEndTime('20:00')
-    setFormSource('PHONE'); setFormSetupId(''); setFormNotes(''); setAvailMsg('')
+    setFormSource('PHONE'); setFormSetupId(setups.length > 0 ? setups[0].id : ''); setFormNotes(''); setAvailMsg('')
     setShowModal(true)
   }
 
@@ -159,10 +159,10 @@ export function BookingClient() {
   function timeToMins(t: string) { const [h, m] = t.split(':').map(Number); return h * 60 + m }
   function minsToTime(m: number) { return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}` }
 
-  function openCreateOnTable(startMins: number, endMins: number) {
+  function openCreateOnTable(startMins: number, endMins: number, sid?: string) {
     setEditing(null)
     setFormName(''); setFormPhone(''); setFormEmail('')
-    setFormPartySize('2'); setFormSource('PHONE'); setFormSetupId(''); setFormNotes(''); setAvailMsg('')
+    setFormPartySize('2'); setFormSource('PHONE'); setFormSetupId(sid ?? ''); setFormNotes(''); setAvailMsg('')
     setFormStartTime(minsToTime(startMins)); setFormEndTime(minsToTime(endMins))
     setShowModal(true)
   }
@@ -337,12 +337,12 @@ export function BookingClient() {
               <p className="font-mono text-xs text-grey-light">NO TABLES FOUND. CREATE A FLOOR PLAN SETUP WITH TABLES FIRST.</p>
             ) : (
               <div className="border border-grey-mid overflow-auto max-h-[70vh]">
-                <div className="flex" style={{ minWidth: 140 + TOTAL_SLOTS * SLOT_W }}>
+                <div className="flex" style={{ minWidth: 120 + TOTAL_SLOTS * SLOT_W }}>
                   {/* Left: section/table labels */}
-                  <div className="flex-shrink-0 bg-grey-dark border-r border-grey-mid sticky left-0 z-10" style={{ width: 140 }}>
+                  <div className="flex-shrink-0 bg-grey-dark border-r border-grey-mid sticky left-0 z-10" style={{ width: 120 }}>
                     {/* Time header spacer */}
                     <div className="h-7 border-b border-grey-mid px-2 flex items-center">
-                      <span className="font-mono text-[9px] uppercase text-grey-light tracking-wider">TABLE</span>
+                      <span className="font-mono text-[8px] uppercase text-grey-light tracking-wider">TABLE</span>
                     </div>
                     {Array.from(sectionGroups.entries()).map(([key, grp]) => (
                       <div key={key}>
@@ -429,7 +429,7 @@ export function BookingClient() {
                               const x = e.clientX - rect.left
                               const slotIdx = Math.floor(x / SLOT_W)
                               const startMins = START_HOUR * 60 + slotIdx * 15
-                              openCreateOnTable(startMins, startMins + 120)
+                              openCreateOnTable(startMins, startMins + 120, tbl.setupId)
                             }}
                           />
                         </div>

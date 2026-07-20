@@ -1264,6 +1264,10 @@ model InventoryItem {
   costPrice          Float?
   expiryDate         DateTime?
   fallbackCategoryId String?
+  // --- Food-specific shelf life ---
+  shelfLifeDays         Int?
+  canFreeze             Boolean  @default(false)
+  freezerShelfLifeDays  Int?
 
   allergyInfo   String? // e.g. "GLUTEN, DAIRY, NUTS" for display on recipe ingredients
 

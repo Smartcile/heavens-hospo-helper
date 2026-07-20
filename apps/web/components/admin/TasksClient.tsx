@@ -227,7 +227,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (c.venueId) setFilterVenue(c.venueId)
     if (c.departmentId) setFilterDept(c.departmentId)
     if (c.sectionId) setFilterSection(c.sectionId)
-    setFilterUsage('nolist')
+    setFilterUsage('notinthis')
   }
   function addToChecklist(id: string) {
     setClSelected((prev) => (prev.includes(id) ? prev : [...prev, id]))
@@ -281,6 +281,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     { value: 'list', label: 'IN A CHECKLIST' },
     { value: 'nolist', label: 'NOT IN A LIST' },
     { value: 'training', label: 'HAS TRAINING/SOP' },
+    ...(clEditing ? [{ value: 'notinthis', label: 'NOT IN THIS LIST' }] : []),
   ]
   const hasTrainingUse = (t: Task) => (t.trainingModules?.length ?? 0) > 0 || (t.requiredTraining?.length ?? 0) > 0
   const visibleTasks = tasks.filter((t) => {
@@ -288,6 +289,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (search.trim() && !t.title.toLowerCase().includes(search.trim().toLowerCase())) return false
     if (filterUsage === 'list' && !(t._count?.checklistLinks)) return false
     if (filterUsage === 'nolist' && (t._count?.checklistLinks ?? 0) > 0) return false
+    if (filterUsage === 'notinthis' && clEditing && clEditing !== 'new' && clEditing.tasks?.some((ct) => ct.id === t.id)) return false
     if (filterUsage === 'training' && !hasTrainingUse(t)) return false
     return true
   })
@@ -351,9 +353,9 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     <div className="p-4 md:p-6 space-y-4">
       <h1 className="font-mono text-xl font-bold uppercase tracking-widest">TASKS &amp; CHECKLISTS</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" style={{ height: 'calc(100vh - 8rem)' }}>
         {/* LEFT — tasks grouped by department → section */}
-        <div className="space-y-4">
+        <div className="space-y-4 overflow-y-auto pr-2">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <h2 className="font-mono text-sm uppercase tracking-widest text-grey-light">TASKS</h2>
             <Button onClick={openCreate} size="sm">+ NEW TASK</Button>

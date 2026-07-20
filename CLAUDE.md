@@ -283,6 +283,11 @@ soft-delete.
 WooCommerce auto-seating. This means bookings appear on the calendar, the FOH
 view, and the worker floor plan view with auto-switching layouts.
 
+**Two booking views:** DIARY (time-slot list 06:00–24:00) and TABLE (tables down
+left grouped by section, 15-min time columns across top). TABLE view supports
+click-to-create, drag-edge-to-resize, and colour-coded booking blocks. New
+bookings auto-select the first available Room/Setup for table assignment.
+
 ### Floor planner (Phase 1 + 2, built)
 To-scale venue layout editor using **PixiJS v7** canvas (migrated from Konva 2026-06 — Konva's
 draggable+React caused unresolvable event target and race condition bugs). Admin creates floor
@@ -506,7 +511,25 @@ under their section. Combined with `StepInventoryItem`, training/SOP steps can
 reference the exact tools needed, showing staff the item photo, storage location,
 and supplier details directly in the training view.
 
-### Stock hierarchy (Phase 2, built)
+**Category visibility toggles:** `InventoryCategory.showDeepFields` and
+`showEquipmentFields` control which form sections appear per category. FOOD and
+BEVERAGE categories show DEEP INVENTORY (shelf life, freeze, costing); OTHER
+and TABLES categories show EQUIPMENT TRACKING (photo, storage, maintenance).
+
+**Deep inventory redesign:** FOOD/BEVERAGE item forms now use `shelfLifeDays`,
+`canFreeze`, and `freezerShelfLifeDays` instead of a single expiry date. Unit
+and Total QTY are hidden (replaced by Par Level). Fallback category has been
+removed — deleted categories automatically unassign items. Shelf life fields:
+`shelfLifeDays Int?`, `canFreeze Boolean`, `freezerShelfLifeDays Int?`.
+
+**Table profiles in inventory:** Table Profile management has been merged into
+the inventory under TABLES. The standalone `/admin/table-profiles` nav item
+removed. Creating/editing tables opens a modal popup via `TableProfileForm`.
+
+**Restore deleted items:** SHOW DELETED toggle in inventory displays soft-deleted
+items with RESTORE (`POST .../restore`) and PURGE (`DELETE ?permanent=1`) buttons.
+
+### Calendar (roster + time off)
 `GET /api/admin/stock/hierarchy` returns a Section → Table → Inventory Items tree in one query.
 The Structure API (`GET /api/admin/structure`) extends with `floorPlan { tables, chairs, equip }`
 per section.
@@ -588,6 +611,10 @@ fixed mobile bar.
   whole venue). Staff acknowledge via the existing `/w/notices` GOT IT flow;
   managers track acks on `/admin/notices`. Reuses notice/ack infra — no new
   worker screen. Best-effort (never blocks the save).
+- **Task filter "NOT IN THIS LIST".** When editing a checklist, a dynamic
+  `'notinthis'` usage filter appears showing all tasks except those already in
+  the current checklist — allowing tasks already used elsewhere to be added.
+  Defaults to `'notinthis'` when opening a checklist for editing.
 - **Grouped admin nav.** `AdminNav` renders collapsible groups (Overview /
   Organisation / Work / Daily ops / Finance + a standalone Settings); the active
   group auto-opens; the mobile burger drawer shares the same groups.
@@ -1265,19 +1292,24 @@ When the user signals intent to commit and test (e.g. "I'm going to commit",
    if the user wants to push directly to GHCR. (Requires Docker running + GHCR login.)
 
 3. **Produce a test checklist** — write it into `.test-checklist.md` (gitignored)
-   as a markdown checkbox list. Group items by page. The user uses these markers:
+   as a markdown checkbox list. Group items by page using path-style navigation
+   (e.g. `Admin → Operations → Bookings`, `Admin → Organisation → Inventory`).
+   The user uses these markers:
 
    | Marker | Meaning |
    |---|---|
-   | `- [x]` | Good — tested and works |
-   | `- [NO]` | Bad — broken, needs work |
-   | `- [DELETE]` | Feature should be removed |
-   | `- ` (dash, no bracket) | New item to add |
-   | Tab-indented line below an item | Note/comment on that item |
+   | `- [x]` | Done — tested and works, stays visible for progress tracking |
+   | `- [ ]` | Not yet tested |
+   | `- ` (dash, no bracket) | New feature idea or item to add |
+   | Tab-indented line below an item | Note/issue — needs work and retest |
 
-   Read the file first to preserve existing progress. When all items are
-   marked `[x]` and notes are resolved, the file can be cleared — features
-   should be documented in CLAUDE.md before removal.
+   Read the file first to preserve existing progress and notes. Skip completed
+   `[x]` items when planning fixes. Focus on items with notes (need retest) and
+   unchecked `[ ]` items.
+
+   Do NOT edit the file while the user is working on it live — they update it
+   during testing. Only write to it at the start of a new session or when
+   generating a fresh checklist for a new round of changes.
 
 4. **Update the docs** (CLAUDE.md, ROADMAP.md, ECOSYSTEM.md) to reflect any
    new models, API routes, design conventions, or feature phases.
