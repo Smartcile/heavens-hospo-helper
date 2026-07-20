@@ -217,6 +217,7 @@ model Staff {
   timeClocks           TimeClock[]
   payrollEntries       PayrollEntry[]
   staffVenues          StaffVenue[]
+  maintenanceLogs      MaintenanceLog[]
 }
 
 model Task {
@@ -1272,7 +1273,7 @@ model InventoryItem {
   allergyInfo   String? // e.g. "GLUTEN, DAIRY, NUTS" for display on recipe ingredients
 
   // --- Equipment / tool tracking ---
-  imageUrl          String? // photo of the item
+  imageUrls         Json?    // array of photo URLs
   storageSectionId  String? // FK to Section — where this item lives
   storageNotes      String? // e.g. "TOP SHELF, ABOVE THE COFFEE STATION"
   serialNumber      String?
@@ -1296,9 +1297,23 @@ model InventoryItem {
   supplierCodes     SupplierItemCode[]
   recipeLineItems   RecipeLineItem[]
   stepLinks         StepInventoryItem[]
+  maintenanceLogs   MaintenanceLog[]
 
   @@index([venueId])
   @@index([categoryId])
+}
+
+model MaintenanceLog {
+  id              String   @id @default(uuid())
+  inventoryItemId String
+  staffId         String?
+  note            String
+  createdAt       DateTime @default(now())
+
+  item  InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  staff Staff?        @relation(fields: [staffId], references: [id])
+
+  @@index([inventoryItemId])
 }
 
 model ElementInventoryItem {

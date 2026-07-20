@@ -55,7 +55,7 @@ export async function GET() {
     }),
     prisma.inventoryItem.findMany({
       where: { deletedAt: null, venueId: { in: venueIds }, storageSectionId: { not: null } },
-      select: { id: true, name: true, unit: true, storageSectionId: true, storageNotes: true, totalQty: true, imageUrl: true },
+      select: { id: true, name: true, unit: true, storageSectionId: true, storageNotes: true, totalQty: true, imageUrls: true },
       orderBy: { name: 'asc' },
     }),
   ])
@@ -121,10 +121,10 @@ export async function GET() {
     fpBySection.set(key, cur)
   }
 
-  const storedBySection = new Map<string, { id: string; name: string; unit: string; storageNotes: string | null; totalQty: number; imageUrl: string | null }[]>()
+  const storedBySection = new Map<string, { id: string; name: string; unit: string; storageNotes: string | null; totalQty: number; imageUrls: string[] | null }[]>()
   for (const inv of storedItems) {
     const arr = storedBySection.get(inv.storageSectionId!) ?? []
-    arr.push({ id: inv.id, name: inv.name, unit: inv.unit, storageNotes: inv.storageNotes, totalQty: inv.totalQty, imageUrl: inv.imageUrl })
+    arr.push({ id: inv.id, name: inv.name, unit: inv.unit, storageNotes: inv.storageNotes, totalQty: inv.totalQty, imageUrls: inv.imageUrls as string[] | null })
     storedBySection.set(inv.storageSectionId!, arr)
   }
 

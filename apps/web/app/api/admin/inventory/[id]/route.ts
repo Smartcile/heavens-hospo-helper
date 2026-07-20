@@ -16,7 +16,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrl, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId, shelfLifeDays, canFreeze, freezerShelfLifeDays } = await req.json()
+  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrls, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId, shelfLifeDays, canFreeze, freezerShelfLifeDays } = await req.json()
 
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = name.toUpperCase().trim()
@@ -39,7 +39,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (allergyInfo !== undefined) data.allergyInfo = allergyInfo || null
 
   // Equipment / tool tracking
-  if (imageUrl !== undefined) data.imageUrl = imageUrl || null
+  if (imageUrls !== undefined) data.imageUrls = Array.isArray(imageUrls) ? imageUrls : undefined
   if (storageSectionId !== undefined) data.storageSectionId = storageSectionId || null
   if (storageNotes !== undefined) data.storageNotes = storageNotes || null
   if (serialNumber !== undefined) data.serialNumber = serialNumber || null
@@ -70,6 +70,18 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     data,
     include: { category: true },
   })
+
+  // Log maintenance if notes were provided
+  if (maintenanceNotes !== undefined && maintenanceNotes && maintenanceNotes.trim()) {
+    await prisma.maintenanceLog.create({
+      data: {
+        inventoryItemId: params.id,
+        staffId: (session.user as any)?.id ?? null,
+        note: String(maintenanceNotes).trim(),
+      },
+    })
+  }
+
   return NextResponse.json(updated)
 }
 

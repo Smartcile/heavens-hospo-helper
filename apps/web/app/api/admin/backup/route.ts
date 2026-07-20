@@ -94,7 +94,7 @@ export async function GET(req: NextRequest) {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Content-Disposition': `attachment; filename="hospo-ops-backup-${new Date().toISOString().slice(0, 10)}.json"`,
+        'Content-Disposition': `attachment; filename="hospo-ops-backup-${new Date().toISOString().slice(0, 10)}${uploads ? '-with-files' : ''}.json"`,
         'Cache-Control': 'no-cache',
       },
     })

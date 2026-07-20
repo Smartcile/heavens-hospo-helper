@@ -406,7 +406,9 @@ export function RecipesClient() {
                           const inv = inventoryItems.find((i) => i.id === v)
                           if (inv?.unit) {
                             const u = inv.unit.toUpperCase().trim()
-                            const match = uoms.find((um) => um.name.toUpperCase() === u || um.baseUnit?.toUpperCase() === u || um.name.toUpperCase().startsWith(u))
+                            // Exact match first, then baseUnit
+                            let match = uoms.find((um) => um.name.toUpperCase() === u)
+                            if (!match) match = uoms.find((um) => um.baseUnit?.toUpperCase() === u)
                             if (match) setNewItemUomId(match.id)
                           }
                         }

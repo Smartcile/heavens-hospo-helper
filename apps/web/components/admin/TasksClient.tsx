@@ -253,6 +253,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
 
   // --- Derived ---
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
+  const selClass = (v: string) => v ? 'border-[#60A5FA]' : ''
   const filterDeptOptions = [{ value: '', label: 'ALL DEPARTMENTS' }, ...departments.filter((d) => !filterVenue || d.venueId === filterVenue).map((d) => ({ value: d.id, label: d.name }))]
   const formDeptOptions = [{ value: '', label: 'NO DEPARTMENT' }, ...departments.filter((d) => d.venueId === form.venueId).map((d) => ({ value: d.id, label: d.name }))]
   const formSectionOptions = [{ value: '', label: 'NO SECTION' }, ...sections.filter((s) => s.departmentId === form.departmentId).map((s) => ({ value: s.id, label: s.name }))]
@@ -366,17 +367,17 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
             <div className="flex gap-2 flex-wrap">
               {role === 'ADMIN' && (
                 <div className="w-36">
-                  <Select value={filterVenue} onChange={(e) => { setFilterVenue(e.target.value); setFilterDept(''); setFilterSection('') }} options={[{ value: '', label: 'ALL VENUES' }, ...venueOptions]} />
+                  <Select value={filterVenue} onChange={(e) => { setFilterVenue(e.target.value); setFilterDept(''); setFilterSection('') }} options={[{ value: '', label: 'ALL VENUES' }, ...venueOptions]} className={selClass(filterVenue)} />
                 </div>
               )}
               <div className="w-36">
-                <Select value={filterDept} onChange={(e) => { setFilterDept(e.target.value); setFilterSection('') }} options={filterDeptOptions} />
+                <Select value={filterDept} onChange={(e) => { setFilterDept(e.target.value); setFilterSection('') }} options={filterDeptOptions} className={selClass(filterDept)} />
               </div>
               <div className="w-36">
-                <Select value={filterSection} onChange={(e) => setFilterSection(e.target.value)} options={filterSectionOptions} />
+                <Select value={filterSection} onChange={(e) => setFilterSection(e.target.value)} options={filterSectionOptions} className={selClass(filterSection)} />
               </div>
               <div className="w-40">
-                <Select value={filterUsage} onChange={(e) => setFilterUsage(e.target.value)} options={USAGE_OPTIONS} />
+                <Select value={filterUsage} onChange={(e) => setFilterUsage(e.target.value)} options={USAGE_OPTIONS} className={selClass(filterUsage)} />
               </div>
             </div>
           </div>

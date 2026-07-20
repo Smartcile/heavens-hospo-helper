@@ -36,7 +36,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 const SLOT_W = 22
 const START_HOUR = 6
-const END_HOUR = 24
+const END_HOUR = 22
 const TOTAL_SLOTS = (END_HOUR - START_HOUR) * 4
 
 function formatDate(d: string) {
@@ -337,106 +337,72 @@ export function BookingClient() {
               <p className="font-mono text-xs text-grey-light">NO TABLES FOUND. CREATE A FLOOR PLAN SETUP WITH TABLES FIRST.</p>
             ) : (
               <div className="border border-grey-mid overflow-auto max-h-[70vh]">
-                <div className="flex" style={{ minWidth: 120 + TOTAL_SLOTS * SLOT_W }}>
-                  {/* Left: section/table labels */}
-                  <div className="flex-shrink-0 bg-grey-dark border-r border-grey-mid sticky left-0 z-10" style={{ width: 120 }}>
-                    {/* Time header spacer */}
-                    <div className="h-7 border-b border-grey-mid px-2 flex items-center">
-                      <span className="font-mono text-[8px] uppercase text-grey-light tracking-wider">TABLE</span>
-                    </div>
-                    {Array.from(sectionGroups.entries()).map(([key, grp]) => (
-                      <div key={key}>
-                        <div className="px-2 py-0.5 border-b border-grey-mid font-mono text-[9px] font-bold uppercase text-grey-light" style={grp.colour ? { color: grp.colour } : {}}>
-                          {grp.name} <span className="font-normal text-grey-light/60">({grp.dept.name})</span>
-                        </div>
-                        {grp.tables.map((tbl) => {
-                          const label = tbl.assignedNumber || tbl.label || tbl.profile.name.slice(0, 6)
-                          return (
-                            <div key={tbl.id} className="h-8 border-b border-grey-mid/30 px-2 flex items-center">
-                              <span className="font-mono text-[10px] text-white truncate" title={`${tbl.profile.name} · CAP ${tbl.profile.capacity}`}>{label}</span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Right: time grid */}
-                  <div className="flex-1 relative" style={{ minWidth: TOTAL_SLOTS * SLOT_W }}>
-                    {/* Time header row */}
-                    <div className="flex sticky top-0 z-10 bg-grey-dark border-b border-grey-mid h-7">
+                <table className="border-collapse" style={{ minWidth: 110 + TOTAL_SLOTS * SLOT_W }}>
+                  <thead className="sticky top-0 z-10 bg-grey-dark">
+                    <tr>
+                      <th className="border-b border-grey-mid border-r text-left px-2 py-1 font-mono text-[8px] uppercase text-grey-light tracking-wider sticky left-0 bg-grey-dark z-20" style={{ width: 110 }}>TABLE</th>
                       {timeSlots2.map((slot, i) => {
                         const isHour = slot.endsWith(':00')
                         const isHalf = slot.endsWith(':30')
                         return (
-                          <div key={i} className={`flex-shrink-0 text-center border-r border-grey-mid/20 ${isHour ? 'border-r-grey-mid' : ''}`} style={{ width: SLOT_W }}>
-                            <span className={`font-mono text-[8px] ${isHour ? 'text-grey-light' : isHalf ? 'text-grey-light/40' : 'text-grey-light/20'}`}>{isHour || isHalf ? slot.slice(0, 5) : ''}</span>
-                          </div>
+                          <th key={i} className={`border-b border-grey-mid font-mono text-[8px] text-center py-1 ${isHour ? 'text-grey-light' : isHalf ? 'text-grey-light/40' : 'text-grey-light/20'} ${isHour ? 'border-r border-grey-mid' : 'border-r border-grey-mid/20'}`} style={{ width: SLOT_W }}>
+                            {isHour || isHalf ? slot.slice(0, 5) : ''}
+                          </th>
                         )
                       })}
-                    </div>
-
-                    {/* Table rows */}
-                    {Array.from(sectionGroups.values()).flatMap((grp) => grp.tables).map((tbl) => {
-                      // Find bookings that use this table
-                      const tblBookings = tableBookings.filter((b) => b.tableIds.includes(tbl.id))
-                      return (
-                        <div key={tbl.id} className="h-8 border-b border-grey-mid/30 relative">
-                          {/* Grid lines */}
-                          {timeSlots2.map((_, i) => {
-                            const isHour = timeSlots2[i].endsWith(':00')
-                            return <div key={i} className="absolute top-0 bottom-0 border-r" style={{ left: i * SLOT_W, borderColor: isHour ? '#2E2E2E' : 'rgba(46,46,46,0.3)' }} />
-                          })}
-
-                          {/* Booking blocks */}
-                          {tblBookings.map((b) => {
-                            const bStart = timeToMins(b.startTime)
-                            const bEnd = timeToMins(b.endTime)
-                            const gridStart = START_HOUR * 60
-                            const left = ((bStart - gridStart) / 15) * SLOT_W
-                            const width = ((bEnd - bStart) / 15) * SLOT_W
-                            const colour = STATUS_COLORS[b.status] || '#6B6B6B'
-                            return (
-                              <div
-                                key={b.id}
-                                className="absolute top-0.5 bottom-0.5 rounded-sm flex items-center px-1.5 cursor-pointer group z-10"
-                                style={{ left, width, backgroundColor: colour + '30', borderLeft: `2px solid ${colour}` }}
-                                onClick={() => {
-                                  const found = bookings.find((bk) => bk.id === b.id)
-                                  if (found) openEdit(found)
-                                }}
-                                title={`${b.contactName} · ${b.partySize} PAX · ${b.startTime}-${b.endTime}`}
-                              >
-                                <span className="font-mono text-[8px] text-white truncate leading-none">{b.contactName} {b.partySize}p</span>
-                                {/* Resize handle */}
-                                <div
-                                  className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/20"
-                                  onMouseDown={(e) => {
-                                    e.stopPropagation()
-                                    setResizeDrag({ bookingId: b.id, startX: e.clientX, originalEndTime: b.endTime })
-                                  }}
-                                />
-                              </div>
-                            )
-                          })}
-
-                          {/* Click on empty area to create */}
-                          <div className="absolute inset-0 z-0"
-                            onClick={(e) => {
-                              // Only if clicking directly on the row (not a booking)
-                              if ((e.target as HTMLElement).closest('.absolute.top-0\\.5')) return
-                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                              const x = e.clientX - rect.left
-                              const slotIdx = Math.floor(x / SLOT_W)
-                              const startMins = START_HOUR * 60 + slotIdx * 15
-                              openCreateOnTable(startMins, startMins + 120, tbl.setupId)
-                            }}
-                          />
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from(sectionGroups.entries()).map(([key, grp]) => (
+                      <>
+                        <tr key={`h-${key}`} className="bg-grey-dark/50">
+                          <td className="border-b border-grey-mid border-r px-2 py-0.5 font-mono text-[9px] font-bold uppercase text-grey-light sticky left-0 bg-grey-dark/50" style={grp.colour ? { color: grp.colour } : {}}>
+                            {grp.name} <span className="font-normal text-grey-light/60">({grp.dept.name})</span>
+                          </td>
+                          {timeSlots2.map((_, i) => <td key={i} className="border-b border-grey-mid/20" style={{ width: SLOT_W }} />)}
+                        </tr>
+                        {grp.tables.map((tbl) => {
+                          const label = tbl.assignedNumber || tbl.label || tbl.profile.name.slice(0, 6)
+                          const tblBookings = tableBookings.filter((b) => b.tableIds.includes(tbl.id))
+                          return (
+                            <tr key={tbl.id} className="h-8">
+                              <td className="border-b border-grey-mid/30 border-r px-2 sticky left-0 bg-grey-dark">
+                                <span className="font-mono text-[10px] text-white truncate block" title={`${tbl.profile.name} · CAP ${tbl.profile.capacity}`}>{label}</span>
+                              </td>
+                              {/* Empty cells for time slots */}
+                              {timeSlots2.map((_, i) => (<td key={i} className="border-b border-r border-grey-mid/20 relative" style={{ width: SLOT_W }} />))}
+                              {/* Booking blocks — overlay on top of cells */}
+                              {tblBookings.length > 0 && (
+                                <td colSpan={TOTAL_SLOTS} className="border-b border-grey-mid/30 relative" style={{ padding: 0 }}>
+                                  <div className="absolute inset-0 flex pointer-events-none">
+                                    {tblBookings.map((b) => {
+                                      const bStart = timeToMins(b.startTime)
+                                      const bEnd = timeToMins(b.endTime)
+                                      const gridStart = START_HOUR * 60
+                                      const left = ((bStart - gridStart) / 15) * SLOT_W
+                                      const width = ((bEnd - bStart) / 15) * SLOT_W
+                                      const colour = STATUS_COLORS[b.status] || '#6B6B6B'
+                                      return (
+                                        <div key={b.id} className="absolute top-0.5 bottom-0.5 rounded-sm flex items-center px-1.5 cursor-pointer group z-10 pointer-events-auto"
+                                          style={{ left, width, backgroundColor: colour + '30', borderLeft: `2px solid ${colour}` }}
+                                          onClick={() => { const found = bookings.find((bk) => bk.id === b.id); if (found) openEdit(found) }}
+                                          title={`${b.contactName} · ${b.partySize} PAX · ${b.startTime}-${b.endTime}`}>
+                                          <span className="font-mono text-[8px] text-white truncate leading-none">{b.contactName} {b.partySize}p</span>
+                                          <div className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/20"
+                                            onMouseDown={(e) => { e.stopPropagation(); setResizeDrag({ bookingId: b.id, startX: e.clientX, originalEndTime: b.endTime }) }} />
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
+                          )
+                        })}
+                      </>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

@@ -28,7 +28,7 @@ export interface StaffTrainingItem {
         id: string
         name: string
         unit: string
-        imageUrl: string | null
+        imageUrls: string[] | null
         category: { id: string; name: string } | null
         storageSection: { id: string; name: string; department: { id: string; name: string } } | null
         storageNotes: string | null
@@ -102,7 +102,7 @@ export async function getStaffTraining(staffId: string): Promise<{
                   id: true,
                   name: true,
                   unit: true,
-                  imageUrl: true,
+                  imageUrls: true,
                   category: { select: { id: true, name: true } },
                   storageSection: { select: { id: true, name: true, department: { select: { id: true, name: true } } } },
                   storageNotes: true,
@@ -179,7 +179,7 @@ export async function getStaffTraining(staffId: string): Promise<{
           id: si.id,
           itemId: si.item.id,
           quantity: si.quantity,
-          item: si.item,
+          item: { ...si.item, imageUrls: (si.item.imageUrls as any) as string[] | null },
         })),
       })),
       source,
@@ -245,7 +245,7 @@ export async function getStaffSops(staffId: string): Promise<{
                   id: true,
                   name: true,
                   unit: true,
-                  imageUrl: true,
+                  imageUrls: true,
                   category: { select: { id: true, name: true } },
                   storageSection: { select: { id: true, name: true, department: { select: { id: true, name: true } } } },
                   storageNotes: true,
@@ -290,7 +290,7 @@ export async function getStaffSops(staffId: string): Promise<{
         id: si.id,
         itemId: si.item.id,
         quantity: si.quantity,
-        item: si.item,
+        item: { ...si.item, imageUrls: (si.item.imageUrls as any) as string[] | null },
       })),
     })),
   }))

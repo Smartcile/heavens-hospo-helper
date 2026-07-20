@@ -6,6 +6,7 @@ import { signOut } from 'next-auth/react'
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { VenueSwitcher } from '@/components/admin/VenueSwitcher'
+import version from '@/version.json'
 
 interface NavItem { href: string; label: string; exact?: boolean }
 interface NavGroup { label: string; items: NavItem[]; href?: string }
@@ -28,6 +29,7 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/admin/recipes', label: 'Recipes & Menu Items' },
     { href: '/admin/orders', label: 'Orders' },
     { href: '/admin/bookings', label: 'Bookings' },
+    { href: '/admin/customers', label: 'Customers' },
     { href: '/admin/sync', label: 'Woo Sync' },
     { href: '/w/kitchen', label: 'Kitchen' },
   ] },
@@ -151,7 +153,7 @@ function Brand({ appName, role, venueId, defaultVenueId, availableVenueIds }: { 
     <div className="border-b border-grey-mid">
       <div className="p-4">
         <div className="font-mono font-bold text-sm uppercase tracking-widest text-white">{appName}</div>
-        <div className="font-mono text-xs text-grey-light mt-0.5">ADMIN PANEL</div>
+        <div className="font-mono text-xs text-grey-light mt-0.5">ADMIN PANEL <span className="text-grey-light/50">0.1.{version.build}</span></div>
       </div>
       <VenueSwitcher role={role} venueId={venueId} defaultVenueId={defaultVenueId} availableVenueIds={availableVenueIds} />
     </div>

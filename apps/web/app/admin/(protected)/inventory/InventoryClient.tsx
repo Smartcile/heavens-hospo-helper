@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { AllergenPicker } from '@/components/ui/AllergenPicker'
+import { ALLERGENS } from '@/lib/allergens'
 import { TableProfileForm } from '@/components/admin/TableProfileForm'
 
 interface Category { id: string; name: string; isBuiltIn: boolean; venueId: string | null; tab: string | null; showDeepFields: boolean; showEquipmentFields: boolean }
@@ -16,7 +17,7 @@ interface Item {
   countingUnitId?: string | null; orderingUnitId?: string | null; yieldPercentage?: number | null; costPrice?: number | null; expiryDate?: string | null; fallbackCategoryId?: string | null; allergyInfo?: string | null
   shelfLifeDays?: number | null; canFreeze?: boolean; freezerShelfLifeDays?: number | null
   // Equipment / tool tracking
-  imageUrl?: string | null; storageSectionId?: string | null; storageNotes?: string | null
+  imageUrls?: string[] | null; storageSectionId?: string | null; storageNotes?: string | null
   serialNumber?: string | null; purchaseDate?: string | null; warrantyExpiry?: string | null
   serviceIntervalDays?: number | null; lastServicedAt?: string | null; nextServiceAt?: string | null
   maintenanceNotes?: string | null; supplierId?: string | null
@@ -77,7 +78,7 @@ export function InventoryClient() {
   const [formFreezerShelfLifeDays, setFormFreezerShelfLifeDays] = useState('')
 
   // Equipment / tool tracking
-  const [formImageUrl, setFormImageUrl] = useState('')
+  const [formImageUrls, setFormImageUrls] = useState<string[]>([])
   const [formStorageSectionId, setFormStorageSectionId] = useState('')
   const [formStorageNotes, setFormStorageNotes] = useState('')
   const [formSerialNumber, setFormSerialNumber] = useState('')
@@ -105,7 +106,7 @@ export function InventoryClient() {
     setFormCountingUnitId(''); setFormOrderingUnitId(''); setFormYield(''); setFormCostPrice('')
     setFormExpiryDate(''); setFormFallbackCatId(''); setFormAllergyInfo(''); setShowDeepFields(true)
     setFormShelfLifeDays(''); setFormCanFreeze(false); setFormFreezerShelfLifeDays('')
-    setFormImageUrl(''); setFormStorageSectionId(''); setFormStorageNotes('')
+    setFormImageUrls([]); setFormStorageSectionId(''); setFormStorageNotes('')
     setFormSerialNumber(''); setFormPurchaseDate(''); setFormWarrantyExpiry('')
     setFormServiceIntervalDays(''); setFormLastServicedAt(''); setFormNextServiceAt('')
     setFormMaintenanceNotes(''); setFormSupplierId(''); setShowEquipmentFields(false)
@@ -122,15 +123,15 @@ export function InventoryClient() {
     setFormShelfLifeDays(item.shelfLifeDays != null ? String(item.shelfLifeDays) : '')
     setFormCanFreeze(!!item.canFreeze)
     setFormFreezerShelfLifeDays(item.freezerShelfLifeDays != null ? String(item.freezerShelfLifeDays) : '')
-    setFormImageUrl(item.imageUrl ?? '')
+    setFormImageUrls(Array.isArray(item.imageUrls) ? item.imageUrls : item.imageUrls ? [item.imageUrls as any] : [])
     setFormStorageSectionId(item.storageSectionId ?? '')
     setFormStorageNotes(item.storageNotes ?? '')
     setFormSerialNumber(item.serialNumber ?? '')
-    setFormPurchaseDate(item.purchaseDate ?? '')
-    setFormWarrantyExpiry(item.warrantyExpiry ?? '')
+    setFormPurchaseDate(item.purchaseDate ? String(item.purchaseDate).slice(0, 10) : '')
+    setFormWarrantyExpiry(item.warrantyExpiry ? String(item.warrantyExpiry).slice(0, 10) : '')
     setFormServiceIntervalDays(item.serviceIntervalDays != null ? String(item.serviceIntervalDays) : '')
-    setFormLastServicedAt(item.lastServicedAt ?? '')
-    setFormNextServiceAt(item.nextServiceAt ?? '')
+    setFormLastServicedAt(item.lastServicedAt ? String(item.lastServicedAt).slice(0, 10) : '')
+    setFormNextServiceAt(item.nextServiceAt ? String(item.nextServiceAt).slice(0, 10) : '')
     setFormMaintenanceNotes(item.maintenanceNotes ?? '')
     setFormSupplierId(item.supplierId ?? '')
     const itemCat = categories.find((c) => c.id === item.categoryId)
@@ -215,7 +216,7 @@ export function InventoryClient() {
     form.append('file', file)
     const r = await fetch('/api/admin/upload', { method: 'POST', body: form })
     setFormUploadingImg(false)
-    if (r.ok) { const data = await r.json(); setFormImageUrl(data.url) }
+    if (r.ok) { const data = await r.json(); setFormImageUrls((prev) => [...prev, data.url]) }
   }
 
   function renderEquipmentFields() {
@@ -244,13 +245,25 @@ export function InventoryClient() {
                 className="hidden" />
               <button type="button" onClick={() => document.getElementById('inv-img-upload')?.click()}
                 className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
-                {formUploadingImg ? 'UPLOADING_' : formImageUrl ? 'REPLACE PHOTO' : 'ADD PHOTO'}
+                {formUploadingImg ? 'UPLOADING_' : 'ADD PHOTO'}
               </button>
-              {formImageUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={formImageUrl} alt="preview" className="h-10 w-10 object-cover border border-grey-mid" />
-              )}
+              <span className="font-mono text-[9px] text-grey-light/50">OR PASTE IMAGE (CTRL+V)</span>
             </div>
+            {formImageUrls.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {formImageUrls.map((url, i) => (
+                  <div key={i} className="relative group">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt={`photo ${i + 1}`} className="h-16 w-16 object-cover border border-grey-mid cursor-pointer"
+                      onClick={() => window.open(url, '_blank')} />
+                    <button onClick={() => setFormImageUrls((prev) => prev.filter((_, idx) => idx !== i))}
+                      className="absolute -top-1 -right-1 w-4 h-4 bg-danger text-black font-mono text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="grid grid-cols-6 gap-2">
               <div className="col-span-3">
                 <Select label="STORAGE SECTION" value={formStorageSectionId} onChange={(e) => setFormStorageSectionId(e.target.value)}
@@ -305,7 +318,7 @@ export function InventoryClient() {
       expiryDate: formExpiryDate || null,
       fallbackCategoryId: formFallbackCatId || null,
       allergyInfo: formAllergyInfo || null,
-      imageUrl: formImageUrl || null,
+      imageUrls: formImageUrls.length ? formImageUrls : null,
       storageSectionId: formStorageSectionId || null,
       storageNotes: formStorageNotes || null,
       serialNumber: formSerialNumber || null,
@@ -577,7 +590,7 @@ export function InventoryClient() {
               <p className="font-mono text-xs text-grey-light">No categories yet.</p>
             ) : (
               <div className="space-y-1">
-                {tabCategories.map((cat) => {
+          {!showDeleted && tabCategories.map((cat) => {
                   const list = catItems.get(cat.id) ?? []
                   const totalStock = list.reduce((s, i) => s + (i.totalQty ?? 0), 0)
                   return (
@@ -681,21 +694,16 @@ export function InventoryClient() {
             </div>
           </div>
           <div className="grid grid-cols-6 gap-2">
-            <div className={`${catShowDeep ? 'col-span-3' : 'col-span-2'}`}>
-              {catShowDeep ? (
-                <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
-              ) : (
-                <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
-                  options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
-              )}
-            </div>
             {catShowDeep ? (
-              <div className="col-span-3">
-                <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
-                  options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
+              <div className="col-span-6">
+                <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
               </div>
             ) : (
               <>
+                <div className="col-span-2">
+                  <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
+                    options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
+                </div>
                 <div className="col-span-2">
                   <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
                 </div>
@@ -742,7 +750,44 @@ export function InventoryClient() {
                 </div>
               )}
               <div className="col-span-6">
-                <AllergenPicker value={formAllergyInfo} onChange={(v) => setFormAllergyInfo(v)} label="ALLERGENS" />
+                <label className="font-mono text-xs uppercase text-grey-light tracking-wider block mb-1">ALLERGENS</label>
+                <div className="space-y-1.5">
+                  {(() => {
+                    const groups = [
+                      { label: 'DAIRY', items: ['MILK'] },
+                      { label: 'EGGS', items: ['EGG'] },
+                      { label: 'NUTS & SEEDS', items: ['ALMOND','BRAZIL NUT','CASHEW','HAZELNUT','LUPIN','MACADAMIA','PEANUT','PECAN','PINE NUT','PISTACHIO','WALNUT'] },
+                      { label: 'GRAINS', items: ['BARLEY','OATS','RYE','WHEAT'] },
+                      { label: 'SEAFOOD', items: ['CRUSTACEAN','FISH','MOLLUSC'] },
+                      { label: 'OTHER', items: ['SESAME','SOY','SULPHITES'] },
+                    ]
+                    const selected = (formAllergyInfo || '').toUpperCase().split(',').map((a: string) => a.trim()).filter(Boolean)
+                    return groups.map((grp) => {
+                      const visible = grp.items.filter((a) => (ALLERGENS as readonly string[]).includes(a))
+                      if (visible.length === 0) return null
+                      return (
+                        <div key={grp.label}>
+                          <div className="font-mono text-[8px] uppercase text-grey-light mb-0.5">{grp.label}</div>
+                          <div className="flex flex-wrap gap-1">
+                            {visible.map((a) => {
+                              const on = selected.includes(a)
+                              return (
+                                <button key={a} type="button"
+                                  onClick={() => {
+                                    const next = on ? selected.filter((x: string) => x !== a) : [...selected, a]
+                                    setFormAllergyInfo(next.join(', '))
+                                  }}
+                                  className={`font-mono text-[9px] uppercase px-1.5 py-0.5 border transition-colors ${on ? 'bg-[#c4a530]/10 text-[#c4a530] border-[#c4a530]/50' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>
+                                  {on ? '✓ ' : ''}{a}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })
+                  })()}
+                </div>
               </div>
             </div>
           )}

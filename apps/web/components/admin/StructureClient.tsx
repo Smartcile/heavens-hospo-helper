@@ -16,7 +16,7 @@ interface StaffNode { id: string; name: string; role: string }
 interface TaskLink { label: string; colour: string; kind: string; targetId: string; targetType: string; targetSub: string }
 interface TaskNode { id: string; title: string; schedule: string; active: boolean; scope: string; assignee: string | null; links?: TaskLink[] }
 interface TrainingNode { id: string; title: string; kind: string; signOff: boolean; linkedToTask: boolean }
-interface SectionNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; floorPlan?: { tables: number; chairs: number; equip: number }; inventoryItems?: { id: string; name: string; unit: string; storageNotes: string | null; totalQty: number; imageUrl: string | null }[] }
+interface SectionNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; floorPlan?: { tables: number; chairs: number; equip: number }; inventoryItems?: { id: string; name: string; unit: string; storageNotes: string | null; totalQty: number; imageUrls: string[] | null }[] }
 interface DeptNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; training: TrainingNode[]; sections: SectionNode[]; linkedDepartments?: { id: string; name: string; colour: string | null }[] }
 interface VenueNode {
   id: string
@@ -300,9 +300,9 @@ export function StructureClient({ role }: { role: string }) {
                                               <div className="pl-5 divide-y divide-grey-mid border-t border-grey-mid">
                                                 {sec.inventoryItems!.map((inv) => (
                                                   <div key={inv.id} className="flex items-center gap-2 py-1 font-mono text-xs text-white">
-                                                    {inv.imageUrl && (
+                                                    {inv.imageUrls && Array.isArray(inv.imageUrls) && inv.imageUrls.length > 0 && (
                                                       // eslint-disable-next-line @next/next/no-img-element
-                                                      <img src={inv.imageUrl} alt={inv.name} className="w-5 h-5 object-cover border border-grey-mid" />
+                                                      <img src={inv.imageUrls[0]} alt={inv.name} className="w-5 h-5 object-cover border border-grey-mid" />
                                                     )}
                                                     <span>{inv.name}</span>
                                                     <span className="text-grey-light text-[10px]">{inv.unit} · QTY {inv.totalQty}</span>

@@ -8,12 +8,12 @@ interface Step {
   order: number
   title: string | null
   content: string
-  imageUrl: string | null
+  imageUrls: string[] | null
   videoUrl: string | null
   linkedChecklist: { id: string; name: string; tasks: { id: string; title: string }[] } | null
   linkedTasks?: { id: string; title: string }[]
   linkedModules?: { id: string; title: string; kind: string }[]
-  linkedInventoryItems?: { id: string; itemId: string; quantity: number; item: { id: string; name: string; unit: string; imageUrl: string | null; category: { id: string; name: string } | null; storageSection: { id: string; name: string; department: { id: string; name: string } } | null; storageNotes: string | null; supplier: { id: string; name: string } | null; totalQty: number } }[]
+  linkedInventoryItems?: { id: string; itemId: string; quantity: number; item: { id: string; name: string; unit: string; imageUrls: string[] | null; category: { id: string; name: string } | null; storageSection: { id: string; name: string; department: { id: string; name: string } } | null; storageNotes: string | null; supplier: { id: string; name: string } | null; totalQty: number } }[]
 }
 
 interface TrainingItem {
@@ -107,9 +107,9 @@ function TrainingInner() {
             <div key={s.id} className="border-l-4 border-l-grey-mid pl-4 space-y-2">
               <div className="font-mono text-xs text-grey-light uppercase">STEP {i + 1}{s.title ? ` — ${s.title}` : ''}</div>
               <p className="font-sans text-sm text-white whitespace-pre-wrap">{s.content}</p>
-              {s.imageUrl && (
+              {s.imageUrls && Array.isArray(s.imageUrls) && s.imageUrls.length > 0 && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={s.imageUrl} alt={`step ${i + 1}`} className="w-full border border-grey-mid" />
+                <img src={s.imageUrls[0]} alt={`step ${i + 1}`} className="w-full border border-grey-mid" />
               )}
               {s.videoUrl && (
                 <a href={s.videoUrl} target="_blank" rel="noopener noreferrer" className="inline-block font-mono text-xs uppercase border border-grey-mid px-3 py-2 text-white hover:border-white transition-colors">
@@ -174,9 +174,9 @@ function TrainingInner() {
                           {inv.item.storageNotes && <span>{inv.item.storageNotes}</span>}
                           {inv.item.supplier && <span>SUPPLIER: {inv.item.supplier.name}</span>}
                         </div>
-                        {inv.item.imageUrl && (
+                        {inv.item.imageUrls && Array.isArray(inv.item.imageUrls) && inv.item.imageUrls.length > 0 && (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={inv.item.imageUrl} alt={inv.item.name} className="w-24 border border-grey-mid" />
+                          <img src={inv.item.imageUrls[0]} alt={inv.item.name} className="w-24 border border-grey-mid" />
                         )}
                       </div>
                     ))}
