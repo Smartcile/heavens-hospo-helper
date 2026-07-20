@@ -13,6 +13,7 @@ interface Step {
   linkedChecklist: { id: string; name: string; tasks: { id: string; title: string }[] } | null
   linkedTasks?: { id: string; title: string }[]
   linkedModules?: { id: string; title: string; kind: string }[]
+  linkedInventoryItems?: { id: string; itemId: string; quantity: number; item: { id: string; name: string; unit: string; imageUrl: string | null; category: { id: string; name: string } | null; storageSection: { id: string; name: string; department: { id: string; name: string } } | null; storageNotes: string | null; supplier: { id: string; name: string } | null; totalQty: number } }[]
 }
 
 interface TrainingItem {
@@ -155,6 +156,29 @@ function TrainingInner() {
                   <div className="divide-y divide-grey-mid">
                     {s.linkedModules!.map((m: any) => (
                       <div key={m.id} className="px-3 py-2 font-mono text-xs text-white">{m.title} <span className="text-grey-light">({m.kind})</span></div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(s.linkedInventoryItems ?? []).length > 0 && (
+                <div className="border border-grey-mid">
+                  <div className="px-3 py-2 border-b border-grey-mid font-mono text-xs uppercase text-grey-light">TOOLS / EQUIPMENT NEEDED</div>
+                  <div className="divide-y divide-grey-mid">
+                    {s.linkedInventoryItems!.map((inv) => (
+                      <div key={inv.id} className="px-3 py-2 space-y-1">
+                        <div className="font-mono text-xs text-white uppercase">{inv.item.name}{inv.quantity > 1 ? ` (x${inv.quantity})` : ''}</div>
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-xs text-grey-light">
+                          <span>{inv.item.unit}</span>
+                          {inv.item.category && <span>{inv.item.category.name}</span>}
+                          {inv.item.storageSection && <span>{inv.item.storageSection.department.name} → {inv.item.storageSection.name}</span>}
+                          {inv.item.storageNotes && <span>{inv.item.storageNotes}</span>}
+                          {inv.item.supplier && <span>SUPPLIER: {inv.item.supplier.name}</span>}
+                        </div>
+                        {inv.item.imageUrl && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={inv.item.imageUrl} alt={inv.item.name} className="w-24 border border-grey-mid" />
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>

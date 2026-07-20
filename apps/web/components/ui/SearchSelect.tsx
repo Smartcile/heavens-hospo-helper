@@ -114,58 +114,40 @@ export function SearchSelect({ options, groups, value, onChange, placeholder, cl
           </button>
         )}
       </div>
-      {open && (
-        <>
-          <div className="fixed inset-0 bg-black/60 z-40" onClick={() => { setOpen(false); setQuery('') }} />
-          <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] pointer-events-none">
-            <div className="bg-black border border-grey-mid w-full max-w-lg max-h-[60vh] flex flex-col shadow-2xl pointer-events-auto">
-              <div className="flex items-center justify-between px-4 py-2 border-b border-grey-mid bg-grey-dark/30">
-                <span className="font-mono text-[10px] text-grey-light uppercase">
-                  {filtered.length} RESULTS
-                </span>
+      {open && filtered.length > 0 && (
+        <div className="absolute top-full left-0 right-0 z-50 mt-1 border border-grey-mid bg-black max-h-60 overflow-y-auto shadow-lg">
+          {filtered.map((o, i) => {
+            const fullIdx = allOptions.indexOf(o)
+            const groupHeader = groups ? groupIndices.find((g) => g.startIdx === fullIdx) : null
+            return (
+              <div key={o.value}>
+                {groupHeader && (
+                  <div className="px-3 py-1 font-mono text-[9px] uppercase text-grey-light border-b border-grey-mid bg-grey-dark/30">
+                    {groupHeader.label}
+                  </div>
+                )}
                 <button
-                  onClick={() => { setOpen(false); setQuery('') }}
-                  className="font-mono text-xs text-grey-light hover:text-white"
+                  onClick={() => select(o.value)}
+                  onMouseEnter={() => setHighlightIdx(i)}
+                  className={`block w-full text-left px-3 py-2 font-mono text-xs uppercase ${
+                    i === highlightIdx
+                      ? 'bg-grey-mid/30 text-white'
+                      : value === o.value
+                      ? 'bg-grey-mid/20 text-white'
+                      : 'text-grey-light hover:bg-grey-mid/20 hover:text-white'
+                  }`}
                 >
-                  ✕
+                  {o.label}
                 </button>
               </div>
-              <div className="overflow-y-auto flex-1">
-                {filtered.length === 0 ? (
-                  <div className="px-4 py-6 text-center">
-                    <p className="font-mono text-xs text-grey-light uppercase">NO RESULTS</p>
-                  </div>
-                ) : (
-                  filtered.map((o, i) => {
-                    const groupHeader = groups ? groupIndices.find((g) => g.startIdx === allOptions.indexOf(o)) : null
-                    return (
-                      <div key={o.value}>
-                        {groupHeader && (
-                          <div className="px-4 py-1.5 font-mono text-[9px] uppercase text-grey-light border-b border-grey-mid bg-grey-dark/50">
-                            {groupHeader.label}
-                          </div>
-                        )}
-                        <button
-                          onClick={() => select(o.value)}
-                          onMouseEnter={() => setHighlightIdx(i)}
-                          className={`block w-full text-left px-4 py-2 font-mono text-xs uppercase ${
-                            i === highlightIdx
-                              ? 'bg-grey-mid/30 text-white'
-                              : value === o.value
-                              ? 'bg-grey-mid/20 text-white'
-                              : 'text-grey-light hover:bg-grey-mid/20 hover:text-white'
-                          }`}
-                        >
-                          {o.label}
-                        </button>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            </div>
-          </div>
-        </>
+            )
+          })}
+        </div>
+      )}
+      {open && query.trim() && filtered.length === 0 && (
+        <div className="absolute top-full left-0 right-0 z-50 mt-1 border border-grey-mid bg-black p-3">
+          <p className="font-mono text-xs text-grey-light uppercase">NO RESULTS</p>
+        </div>
       )}
     </div>
   )

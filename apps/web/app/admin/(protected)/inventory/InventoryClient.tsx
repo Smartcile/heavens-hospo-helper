@@ -13,8 +13,15 @@ interface Item {
   furnitureType?: string | null; elementWidth?: number | null; elementDepth?: number | null
   elementShape?: string | null; defaultColour?: string | null; defaultChairCount?: number
   countingUnitId?: string | null; orderingUnitId?: string | null; yieldPercentage?: number | null; costPrice?: number | null; expiryDate?: string | null; fallbackCategoryId?: string | null; allergyInfo?: string | null
+  // Equipment / tool tracking
+  imageUrl?: string | null; storageSectionId?: string | null; storageNotes?: string | null
+  serialNumber?: string | null; purchaseDate?: string | null; warrantyExpiry?: string | null
+  serviceIntervalDays?: number | null; lastServicedAt?: string | null; nextServiceAt?: string | null
+  maintenanceNotes?: string | null; supplierId?: string | null
 }
 interface Uom { id: string; name: string; baseUnit: string }
+interface SectionLite { id: string; name: string; department: { id: string; name: string } }
+interface SupplierLite { id: string; name: string }
 
 interface StockItem { id: string; name: string; quantity: number; unit: string }
 interface StockTable { id: string; label: string; width: number; depth: number; planName: string; planId: string; inventoryItems: StockItem[] }
@@ -54,6 +61,23 @@ export function InventoryClient() {
   const [formAllergyInfo, setFormAllergyInfo] = useState('')
   const [showDeepFields, setShowDeepFields] = useState(true)
 
+  // Equipment / tool tracking
+  const [formImageUrl, setFormImageUrl] = useState('')
+  const [formStorageSectionId, setFormStorageSectionId] = useState('')
+  const [formStorageNotes, setFormStorageNotes] = useState('')
+  const [formSerialNumber, setFormSerialNumber] = useState('')
+  const [formPurchaseDate, setFormPurchaseDate] = useState('')
+  const [formWarrantyExpiry, setFormWarrantyExpiry] = useState('')
+  const [formServiceIntervalDays, setFormServiceIntervalDays] = useState('')
+  const [formLastServicedAt, setFormLastServicedAt] = useState('')
+  const [formNextServiceAt, setFormNextServiceAt] = useState('')
+  const [formMaintenanceNotes, setFormMaintenanceNotes] = useState('')
+  const [formSupplierId, setFormSupplierId] = useState('')
+  const [showEquipmentFields, setShowEquipmentFields] = useState(false)
+  const [formUploadingImg, setFormUploadingImg] = useState(false)
+  const [sections, setSections] = useState<SectionLite[]>([])
+  const [suppliers, setSuppliers] = useState<SupplierLite[]>([])
+
   // Table profile editor
   const [showTableProfile, setShowTableProfile] = useState(false)
   const [editProfileId, setEditProfileId] = useState<string | null>(null)
@@ -63,6 +87,10 @@ export function InventoryClient() {
     setFormName(''); setFormCat(''); setFormUnit('EA'); setFormPar('0'); setFormTotalQty('0')
     setFormCountingUnitId(''); setFormOrderingUnitId(''); setFormYield(''); setFormCostPrice('')
     setFormExpiryDate(''); setFormFallbackCatId(''); setFormAllergyInfo(''); setShowDeepFields(true)
+    setFormImageUrl(''); setFormStorageSectionId(''); setFormStorageNotes('')
+    setFormSerialNumber(''); setFormPurchaseDate(''); setFormWarrantyExpiry('')
+    setFormServiceIntervalDays(''); setFormLastServicedAt(''); setFormNextServiceAt('')
+    setFormMaintenanceNotes(''); setFormSupplierId(''); setShowEquipmentFields(false)
   }
 
   function populateForm(item: Item) {
@@ -73,15 +101,29 @@ export function InventoryClient() {
     setFormCostPrice(item.costPrice != null ? String(item.costPrice) : '')
     setFormExpiryDate(item.expiryDate ?? ''); setFormFallbackCatId(item.fallbackCategoryId ?? '')
     setFormAllergyInfo(item.allergyInfo ?? '')
+    setFormImageUrl(item.imageUrl ?? '')
+    setFormStorageSectionId(item.storageSectionId ?? '')
+    setFormStorageNotes(item.storageNotes ?? '')
+    setFormSerialNumber(item.serialNumber ?? '')
+    setFormPurchaseDate(item.purchaseDate ?? '')
+    setFormWarrantyExpiry(item.warrantyExpiry ?? '')
+    setFormServiceIntervalDays(item.serviceIntervalDays != null ? String(item.serviceIntervalDays) : '')
+    setFormLastServicedAt(item.lastServicedAt ?? '')
+    setFormNextServiceAt(item.nextServiceAt ?? '')
+    setFormMaintenanceNotes(item.maintenanceNotes ?? '')
+    setFormSupplierId(item.supplierId ?? '')
+    setShowEquipmentFields(!!(item.imageUrl || item.storageSectionId || item.storageNotes || item.serialNumber || item.supplierId))
   }
 
   async function load() {
     setLoading(true)
-    const [catRes, itemRes, prRes, uomRes] = await Promise.all([
+    const [catRes, itemRes, prRes, uomRes, secRes, supRes] = await Promise.all([
       fetch('/api/admin/inventory/categories'),
       fetch('/api/admin/inventory'),
       fetch('/api/admin/table-profiles'),
       fetch('/api/admin/uoms'),
+      fetch('/api/admin/sections'),
+      fetch('/api/admin/suppliers'),
     ])
     if (catRes.ok) setCategories(await catRes.json())
     if (itemRes.ok) setItems(await itemRes.json())
@@ -92,6 +134,14 @@ export function InventoryClient() {
     if (uomRes.ok) {
       const data = await uomRes.json()
       setUoms(Array.isArray(data) ? data : [])
+    }
+    if (secRes.ok) {
+      const data = await secRes.json()
+      setSections(Array.isArray(data) ? data : [])
+    }
+    if (supRes.ok) {
+      const data = await supRes.json()
+      setSuppliers(Array.isArray(data) ? data : [])
     }
     setLoading(false)
   }
@@ -118,6 +168,77 @@ export function InventoryClient() {
     })
   }, [loading])
 
+  async function uploadImage(file: File) {
+    setFormUploadingImg(true)
+    const form = new FormData()
+    form.append('file', file)
+    const r = await fetch('/api/admin/upload', { method: 'POST', body: form })
+    setFormUploadingImg(false)
+    if (r.ok) { const data = await r.json(); setFormImageUrl(data.url) }
+  }
+
+  function renderEquipmentFields() {
+    return (
+      <>
+        <button onClick={() => setShowEquipmentFields(!showEquipmentFields)}
+          className="font-mono text-[10px] uppercase text-grey-light hover:text-white text-left">
+          {showEquipmentFields ? '▾ EQUIPMENT / TOOL TRACKING' : '▸ EQUIPMENT / TOOL TRACKING'}
+        </button>
+        {showEquipmentFields && (
+          <div className="border-t border-grey-mid pt-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <input ref={(el) => { if (el) el.style.display = 'none' }} id="inv-img-upload" type="file" accept="image/*"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }}
+                className="hidden" />
+              <button type="button" onClick={() => document.getElementById('inv-img-upload')?.click()}
+                className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
+                {formUploadingImg ? 'UPLOADING_' : formImageUrl ? 'REPLACE PHOTO' : 'ADD PHOTO'}
+              </button>
+              {formImageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={formImageUrl} alt="preview" className="h-10 w-10 object-cover border border-grey-mid" />
+              )}
+            </div>
+            <div className="grid grid-cols-6 gap-2">
+              <div className="col-span-3">
+                <Select label="STORAGE SECTION" value={formStorageSectionId} onChange={(e) => setFormStorageSectionId(e.target.value)}
+                  options={sections.map((s) => ({ value: s.id, label: `${s.department?.name ?? ''} → ${s.name}` }))} placeholder="—" />
+              </div>
+              <div className="col-span-3">
+                <Select label="SUPPLIER" value={formSupplierId} onChange={(e) => setFormSupplierId(e.target.value)}
+                  options={suppliers.map((s) => ({ value: s.id, label: s.name }))} placeholder="—" />
+              </div>
+              <div className="col-span-6">
+                <Input label="STORAGE NOTES" value={formStorageNotes} onChange={(e) => setFormStorageNotes(e.target.value)} placeholder="TOP SHELF, ABOVE THE COFFEE STATION" />
+              </div>
+              <div className="col-span-3">
+                <Input label="SERIAL NUMBER" value={formSerialNumber} onChange={(e) => setFormSerialNumber(e.target.value)} placeholder="SN-12345" />
+              </div>
+              <div className="col-span-3">
+                <Input label="SERVICE INTERVAL (DAYS)" type="number" value={formServiceIntervalDays} onChange={(e) => setFormServiceIntervalDays(e.target.value)} placeholder="180" />
+              </div>
+              <div className="col-span-3">
+                <Input label="PURCHASE DATE" type="date" value={formPurchaseDate} onChange={(e) => setFormPurchaseDate(e.target.value)} />
+              </div>
+              <div className="col-span-3">
+                <Input label="WARRANTY EXPIRY" type="date" value={formWarrantyExpiry} onChange={(e) => setFormWarrantyExpiry(e.target.value)} />
+              </div>
+              <div className="col-span-3">
+                <Input label="LAST SERVICED" type="date" value={formLastServicedAt} onChange={(e) => setFormLastServicedAt(e.target.value)} />
+              </div>
+              <div className="col-span-3">
+                <Input label="NEXT SERVICE" type="date" value={formNextServiceAt} onChange={(e) => setFormNextServiceAt(e.target.value)} />
+              </div>
+              <div className="col-span-6">
+                <Input label="MAINTENANCE NOTES" value={formMaintenanceNotes} onChange={(e) => setFormMaintenanceNotes(e.target.value)} placeholder="LAST OIL CHANGE: JAN 2026" />
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    )
+  }
+
   async function handleSave() {
     const body: any = {
       name: (formName || 'ITEM').toUpperCase().trim(),
@@ -132,6 +253,17 @@ export function InventoryClient() {
       expiryDate: formExpiryDate || null,
       fallbackCategoryId: formFallbackCatId || null,
       allergyInfo: formAllergyInfo || null,
+      imageUrl: formImageUrl || null,
+      storageSectionId: formStorageSectionId || null,
+      storageNotes: formStorageNotes || null,
+      serialNumber: formSerialNumber || null,
+      purchaseDate: formPurchaseDate || null,
+      warrantyExpiry: formWarrantyExpiry || null,
+      serviceIntervalDays: formServiceIntervalDays ? parseInt(formServiceIntervalDays) : null,
+      lastServicedAt: formLastServicedAt || null,
+      nextServiceAt: formNextServiceAt || null,
+      maintenanceNotes: formMaintenanceNotes || null,
+      supplierId: formSupplierId || null,
     }
     if (isCreating) {
       if (!body.name || !body.categoryId) return
@@ -307,11 +439,12 @@ export function InventoryClient() {
                     <Select label="FALLBACK CATEGORY" value={formFallbackCatId} onChange={(e) => setFormFallbackCatId(e.target.value)}
                       options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="—" />
                   </div>
-                  <div className="col-span-3">
-                    <Input label="ALLERGENS" value={formAllergyInfo} onChange={(e) => setFormAllergyInfo(e.target.value.toUpperCase())} placeholder="GLUTEN, DAIRY, NUTS" />
-                  </div>
-                </div>
+              <div className="col-span-3">
+                <Input label="ALLERGENS" value={formAllergyInfo} onChange={(e) => setFormAllergyInfo(e.target.value.toUpperCase())} placeholder="GLUTEN, DAIRY, NUTS" />
+              </div>
+            </div>
               )}
+              {renderEquipmentFields()}
               <div className="flex gap-2">
                 <Button size="sm" onClick={handleSave} disabled={!formName || !formCat}>CREATE</Button>
                 <Button size="sm" variant="ghost" onClick={() => { setIsCreating(false); resetForm() }}>CANCEL</Button>
@@ -463,12 +596,13 @@ export function InventoryClient() {
                             <div className="col-span-2">
                               <Input label="EXPIRY DATE" type="date" value={formExpiryDate} onChange={(e) => setFormExpiryDate(e.target.value)} />
                             </div>
-                            <div className="col-span-3">
-                              <Select label="FALLBACK CATEGORY" value={formFallbackCatId} onChange={(e) => setFormFallbackCatId(e.target.value)}
-                                options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="—" />
-                            </div>
-                          </div>
+                        <div className="col-span-3">
+                          <Select label="FALLBACK CATEGORY" value={formFallbackCatId} onChange={(e) => setFormFallbackCatId(e.target.value)}
+                            options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="—" />
+                        </div>
+                      </div>
                         )}
+                        {renderEquipmentFields()}
                         <div className="flex gap-2">
                           <Button size="sm" onClick={handleSave} disabled={!formName || !formCat}>CREATE</Button>
                           <Button size="sm" variant="ghost" onClick={() => { setIsCreating(false); resetForm() }}>CANCEL</Button>
@@ -604,14 +738,15 @@ export function InventoryClient() {
                 <Select label="FALLBACK CATEGORY" value={formFallbackCatId} onChange={(e) => setFormFallbackCatId(e.target.value)}
                   options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="—" />
               </div>
-              <div className="col-span-3">
-                <Input label="ALLERGENS" value={formAllergyInfo} onChange={(e) => setFormAllergyInfo(e.target.value.toUpperCase())} placeholder="GLUTEN, DAIRY, NUTS" />
-              </div>
-            </div>
-          )}
-          <div className="flex gap-2 pt-2">
-            <Button onClick={handleSave} disabled={!formName || !formCat}>SAVE</Button>
-            <Button variant="ghost" onClick={() => { setSelectedItem(null); resetForm() }}>CANCEL</Button>
+          <div className="col-span-3">
+            <Input label="ALLERGENS" value={formAllergyInfo} onChange={(e) => setFormAllergyInfo(e.target.value.toUpperCase())} placeholder="GLUTEN, DAIRY, NUTS" />
+          </div>
+        </div>
+            )}
+            {renderEquipmentFields()}
+            <div className="flex gap-2 pt-2">
+              <Button onClick={handleSave} disabled={!formName || !formCat}>SAVE</Button>
+              <Button variant="ghost" onClick={() => { setSelectedItem(null); resetForm() }}>CANCEL</Button>
           </div>
         </div>
       </Modal>

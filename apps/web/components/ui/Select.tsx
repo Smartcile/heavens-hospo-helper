@@ -17,15 +17,16 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             {label}
           </label>
         )}
-        <select
-          ref={ref}
-          className={cn(
-            'bg-grey-dark border border-grey-mid text-white font-sans text-sm px-3 py-2 w-full outline-none focus:border-white transition-colors',
-            error ? 'border-danger' : '',
-            className
-          )}
-          {...props}
-        >
+      <select
+        ref={ref}
+        className={cn(
+          'bg-grey-dark border border-grey-mid text-white font-sans text-sm px-3 py-2 w-full outline-none focus:border-white transition-colors',
+          error ? 'border-danger' : '',
+          props.value && String(props.value) !== '' && !props.disabled ? 'border-[#60A5FA]' : '',
+          className
+        )}
+        {...props}
+      >
           {placeholder && (
             <option value="" disabled>
               {placeholder}

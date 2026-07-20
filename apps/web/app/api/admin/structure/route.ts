@@ -38,7 +38,7 @@ export async function GET() {
     }),
   ])
 
-  const [sections, staffSections, floorPlanElements, deptLinks] = await Promise.all([
+  const [sections, staffSections, floorPlanElements, deptLinks, storedItems] = await Promise.all([
     prisma.section.findMany({
       where: { deletedAt: null, venueId: { in: venueIds } },
       select: { id: true, name: true, colour: true, departmentId: true },
@@ -52,6 +52,11 @@ export async function GET() {
     prisma.departmentLink.findMany({
       where: { fromDepartment: { venueId: { in: venueIds } } },
       select: { fromDepartmentId: true, toDepartment: { select: { id: true, name: true, colour: true } } },
+    }),
+    prisma.inventoryItem.findMany({
+      where: { deletedAt: null, venueId: { in: venueIds }, storageSectionId: { not: null } },
+      select: { id: true, name: true, unit: true, storageSectionId: true, storageNotes: true, totalQty: true, imageUrl: true },
+      orderBy: { name: 'asc' },
     }),
   ])
 
@@ -116,6 +121,13 @@ export async function GET() {
     fpBySection.set(key, cur)
   }
 
+  const storedBySection = new Map<string, { id: string; name: string; unit: string; storageNotes: string | null; totalQty: number; imageUrl: string | null }[]>()
+  for (const inv of storedItems) {
+    const arr = storedBySection.get(inv.storageSectionId!) ?? []
+    arr.push({ id: inv.id, name: inv.name, unit: inv.unit, storageNotes: inv.storageNotes, totalQty: inv.totalQty, imageUrl: inv.imageUrl })
+    storedBySection.set(inv.storageSectionId!, arr)
+  }
+
   const staffName = new Map(staff.map((s) => [s.id, `${s.firstName} ${s.lastName}`]))
 
   const fmtStaff = (s: (typeof staff)[number]) => ({ id: s.id, name: `${s.firstName} ${s.lastName}`, role: s.role })
@@ -162,6 +174,7 @@ export async function GET() {
               staff: vStaff.filter((s) => memberIds.has(s.id)).map(fmtStaff),
               tasks: vTasks.filter((t) => t.sectionId === sec.id).map(fmtTask),
               floorPlan: fp,
+              inventoryItems: storedBySection.get(sec.id) ?? [],
             }
           }),
       }

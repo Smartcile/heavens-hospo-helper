@@ -192,6 +192,17 @@ worker view (`/api/worker/training`). Admin authoring at `/admin/training`;
 sign-off/assign from the Staff page; worker view at `/w/training`. Step photos
 upload via `/api/admin/upload`.
 
+**Step ← → Inventory Item linking (Phase 5):** `StepInventoryItem` is a junction
+model (`@@unique([stepId, itemId])`) linking a `TrainingStep` to an
+`InventoryItem`, with an optional `quantity` (default 1). Authored via the
+step editor in `TrainingEditModal` using a Combobox search over all venue
+inventory items; each step can list the tools/equipment needed. The
+`getStaffTraining()` resolver includes `linkedInventoryItems` per step (with
+item name, unit, image, category, storage section+department, storage notes,
+supplier, and totalQty). The worker training view renders them under "TOOLS /
+EQUIPMENT NEEDED" below each step, showing the item photo, storage location
+(department → section path), storage notes, and supplier.
+
 ### External embeds + calendar import + NZ breaks
 Per-venue integration links live on `Venue` (`loadedRosterUrl`,
 `googleCalendarUrl`, `icalFeedUrl`, `externalRefreshMinutes`,
@@ -234,6 +245,43 @@ own upcoming shifts and request/cancel time off at `/w/calendar`
 (`/api/worker/calendar`, `/api/worker/timeoff`). Times are local strings (no tz
 math); dates are @db.Date keyed via `formatDateKey`. `lib/calendar.ts` has the
 month/range/time-validation helpers.
+
+### Booking system (Phase 5, built)
+`Booking` + `BookingTable` models drive a table reservation system with floor plan
+integration. `Booking` holds date, start/end time (local "HH:mm"), party size,
+contact details, source (ONLINE/PHONE/WALK_IN/WOOCOMMERCE), and status
+(CONFIRMED/PENDING/CANCELLED/SEATED/COMPLETED/NO_SHOW). `BookingTable` is a
+junction linking bookings to `SetupItem` (specific tables).
+
+**Availability engine:** `lib/booking-availability.ts` exports pure functions
+(`checkAvailability`, `getAvailableTables`) that filter booked tables from
+overlapping time slots. `GET /api/admin/bookings/availability` exposes this as
+an endpoint, accepting date, time range, party size, and venue ID — returns
+per-setup available table count and total capacity.
+
+**Auto-seat on create:** `POST /api/admin/bookings` reuses `planAutoSeat()` from
+`lib/auto-seat.ts` with greedy bin-packing. On create it fetches the chosen
+`FloorPlanSetup`, collects existing tables + booked tables, runs the bin-packer,
+and creates `SetupItem` + `TableGroup` rows automatically. Also creates a
+`CalendarEvent` (MANUAL source) for calendar visibility with floor plan linking.
+
+**Admin page:** `/admin/bookings` — time-grid diary view (06:00–24:00 in
+half-hour increments) with booking cards showing contact, party size, duration,
+table assignments, and colour-coded status. Date navigation, venue selector,
++ NEW BOOKING modal with availability check, inline STATUS changes, and
+soft-delete.
+
+**API routes:**
+| Route | Methods | Purpose |
+|-------|---------|---------|
+| `/api/admin/bookings` | GET, POST | List by date+venue; create with auto-seat |
+| `/api/admin/bookings/[id]` | PUT, DELETE | Update fields/status; soft-delete |
+| `/api/admin/bookings/availability` | GET | Check per-setup capacity for date/time/party |
+
+**Integration:** Bookings create `CalendarEvent` rows (source: MANUAL) and
+`FloorPlanSetup` rows linked via `calendarEventId` — the same chain used by
+WooCommerce auto-seating. This means bookings appear on the calendar, the FOH
+view, and the worker floor plan view with auto-switching layouts.
 
 ### Floor planner (Phase 1 + 2, built)
 To-scale venue layout editor using **PixiJS v7** canvas (migrated from Konva 2026-06 — Konva's
@@ -441,6 +489,22 @@ and duplicated. `/admin/stocktake` (create/assign/review/sign-off) with variance
 Dashboard stocktake card with pending count. Hamburger menu entry.
 
 **AdminNav:** Inventory under Organisation, Stocktake under Operations.
+
+**Equipment & tool tracking (Phase 5):** `InventoryItem` has new fields for
+physical asset management:
+- `imageUrl` — photo of the item
+- `storageSectionId` — FK to `Section` (where the item lives)
+- `storageNotes` — e.g. "TOP SHELF, ABOVE THE COFFEE STATION"
+- `serialNumber` — equipment serial number
+- `purchaseDate`, `warrantyExpiry` — procurement tracking
+- `serviceIntervalDays`, `lastServicedAt`, `nextServiceAt` — maintenance schedule
+- `maintenanceNotes` — free-text service history
+- `supplierId` — supplier for servicing/parts (existing FK)
+These fields enable tracking tools, appliances, and equipment alongside
+consumable stock. Items with a `storageSectionId` appear in the structure tree
+under their section. Combined with `StepInventoryItem`, training/SOP steps can
+reference the exact tools needed, showing staff the item photo, storage location,
+and supplier details directly in the training view.
 
 ### Stock hierarchy (Phase 2, built)
 `GET /api/admin/stock/hierarchy` returns a Section → Table → Inventory Items tree in one query.
@@ -910,6 +974,7 @@ Disabled:   disabled:opacity-40
 Number:     text-right (for alignment)
 Placeholder: placeholder:text-grey-light
 Select:     Matches inputs — use className overrides for font-mono text-xs px-2 py-1.5
+Active:     border-[#60A5FA] (blue border) when a non-default value is selected — indicates an active filter
 ```
 
 ### Button variants (from `@/components/ui/Button`)

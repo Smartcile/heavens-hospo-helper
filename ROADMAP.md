@@ -1,287 +1,304 @@
-# HOSPO OPS — ROADMAP
+# HOSPO OPS — Roadmap
+
+## What This Is
+
+HOSPO OPS is a self-hosted operations platform for hospitality venues — restaurants,
+bars, cafés, event centres, and hotels. It replaces the scattered mix of paper
+checklists, WhatsApp groups, whiteboard rosters, shared Google Docs, and Excel
+inventory sheets with a single system that everyone from the owner to the kitchen
+hand can use.
+
+### Who It's For
+
+| Role | What they do with it |
+|---|---|
+| **Owner / GM** | Budget, see what's happening across venues, review completeness |
+| **Venue manager** | Tasks, checklists, rosters, training, bookings, stock levels |
+| **Head chef** | Recipes, menu costing, inventory, food safety diary, kitchen orders |
+| **FOH manager** | Floor plans, table bookings, section zones, SOPs |
+| **Floor staff** | Tick off today's tasks on their phone, view training guides, find equipment |
+| **Bar staff** | Opening/closing checklists, recipe specs, stocktake counts |
+
+### How It Works
+
+```
+OWNER sets budget & targets
+  └─ MANAGER maps the venue: departments → sections → tasks → SOPs
+       ├─ KITCHEN: recipes explode into inventory, orders auto-seat tables
+       ├─ FLOOR: bookings occupy tables on the plan, checklists run the shift
+       ├─ BAR: opening/closing lists, stocktakes, training guides
+       └─ MAINTENANCE: equipment tracked by section, service schedule on calendar
+
+WORKER opens their phone → ticks today's checklist → done for the floor
+  └─ Missed tasks → follow-ups → training assigned automatically
+       └─ Manager reviews who's trained on what, where gaps are
+```
+
+### The Core Ideas
+
+**One source of truth.** A task exists once. Edit it, and every checklist that
+references it updates. A recipe exists once — change the hollandaise and every
+menu item that uses it recalculates cost and allergens. A table profile exists
+once — place it on any floor plan, any event, and the BOM tallies automatically.
+
+**The section is the spine.** A section (Coffee, Pass, Floor, Bar 1) bundles the
+work that needs doing with the knowledge of how to do it. Tasks, SOPs, training
+guides, tools, and equipment all hang off the same section — so when a new hire
+starts on Coffee, they see their training, their opening checklist, and the tools
+they need, in one place.
+
+**Training drives safety and quality.** A task can declare the training required
+before someone does it. The system flags untrained completions automatically —
+not as a punishment, but as a prompt to assign the relevant guide. Over time this
+builds a competency record for every staff member.
+
+**The floor plan is not a picture — it's a database.** Tables placed on a canvas
+are inventory items with BOMs. Bookings reserve those tables and deduct from
+availability. Event layouts auto-switch on the calendar. The plan answers: who's
+sitting where, how much stock is on the floor, and what's available tonight.
+
+**Self-hosted, not SaaS.** You own the server, the database, and the data. No
+monthly per-seat fees. No internet dependency for on-premises use. The Docker
+image pulls from GHCR and boots in one command. A USB GSM modem can handle SMS
+bookings without a cloud provider. This is software for a real building, not a
+subscription.
 
 ---
 
-## PHASE 1 — CORE (CURRENT)
-✅ Multi-venue + multi-department support
-✅ Staff profiles with PIN auth (bcrypt-hashed, 2–4 digits)
-✅ Task creation with scheduling (DAILY / WEEKLY / CUSTOM cron)
-✅ QR code generation and worker login flow
-✅ Worker mobile task view with completion types (TICK / TICK+NOTE / TICK+PHOTO)
-✅ Admin dashboard with today's completion stats
-✅ Admin reporting with audit log and CSV export
-✅ Docker Compose deployment with Nginx reverse proxy
-✅ Soft deletes everywhere — no data is ever destroyed
-✅ DOS-MODERN design system — monochrome, sharp corners, monospace typography
+## Core Platform
+
+### Phase 1 — Foundation ✅
+- Multi-venue + multi-department support
+- Staff profiles with PIN auth (bcrypt, 2–4 digits)
+- Task creation with scheduling (DAILY / WEEKLY / CUSTOM cron)
+- QR code generation and worker login flow
+- Worker mobile task view with completion types
+- Admin dashboard with today's completion stats
+- Admin reporting with audit log and CSV export
+- Docker Compose deployment
+- Soft deletes on every model
+- DOS-MODERN design system
+
+### Phase 2 — Intelligence & ERP Upgrade ✅
+
+**Core upgrade:**
+- Prisma 7 (PG adapter), Turborepo 2, ESLint 9, Vitest 3, Tailwind CSS 4
+
+**Deep Inventory:**
+- `Supplier` model + `SupplierItemCode`, `UnitOfMeasure` with base-unit conversion
+- `InventoryItem` deep fields: `costPrice`, `yield%`, `expiryDate`, `allergyInfo`
+- Inventory tabs: FOOD / BEVERAGE / OTHER
+- Equipment & tool tracking: `imageUrl`, `storageSectionId`, `storageNotes`, `serialNumber`, `purchaseDate`, `warrantyExpiry`, `serviceIntervalDays`, maintenance scheduling
+
+**Recipe Engine:**
+- Recursive BOM with cycle detection (`explodeRecipe`)
+- Combined Recipe + Menu Item page with LINK TO MENU toggle
+- 23-allergen system, WooCommerce product mapping
+
+**WooCommerce Integration:**
+- Webhook handler (HMAC auth, order upsert, recipe explosion, auto-seating)
+- Two-way product sync (webhooks + REST push with echo guard)
+- Internal cron scheduler (15-min pulls + daily expiry scan)
+- `/admin/sync` dashboard with PULL/PUSH NOW + live log feed
+
+**Gift Cards:**
+- Full lifecycle: bulk-create → issue → send via SMTP → redeem/void
+- WooCommerce webhook auto-detection via SKU matching
+
+**Live Service Mode:** ☐
+- Kitchen status workflow (PENDING → COOKING → READY → SERVED)
+
+**Pending items:** ☐
+- Persistent SMTP settings for gift cards
+- WooCommerce order auto-completion on gift card issue
+- Inventory deduction during EOD reconciliation
+- Time clock & payroll
 
 ---
 
-## PHASE 2 — INTELLIGENCE & ERP UPGRADE
-✅ **ERP Upgrade** — Prisma 7 (PG adapter), Turborepo 2.10, ESLint 9 flat config, Vitest 3, Tailwind CSS 4, Node.js 22
-✅ **Deep Inventory** — Supplier model, UnitOfMeasure with base unit conversion, InventoryItem deep fields (costPrice, yield%, expiryDate, allergyInfo), inventory tabs (FOOD/BEVERAGE/OTHER), supplier item codes
-✅ **Recipe Engine** — Nested Recipe/RecipeLineItem with recursive BOM, explodeRecipe utility with cycle detection, searchable Combobox for ingredient selection
-✅ **Menu Items** — Combined with Recipes page (LINK TO MENU toggle), WooCommerce product ID + category mapping
-✅ **WooCommerce Integration** — Webhook handler (HMAC auth, order upsert, recipe explosion, auto-seating), product sync cron, expiry scan cron, EOD reconciliation
-✅ **WooCommerce Two-Way Sync** — Product webhooks (created/updated/deleted) for instant Woo→app product sync, app→Woo push (product name/price/category on save + order status changes), echo guard (`_updated_by` + 2-min window), internal cron scheduler (15-min product + order pull + daily expiry scan, no host crontab), SyncLog model + `/admin/sync` dashboard (PULL/PUSH NOW buttons, live activity feed with error visibility), order REST API pull (manual + scheduled) with shared order processor used by both webhooks and pulls
-✅ **Settings** — WooCommerce section (store URL, consumer key/secret, webhook secret, active toggle with lastSync display)
-✅ **Orders Dashboard** — Table sorted by fulfillmentDate, expandable line items, auto-seating status indicator, STATUS dropdown (pushes to WooCommerce), FOH VIEW tab (date picker, booking cards with table assignments + dietary badges, category totals sidebar)
-✅ **Allergen System** — 23 allergen toggle buttons (Almond through Wheat) on recipe editor LINK TO MENU section, stored as comma-separated `dietaryInfo` on MenuItem, surfaced in FOH and Kitchen views with gold `[#c4a530]` badges
-✅ **Kitchen Worker View** — `/w/kitchen` auto-refreshing page (15s) showing today's order items grouped by table, PREP TOTALS grid with dietary info, unassigned items section. `KitchenStatus` enum (PENDING/COOKING/READY/SERVED) groundwork on `WooOrderItem` for future live service mode
-☐ **Live Service Mode** — Kitchen status workflow (PENDING → COOKING → READY → SERVED) synchronized across worker devices, mark orders as cooking/served from the kitchen view
-✅ **Gift Cards** — Full lifecycle: bulk-create blank cards (YYYYNNNN numbering), issue with customer details + amount (jspdf PDF template), send via nodemailer/SMTP, WooCommerce webhook auto-detection (SKU matching), status workflow (DRAFT → ISSUED → SENT → REDEEMED/VOIDED/EXPIRED), admin UI with card pool + issue panel
-☐ **Gift Cards — persistent SMTP settings** — store SMTP credentials in Settings page or env vars so they don't need re-entry each send
-☐ **Gift Cards — WooCommerce order auto-completion** — when a gift card is issued for a WooCommerce-linked order, call the WooCommerce REST API to mark the order completed and add a private note with the gift card number
-☐ **Phase 5: Inventory Deduction** — Reverse UOM conversion from base units → item counts during EOD reconciliation
-☐ **Phase 6: Time Clock & Payroll** — Geo-fenced time punches, shift auto-calculation, payroll export
+## Operational Board ✅
+
+| Feature | Description |
+|---|---|
+| Staff notices | Post notices with priority, pin, must-acknowledge flow |
+| External embeds | Loaded roster + Google Calendar in iframes |
+| Calendar import | `.ics`/webcal parsing with RRULE, synced to planner |
+| NZ break entitlements | Auto-calculated rest/meal breaks per shift length |
+| Live structure map | TREE tab (Venue→Dept→Section→Staff/Tasks/Training) + MAP tab (React Flow link graph) |
+| Split-screen landing | Worker link + admin login on `/` |
+| Mobile admin nav | Burger menu + off-canvas drawer |
 
 ---
 
-## OPERATIONAL BOARD (display-first features)
-✅ **Staff notice board** — managers post notices (priority, pin, whole-venue or department-targeted, optional "must acknowledge" with read tracking); staff see them on their phone and tap to acknowledge
-✅ **External embeds** — paste a Loaded public-roster link and/or a Google Calendar embed link in Settings → Integrations, pick an auto-refresh interval; shown live as panels on the Calendar page (PLANNER / LOADED ROSTER / EVENTS tabs).
-✅ **External calendar IMPORT** — Google Calendar + any `.ics`/webcal feed are parsed server-side and shown as events directly on the PLANNER month grid (and day modal). Re-synced on the chosen interval (or SYNC NOW) and reconciled by event UID: changed events update in place, removed events drop off — no double-ups (`CalendarEvent` model, `lib/ical.ts` parser with RRULE expansion, `lib/external-sync.ts`, `POST /api/admin/calendar/sync`). Loaded's public-roster SPA has no anonymous feed, so it stays embed-only unless an `.ics` subscribe link is available.
-✅ **NZ break entitlements** — 10-min rest / 30-min meal breaks auto-calculated per shift length and shown on each roster shift (admin + worker), with a reference table in Settings
-✅ **Live structure map** — `/admin/structure` has a **TREE** tab (real venue → department → section → staff / tasks / training tree, collapsible, with counts, plus `floorPlan { tables, chairs, equip }` per section) and a **MAP** tab: an interactive React Flow link graph (`@xyflow/react`) for mapping workflows — nodes for every entity, edges for every relationship (list→task, how-to, requires-training, embeds, related, scoping, assignment), click-to-focus highlighting, type filters, minimap. Read-only visual review.
-✅ **Split-screen landing** — `/` is now a split screen (VENUE/worker link + inline admin login); the standalone `/admin/login` page was removed and all admin auth redirects point to `/`.
-✅ **Mobile-friendly admin nav** — burger menu + off-canvas drawer on phones, static sidebar on desktop.
+## Section Ecosystem ✅
 
-## SECTION ECOSYSTEM (BUILT 2026-06-16) — see ECOSYSTEM.md
-The model that links sections, tasks and knowledge into one followed-up loop.
-✅ **A · Section layer** — `Section` model under `Department` (Venue → Dept → Section); `Task.sectionId`; `Staff ⇄ Section` many-to-many; `/admin/sections` CRUD; section pickers on the Task and Staff forms; sections rendered live on the Structure map.
-✅ **B · Unify knowledge as resources** — `TrainingModule.kind` (TRAINING / SOP / FAQ / HOWTO); resources attach to sections (`ResourceSection`) and cross-link (`ResourceLink`); the Training page authors any kind; non-TRAINING kinds are reference-only (excluded from "my training").
-✅ **C · Competency link** — `Task ⇄ Training` "requires" relation (`TaskRequiredTraining`), set per task; competency = existing `TrainingCompletion`.
-✅ **D · Trigger engine + notifications** — `FollowUp` model + `lib/followups.ts`: done-but-untrained raises a follow-up at completion time; missed assigned tasks raise one and auto-assign the training. Surfaced at `/admin/followups` (resolve / one-click sign-off). In-app for now; push / WhatsApp later.
+The model that links sections, tasks, and knowledge into one followed-up loop.
+See [ECOSYSTEM.md](ECOSYSTEM.md) for the full design.
 
-## CHECKLISTS + RE-TRAIN (BUILT 2026-06-16)
-✅ **Tasks + Checklists merged** — Templates retired; a `Checklist` is now an ordered set of references to **live tasks** (`ChecklistTask`), not copies. Editing a task updates every checklist automatically. Managed via a CHECKLISTS tab on the Tasks page (`/admin/templates` redirects to `/admin/tasks`).
-✅ **Change → re-train** — editing a task or SOP with "Require re-training" ticked bumps its `version` and auto-posts a must-acknowledge `RE-TRAIN` notice to the relevant group; staff confirm with GOT IT on `/w/notices`, managers see who's across it on `/admin/notices`. (`lib/retrain.ts`.)
-✅ **Grouped side nav** — the admin sidebar is now collapsible groups (Overview / Organisation / Work / Daily ops / Finance + Settings); the active group auto-opens. Mobile burger drawer uses the same groups.
-✅ **Tasks + Checklists side by side** — the Tasks page is a 50/50 two-column layout (Tasks left, Checklists right) on desktop, stacked on mobile. Editing a checklist opens an **inline editor in the right panel** (not a popup); **drag tasks from the left into it** (drop zone) plus up/down reorder. Tasks carry usage **labels** (LIST ×N / TRAINING / SOP / GUIDE), and task rows clip long text so the right-hand tags stay put. (TasksClient owns the shared data + single reload, so newly-added tasks appear in the checklist picker immediately.)
-✅ **Tasks grouped by Department → Section** — the task list nests sections under each department, with a "general (no section)" bucket.
-✅ **Embed a checklist in a training step** — a training/SOP step can link a checklist (filtered to the module's department); its tasks render as a tick-off list inside the module on the worker's phone (in-session walkthrough). `TrainingStep.linkedChecklistId`.
-✅ **Shared floor task list** — the worker task view is grouped by Department → Section (the day's lists), shows the *whole* department's lists (not just personally-assigned), and completion is **global per task+date**: once anyone ticks a job it's done for the floor (shows "BY name"), so no double-ups.
-✅ **Monthly scheduling** — tasks can be `MONTHLY` with a "when" option (start of month, end of month, mid-month, first/last weekday, first Monday, last Friday, or a specific day) and an **every-N-months** interval. Each task shows a schedule **label** (weekly → the days; monthly → the option, e.g. "EVERY 3 MONTHS · END OF MONTH"). `lib/scheduling.ts` `describeSchedule()`.
-✅ **Timed lists** — a checklist can have an **"appears from" time** (`Checklist.appearFromTime`); on the floor it surfaces from that time and stays until every task in it is done for the day. The worker view groups by list (time-gated) first, then any other tasks by dept → section, with an "opens later" note for upcoming lists.
-✅ **Tasks page editor polish** — the checklist editor is sticky (follows long task lists), the "add a task" dropdown is scoped to the checklist's department/section (drag in anything else), and the task list gained search + section + usage filters.
-
-## FLOOR PLANNER (BUILT 2026-06-22 — UNDER PIXIJS REWRITE 2026-06)
-
-✅ **Phase 1 — Editor + basic views**
-  ✅ Prisma models: `FloorPlan` + `FloorPlanElement` + enums (`ElementType` / `ElementShape`)
-  ✅ Admin API: CRUD floor plans + bulk-save elements (`PUT /api/admin/floorplan/[id]/elements`)
-  ✅ Admin page: `/admin/floorplan` — list plans, create, edit
-  ✅ Visual editor: room outline drawn to scale (real cm), drag-from-palette, grid snapping, select→move→resize→rotate, colour/section-link/capacity properties, SAVE
-  ✅ Worker API: `GET /api/worker/floorplan` (by JWT venue, returns default view)
-  ✅ Worker read-only page: `/w/floorplan` with view switcher if venue has multiple plans (slug-based), section-colour-coded elements, tap for details
-  ✅ Nav: admin sidebar under Organisation + burger menu FLOOR PLAN card + dashboard card
-  ✅ Polygons: data model supports `shape: POLYGON` + `vertices Json?` from day one; drawing tool deferred
-
-✅ **Phase 1.5 — Styled elements, walls as lines, sections & inventory prep**
-  ✅ Per-type styled rendering (table with legs, chair bracket shape, booth bench with cushion inset, door with swing arc, window with dividers, sink with basin, stairs with stripes, storage grid, kitchen equip inset, plant as dashed planter, toilet oval, bar with highlight, counter with edge, etc.)
-  ✅ Walls / Entry / Exit rendered as thick lines with centred toggleable label
-  ✅ Arbitrary wall angles
-  ✅ Delete/Backspace keyboard handler deletes selected element
-  ✅ `BOOTH_BENCH` element type — long rect with cushion inset, capacity field tracks seats per segment
-  ✅ Auto-label on drop — tables get T1/T2…, chairs C1/C2…, benches B1/B2…
-  ✅ Label visible on all elements (centred text, monospace, auto-sized) for printable plans
-  ✅ Section colour overlay toggle — semi-transparent section colour fill on elements
-  ✅ Section summary panel — live count of tables/chairs/benches/etc. per section with total rows
-  ✅ Shared element renderer (`components/admin/floorplan-elements.tsx`) — single source of truth for palette defaults + visual components
-  ✅ `style Json?` field on FloorPlanElement for per-type config (wall type, table shape, chairStyle, etc.)
-  ✅ `labelVisible Boolean` field toggles label display per element
-
-✅ **Phase 2 — Inventory, zones, calendar linking, undo/redo, PDF, PixiJS rewrite**
-  ✅ **Inventory system**
-    ✅ `InventoryCategory` model: name, isBuiltIn (7 built-in + custom per venue)
-    ✅ `InventoryItem` model: venueId, name, categoryId, unit, defaultParLevel; plus furniture fields (furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount)
-    ✅ `ElementInventoryItem` junction: links items → floor plan elements with quantity
-    ✅ Admin CRUD: categories page, items page, element inventory panel in floor plan editor
-    ✅ `StocktakeRecord` model: venueId, date, status (PENDING/IN_PROGRESS/COMPLETED), assignedRoleId, assignedStaffId, notes
-    ✅ `StocktakeLineItem` model: recordId, itemId, countedQuantity, expectedQuantity, variance
-    ✅ Admin stocktake page: create, assign to role/staff, review variance, sign-off
-    ✅ Worker stocktake screen: dashboard card, scrollable count list, submit IN_PROGRESS or COMPLETED
-    ✅ Par level alerts on dashboard: items below threshold flagged
-    ✅ FURNITURE category added as built-in; furniture items created in inventory and placed via palette INVENTORY section
-    ✅ Stock-aware tracking: `totalQty` field, `placedCount` from API, `availableQty` badges on palette items
-    ✅ Drop gate: blocked when availableQty ≤ 0 with toast notification; live decrement on placement
-    ✅ Stock hierarchy tree (`GET /api/admin/stock/hierarchy`) — Section → Table → Inventory Items
-    ✅ Inventory admin UI: master-detail layout with vertical category nav, real AVAIL column, compact grid form
-    ✅ PUT /api/admin/inventory/[id] route for editing items (totalQty, par, furniture fields)
-    ✅ Structure API extended with `floorPlan { tables, chairs, equip }` per section
-  ✅ **Per-corner rounding** — 4 corner radius inputs (TL/TR/BR/BL) on any RECTANGLE element, stored in `style.cornerRadius`
-  ✅ **Drawable section zones** — drag-to-draw coloured zone rectangles on canvas; pick section from dropdown; zones saved as JSON on FloorPlan; zone fill 0.06 opacity, border 0.4/0.6; auto-rotated watermark; per-zone labelScale
-  ✅ **Zone resize handles** — 8 white squares on selected zone (TL/TC/TR/ML/MR/BL/BC/BR), drag to resize snapped to grid
-  ✅ **Element section grouping overlay** — coloured border + faint fill tint when element matches a zone's sectionId
-  ✅ **Table↔bench linking** — assign BOOTH_BENCH to specific TABLE elements via checkboxes; dashed gold connector line; "B1 serves T1, T2" in summary
-  ✅ **Calendar event floor plan linking** — `CalendarEvent.floorPlanSlug` + `floorPlanName` fields; admin event modal selector; worker auto-switches with banner
-  ✅ **Undo/redo stack** — Ctrl+Z / Ctrl+Shift+Z; history pushed on add, delete, drag-end, transform-end
-  ✅ **PDF export** — render canvas to PDF with date/venue header via jspdf
-  ✅ **Switched from Konva to PixiJS v7** — Konva's draggable+React caused unresolvable bugs; now uses raw PIXI.Application with pointer-delta drag, room.scale transform, ResizeObserver full-screen
-  ✅ **Zoom/pan** — mouse wheel zoom (0.2x–5x centered on cursor), middle-click pan, zoom indicator
-  ✅ **Full-screen canvas** — ResizeObserver replaces hardcoded dimensions
-  ✅ **Multi-select** — Shift/Ctrl+click + rubber-band selection rectangle
-  ✅ **Edge-aware snapping** — snap to nearest grid line (left OR right edge) via `edgeSnap()`
-  ✅ **GRID snap ON by default**
-  ✅ **Rotation preset buttons** — 0°/45°/90°/135°/180°/270°
-  ✅ **Bracket chairs** — bracket `[` shape with per-side checkboxes (T/B/L/R), 5cm gap from table edge; default style
-  ✅ **Static right panel** — always-rendered w-56 panel with layer list when nothing selected; no canvas width jump
-  ✅ **Right-click palette edit** — edit default W/D per palette item, persisted via PaletteDefault model
-  ✅ **Global text scale slider** — 0.5x–3.0x, passed as textScale prop
-  ✅ **Asymmetric element labels** — use longer dimension when aspect ratio > 2:1
-  ✅ **Save API returns `_clientId` mapping** — client maps temp IDs to real DB IDs post-save
-  ✅ **Save API accepts `inventoryLinks`** — atomic create of ElementInventoryItem rows
-  ✅ **Save API stock validation** — blocks save if placed count exceeds totalQty per item
-  ✅ **Save API table label uniqueness** — no duplicate TABLE labels within a plan
-  ✅ **CAD-style inspector** — width/depth range sliders (20-500cm) + preset buttons; seat capacity + linked tables for polygon booths
-  ✅ **Toolbar** — zoom slider (0.2x-5x), dimension overlay toggle, DRAW BOOTH paint mode
-  ✅ **Custom painted booths** — paint 50x50cm grid squares to create snaking banquettes; polygon-clipping union + polygon-offset cushion; saved as POLYGON shape with outer + cushion vertices
-   ✅ **Toast notifications** — reusable `components/ui/Toast.tsx` (error/success/info, DOS-Modern, auto-dismiss)
-
-## PHASE 2.5 — INVENTORY-AWARE SPATIAL PLANNING ENGINE (BUILT 2026-07)
-
-✅ **Layered floor plans** — `FloorPlanSetup` + `SetupItem` models: a base plan (walls/fixtures) can have many named furniture setups. Admin setup toolbar with switcher, create, delete.
-✅ **Table Profiles (BOM)** — `TableProfile` + `TableProfileItem` models: each profile defines a table type with capacity, dimensions, colour, `chairCount`, `seatingDensity`, `maxHeadChairs`, and `tableNumbers`. BOM items link to inventory items with `perChair` toggle.
-✅ **TableProfile management UI** — `/admin/table-profiles` page: left panel list, right panel form with tag input for `tableNumbers`, inline BOM add/remove.
-✅ **Table auto-assignment** — when a profile is dragged onto the canvas, the lowest available `tableNumber` from the pool is auto-assigned. Used numbers display as labels. Pool exhaustion shows error toast.
-✅ **Magnetic edge snapping** — same-profile tables snap flush together on drag end (parallel edge detection, overlap, facing, rotation alignment).
-✅ **Section boundary detection** — `pointInPolygon` on drop to auto-assign `sectionId`. `SectionBoundary` model with RECTANGLE/POLYGON support.
-✅ **Inventory calculation engine** — `calculateSetupInventory()` pure function: tallies BOM items, compares against venue inventory, returns sorted shortages. Panel D shows real-time shortages on CHECK button click.
-✅ **Banquet joinery** — `TableGroup` model: same-profile tables can be grouped. `computeGroupChairs` unions polygons via `polygon-clipping`, computes exposed perimeter, distributes chairs via `distributeChairsAlongPerimeter`.
-✅ **Head-of-table constraint** — on rectangular tables, short edges ("head") are capped at `maxHeadChairs × headMultiplier` chairs, preventing chair crowding.
-✅ **PixiJS 3-layer canvas** — `baseLayer` (walls/fixtures), `sectionBoundaryLayer` (translucent polygons), `setupLayer` (interactive tables with drag/snap/select).
-✅ **Worker setup view** — `/w/floorplan` with setup switcher dropdown, setup banner, read-only canvas with setup items.
-✅ **Grouping UI** — GROUP/UNGROUP buttons in setup toolbar, same-profile validation, optimistic state updates.
-✅ **11 new API routes** — CRUD for `TableProfile`, `FloorPlanSetup`, `SetupItem`, `TableGroup`, `SectionBoundary`.
-✅ **Vitest** — `floorplan-inventory.test.ts` covers BOM integration, head constraint, section detection.
-✅ **CI** — All commits pass Docker build + push.
-
-## PHASE 2.6 — INTERACTIVE TABLE PLANNER OVERHAUL (BUILT 2026-07)
-
-Made the setup layer the single interactive table layer and wired the promised behaviours
-end-to-end (several were aspirational in Phase 2.5). Supersedes the "magnetic snapping" and
-"section boundary detection" bullets above.
-
-✅ **Setup-item editing** — select / delete (Delete key + panel) / rotate (on-canvas **drag handle** + preset buttons); deletions and assigned table numbers now persist.
-✅ **Direct-manipulation chairs** — set chairs by **clicking table edges** (left = add, right = remove) up to capacity + head caps; per-edge counts stored in `SetupItem.chairEdges` (`Json?`); pure logic in `lib/floorplan-chairs.ts`.
-✅ **Auto-join on proximity** — dragging same-profile tables flush snaps + **joins** them into a `TableGroup` (client temp group → real row on save); groups move as a unit.
-✅ **Merged-group rendering** — one union outline + chairs redistributed evenly around the exposed perimeter (rules-based, head caps), replacing N separate rectangles.
-✅ **Live per-area totals** — each zone shows a running `N TBL · M PAX` badge + toolbar grand total; tables auto-tag to the zone under their centre (`computeSetupSectionTotals`).
-✅ **Two-layer UX** — base plan dims + locks while a setup is active; base-only tools (SECTIONS / DRAW BOOTH) hidden in setup mode.
-✅ **Per-event auto-layout** — **⚡ GENERATE** places + numbers tables for a party size via `lib/auto-seat.ts` (bin-packing extracted from the WooCommerce auto-seater).
-✅ **Fixes** — undo/redo now covers setups + zones; stale room-dimension closure in the Pixi init effect; dead Konva `FloorPlanElementVisual` removed.
-✅ **Vitest** — 143 tests across 25 files covering libs (budget-math, scheduling, breaks, calendar, ical, booth-trace, training, retrain, followups, external-sync, worker-session, utils, array), admin components (AdminNav, FloorPlanEditor, FloorPlansClient, FloorplanInspector, FloorplanToolbar, BudgetPageClient, CalendarClient), UI primitives (Button, Input, Select), and worker components (WorkerTasksClient). Regression test for React error #310 included. CI gate runs `lint && test` before Docker build.
-
-## PHASE 3 — TRAINING (prev. Phase 3, unchanged)
-✅ **Training modules / guides** — authored in admin, with step-by-step content, **photos** (upload) and **video links**
-✅ **Assignment** — onboarding (all staff), by department (auto), individually assigned (upskill / area to work on), and **task-linked** guides
-✅ **Per-module sign-off model** — each module is either staff-self-complete or requires a manager sign-off
-✅ **Worker access** — staff see "MY TRAINING" on their phone, work through guides, self-complete where allowed; linked guides surface on the task itself
-✅ **Completion tracking** — who completed what, self vs signed-off (and by whom), shown per person on the Staff page
-✅ **Manager end-of-day review** — per-shift view of each person's completed work + manager notes (area to work on / praise / incident); an "area to work on" can assign a follow-up training module in one click
-☐ **MyHR onboarding export** — generate onboarding document from training modules
-☐ **Reordering / required-for-role gating** — drag-order modules, block shifts until mandatory training done
+- **A · Section layer** — `Section` model under Department, `Task.sectionId`, `Staff⇄Section` M:M
+- **B · Knowledge as resources** — `TrainingModule.kind` (TRAINING / SOP / FAQ / HOWTO), attachable to sections, cross-referencable
+- **C · Competency link** — `Task⇄Training` "requires" relation, competency = `TrainingCompletion`
+- **D · Trigger engine** — `FollowUp` model (MISSED / UNTRAINED / INCORRECT), auto-raised on completion + missed tasks
 
 ---
 
-## PHASE 4 — FINANCE (BUILT 2026-06-24)
+## Checklists & Re-train ✅
 
-✅ **Budget splitter — weighted multi-category model**
-  ✅ `BudgetPeriod` + `BudgetCategory` + `BudgetDay` + `BudgetDayAllocation` — 4-model relational schema
-  ✅ Categories link to departments (`BudgetCategory.departmentId → Department`) or are venue-wide (`__venue__`)
-  ✅ Per-venue, per-month budget periods with `@@unique([venueId, year, month])`
-  ✅ Soft-delete on all budget models, never hard delete
-  ✅ Auto-copy breakdowns forward — GET API returns most recent period's categories as defaults for empty months
-  ✅ `lib/budget-math.ts` — `generateDailyBudgetsNormalized()` with ISO weekday weighting, $500 rounding, and post-rounding correction (never under budget)
-  ✅ `lib/budget-math.ts` — `computeBreakdowns()` for department-level sub-splits of daily revenue
-  ✅ Two-tier REVENUE + BREAKDOWN structure: REVENUE always 100% of the month total; optional department-linked sub-percentages (e.g. BEVERAGE 21%, FOOD 30%) with auto-REMAINDER
-  ✅ APIRoutes: `GET /api/admin/budget` (fetch + defaults), `POST` (create period + day rows), `PUT /api/admin/budget/[id]` (upsert categories/days/allocations in `$transaction`), `DELETE` (soft-delete)
-  ✅ `POST /api/admin/budget/sync-breakdowns` — copies current breakdowns to ALL months in a venue by name matching
-  ✅ Smart auto-copy: GET skips empty periods via `categories.some` filter, finds last period with actual breakdowns
-
-✅ **Budget UI — dual-mode month selector + 2-column dashboard**
-  ✅ `BudgetMonthSelector` — dual variant: `grid` (12-month 3×4 grid + year toggle for landing page) and `compact` (slim `[←] MON YEAR [→]` + `VIEW ALL MONTHS` for monthly page)
-  ✅ Landing page at `/admin/budget` — grid variant, auto-selects first venue
-  ✅ Monthly page at `/admin/budget/[year]/[month]` — compact variant, full budget editor
-  ✅ `BudgetSetupPanel` — 2-column dashboard layout: left = ALLOCATION (total budget + REVENUE + indented breakdowns with department picker + auto-REMAINDER + progress bar), right = DAILY WEIGHTING (MON-SUN inputs with 100% validation) + SUMMARY (TARGET / ALLOCATED / VARIANCE stats + action buttons)
-  ✅ SUMMARу stats update in real-time when editing days in the grid
-  ✅ Venue selector at top of BudgetMonthSelector, auto-defaults to first venue for admins
-  ✅ Default REVENUE category pre-filled at 100% — no manual setup needed for basic use
-  ✅ Department dropdown includes `VENUE` option for venue-wide expenses (admin, sundry, rent)
-  ✅ `↻ SYNC BREAKDOWNS` button — pushes current categories + percentages to all venue months
-
-✅ **BudgetDailyGrid — week cards + inline breakdowns**
-  ✅ ISO week grouping with `WEEK N — MON D MMM TO SUN D MMM` headers
-  ✅ CSS Grid `lg:grid-cols-2` of week cards on desktop, stacked on mobile
-  ✅ Week header shows summed total for that week
-  ✅ Single editable REVENUE input per day (no NOTE field)
-  ✅ Inline read-only breakdown text: `BEV: $945 | FOOD: $1,350 | REMAINDER: $2,205` computed from REVENUE × category%
-  ✅ Weekend rows dimmed, non-working days 40% opacity
-  ✅ State lifted to parent: grid edits update `allocations` → stats recompute → SUMMARY panel updates in real-time
-
-~~Labour cost visibility~~ — DROPPED. Loaded already does this well; HOSPO OPS is an operational "what's on" board, not a finance/analytics tool.
-☐ **Loaded Reports integration** — export format compatible with Loaded accounting software
-☐ **Basic labour cost visibility** — estimated hours × rate per department per day
+- **Tasks + Checklists merged** — Checklists reference live tasks, not copies. Editing a task updates every checklist.
+- **Change → re-train** — "Require re-training" toggle bumps version + posts must-acknowledge notice
+- **Grouped admin nav** — Collapsible sidebar groups (Overview / Organisation / Work / Daily ops / Finance + Settings)
+- **Tasks + Checklists side-by-side** — 50/50 two-column layout, drag tasks into lists, inline checklist editor
+- **Department → Section grouping** — Task list nests sections under departments
+- **Embedded checklists in training** — `TrainingStep.linkedChecklistId`, renders as in-session tick-off list
+- **Shared floor task list** — Whole department sees the list; completion is global per task+date
+- **Monthly scheduling** — MONTHLY tasks with 8 option types + every-N-months interval
+- **Timed lists** — Checklists surface from a time (`appearFromTime`) and stay until all done
 
 ---
 
-## PHASE 5 — INTEGRATIONS
-☐ **Microsoft Graph API** — read emails and calendar events (no LLM, read-only)
-☐ **Microsoft Teams notifications** — send task overdue alerts to Teams channels
-☐ **Outlook calendar sync** — overlay venue events on task schedule view
-☐ **SwiftPOS deep sync** — roster data → automatic task assignment by shift and staff member
+## Floor Planner ✅
+
+### Phase 1 — Editor + Views
+- Prisma models: `FloorPlan` + `FloorPlanElement` + enums
+- Admin page with list + create + edit
+- PixiJS v7 visual editor (room drawn to scale in real cm)
+- Drag-from-palette, grid snapping, select→move→resize→rotate
+- Worker read-only view with view switcher
+- Polygon data model (`shape: POLYGON` + `vertices Json`)
+
+### Phase 1.5 — Styled Elements
+- Per-type rendering: tables with legs, chair brackets, booth cushions, door swing arcs, sinks, stairs, etc.
+- Walls/Entry/Exit as thick lines with toggleable labels
+- Section colour overlay + summary panel
+- `style Json?` field for per-type config
+
+### Phase 2 — Inventory, Zones, Calendar, Undo/Redo, PDF
+- Full inventory system (`InventoryCategory`, `InventoryItem`, `ElementInventoryItem`)
+- Stocktake workflow (create → assign → count → review → sign-off)
+- Stock-aware tracking: `availableQty` badges, drop gate when ≤ 0
+- Drawn section zones with resize handles + watermarks
+- Table↔bench linking with golden dashed connectors
+- Calendar event → floor plan linking (admin selector, worker auto-switch)
+- Undo/redo (Ctrl+Z / Ctrl+Shift+Z)
+- PDF export via jspdf
+- PixiJS rewrite — raw PIXI.Application with pointer-delta drag
+- Multi-select, edge-aware snapping, rotation presets, DIM overlay
+- CAD-style inspector with range sliders + preset buttons
+- Custom painted booths via polygon-clipping union
+
+### Phase 2.5 — Inventory-Aware Spatial Planning ✅
+- Layered floor plans: `FloorPlanSetup` + `SetupItem` (one base plan, many furniture setups)
+- `TableProfile` with BOM (`TableProfileItem`), per-chair/per-table toggle
+- Table auto-assignment from number pool
+- Magnetic edge snapping + auto-join into `TableGroup`
+- Section boundary detection via `pointInPolygon`
+- Inventory calculation engine with per-setup shortage reports
+- Banquet joinery with union polygons + chair distribution along exposed perimeter
+- Head-of-table constraint on rectangular tables
+- PixiJS 3-layer canvas (baseLayer / sectionBoundaryLayer / setupLayer)
+- 11 new API routes
+
+### Phase 2.6 — Interactive Table Planner Overhaul ✅
+- Direct-manipulation chairs (click edges to add/remove)
+- Auto-join on proximity → grouped move
+- Merged-group rendering (one union outline, redistributed chairs)
+- Live per-area totals (N TBL · M PAX badges)
+- Two-layer UX (base plan locks in setup mode)
+- Per-event auto-layout via `planAutoSeat()` bin-packing generator
+- 143 Vitest tests across 25 files
 
 ---
 
-## FOOD HEALTH & SAFETY DIARY (with ESP32 temperature logging)
-☐ **Digital H&S diary** — daily food-safety records (cooking/cooling temps, cleaning
-  sign-offs, pest checks, staff illness, corrective actions) replacing the paper diary;
-  worker entry via the existing PIN flow, manager sign-off, exportable history for
-  council/EHO verification audits (NZ Food Act 2014 / Food Control Plan friendly)
-☐ **ESP32 sensor integration** — battery/WiFi ESP32 + DS18B20/SHT sensor nodes POST
-  readings to an authenticated ingest endpoint (`/api/sensors/reading`, per-device API
-  key); one node per fridge/freezer/hot-hold unit
-☐ **Automatic fridge/freezer logging** — continuous temperature history per unit,
-  min/max per day auto-recorded into the diary (no more manual twice-daily checks)
-☐ **Threshold alerts** — configurable safe ranges per unit; out-of-range for N minutes
-  raises a Notice/follow-up (and later Teams/push) — e.g. fridge >5°C, freezer >-15°C
-☐ **Delivery temperature checks** — handheld probe workflow on goods-in: worker scans/
-  selects the delivery, records probe temp (or reads from a BLE/ESP32 probe), links to
-  supplier + inventory receipt; auto-flags rejections outside safe range
-☐ **Cook/cool probe logging** — optional ESP32 probe capture for cooking and cooling
-  curves tied to recipes (2h/4h cooling rule validation)
-☐ **Sensor fleet dashboard** — device battery/last-seen/calibration-due view, offline
-  device alerts (a silent sensor is a compliance gap)
+## Training ✅
+
+- Step-by-step guides with photo uploads + video links
+- Assignment: onboarding, department-scoped, or individually assigned
+- Self-complete vs. manager sign-off per module
+- Worker view at `/w/training` with progress bar
+- Completion tracking per person on Staff page
+- `TaskRequiredTraining` competency linking
+- `StepInventoryItem` junction — training steps can reference tools/equipment from inventory with photo, storage location, supplier
+
+**Pending:** ☐
+- MyHR onboarding export
+- Reordering / required-for-role gating
 
 ---
 
-## PHASE 6 — SCALE
-☐ **Multi-tenant SaaS mode** — white-label per business, isolated data per tenant
-☐ **Role-based permission system** — granular permissions beyond ADMIN/MANAGER/STAFF
-☐ **Public API** — REST API for third-party integrations
-☐ **Mobile app wrapper** — Capacitor or React Native shell around the worker view
-☐ **Offline support** — service worker caching for unreliable wifi environments
+## Finance ✅
+
+- 4-model budget schema: `BudgetPeriod` → `BudgetCategory` + `BudgetDay` → `BudgetDayAllocation`
+- Categories link to departments or are venue-wide
+- Pure math engine: weighted daily allocation, $500 rounding, post-rounding correction
+- Two-tier REVENUE + BREAKDOWN structure with auto-REMAINDER
+- Dual-mode month selector: grid (landing) + compact (detail)
+- 2-column dashboard with ALLOCATION + DAILY WEIGHTING + SUMMARY panels
+- Week-card grid with inline breakdowns
+- Auto-copy categories across months
+
+**Pending:** ☐
+- Loaded Reports export format
+- Labour cost visibility
 
 ---
 
-## TECHNICAL DEBT / KNOWN ISSUES
-- No cron engine — task scheduling is filtered on read, not generated in advance
-- File uploads are local disk only — not suitable for multi-server deployments
-- No rate limiting on PIN login endpoint — to be added before public exposure
-- Konva + react-konva removed from dependencies
-- ESLint moved to flat config with eslint-config-next 15; `.eslintrc.json` enforces `react-hooks/rules-of-hooks: error` to block conditional hook calls in CI
-- Prisma 7 PG adapter: `prisma.config.ts` replaces `package.json#prisma`; schema `datasource.url` removed in favour of config file + PG pool
-- `ts-node` replaced with `tsx` for seed scripts
-- Tailwind CSS 4: config migrated to CSS `@theme` directives; `tailwind.config.ts` deleted
-- Inventory delete protection — API checks against ElementInventoryItem + StocktakeLineItem before allowing soft-delete of categories/items
-- Chair snap-to-table edge — auto-snap chairs to nearest table edge on drag-end (built — `distributeChairsAlongPerimeter` + head constraint)
-- Two-layer canvas rendering — dedicated FIXTURE layer below FURNITURE layer in PixiJS (built — 3-layer canvas: baseLayer + sectionBoundaryLayer + setupLayer)
-- PNG export — PixiJS-based image export replacing old Konva `toDataURL`
-- `.npmrc` with `hoist=true` ensures npm workspace transitive dependencies resolve in CI
+## Booking System ✅
 
-## RECENT FIXES (2026-07)
-- **Prisma.DbNull 400 fix** — removed `Prisma.DbNull` usage from TableProfile POST/PUT routes; `tableNumbers` field uses conditional spreading instead; empty arrays no longer block saves.
-- **Native colour picker** — TableProfile form uses `<input type="color">` alongside hex text input; default changed from `#555` (grey) to `#4A90D9` (blue); preview swatch has `|| '#555'` fallback.
-- **Setup item magnetic snapping** — `attachSetupItemDrag` calls `magneticSnap` on `pointerup` for same-profile setup items; auto-joins into a `TableGroup` on flush contact.
-- **Budget migration ordering** — `docker-entrypoint.sh` now runs data migration (BudgetDayAllocation → BudgetDay + BudgetCategory) BEFORE `prisma db push`, so live databases with old-format rows safely transition instead of crash-looping
-- **FloorPlanEditor hook-ordering fix** — moved `useMemo` above loading gate to prevent React error #310 in production; `Array.isArray` guard prevents `furnitureItems.map()` crashes
-- **CI quality gate** — `docker-build.yml` runs `npm run lint` and `npx vitest run` before the Docker build; broken code never ships
+- `Booking` + `BookingTable` models with status workflow
+- Pure availability engine (`lib/booking-availability.ts`, 7 Vitest tests)
+- Time-grid diary view at `/admin/bookings` (06:00–24:00, half-hour increments)
+- Auto-seat on create reuses `planAutoSeat()` bin-packer with booked-table awareness
+- `CalendarEvent` + `FloorPlanSetup` auto-created for calendar + floor plan display
+- 3 API routes: list/create, update/delete, availability check
+
+**Planned — AI SMS Booking:** ☐
+- USB GSM modem (e.g. Huawei E3531 / SIM800) with a data-only or voice+SMS SIM plan attached to the server
+- Gammu SMS Daemon (SMSD) polls the modem, writes incoming SMS into PostgreSQL
+- Internal cron handler in HOSPO OPS polls the SMS inbox table
+- LLM (Deepseek / OpenAI) parses natural-language messages like `"Book for 4 Sat at 7pm"`
+- Structured booking data → `POST /api/admin/bookings` (the existing endpoint)
+- Gammu sends confirmation reply: `"Table for 4 Sat 7pm — booked. See you then."`
+- Zero cloud SMS cost — just the SIM plan
+
+---
+
+## Phase 5 — Integrations ☐
+
+- **Microsoft Graph API** — read emails and calendar events (read-only)
+- **Microsoft Teams notifications** — task overdue alerts to Teams channels
+- **Outlook calendar sync** — overlay venue events on task schedule view
+- **SwiftPOS deep sync** — roster data → automatic task assignment
+
+---
+
+## Food Health & Safety Diary ☐
+
+- Digital H&S diary (cooking/cooling temps, cleaning sign-offs, pest checks, staff illness)
+- **ESP32 sensor integration:** battery/WiFi ESP32 + DS18B20/SHT sensor nodes POST readings to `/api/sensors/reading`
+- Automatic fridge/freezer logging with min/max per day
+- Threshold alerts (out-of-range for N minutes → Notice/Follow-up)
+- Delivery temperature checks with supplier linking
+- Cook/cool probe logging tied to recipes
+- Sensor fleet dashboard (battery, last-seen, calibration status)
+
+---
+
+## Phase 6 — Scale ☐
+
+- Multi-tenant SaaS mode (white-label per business)
+- Role-based permission system
+- Public REST API
+- Mobile app wrapper (Capacitor / React Native)
+- Offline support via service worker caching
+
+---
+
+## Technical Debt & Recent Fixes
+
+- No cron engine — task scheduling filtered on read, not pre-generated
+- File uploads are local disk only
+- No rate limiting on PIN login
+- Konva + react-konva removed; PixiJS v7 rewrite complete
+- ESLint 9 flat config, Prisma 7 PG adapter, Tailwind CSS 4
+- `docker-entrypoint.sh` runs budget data migration before `prisma db push`
+- CI quality gate: `lint && test` runs before Docker build

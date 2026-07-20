@@ -43,6 +43,22 @@ enum CalendarSource {
   MANUAL
 }
 
+enum BookingStatus {
+  CONFIRMED
+  PENDING
+  CANCELLED
+  SEATED
+  COMPLETED
+  NO_SHOW
+}
+
+enum BookingSource {
+  ONLINE
+  PHONE
+  WALK_IN
+  WOOCOMMERCE
+}
+
 // A knowledge resource's type. TRAINING is a sign-off-able guide; the rest are
 // reference material that bundles alongside tasks in a section.
 enum ResourceKind {
@@ -122,6 +138,7 @@ model Venue {
   syncLogs            SyncLog[]
   staffVenues         StaffVenue[]
   menuItemVenues      MenuItemVenue[]
+  bookings            Booking[]
 }
 
 model Department {
@@ -380,6 +397,23 @@ model TrainingStep {
   linkedChecklist Checklist?     @relation(fields: [linkedChecklistId], references: [id])
   stepTasks       StepTask[]
   stepModules     StepModule[]
+  inventoryItems  StepInventoryItem[]
+}
+
+model StepInventoryItem {
+  id        String   @id @default(uuid())
+  stepId    String
+  itemId    String
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  step TrainingStep  @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  item InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([stepId, itemId])
+  @@index([stepId])
+  @@index([itemId])
 }
 
 // Many-to-many: step ↔ task
@@ -526,9 +560,53 @@ model CalendarEvent {
 
   venue Venue @relation(fields: [venueId], references: [id])
   wooOrders WooOrder[]
+  bookings Booking[]
 
   @@unique([venueId, source, uid])
   @@index([venueId, startsAt])
+}
+
+model Booking {
+  id              String        @id @default(uuid())
+  venueId         String
+  date            DateTime      @db.Date // venue-local calendar date
+  startTime       String                 // "HH:mm" venue-local
+  endTime         String                 // "HH:mm" venue-local
+  partySize       Int
+  contactName     String
+  contactPhone    String?
+  contactEmail    String?
+  source          BookingSource @default(PHONE)
+  status          BookingStatus @default(CONFIRMED)
+  notes           String?
+  calendarEventId String?       // links to CalendarEvent for calendar display
+  floorPlanSlug   String?       // which floor plan layout this booking uses
+  seatingSetupId  String?       // FK to FloorPlanSetup for the generated table layout
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  deletedAt       DateTime?
+
+  venue         Venue            @relation(fields: [venueId], references: [id])
+  calendarEvent CalendarEvent?   @relation(fields: [calendarEventId], references: [id])
+  tables        BookingTable[]
+
+  @@index([venueId, date])
+  @@index([venueId])
+}
+
+model BookingTable {
+  id         String   @id @default(uuid())
+  bookingId  String
+  setupItemId String   // FK to SetupItem (the table placed on the plan)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  setupItem SetupItem @relation(fields: [setupItemId], references: [id])
+
+  @@unique([bookingId, setupItemId])
+  @@index([bookingId])
+  @@index([setupItemId])
 }
 
 model TimeOffRequest {
@@ -770,6 +848,7 @@ model Section {
   floorPlanElements FloorPlanElement[]
   boundaries        SectionBoundary[]
   setupItems        SetupItem[]
+  storedItems       InventoryItem[]
 
   @@index([venueId])
   @@index([departmentId])
@@ -1002,6 +1081,7 @@ model SetupItem {
   tableProfile TableProfile   @relation(fields: [tableProfileId], references: [id])
   section      Section?       @relation(fields: [sectionId], references: [id])
   tableGroup   TableGroup?    @relation(fields: [tableGroupId], references: [id])
+  bookingLinks BookingTable[]
 
   @@index([setupId])
 }
@@ -1185,17 +1265,31 @@ model InventoryItem {
 
   allergyInfo   String? // e.g. "GLUTEN, DAIRY, NUTS" for display on recipe ingredients
 
+  // --- Equipment / tool tracking ---
+  imageUrl          String? // photo of the item
+  storageSectionId  String? // FK to Section — where this item lives
+  storageNotes      String? // e.g. "TOP SHELF, ABOVE THE COFFEE STATION"
+  serialNumber      String?
+  purchaseDate      DateTime?
+  warrantyExpiry    DateTime?
+  serviceIntervalDays Int?  // e.g. 180 = every 6 months; drives calendar bookings
+  lastServicedAt    DateTime?
+  nextServiceAt     DateTime?
+  maintenanceNotes  String?
+
   venue     Venue                @relation(fields: [venueId], references: [id])
   category          InventoryCategory    @relation(fields: [categoryId], references: [id])
   supplier          Supplier?            @relation(fields: [supplierId], references: [id])
   countingUnit      UnitOfMeasure?       @relation("CountingUOM", fields: [countingUnitId], references: [id])
   orderingUnit      UnitOfMeasure?       @relation("OrderingUOM", fields: [orderingUnitId], references: [id])
   fallbackCategory  InventoryCategory?   @relation("FallbackCategory", fields: [fallbackCategoryId], references: [id])
+  storageSection    Section?             @relation(fields: [storageSectionId], references: [id])
   elements          ElementInventoryItem[]
   tableProfileItems TableProfileItem[]
   stocktake         StocktakeLineItem[]
   supplierCodes     SupplierItemCode[]
   recipeLineItems   RecipeLineItem[]
+  stepLinks         StepInventoryItem[]
 
   @@index([venueId])
   @@index([categoryId])

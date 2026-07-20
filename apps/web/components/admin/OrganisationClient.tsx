@@ -46,13 +46,32 @@ interface Venue {
 
 const DEPT_COLOURS = [
   { value: '#F87171', label: 'RED' },
-  { value: '#FACC15', label: 'AMBER' },
-  { value: '#4ADE80', label: 'GREEN' },
-  { value: '#60A5FA', label: 'BLUE' },
-  { value: '#C084FC', label: 'PURPLE' },
   { value: '#FB923C', label: 'ORANGE' },
+  { value: '#FACC15', label: 'AMBER' },
+  { value: '#A3E635', label: 'LIME' },
+  { value: '#4ADE80', label: 'GREEN' },
+  { value: '#34D399', label: 'EMERALD' },
+  { value: '#2DD4BF', label: 'TEAL' },
+  { value: '#22D3EE', label: 'CYAN' },
+  { value: '#38BDF8', label: 'SKY' },
+  { value: '#60A5FA', label: 'BLUE' },
+  { value: '#818CF8', label: 'INDIGO' },
+  { value: '#A78BFA', label: 'VIOLET' },
+  { value: '#C084FC', label: 'PURPLE' },
+  { value: '#E879F9', label: 'FUCHSIA' },
+  { value: '#F472B6', label: 'PINK' },
+  { value: '#FB7185', label: 'ROSE' },
+  { value: '#78716C', label: 'BROWN' },
+  { value: '#A3A3A3', label: 'SILVER' },
   { value: '#6B6B6B', label: 'GREY' },
+  { value: '#F5F5F5', label: 'WHITE' },
 ]
+
+function pickUnusedColour(usedHexes: Set<string>): string {
+  const available = DEPT_COLOURS.filter((c) => !usedHexes.has(c.value))
+  if (available.length === 0) return DEPT_COLOURS[Math.floor(Math.random() * DEPT_COLOURS.length)].value
+  return available[Math.floor(Math.random() * available.length)].value
+}
 
 export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId: string | null | undefined }) {
   const [venues, setVenues] = useState<Venue[]>([])
@@ -194,7 +213,8 @@ export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { r
 
   function openDeptCreate() {
     setDeptEditing(null)
-    setDName(''); setDColour('#6B6B6B')
+    const usedHexes = new Set((venues.flatMap((v) => v.departments.map((d) => d.colour))).filter(Boolean) as string[])
+    setDName(''); setDColour(pickUnusedColour(usedHexes))
     setDLinkedIds([]); setDLinkSearch('')
     setDError(''); setDeptModalOpen(true)
   }
@@ -249,7 +269,9 @@ export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { r
   function openSecCreate(deptId: string) {
     setSecEditing(null)
     setSecDeptId(deptId)
-    setSName(''); setSColour('#6B6B6B')
+    const dept = venues.flatMap((v) => v.departments).find((d) => d.id === deptId)
+    const usedHexes = new Set((dept?.sections.map((s) => s.colour) ?? []).filter(Boolean) as string[])
+    setSName(''); setSColour(pickUnusedColour(usedHexes))
     setSError(''); setSecModalOpen(true)
   }
 

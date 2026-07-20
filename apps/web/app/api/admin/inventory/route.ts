@@ -29,9 +29,19 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo } = await req.json()
+  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrl, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId } = await req.json()
   if (!name || !categoryId) {
     return NextResponse.json({ error: 'name and categoryId are required' }, { status: 400 })
+  }
+
+  function computeNextService() {
+    if (nextServiceAt) return new Date(nextServiceAt)
+    if (lastServicedAt && serviceIntervalDays) {
+      const d = new Date(lastServicedAt)
+      d.setDate(d.getDate() + parseInt(String(serviceIntervalDays)))
+      return d
+    }
+    return null
   }
 
   const item = await prisma.inventoryItem.create({
@@ -55,6 +65,17 @@ export async function POST(req: NextRequest) {
       expiryDate: expiryDate ? new Date(expiryDate) : null,
       fallbackCategoryId: fallbackCategoryId || null,
       allergyInfo: allergyInfo || null,
+      imageUrl: imageUrl || null,
+      storageSectionId: storageSectionId || null,
+      storageNotes: storageNotes || null,
+      serialNumber: serialNumber || null,
+      purchaseDate: purchaseDate ? new Date(purchaseDate) : null,
+      warrantyExpiry: warrantyExpiry ? new Date(warrantyExpiry) : null,
+      serviceIntervalDays: serviceIntervalDays ? parseInt(String(serviceIntervalDays)) || null : null,
+      lastServicedAt: lastServicedAt ? new Date(lastServicedAt) : null,
+      nextServiceAt: computeNextService(),
+      maintenanceNotes: maintenanceNotes || null,
+      supplierId: supplierId || null,
     },
   })
   return NextResponse.json(item, { status: 201 })

@@ -17,6 +17,7 @@ interface Step {
   linkedChecklistId: string
   taskIds: string[]
   linkedModuleIds: string[]
+  inventoryItemIds: { itemId: string; quantity: number }[]
 }
 
 interface Department { id: string; name: string; venueId: string }
@@ -24,6 +25,7 @@ interface TaskLite { id: string; title: string; venueId: string }
 interface Section { id: string; name: string; venueId: string }
 interface ChecklistLite { id: string; name: string; departmentId: string | null }
 interface ModuleLite { id: string; title: string; kind: string; category: string | null }
+interface InventoryLite { id: string; name: string; unit: string; category: { id: string; name: string } | null; totalQty: number }
 
 interface TrainingData {
   id: string; title: string; description: string | null; category: string | null; kind: string
@@ -33,6 +35,7 @@ interface TrainingData {
     title: string | null; content: string; imageUrl: string | null; videoUrl: string | null
     linkedTaskId: string | null; linkedChecklistId: string | null
     stepTasks?: { taskId: string }[]; stepModules?: { moduleId: string }[]
+    inventoryItems?: { id: string; itemId: string; quantity: number }[]
   }[]
   resourceSections: { sectionId: string }[]
   moduleDepartments?: { departmentId: string }[]
@@ -47,7 +50,7 @@ const KIND_OPTIONS = [
 ]
 
 function emptyStep(): Step {
-  return { title: '', content: '', imageUrl: null, videoUrl: '', linkedTaskId: '', linkedChecklistId: '', taskIds: [], linkedModuleIds: [] }
+  return { title: '', content: '', imageUrl: null, videoUrl: '', linkedTaskId: '', linkedChecklistId: '', taskIds: [], linkedModuleIds: [], inventoryItemIds: [] }
 }
 
 export function TrainingEditModal({ moduleId, onClose, onSaved }: { moduleId: string; onClose: () => void; onSaved: () => void }) {
@@ -71,6 +74,7 @@ export function TrainingEditModal({ moduleId, onClose, onSaved }: { moduleId: st
   const [sections, setSections] = useState<Section[]>([])
   const [checklists, setChecklists] = useState<ChecklistLite[]>([])
   const [modules, setModules] = useState<ModuleLite[]>([])
+  const [inventoryItems, setInventoryItems] = useState<InventoryLite[]>([])
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -90,7 +94,8 @@ export function TrainingEditModal({ moduleId, onClose, onSaved }: { moduleId: st
       fetch('/api/admin/sections').then((r) => r.json()),
       fetch('/api/admin/checklists').then((r) => r.json()),
       fetch('/api/admin/training').then((r) => r.json()),
-    ]).then(([m, d, t, s, c, mods]: [TrainingData, Department[], TaskLite[], Section[], ChecklistLite[], ModuleLite[]]) => {
+      fetch('/api/admin/inventory').then((r) => r.json()),
+    ]).then(([m, d, t, s, c, mods, inv]: [TrainingData, Department[], TaskLite[], Section[], ChecklistLite[], ModuleLite[], InventoryLite[]]) => {
       if (!active) return
       setVenueId(m.venueId)
       setTitle(m.title); setDescription(m.description ?? ''); setCategory(m.category ?? '')
@@ -106,6 +111,7 @@ export function TrainingEditModal({ moduleId, onClose, onSaved }: { moduleId: st
               videoUrl: s.videoUrl ?? '', linkedTaskId: s.linkedTaskId ?? '', linkedChecklistId: s.linkedChecklistId ?? '',
               taskIds: (s.stepTasks ?? []).map((st) => st.taskId),
               linkedModuleIds: (s.stepModules ?? []).map((sm) => sm.moduleId),
+              inventoryItemIds: (s.inventoryItems ?? []).map((inv) => ({ itemId: inv.itemId, quantity: inv.quantity })),
             }))
           : [emptyStep()]
       )
@@ -114,6 +120,7 @@ export function TrainingEditModal({ moduleId, onClose, onSaved }: { moduleId: st
       setSections(Array.isArray(s) ? s : [])
       setChecklists(Array.isArray(c) ? c : [])
       setModules(Array.isArray(mods) ? mods : [])
+      setInventoryItems(Array.isArray(inv) ? inv : [])
       setLoading(false)
     })
     return () => { active = false }
@@ -156,6 +163,7 @@ export function TrainingEditModal({ moduleId, onClose, onSaved }: { moduleId: st
         videoUrl: s.videoUrl || null, linkedTaskId: s.linkedTaskId || null, linkedChecklistId: s.linkedChecklistId || null,
         taskIds: s.taskIds.length ? s.taskIds : undefined,
         linkedModuleIds: s.linkedModuleIds.length ? s.linkedModuleIds : undefined,
+        inventoryItemIds: s.inventoryItemIds.length ? s.inventoryItemIds : undefined,
       })),
     }
     const r = await fetch(`/api/admin/training/${moduleId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -263,6 +271,14 @@ export function TrainingEditModal({ moduleId, onClose, onSaved }: { moduleId: st
                   onChange={(ids) => updateStep(i, { linkedModuleIds: ids })}
                   onPreview={(id) => window.open(`/admin/training?module=${id}`, '_blank')}
                   placeholder="Search modules..."
+                />
+                <Combobox
+                  label="Tools / equipment needed"
+                  options={inventoryItems.map((inv) => ({ value: inv.id, label: inv.name, description: `${inv.unit} · ${inv.category?.name ?? ''}${inv.totalQty > 0 ? ` · QTY ${inv.totalQty}` : ''}` }))}
+                  selected={(s.inventoryItemIds ?? []).map((si) => si.itemId)}
+                  onChange={(ids) => updateStep(i, { inventoryItemIds: ids.map((itemId) => ({ itemId, quantity: 1 })) })}
+                  onPreview={(id) => window.open(`/admin/inventory?item=${id}`, '_blank')}
+                  placeholder="Search inventory..."
                 />
                 <div className="flex items-center gap-2">
                   <input

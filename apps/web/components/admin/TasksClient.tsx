@@ -223,6 +223,11 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClName(c.name); setClDesc(c.description ?? '')
     setClVenueId(c.venueId); setClDeptId(c.departmentId ?? ''); setClSectionId(c.sectionId ?? '')
     setClSelected(c.tasks.map((t) => t.id)); setClAppearFrom(c.appearFromTime ?? ''); setClError('')
+    // Auto-scope left panel filters to match this checklist
+    if (c.venueId) setFilterVenue(c.venueId)
+    if (c.departmentId) setFilterDept(c.departmentId)
+    if (c.sectionId) setFilterSection(c.sectionId)
+    setFilterUsage('nolist')
   }
   function addToChecklist(id: string) {
     setClSelected((prev) => (prev.includes(id) ? prev : [...prev, id]))
@@ -473,6 +478,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                   selected={clSelected}
                   onChange={(ids) => setClSelected(ids)}
                   placeholder="+ ADD A TASK..."
+                  hideTags
                 />
               </div>
 

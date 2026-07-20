@@ -102,6 +102,14 @@ SOPs, FAQs, how-tos and training are **one kind of thing** (a "resource" with a
 type), not four separate silos — that's what lets them group and cross-reference
 freely.
 
+**Inventory items as tools/equipment:** Individual training/SOP steps can
+reference `InventoryItem` records via `StepInventoryItem` — so a step like
+"Use the T20 Torx to open the grinder" can link the exact tool from inventory.
+Staff then see: the tool photo, its storage location (department → section path),
+storage notes (e.g. "TOP SHELF, ABOVE COFFEE"), and supplier — all inline in the
+training view. Items also track serial numbers, purchase dates, warranties, and
+maintenance schedules per-item for full asset management.
+
 ---
 
 ## 3 · Competency & the follow-up triggers (where it pays off)
@@ -174,6 +182,12 @@ generalisation + one new link** — not a rebuild. All four phases are now live:
   manager `TrainingCompletion` and clears it). Idempotent via
   `@@unique([venueId, staffId, kind, taskId, dueDate])`. In-app for now; push /
   WhatsApp is the next step.
+
+**Booking system** — `Booking` + `BookingTable` models link reservations to
+specific `SetupItem` tables. Auto-seat reuses the same `planAutoSeat()` bin-packer
+that WooCommerce uses. Bookings create `CalendarEvent` + `FloorPlanSetup` rows,
+appearing on the calendar, the FOH view, and the worker floor plan with
+auto-switching event layouts.
 
 > The **Structure** page (`/admin/structure`) now renders the full live tree
 > (TREE tab): venue → department → **section** → staff / tasks / training — and a

@@ -20,6 +20,22 @@ interface Department { id: string; name: string; venueId: string }
 interface FormState { name: string; departmentId: string; colour: string }
 const EMPTY_FORM: FormState = { name: '', departmentId: '', colour: '#6B6B6B' }
 
+const DEPT_COLOURS = [
+  { value: '#F87171', label: 'RED' }, { value: '#FB923C', label: 'ORANGE' }, { value: '#FACC15', label: 'AMBER' },
+  { value: '#A3E635', label: 'LIME' }, { value: '#4ADE80', label: 'GREEN' }, { value: '#34D399', label: 'EMERALD' },
+  { value: '#2DD4BF', label: 'TEAL' }, { value: '#22D3EE', label: 'CYAN' }, { value: '#38BDF8', label: 'SKY' },
+  { value: '#60A5FA', label: 'BLUE' }, { value: '#818CF8', label: 'INDIGO' }, { value: '#A78BFA', label: 'VIOLET' },
+  { value: '#C084FC', label: 'PURPLE' }, { value: '#E879F9', label: 'FUCHSIA' }, { value: '#F472B6', label: 'PINK' },
+  { value: '#FB7185', label: 'ROSE' }, { value: '#78716C', label: 'BROWN' }, { value: '#A3A3A3', label: 'SILVER' },
+  { value: '#6B6B6B', label: 'GREY' }, { value: '#F5F5F5', label: 'WHITE' },
+]
+
+function pickUnusedColour(usedHexes: Set<string>): string {
+  const available = DEPT_COLOURS.filter((c) => !usedHexes.has(c.value))
+  if (available.length === 0) return DEPT_COLOURS[Math.floor(Math.random() * DEPT_COLOURS.length)].value
+  return available[Math.floor(Math.random() * available.length)].value
+}
+
 export function SectionsClient({ role, venueId }: { role: string; venueId: string }) {
   const [sections, setSections] = useState<Section[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -45,7 +61,8 @@ export function SectionsClient({ role, venueId }: { role: string; venueId: strin
 
   function openCreate() {
     setEditing(null)
-    setForm({ ...EMPTY_FORM })
+    const usedHexes = new Set(sections.map((s) => s.colour).filter(Boolean) as string[])
+    setForm({ ...EMPTY_FORM, colour: pickUnusedColour(usedHexes) })
     setError('')
     setModalOpen(true)
   }

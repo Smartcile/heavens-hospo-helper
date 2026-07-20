@@ -16,6 +16,7 @@ interface ComboboxProps {
   placeholder?: string
   onPreview?: (value: string) => void
   multiple?: boolean
+  hideTags?: boolean
 }
 
 export interface ComboboxHandle {
@@ -23,7 +24,7 @@ export interface ComboboxHandle {
 }
 
 export const Combobox = forwardRef<ComboboxHandle, ComboboxProps>(function Combobox(
-  { label, options, selected, onChange, placeholder, onPreview, multiple = true },
+      { label, options, selected, onChange, placeholder, onPreview, multiple = true, hideTags },
   ref
 ) {
   const [search, setSearch] = useState('')
@@ -104,7 +105,7 @@ export const Combobox = forwardRef<ComboboxHandle, ComboboxProps>(function Combo
       </div>
 
       {/* Selected tags */}
-      {selectedOptions.length > 0 && (
+      {!hideTags && selectedOptions.length > 0 && (
         <div className="flex flex-col gap-1">
           {selectedOptions.map((o) => {
             const isPending = pendingRemovals.has(o.value)

@@ -16,7 +16,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo } = await req.json()
+  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrl, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId } = await req.json()
 
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = name.toUpperCase().trim()
@@ -37,6 +37,26 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (expiryDate !== undefined) data.expiryDate = expiryDate ? new Date(expiryDate) : null
   if (fallbackCategoryId !== undefined) data.fallbackCategoryId = fallbackCategoryId || null
   if (allergyInfo !== undefined) data.allergyInfo = allergyInfo || null
+
+  // Equipment / tool tracking
+  if (imageUrl !== undefined) data.imageUrl = imageUrl || null
+  if (storageSectionId !== undefined) data.storageSectionId = storageSectionId || null
+  if (storageNotes !== undefined) data.storageNotes = storageNotes || null
+  if (serialNumber !== undefined) data.serialNumber = serialNumber || null
+  if (purchaseDate !== undefined) data.purchaseDate = purchaseDate ? new Date(purchaseDate) : null
+  if (warrantyExpiry !== undefined) data.warrantyExpiry = warrantyExpiry ? new Date(warrantyExpiry) : null
+  if (serviceIntervalDays !== undefined) data.serviceIntervalDays = serviceIntervalDays ? parseInt(String(serviceIntervalDays)) || null : null
+  if (lastServicedAt !== undefined) data.lastServicedAt = lastServicedAt ? new Date(lastServicedAt) : null
+  // Auto-compute nextServiceAt from lastServicedAt + serviceIntervalDays unless explicitly provided
+  if (nextServiceAt !== undefined) {
+    data.nextServiceAt = nextServiceAt ? new Date(nextServiceAt) : null
+  } else if (data.lastServicedAt && data.serviceIntervalDays) {
+    const next = new Date(data.lastServicedAt as Date)
+    next.setDate(next.getDate() + (data.serviceIntervalDays as number))
+    data.nextServiceAt = next
+  }
+  if (maintenanceNotes !== undefined) data.maintenanceNotes = maintenanceNotes || null
+  if (supplierId !== undefined) data.supplierId = supplierId || null
 
   const updated = await prisma.inventoryItem.update({
     where: { id: params.id },

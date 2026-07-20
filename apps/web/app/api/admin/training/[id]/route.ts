@@ -17,6 +17,7 @@ interface IncomingStep {
   linkedChecklistId?: string | null
   taskIds?: string[]
   linkedModuleIds?: string[]
+  inventoryItemIds?: { itemId: string; quantity?: number }[]
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {
@@ -31,6 +32,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
         include: {
           stepTasks: { select: { taskId: true } },
           stepModules: { select: { moduleId: true } },
+          inventoryItems: { select: { id: true, itemId: true, quantity: true } },
         },
       },
       department: { select: { id: true, name: true } },
@@ -104,6 +106,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
         linkedChecklistId: s.linkedChecklistId || null,
         stepTasks: s.taskIds?.length ? { create: s.taskIds.map((tid: string) => ({ taskId: tid })) } : undefined,
         stepModules: s.linkedModuleIds?.length ? { create: s.linkedModuleIds.map((mid: string) => ({ moduleId: mid })) } : undefined,
+        inventoryItems: s.inventoryItemIds?.length
+          ? { create: s.inventoryItemIds.map((inv) => ({ itemId: inv.itemId, quantity: inv.quantity ?? 1 })) }
+          : undefined,
       })),
     }
   }

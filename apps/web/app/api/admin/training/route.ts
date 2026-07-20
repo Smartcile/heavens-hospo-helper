@@ -12,6 +12,7 @@ interface IncomingStep {
   linkedChecklistId?: string | null
   taskIds?: string[]
   linkedModuleIds?: string[]
+  inventoryItemIds?: { itemId: string; quantity?: number }[]
 }
 
 export async function GET(req: NextRequest) {
@@ -126,6 +127,9 @@ export async function POST(req: NextRequest) {
           linkedChecklistId: s.linkedChecklistId || null,
           stepTasks: s.taskIds?.length ? { create: s.taskIds.map((tid) => ({ taskId: tid })) } : undefined,
           stepModules: s.linkedModuleIds?.length ? { create: s.linkedModuleIds.map((mid) => ({ moduleId: mid })) } : undefined,
+          inventoryItems: s.inventoryItemIds?.length
+            ? { create: s.inventoryItemIds.map((inv) => ({ itemId: inv.itemId, quantity: inv.quantity ?? 1 })) }
+            : undefined,
         })),
       },
       resourceSections: Array.isArray(sectionIds) && sectionIds.length

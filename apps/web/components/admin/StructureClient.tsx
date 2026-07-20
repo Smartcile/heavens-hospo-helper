@@ -16,7 +16,7 @@ interface StaffNode { id: string; name: string; role: string }
 interface TaskLink { label: string; colour: string; kind: string; targetId: string; targetType: string; targetSub: string }
 interface TaskNode { id: string; title: string; schedule: string; active: boolean; scope: string; assignee: string | null; links?: TaskLink[] }
 interface TrainingNode { id: string; title: string; kind: string; signOff: boolean; linkedToTask: boolean }
-interface SectionNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; floorPlan?: { tables: number; chairs: number; equip: number } }
+interface SectionNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; floorPlan?: { tables: number; chairs: number; equip: number }; inventoryItems?: { id: string; name: string; unit: string; storageNotes: string | null; totalQty: number; imageUrl: string | null }[] }
 interface DeptNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; training: TrainingNode[]; sections: SectionNode[]; linkedDepartments?: { id: string; name: string; colour: string | null }[] }
 interface VenueNode {
   id: string
@@ -77,7 +77,7 @@ export function StructureClient({ role }: { role: string }) {
       for (const d of v.departments) {
         keys.push(`d:${d.id}`, `ds:${d.id}`, `dt:${d.id}`, `dr:${d.id}`)
         for (const sec of d.sections) {
-          keys.push(`s:${sec.id}`, `ss:${sec.id}`, `st:${sec.id}`, `sf:${sec.id}`)
+          keys.push(`s:${sec.id}`, `ss:${sec.id}`, `st:${sec.id}`, `sf:${sec.id}`, `si:${sec.id}`)
         }
       }
     }
@@ -293,6 +293,26 @@ export function StructureClient({ role }: { role: string }) {
                                         <Group k={`st:${sec.id}`} label="Tasks" count={sec.tasks.length} />
                                         {isOpen(`st:${sec.id}`) && <TaskList items={sec.tasks} />
                                         }
+                                        {(sec.inventoryItems ?? []).length > 0 && (
+                                          <>
+                                            <Group k={`si:${sec.id}`} label="Stored Items" count={sec.inventoryItems!.length} />
+                                            {isOpen(`si:${sec.id}`) && (
+                                              <div className="pl-5 divide-y divide-grey-mid border-t border-grey-mid">
+                                                {sec.inventoryItems!.map((inv) => (
+                                                  <div key={inv.id} className="flex items-center gap-2 py-1 font-mono text-xs text-white">
+                                                    {inv.imageUrl && (
+                                                      // eslint-disable-next-line @next/next/no-img-element
+                                                      <img src={inv.imageUrl} alt={inv.name} className="w-5 h-5 object-cover border border-grey-mid" />
+                                                    )}
+                                                    <span>{inv.name}</span>
+                                                    <span className="text-grey-light text-[10px]">{inv.unit} · QTY {inv.totalQty}</span>
+                                                    {inv.storageNotes && <span className="text-grey-light text-[10px] truncate max-w-[200px]">{inv.storageNotes}</span>}
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </>
+                                        )}
                                         {sec.floorPlan && (sec.floorPlan.tables > 0 || sec.floorPlan.chairs > 0) && (
                                           <>
                                             <Group k={`sf:${sec.id}`} label="Floor Plan" count={sec.floorPlan.tables + sec.floorPlan.chairs} />
