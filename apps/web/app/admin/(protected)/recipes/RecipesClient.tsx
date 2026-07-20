@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select'
 import { SearchSelect } from '@/components/ui/SearchSelect'
 import { ListBox, ListRow } from '@/components/ui/ListBox'
 import { Modal } from '@/components/ui/Modal'
+import { computeRecipeAllergens, type AllergenSource } from '@/lib/allergens'
 
 interface Recipe {
   id: string; name: string; yieldQty: number; yieldUnitId: string; instructions: string | null
@@ -58,6 +59,7 @@ export function RecipesClient() {
   const [wooCatInput, setWooCatInput] = useState('')
   const [formExistingMenuItemId, setFormExistingMenuItemId] = useState<string | null>(null)
   const [formDietaryInfo, setFormDietaryInfo] = useState<string[]>([])
+  const [allergenSearch, setAllergenSearch] = useState('')
 
   const ALLERGENS = ['ALMOND','BARLEY','BRAZIL NUT','CASHEW','CRUSTACEAN','EGG','FISH','HAZELNUT','LUPIN','MACADAMIA','MILK','MOLLUSC','OATS','PEANUT','PECAN','PINE NUT','PISTACHIO','RYE','SESAME','SOY','SULPHITES','WALNUT','WHEAT']
 
@@ -373,11 +375,18 @@ export function RecipesClient() {
                   </ListBox>
 
                   <div className="flex items-center gap-2">
-                    <SearchSelect value={newItemId} onChange={(v) => {
+                    <SearchSelect value={newItemId}                     onChange={(v) => {
                       setNewItemId(v)
                       if (v) {
                         const isRecipe = otherRecipes.some((r) => r.id === v)
                         setNewItemType(isRecipe ? 'recipe' : 'inventory')
+                        if (!isRecipe) {
+                          const inv = inventoryItems.find((i) => i.id === v)
+                          if (inv?.unit) {
+                            const match = uoms.find((u) => u.name.toUpperCase() === inv.unit.toUpperCase() || u.baseUnit === inv.unit.toUpperCase())
+                            if (match) setNewItemUomId(match.id)
+                          }
+                        }
                       }
                     }}
                       groups={searchGroups} placeholder="SEARCH INGREDIENT OR RECIPE..." className="flex-1" />
@@ -446,8 +455,40 @@ export function RecipesClient() {
                   {linkToMenu && (
                     <div>
                       <label className="font-mono text-xs uppercase text-grey-light block mb-2">ALLERGENS</label>
+                      {/* Inherited allergens (from ingredients — locked) */}
+                      {(() => {
+                        const inherited = computeRecipeAllergens(
+                          lineItems.map((li) => ({
+                            type: li.inventoryItemId ? 'inventory' as const : 'recipe' as const,
+                            item: { id: li.inventoryItemId ?? li.childRecipeId ?? '', name: li.inventoryItemName ?? li.childRecipeName ?? '', allergyInfo: li.allergyInfo ?? null },
+                          })),
+                          null,
+                        ).filter((s) => s.inherited)
+                        if (inherited.length === 0) return null
+                        const unique = [...new Map(inherited.map((s) => [s.allergen, s])).values()]
+                        return (
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            {unique.map((s) => (
+                              <span
+                                key={s.allergen}
+                                className="inline-flex items-center gap-1 font-mono text-[9px] uppercase px-1.5 py-0.5 border text-[#c4a530] border-[#c4a530]/50 bg-[#c4a530]/10"
+                                title={`FROM: ${s.source}`}
+                              >
+                                ⚿ {s.allergen}
+                              </span>
+                            ))}
+                          </div>
+                        )
+                      })()}
+                      {/* Search filter */}
+                      <input
+                        value={allergenSearch}
+                        onChange={(e) => setAllergenSearch(e.target.value.toUpperCase())}
+                        placeholder="FILTER ALLERGENS..."
+                        className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white placeholder:text-grey-light mb-2"
+                      />
                       <div className="flex flex-wrap gap-1.5">
-                        {ALLERGENS.map((a) => (
+                        {ALLERGENS.filter((a) => !allergenSearch || a.includes(allergenSearch)).map((a) => (
                           <button
                             key={a}
                             type="button"

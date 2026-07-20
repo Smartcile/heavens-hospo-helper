@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
+import { AllergenPicker } from '@/components/ui/AllergenPicker'
 import { TableProfileForm } from '@/components/admin/TableProfileForm'
 
-interface Category { id: string; name: string; isBuiltIn: boolean; venueId: string | null; tab: string | null }
+interface Category { id: string; name: string; isBuiltIn: boolean; venueId: string | null; tab: string | null; showDeepFields: boolean; showEquipmentFields: boolean }
 interface Item {
   id: string; name: string; categoryId: string; unit: string; defaultParLevel: number; totalQty: number; placedCount: number; category: Category
   furnitureType?: string | null; elementWidth?: number | null; elementDepth?: number | null
@@ -73,7 +74,7 @@ export function InventoryClient() {
   const [formNextServiceAt, setFormNextServiceAt] = useState('')
   const [formMaintenanceNotes, setFormMaintenanceNotes] = useState('')
   const [formSupplierId, setFormSupplierId] = useState('')
-  const [showEquipmentFields, setShowEquipmentFields] = useState(false)
+  const [showEquipmentFields, setShowEquipmentFields] = useState(true)
   const [formUploadingImg, setFormUploadingImg] = useState(false)
   const [sections, setSections] = useState<SectionLite[]>([])
   const [suppliers, setSuppliers] = useState<SupplierLite[]>([])
@@ -112,7 +113,9 @@ export function InventoryClient() {
     setFormNextServiceAt(item.nextServiceAt ?? '')
     setFormMaintenanceNotes(item.maintenanceNotes ?? '')
     setFormSupplierId(item.supplierId ?? '')
-    setShowEquipmentFields(!!(item.imageUrl || item.storageSectionId || item.storageNotes || item.serialNumber || item.supplierId))
+    const itemCat = categories.find((c) => c.id === item.categoryId)
+    setShowDeepFields(itemCat?.showDeepFields ?? false)
+    setShowEquipmentFields(itemCat?.showEquipmentFields ?? false)
   }
 
   async function load() {
@@ -181,7 +184,7 @@ export function InventoryClient() {
     return (
       <>
         <button onClick={() => setShowEquipmentFields(!showEquipmentFields)}
-          className="font-mono text-[10px] uppercase text-grey-light hover:text-white text-left">
+          className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
           {showEquipmentFields ? '▾ EQUIPMENT / TOOL TRACKING' : '▸ EQUIPMENT / TOOL TRACKING'}
         </button>
         {showEquipmentFields && (
@@ -312,6 +315,8 @@ export function InventoryClient() {
       setFormCat(catId)
       setCreateCat('')
       setShowCatDropdown(false)
+      setShowDeepFields(cat?.showDeepFields ?? false)
+      setShowEquipmentFields(cat?.showEquipmentFields ?? false)
     }
   }
 
@@ -387,88 +392,26 @@ export function InventoryClient() {
             </div>
           </div>
 
-          {/* Inline create form — appears at top when adding */}
-          {isCreating && (
-            <div className="border border-grey-mid bg-grey-dark p-4 space-y-3 mb-3">
-              <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">NEW ITEM</h3>
-              <div className="grid grid-cols-6 gap-2">
-                <div className="col-span-4">
-                  <Input label="NAME" value={formName} onChange={(e) => setFormName(e.target.value.toUpperCase())} placeholder="ITEM NAME" />
-                </div>
-                <div className="col-span-2">
-                  <Select label="CATEGORY" value={formCat} onChange={(e) => setFormCat(e.target.value)}
-                    options={tabCategories.map((c) => ({ value: c.id, label: c.name }))} />
-                </div>
-              </div>
-              <div className="grid grid-cols-6 gap-2">
-                <div className="col-span-2">
-                  <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
-                    options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
-                </div>
-                <div className="col-span-2">
-                  <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
-                </div>
-                <div className="col-span-2">
-                  <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
-                </div>
-              </div>
-              <button onClick={() => setShowDeepFields(!showDeepFields)}
-                className="font-mono text-[10px] uppercase text-grey-light hover:text-white text-left">
-                {showDeepFields ? '▾ DEEP INVENTORY' : '▸ DEEP INVENTORY'}
-              </button>
-              {showDeepFields && (
-                <div className="grid grid-cols-6 gap-2 border-t border-grey-mid pt-3">
-                  <div className="col-span-3">
-                    <Select label="COUNTING UOM" value={formCountingUnitId} onChange={(e) => setFormCountingUnitId(e.target.value)}
-                      options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
-                  </div>
-                  <div className="col-span-3">
-                    <Select label="ORDERING UOM" value={formOrderingUnitId} onChange={(e) => setFormOrderingUnitId(e.target.value)}
-                      options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
-                  </div>
-                  <div className="col-span-2">
-                    <Input label="YIELD %" type="number" step="0.1" value={formYield} onChange={(e) => setFormYield(e.target.value)} />
-                  </div>
-                  <div className="col-span-2">
-                    <Input label="COST PRICE" type="number" step="0.01" value={formCostPrice} onChange={(e) => setFormCostPrice(e.target.value)} />
-                  </div>
-                  <div className="col-span-2">
-                    <Input label="EXPIRY DATE" type="date" value={formExpiryDate} onChange={(e) => setFormExpiryDate(e.target.value)} />
-                  </div>
-                  <div className="col-span-3">
-                    <Select label="FALLBACK CATEGORY" value={formFallbackCatId} onChange={(e) => setFormFallbackCatId(e.target.value)}
-                      options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="—" />
-                  </div>
-              <div className="col-span-3">
-                <Input label="ALLERGENS" value={formAllergyInfo} onChange={(e) => setFormAllergyInfo(e.target.value.toUpperCase())} placeholder="GLUTEN, DAIRY, NUTS" />
-              </div>
-            </div>
-              )}
-              {renderEquipmentFields()}
-              <div className="flex gap-2">
-                <Button size="sm" onClick={handleSave} disabled={!formName || !formCat}>CREATE</Button>
-                <Button size="sm" variant="ghost" onClick={() => { setIsCreating(false); resetForm() }}>CANCEL</Button>
-              </div>
-            </div>
-          )}
-
           {tabCategories.map((cat) => {
             const catItemList = catItems.get(cat.id) ?? []
             const isCollapsed = collapsed.has(cat.name)
             const isFurniture = cat.name === 'FURNITURE'
             return (
               <div key={cat.id} className="border border-grey-mid">
-                <button onClick={() => toggleCollapse(cat.name)}
-                  className="w-full flex items-center justify-between px-3 py-2 hover:bg-grey-mid/20">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs text-grey-light">{isCollapsed ? '▸' : '▾'}</span>
-                    <span className="font-mono text-xs font-bold text-white uppercase">{cat.name}</span>
-                    <span className="font-mono text-[10px] text-grey-light">({catItemList.length})</span>
-                  </div>
-                  <span className="font-mono text-[10px] text-grey-light uppercase">
+                <div className="flex items-center">
+                  <button onClick={() => toggleCollapse(cat.name)}
+                    className="flex-1 flex items-center justify-between px-3 py-2 hover:bg-grey-mid/20 text-left">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs text-grey-light">{isCollapsed ? '▸' : '▾'}</span>
+                      <span className="font-mono text-xs font-bold text-white uppercase">{cat.name}</span>
+                      <span className="font-mono text-[10px] text-grey-light">({catItemList.length})</span>
+                    </div>
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); startCreate(cat.id) }}
+                    className="font-mono text-[10px] uppercase text-grey-light hover:text-white px-3 py-2 border-l border-grey-mid">
                     {isFurniture ? '+ ADD TABLE' : '+ ADD'}
-                  </span>
-                </button>
+                  </button>
+                </div>
 
                 {!isCollapsed && (
                   <div className="border-t border-grey-mid">
@@ -548,67 +491,6 @@ export function InventoryClient() {
                         </div>
                       )
                     })}
-
-                    {/* Inline create form for non-furniture categories */}
-                    {isCreating && formCat === cat.id && !isFurniture && (
-                      <div className="border-t border-grey-mid bg-grey-dark p-4 space-y-3">
-                        <div className="grid grid-cols-6 gap-2">
-                          <div className="col-span-4">
-                            <Input label="NAME" value={formName} onChange={(e) => setFormName(e.target.value.toUpperCase())} placeholder="ITEM NAME" />
-                          </div>
-                          <div className="col-span-2">
-                            <Select label="CATEGORY" value={formCat} onChange={(e) => setFormCat(e.target.value)}
-                              options={categories.map((c) => ({ value: c.id, label: c.name }))} />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-6 gap-2">
-                          <div className="col-span-2">
-                            <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
-                              options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
-                          </div>
-                          <div className="col-span-2">
-                            <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
-                          </div>
-                          <div className="col-span-2">
-                            <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
-                          </div>
-                        </div>
-                        <button onClick={() => setShowDeepFields(!showDeepFields)}
-                          className="font-mono text-[10px] uppercase text-grey-light hover:text-white text-left">
-                          {showDeepFields ? '▾ DEEP INVENTORY' : '▸ DEEP INVENTORY'}
-                        </button>
-                        {showDeepFields && (
-                          <div className="grid grid-cols-6 gap-2 border-t border-grey-mid pt-3">
-                            <div className="col-span-3">
-                              <Select label="COUNTING UOM" value={formCountingUnitId} onChange={(e) => setFormCountingUnitId(e.target.value)}
-                                options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
-                            </div>
-                            <div className="col-span-3">
-                              <Select label="ORDERING UOM" value={formOrderingUnitId} onChange={(e) => setFormOrderingUnitId(e.target.value)}
-                                options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
-                            </div>
-                            <div className="col-span-2">
-                              <Input label="YIELD %" type="number" step="0.1" value={formYield} onChange={(e) => setFormYield(e.target.value)} />
-                            </div>
-                            <div className="col-span-2">
-                              <Input label="COST PRICE" type="number" step="0.01" value={formCostPrice} onChange={(e) => setFormCostPrice(e.target.value)} />
-                            </div>
-                            <div className="col-span-2">
-                              <Input label="EXPIRY DATE" type="date" value={formExpiryDate} onChange={(e) => setFormExpiryDate(e.target.value)} />
-                            </div>
-                        <div className="col-span-3">
-                          <Select label="FALLBACK CATEGORY" value={formFallbackCatId} onChange={(e) => setFormFallbackCatId(e.target.value)}
-                            options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="—" />
-                        </div>
-                      </div>
-                        )}
-                        {renderEquipmentFields()}
-                        <div className="flex gap-2">
-                          <Button size="sm" onClick={handleSave} disabled={!formName || !formCat}>CREATE</Button>
-                          <Button size="sm" variant="ghost" onClick={() => { setIsCreating(false); resetForm() }}>CANCEL</Button>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -688,7 +570,7 @@ export function InventoryClient() {
         </div>
       </div>
 
-      <Modal isOpen={selectedItem != null} onClose={() => { setSelectedItem(null); resetForm() }} title="EDIT ITEM" size="lg">
+      <Modal isOpen={selectedItem != null || isCreating} onClose={() => { setSelectedItem(null); setIsCreating(false); resetForm() }} title={isCreating ? 'NEW ITEM' : 'EDIT ITEM'} size="lg">
         <div className="space-y-3">
           <div className="grid grid-cols-6 gap-2">
             <div className="col-span-4">
@@ -712,7 +594,7 @@ export function InventoryClient() {
             </div>
           </div>
           <button onClick={() => setShowDeepFields(!showDeepFields)}
-            className="font-mono text-[10px] uppercase text-grey-light hover:text-white">
+            className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
             {showDeepFields ? '▾ DEEP INVENTORY' : '▸ DEEP INVENTORY'}
           </button>
           {showDeepFields && (
@@ -739,14 +621,14 @@ export function InventoryClient() {
                   options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="—" />
               </div>
           <div className="col-span-3">
-            <Input label="ALLERGENS" value={formAllergyInfo} onChange={(e) => setFormAllergyInfo(e.target.value.toUpperCase())} placeholder="GLUTEN, DAIRY, NUTS" />
+              <AllergenPicker value={formAllergyInfo} onChange={(v) => setFormAllergyInfo(v)} label="ALLERGENS" />
           </div>
         </div>
             )}
-            {renderEquipmentFields()}
+            {showEquipmentFields && renderEquipmentFields()}
             <div className="flex gap-2 pt-2">
-              <Button onClick={handleSave} disabled={!formName || !formCat}>SAVE</Button>
-              <Button variant="ghost" onClick={() => { setSelectedItem(null); resetForm() }}>CANCEL</Button>
+              <Button onClick={handleSave} disabled={!formName || !formCat}>{isCreating ? 'CREATE' : 'SAVE'}</Button>
+              <Button variant="ghost" onClick={() => { setSelectedItem(null); setIsCreating(false); resetForm() }}>CANCEL</Button>
           </div>
         </div>
       </Modal>

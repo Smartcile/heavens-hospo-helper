@@ -1217,15 +1217,17 @@ enum KitchenStatus {
 }
 
 model InventoryCategory {
-  id        String   @id @default(uuid())
-  venueId   String?
-  name      String
-  tab       String?
-  isBuiltIn Boolean  @default(false)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
+  id                  String   @id @default(uuid())
+  venueId             String?
+  name                String
+  tab                 String?
+  isBuiltIn           Boolean  @default(false)
+  isActive            Boolean  @default(true)
+  showDeepFields      Boolean  @default(false) // controls visibility of counting/ordering/cost/expiry/allergen fields
+  showEquipmentFields Boolean  @default(false) // controls visibility of equipment/tool tracking section
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  deletedAt           DateTime?
 
   venue Venue?         @relation(fields: [venueId], references: [id])
   items InventoryItem[]

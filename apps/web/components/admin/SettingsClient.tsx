@@ -94,6 +94,7 @@ export function SettingsClient({
   const [backupLoading, setBackupLoading] = useState(false)
   const [backupMessage, setBackupMessage] = useState('')
   const [backupError, setBackupError] = useState('')
+  const [includeUploads, setIncludeUploads] = useState(false)
   const [restoreFile, setRestoreFile] = useState<File | null>(null)
   const [restoreLoading, setRestoreLoading] = useState(false)
   const [restoreMessage, setRestoreMessage] = useState('')
@@ -248,7 +249,7 @@ export function SettingsClient({
   async function handleBackup() {
     setBackupLoading(true); setBackupError(''); setBackupMessage('')
     try {
-      const r = await fetch('/api/admin/backup')
+      const r = await fetch(`/api/admin/backup${includeUploads ? '?uploads=1' : ''}`)
       if (!r.ok) { const d = await r.json(); setBackupError(d.error ?? 'BACKUP FAILED'); setBackupLoading(false); return }
       const blob = await r.blob()
       const url = URL.createObjectURL(blob)
@@ -387,8 +388,12 @@ export function SettingsClient({
           </p>
           <div className="space-y-4">
             {/* Backup */}
-            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
               <Button onClick={handleBackup} loading={backupLoading} size="sm" variant="ghost">DOWNLOAD BACKUP</Button>
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input type="checkbox" checked={includeUploads} onChange={(e) => setIncludeUploads(e.target.checked)} className="accent-white" />
+                <span className="font-mono text-[10px] uppercase text-grey-light">INCLUDE UPLOADED FILES</span>
+              </label>
               {backupMessage && <span className="font-mono text-xs text-success">{backupMessage}</span>}
               {backupError && <span className="font-mono text-xs text-danger">{backupError}</span>}
             </div>

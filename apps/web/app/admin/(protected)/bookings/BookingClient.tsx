@@ -15,6 +15,8 @@ interface Booking {
 }
 interface SetupLite { id: string; name: string; floorPlan: { id: string; slug: string } }
 interface VenueLite { id: string; name: string }
+interface TableRow { id: string; assignedNumber: string | null; label: string | null; profile: { id: string; name: string; capacity: number; colour: string | null }; section: { id: string; name: string; colour: string | null; department: { id: string; name: string; colour: string | null } } | null; setupId: string; setupName: string }
+interface TableBooking { id: string; startTime: string; endTime: string; partySize: number; contactName: string; status: string; tableIds: string[] }
 
 const STATUS_OPTIONS = [
   { value: 'CONFIRMED', label: 'CONFIRMED' },
@@ -31,6 +33,11 @@ const SOURCE_COLORS: Record<string, string> = {
 const STATUS_COLORS: Record<string, string> = {
   CONFIRMED: '#4ADE80', PENDING: '#FACC15', SEATED: '#60A5FA', COMPLETED: '#6B6B6B', CANCELLED: '#F87171', NO_SHOW: '#F87171',
 }
+
+const SLOT_W = 28
+const START_HOUR = 6
+const END_HOUR = 24
+const TOTAL_SLOTS = (END_HOUR - START_HOUR) * 4
 
 function formatDate(d: string) {
   const dt = new Date(d + 'T00:00:00')
@@ -65,6 +72,11 @@ export function BookingClient() {
   const [formNotes, setFormNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [availMsg, setAvailMsg] = useState('')
+  const [viewMode, setViewMode] = useState<'diary' | 'table'>('diary')
+  const [tableRows, setTableRows] = useState<TableRow[]>([])
+  const [tableBookings, setTableBookings] = useState<TableBooking[]>([])
+  const [tableLoading, setTableLoading] = useState(false)
+  const [resizeDrag, setResizeDrag] = useState<{ bookingId: string; startX: number; originalEndTime: string } | null>(null)
 
   const loadBookings = useCallback(async (d: string, vid: string) => {
     if (!vid) return
@@ -82,6 +94,18 @@ export function BookingClient() {
     setSetups(Array.isArray(data) ? data : [])
   }, [])
 
+  const loadTableData = useCallback(async (d: string, vid: string) => {
+    if (!vid || !d) return
+    setTableLoading(true)
+    const r = await fetch(`/api/admin/booking-tables?venueId=${vid}&date=${d}`)
+    if (r.ok) {
+      const data = await r.json()
+      setTableRows(data.tables ?? [])
+      setTableBookings(data.bookings ?? [])
+    }
+    setTableLoading(false)
+  }, [])
+
   useEffect(() => {
     fetch('/api/admin/venues').then((r) => r.json()).then((data: VenueLite[]) => {
       const vs = Array.isArray(data) ? data : []
@@ -95,8 +119,8 @@ export function BookingClient() {
   }, [])
 
   useEffect(() => {
-    if (venueId) { loadBookings(date, venueId); loadSetups(venueId) }
-  }, [date, venueId, loadBookings, loadSetups])
+    if (venueId) { loadBookings(date, venueId); loadSetups(venueId); loadTableData(date, venueId) }
+  }, [date, venueId, loadBookings, loadSetups, loadTableData])
 
   async function checkAvailability() {
     if (!formPartySize || !venueId) return
@@ -130,6 +154,25 @@ export function BookingClient() {
     setFormSource(b.source); setFormNotes(b.notes ?? '')
     setAvailMsg('')
     setShowModal(true)
+  }
+
+  function timeToMins(t: string) { const [h, m] = t.split(':').map(Number); return h * 60 + m }
+  function minsToTime(m: number) { return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}` }
+
+  function openCreateOnTable(startMins: number, endMins: number) {
+    setEditing(null)
+    setFormName(''); setFormPhone(''); setFormEmail('')
+    setFormPartySize('2'); setFormSource('PHONE'); setFormSetupId(''); setFormNotes(''); setAvailMsg('')
+    setFormStartTime(minsToTime(startMins)); setFormEndTime(minsToTime(endMins))
+    setShowModal(true)
+  }
+
+  async function resizeBooking(id: string, newEndTime: string) {
+    await fetch(`/api/admin/bookings/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endTime: newEndTime }),
+    })
+    loadBookings(date, venueId); loadTableData(date, venueId)
   }
 
   async function handleSave() {
@@ -188,7 +231,13 @@ export function BookingClient() {
     <div className="space-y-4 pb-12">
       <div className="flex items-center justify-between">
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">BOOKINGS</h1>
-        <Button size="sm" onClick={openCreate}>+ NEW BOOKING</Button>
+        <div className="flex items-center gap-2">
+          <div className="flex border border-grey-mid">
+            <button onClick={() => setViewMode('diary')} className={`font-mono text-[10px] uppercase px-3 py-1.5 ${viewMode === 'diary' ? 'bg-white text-black' : 'text-grey-light hover:text-white'}`}>DIARY</button>
+            <button onClick={() => setViewMode('table')} className={`font-mono text-[10px] uppercase px-3 py-1.5 ${viewMode === 'table' ? 'bg-white text-black' : 'text-grey-light hover:text-white'}`}>TABLE</button>
+          </div>
+          <Button size="sm" onClick={openCreate}>+ NEW BOOKING</Button>
+        </div>
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
@@ -210,6 +259,7 @@ export function BookingClient() {
         <span>{bookings.length} BOOKING{bookings.length !== 1 ? 'S' : ''} · {bookings.reduce((s, b) => s + b.partySize, 0)} PAX TOTAL</span>
       </div>
 
+      {viewMode === 'diary' && (<>
       {loading ? (
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
       ) : (
@@ -267,6 +317,148 @@ export function BookingClient() {
             })}
           </div>
         </div>
+      )}</> )}
+
+      {viewMode === 'table' && (() => {
+        const timeSlots2: string[] = []
+        for (let h = START_HOUR; h < END_HOUR; h++) { timeSlots2.push(`${String(h).padStart(2, '0')}:00`); timeSlots2.push(`${String(h).padStart(2, '0')}:15`); timeSlots2.push(`${String(h).padStart(2, '0')}:30`); timeSlots2.push(`${String(h).padStart(2, '0')}:45`) }
+
+        // Group tables by section
+        const sectionGroups = new Map<string, { name: string; colour: string | null; dept: { name: string; colour: string | null }; tables: TableRow[] }>()
+        for (const t of tableRows) {
+          const key = t.section?.id ?? '_unsorted'
+          if (!sectionGroups.has(key)) sectionGroups.set(key, { name: t.section?.name ?? 'UNSORTED', colour: t.section?.colour ?? null, dept: t.section?.department ?? { name: 'VENUE', colour: null }, tables: [] })
+          sectionGroups.get(key)!.tables.push(t)
+        }
+
+        return (
+          <div className="space-y-3">
+            {tableLoading ? <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p> : tableRows.length === 0 ? (
+              <p className="font-mono text-xs text-grey-light">NO TABLES FOUND. CREATE A FLOOR PLAN SETUP WITH TABLES FIRST.</p>
+            ) : (
+              <div className="border border-grey-mid overflow-auto max-h-[70vh]">
+                <div className="flex" style={{ minWidth: 140 + TOTAL_SLOTS * SLOT_W }}>
+                  {/* Left: section/table labels */}
+                  <div className="flex-shrink-0 bg-grey-dark border-r border-grey-mid sticky left-0 z-10" style={{ width: 140 }}>
+                    {/* Time header spacer */}
+                    <div className="h-7 border-b border-grey-mid px-2 flex items-center">
+                      <span className="font-mono text-[9px] uppercase text-grey-light tracking-wider">TABLE</span>
+                    </div>
+                    {Array.from(sectionGroups.entries()).map(([key, grp]) => (
+                      <div key={key}>
+                        <div className="px-2 py-0.5 border-b border-grey-mid font-mono text-[9px] font-bold uppercase text-grey-light" style={grp.colour ? { color: grp.colour } : {}}>
+                          {grp.name} <span className="font-normal text-grey-light/60">({grp.dept.name})</span>
+                        </div>
+                        {grp.tables.map((tbl) => {
+                          const label = tbl.assignedNumber || tbl.label || tbl.profile.name.slice(0, 6)
+                          return (
+                            <div key={tbl.id} className="h-8 border-b border-grey-mid/30 px-2 flex items-center">
+                              <span className="font-mono text-[10px] text-white truncate" title={`${tbl.profile.name} · CAP ${tbl.profile.capacity}`}>{label}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Right: time grid */}
+                  <div className="flex-1 relative" style={{ minWidth: TOTAL_SLOTS * SLOT_W }}>
+                    {/* Time header row */}
+                    <div className="flex sticky top-0 z-10 bg-grey-dark border-b border-grey-mid h-7">
+                      {timeSlots2.map((slot, i) => {
+                        const isHour = slot.endsWith(':00')
+                        const isHalf = slot.endsWith(':30')
+                        return (
+                          <div key={i} className={`flex-shrink-0 text-center border-r border-grey-mid/20 ${isHour ? 'border-r-grey-mid' : ''}`} style={{ width: SLOT_W }}>
+                            <span className={`font-mono text-[8px] ${isHour ? 'text-grey-light' : isHalf ? 'text-grey-light/40' : 'text-grey-light/20'}`}>{isHour || isHalf ? slot.slice(0, 5) : ''}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Table rows */}
+                    {Array.from(sectionGroups.values()).flatMap((grp) => grp.tables).map((tbl) => {
+                      // Find bookings that use this table
+                      const tblBookings = tableBookings.filter((b) => b.tableIds.includes(tbl.id))
+                      return (
+                        <div key={tbl.id} className="h-8 border-b border-grey-mid/30 relative">
+                          {/* Grid lines */}
+                          {timeSlots2.map((_, i) => {
+                            const isHour = timeSlots2[i].endsWith(':00')
+                            return <div key={i} className="absolute top-0 bottom-0 border-r" style={{ left: i * SLOT_W, borderColor: isHour ? '#2E2E2E' : 'rgba(46,46,46,0.3)' }} />
+                          })}
+
+                          {/* Booking blocks */}
+                          {tblBookings.map((b) => {
+                            const bStart = timeToMins(b.startTime)
+                            const bEnd = timeToMins(b.endTime)
+                            const gridStart = START_HOUR * 60
+                            const left = ((bStart - gridStart) / 15) * SLOT_W
+                            const width = ((bEnd - bStart) / 15) * SLOT_W
+                            const colour = STATUS_COLORS[b.status] || '#6B6B6B'
+                            return (
+                              <div
+                                key={b.id}
+                                className="absolute top-0.5 bottom-0.5 rounded-sm flex items-center px-1.5 cursor-pointer group z-10"
+                                style={{ left, width, backgroundColor: colour + '30', borderLeft: `2px solid ${colour}` }}
+                                onClick={() => {
+                                  const found = bookings.find((bk) => bk.id === b.id)
+                                  if (found) openEdit(found)
+                                }}
+                                title={`${b.contactName} · ${b.partySize} PAX · ${b.startTime}-${b.endTime}`}
+                              >
+                                <span className="font-mono text-[8px] text-white truncate leading-none">{b.contactName} {b.partySize}p</span>
+                                {/* Resize handle */}
+                                <div
+                                  className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/20"
+                                  onMouseDown={(e) => {
+                                    e.stopPropagation()
+                                    setResizeDrag({ bookingId: b.id, startX: e.clientX, originalEndTime: b.endTime })
+                                  }}
+                                />
+                              </div>
+                            )
+                          })}
+
+                          {/* Click on empty area to create */}
+                          <div className="absolute inset-0 z-0"
+                            onClick={(e) => {
+                              // Only if clicking directly on the row (not a booking)
+                              if ((e.target as HTMLElement).closest('.absolute.top-0\\.5')) return
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                              const x = e.clientX - rect.left
+                              const slotIdx = Math.floor(x / SLOT_W)
+                              const startMins = START_HOUR * 60 + slotIdx * 15
+                              openCreateOnTable(startMins, startMins + 120)
+                            }}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* Resize drag handler */}
+      {resizeDrag && (
+        <div
+          className="fixed inset-0 z-50 cursor-ew-resize"
+          onMouseMove={(e) => {
+            const deltaX = e.clientX - resizeDrag.startX
+            const deltaMins = Math.round(deltaX / SLOT_W) * 15
+            if (deltaMins === 0) return
+            const [h, m] = resizeDrag.originalEndTime.split(':').map(Number)
+            const newMins = Math.max(START_HOUR * 60 + 15, h * 60 + m + deltaMins)
+            const newTime = minsToTime(newMins)
+            resizeBooking(resizeDrag.bookingId, newTime)
+            setResizeDrag({ bookingId: resizeDrag.bookingId, startX: e.clientX, originalEndTime: newTime })
+          }}
+          onMouseUp={() => setResizeDrag(null)}
+        />
       )}
 
       {/* Create / Edit Modal */}

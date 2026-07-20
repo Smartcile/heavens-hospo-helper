@@ -1249,6 +1249,30 @@ pushing, run: `npm run lint && npm run test`.
 | `TableProfilesClient.tsx` — render, loading, fetch, headings, empty state, selection, form | ✅ (10 tests) |
 | `SetupInventoryPanel.tsx` — button states, shortage list, idle, empty, disabled | ✅ (7 tests) |
 
+## PRE-COMMIT CHECKLIST
+
+When the user signals intent to commit and test (e.g. "I'm going to commit",
+"time to push", "ready to test on live", "let's ship this"):
+
+1. **Run the quality gates:** `npm run lint && npm run build && npm run test`
+   - Lint: 0 errors expected (warnings are ok if pre-existing)
+   - Build: must compile all pages
+   - Tests: all passing (8 `@hospo-ops/db` failures in local vitest are a known
+     monorepo issue — they pass in CI with turborepo)
+
+2. **Produce a test checklist** — write it into `.test-checklist.md` (gitignored, local
+   only) as a markdown checkbox list. Group items by page (e.g. Admin → Settings,
+   Admin → Inventory, Worker → Training). Each item is one line: `- [ ] description`.
+   The user checks items off by typing `x`: `- [x] description`. Read the file
+   first to preserve any already-checked items.
+
+3. **Update the docs** (CLAUDE.md, ROADMAP.md, ECOSYSTEM.md) to reflect any
+   new models, API routes, design conventions, or feature phases.
+
+4. **GitHub Actions CI** — remind the user of the workflow fixes if relevant
+   (Prisma generate step, turbo test command). If the workflow file was changed
+   in this session, flag it.
+
 ## WHAT NOT TO DO
 
 - **NO hard deletes** — never call `prisma.model.delete()`. Always set `deletedAt`.

@@ -37,5 +37,5 @@ npm-debug.log*
 .vscode/
 .idea/
 
-# Docker
-*.pid
+# Test checklist (local dev only)
+.test-checklist.md

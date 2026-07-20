@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { exec } from 'child_process'
-import { writeFile, readFile, unlink } from 'fs/promises'
+import { writeFile, readFile, unlink, readdir, stat, mkdir } from 'fs/promises'
 import { randomUUID } from 'crypto'
-import path from 'path'
+import path, { join } from 'path'
 
 async function runCommand(cmd: string, timeout = 60_000): Promise<{ stdout: string; stderr: string; code: number | null }> {
   return new Promise((resolve, reject) => {
@@ -14,7 +14,23 @@ async function runCommand(cmd: string, timeout = 60_000): Promise<{ stdout: stri
   })
 }
 
-export async function GET(_req: NextRequest) {
+async function readUploads(): Promise<Record<string, string>> {
+  const files: Record<string, string> = {}
+  const uploadsDir = join(process.cwd(), 'public', 'uploads')
+  try {
+    const entries = await readdir(uploadsDir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.isFile()) {
+        const filePath = join(uploadsDir, entry.name)
+        const content = await readFile(filePath)
+        files[entry.name] = content.toString('base64')
+      }
+    }
+  } catch { /* uploads dir might not exist */ }
+  return files
+}
+
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session || session.user.role !== 'ADMIN') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -24,6 +40,8 @@ export async function GET(_req: NextRequest) {
   if (!dbUrl) {
     return NextResponse.json({ error: 'DATABASE_URL not configured' }, { status: 500 })
   }
+
+  const includeUploads = req.nextUrl.searchParams.get('uploads') === '1'
 
   try {
     // Try native pg_dump first (fast, handles all data types)
@@ -65,6 +83,7 @@ export async function GET(_req: NextRequest) {
       version: 1,
       exportedAt: new Date().toISOString(),
       data,
+      ...(includeUploads ? { uploads: await readUploads() } : {}),
     }, null, 2)
 
     return new NextResponse(json, {

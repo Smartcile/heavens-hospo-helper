@@ -137,6 +137,18 @@ export async function POST(req: NextRequest) {
       } catch { /* skip if model doesn't exist in current schema */ }
     }
 
+    // Restore uploaded files if present
+    if (backup.uploads && typeof backup.uploads === 'object') {
+      const uploadsDir = path.join(process.cwd(), 'public', 'uploads')
+      const { mkdir, writeFile } = await import('fs/promises')
+      await mkdir(uploadsDir, { recursive: true })
+      for (const [filename, base64] of Object.entries(backup.uploads)) {
+        if (typeof base64 === 'string') {
+          await writeFile(path.join(uploadsDir, filename), Buffer.from(base64, 'base64'))
+        }
+      }
+    }
+
     return NextResponse.json({ success: true, type: 'json', models: orderedModels.length })
   } catch (err: any) {
     return NextResponse.json({ error: `Restore failed: ${err.message}` }, { status: 500 })
