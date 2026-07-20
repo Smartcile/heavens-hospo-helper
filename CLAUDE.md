@@ -1260,16 +1260,29 @@ When the user signals intent to commit and test (e.g. "I'm going to commit",
    - Tests: all passing (8 `@hospo-ops/db` failures in local vitest are a known
      monorepo issue — they pass in CI with turborepo)
 
-2. **Produce a test checklist** — write it into `.test-checklist.md` (gitignored, local
-   only) as a markdown checkbox list. Group items by page (e.g. Admin → Settings,
-   Admin → Inventory, Worker → Training). Each item is one line: `- [ ] description`.
-   The user checks items off by typing `x`: `- [x] description`. Read the file
-   first to preserve any already-checked items.
+2. **Offer to prebuild the Docker image** so GitHub Actions only runs lint+test
+   as a gate, skipping the slow Docker build. Run `build-and-push.ps1` (gitignored)
+   if the user wants to push directly to GHCR. (Requires Docker running + GHCR login.)
 
-3. **Update the docs** (CLAUDE.md, ROADMAP.md, ECOSYSTEM.md) to reflect any
+3. **Produce a test checklist** — write it into `.test-checklist.md` (gitignored)
+   as a markdown checkbox list. Group items by page. The user uses these markers:
+
+   | Marker | Meaning |
+   |---|---|
+   | `- [x]` | Good — tested and works |
+   | `- [NO]` | Bad — broken, needs work |
+   | `- [DELETE]` | Feature should be removed |
+   | `- ` (dash, no bracket) | New item to add |
+   | Tab-indented line below an item | Note/comment on that item |
+
+   Read the file first to preserve existing progress. When all items are
+   marked `[x]` and notes are resolved, the file can be cleared — features
+   should be documented in CLAUDE.md before removal.
+
+4. **Update the docs** (CLAUDE.md, ROADMAP.md, ECOSYSTEM.md) to reflect any
    new models, API routes, design conventions, or feature phases.
 
-4. **GitHub Actions CI** — remind the user of the workflow fixes if relevant
+5. **GitHub Actions CI** — remind the user of the workflow fixes if relevant
    (Prisma generate step, turbo test command). If the workflow file was changed
    in this session, flag it.
 

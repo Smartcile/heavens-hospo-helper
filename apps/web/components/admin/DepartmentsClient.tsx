@@ -62,9 +62,13 @@ export function DepartmentsClient({ role, venueId }: { role: string; venueId: st
   function openCreate() {
     setEditing(null)
     const usedHexes = new Set(departments.map((d) => d.colour).filter(Boolean) as string[])
-    const avail = DEPT_COLOURS.filter((c) => !usedHexes.has(c.value))
-    const colour = avail.length ? avail[Math.floor(Math.random() * avail.length)].value : DEPT_COLOURS[Math.floor(Math.random() * DEPT_COLOURS.length)].value
-    setForm({ ...EMPTY_FORM, venueId: role === 'MANAGER' ? venueId : '', colour })
+    const avail = DEPT_COLOURS.filter((c) => !usedHexes.has(c.value) && c.value !== '#6B6B6B')
+    if (avail.length === 0) {
+      const fallback = DEPT_COLOURS.find((c) => !usedHexes.has(c.value))
+      setForm({ ...EMPTY_FORM, venueId: role === 'MANAGER' ? venueId : '', colour: fallback ? fallback.value : DEPT_COLOURS[Math.floor(Math.random() * DEPT_COLOURS.length)].value })
+    } else {
+      setForm({ ...EMPTY_FORM, venueId: role === 'MANAGER' ? venueId : '', colour: avail[Math.floor(Math.random() * avail.length)].value })
+    }
     setError('')
     setModalOpen(true)
   }

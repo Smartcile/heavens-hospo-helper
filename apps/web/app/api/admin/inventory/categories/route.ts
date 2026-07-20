@@ -26,7 +26,7 @@ const BUILT_IN: { name: string; tab: string | null; showDeepFields: boolean; sho
   { name: 'CROCKERY', tab: null, showDeepFields: false, showEquipmentFields: true },
   { name: 'CLEANING', tab: null, showDeepFields: false, showEquipmentFields: true },
   { name: 'MISCELLANEOUS', tab: null, showDeepFields: false, showEquipmentFields: true },
-  { name: 'FURNITURE', tab: null, showDeepFields: false, showEquipmentFields: true },
+  { name: 'TABLES', tab: null, showDeepFields: false, showEquipmentFields: true },
 ]
 
 const BUILT_IN_NAMES = BUILT_IN.map((b) => b.name)

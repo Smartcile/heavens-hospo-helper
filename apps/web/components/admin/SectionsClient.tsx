@@ -31,9 +31,10 @@ const DEPT_COLOURS = [
 ]
 
 function pickUnusedColour(usedHexes: Set<string>): string {
-  const available = DEPT_COLOURS.filter((c) => !usedHexes.has(c.value))
-  if (available.length === 0) return DEPT_COLOURS[Math.floor(Math.random() * DEPT_COLOURS.length)].value
-  return available[Math.floor(Math.random() * available.length)].value
+  const avail = DEPT_COLOURS.filter((c) => !usedHexes.has(c.value) && c.value !== '#6B6B6B')
+  if (avail.length > 0) return avail[Math.floor(Math.random() * avail.length)].value
+  const fallback = DEPT_COLOURS.find((c) => !usedHexes.has(c.value))
+  return fallback ? fallback.value : DEPT_COLOURS[Math.floor(Math.random() * DEPT_COLOURS.length)].value
 }
 
 export function SectionsClient({ role, venueId }: { role: string; venueId: string }) {

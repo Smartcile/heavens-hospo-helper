@@ -79,11 +79,12 @@ export async function GET(req: NextRequest) {
       } catch { /* table might not support raw query */ }
     }
 
+    const uploads = includeUploads ? await readUploads() : null
     const json = JSON.stringify({
       version: 1,
       exportedAt: new Date().toISOString(),
       data,
-      ...(includeUploads ? { uploads: await readUploads() } : {}),
+      ...(uploads ? { uploads } : {}),
     }, null, 2)
 
     return new NextResponse(json, {

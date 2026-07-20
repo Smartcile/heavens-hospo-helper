@@ -20,9 +20,9 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
       <select
         ref={ref}
         className={cn(
-          'bg-grey-dark border border-grey-mid text-white font-sans text-sm px-3 py-2 w-full outline-none focus:border-white transition-colors',
+          'bg-grey-dark border text-white font-sans text-sm px-3 py-2 w-full outline-none focus:border-white transition-colors',
           error ? 'border-danger' : '',
-          props.value && String(props.value) !== '' && !props.disabled ? 'border-[#60A5FA]' : '',
+          props.value && String(props.value) !== '' && !props.disabled ? 'border-[#60A5FA]' : 'border-grey-mid',
           className
         )}
         {...props}

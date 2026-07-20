@@ -27,7 +27,7 @@ interface LineItem {
 }
 
 interface Uom { id: string; name: string; baseUnit: string; conversionRatio: number }
-interface InvItem { id: string; name: string; unit: string; allergyInfo?: string | null }
+interface InvItem { id: string; name: string; unit: string; allergyInfo?: string | null; category?: { id: string; name: string; tab: string | null } }
 interface RecipeBrief { id: string; name: string }
 
 interface OrphanMenuItem {
@@ -59,9 +59,17 @@ export function RecipesClient() {
   const [wooCatInput, setWooCatInput] = useState('')
   const [formExistingMenuItemId, setFormExistingMenuItemId] = useState<string | null>(null)
   const [formDietaryInfo, setFormDietaryInfo] = useState<string[]>([])
-  const [allergenSearch, setAllergenSearch] = useState('')
+  const [allergenPopout, setAllergenPopout] = useState<{ allergen: string; source: string } | null>(null)
 
   const ALLERGENS = ['ALMOND','BARLEY','BRAZIL NUT','CASHEW','CRUSTACEAN','EGG','FISH','HAZELNUT','LUPIN','MACADAMIA','MILK','MOLLUSC','OATS','PEANUT','PECAN','PINE NUT','PISTACHIO','RYE','SESAME','SOY','SULPHITES','WALNUT','WHEAT']
+  const ALLERGEN_GROUPS: { label: string; items: string[] }[] = [
+    { label: 'DAIRY', items: ['MILK'] },
+    { label: 'EGGS', items: ['EGG'] },
+    { label: 'NUTS & SEEDS', items: ['ALMOND','BRAZIL NUT','CASHEW','HAZELNUT','LUPIN','MACADAMIA','PEANUT','PECAN','PINE NUT','PISTACHIO','WALNUT'] },
+    { label: 'GRAINS', items: ['BARLEY','OATS','RYE','WHEAT'] },
+    { label: 'SEAFOOD', items: ['CRUSTACEAN','FISH','MOLLUSC'] },
+    { label: 'OTHER', items: ['SESAME','SOY','SULPHITES'] },
+  ]
 
   const [uoms, setUoms] = useState<Uom[]>([])
   const [inventoryItems, setInventoryItems] = useState<InvItem[]>([])
@@ -244,10 +252,21 @@ export function RecipesClient() {
 
   const otherRecipes = allRecipes.filter((r) => r.id !== (isCreating ? undefined : selectedId))
 
-  const searchGroups = [
-    { label: 'INGREDIENTS', options: inventoryItems.map((i) => ({ value: i.id, label: i.name })) },
-    { label: 'SUB-RECIPES', options: otherRecipes.map((r) => ({ value: r.id, label: r.name })) },
-  ]
+  const searchGroups = (() => {
+    const groups: { label: string; options: { value: string; label: string }[] }[] = []
+    const byCat = new Map<string, { value: string; label: string }[]>()
+    for (const i of inventoryItems) {
+      const catName = i.category?.name ?? 'UNCATEGORISED'
+      const arr = byCat.get(catName) ?? []
+      arr.push({ value: i.id, label: i.name })
+      byCat.set(catName, arr)
+    }
+    for (const [cat, items] of byCat) {
+      groups.push({ label: cat, options: items })
+    }
+    if (otherRecipes.length > 0) groups.push({ label: 'SUB-RECIPES', options: otherRecipes.map((r) => ({ value: r.id, label: r.name })) })
+    return groups
+  })()
 
   const filteredRecipes = recipes.filter(r => !recipeSearch || r.name.includes(recipeSearch))
   const filteredOrphans = orphanItems.filter(o => !recipeSearch || o.name.includes(recipeSearch))
@@ -455,7 +474,6 @@ export function RecipesClient() {
                   {linkToMenu && (
                     <div>
                       <label className="font-mono text-xs uppercase text-grey-light block mb-2">ALLERGENS</label>
-                      {/* Inherited allergens (from ingredients — locked) */}
                       {(() => {
                         const inherited = computeRecipeAllergens(
                           lineItems.map((li) => ({
@@ -464,45 +482,39 @@ export function RecipesClient() {
                           })),
                           null,
                         ).filter((s) => s.inherited)
-                        if (inherited.length === 0) return null
-                        const unique = [...new Map(inherited.map((s) => [s.allergen, s])).values()]
+                        const inheritedMap = new Map(inherited.map((s) => [s.allergen, s]))
                         return (
-                          <div className="flex flex-wrap gap-1 mb-2">
-                            {unique.map((s) => (
-                              <span
-                                key={s.allergen}
-                                className="inline-flex items-center gap-1 font-mono text-[9px] uppercase px-1.5 py-0.5 border text-[#c4a530] border-[#c4a530]/50 bg-[#c4a530]/10"
-                                title={`FROM: ${s.source}`}
-                              >
-                                ⚿ {s.allergen}
-                              </span>
+                          <div className="space-y-2">
+                            {ALLERGEN_GROUPS.map((grp) => (
+                              <div key={grp.label}>
+                                <div className="font-mono text-[8px] uppercase text-grey-light mb-1 pl-0.5">{grp.label}</div>
+                                <div className="flex flex-wrap gap-1">
+                                  {grp.items.filter((a) => ALLERGENS.includes(a)).map((a) => {
+                                    const inh = inheritedMap.get(a as any)
+                                    const selected = formDietaryInfo.includes(a)
+                                    if (inh) {
+                                      return (
+                                        <span key={a} onClick={() => setAllergenPopout({ allergen: a, source: inh.source })} className="inline-flex items-center gap-1 font-mono text-[9px] uppercase px-1.5 py-0.5 border cursor-pointer bg-[#c4a530]/10 text-[#c4a530] border-[#c4a530]/50 hover:border-[#c4a530]">
+                                          ⚿ {a}
+                                        </span>
+                                      )
+                                    }
+                                    return (
+                                      <button key={a} type="button"
+                                        onClick={() => setFormDietaryInfo((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a])}
+                                        className={`font-mono text-[9px] uppercase px-1.5 py-0.5 border transition-colors ${
+                                          selected ? 'bg-white text-black border-white' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
+                                        }`}>
+                                        {a}
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              </div>
                             ))}
                           </div>
                         )
                       })()}
-                      {/* Search filter */}
-                      <input
-                        value={allergenSearch}
-                        onChange={(e) => setAllergenSearch(e.target.value.toUpperCase())}
-                        placeholder="FILTER ALLERGENS..."
-                        className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white placeholder:text-grey-light mb-2"
-                      />
-                      <div className="flex flex-wrap gap-1.5">
-                        {ALLERGENS.filter((a) => !allergenSearch || a.includes(allergenSearch)).map((a) => (
-                          <button
-                            key={a}
-                            type="button"
-                            onClick={() => setFormDietaryInfo((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a])}
-                            className={`font-mono text-[10px] px-2 py-1 border transition-colors uppercase ${
-                              formDietaryInfo.includes(a)
-                                ? 'bg-white text-black border-white'
-                                : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
-                            }`}
-                          >
-                            {a}
-                          </button>
-                        ))}
-                      </div>
                     </div>
                   )}
                 </div>
@@ -547,6 +559,22 @@ export function RecipesClient() {
             </div>
           )
         })()}
+      </Modal>
+
+      <Modal isOpen={allergenPopout != null} onClose={() => setAllergenPopout(null)} title="ALLERGEN SOURCE" size="sm">
+        {allergenPopout && (
+          <div className="space-y-3">
+            <div className="border border-[#c4a530]/50 bg-[#c4a530]/10 px-3 py-2 font-mono text-sm uppercase text-[#c4a530]">
+              ⚿ {allergenPopout.allergen}
+            </div>
+            <p className="font-mono text-xs text-grey-light">THIS ALLERGEN IS INHERITED FROM AN INGREDIENT AND CANNOT BE REMOVED.</p>
+            <div className="border border-grey-mid p-3">
+              <div className="font-mono text-[10px] uppercase text-grey-light mb-1">SOURCE CHAIN</div>
+              <div className="font-mono text-xs text-white">{allergenPopout.source}</div>
+            </div>
+            <Button variant="ghost" onClick={() => setAllergenPopout(null)}>CLOSE</Button>
+          </div>
+        )}
       </Modal>
     </div>
   )

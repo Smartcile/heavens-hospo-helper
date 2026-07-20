@@ -36,9 +36,17 @@ export function InventoryClient() {
   const [stockLoading, setStockLoading] = useState(false)
   const [showNewCat, setShowNewCat] = useState(false)
   const [newCatName, setNewCatName] = useState('')
+  const [showCatModal, setShowCatModal] = useState(false)
+  const [editingCat, setEditingCat] = useState<Category | null>(null)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [showCatDropdown, setShowCatDropdown] = useState(false)
-  const [activeTab, setActiveTab] = useState<'FOOD' | 'BEVERAGE' | 'OTHER'>('OTHER')
+  const [activeTab, setActiveTab] = useState<'FOOD' | 'BEVERAGE' | 'OTHER'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('hospo-inventory-tab')
+      if (saved === 'FOOD' || saved === 'BEVERAGE' || saved === 'OTHER') return saved
+    }
+    return 'OTHER'
+  })
   const [uoms, setUoms] = useState<Uom[]>([])
 
   // Property editor (non-furniture items)
@@ -75,6 +83,8 @@ export function InventoryClient() {
   const [formMaintenanceNotes, setFormMaintenanceNotes] = useState('')
   const [formSupplierId, setFormSupplierId] = useState('')
   const [showEquipmentFields, setShowEquipmentFields] = useState(true)
+  const [catShowDeep, setCatShowDeep] = useState(false)
+  const [catShowEquip, setCatShowEquip] = useState(false)
   const [formUploadingImg, setFormUploadingImg] = useState(false)
   const [sections, setSections] = useState<SectionLite[]>([])
   const [suppliers, setSuppliers] = useState<SupplierLite[]>([])
@@ -116,6 +126,8 @@ export function InventoryClient() {
     const itemCat = categories.find((c) => c.id === item.categoryId)
     setShowDeepFields(itemCat?.showDeepFields ?? false)
     setShowEquipmentFields(itemCat?.showEquipmentFields ?? false)
+    setCatShowDeep(itemCat?.showDeepFields ?? (itemCat?.tab === 'FOOD' || itemCat?.tab === 'BEVERAGE'))
+    setCatShowEquip(itemCat?.showEquipmentFields ?? (itemCat?.tab == null))
   }
 
   async function load() {
@@ -307,7 +319,7 @@ export function InventoryClient() {
 
   function startCreate(catId: string) {
     const cat = categories.find((c) => c.id === catId)
-    if (cat?.name === 'FURNITURE') {
+    if (cat?.name === 'TABLES') {
       setEditProfileId(null)
       setShowTableProfile(true)
     } else {
@@ -317,6 +329,8 @@ export function InventoryClient() {
       setShowCatDropdown(false)
       setShowDeepFields(cat?.showDeepFields ?? false)
       setShowEquipmentFields(cat?.showEquipmentFields ?? false)
+      setCatShowDeep(cat?.showDeepFields ?? (cat?.tab === 'FOOD' || cat?.tab === 'BEVERAGE'))
+      setCatShowEquip(cat?.showEquipmentFields ?? (cat?.tab == null))
     }
   }
 
@@ -348,29 +362,15 @@ export function InventoryClient() {
         <div className="flex items-center gap-2">
           <div className="flex items-center border border-grey-mid">
             {([['FOOD', 'FOOD'], ['BEVERAGE', 'BEVERAGE'], ['OTHER', 'OTHER']] as const).map(([key, label]) => (
-              <button key={key} onClick={() => setActiveTab(key)}
+              <button key={key} onClick={() => { setActiveTab(key); localStorage.setItem('hospo-inventory-tab', key) }}
                 className={`font-mono text-[10px] uppercase px-3 py-1.5 border-r border-grey-mid last:border-r-0 ${activeTab === key ? 'bg-grey-mid/30 text-white' : 'text-grey-light hover:text-white'}`}>
                 {label}
               </button>
             ))}
           </div>
-          <Button size="sm" onClick={() => setShowNewCat(!showNewCat)} variant="ghost">+ CATEGORY</Button>
+          <Button size="sm" onClick={() => { setEditingCat(null); setNewCatName(''); setNewCatTab('FOOD'); setShowCatModal(true) }} variant="ghost">+ CATEGORY</Button>
         </div>
       </div>
-
-      {showNewCat && (
-        <div className="border border-grey-mid p-4 flex gap-2 items-center flex-wrap">
-          <Input value={newCatName} onChange={(e) => setNewCatName(e.target.value.toUpperCase())} placeholder="CATEGORY NAME" className="flex-1 min-w-[200px]" />
-          <select value={newCatTab} onChange={(e) => setNewCatTab(e.target.value)}
-            className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-hidden">
-            <option value="FOOD">FOOD TAB</option>
-            <option value="BEVERAGE">BEVERAGE TAB</option>
-            <option value="OTHER">OTHER TAB</option>
-          </select>
-          <Button size="sm" onClick={addCategory} disabled={!newCatName}>CREATE</Button>
-          <Button size="sm" variant="ghost" onClick={() => setShowNewCat(false)}>CANCEL</Button>
-        </div>
-      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left: Expandable category boxes */}
@@ -395,7 +395,7 @@ export function InventoryClient() {
           {tabCategories.map((cat) => {
             const catItemList = catItems.get(cat.id) ?? []
             const isCollapsed = collapsed.has(cat.name)
-            const isFurniture = cat.name === 'FURNITURE'
+            const isFurniture = cat.name === 'TABLES'
             return (
               <div key={cat.id} className="border border-grey-mid">
                 <div className="flex items-center">
@@ -410,6 +410,10 @@ export function InventoryClient() {
                   <button onClick={(e) => { e.stopPropagation(); startCreate(cat.id) }}
                     className="font-mono text-[10px] uppercase text-grey-light hover:text-white px-3 py-2 border-l border-grey-mid">
                     {isFurniture ? '+ ADD TABLE' : '+ ADD'}
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); setEditingCat(cat); setNewCatName(cat.name); setNewCatTab(cat.tab ?? 'OTHER'); setShowCatModal(true) }}
+                    className="font-mono text-[10px] uppercase text-[#c4a530] hover:text-white px-2 py-2 border-l border-grey-mid">
+                    EDIT
                   </button>
                 </div>
 
@@ -570,6 +574,36 @@ export function InventoryClient() {
         </div>
       </div>
 
+      <Modal isOpen={showCatModal} onClose={() => setShowCatModal(false)} title={editingCat ? 'EDIT CATEGORY' : 'NEW CATEGORY'} size="sm">
+        <div className="space-y-3">
+          <Input value={newCatName} onChange={(e) => setNewCatName(e.target.value.toUpperCase())} placeholder="CATEGORY NAME" />
+          <Select label="TAB" value={newCatTab} onChange={(e) => setNewCatTab(e.target.value)}
+            options={[{ value: 'FOOD', label: 'FOOD' }, { value: 'BEVERAGE', label: 'BEVERAGE' }, { value: 'OTHER', label: 'OTHER' }]} />
+          <div className="flex flex-wrap gap-2">
+            <label className="flex items-center gap-1 cursor-pointer">
+              <input type="checkbox" checked={!showDeepFields} onChange={(e) => setShowDeepFields(!e.target.checked)} className="accent-white" />
+              <span className="font-mono text-[10px] uppercase text-grey-light">DEEP INVENTORY FIELDS</span>
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer">
+              <input type="checkbox" checked={showEquipmentFields} onChange={(e) => setShowEquipmentFields(e.target.checked)} className="accent-white" />
+              <span className="font-mono text-[10px] uppercase text-grey-light">EQUIPMENT / TOOL TRACKING</span>
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={async () => {
+              if (!newCatName) return
+              if (editingCat) {
+                await fetch(`/api/admin/inventory/categories/${editingCat.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName, tab: newCatTab === 'OTHER' ? null : newCatTab, showDeepFields: !showDeepFields, showEquipmentFields }) })
+              } else {
+                await fetch('/api/admin/inventory/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName, tab: newCatTab === 'OTHER' ? null : newCatTab, showDeepFields: !showDeepFields, showEquipmentFields }) })
+              }
+              setShowCatModal(false); load()
+            }} disabled={!newCatName}>{editingCat ? 'SAVE' : 'CREATE'}</Button>
+            <Button variant="ghost" onClick={() => setShowCatModal(false)}>CANCEL</Button>
+          </div>
+        </div>
+      </Modal>
+
       <Modal isOpen={selectedItem != null || isCreating} onClose={() => { setSelectedItem(null); setIsCreating(false); resetForm() }} title={isCreating ? 'NEW ITEM' : 'EDIT ITEM'} size="lg">
         <div className="space-y-3">
           <div className="grid grid-cols-6 gap-2">
@@ -593,11 +627,13 @@ export function InventoryClient() {
               <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
             </div>
           </div>
-          <button onClick={() => setShowDeepFields(!showDeepFields)}
-            className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
-            {showDeepFields ? '▾ DEEP INVENTORY' : '▸ DEEP INVENTORY'}
-          </button>
-          {showDeepFields && (
+          {catShowDeep && (
+            <button onClick={() => setShowDeepFields(!showDeepFields)}
+              className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
+              {showDeepFields ? '▾ DEEP INVENTORY' : '▸ DEEP INVENTORY'}
+            </button>
+          )}
+          {catShowDeep && showDeepFields && (
             <div className="grid grid-cols-6 gap-2 border-t border-grey-mid pt-3">
               <div className="col-span-3">
                 <Select label="COUNTING UOM" value={formCountingUnitId} onChange={(e) => setFormCountingUnitId(e.target.value)}

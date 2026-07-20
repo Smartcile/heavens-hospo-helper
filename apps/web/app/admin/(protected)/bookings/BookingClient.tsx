@@ -228,7 +228,7 @@ export function BookingClient() {
   }
 
   return (
-    <div className="space-y-4 pb-12">
+    <div className="space-y-4 pb-12 p-4 md:p-6">
       <div className="flex items-center justify-between">
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">BOOKINGS</h1>
         <div className="flex items-center gap-2">
