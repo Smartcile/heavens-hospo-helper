@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useMemo } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { Combobox } from '@/components/ui/Combobox'
 import {
   PALETTE_ITEMS,
   computeSectionSummary, type PaletteItem, type ElementData,
@@ -31,7 +32,7 @@ interface SectionZone {
   label?: string
 }
 
-interface Section { id: string; name: string; colour: string | null; departmentId: string }
+interface Section { id: string; name: string; colour: string | null; departmentId: string; department?: { id: string; name: string; colour: string | null } }
 
 interface FullPlan {
   id: string; name: string; slug: string; isDefault: boolean
@@ -64,6 +65,10 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [showInvTab, setShowInvTab] = useState(false)
   const [zones, setZones] = useState<SectionZone[]>([])
   const [zoneDrawing, setZoneDrawing] = useState(false)
+  const [zonePolyMode, setZonePolyMode] = useState(false)
+  const [zonePolyPoints, setZonePolyPoints] = useState<{ x: number; y: number }[]>([])
+  const [wallDrawing, setWallDrawing] = useState(false)
+  const [wallPoints, setWallPoints] = useState<{ x: number; y: number }[]>([])
   const [zoneDrawStart, setZoneDrawStart] = useState<{ x: number; y: number } | null>(null)
   const [zoneDrawRect, setZoneDrawRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [zoneSectionId, setZoneSectionId] = useState(sections[0]?.id ?? '')
@@ -106,6 +111,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [setups, setSetups] = useState<{ id: string; name: string; eventDate?: string }[]>([])
   const [activeSetupId, setActiveSetupId] = useState<string | null>(null)
   const [setupItems, setSetupItems] = useState<SetupItemInput[]>([])
+  const [ghostItems, setGhostItems] = useState<SetupItemInput[]>([])
   const [setupSelectedIds, setSetupSelectedIds] = useState<string[]>([])
   const [tableProfiles, setTableProfiles] = useState<TableProfileView[]>([])
   const [sectionBoundaries, setSectionBoundaries] = useState<SectionBoundaryP[]>([])
@@ -115,6 +121,17 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
   type HistorySnapshot = { elements: ElementData[]; setupItems: SetupItemInput[]; zones: SectionZone[] }
   const historyRef = useRef<{ past: HistorySnapshot[]; future: HistorySnapshot[] }>({ past: [], future: [] })
+
+  // Load ghost tables from first setup for base plan preview
+  useEffect(() => {
+    if (!activeSetupId && setups.length > 0 && plan) {
+      const firstSetupId = setups[0].id
+      fetch(`/api/admin/floorplan/${plan.id}/setups/${firstSetupId}/items`)
+        .then(r => r.ok ? r.json() : [])
+        .then(items => setGhostItems(Array.isArray(items) ? items : []))
+        .catch(() => setGhostItems([]))
+    }
+  }, [activeSetupId, setups, plan])
 
   function snapshot(): HistorySnapshot {
     return {
@@ -526,6 +543,16 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   }
 
   async function handleSave() {
+    // Check for overlapping section zones
+    for (let i = 0; i < zones.length; i++) {
+      for (let j = i + 1; j < zones.length; j++) {
+        const a = zones[i]; const b = zones[j]
+        if (a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y) {
+          pushToast(`ZONES "${sectionMap.get(a.sectionId)?.name ?? '?'}" AND "${sectionMap.get(b.sectionId)?.name ?? '?'}" OVERLAP`, 'error')
+          setSaving(false); return
+        }
+      }
+    }
     setSaving(true)
     const inventoryLinks: { elementId: string; itemId: string; quantity?: number; remove?: boolean }[] = []
     const saveElements = elements.map((el) => {
@@ -824,6 +851,13 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             }}
               className={`font-mono text-[10px] uppercase px-2 py-1 border ${zoneDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
               SECTIONS {zoneDrawing ? '· ON' : ''}
+            </button>
+            <button onClick={() => {
+              if (wallDrawing) { setWallDrawing(false); setWallPoints([]) }
+              else { setWallDrawing(true); setZoneDrawing(false); setBoothPainting(false) }
+            }}
+              className={`font-mono text-[10px] uppercase px-2 py-1 border ${wallDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
+              WALLS {wallDrawing ? '· ON' : ''}
             </button>
             <button onClick={() => {
               if (boothPainting) { setBoothPainting(false); boothCellsRef.current.clear(); setBoothPaintKey(k => k + 1) }
@@ -1272,8 +1306,20 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               colour: tableProfiles.find(tp => tp.id === i.tableProfileId)?.colour ?? '#555',
               chairCount: tableProfiles.find(tp => tp.id === i.tableProfileId)?.chairCount ?? 0,
               chairEdges: i.chairEdges ?? null,
-            })) : undefined}
+            })) : (ghostItems.length > 0 ? ghostItems.map(i => ({
+              ...i,
+              colour: tableProfiles.find(tp => tp.id === i.tableProfileId)?.colour ?? '#555',
+              chairCount: tableProfiles.find(tp => tp.id === i.tableProfileId)?.chairCount ?? 0,
+              chairEdges: i.chairEdges ?? null,
+            })) : undefined)}
             setupSelectedIds={activeSetupId ? setupSelectedIds : []}
+            ghostMode={!activeSetupId && setups.length > 0}
+            wallDrawing={wallDrawing}
+            wallPoints={wallPoints}
+            onWallPoint={(x, y) => setWallPoints((prev) => [...prev, { x: Math.round(x), y: Math.round(y) }])}
+            zonePolyMode={zonePolyMode}
+            zonePolyPoints={zonePolyPoints}
+            onZonePolyAdd={(x, y) => setZonePolyPoints((prev) => [...prev, { x: Math.round(x), y: Math.round(y) }])}
             onSetupItemClick={(id, ctrlKey) => {
               if (!id) { setSetupSelectedIds([]); return }
               setSetupSelectedIds(prev =>
@@ -1295,6 +1341,36 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
         {/* Right panel — always rendered */}
         <div className="w-56 flex-shrink-0 border-l border-grey-mid overflow-y-auto bg-grey-dark p-3 space-y-3">
+          {wallDrawing && (
+            <div className="border border-[#4488FF] p-3 space-y-2">
+              <h2 className="font-mono text-xs font-bold text-[#4488FF] uppercase tracking-wider">WALL DRAWING</h2>
+              <p className="font-mono text-[10px] text-grey-light">{wallPoints.length} POINT{wallPoints.length !== 1 ? 'S' : ''}</p>
+              <div className="flex gap-1">
+                <Button size="sm" onClick={() => {
+                  pushHistory()
+                  const newElements: ElementData[] = []
+                  for (let i = 0; i < wallPoints.length - 1; i++) {
+                    const a = wallPoints[i]; const b = wallPoints[i + 1]
+                    newElements.push({
+                      id: `w-${Math.random().toString(36).slice(2)}`, type: 'WALL', shape: 'LINE',
+                      x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+                      width: Math.abs(b.x - a.x) || 5,
+                      depth: Math.abs(b.y - a.y) || 5,
+                      rotation: 0, fillColour: '#4488FF', opacity: 1, zIndex: 0, sortOrder: 0, isActive: true,
+                      label: '',
+                    })
+                  }
+                  setElements((prev) => [...prev, ...newElements])
+                  setWallDrawing(false); setWallPoints([])
+                }} disabled={wallPoints.length < 2}>
+                  SAVE WALLS
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => { setWallDrawing(false); setWallPoints([]) }}>
+                  CANCEL
+                </Button>
+              </div>
+            </div>
+          )}
           <SetupInventoryPanel
             activeSetupId={activeSetupId}
             shortages={shortages}
@@ -1622,23 +1698,65 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           ) : zoneDrawing ? (
             <>
               <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider">SECTION ZONES</h2>
-              <p className="font-mono text-[10px] text-grey-light">Drag on canvas to draw or move zones.</p>
-              <Select label="Section" value={zoneSectionId}
-                onChange={(e) => setZoneSectionId(e.target.value)}
-                options={sections.map((s) => ({ value: s.id, label: s.name }))} />
+              <p className="font-mono text-[10px] text-grey-light">Draw zones on canvas. Toggle POLYGON for custom shapes.</p>
+              <Button size="sm" variant="ghost" onClick={() => { setZonePolyMode(!zonePolyMode); setZonePolyPoints([]) }}
+                className={zonePolyMode ? 'border-accent text-accent' : ''}>
+                {zonePolyMode ? 'POLYGON · ON' : 'POLYGON'}
+              </Button>
+              {zonePolyMode && (
+                <div className="border border-accent/30 p-2 space-y-1">
+                  <p className="font-mono text-[9px] text-grey-light">{zonePolyPoints.length} VERTEX{zonePolyPoints.length !== 1 ? 'TICES' : ''}</p>
+                  <div className="flex gap-1">
+                    <Button size="sm" onClick={() => {
+                      if (zonePolyPoints.length < 3) return
+                      const xs = zonePolyPoints.map((p) => p.x); const ys = zonePolyPoints.map((p) => p.y)
+                      const id = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)
+                      setZones((prev) => [...prev, {
+                        id, sectionId: zoneSectionId,
+                        x: Math.min(...xs), y: Math.min(...ys),
+                        width: Math.max(...xs) - Math.min(...xs),
+                        height: Math.max(...ys) - Math.min(...ys),
+                        vertices: zonePolyPoints.map((p) => ({ x: p.x - Math.min(...xs), y: p.y - Math.min(...ys) })),
+                      }])
+                      setZonePolyPoints([]); setZonePolyMode(false)
+                    }} disabled={zonePolyPoints.length < 3}>SAVE</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setZonePolyMode(false); setZonePolyPoints([]) }}>CANCEL</Button>
+                  </div>
+                </div>
+              )}
+              <Combobox label="Section"
+                options={sections.map((s) => ({ value: s.id, label: s.name }))}
+                selected={zoneSectionId ? [zoneSectionId] : []}
+                onChange={(ids) => setZoneSectionId(ids[0] || '')}
+                placeholder="Search sections..."
+                multiple={false}
+              />
               <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
-                {zones.map((z) => {
-                  const sec = sectionMap.get(z.sectionId)
-                  return (
-                    <div key={z.id} onClick={() => setSelectedZoneId(z.id)}
-                      className={`flex items-center gap-2 p-1.5 cursor-pointer font-mono text-[10px] ${z.id === selectedZoneId ? 'bg-grey-mid text-white' : 'text-grey-light hover:text-white'}`}>
-                      <div className="w-3 h-3 flex-shrink-0" style={{ backgroundColor: sec?.colour ?? '#666' }} />
-                      <span className="truncate flex-1">{sec?.name ?? '?'}</span>
-                      <span>{Math.round(z.width)}×{Math.round(z.height)}</span>
+                {(() => {
+                  const deptMap = new Map<string, { name: string; zones: typeof zones }>()
+                  for (const z of zones) {
+                    const sec = sectionMap.get(z.sectionId)
+                    const deptName = sec?.department?.name ?? sec?.departmentId ?? 'UNSORTED'
+                    if (!deptMap.has(deptName)) deptMap.set(deptName, { name: deptName, zones: [] })
+                    deptMap.get(deptName)!.zones.push(z)
+                  }
+                  return Array.from(deptMap.entries()).map(([dept, grp]) => (
+                    <div key={dept}>
+                      <div className="font-mono text-[8px] uppercase text-grey-light px-1 py-0.5 border-b border-grey-mid/30">{dept}</div>
+                      {grp.zones.map((z) => {
+                        const sec = sectionMap.get(z.sectionId)
+                        return (
+                          <div key={z.id} onClick={() => setSelectedZoneId(z.id)}
+                            className={`flex items-center gap-2 p-1.5 cursor-pointer font-mono text-[10px] ${z.id === selectedZoneId ? 'bg-grey-mid text-white' : 'text-grey-light hover:text-white'}`}>
+                            <div className="w-3 h-3 flex-shrink-0" style={{ backgroundColor: sec?.colour ?? '#666' }} />
+                            <span className="truncate flex-1">{sec?.name ?? '?'}</span>
+                            <span>{Math.round(z.width)}×{Math.round(z.height)}</span>
+                          </div>
+                        )
+                      })}
                     </div>
-                  )
-                })}
-                {zones.length === 0 && <p className="font-mono text-[10px] text-grey-light italic">No zones yet</p>}
+                  ))
+                })()}
               </div>
               {selectedZoneId && (() => {
                 const z = zones.find((x) => x.id === selectedZoneId)

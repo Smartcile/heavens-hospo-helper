@@ -231,7 +231,7 @@ export function RecipesClient() {
       wooProductId: linkToMenu ? (formWooProductId || null) : undefined,
       wooCategoryId: linkToMenu ? (formWooCategories.length > 0 ? formWooCategories.join(', ') : null) : undefined,
       existingMenuItemId: formExistingMenuItemId || undefined,
-      dietaryInfo: linkToMenu ? (formDietaryInfo.length > 0 ? formDietaryInfo.join(',') : null) : undefined,
+      dietaryInfo: formDietaryInfo.length > 0 ? formDietaryInfo.join(',') : null,
     }
     if (isCreating) {
       const r = await fetch('/api/admin/recipes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -422,12 +422,57 @@ export function RecipesClient() {
                   </div>
                 </div>
 
-                {/* Menu Item Link */}
+                {/* Allergens */}
+                <div className="border border-grey-mid p-3 space-y-1.5">
+                  <label className="font-mono text-xs uppercase text-grey-light block">ALLERGENS</label>
+                  {(() => {
+                    const inherited = computeRecipeAllergens(
+                      lineItems.map((li) => ({
+                        type: li.inventoryItemId ? 'inventory' as const : 'recipe' as const,
+                        item: { id: li.inventoryItemId ?? li.childRecipeId ?? '', name: li.inventoryItemName ?? li.childRecipeName ?? '', allergyInfo: li.allergyInfo ?? null },
+                      })),
+                      null,
+                    ).filter((s) => s.inherited)
+                    const inheritedMap = new Map(inherited.map((s) => [s.allergen, s]))
+                    return (
+                      <div className="space-y-1.5">
+                        {ALLERGEN_GROUPS.map((grp) => (
+                          <div key={grp.label}>
+                            <div className="font-mono text-[8px] uppercase text-grey-light mb-0.5 pl-0.5">{grp.label}</div>
+                            <div className="flex flex-wrap gap-1">
+                              {grp.items.filter((a) => ALLERGENS.includes(a)).map((a) => {
+                                const inh = inheritedMap.get(a as any)
+                                const selected = formDietaryInfo.includes(a)
+                                if (inh) {
+                                  return (
+                                    <span key={a} onClick={() => setAllergenPopout({ allergen: a, source: inh.source })} className="inline-flex items-center gap-1 font-mono text-[9px] uppercase px-1.5 py-0.5 border cursor-pointer bg-[#c4a530]/10 text-[#c4a530] border-[#c4a530]/50 hover:border-[#c4a530]">
+                                      ⚿ {a}
+                                    </span>
+                                  )
+                                }
+                                return (
+                                  <button key={a} type="button"
+                                    onClick={() => setFormDietaryInfo((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a])}
+                                    className={`font-mono text-[9px] uppercase px-1.5 py-0.5 border transition-colors ${selected ? 'bg-[#c4a530]/10 text-[#c4a530] border-[#c4a530]/50' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
+                                      }`}>
+                                    {selected ? '✓ ' : ''}{a}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })()}
+                </div>
+
+                {/* Link to WooCommerce */}
                 <div className="border border-grey-mid p-3 space-y-3">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={linkToMenu} onChange={(e) => setLinkToMenu(e.target.checked)}
                       className="bg-black border border-grey-mid accent-white" />
-                    <span className="font-mono text-xs uppercase text-white">LINK TO MENU</span>
+                    <span className="font-mono text-xs uppercase text-white">LINK TO WOO</span>
                     {linkToMenu && <span className="font-mono text-[10px] text-grey-light">(APPEARS ON WOOCOMMERCE)</span>}
                   </label>
                   {linkToMenu && (
@@ -450,8 +495,7 @@ export function RecipesClient() {
                                 className="text-grey-light hover:text-danger text-xs leading-none">×</button>
                             </span>
                           ))}
-                          <input
-                            value={wooCatInput}
+                          <input value={wooCatInput}
                             onChange={(e) => {
                               const v = e.target.value
                               if (v.endsWith(',')) {
@@ -461,66 +505,14 @@ export function RecipesClient() {
                               } else { setWooCatInput(v) }
                             }}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault()
-                                const tag = wooCatInput.trim().toUpperCase()
-                                if (tag && !formWooCategories.includes(tag)) setFormWooCategories(prev => [...prev, tag])
-                                setWooCatInput('')
-                              } else if (e.key === 'Backspace' && !wooCatInput && formWooCategories.length > 0) {
-                                setFormWooCategories(prev => prev.slice(0, -1))
-                              }
+                              if (e.key === 'Enter') { e.preventDefault(); const tag = wooCatInput.trim().toUpperCase(); if (tag && !formWooCategories.includes(tag)) setFormWooCategories(prev => [...prev, tag]); setWooCatInput('') }
+                              else if (e.key === 'Backspace' && !wooCatInput && formWooCategories.length > 0) { setFormWooCategories(prev => prev.slice(0, -1)) }
                             }}
                             placeholder={formWooCategories.length === 0 ? 'TYPE CATEGORY, PRESS ENTER...' : ''}
                             className="flex-1 min-w-[120px] bg-transparent border-none outline-hidden text-white font-mono text-xs placeholder:text-grey-light"
                           />
                         </div>
                       </div>
-                    </div>
-                  )}
-                  {linkToMenu && (
-                    <div>
-                      <label className="font-mono text-xs uppercase text-grey-light block mb-2">ALLERGENS</label>
-                      {(() => {
-                        const inherited = computeRecipeAllergens(
-                          lineItems.map((li) => ({
-                            type: li.inventoryItemId ? 'inventory' as const : 'recipe' as const,
-                            item: { id: li.inventoryItemId ?? li.childRecipeId ?? '', name: li.inventoryItemName ?? li.childRecipeName ?? '', allergyInfo: li.allergyInfo ?? null },
-                          })),
-                          null,
-                        ).filter((s) => s.inherited)
-                        const inheritedMap = new Map(inherited.map((s) => [s.allergen, s]))
-                        return (
-                          <div className="space-y-2">
-                            {ALLERGEN_GROUPS.map((grp) => (
-                              <div key={grp.label}>
-                                <div className="font-mono text-[8px] uppercase text-grey-light mb-1 pl-0.5">{grp.label}</div>
-                                <div className="flex flex-wrap gap-1">
-                                  {grp.items.filter((a) => ALLERGENS.includes(a)).map((a) => {
-                                    const inh = inheritedMap.get(a as any)
-                                    const selected = formDietaryInfo.includes(a)
-                                    if (inh) {
-                                      return (
-                                        <span key={a} onClick={() => setAllergenPopout({ allergen: a, source: inh.source })} className="inline-flex items-center gap-1 font-mono text-[9px] uppercase px-1.5 py-0.5 border cursor-pointer bg-[#c4a530]/10 text-[#c4a530] border-[#c4a530]/50 hover:border-[#c4a530]">
-                                          ⚿ {a}
-                                        </span>
-                                      )
-                                    }
-                                    return (
-                                      <button key={a} type="button"
-                                        onClick={() => setFormDietaryInfo((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a])}
-                                        className={`font-mono text-[9px] uppercase px-1.5 py-0.5 border transition-colors ${
-                                          selected ? 'bg-[#c4a530]/10 text-[#c4a530] border-[#c4a530]/50' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
-                                        }`}>
-                                        {selected ? '✓ ' : ''}{a}
-                                      </button>
-                                    )
-                                  })}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )
-                      })()}
                     </div>
                   )}
                 </div>

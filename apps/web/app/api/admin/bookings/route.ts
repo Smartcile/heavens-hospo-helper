@@ -11,12 +11,20 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const date = searchParams.get('date')
+  const search = searchParams.get('search')
   const venueId = searchParams.get('venueId') ?? (session.user.role === 'MANAGER' ? session.user.venueId : undefined)
 
   const where: any = { deletedAt: null }
   if (date) where.date = new Date(date)
   if (venueId) where.venueId = venueId
   if (session.user.role === 'MANAGER') where.venueId = session.user.venueId
+  if (search) {
+    where.OR = [
+      { contactName: { contains: search, mode: 'insensitive' } },
+      { contactPhone: { contains: search } },
+      { contactEmail: { contains: search, mode: 'insensitive' } },
+    ]
+  }
 
   const bookings = await prisma.booking.findMany({
     where,

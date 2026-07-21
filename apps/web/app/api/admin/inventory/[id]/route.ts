@@ -16,7 +16,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrls, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId, shelfLifeDays, canFreeze, freezerShelfLifeDays } = await req.json()
+  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, countingUnitQty, orderingUnitQty, parLevelUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrls, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId, shelfLifeDays, canFreeze, freezerShelfLifeDays } = await req.json()
 
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = name.toUpperCase().trim()
@@ -32,6 +32,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (defaultChairCount !== undefined) data.defaultChairCount = parseInt(String(defaultChairCount)) || 0
   if (countingUnitId !== undefined) data.countingUnitId = countingUnitId || null
   if (orderingUnitId !== undefined) data.orderingUnitId = orderingUnitId || null
+  if (countingUnitQty !== undefined) data.countingUnitQty = countingUnitQty ? parseFloat(String(countingUnitQty)) : null
+  if (orderingUnitQty !== undefined) data.orderingUnitQty = orderingUnitQty ? parseFloat(String(orderingUnitQty)) : null
+  if (parLevelUnitId !== undefined) data.parLevelUnitId = parLevelUnitId || null
   if (yieldPercentage !== undefined) data.yieldPercentage = yieldPercentage ? parseFloat(String(yieldPercentage)) : null
   if (costPrice !== undefined) data.costPrice = costPrice ? parseFloat(String(costPrice)) : null
   if (expiryDate !== undefined) data.expiryDate = expiryDate ? new Date(expiryDate) : null

@@ -1260,7 +1260,10 @@ model InventoryItem {
   // --- Deep inventory fields ---
   supplierId         String?
   countingUnitId     String?
+  countingUnitQty    Float?
   orderingUnitId     String?
+  orderingUnitQty    Float?
+  parLevelUnitId     String?
   yieldPercentage    Float?
   costPrice          Float?
   expiryDate         DateTime?
@@ -1282,13 +1285,15 @@ model InventoryItem {
   serviceIntervalDays Int?  // e.g. 180 = every 6 months; drives calendar bookings
   lastServicedAt    DateTime?
   nextServiceAt     DateTime?
-  maintenanceNotes  String?
+  maintenanceNotes       String?
+  alternativeSupplierIds Json?    // array of supplier UUIDs
 
   venue     Venue                @relation(fields: [venueId], references: [id])
   category          InventoryCategory    @relation(fields: [categoryId], references: [id])
   supplier          Supplier?            @relation(fields: [supplierId], references: [id])
   countingUnit      UnitOfMeasure?       @relation("CountingUOM", fields: [countingUnitId], references: [id])
   orderingUnit      UnitOfMeasure?       @relation("OrderingUOM", fields: [orderingUnitId], references: [id])
+  parLevelUnit      UnitOfMeasure?       @relation("ParLevelUOM", fields: [parLevelUnitId], references: [id])
   fallbackCategory  InventoryCategory?   @relation("FallbackCategory", fields: [fallbackCategoryId], references: [id])
   storageSection    Section?             @relation(fields: [storageSectionId], references: [id])
   elements          ElementInventoryItem[]
@@ -1426,6 +1431,7 @@ model UnitOfMeasure {
   venue              Venue?           @relation(fields: [venueId], references: [id])
   countingItems      InventoryItem[]  @relation("CountingUOM")
   orderingItems      InventoryItem[]  @relation("OrderingUOM")
+  parLevelItems      InventoryItem[]  @relation("ParLevelUOM")
   recipeYields       Recipe[]         @relation("RecipeYield")
   recipeLineItems    RecipeLineItem[]
   supplierItemCodes  SupplierItemCode[]

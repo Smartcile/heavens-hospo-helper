@@ -69,6 +69,62 @@ export async function GET(req: NextRequest) {
 
     // Fallback: JSON-based backup via Prisma (works without pg_dump)
     const { prisma } = await import('@hospo-ops/db')
+
+    // When uploads requested, try tar.gz for transportable backup
+    if (includeUploads) {
+      const tmpDir = path.join(process.cwd(), '..', `backup-${randomUUID()}`)
+      await mkdir(tmpDir, { recursive: true })
+      try {
+        // Write SQL dump
+        const sqlFile = path.join(tmpDir, 'database.sql')
+        try {
+          const escaped = dbUrl.replace(/"/g, '\\"')
+          await runCommand(`pg_dump --dbname="${escaped}" --no-owner --no-acl --format=plain > "${sqlFile}"`, 120_000)
+        } catch {
+          // Fallback: generate SQL from Prisma data
+          const allTables2 = (await prisma.$queryRawUnsafe(`SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public'`)) as { tablename: string }[]
+          const data: Record<string, unknown[]> = {}
+          for (const { tablename } of allTables2) {
+            if (tablename === '_prisma_migrations' || tablename.startsWith('pg_')) continue
+            try { const rows = await prisma.$queryRawUnsafe(`SELECT * FROM "${tablename}"`); if (Array.isArray(rows)) data[tablename] = rows } catch {}
+          }
+          await writeFile(sqlFile, JSON.stringify({ version: 1, data }, null, 2))
+        }
+
+        // Copy uploads
+        const uploadsDir = join(process.cwd(), 'public', 'uploads')
+        const uploadsDest = path.join(tmpDir, 'uploads')
+        try {
+          await mkdir(uploadsDest, { recursive: true })
+          const entries = await readdir(uploadsDir, { withFileTypes: true })
+          for (const entry of entries) {
+            if (entry.isFile()) {
+              const src = join(uploadsDir, entry.name)
+              const dst = path.join(uploadsDest, entry.name)
+              await import('fs/promises').then((m) => m.cp(src, dst))
+            }
+          }
+        } catch {}
+
+        // Create tar.gz
+        const archiveFile = `${tmpDir}.tar.gz`
+        const { code } = await runCommand(`tar -czf "${archiveFile}" -C "${tmpDir}" .`, 120_000)
+
+        if (code === 0) {
+          const archive = await readFile(archiveFile)
+          await import('fs/promises').then((m) => Promise.all([m.rm(tmpDir, { recursive: true }), m.unlink(archiveFile)]))
+          return new NextResponse(archive, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/gzip',
+              'Content-Disposition': `attachment; filename="hospo-ops-backup-${new Date().toISOString().slice(0, 10)}-with-files.tar.gz"`,
+              'Cache-Control': 'no-cache',
+            },
+          })
+        }
+        await import('fs/promises').then((m) => m.rm(tmpDir, { recursive: true }).catch(() => {}))
+      } catch { await import('fs/promises').then((m) => m.rm(tmpDir, { recursive: true }).catch(() => {})) }
+    }
     const allTables = (await prisma.$queryRawUnsafe(
       `SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public'`
     )) as { tablename: string }[]

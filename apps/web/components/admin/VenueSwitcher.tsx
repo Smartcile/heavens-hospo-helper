@@ -68,7 +68,7 @@ export function VenueSwitcher({
         >
           {role === 'ADMIN' && <option value="">ALL VENUES</option>}
           {venues.map((v) => (
-            <option key={v.id} value={v.id}>{v.name}</option>
+            <option key={v.id} value={v.id}>{v.name} [{v.id.slice(0, 6)}]</option>
           ))}
         </select>
       </div>
@@ -80,7 +80,7 @@ export function VenueSwitcher({
 
   return (
     <div className="px-4 py-2">
-      <div className="font-mono text-xs text-grey-light uppercase tracking-wider">{matched.name}</div>
+      <div className="font-mono text-xs text-grey-light uppercase tracking-wider">{matched.name} <span className="text-grey-light/40">[{matched.id.slice(0, 6)}]</span></div>
     </div>
   )
 }

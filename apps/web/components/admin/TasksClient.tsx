@@ -354,7 +354,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     <div className="p-4 md:p-6 space-y-4">
       <h1 className="font-mono text-xl font-bold uppercase tracking-widest">TASKS &amp; CHECKLISTS</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" style={{ height: 'calc(100vh - 8rem)' }}>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" style={{ height: 'calc(100vh - 10rem)', overflow: 'hidden' }}>
         {/* LEFT — tasks grouped by department → section */}
         <div className="space-y-4 overflow-y-auto pr-2">
           <div className="flex items-center justify-between gap-2 flex-wrap">

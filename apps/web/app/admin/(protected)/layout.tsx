@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import { authOptions } from '@/lib/auth'
 import { AdminNav } from '@/components/admin/AdminNav'
-import { OrgTabs } from '@/components/admin/OrgTabs'
 
 export default async function AdminProtectedLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions)
@@ -24,7 +23,6 @@ export default async function AdminProtectedLayout({ children }: { children: Rea
         availableVenueIds={session.user.availableVenueIds ?? []}
       />
       <main className="flex-1 flex flex-col h-screen overflow-y-auto pt-14 md:pt-0">
-        <OrgTabs />
         {children}
       </main>
     </div>

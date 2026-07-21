@@ -369,12 +369,9 @@ export function BookingClient() {
                               <td className="border-b border-grey-mid/30 border-r px-2 sticky left-0 bg-grey-dark">
                                 <span className="font-mono text-[10px] text-white truncate block" title={`${tbl.profile.name} · CAP ${tbl.profile.capacity}`}>{label}</span>
                               </td>
-                              {/* Empty cells for time slots */}
-                              {timeSlots2.map((_, i) => (<td key={i} className="border-b border-r border-grey-mid/20 relative" style={{ width: SLOT_W }} />))}
-                              {/* Booking blocks — overlay on top of cells */}
-                              {tblBookings.length > 0 && (
+                              {tblBookings.length > 0 ? (
                                 <td colSpan={TOTAL_SLOTS} className="border-b border-grey-mid/30 relative" style={{ padding: 0 }}>
-                                  <div className="absolute inset-0 flex pointer-events-none">
+                                  <div className="absolute inset-0 flex">
                                     {tblBookings.map((b) => {
                                       const bStart = timeToMins(b.startTime)
                                       const bEnd = timeToMins(b.endTime)
@@ -383,7 +380,7 @@ export function BookingClient() {
                                       const width = ((bEnd - bStart) / 15) * SLOT_W
                                       const colour = STATUS_COLORS[b.status] || '#6B6B6B'
                                       return (
-                                        <div key={b.id} className="absolute top-0.5 bottom-0.5 rounded-sm flex items-center px-1.5 cursor-pointer group z-10 pointer-events-auto"
+                                        <div key={b.id} className="absolute top-0.5 bottom-0.5 rounded-sm flex items-center px-1.5 cursor-pointer group z-10"
                                           style={{ left, width, backgroundColor: colour + '30', borderLeft: `2px solid ${colour}` }}
                                           onClick={() => { const found = bookings.find((bk) => bk.id === b.id); if (found) openEdit(found) }}
                                           title={`${b.contactName} · ${b.partySize} PAX · ${b.startTime}-${b.endTime}`}>
@@ -395,6 +392,15 @@ export function BookingClient() {
                                     })}
                                   </div>
                                 </td>
+                              ) : (
+                                timeSlots2.map((slot, si) => (
+                                  <td key={si} className="border-b border-r border-grey-mid/20 cursor-pointer hover:bg-grey-mid/10" style={{ width: SLOT_W }}
+                                    onClick={() => {
+                                      const startMins = START_HOUR * 60 + si * 15
+                                      openCreateOnTable(startMins, startMins + 120, tbl.setupId)
+                                    }}
+                                  />
+                                ))
                               )}
                             </tr>
                           )

@@ -63,6 +63,13 @@ interface PixiCanvasProps {
   onSetupChairEdge?: (id: string, edge: 'top' | 'bottom' | 'left' | 'right', delta: number) => void
   onSetupItemRotate?: (id: string, rotation: number) => void
   onSetupItemsJoin?: (draggedId: string, targetId: string) => void
+  ghostMode?: boolean
+  wallDrawing?: boolean
+  wallPoints?: { x: number; y: number }[]
+  onWallPoint?: (x: number, y: number) => void
+  zonePolyMode?: boolean
+  zonePolyPoints?: { x: number; y: number }[]
+  onZonePolyAdd?: (x: number, y: number) => void
   // Precomputed merged-group outlines + redistributed chairs (room coords)
   setupGroups?: { id: string; outline: [number, number][][]; chairs: { x: number; y: number }[] }[]
   // Live per-section totals, keyed by sectionId → shown as a badge on each zone
@@ -108,7 +115,9 @@ export function FloorPlanPixiCanvas({
   onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange,
   textScale = 1, selRect, onSelRectStart, onSelRectMove, onSelRectEnd,
   rebuildKey, showDimensions = false, boothPainting = false, boothCellsRef, onBoothCellToggle,
-  setupItems, setupSelectedIds, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, setupGroups, zoneTotals, setupActive = false,
+  setupItems, setupSelectedIds, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, setupGroups, zoneTotals, setupActive = false, ghostMode = false,
+  wallDrawing, wallPoints, onWallPoint,
+  zonePolyMode, zonePolyPoints, onZonePolyAdd,
 }: PixiCanvasProps) {
   const appRef = useRef<PIXI.Application | null>(null)
   const roomRef = useRef<PIXI.Container | null>(null)
@@ -160,7 +169,23 @@ export function FloorPlanPixiCanvas({
     app.stage.hitArea = new PIXI.Rectangle(0, 0, w, h)
     app.stage.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
       if (cbRef.current.boothPainting) return
-      if (e.target === app.stage) { cbRef.current.onElementClick(null); cbRef.current.onZoneClick(null) }
+        if (e.target === app.stage) { 
+        if (wallDrawing && onWallPoint) {
+          const vs = viewRef.current
+          const wx = (e.globalX - vs.ox) / (vs.baseScale * vs.zoom)
+          const wy = (e.globalY - vs.oy) / (vs.baseScale * vs.zoom)
+          onWallPoint(wx, wy)
+          return
+        }
+        if (zonePolyMode && onZonePolyAdd) {
+          const vs = viewRef.current
+          const px = (e.globalX - vs.ox) / (vs.baseScale * vs.zoom)
+          const py = (e.globalY - vs.oy) / (vs.baseScale * vs.zoom)
+          onZonePolyAdd(px, py)
+          return
+        }
+        cbRef.current.onElementClick(null); cbRef.current.onSetupItemClick?.(null); cbRef.current.onZoneClick(null) 
+      }
     })
 
     // Mouse wheel zoom
@@ -346,6 +371,19 @@ export function FloorPlanPixiCanvas({
       pr.drawRect(zoneDrawRect.x, zoneDrawRect.y, zoneDrawRect.w, zoneDrawRect.h)
       pr.endFill(); pr.eventMode = 'none'; baseLayer?.addChild(pr)
     }
+    // Zone polygon preview
+    if (zonePolyMode && zonePolyPoints && zonePolyPoints.length >= 2) {
+      const pg = new PIXI.Graphics()
+      pg.lineStyle(1.5 / pxScale, 0xFFFFFF, 0.5); pg.beginFill(0xFFFFFF, 0.05)
+      pg.moveTo(zonePolyPoints[0].x, zonePolyPoints[0].y)
+      for (let i = 1; i < zonePolyPoints.length; i++) pg.lineTo(zonePolyPoints[i].x, zonePolyPoints[i].y)
+      pg.lineTo(zonePolyPoints[0].x, zonePolyPoints[0].y)
+      pg.endFill(); pg.eventMode = 'none'; baseLayer?.addChild(pg)
+      zonePolyPoints.forEach((p) => {
+        const dot = new PIXI.Graphics(); dot.beginFill(0xFFFFFF).drawCircle(0, 0, 3 / pxScale).endFill()
+        dot.x = p.x; dot.y = p.y; dot.eventMode = 'none'; baseLayer?.addChild(dot)
+      })
+    }
     // Selection rectangle
     if (!zoneDrawing && selRect) {
       const sr = new PIXI.Graphics()
@@ -364,14 +402,22 @@ export function FloorPlanPixiCanvas({
       const g = new PIXI.Graphics()
       const isSelected = z.id === selectedZoneId
       g.lineStyle((isSelected ? 2 : 1) / pxScale, isSelected ? 0xFFFFFF : nc, isSelected ? 0.6 : 0.4)
-      g.beginFill(nc, 0.06).drawRect(0, 0, z.width, z.height).endFill()
+      if ((z as any).vertices && Array.isArray((z as any).vertices) && (z as any).vertices.length >= 3) {
+        const verts = (z as any).vertices
+        g.beginFill(nc, 0.06); g.moveTo(verts[0].x, verts[0].y)
+        for (let i = 1; i < verts.length; i++) g.lineTo(verts[i].x, verts[i].y)
+        g.closePath(); g.endFill()
+      } else {
+        g.beginFill(nc, 0.06).drawRect(0, 0, z.width, z.height).endFill()
+      }
       c.addChild(g)
       // Watermark (rotated if portrait)
       const secName = sectionNames.get(z.sectionId)
       if (secName) {
         const isPortrait = z.height > z.width * 1.2
         const lblScale = (z as any).labelScale ?? 1
-        const fontSize = (isPortrait ? Math.max(z.width, z.height) : Math.min(z.width, z.height)) * 0.25 * textScale * lblScale
+        const rawSize = (isPortrait ? Math.max(z.width, z.height) : Math.min(z.width, z.height)) * 0.25 * textScale * lblScale
+        const fontSize = Math.max(12, Math.min(rawSize, 24 * textScale))
         const wm = new PIXI.Text(secName, { fontSize, fill: 0xFFFFFF, fontFamily: 'monospace', align: 'center' })
         wm.anchor.set(0.5); wm.x = z.width / 2; wm.y = z.height / 2; wm.alpha = 0.15; wm.eventMode = 'none'
         if (isPortrait) wm.rotation = -Math.PI / 2
@@ -617,6 +663,31 @@ export function FloorPlanPixiCanvas({
       if (isFixtureEl) { baseLayer?.addChild(c) } else { setupLayer?.addChild(c) }
     })
 
+    // Door swing arcs / sliding arrows
+    elements.filter((e) => e.type === 'DOOR').forEach((door) => {
+      const isSliding = ((door.style as any)?.doorType) === 'SLIDING'
+      const g = new PIXI.Graphics()
+      const cx = door.x + door.width / 2
+      const cy = door.y + door.depth / 2
+      const r = Math.max(door.width, door.depth) * 1.2
+      if (isSliding) {
+        // Sliding door — draw arrow along the door's depth axis
+        g.lineStyle(2 / pxScale, 0x6B4226, 0.7)
+        const half = door.depth / 2
+        g.moveTo(cx, cy - half); g.lineTo(cx, cy + half)
+        const ah = 6 / pxScale
+        g.moveTo(cx - ah, cy - half + ah); g.lineTo(cx, cy - half); g.lineTo(cx + ah, cy - half + ah)
+        g.moveTo(cx - ah, cy + half - ah); g.lineTo(cx, cy + half); g.lineTo(cx + ah, cy + half - ah)
+      } else {
+        // Swing door — quarter circle arc
+        g.lineStyle(1.5 / pxScale, 0x6B4226, 0.5)
+        g.arc(cx, cy, r, 0, Math.PI / 2)
+      }
+      g.eventMode = 'none'
+      const layer = isFixture(door.type) ? baseLayer : setupLayer
+      if (layer) layer.addChild(g)
+    })
+
     // Bench connectors (rectangular and polygon booths)
     elements.filter((e) => e.type === 'BOOTH_BENCH').forEach((bench) => {
       const served: string[] = (bench.style as any)?.servedTableIds ?? []
@@ -657,7 +728,8 @@ export function FloorPlanPixiCanvas({
         const c = new PIXI.Container()
         c.x = item.x; c.y = item.y
         c.rotation = (item.rotation ?? 0) * (Math.PI / 180)
-        c.eventMode = 'static'; c.cursor = 'pointer'
+        if (ghostMode) { c.alpha = 0.2; c.eventMode = 'none'; c.cursor = 'default' }
+        else { c.eventMode = 'static'; c.cursor = 'pointer' }
         c.on('pointerover', () => { if (!setupSelectedIds?.includes(item.id)) c.alpha = 0.75 })
         c.on('pointerout', () => { c.alpha = 1 })
 
@@ -1048,14 +1120,16 @@ export function FloorPlanPixiCanvas({
 
   function attachZoneDrag(node: PIXI.Container, z: ZoneP) {
     let dd: { sx: number; sy: number; ex: number; ey: number } | null = null
+    let moved = false
     node.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
       e.stopPropagation()
-      cbRef.current.onZoneClick(z.id)
       dd = { sx: e.globalX, sy: e.globalY, ex: node.x, ey: node.y }
+      moved = false
       const app = appRef.current
       if (!app) return
       const onMove = (ev: PIXI.FederatedPointerEvent) => {
         if (!dd) return
+        moved = true
         const vs = viewRef.current
         let nx = dd.ex + (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
         let ny = dd.ey + (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
@@ -1064,12 +1138,16 @@ export function FloorPlanPixiCanvas({
       }
       const onUp = (ev: PIXI.FederatedPointerEvent) => {
         app.stage.off('globalpointermove', onMove); app.stage.off('pointerup', onUp)
+        if (!moved) { cbRef.current.onZoneClick(z.id) }
         if (!dd) return
-        const vs = viewRef.current
-        let rx = dd.ex + (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
-        let ry = dd.ey + (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
-        rx = gridSnap(rx, stateRef.current.gu); ry = gridSnap(ry, stateRef.current.gu)
-        cbRef.current.onZoneDragEnd(z.id, rx, ry); dd = null
+        if (moved) {
+          const vs = viewRef.current
+          let rx = dd.ex + (ev.globalX - dd.sx) / (vs.baseScale * vs.zoom)
+          let ry = dd.ey + (ev.globalY - dd.sy) / (vs.baseScale * vs.zoom)
+          rx = gridSnap(rx, stateRef.current.gu); ry = gridSnap(ry, stateRef.current.gu)
+          cbRef.current.onZoneDragEnd(z.id, rx, ry)
+        }
+        dd = null
       }
       app.stage.on('globalpointermove', onMove); app.stage.on('pointerup', onUp)
     })

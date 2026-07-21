@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
+import { Combobox } from '@/components/ui/Combobox'
 import { AllergenPicker } from '@/components/ui/AllergenPicker'
 import { ALLERGENS } from '@/lib/allergens'
 import { TableProfileForm } from '@/components/admin/TableProfileForm'
@@ -42,6 +43,8 @@ export function InventoryClient() {
   const [editingCat, setEditingCat] = useState<Category | null>(null)
   const [showDeleted, setShowDeleted] = useState(false)
   const [deletedItems, setDeletedItems] = useState<Item[]>([])
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [maintLogs, setMaintLogs] = useState<{ id: string; note: string; createdAt: string; staffName: string | null }[]>([])
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [showCatDropdown, setShowCatDropdown] = useState(false)
   const [activeTab, setActiveTab] = useState<'FOOD' | 'BEVERAGE' | 'OTHER'>(() => {
@@ -76,6 +79,9 @@ export function InventoryClient() {
   const [formShelfLifeDays, setFormShelfLifeDays] = useState('')
   const [formCanFreeze, setFormCanFreeze] = useState(false)
   const [formFreezerShelfLifeDays, setFormFreezerShelfLifeDays] = useState('')
+  const [formCountingUnitQty, setFormCountingUnitQty] = useState('')
+  const [formOrderingUnitQty, setFormOrderingUnitQty] = useState('')
+  const [formParLevelUnitId, setFormParLevelUnitId] = useState('')
 
   // Equipment / tool tracking
   const [formImageUrls, setFormImageUrls] = useState<string[]>([])
@@ -84,11 +90,13 @@ export function InventoryClient() {
   const [formSerialNumber, setFormSerialNumber] = useState('')
   const [formPurchaseDate, setFormPurchaseDate] = useState('')
   const [formWarrantyExpiry, setFormWarrantyExpiry] = useState('')
+  const [formWarrantyMonths, setFormWarrantyMonths] = useState('')
   const [formServiceIntervalDays, setFormServiceIntervalDays] = useState('')
   const [formLastServicedAt, setFormLastServicedAt] = useState('')
   const [formNextServiceAt, setFormNextServiceAt] = useState('')
   const [formMaintenanceNotes, setFormMaintenanceNotes] = useState('')
   const [formSupplierId, setFormSupplierId] = useState('')
+  const [formAltSupplierIds, setFormAltSupplierIds] = useState<string[]>([])
   const [showEquipmentFields, setShowEquipmentFields] = useState(true)
   const [catShowDeep, setCatShowDeep] = useState(false)
   const [catShowEquip, setCatShowEquip] = useState(false)
@@ -139,6 +147,10 @@ export function InventoryClient() {
     setShowEquipmentFields(itemCat?.showEquipmentFields ?? false)
     setCatShowDeep(itemCat?.showDeepFields ?? (itemCat?.tab === 'FOOD' || itemCat?.tab === 'BEVERAGE'))
     setCatShowEquip(itemCat?.showEquipmentFields ?? (itemCat?.tab == null || itemCat?.name === 'TABLES'))
+    // Fetch maintenance logs
+    fetch(`/api/admin/inventory/${item.id}/logs`).then((r) => r.json()).then((logs) => {
+      if (Array.isArray(logs)) setMaintLogs(logs)
+    }).catch(() => {})
   }
 
   async function load() {
@@ -217,91 +229,6 @@ export function InventoryClient() {
     const r = await fetch('/api/admin/upload', { method: 'POST', body: form })
     setFormUploadingImg(false)
     if (r.ok) { const data = await r.json(); setFormImageUrls((prev) => [...prev, data.url]) }
-  }
-
-  function renderEquipmentFields() {
-    return (
-      <>
-        <button onClick={() => setShowEquipmentFields(!showEquipmentFields)}
-          className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
-          {showEquipmentFields ? '▾ EQUIPMENT / TOOL TRACKING' : '▸ EQUIPMENT / TOOL TRACKING'}
-        </button>
-        {showEquipmentFields && (
-          <div className="border-t border-grey-mid pt-3 space-y-3" onPaste={(e) => {
-            const items = e.clipboardData?.items
-            if (items) {
-              for (const item of Array.from(items)) {
-                if (item.type.startsWith('image/')) {
-                  const file = item.getAsFile()
-                  if (file) uploadImage(file)
-                  break
-                }
-              }
-            }
-          }}>
-            <div className="flex items-center gap-2">
-              <input ref={(el) => { if (el) el.style.display = 'none' }} id="inv-img-upload" type="file" accept="image/*"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }}
-                className="hidden" />
-              <button type="button" onClick={() => document.getElementById('inv-img-upload')?.click()}
-                className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
-                {formUploadingImg ? 'UPLOADING_' : 'ADD PHOTO'}
-              </button>
-              <span className="font-mono text-[9px] text-grey-light/50">OR PASTE IMAGE (CTRL+V)</span>
-            </div>
-            {formImageUrls.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {formImageUrls.map((url, i) => (
-                  <div key={i} className="relative group">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url} alt={`photo ${i + 1}`} className="h-16 w-16 object-cover border border-grey-mid cursor-pointer"
-                      onClick={() => window.open(url, '_blank')} />
-                    <button onClick={() => setFormImageUrls((prev) => prev.filter((_, idx) => idx !== i))}
-                      className="absolute -top-1 -right-1 w-4 h-4 bg-danger text-black font-mono text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="grid grid-cols-6 gap-2">
-              <div className="col-span-3">
-                <Select label="STORAGE SECTION" value={formStorageSectionId} onChange={(e) => setFormStorageSectionId(e.target.value)}
-                  options={sections.map((s) => ({ value: s.id, label: `${s.department?.name ?? ''} → ${s.name}` }))} placeholder="—" />
-              </div>
-              <div className="col-span-3">
-                <Select label="SUPPLIER" value={formSupplierId} onChange={(e) => setFormSupplierId(e.target.value)}
-                  options={suppliers.map((s) => ({ value: s.id, label: s.name }))} placeholder="—" />
-              </div>
-              <div className="col-span-6">
-                <Input label="STORAGE NOTES" value={formStorageNotes} onChange={(e) => setFormStorageNotes(e.target.value)} placeholder="TOP SHELF, ABOVE THE COFFEE STATION" />
-              </div>
-              <div className="col-span-3">
-                <Input label="SERIAL NUMBER" value={formSerialNumber} onChange={(e) => setFormSerialNumber(e.target.value)} placeholder="SN-12345" />
-              </div>
-              <div className="col-span-3">
-                <Input label="SERVICE INTERVAL (DAYS)" type="number" value={formServiceIntervalDays} onChange={(e) => setFormServiceIntervalDays(e.target.value)} placeholder="180" />
-              </div>
-              <div className="col-span-3">
-                <Input label="PURCHASE DATE" type="date" value={formPurchaseDate} onChange={(e) => setFormPurchaseDate(e.target.value)} />
-              </div>
-              <div className="col-span-3">
-                <Input label="WARRANTY EXPIRY" type="date" value={formWarrantyExpiry} onChange={(e) => setFormWarrantyExpiry(e.target.value)} />
-              </div>
-              <div className="col-span-3">
-                <Input label="LAST SERVICED" type="date" value={formLastServicedAt} onChange={(e) => setFormLastServicedAt(e.target.value)} />
-              </div>
-              <div className="col-span-3">
-                <Input label="NEXT SERVICE" type="date" value={formNextServiceAt} onChange={(e) => setFormNextServiceAt(e.target.value)} />
-              </div>
-              <div className="col-span-6">
-                <Input label="MAINTENANCE NOTES" value={formMaintenanceNotes} onChange={(e) => setFormMaintenanceNotes(e.target.value)} placeholder="LAST OIL CHANGE: JAN 2026" />
-              </div>
-            </div>
-          </div>
-        )}
-      </>
-    )
   }
 
   async function handleSave() {
@@ -492,6 +419,10 @@ export function InventoryClient() {
                             {isFurnitureItem && item.defaultColour && (
                               <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.defaultColour }} />
                             )}
+                            {Array.isArray(item.imageUrls) && item.imageUrls.length > 0 && (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={item.imageUrls[0]} alt={item.name} className="w-5 h-5 object-cover border border-grey-mid flex-shrink-0" />
+                            )}
                             <div className="flex-1 min-w-0">
                               <span className="font-mono text-xs text-white block truncate">
                                 {item.name}
@@ -508,7 +439,13 @@ export function InventoryClient() {
                                   {profileNumbers.map((n: string, i: number) => (
                                     <span key={i} className="font-mono text-[10px] text-white border border-grey-mid px-1.5 py-px bg-grey-dark/50">{n}</span>
                                   ))}
-                                </div>
+      <Modal isOpen={previewImage != null} onClose={() => setPreviewImage(null)} title="" size="lg">
+        {previewImage && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={previewImage} alt="Preview" className="w-full border border-grey-mid" />
+        )}
+      </Modal>
+    </div>
                               )}
                             </div>
                             <div className="flex items-center gap-3 text-right flex-shrink-0">
@@ -690,7 +627,8 @@ export function InventoryClient() {
             </div>
             <div className="col-span-2">
               <Select label="CATEGORY" value={formCat} onChange={(e) => setFormCat(e.target.value)}
-                options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="CATEGORY" />
+                options={categories.filter((c) => !selectedItem?.furnitureType || c.name === 'TABLES').map((c) => ({ value: c.id, label: c.name }))} placeholder="CATEGORY"
+                disabled={!!selectedItem?.furnitureType} />
             </div>
           </div>
           <div className="grid grid-cols-6 gap-2">
@@ -721,13 +659,26 @@ export function InventoryClient() {
           )}
           {catShowDeep && showDeepFields && (
             <div className="grid grid-cols-6 gap-2 border-t border-grey-mid pt-3">
-              <div className="col-span-3">
+              <div className="col-span-2">
                 <Select label="COUNTING UOM" value={formCountingUnitId} onChange={(e) => setFormCountingUnitId(e.target.value)}
                   options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
               </div>
-              <div className="col-span-3">
+              <div className="col-span-1">
+                <Input label="QTY" type="number" step="0.01" value={formCountingUnitQty} onChange={(e) => setFormCountingUnitQty(e.target.value)} placeholder="1" />
+              </div>
+              <div className="col-span-2">
                 <Select label="ORDERING UOM" value={formOrderingUnitId} onChange={(e) => setFormOrderingUnitId(e.target.value)}
                   options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
+              </div>
+              <div className="col-span-1">
+                <Input label="QTY" type="number" step="0.01" value={formOrderingUnitQty} onChange={(e) => setFormOrderingUnitQty(e.target.value)} placeholder="1" />
+              </div>
+              <div className="col-span-2">
+                <Select label="PAR LEVEL UOM" value={formParLevelUnitId} onChange={(e) => setFormParLevelUnitId(e.target.value)}
+                  options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
+              </div>
+              <div className="col-span-1">
+                <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
               </div>
               <div className="col-span-2">
                 <Input label="YIELD %" type="number" step="0.1" value={formYield} onChange={(e) => setFormYield(e.target.value)} />
@@ -791,7 +742,130 @@ export function InventoryClient() {
               </div>
             </div>
           )}
-            {showEquipmentFields && renderEquipmentFields()}
+            {catShowEquip && (
+              <>
+                <button onClick={() => setShowEquipmentFields(!showEquipmentFields)}
+                  className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
+                  {showEquipmentFields ? '▾ EQUIPMENT / TOOL TRACKING' : '▸ EQUIPMENT / TOOL TRACKING'}
+                </button>
+                {showEquipmentFields && (
+                  <div className="border-t border-grey-mid pt-3 space-y-3" onPaste={(e) => {
+                    const items = e.clipboardData?.items
+                    if (items) {
+                      for (const item of Array.from(items)) {
+                        if (item.type.startsWith('image/')) {
+                          const file = item.getAsFile()
+                          if (file) uploadImage(file)
+                          break
+                        }
+                      }
+                    }
+                  }}>
+                  <div className="flex items-center gap-2">
+                    <input id="inv-img-upload" type="file" accept="image/*" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
+                    <button type="button" onClick={() => document.getElementById('inv-img-upload')?.click()}
+                      className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
+                      {formUploadingImg ? 'UPLOADING_' : 'ADD PHOTO'}
+                    </button>
+                    <span className="font-mono text-[9px] text-grey-light/50">OR PASTE IMAGE (CTRL+V)</span>
+                  </div>
+                  {formImageUrls.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {formImageUrls.map((url, i) => (
+                        <div key={i} className="relative group">
+                          <img src={url} alt={`photo ${i + 1}`} className="h-16 w-16 object-cover border border-grey-mid cursor-pointer"
+                            onClick={() => setPreviewImage(url)} />
+                          <button onClick={() => setFormImageUrls((prev) => prev.filter((_, idx) => idx !== i))}
+                            className="absolute -top-1 -right-1 w-4 h-4 bg-danger text-black font-mono text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-6 gap-2">
+                    <div className="col-span-3">
+                      <Select label="STORAGE SECTION" value={formStorageSectionId} onChange={(e) => setFormStorageSectionId(e.target.value)}
+                        options={sections.map((s) => ({ value: s.id, label: `${s.department?.name ?? ''} → ${s.name}` }))} placeholder="—" />
+                    </div>
+                    <div className="col-span-3">
+                      <Select label="SUPPLIER" value={formSupplierId} onChange={(e) => setFormSupplierId(e.target.value)}
+                        options={suppliers.map((s) => ({ value: s.id, label: s.name }))} placeholder="—" />
+                    </div>
+                    <div className="col-span-3">
+                      <Combobox label="ALT. SUPPLIERS"
+                        options={suppliers.filter((s) => s.id !== formSupplierId).map((s) => ({ value: s.id, label: s.name }))}
+                        selected={formAltSupplierIds}
+                        onChange={setFormAltSupplierIds}
+                        placeholder="Search..."
+                        hideTags
+                      />
+                    </div>
+                    <div className="col-span-6">
+                      <Input label="STORAGE NOTES" value={formStorageNotes} onChange={(e) => setFormStorageNotes(e.target.value)} placeholder="TOP SHELF, ABOVE THE COFFEE STATION" />
+                    </div>
+                    <div className="col-span-3">
+                      <Input label="SERIAL NUMBER" value={formSerialNumber} onChange={(e) => setFormSerialNumber(e.target.value)} placeholder="SN-12345" />
+                    </div>
+                    <div className="col-span-3">
+                      <Input label="SERVICE INTERVAL (DAYS)" type="number" value={formServiceIntervalDays} onChange={(e) => setFormServiceIntervalDays(e.target.value)} placeholder="180" />
+                    </div>
+                    <div className="col-span-3">
+                      <Input label="PURCHASE DATE" type="date" value={formPurchaseDate} onChange={(e) => setFormPurchaseDate(e.target.value)} />
+                    </div>
+                    <div className="col-span-3">
+                      <Input label="WARRANTY (MONTHS)" type="number" value={formWarrantyMonths} onChange={(e) => {
+                        setFormWarrantyMonths(e.target.value)
+                        if (formPurchaseDate && e.target.value) {
+                          const d = new Date(formPurchaseDate)
+                          d.setMonth(d.getMonth() + parseInt(e.target.value))
+                          setFormWarrantyExpiry(d.toISOString().slice(0, 10))
+                        }
+                      }} placeholder="e.g. 12" />
+                    </div>
+                    <div className="col-span-3">
+                      <Input label="WARRANTY EXPIRY" type="date" value={formWarrantyExpiry} onChange={(e) => setFormWarrantyExpiry(e.target.value)} />
+                    </div>
+                    <div className="col-span-3">
+                      <Input label="LAST SERVICED" type="date" value={formLastServicedAt} onChange={(e) => setFormLastServicedAt(e.target.value)} />
+                    </div>
+                    <div className="col-span-3">
+                      <Input label="NEXT SERVICE" type="date" value={formNextServiceAt} onChange={(e) => setFormNextServiceAt(e.target.value)} />
+                    </div>
+                    <div className="col-span-6">
+                      <Input label="MAINTENANCE NOTES" value={formMaintenanceNotes} onChange={(e) => setFormMaintenanceNotes(e.target.value)} placeholder="LAST OIL CHANGE: JAN 2026" />
+                    </div>
+                  </div>
+                </div>
+                )}
+              </>
+            )}
+            {maintLogs.length > 0 && (
+              <div className="border-t border-grey-mid pt-3">
+                <label className="font-mono text-xs uppercase text-grey-light tracking-wider block mb-2">MAINTENANCE HISTORY</label>
+                <div className="border border-grey-mid max-h-40 overflow-y-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-grey-mid bg-grey-dark/30">
+                        <th className="font-mono text-[9px] uppercase text-grey-light px-2 py-1">DATE</th>
+                        <th className="font-mono text-[9px] uppercase text-grey-light px-2 py-1">BY</th>
+                        <th className="font-mono text-[9px] uppercase text-grey-light px-2 py-1">NOTE</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-grey-mid/30">
+                      {maintLogs.map((l) => (
+                        <tr key={l.id}>
+                          <td className="font-mono text-[9px] text-white px-2 py-1 whitespace-nowrap">{String(l.createdAt).slice(0, 10)}</td>
+                          <td className="font-mono text-[9px] text-grey-light px-2 py-1 whitespace-nowrap">{l.staffName || '—'}</td>
+                          <td className="font-mono text-[9px] text-white px-2 py-1">{l.note}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
             <div className="flex gap-2 pt-2">
               <Button onClick={handleSave} disabled={!formName || !formCat}>{isCreating ? 'CREATE' : 'SAVE'}</Button>
               <Button variant="ghost" onClick={() => { setSelectedItem(null); setIsCreating(false); resetForm() }}>CANCEL</Button>
