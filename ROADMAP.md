@@ -103,7 +103,16 @@ subscription.
 - `Supplier` model + `SupplierItemCode`, `UnitOfMeasure` with base-unit conversion
 - `InventoryItem` deep fields: `costPrice`, `yield%`, `expiryDate`, `allergyInfo`
 - Inventory tabs: FOOD / BEVERAGE / OTHER
-- Equipment & tool tracking: `imageUrl`, `storageSectionId`, `storageNotes`, `serialNumber`, `purchaseDate`, `warrantyExpiry`, `serviceIntervalDays`, maintenance scheduling
+- Equipment & tool tracking: `imageUrls Json[]` (photo gallery, paste-to-upload), `storageSectionId`, `storageNotes`, `serialNumber`, `purchaseDate`, `warrantyExpiry`, `serviceIntervalDays`, maintenance scheduling, `MaintenanceLog` table, `alternativeSupplierIds Json` with supplier code reordering
+- UOM conversion: `countingUnitQty`, `orderingUnitQty`, `parLevelUnitId`
+- Category visibility toggles: `showDeepFields` (FOOD/BEVERAGE) vs `showEquipmentFields` (OTHER/TABLES)
+- Shelf life: `shelfLifeDays`, `canFreeze`, `freezerShelfLifeDays`
+- Restore deleted items: SHOW DELETED toggle with RESTORE / PURGE buttons
+
+**Allergen Management:**
+- `AllergenPicker` component with 23 allergens in grouped layout (DAIRY, NUTS, GRAINS, etc.)
+- Inherited allergen detection via recursive recipe BOM — locked ⚿ tags with source popup
+- LINK TO MENU toggle in recipe editor creates inherited allergen sources
 
 **Recipe Engine:**
 - Recursive BOM with cycle detection (`explodeRecipe`)
@@ -222,7 +231,16 @@ See [ECOSYSTEM.md](ECOSYSTEM.md) for the full design.
 - Per-event auto-layout via `planAutoSeat()` bin-packing generator
 - 143 Vitest tests across 25 files
 
-### Phase 2.7 — Floor Planner Rework ☐
+### Phase 2.7 — Floor Planner Polish ✅
+- **Ghost tables:** Inventory items render as 20% opacity placeholders on the base plan, showing available furniture at a glance
+- **WALLS drawing mode:** Click-to-place wall anchors with auto-connected thick grey segments
+- **Polygon section zones:** Freeform polygon drawing alongside rectangular zones; double-click to close
+- **Door swing arcs:** 90° dashed quarter-circle showing door open path; sliding doors show parallel arrows
+- **20-colour palette:** Fixed palette auto-cycles on zone create; swatches in `SectionZonesList` sidebar
+- **Section overlap prevention:** Canvas-level validation on draw/resize — rejects >5% overlap with toast warning
+- **Zone grouping by department:** Sidebar groups zones under coloured department headers
+
+### Phase 2.8 — Floor Planner Rework ☐
 - **Remove Table Profiles tab** from floor planner — move to inventory area under FURNITURE
 - **Table builder** — vector/Canvas editor for laying out condiments, cutlery, and place settings on a table surface. Items are draggable on the table canvas. Visual top-down view changes based on chair positions.
 - **Chair-aware layout** — cutlery/condiments link to chair positions so the visual rotates/repositions when chairs move
@@ -279,6 +297,9 @@ See [ECOSYSTEM.md](ECOSYSTEM.md) for the full design.
 - Auto-seat on create reuses `planAutoSeat()` bin-packer with booked-table awareness
 - `CalendarEvent` + `FloorPlanSetup` auto-created for calendar + floor plan display
 - 3 API routes: list/create, update/delete, availability check
+- **TABLE view:** Tables down the left grouped by section, 15-min time columns, click-to-create, drag-edge-to-resize
+- **Backup/export:** tar.gz streaming endpoint with all venue data + uploads
+- **Customer database:** `/admin/customers` — phone/name search, detail popup with booking history
 
 **Planned — AI SMS Booking:** ☐
 - USB GSM modem (e.g. Huawei E3531 / SIM800) with a data-only or voice+SMS SIM plan attached to the server
@@ -411,12 +432,13 @@ Weekly roster view styled like Loaded Reports, complementing the existing month 
 
 ---
 
-## Units of Measure Upgrade ☐
+## Units of Measure Upgrade ⊞ (partial)
 
-- **Volume-to-weight conversions** — cups, tbsp, tsp etc. need density ratios per ingredient (e.g. 1 cup flour ≠ 1 cup sugar in grams)
-- **Density field on InventoryItem** — grams per mL for volume ↔ weight math
-- **UOM presets** — cups, fluid ounces, pints, quarts, gallons, litres
-- **Recipe scaling** — convert between units when scaling recipes up/down
+- **Done:** `countingUnitQty`, `orderingUnitQty`, `parLevelUnitId` — base unit / counting unit / ordering unit chains with conversion ratios
+- **☐ Volume-to-weight conversions** — cups, tbsp, tsp etc. need density ratios per ingredient (e.g. 1 cup flour ≠ 1 cup sugar in grams)
+- **☐ Density field on InventoryItem** — grams per mL for volume ↔ weight math
+- **☐ UOM presets** — cups, fluid ounces, pints, quarts, gallons, litres
+- **☐ Recipe scaling** — convert between units when scaling recipes up/down
 
 ---
 
@@ -503,3 +525,9 @@ Weekly roster view styled like Loaded Reports, complementing the existing month 
 - ESLint 9 flat config, Prisma 7 PG adapter, Tailwind CSS 4
 - `docker-entrypoint.sh` runs budget data migration before `prisma db push`
 - CI quality gate: `lint && test` runs before Docker build
+- `SearchSelect` inline dropdown component for supplier/category selects
+- Blue border only on active task filter Selects (removed from base Select default)
+- Ghost tables (20% opacity inventory preview), WALLS drawing mode, polygon zones, door swing arcs
+- `POST /api/admin/inventory/[id]/restore` — restore soft-deleted items
+- `MaintenanceLog` tracking per inventory item with auto-calculated `nextServiceAt`
+- Backup: `GET /api/admin/backup` (tar.gz) + `GET /api/admin/seed-export` (SQL dump)

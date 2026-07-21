@@ -288,6 +288,15 @@ left grouped by section, 15-min time columns across top). TABLE view supports
 click-to-create, drag-edge-to-resize, and colour-coded booking blocks. New
 bookings auto-select the first available Room/Setup for table assignment.
 
+**Backup/export:** `GET /api/admin/backup` streams a tar.gz containing `data.json` (all
+venue-scoped models, active and soft-deleted) plus `uploads/` files. `GET /api/admin/seed-export`
+returns a SQL-like dump of active venue data for seeding new instances. Both exclude demo venue
+data and are admin-only.
+
+**Customer database:** `/admin/customers` — searchable table by phone or name, detail popup
+with contact info and booking history per customer. Customers are identified by phone number
+as the lookup key; past bookings show status, date, party size, and tables.
+
 ### Floor planner (Phase 1 + 2, built)
 To-scale venue layout editor using **PixiJS v7** canvas (migrated from Konva 2026-06 — Konva's
 draggable+React caused unresolvable event target and race condition bugs). Admin creates floor
@@ -464,6 +473,43 @@ and the loop was closed end-to-end:
 - **Fixes** — undo/redo now snapshots `{ elements, setupItems, zones }`; stale room-dimension
   closure in the Pixi init effect fixed; the dead Konva `FloorPlanElementVisual` renderer removed.
 
+**Ghost tables (inventory preview):** Furniture inventory items with `availableQty > 0` render
+on the base plan as semi-transparent (20% opacity) placeholder elements showing their default
+width/depth at (0,0). Staff can see what furniture is available to be placed without it
+blocking the view. Ghost tables update in real time as elements are added/removed from the plan.
+
+**WALLS drawing mode:** Toolbar WALLS toggle activates a click-to-place wall mode. Each click
+places a wall anchor point; points connect as thick grey segments (`WALL` elements with
+`shape: WALL_POINT`). Double-click or pressing Escape finishes the wall polyline. Existing walls
+still render as styled thick lines with toggleable labels. Wall point elements are stored with
+`vertices` arrays recording the anchor positions; the canvas renders them as connected polygons
+with rounded joints.
+
+**Polygon section zones:** SECTIONS mode supports two drawing methods — rectangle drag (existing)
+and freeform polygon. POLYGON toggle in the zone palette switches to click-to-place polygon
+vertices; double-click closes the shape. Polygons use `pointInPolygon` (ray-casting) for
+element section detection, same as rectangular zones. The inspector shows vertex count + area.
+Both rectangle and polygon zones render with section colour fill, watermarked name, and 8
+resize handles (rectangles) or vertex edit handles (polygons).
+
+**Door swing arcs + sliding arrows:** DOOR elements render with a 90° swing arc (dashed
+quarter-circle) showing the door's open path, anchored to the hinge side. Sliding doors draw
+parallel arrows along the wall direction indicating slide path. The swing direction is stored
+in `style.swingDirection` (`LEFT` / `RIGHT`) and toggled from the inspector. Door width sets
+the arc radius.
+
+**20-colour palette:** Section zones use a fixed palette of 20 visually distinct colours
+with 0.06 fill / 0.5 border opacity. Colours auto-assign when creating a new zone, cycling
+through the palette. The `SectionZonesList` sidebar shows each zone's assigned colour swatch.
+Zones are grouped by department in the sidebar; the group header colour matches the department
+badge. Zone colours are stored per-zone and surfaced on the calendar event modal + worker
+floor plan view for consistent visual mapping.
+
+**Section overlap validation:** On zone draw-end and resize-end, the canvas checks the new
+zone's bounding box against all other zones on the plan. If the overlap exceeds 5% of the
+smaller zone's area, the zone snaps back to its previous position and a toast warns
+"SECTIONS CANNOT OVERLAP." Pure geometry check via polygon intersection — no API round-trip.
+
 **Vitest Coverage:** 232 tests across 31 files. `lib/floorplan-inventory.test.ts` has 49 tests
 covering `calculateSetupInventory`, geometry helpers, `computeGroupChairs`,
 `computeEffectiveChairs`, `computeSetupSectionTotals`, `pointInPolygon`, and BOM integration.
@@ -525,6 +571,40 @@ removed — deleted categories automatically unassign items. Shelf life fields:
 **Table profiles in inventory:** Table Profile management has been merged into
 the inventory under TABLES. The standalone `/admin/table-profiles` nav item
 removed. Creating/editing tables opens a modal popup via `TableProfileForm`.
+
+**Restore deleted items:** SHOW DELETED toggle in inventory displays soft-deleted
+items with RESTORE (`POST .../restore`) and PURGE (`DELETE ?permanent=1`) buttons.
+
+**Allergen management:** 23 allergens (Almond, Barley, Brazil Nut, Cashew, Crustacean,
+Egg, Fish, Hazelnut, Lupin, Macadamia, Milk, Mollusc, Oats, Peanut, Pecan, Pine nut,
+Pistachio, Rye, Sesame, Soy, Sulphites, Walnut, Wheat) managed via `AllergenPicker`
+component with grouped buttons (DAIRY, NUTS, GRAINS, etc.). Allergens are stored as
+comma-separated `dietaryInfo` on `MenuItem`. The `GET /api/admin/menu-items` endpoint
+resolves inherited allergens by walking the recursive recipe BOM — a menu item shows
+its own allergens PLUS any allergens from sub-recipes, with inherited ones locked (⚿)
+and showing the source recipe in a popup. The recipe editor has a LINK TO MENU toggle;
+linked products show up as inherited allergen sources.
+
+**UOM conversion fields:** Deep inventory items have `countingUnitQty` (how many
+base units make one counting unit), `orderingUnitQty` (how many base units make one
+ordering unit), and `parLevelUnitId` (which unit the par level applies to). Units
+of measure use a chain of `UnitOfMeasure` rows with `baseConversionRatio` for
+standardised stock math.
+
+**Alternative suppliers:** `InventoryItem.alternativeSupplierIds Json` holds an
+ordered array of backup supplier UUIDs. The `SupplierItemCode` junction links each
+supplier to an item with that supplier's SKU. The inventory form shows all linked
+suppliers with their codes and supports reordering.
+
+**Maintenance logs:** `MaintenanceLog` records service events per inventory item
+with `notes`, `hoursAtService`, and `performedById`. Shown in a chronological log
+in the item form. `nextServiceAt` auto-calculates from `lastServicedAt +
+serviceIntervalDays` in hours.
+
+**Photo paste-to-upload:** `imageUrls` is a JSON array of URLs. The equipment form
+renders a photo gallery with paste-to-upload support (paste an image from clipboard
+→ uploads to `/api/admin/upload` → appends URL). Photos can be reordered and
+deleted individually.
 
 **Restore deleted items:** SHOW DELETED toggle in inventory displays soft-deleted
 items with RESTORE (`POST .../restore`) and PURGE (`DELETE ?permanent=1`) buttons.
