@@ -29,6 +29,16 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (body.notes !== undefined) data.notes = body.notes || null
   if (body.source !== undefined) data.source = body.source
 
+  if (body.tableIds !== undefined) {
+    const ids = Array.isArray(body.tableIds) ? body.tableIds : []
+    await prisma.bookingTable.deleteMany({ where: { bookingId: params.id } })
+    if (ids.length > 0) {
+      await prisma.bookingTable.createMany({
+        data: ids.map((setupItemId: string) => ({ bookingId: params.id, setupItemId })),
+      })
+    }
+  }
+
   const updated = await prisma.booking.update({
     where: { id: params.id },
     data,

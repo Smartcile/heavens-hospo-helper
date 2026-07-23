@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { Combobox, ComboboxHandle } from '@/components/ui/Combobox'
+import { getActiveVenueId } from '@/lib/active-venue'
 
 interface Step {
   title: string
@@ -51,6 +52,7 @@ interface TrainingModule {
   _count: { completions: number }
 }
 
+interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string }
 interface TaskLite { id: string; title: string; venueId: string }
 interface Section { id: string; name: string; venueId: string }
@@ -70,6 +72,7 @@ interface ChecklistLite { id: string; name: string; departmentId: string | null 
 
 export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [modules, setModules] = useState<TrainingModule[]>([])
+  const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [tasks, setTasks] = useState<TaskLite[]>([])
   const [sections, setSections] = useState<Section[]>([])
@@ -85,6 +88,7 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
   const [sectionIds, setSectionIds] = useState<string[]>([])
   const [departmentIds, setDepartmentIds] = useState<string[]>([])
   const [taskIds, setTaskIds] = useState<string[]>([])
+  const [venueId, setVenueId] = useState('')
   const deptRef = useRef<ComboboxHandle>(null)
   const taskRef = useRef<ComboboxHandle>(null)
   const sectionRef = useRef<ComboboxHandle>(null)
@@ -119,6 +123,20 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
 
   useEffect(() => { load() }, [])
 
+  useEffect(() => {
+    if (role === 'ADMIN') {
+      fetch('/api/admin/venues')
+        .then((r) => r.json())
+        .then((v: Venue[]) => {
+          setVenues(v)
+          if (!venueId && v.length > 0) {
+            const active = getActiveVenueId(role, sessionVenueId, defaultVenueId)
+            setVenueId(active || v[0].id)
+          }
+        })
+    }
+  }, [role])
+
   function openCreate() {
     setEditing(null)
     setTitle(''); setDescription(''); setCategory('')
@@ -127,6 +145,7 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
     setRequiresSignOff(false); setIsOnboarding(false)
     setReqRetrain(false); setChangeSummary('')
     setSteps([emptyStep()])
+    setVenueId(getActiveVenueId(role, sessionVenueId, defaultVenueId))
     setError(''); setOpen(true)
   }
 
@@ -182,6 +201,7 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
     setSaving(true); setError('')
     const payload = {
       title, description, category, kind,
+      venueId: role === 'ADMIN' ? venueId : undefined,
       sectionIds: sectionRef.current?.getFinalSelection() ?? sectionIds,
       departmentIds: deptRef.current?.getFinalSelection() ?? departmentIds,
       taskIds: taskRef.current?.getFinalSelection() ?? taskIds,
@@ -220,7 +240,8 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
     { value: '', label: 'ALL STAFF (NOT DEPT-SPECIFIC)' },
     ...departments.map((d) => ({ value: d.id, label: d.name })),
   ]
-  const formSections = sections.filter((s) => s.venueId === sessionVenueId)
+  const formSections = sections.filter((s) => s.venueId === (role === 'ADMIN' ? venueId : sessionVenueId))
+  const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
   function toggleSection(id: string) {
     setSectionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
@@ -287,6 +308,9 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
         <div className="space-y-4">
           <Input label="Title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="HOW TO CLEAN THE COFFEE MACHINE" />
           <Textarea label="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} />
+          {role === 'ADMIN' && !editing && (
+            <Select label="Venue" value={venueId} onChange={(e) => setVenueId(e.target.value)} options={venueOptions} />
+          )}
           <div className="grid grid-cols-2 gap-3">
             <Select label="Type" value={kind} onChange={(e) => setKind(e.target.value)} options={KIND_OPTIONS} />
             <Input label="Category (optional)" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="BAR" />

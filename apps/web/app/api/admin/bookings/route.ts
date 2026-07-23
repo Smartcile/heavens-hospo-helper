@@ -5,6 +5,8 @@ import { prisma } from '@hospo-ops/db'
 import { planAutoSeat } from '@/lib/auto-seat'
 import type { AutoSeatProfile } from '@/lib/auto-seat'
 
+function timeToMins(t: string) { const [h, m] = t.split(':').map(Number); return h * 60 + m }
+
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -44,7 +46,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const {
     date, startTime, endTime, partySize, contactName, contactPhone, contactEmail,
-    source, notes, setupId, floorPlanSlug,
+    source, notes, setupId, floorPlanSlug, tableIds,
   } = body
 
   if (!date || !startTime || !endTime || !partySize || !contactName) {
@@ -69,8 +71,34 @@ export async function POST(req: NextRequest) {
     floorPlanSlug: floorPlanSlug || null,
   }
 
-  // Auto-seat: fetch setup with tables and run bin-packing
-  if (setupId && partySize > 0) {
+  // Manual table selection — use directly, skip auto-seat
+  if (Array.isArray(tableIds) && tableIds.length > 0) {
+    const setup = await prisma.floorPlanSetup.findFirst({
+      where: { id: setupId, deletedAt: null },
+      select: { name: true, floorPlan: { select: { slug: true } } },
+    })
+
+    const eventTitle = `${contactName.toUpperCase().trim()} — ${partySize} PAX`
+    const calEvent = await prisma.calendarEvent.create({
+      data: {
+        venueId: scopedVenueId,
+        source: 'MANUAL',
+        uid: `booking-${crypto.randomUUID()}`,
+        title: eventTitle,
+        startsAt: new Date(`${date}T${startTime}:00`),
+        endsAt: new Date(`${date}T${endTime}:00`),
+        floorPlanSlug: floorPlanSlug || setup?.floorPlan?.slug || undefined,
+        floorPlanName: setup?.name,
+      },
+    })
+
+    bookingData.calendarEventId = calEvent.id
+    bookingData.seatingSetupId = setupId || null
+    bookingData.tables = { create: tableIds.map((id: string) => ({ setupItemId: id })) }
+  }
+
+  // Auto-seat: use existing tables from the selected setup
+  if (!(Array.isArray(tableIds) && tableIds.length > 0) && setupId && partySize > 0) {
     const setup = await prisma.floorPlanSetup.findFirst({
       where: { id: setupId, deletedAt: null },
       include: {
@@ -81,143 +109,103 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    if (setup) {
-      // Build profiles from the setup's existing tables
-      const profileMap = new Map<string, AutoSeatProfile>()
-      const usedNumbers: string[] = []
-      for (const item of setup.items) {
-        const tp = item.tableProfile
-        if (!profileMap.has(tp.id)) {
-          profileMap.set(tp.id, {
-            id: tp.id,
-            capacity: tp.capacity,
-            chairCount: tp.chairCount,
-            width: tp.width,
-            depth: tp.depth,
-            tableNumbers: Array.isArray((tp as any).tableNumbers) ? (tp as any).tableNumbers : [],
-          })
-        }
-        if (item.assignedNumber) usedNumbers.push(item.assignedNumber)
-      }
+    if (!setup || setup.items.length === 0) {
+      return NextResponse.json({ error: 'Selected setup has no tables' }, { status: 400 })
+    }
 
-      // Also fetch booked tables for this date/time so we don't double-book
-      const conflictingBookings = await prisma.booking.findMany({
-        where: {
-          deletedAt: null,
-          venueId: scopedVenueId,
-          date: bookingDate,
-          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        },
-        include: { tables: { select: { setupItemId: true } } },
-      })
+    const slotStart = timeToMins(startTime)
+    const slotEnd = timeToMins(endTime)
 
-      const bookedTableIds = new Set<string>()
-      for (const cb of conflictingBookings) {
-        for (const t of cb.tables) bookedTableIds.add(t.setupItemId)
-      }
+    const overlappingBookings = await prisma.booking.findMany({
+      where: {
+        deletedAt: null,
+        venueId: scopedVenueId,
+        date: bookingDate,
+        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+      },
+      include: { tables: { select: { setupItemId: true } } },
+    })
 
-      // Get all available table profiles considering only unbooked tables
-      const bookedNumbers = new Set(usedNumbers)
-      for (const cb of conflictingBookings) {
-        for (const t of cb.tables) {
-          const bookedItem = setup.items.find((i) => i.id === t.setupItemId)
-          if (bookedItem?.assignedNumber) bookedNumbers.add(bookedItem.assignedNumber)
-        }
-      }
-
-      // Rebuild profiles with filtered numbers
-      const filteredProfiles: AutoSeatProfile[] = []
-      for (const item of setup.items) {
-        if (bookedTableIds.has(item.id)) continue
-        const tp = item.tableProfile
-        const profile = profileMap.get(tp.id)
-        if (!profile) continue
-        // Create a per-table profile with this table's specific number
-        filteredProfiles.push({
-          ...profile,
-          tableNumbers: item.assignedNumber ? [item.assignedNumber] : [],
-        })
-      }
-
-      // Remove duplicate profiles for items without numbers (count free inventory)
-      const dedupedProfiles: AutoSeatProfile[] = []
-      for (const p of filteredProfiles) {
-        if (p.tableNumbers && p.tableNumbers.length > 0) {
-          dedupedProfiles.push(p)
-        } else {
-          const existing = dedupedProfiles.find((d) => d.id === p.id && (!d.tableNumbers || d.tableNumbers.length === 0))
-          if (existing) {
-            existing.capacity += p.capacity
-            existing.chairCount += p.chairCount
-          } else {
-            dedupedProfiles.push({ ...p })
-          }
-        }
-      }
-
-      const placements = planAutoSeat(parseInt(String(partySize)), dedupedProfiles)
-
-      if (placements.length > 0) {
-        // Create CalendarEvent for calendar display
-        const eventTitle = `${contactName.toUpperCase().trim()} — ${partySize} PAX`
-        const calEvent = await prisma.calendarEvent.create({
-          data: {
-            venueId: scopedVenueId,
-            source: 'MANUAL',
-            uid: `booking-${crypto.randomUUID()}`,
-            title: eventTitle,
-            startsAt: new Date(`${date}T${startTime}:00`),
-            endsAt: new Date(`${date}T${endTime}:00`),
-            floorPlanSlug: floorPlanSlug || undefined,
-            floorPlanName: setup.name,
-          },
-        })
-
-        // Create FloorPlanSetup for the booking's table layout
-        const bookingSetup = await prisma.floorPlanSetup.create({
-          data: {
-            floorPlanId: setup.floorPlanId,
-            name: eventTitle,
-            calendarEventId: calEvent.id,
-          },
-        })
-
-        // Create SetupItems from placements
-        const createdItems: { id: string }[] = []
-        for (const placement of placements) {
-          const si = await prisma.setupItem.create({
-            data: {
-              setupId: bookingSetup.id,
-              tableProfileId: placement.profileId,
-              x: placement.x,
-              y: placement.y,
-              rotation: 0,
-              assignedNumber: placement.assignedNumber,
-              label: placement.assignedNumber || undefined,
-            },
-          })
-          createdItems.push(si)
-        }
-
-        // Group if multiple tables
-        if (createdItems.length >= 2) {
-          const group = await prisma.tableGroup.create({
-            data: { setupId: bookingSetup.id },
-          })
-          for (const si of createdItems) {
-            await prisma.setupItem.update({
-              where: { id: si.id },
-              data: { tableGroupId: group.id },
-            })
-          }
-        }
-
-  bookingData.calendarEventId = calEvent.id
-  bookingData.seatingSetupId = bookingSetup.id
-  // Link booking to tables
-  bookingData.tables = { create: createdItems.map((si) => ({ setupItemId: si.id })) }
+    const bookedTableIds = new Set<string>()
+    for (const b of overlappingBookings) {
+      const bStart = timeToMins(b.startTime)
+      const bEnd = timeToMins(b.endTime)
+      if (bStart < slotEnd && bEnd > slotStart) {
+        for (const t of b.tables) bookedTableIds.add(t.setupItemId)
       }
     }
+
+    const availableItems = setup.items.filter((i) => !bookedTableIds.has(i.id))
+
+    if (availableItems.length === 0) {
+      return NextResponse.json({ error: 'No tables available for this time slot' }, { status: 409 })
+    }
+
+    const seatProfiles: AutoSeatProfile[] = availableItems.map((item) => ({
+      id: item.tableProfile.id,
+      capacity: item.tableProfile.capacity,
+      chairCount: item.tableProfile.chairCount,
+      width: item.tableProfile.width,
+      depth: item.tableProfile.depth,
+      tableNumbers: item.assignedNumber ? [item.assignedNumber] : [],
+    }))
+
+    const placements = planAutoSeat(parseInt(String(partySize)), seatProfiles)
+
+    if (placements.length === 0) {
+      return NextResponse.json({ error: `No tables can seat ${partySize} guests` }, { status: 409 })
+    }
+
+    const reservedItemIds: string[] = []
+    const usedItemIds = new Set<string>()
+
+    for (const placement of placements) {
+      let matched: typeof availableItems[number] | undefined
+
+      if (placement.assignedNumber) {
+        matched = availableItems.find(
+          (i) =>
+            i.tableProfileId === placement.profileId &&
+            i.assignedNumber === placement.assignedNumber &&
+            !usedItemIds.has(i.id),
+        )
+      }
+
+      if (!matched) {
+        matched = availableItems.find(
+          (i) =>
+            i.tableProfileId === placement.profileId &&
+            !usedItemIds.has(i.id),
+        )
+      }
+
+      if (matched) {
+        reservedItemIds.push(matched.id)
+        usedItemIds.add(matched.id)
+      }
+    }
+
+    if (reservedItemIds.length === 0) {
+      return NextResponse.json({ error: `No tables can seat ${partySize} guests` }, { status: 409 })
+    }
+
+    const eventTitle = `${contactName.toUpperCase().trim()} — ${partySize} PAX`
+    const calEvent = await prisma.calendarEvent.create({
+      data: {
+        venueId: scopedVenueId,
+        source: 'MANUAL',
+        uid: `booking-${crypto.randomUUID()}`,
+        title: eventTitle,
+        startsAt: new Date(`${date}T${startTime}:00`),
+        endsAt: new Date(`${date}T${endTime}:00`),
+        floorPlanSlug: floorPlanSlug || undefined,
+        floorPlanName: setup.name,
+      },
+    })
+
+    bookingData.calendarEventId = calEvent.id
+    bookingData.seatingSetupId = setupId
+    bookingData.tables = { create: reservedItemIds.map((id) => ({ setupItemId: id })) }
   }
 
   const booking = await prisma.booking.create({

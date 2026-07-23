@@ -300,6 +300,8 @@ See [ECOSYSTEM.md](ECOSYSTEM.md) for the full design.
 - **TABLE view:** Tables down the left grouped by section, 15-min time columns, click-to-create, drag-edge-to-resize
 - **Backup/export:** tar.gz streaming endpoint with all venue data + uploads
 - **Customer database:** `/admin/customers` — phone/name search, detail popup with booking history
+- **Setup selector:** TABLE view filters by selected FloorPlanSetup, defaults to first (un-deletable) setup
+- **Roadmap:** when a `CalendarEvent` links to a specific `FloorPlanSetup` (via `floorPlanSetupId` or `floorPlanSlug`), bookings within that event's time window should resolve against that setup's tables instead of the default. The worker FOH view already auto-switches to the event-linked layout — bookings just need to follow.
 
 **Planned — AI SMS Booking:** ☐
 - USB GSM modem (e.g. Huawei E3531 / SIM800) with a data-only or voice+SMS SIM plan attached to the server

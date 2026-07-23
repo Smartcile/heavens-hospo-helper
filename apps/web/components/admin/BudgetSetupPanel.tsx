@@ -35,12 +35,11 @@ interface Props {
   onUpdateWeights: (weights: DayWeight) => void
   onUpdateCategories: (cats: CategoryRow[]) => void
   onGenerate: () => void
-  onSyncBreakdowns: () => void
+  onOpenSyncModal: () => void
   onSave: () => void
   onDelete: () => void
   generating: boolean
   saving: boolean
-  syncing: boolean
   message: string
   year: number
   month: number
@@ -73,12 +72,11 @@ export function BudgetSetupPanel({
   onUpdateWeights,
   onUpdateCategories,
   onGenerate,
-  onSyncBreakdowns,
+  onOpenSyncModal,
   onSave,
   onDelete,
   generating,
   saving,
-  syncing,
   message,
   year,
   month,
@@ -176,7 +174,7 @@ export function BudgetSetupPanel({
 
                 <div className="border-l border-grey-mid ml-2 pl-4 space-y-2">
                   <div className="flex items-center gap-2">
-                    <Button size="sm" variant="ghost" onClick={onSyncBreakdowns} loading={syncing}>↻ SYNC BREAKDOWNS</Button>
+                    <Button size="sm" variant="ghost" onClick={onOpenSyncModal}>↻ SYNC BREAKDOWNS</Button>
                   </div>
                   {localBreakdowns.map((cat, i) => (
                     <div key={cat.id} className="flex items-center gap-2 flex-wrap">
