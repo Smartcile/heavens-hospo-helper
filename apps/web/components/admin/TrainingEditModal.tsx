@@ -23,8 +23,8 @@ interface Step {
 interface Department { id: string; name: string; venueId: string }
 interface TaskLite { id: string; title: string; venueId: string }
 interface Section { id: string; name: string; venueId: string }
-interface ChecklistLite { id: string; name: string; departmentId: string | null }
-interface ModuleLite { id: string; title: string; kind: string; category: string | null }
+interface ChecklistLite { id: string; name: string; departmentId: string | null; venueId: string }
+interface ModuleLite { id: string; title: string; kind: string; category: string | null; venueId: string }
 interface InventoryLite { id: string; name: string; unit: string; category: { id: string; name: string } | null; totalQty: number }
 
 interface TrainingData {
@@ -175,10 +175,12 @@ export function TrainingEditModal({ moduleId, onClose, onSaved }: { moduleId: st
   const formDepartments = departments.filter((d) => d.venueId === venueId)
   const formTasks = tasks.filter((t) => t.venueId === venueId)
   const formSections = sections.filter((s) => s.venueId === venueId)
+  const formChecklists = checklists.filter((c) => c.venueId === venueId)
+  const formModules = modules.filter((m) => m.venueId === venueId)
   const deptOptions = [{ value: '', label: 'ALL STAFF (NOT DEPT-SPECIFIC)' }, ...formDepartments.map((d) => ({ value: d.id, label: d.name }))]
   const stepChecklistOptions = [
     { value: '', label: '+ EMBED A CHECKLIST (OPTIONAL)' },
-    ...checklists.filter((c) => !departmentId || c.departmentId === departmentId || c.departmentId === null).map((c) => ({ value: c.id, label: c.name })),
+    ...formChecklists.filter((c) => !departmentId || c.departmentId === departmentId || c.departmentId === null).map((c) => ({ value: c.id, label: c.name })),
   ]
 
   return (
@@ -265,7 +267,7 @@ export function TrainingEditModal({ moduleId, onClose, onSaved }: { moduleId: st
                 />
                 <Combobox
                   label="Linked training / SOPs"
-                  options={modules.filter((m) => m.id !== moduleId).map((m) => ({ value: m.id, label: m.title, description: `${m.kind} · ${m.category ?? ''}` }))}
+                  options={formModules.filter((m) => m.id !== moduleId).map((m) => ({ value: m.id, label: m.title, description: `${m.kind} · ${m.category ?? ''}` }))}
                   selected={s.linkedModuleIds}
                   onChange={(ids) => updateStep(i, { linkedModuleIds: ids })}
                   onPreview={(id) => window.open(`/admin/training?module=${id}`, '_blank')}

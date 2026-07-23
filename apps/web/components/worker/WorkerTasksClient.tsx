@@ -80,6 +80,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
 
   // Edit mode
   const [isEditMode, setIsEditMode] = useState(false)
+  const [expandedLists, setExpandedLists] = useState<Set<string>>(new Set())
   const [editDepts, setEditDepts] = useState<Department[]>([])
   const [editSections, setEditSections] = useState<Section[]>([])
   const [editTraining, setEditTraining] = useState<TrainingLite[]>([])
@@ -184,6 +185,15 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     setEditTraining(training as TrainingLite[])
     setEditTasks(editTasksData as TaskFull[])
     setEditChecklists(checklistsData as ChecklistFull[])
+  }
+
+  function toggleExpandList(listId: string) {
+    setExpandedLists((prev) => {
+      const next = new Set(prev)
+      if (next.has(listId)) next.delete(listId)
+      else next.add(listId)
+      return next
+    })
   }
 
   function openTask(t: TaskState) {
@@ -630,7 +640,8 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           const doneCount = allInList.filter((t) => t.isCompleted).length
           const totalCount = allInList.length
           const donePct = totalCount > 0 ? (doneCount / totalCount) * 100 : 0
-          const maxVisible = isEditMode ? 999 : 5
+          const maxVisible = (isEditMode || expandedLists.has(lg.id)) ? 999 : 5
+          const isExpanded = expandedLists.has(lg.id)
           const extra = lg.tasks.length - maxVisible
           return (
             <div key={lg.id} className="border border-grey-mid bg-grey-dark">
@@ -674,9 +685,16 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                   )
                 ))}
                 {extra > 0 && !isEditMode && (
-                  <div className="p-3 text-center">
-                    <span className="font-mono text-xs text-grey-light">+{extra} MORE TASK{extra > 1 ? 'S' : ''}</span>
-                  </div>
+                  <button onClick={() => toggleExpandList(lg.id)} className="w-full p-3 text-center hover:bg-grey-dark/50 transition-colors">
+                    <span className="font-mono text-xs text-grey-light hover:text-white transition-colors">
+                      +{extra} MORE TASK{extra > 1 ? 'S' : ''}
+                    </span>
+                  </button>
+                )}
+                {isExpanded && !isEditMode && (
+                  <button onClick={() => toggleExpandList(lg.id)} className="w-full p-2 text-center hover:bg-grey-dark/50 transition-colors">
+                    <span className="font-mono text-xs text-grey-light hover:text-white transition-colors">SHOW LESS</span>
+                  </button>
                 )}
               </div>
             </div>

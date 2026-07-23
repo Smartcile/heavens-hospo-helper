@@ -27,6 +27,7 @@ interface TrainingModule {
   description: string | null
   category: string | null
   kind: string
+  venueId: string
   departmentId: string | null
   linkedTaskId: string | null
   requiresSignOff: boolean
@@ -68,7 +69,7 @@ function emptyStep(): Step {
   return { title: '', content: '', imageUrl: null, videoUrl: '', linkedTaskId: '', linkedChecklistId: '', taskIds: [], linkedModuleIds: [] }
 }
 
-interface ChecklistLite { id: string; name: string; departmentId: string | null }
+interface ChecklistLite { id: string; name: string; departmentId: string | null; venueId: string }
 
 export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [modules, setModules] = useState<TrainingModule[]>([])
@@ -157,6 +158,7 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
     setTaskIds((m.moduleTasks ?? []).map((mt: any) => mt.taskId))
     setDepartmentId(m.departmentId ?? ''); setLinkedTaskId(m.linkedTaskId ?? '')
     setRequiresSignOff(m.requiresSignOff); setIsOnboarding(m.isOnboarding)
+    setVenueId(m.venueId)
     setReqRetrain(false); setChangeSummary('')
     setSteps(
       m.steps.length
@@ -236,23 +238,27 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
     load()
   }
 
+  const effectiveVenueId = role === 'ADMIN' ? venueId : sessionVenueId
+
+  const filteredDepartments = departments.filter((d) => !effectiveVenueId || d.venueId === effectiveVenueId)
+  const filteredTasks = tasks.filter((t) => !effectiveVenueId || t.venueId === effectiveVenueId)
+  const filteredSections = sections.filter((s) => !effectiveVenueId || s.venueId === effectiveVenueId)
+  const filteredChecklists = checklists.filter((c) => !effectiveVenueId || c.venueId === effectiveVenueId)
+  const filteredModules = modules.filter((m) => !effectiveVenueId || m.venueId === effectiveVenueId)
+
   const deptOptions = [
     { value: '', label: 'ALL STAFF (NOT DEPT-SPECIFIC)' },
-    ...departments.map((d) => ({ value: d.id, label: d.name })),
+    ...filteredDepartments.map((d) => ({ value: d.id, label: d.name })),
   ]
-  const formSections = sections.filter((s) => s.venueId === (role === 'ADMIN' ? venueId : sessionVenueId))
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
-  function toggleSection(id: string) {
-    setSectionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
-  }
   const taskOptions = [
     { value: '', label: 'NOT LINKED TO A TASK' },
-    ...tasks.map((t) => ({ value: t.id, label: t.title })),
+    ...filteredTasks.map((t) => ({ value: t.id, label: t.title })),
   ]
   // Checklists offered per step — filtered to the module's department (or shared).
   const stepChecklistOptions = [
     { value: '', label: '+ EMBED A CHECKLIST (OPTIONAL)' },
-    ...checklists
+    ...filteredChecklists
       .filter((c) => !departmentId || c.departmentId === departmentId || c.departmentId === null)
       .map((c) => ({ value: c.id, label: c.name })),
   ]
@@ -335,11 +341,11 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
             />
           </div>
 
-          {formSections.length > 0 && (
+          {filteredSections.length > 0 && (
             <Combobox
               ref={sectionRef}
               label="Show in sections (optional)"
-              options={formSections.map(s => ({ value: s.id, label: s.name }))}
+              options={filteredSections.map(s => ({ value: s.id, label: s.name }))}
               selected={sectionIds}
               onChange={setSectionIds}
               placeholder="Search sections..."
@@ -379,7 +385,7 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
                 )}
                 <Combobox
                   label="Linked tasks"
-                  options={tasks.map((t: any) => ({ value: t.id, label: t.title }))}
+                  options={filteredTasks.map((t: any) => ({ value: t.id, label: t.title }))}
                   selected={s.taskIds}
                   onChange={(ids) => updateStep(i, { taskIds: ids })}
                   onPreview={(id) => window.open(`/admin/tasks?task=${id}`, '_blank')}
@@ -387,7 +393,7 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
                 />
                 <Combobox
                   label="Linked training / SOPs"
-                  options={modules.filter((m: any) => !editing || m.id !== editing.id).map((m: any) => ({ value: m.id, label: m.title, description: `${m.kind} · ${m.category ?? ''}` }))}
+                  options={filteredModules.filter((m: any) => !editing || m.id !== editing.id).map((m: any) => ({ value: m.id, label: m.title, description: `${m.kind} · ${m.category ?? ''}` }))}
                   selected={s.linkedModuleIds}
                   onChange={(ids) => updateStep(i, { linkedModuleIds: ids })}
                   onPreview={(id) => window.open(`/admin/training?module=${id}`, '_blank')}

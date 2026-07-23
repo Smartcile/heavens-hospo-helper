@@ -25,7 +25,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   // Sync linked departments
   if (linkedDepartmentIds !== undefined) {
-    const ids: string[] = Array.isArray(linkedDepartmentIds) ? linkedDepartmentIds : []
+    const ids: string[] = (Array.isArray(linkedDepartmentIds) ? linkedDepartmentIds : []).filter((toId) => toId !== params.id)
     await prisma.departmentLink.deleteMany({ where: { fromDepartmentId: params.id } })
     if (ids.length > 0) {
       await prisma.departmentLink.createMany({
