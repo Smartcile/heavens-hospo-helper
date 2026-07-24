@@ -252,16 +252,17 @@ export function BudgetSetupPanel({
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Button onClick={handleGenerateClick} disabled={!canGenerate} loading={generating}>GENERATE GRID</Button>
-                    <Button size="sm" variant="ghost" onClick={onSave} loading={saving}>SAVE</Button>
-                    <Button size="sm" variant="danger" onClick={onDelete}>DELETE</Button>
-                    {message && (
-                      <span className={`font-mono text-xs ${message === 'SAVED' || message === 'GENERATED' || message.startsWith('SYNCED') ? 'text-success' : 'text-danger'}`}>{message}</span>
-                    )}
-                  </div>
                 </div>
               )}
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button onClick={handleGenerateClick} disabled={!canGenerate} loading={generating}>GENERATE GRID</Button>
+                <Button size="sm" variant="ghost" onClick={onSave} loading={saving}>SAVE</Button>
+                <Button size="sm" variant="danger" onClick={onDelete}>DELETE</Button>
+                {message && (
+                  <span className={`font-mono text-xs ${message === 'SAVED' || message === 'GENERATED' || message.startsWith('SYNCED') ? 'text-success' : 'text-danger'}`}>{message}</span>
+                )}
+              </div>
             </div>
           </div>
         </div>

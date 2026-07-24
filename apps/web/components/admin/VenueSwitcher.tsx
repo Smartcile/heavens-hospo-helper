@@ -19,30 +19,32 @@ export function VenueSwitcher({
   const [active, setActive] = useState('')
 
   useEffect(() => {
-    fetch('/api/admin/venues')
-      .then((r) => r.json())
-      .then((data: Venue[]) => {
-        // Filter to only show venues the user has access to
-        const filtered = availableVenueIds.length > 0
-          ? data.filter((v) => availableVenueIds.includes(v.id))
-          : data
-        setVenues(filtered)
-        // Read current cookie value for the initial selection
-        const cookie = document.cookie
-          .split('; ')
-          .find((r) => r.startsWith('admin-active-venue='))
-          ?.split('=')[1]
-        const initial = cookie || defaultVenueId || ''
-        setActive(initial)
-        // If no cookie yet but there's a default, set it
-        if (!cookie && defaultVenueId) {
-          fetch('/api/admin/active-venue', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ venueId: defaultVenueId }),
-          })
-        }
-      })
+    function load() {
+      fetch('/api/admin/venues')
+        .then((r) => r.json())
+        .then((data: Venue[]) => {
+          const filtered = availableVenueIds.length > 0
+            ? data.filter((v) => availableVenueIds.includes(v.id))
+            : data
+          setVenues(filtered)
+          const cookie = document.cookie
+            .split('; ')
+            .find((r) => r.startsWith('admin-active-venue='))
+            ?.split('=')[1]
+          const initial = cookie || defaultVenueId || ''
+          setActive(initial)
+          if (!cookie && defaultVenueId) {
+            fetch('/api/admin/active-venue', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ venueId: defaultVenueId }),
+            })
+          }
+        })
+    }
+    load()
+    window.addEventListener('venue-list-changed', load)
+    return () => window.removeEventListener('venue-list-changed', load)
   }, [])
 
   async function change(venueId: string) {

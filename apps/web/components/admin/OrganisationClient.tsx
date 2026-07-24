@@ -201,13 +201,14 @@ export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { r
     setVSaving(false)
     if (!r.ok) { const d = await r.json(); setVError(d.error ?? 'FAILED'); return }
     setVenueModalOpen(false); load()
+    window.dispatchEvent(new Event('venue-list-changed'))
   }
 
   async function handleVenueDelete(id: string) {
     if (!confirm('SOFT-DELETE THIS VENUE?')) return
     await fetch(`/api/admin/venues/${id}`, { method: 'DELETE' })
     if (selectedVenueId === id) setSelectedVenueId('')
-    load()
+    load(); window.dispatchEvent(new Event('venue-list-changed'))
   }
 
   // ── Dept handlers ──
