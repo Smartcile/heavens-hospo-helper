@@ -31,6 +31,7 @@ interface Task {
   department: { id: string; name: string; colour: string | null } | null
   section: { id: string; name: string } | null
   requiredTraining: { moduleId: string; module?: { kind: string } }[]
+  taskGuides?: { guideId: string; isRequiredForCompetency: boolean }[]
   trainingModules?: { kind: string }[]
   _count?: { checklistLinks: number }
 }
@@ -38,7 +39,7 @@ interface Task {
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string; colour: string | null }
 interface Section { id: string; name: string; departmentId: string; venueId: string }
-interface TrainingLite { id: string; title: string; venueId: string; kind: string; description: string | null }
+interface GuideLite { id: string; title: string; venueId: string; isTracked: boolean; description: string | null }
 
 interface ChecklistCardTask { id: string; title: string; isActive: boolean; version: number }
 interface Checklist {
@@ -68,12 +69,13 @@ interface FormState {
   monthlyOption: string
   monthlyDay: number
   requiredTrainingIds: string[]
+  competencyGuideIds: string[]
 }
 
 const EMPTY_FORM: FormState = {
   title: '', description: '', venueId: '', departmentId: '', sectionId: '',
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
-  intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, requiredTrainingIds: [],
+  intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, requiredTrainingIds: [], competencyGuideIds: [],
 }
 
 const COMPLETION_OPTIONS = [
@@ -94,7 +96,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [sections, setSections] = useState<Section[]>([])
-  const [modules, setModules] = useState<TrainingLite[]>([])
+  const [guides, setGuides] = useState<GuideLite[]>([])
   const [checklists, setChecklists] = useState<Checklist[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -135,7 +137,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       fetch('/api/admin/venues'),
       fetch('/api/admin/departments'),
       fetch('/api/admin/sections'),
-      fetch('/api/admin/training'),
+      fetch('/api/admin/guides'),
       fetch('/api/admin/checklists'),
     ])
     const [tData, vData, dData, sData, mData, cData] = await Promise.all([tR.json(), vR.json(), dR.json(), sR.json(), mR.json(), cR.json()])
@@ -143,7 +145,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setVenues(vData)
     setDepartments(dData)
     setSections(sData)
-    setModules(mData)
+    setGuides(mData)
     setChecklists(cData)
     setLoading(false)
   }
@@ -166,6 +168,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       customCron: t.customCron ?? '',
       intervalMonths: t.intervalMonths ?? 1, monthlyOption: t.monthlyOption ?? 'FIRST_DAY', monthlyDay: t.monthlyDay ?? 1,
       requiredTrainingIds: (t.requiredTraining ?? []).map((r) => r.moduleId),
+      competencyGuideIds: (t.taskGuides ?? []).filter((g) => g.isRequiredForCompetency).map((g) => g.guideId),
     })
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
@@ -185,6 +188,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
         departmentId: form.departmentId || null,
         sectionId: form.sectionId || null,
         requiredTrainingIds: form.requiredTrainingIds,
+        competencyGuideIds: form.competencyGuideIds,
         customCron: form.scheduleType === 'CUSTOM' ? form.customCron : null,
         scheduleDays: form.scheduleType === 'DAILY' ? [] : form.scheduleDays,
         ...(editing ? { requireRetrain, changeSummary } : {}),
@@ -208,7 +212,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setForm({ ...form, scheduleDays: days })
   }
   function toggleRequired(id: string) {
-    setForm((f) => ({ ...f, requiredTrainingIds: f.requiredTrainingIds.includes(id) ? f.requiredTrainingIds.filter((x) => x !== id) : [...f.requiredTrainingIds, id] }))
+    setForm((f) => ({ ...f, competencyGuideIds: f.competencyGuideIds.includes(id) ? f.competencyGuideIds.filter((x) => x !== id) : [...f.competencyGuideIds, id] }))
   }
 
   // --- Checklist editor ---
@@ -257,7 +261,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const filterDeptOptions = [{ value: '', label: 'ALL DEPARTMENTS' }, ...departments.filter((d) => !filterVenue || d.venueId === filterVenue).map((d) => ({ value: d.id, label: d.name }))]
   const formDeptOptions = [{ value: '', label: 'NO DEPARTMENT' }, ...departments.filter((d) => d.venueId === form.venueId).map((d) => ({ value: d.id, label: d.name }))]
   const formSectionOptions = [{ value: '', label: 'NO SECTION' }, ...sections.filter((s) => s.departmentId === form.departmentId).map((s) => ({ value: s.id, label: s.name }))]
-  const trainingOptions = modules.filter((m) => m.venueId === form.venueId && m.kind === 'TRAINING')
+  const guideOptions = guides.filter((g) => g.venueId === form.venueId)
 
   const taskById = new Map(tasks.map((t) => [t.id, t]))
   const clDeptOptions = [{ value: '', label: 'WHOLE VENUE' }, ...departments.filter((d) => d.venueId === clVenueId).map((d) => ({ value: d.id, label: d.name }))]
@@ -284,7 +288,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     { value: 'training', label: 'HAS TRAINING/SOP' },
     ...(clEditing ? [{ value: 'notinthis', label: 'NOT IN THIS LIST' }] : []),
   ]
-  const hasTrainingUse = (t: Task) => (t.trainingModules?.length ?? 0) > 0 || (t.requiredTraining?.length ?? 0) > 0
+  const hasTrainingUse = (t: Task) => (t.trainingModules?.length ?? 0) > 0 || (t.requiredTraining?.length ?? 0) > 0 || (t.taskGuides?.length ?? 0) > 0
   const visibleTasks = tasks.filter((t) => {
     if (filterSection && t.sectionId !== filterSection) return false
     if (search.trim() && !t.title.toLowerCase().includes(search.trim().toLowerCase())) return false
@@ -302,6 +306,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     const kinds = new Set<string>()
     ;(t.trainingModules ?? []).forEach((m) => kinds.add(m.kind))
     ;(t.requiredTraining ?? []).forEach((r) => { if (r.module) kinds.add(r.module.kind) })
+    if ((t.taskGuides ?? []).length > 0) kinds.add('TRAINING')
     if (kinds.has('TRAINING')) out.push({ text: 'TRAINING', cls: 'text-accent' })
     if (kinds.has('SOP')) out.push({ text: 'SOP', cls: 'text-warning' })
     if (kinds.has('HOWTO') || kinds.has('FAQ')) out.push({ text: 'GUIDE', cls: 'text-grey-light' })
@@ -542,14 +547,14 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           </div>
           <Select label="Section (optional)" value={form.sectionId} onChange={(e) => setForm({ ...form, sectionId: e.target.value })} options={formSectionOptions} />
 
-          {trainingOptions.length > 0 && (
+          {guideOptions.length > 0 && (
             <Combobox
               label="Required training (competency)"
-              options={trainingOptions.map((m) => ({ value: m.id, label: m.title, description: m.description ?? undefined }))}
-              selected={form.requiredTrainingIds}
-              onChange={(ids) => setForm({ ...form, requiredTrainingIds: ids })}
-              onPreview={(id) => window.open(`/admin/training?module=${id}`, '_blank')}
-              placeholder="Search training modules..."
+              options={guideOptions.map((g) => ({ value: g.id, label: g.title, description: g.description ?? undefined }))}
+              selected={form.competencyGuideIds}
+              onChange={(ids) => setForm({ ...form, competencyGuideIds: ids })}
+              onPreview={(id) => window.open(`/admin/guides?guide=${id}`, '_blank')}
+              placeholder="Search guides..."
             />
           )}
 

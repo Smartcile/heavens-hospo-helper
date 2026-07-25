@@ -68,6 +68,11 @@ enum ResourceKind {
   HOWTO
 }
 
+enum GuideStatus {
+  DRAFT
+  PUBLISHED
+}
+
 enum FollowUpKind {
   MISSED     // a due task wasn't completed
   UNTRAINED  // a task was completed by someone without the required training
@@ -111,6 +116,7 @@ model Venue {
   qrCodes     QRCode[]
   budgetPeriods BudgetPeriod[]
   trainingModules TrainingModule[]
+  guides         Guide[]
   taskTemplates TaskTemplate[]
   shiftNotes  ShiftNote[]
   shifts      Shift[]
@@ -155,6 +161,7 @@ model Department {
   staff  Staff[]
   tasks  Task[]
   trainingModules TrainingModule[]
+  guides          Guide[]
   shifts Shift[]
   notices Notice[]
   sections Section[]
@@ -206,6 +213,8 @@ model Staff {
   taskCompletions  TaskCompletion[]
   trainingAssignments TrainingAssignment[]
   trainingCompletions TrainingCompletion[]
+  guideCompletions     GuideCompletion[]
+  guideAssignments     GuideAssignment[]
   shiftNotes       ShiftNote[]
   shifts           Shift[]
   timeOffRequests  TimeOffRequest[]
@@ -255,6 +264,7 @@ model Task {
   stepTasks        StepTask[]
   trainingModules  TrainingModule[] @relation("ModuleLinkedTask")
   requiredTraining TaskRequiredTraining[]
+  taskGuides       TaskGuide[]
   checklistLinks   ChecklistTask[]
   followUps        FollowUp[]
   moduleTasks      ModuleTask[]
@@ -942,6 +952,99 @@ model FollowUp {
 
   @@unique([venueId, staffId, kind, taskId, dueDate])
   @@index([venueId, status])
+}
+
+// --- PLAYBOOK GUIDES (Phase 6 — simplified replacement for TrainingModule) ---
+
+model Guide {
+  id              String      @id @default(uuid())
+  title           String
+  description     String?
+  category        String?
+  venueId         String
+  departmentId    String?
+  status          GuideStatus @default(DRAFT)
+  isTracked       Boolean     @default(false)
+  isOnboarding    Boolean     @default(false)
+  requiresSignOff Boolean     @default(false)
+  legacyToolsNote String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  deletedAt       DateTime?
+
+  venue      Venue       @relation(fields: [venueId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+  steps      GuideStep[]
+  taskGuides TaskGuide[]
+  completions GuideCompletion[]
+  assignments GuideAssignment[]
+
+  @@index([venueId])
+  @@index([venueId, status])
+}
+
+model GuideStep {
+  id        String   @id @default(uuid())
+  guideId   String
+  order     Int
+  heading   String?
+  content   String
+  imageUrl  String?
+  videoUrl  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  guide Guide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+
+  @@index([guideId])
+}
+
+model TaskGuide {
+  id                     String   @id @default(uuid())
+  taskId                 String
+  guideId                String
+  isRequiredForCompetency Boolean  @default(false)
+  createdAt              DateTime @default(now())
+
+  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  guide Guide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, guideId])
+  @@index([guideId])
+}
+
+model GuideCompletion {
+  id            String   @id @default(uuid())
+  guideId       String
+  staffId       String
+  selfCompleted Boolean  @default(true)
+  signedOffById String?
+  completedAt   DateTime @default(now())
+  note          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  guide Guide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@unique([guideId, staffId])
+  @@index([staffId])
+}
+
+model GuideAssignment {
+  id           String    @id @default(uuid())
+  guideId      String
+  staffId      String
+  assignedById String?
+  reason       String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  guide Guide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@unique([guideId, staffId])
 }
 
 // --- FLOOR PLANNER ---

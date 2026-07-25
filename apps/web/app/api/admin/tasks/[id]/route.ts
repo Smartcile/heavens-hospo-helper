@@ -20,6 +20,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       completionType: true, scheduleType: true, scheduleDays: true, customCron: true,
       intervalMonths: true, monthlyOption: true, monthlyDay: true, isActive: true,
       requiredTraining: { select: { moduleId: true } },
+      taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
     },
   })
   if (!task) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -68,6 +69,18 @@ export async function PUT(req: NextRequest, { params }: Params) {
       await prisma.trainingModule.updateMany({
         where: { id: { in: reqIds } },
         data: { linkedTaskId: params.id },
+      })
+    }
+  }
+  if (body.competencyGuideIds !== undefined) {
+    const guideIds: string[] = Array.isArray(body.competencyGuideIds) ? body.competencyGuideIds : []
+    // Remove old competency TaskGuide rows, then create new ones
+    await prisma.taskGuide.deleteMany({
+      where: { taskId: params.id, isRequiredForCompetency: true },
+    })
+    if (guideIds.length > 0) {
+      await prisma.taskGuide.createMany({
+        data: guideIds.map((guideId: string) => ({ taskId: params.id, guideId, isRequiredForCompetency: true })),
       })
     }
   }

@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
         department: { select: { id: true, name: true } },
         section: { select: { id: true, name: true } },
         requiredTraining: { select: { moduleId: true, module: { select: { kind: true } } } },
+        taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
       },
       orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
     })
@@ -66,6 +67,12 @@ export async function GET(req: NextRequest) {
         where: { scheduledDate: today },
         include: { staff: { select: { firstName: true, lastName: true } } },
         orderBy: { completedAt: 'desc' },
+        take: 1,
+      },
+      taskGuides: {
+        include: {
+          guide: { select: { id: true, title: true } },
+        },
         take: 1,
       },
       trainingModules: {
@@ -142,7 +149,7 @@ export async function GET(req: NextRequest) {
       departmentName: t.department?.name ?? null,
       sectionName: t.section?.name ?? null,
       assigneeName: t.assignedToStaffId ? assigneeName.get(t.assignedToStaffId) ?? null : null,
-      guide: t.trainingModules[0] ?? null,
+      guide: (t.taskGuides?.[0]?.guide) ?? (t.trainingModules[0] ?? null),
       isCompleted: t.taskCompletions.length > 0,
       completedByName: c ? `${c.staff.firstName} ${c.staff.lastName}` : null,
       completion: c

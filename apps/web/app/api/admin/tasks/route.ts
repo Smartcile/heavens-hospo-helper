@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
       department: { select: { id: true, name: true, colour: true } },
       section: { select: { id: true, name: true } },
       requiredTraining: { select: { moduleId: true, module: { select: { kind: true } } } },
+      taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
       trainingModules: { select: { kind: true } }, // modules whose how-to is this task
       _count: { select: { checklistLinks: true } },
     },
@@ -64,6 +65,7 @@ export async function POST(req: NextRequest) {
     monthlyOption,
     monthlyDay,
     requiredTrainingIds,
+    competencyGuideIds,
   } = body
 
   if (!title?.trim() || !venueId) {
@@ -102,6 +104,9 @@ export async function POST(req: NextRequest) {
       monthlyDay: scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? (Number(monthlyDay) || 1) : null,
       sortOrder: (maxSort?.sortOrder ?? -1) + 1,
       requiredTraining: { create: reqIds.map((moduleId) => ({ moduleId })) },
+      taskGuides: Array.isArray(competencyGuideIds) && competencyGuideIds.length
+        ? { create: competencyGuideIds.map((guideId: string) => ({ guideId, isRequiredForCompetency: true })) }
+        : undefined,
     },
   })
 

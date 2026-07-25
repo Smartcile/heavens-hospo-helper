@@ -54,11 +54,11 @@ export function WorkerDashboardClient() {
     if (loaded.current) return
     loaded.current = true
 
-    const [tasksR, noticesR, calR, trainingR, sopsR, stocktakeR, clockR] = await Promise.all([
+    const [tasksR, noticesR, calR, guidesR, sopsR, stocktakeR, clockR] = await Promise.all([
       fetch('/api/worker/tasks'),
       fetch('/api/worker/notices'),
       fetch('/api/worker/calendar'),
-      fetch('/api/worker/training'),
+      fetch('/api/worker/guides'),
       fetch('/api/worker/sops'),
       fetch('/api/worker/stocktake'),
       fetch('/api/worker/timeclock/status'),
@@ -69,7 +69,7 @@ export function WorkerDashboardClient() {
     const tasks = await tasksR.json()
     const notices = await noticesR.json()
     const cal = await calR.json()
-    const training = await trainingR.json()
+    const guides = await guidesR.json()
     const sops = await sopsR.json()
     const stocktakes = stocktakeR.ok ? await stocktakeR.json() : []
     const clock = clockR.ok ? await clockR.json() : { isClockedIn: false }
@@ -77,8 +77,8 @@ export function WorkerDashboardClient() {
     const pending = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => !t.isCompleted).length
     const done = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => t.isCompleted).length
 
-    const trainingItems = training.items ?? []
-    const newTraining = trainingItems.filter((t: { completed: boolean }) => !t.completed).length
+    const guideItems = guides.items ?? []
+    const newGuides = guideItems.filter((t: { completed: boolean }) => !t.completed).length
 
     setData({
       firstName: tasks.firstName ?? '',
@@ -88,10 +88,10 @@ export function WorkerDashboardClient() {
       unackedNotices: notices.unackedRequired ?? 0,
       unreadNotices: notices.items?.length ?? 0,
       upcomingShifts: (cal.shifts ?? []).length,
-      trainingDone: trainingItems.filter((t: { completed: boolean }) => t.completed).length,
-      trainingTotal: trainingItems.length,
+      trainingDone: guideItems.filter((t: { completed: boolean }) => t.completed).length,
+      trainingTotal: guideItems.length,
       sopCount: (sops.items ?? []).length,
-      newTraining,
+      newTraining: newGuides,
       pendingStocktakes: (stocktakes ?? []).length,
       isClockedIn: clock.isClockedIn ?? false,
     })
@@ -235,12 +235,12 @@ export function WorkerDashboardClient() {
         )}
 
         {card(
-          'MY TRAINING',
+          'MY GUIDES',
           data && data.newTraining > 0
-            ? `${data.newTraining} NEW MODULE${data.newTraining !== 1 ? 'S' : ''} TO COMPLETE`
+            ? `${data.newTraining} GUIDE${data.newTraining !== 1 ? 'S' : ''} TO COMPLETE`
             : data && data.trainingTotal > 0
               ? `${Math.round((data!.trainingDone / data!.trainingTotal) * 100)}% COMPLETE`
-              : 'NO TRAINING ASSIGNED',
+              : 'NO GUIDES ASSIGNED',
           <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="square" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
           </svg>,

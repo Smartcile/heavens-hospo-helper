@@ -178,30 +178,75 @@ Worker QR+PIN logins remain `0000` / `1111` / `2222` / `3333`.
 PIN as the password. The seed backfills `email`/`password` from those for any
 existing ADMIN/MANAGER (and frees `swiftPosId`), so no one is locked out.
 
-### Training (Phase 3)
-`TrainingModule` + `TrainingStep` hold guides (steps: text + `imageUrl` upload +
-`videoUrl` link). A module applies to a person when it is onboarding
-(`isOnboarding`, all staff), department-scoped (`departmentId` == staff's dept),
-or individually assigned (`TrainingAssignment`, with a `reason` for upskill/areas
-to work on). `requiresSignOff` toggles staff-self-complete vs manager sign-off.
-`linkedTaskId` ties a guide to a task so it surfaces in the worker task view.
-`TrainingCompletion` records who completed what (`selfCompleted` vs
-`signedOffById`). `lib/training.ts:getStaffTraining()` is the shared resolver
-used by the admin per-staff panel (`/api/admin/staff/[id]/training`) and the
-worker view (`/api/worker/training`). Admin authoring at `/admin/training`;
-sign-off/assign from the Staff page; worker view at `/w/training`. Step photos
-upload via `/api/admin/upload`.
+### Playbook Guides (Phase 6 — replaces Training)
 
-**Step ← → Inventory Item linking (Phase 5):** `StepInventoryItem` is a junction
-model (`@@unique([stepId, itemId])`) linking a `TrainingStep` to an
-`InventoryItem`, with an optional `quantity` (default 1). Authored via the
-step editor in `TrainingEditModal` using a Combobox search over all venue
-inventory items; each step can list the tools/equipment needed. The
-`getStaffTraining()` resolver includes `linkedInventoryItems` per step (with
-item name, unit, image, category, storage section+department, storage notes,
-supplier, and totalQty). The worker training view renders them under "TOOLS /
-EQUIPMENT NEEDED" below each step, showing the item photo, storage location
-(department → section path), storage notes, and supplier.
+`Guide` + `GuideStep` replace the old `TrainingModule`/`TrainingStep` system.
+Steps are simplified — just `heading`, `content`, `imageUrl`, and `videoUrl`. All
+step-level junction tables (StepInventoryItem, StepTask, StepModule,
+linkedChecklistId, linkedTaskId on step) have been removed.
+
+A guide has:
+- `status`: `DRAFT` | `PUBLISHED` — new guides start as DRAFT and must be
+  explicitly published before workers can see them. No guide ever goes live by
+  accident.
+- `isTracked: boolean` — replaces the old `kind` enum. When true, the guide shows
+  in the worker's "My Guides" list, tracks completions, and supports sign-off and
+  onboarding. When false, it's a reference-only document (old SOP/FAQ/HOWTO).
+- `requiresSignOff: boolean` — when true, a manager must sign off via the Staff
+  page modal. When false, the worker self-completes.
+- `isOnboarding: boolean` — applies to ALL staff regardless of department.
+- `departmentId: String?` — auto-applies to all staff in that department.
+
+A guide applies to a person when any of:
+1. `isOnboarding: true` (all staff)
+2. `departmentId` matches staff's department
+3. Individually assigned via `GuideAssignment` (with `reason` for upskill/areas to
+   work on)
+
+**Task linking** is done via `TaskGuide` — a single junction with
+`isRequiredForCompetency: boolean`. When true, completing this guide is a
+**competency requirement** before the task can be performed. When false, the
+guide is a how-to reference for the task. Both are set from the guide form and
+the task edit form.
+
+**Completion** is tracked in `GuideCompletion` (`@@unique([guideId, staffId])`).
+`selfCompleted: true` for worker self-complete; `signedOffById` for manager
+sign-off. Revoke hard-deletes the row.
+
+**Admin authoring** at `/admin/guides` (`GuidesClient`) — grid of guide cards
+with DRAFT/PUBLISHED badges, PUBLISH button per card. Form has title,
+description, category, department, linked tasks + competency tasks comboboxes,
+isTracked/requiresSignOff/isOnboarding checkboxes, and steps (heading, content,
+video, photo upload). PUBLISHED guides are visible to workers; DRAFT guides
+are sandboxed and used only for staging.
+
+**Staff management** via Staff page → GUIDES button → `StaffGuidesModal` —
+shows all applicable guides per staff member with completion status, MARK
+TRAINED (sign-off), REVOKE, UNASSIGN actions, and ASSIGN section with reason
+input.
+
+**Worker view** at `/w/guides` (`WorkerGuidesClient`) — progress bar, list of
+applicable guides, full-screen step-by-step reader with photos and videos,
+MARK COMPLETE button (self-complete, blocked if sign-off required),
+MANAGER SIGN-OFF message when appropriate. Dashboard widget shows % complete.
+
+**API routes:**
+| Route | Methods | Purpose |
+|-------|---------|---------|
+| `/api/admin/guides` | GET, POST | List/create guides |
+| `/api/admin/guides/[id]` | GET, PUT, DELETE | Single guide CRUD |
+| `/api/admin/guides/[id]/publish` | PATCH | Toggle DRAFT ↔ PUBLISHED |
+| `/api/admin/guides/complete` | POST, DELETE | Sign-off / revoke |
+| `/api/admin/guides/assign` | POST, DELETE | Assign / unassign |
+| `/api/admin/staff/[id]/guides` | GET | Staff's applicable guides + completions |
+| `/api/worker/guides` | GET | Worker's applicable guides + completion status |
+| `/api/worker/guides/[id]/complete` | POST | Self-complete (rejects sign-off-required) |
+
+**Migration:** `packages/db/prisma/migrate-to-guides.ts` reads old
+`TrainingModule`/`TrainingStep` data, creates `Guide`/`GuideStep`/`TaskGuide`
+rows with `status: 'DRAFT'`, flattens `StepInventoryItem` into
+`legacyToolsNote`, drops step-level junctions. Idempotent — runs in `start.ps1`
+and skips if guides already exist. Old tables left intact for reference.
 
 ### External embeds + calendar import + NZ breaks
 Per-venue integration links live on `Venue` (`loadedRosterUrl`,

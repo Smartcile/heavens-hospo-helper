@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
-import { StaffTrainingModal } from '@/components/admin/StaffTrainingModal'
+import { StaffGuidesModal } from '@/components/admin/StaffGuidesModal'
 import { getActiveVenueId } from '@/lib/active-venue'
 
 interface StaffMember {
@@ -80,7 +80,7 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [sections, setSections] = useState<Section[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
-  const [trainingFor, setTrainingFor] = useState<StaffMember | null>(null)
+  const [guidesFor, setGuidesFor] = useState<StaffMember | null>(null)
   const [editing, setEditing] = useState<StaffMember | null>(null)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
@@ -284,8 +284,8 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex gap-3">
-                        <button onClick={() => setTrainingFor(s)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">
-                          TRAINING
+                        <button onClick={() => setGuidesFor(s)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">
+                          GUIDES
                         </button>
                         <button onClick={() => toggleActive(s)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">
                           {s.isActive ? 'DEACTIVATE' : 'ACTIVATE'}
@@ -470,11 +470,11 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
         </div>
       </Modal>
 
-      {trainingFor && (
-        <StaffTrainingModal
-          staffId={trainingFor.id}
-          staffName={`${trainingFor.firstName} ${trainingFor.lastName}`}
-          onClose={() => setTrainingFor(null)}
+      {guidesFor && (
+        <StaffGuidesModal
+          staffId={guidesFor.id}
+          staffName={`${guidesFor.firstName} ${guidesFor.lastName}`}
+          onClose={() => setGuidesFor(null)}
         />
       )}
     </div>

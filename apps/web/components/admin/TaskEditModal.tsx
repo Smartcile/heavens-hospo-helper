@@ -12,7 +12,7 @@ import { MONTHLY_OPTIONS } from '@/lib/scheduling'
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string }
 interface Section { id: string; name: string; departmentId: string; venueId: string }
-interface TrainingLite { id: string; title: string; venueId: string; kind: string; description: string | null }
+interface GuideLite { id: string; title: string; venueId: string; isTracked: boolean; description: string | null }
 
 interface TaskData {
   id: string; title: string; description: string | null; venueId: string
@@ -20,6 +20,7 @@ interface TaskData {
   completionType: string; scheduleType: string; scheduleDays: number[]
   customCron: string | null; intervalMonths: number; monthlyOption: string | null; monthlyDay: number | null
   requiredTraining: { moduleId: string }[]
+  taskGuides?: { guideId: string; isRequiredForCompetency: boolean }[]
 }
 
 const COMPLETION_OPTIONS = [
@@ -37,11 +38,11 @@ const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
 export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: string; role: string; onClose: () => void; onSaved: () => void }) {
   const [task, setTask] = useState<TaskData | null>(null)
-  const [requiredTrainingIds, setRequiredTrainingIds] = useState<string[]>([])
+  const [competencyGuideIds, setCompetencyGuideIds] = useState<string[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [sections, setSections] = useState<Section[]>([])
-  const [modules, setModules] = useState<TrainingLite[]>([])
+  const [guides, setGuides] = useState<GuideLite[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -55,15 +56,17 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
       fetch('/api/admin/venues').then((r) => r.json()),
       fetch('/api/admin/departments').then((r) => r.json()),
       fetch('/api/admin/sections').then((r) => r.json()),
-      fetch('/api/admin/training').then((r) => r.json()),
+      fetch('/api/admin/guides').then((r) => r.json()),
     ]).then(([t, v, d, s, m]) => {
       if (!active) return
       setTask(t)
-      setRequiredTrainingIds((t.requiredTraining ?? []).map((r: { moduleId: string }) => r.moduleId))
+      // Read competency from TaskGuide (new) or fall back to old requiredTraining
+      const guideIds = (t.taskGuides ?? []).filter((g: { isRequiredForCompetency: boolean }) => g.isRequiredForCompetency).map((g: { guideId: string }) => g.guideId)
+      setCompetencyGuideIds(guideIds.length > 0 ? guideIds : (t.requiredTraining ?? []).map((r: { moduleId: string }) => r.moduleId))
       setVenues(Array.isArray(v) ? v : [])
       setDepartments(Array.isArray(d) ? d : [])
       setSections(Array.isArray(s) ? s : [])
-      setModules(Array.isArray(m) ? m : [])
+      setGuides(Array.isArray(m) ? m : [])
       setLoading(false)
     })
     return () => { active = false }
@@ -93,7 +96,8 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
         scheduleDays: task.scheduleType === 'DAILY' ? [] : task.scheduleDays,
         customCron: task.scheduleType === 'CUSTOM' ? task.customCron : null,
         intervalMonths: task.intervalMonths, monthlyOption: task.monthlyOption, monthlyDay: task.monthlyDay,
-        requiredTrainingIds,
+        requiredTrainingIds: [],
+        competencyGuideIds,
         requireRetrain, changeSummary,
       }),
     })
@@ -109,7 +113,7 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
   const sectionOptions = task
     ? [{ value: '', label: 'NO SECTION' }, ...sections.filter((s) => s.departmentId === task.departmentId).map((s) => ({ value: s.id, label: s.name }))]
     : []
-  const trainingOptions = task ? modules.filter((m) => m.venueId === task.venueId && m.kind === 'TRAINING') : []
+  const guideOptions = task ? guides.filter((g) => g.venueId === task.venueId) : []
 
   return (
     <Modal isOpen onClose={onClose} title="EDIT TASK" size="lg">
@@ -127,14 +131,14 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
           </div>
           <Select label="Section (optional)" value={task.sectionId ?? ''} onChange={(e) => patch({ sectionId: e.target.value })} options={sectionOptions} />
 
-          {trainingOptions.length > 0 && (
+          {guideOptions.length > 0 && (
             <Combobox
               label="Required training (competency)"
-              options={trainingOptions.map((m) => ({ value: m.id, label: m.title, description: m.description ?? undefined }))}
-              selected={requiredTrainingIds}
-              onChange={setRequiredTrainingIds}
-              onPreview={(id) => window.open(`/admin/training?module=${id}`, '_blank')}
-              placeholder="Search training modules..."
+              options={guideOptions.map((g) => ({ value: g.id, label: g.title, description: g.description ?? undefined }))}
+              selected={competencyGuideIds}
+              onChange={setCompetencyGuideIds}
+              onPreview={(id) => window.open(`/admin/guides?guide=${id}`, '_blank')}
+              placeholder="Search guides..."
             />
           )}
 

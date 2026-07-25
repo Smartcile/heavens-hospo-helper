@@ -249,25 +249,23 @@ See [ECOSYSTEM.md](ECOSYSTEM.md) for the full design.
 
 ---
 
-## Training ✅ (needs rework)
+## Playbook Guides ✅
 
-- Step-by-step guides with photo uploads + video links
-- Assignment: onboarding, department-scoped, or individually assigned
-- Self-complete vs. manager sign-off per module
-- Worker view at `/w/training` with progress bar
-- Completion tracking per person on Staff page
-- `TaskRequiredTraining` competency linking
-- `StepInventoryItem` junction — training steps can reference tools/equipment from inventory with photo, storage location, supplier
+- `Guide` + `GuideStep` replace old `TrainingModule` + `TrainingStep`
+- Steps simplified to heading, content, imageUrl, videoUrl — no junctions
+- Task linking via `TaskGuide` (isRequiredForCompetency: boolean)
+- DRAFT/PUBLISHED workflow — nothing goes live accidentally
+- Guide completion via `GuideCompletion`, assignment via `GuideAssignment`
+- Admin authoring at `/admin/guides`, worker view at `/w/guides`
+- Staff management via GUIDES modal on Staff page
+- Competency linking wired into task edit form
+- Migrated from old `TrainingModule` data via `migrate-to-guides.ts`
+- Old tables kept for reference; old UI (`/admin/training`, `/w/training`) still available
 
 **Pending:** ☐
+- Pathway builder (drag-and-drop onboarding flows) — Phase 2
+- Tech tree worker view (game-like unlock progression) — Phase 3
 - MyHR onboarding export
-- Reordering / required-for-role gating
-
-**Training Rework:** ☐
-- Add descriptions for each `TrainingModule.kind` (TRAINING / SOP / FAQ / HOWTO) so managers understand what each type is for
-- Rename the area — "Resources" or "Guides" instead of just "Training"
-- Better organisation of the training list — filters, grouping, search
-- Reorganise the admin page layout for clarity
 
 ---
 

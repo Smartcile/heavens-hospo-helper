@@ -34,6 +34,7 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/w/kitchen', label: 'Kitchen' },
   ] },
   { label: 'Work', items: [
+    { href: '/admin/guides', label: 'Playbook' },
     { href: '/admin/tasks', label: 'Tasks & Checklists' },
     { href: '/admin/training', label: 'Training & SOPs' },
     { href: '/admin/qrcodes', label: 'QR Codes' },

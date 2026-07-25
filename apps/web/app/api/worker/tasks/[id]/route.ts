@@ -83,6 +83,20 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
   }
 
+  // New: sync competency Guide links
+  if (body.competencyGuideIds !== undefined) {
+    await prisma.taskGuide.deleteMany({
+      where: { taskId: task.id, isRequiredForCompetency: true },
+    })
+    if (body.competencyGuideIds.length) {
+      await prisma.taskGuide.createMany({
+        data: (body.competencyGuideIds as string[]).map((guideId: string) => ({
+          taskId: task.id, guideId, isRequiredForCompetency: true,
+        })),
+      })
+    }
+  }
+
   return NextResponse.json(task)
 }
 

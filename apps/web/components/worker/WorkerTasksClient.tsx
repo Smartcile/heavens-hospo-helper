@@ -41,6 +41,7 @@ interface ChecklistFull {
 interface Department { id: string; name: string; venueId: string; colour: string | null }
 interface Section { id: string; name: string; departmentId: string; venueId: string }
 interface TrainingLite { id: string; title: string; venueId: string; kind: string; description: string | null }
+interface GuideLite { id: string; title: string; venueId: string; isTracked: boolean; description: string | null }
 
 const EMPTY_TASK_FORM: TaskForm = {
   title: '', description: '', departmentId: '', sectionId: '',
@@ -83,7 +84,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   const [expandedLists, setExpandedLists] = useState<Set<string>>(new Set())
   const [editDepts, setEditDepts] = useState<Department[]>([])
   const [editSections, setEditSections] = useState<Section[]>([])
-  const [editTraining, setEditTraining] = useState<TrainingLite[]>([])
+  const [editGuides, setEditGuides] = useState<GuideLite[]>([])
   const [editTasks, setEditTasks] = useState<TaskFull[]>([])
   const [editChecklists, setEditChecklists] = useState<ChecklistFull[]>([])
 
@@ -173,16 +174,16 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     const [dR, sR, tR, taskR, clR] = await Promise.all([
       fetch('/api/worker/departments'),
       fetch('/api/worker/sections'),
-      fetch('/api/worker/training?edit=1'),
+      fetch('/api/worker/guides?edit=1'),
       fetch('/api/worker/tasks?edit=1'),
       fetch('/api/worker/checklists'),
     ])
     if (dR.status === 401) { router.push('/w/login'); return }
-    const [depts, sections, training, editTasksData, checklistsData] =
+    const [depts, sections, guides, editTasksData, checklistsData] =
       await Promise.all([dR.json(), sR.json(), tR.json(), taskR.json(), clR.json()])
     setEditDepts(depts as Department[])
     setEditSections(sections as Section[])
-    setEditTraining(training as TrainingLite[])
+    setEditGuides(guides as GuideLite[])
     setEditTasks(editTasksData as TaskFull[])
     setEditChecklists(checklistsData as ChecklistFull[])
   }
@@ -769,10 +770,10 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               )}
               {activeTask.guide && (
                 <button
-                  onClick={() => router.push(`/w/training?module=${activeTask.guide!.id}`)}
+                  onClick={() => router.push(`/w/guides?guide=${activeTask.guide!.id}`)}
                   className="mt-3 inline-block font-mono text-xs uppercase border border-grey-mid px-3 py-2 text-white hover:border-white transition-colors"
                 >
-                  📖 VIEW GUIDE: {activeTask.guide.title}
+                  VIEW GUIDE: {activeTask.guide.title}
                 </button>
               )}
             </div>
@@ -951,13 +952,13 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               </div>
             )}
 
-            {editTraining.filter(m => m.kind === 'TRAINING').length > 0 && (
+            {editGuides.length > 0 && (
               <Combobox
                 label="Required Training"
-                options={editTraining.filter(m => m.kind === 'TRAINING').map(m => ({ value: m.id, label: m.title, description: m.description }))}
+                options={editGuides.map(m => ({ value: m.id, label: m.title, description: m.description ?? undefined }))}
                 selected={taskForm.requiredTrainingIds}
                 onChange={(ids) => setTaskForm({ ...taskForm, requiredTrainingIds: ids })}
-                placeholder="Search training..."
+                placeholder="Search guides..."
               />
             )}
 

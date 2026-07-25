@@ -27,6 +27,7 @@ try {
     npx prisma generate
     if ($?) { npx prisma db push }
     if ($?) { Write-Host "Pushing DB seed..."; npm run db:seed }
+    if ($?) { Write-Host "Migrating to Guide model..."; npm run db:migrate-guides }
 } finally {
     Pop-Location
 }
