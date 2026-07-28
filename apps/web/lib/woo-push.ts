@@ -61,10 +61,8 @@ export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 
   }
   if (item.wooCategoryId) {
     const id = parseInt(item.wooCategoryId, 10)
-    if (!isNaN(id)) {
+    if (!isNaN(id) && id > 0) {
       payload.categories = [{ id }]
-    } else {
-      payload.categories = [{ name: item.wooCategoryId }]
     }
   }
   if (item.imageUrl) {

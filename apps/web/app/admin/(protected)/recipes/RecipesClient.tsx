@@ -94,7 +94,7 @@ export function RecipesClient() {
   const [uoms, setUoms] = useState<Uom[]>([])
   const [inventoryItems, setInventoryItems] = useState<InvItem[]>([])
   const [allRecipes, setAllRecipes] = useState<RecipeBrief[]>([])
-  const [wooCategories, setWooCategories] = useState<string[]>([])
+  const [wooCategories, setWooCategories] = useState<{ id: string; name: string }[]>([])
   const [categories, setCategories] = useState<{ id: string; name: string; tab: string | null }[]>([])
 
   const [lineItems, setLineItems] = useState<LineItem[]>([])
@@ -150,16 +150,16 @@ export function RecipesClient() {
     setAddingIngredient(false)
   }
 
-  const filteredWooCats = useMemo(() => {
-
   function addVariation() { setFormVariations(prev => [...prev, { name: '', price: 0 }]) }
   function updateVariation(i: number, field: 'name' | 'price', value: string) {
     setFormVariations(prev => prev.map((v, j) => j === i ? { ...v, [field]: field === 'price' ? (parseFloat(value) || 0) : value } : v))
   }
   function removeVariation(i: number) { setFormVariations(prev => prev.filter((_, j) => j !== i)) }
+
+  const filteredWooCats = useMemo(() => {
     if (!wooCatInput.trim()) return []
     const q = wooCatInput.toUpperCase()
-    return wooCategories.filter((c) => c.includes(q) && !formWooCategories.includes(c)).slice(0, 8)
+    return wooCategories.filter((c) => c.name.includes(q) && !formWooCategories.includes(c.id)).slice(0, 8)
   }, [wooCatInput, wooCategories, formWooCategories])
 
   function resetForm() {
@@ -252,7 +252,7 @@ export function RecipesClient() {
       const wcRes = await fetch('/api/admin/woocommerce/categories')
       if (wcRes.ok) {
         const data = await wcRes.json()
-        setWooCategories((data.categories ?? []).map((c: { name: string }) => c.name))
+        setWooCategories((data.categories ?? []).map((c: { id: number; name: string }) => ({ id: String(c.id), name: c.name })))
       }
     } catch { /* best-effort */ }
     setLoading(false)
@@ -594,7 +594,7 @@ export function RecipesClient() {
                         <div className={`flex flex-wrap items-center gap-1 bg-black border px-3 py-2 min-h-[38px] ${wooCatShowDropdown && filteredWooCats.length > 0 ? 'border-white' : 'border-grey-mid focus-within:border-white'}`}>
                           {formWooCategories.map((c, i) => (
                             <span key={i} className="inline-flex items-center gap-1 bg-grey-mid border border-grey-light px-1.5 py-0.5 font-mono text-[10px] text-white leading-none">
-                              {c}
+                              {wooCategories.find(cat => cat.id === c)?.name ?? c}
                               <button onClick={() => setFormWooCategories(prev => prev.filter((_, j) => j !== i))}
                                 className="text-grey-light hover:text-danger text-xs leading-none">&times;</button>
                             </span>
@@ -622,10 +622,10 @@ export function RecipesClient() {
                         {wooCatShowDropdown && filteredWooCats.length > 0 && (
                           <div className="absolute top-full left-0 right-0 z-50 mt-1 border border-grey-mid bg-black max-h-48 overflow-y-auto shadow-lg">
                             {filteredWooCats.map((c) => (
-                              <button key={c}
-                                onMouseDown={(e) => { e.preventDefault(); if (!formWooCategories.includes(c)) setFormWooCategories(prev => [...prev, c]); setWooCatInput(''); setWooCatShowDropdown(false) }}
+                              <button key={c.id}
+                                onMouseDown={(e) => { e.preventDefault(); if (!formWooCategories.includes(c.id)) setFormWooCategories(prev => [...prev, c.id]); setWooCatInput(''); setWooCatShowDropdown(false) }}
                                 className="w-full text-left px-3 py-1.5 font-mono text-xs text-white hover:bg-grey-dark border-b border-grey-mid last:border-b-0 uppercase">
-                                {c}
+                                {c.name}
                               </button>
                             ))}
                           </div>

@@ -12,8 +12,8 @@
 | Order status (HOSPO OPS → Woo) | Automatic push on status change | Instant |
 
 **Product sync refinements (2026-07):**
-- **Categories** are pulled as **names** (e.g. "BURGERS"), not numeric IDs — human-readable in the admin UI.
-- **Category picker** shows a dropdown of all existing WooCommerce categories — fetched live from the store so you can pick instead of typing. Both the Recipes & Menu Items page and the Menu Items page use this.
+- **Categories** are stored as numeric IDs, not names — ensures reliable push-back to WooCommerce.
+- **Category picker** shows a dropdown of all existing WooCommerce categories — names in the UI, IDs under the hood. Both the Recipes & Menu Items page and the Menu Items page use this.
 - **Featured images** are downloaded from WooCommerce and stored locally on pull.
 - **Product images** can be uploaded via ADD IMAGE in the recipe LINK TO WOO section or menu item WOOCOMMERCE SYNC section — served locally and pushed back to WooCommerce (relative URLs auto-resolved to absolute).
 - **Short description** field is synced both ways — pulled from WooCommerce's `short_description` (product excerpt) and pushed back on save.

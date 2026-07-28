@@ -54,9 +54,9 @@ describe('buildProductPushPayload', () => {
     expect(payload.categories).toEqual([{ id: 17 }])
   })
 
-  it('sends category as name when wooCategoryId is not numeric', () => {
+  it('omits categories when wooCategoryId is not numeric', () => {
     const payload = buildProductPushPayload({ name: 'PIE', price: 8, wooCategoryId: 'mains', imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW)
-    expect(payload.categories).toEqual([{ name: 'mains' }])
+    expect(payload.categories).toBeUndefined()
   })
 
   it('includes images when imageUrl is set', () => {

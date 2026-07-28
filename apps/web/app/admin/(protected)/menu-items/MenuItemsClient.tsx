@@ -79,7 +79,7 @@ export function MenuItemsClient() {
     if (res.ok) {
       const data = await res.json()
       const cats = data.categories ?? []
-      setWooCategories(cats.map((c: { name: string }) => ({ value: c.name, label: c.name })))
+      setWooCategories(cats.map((c: { id: number; name: string }) => ({ value: String(c.id), label: c.name })))
     }
     setWooCategoriesLoaded(true)
   }

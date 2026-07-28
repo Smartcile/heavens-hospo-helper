@@ -610,8 +610,8 @@ removed. Creating/editing tables opens a modal popup via `TableProfileForm`.
 **Restore deleted items:** SHOW DELETED toggle in inventory displays soft-deleted
 items with RESTORE (`POST .../restore`) and PURGE (`DELETE ?permanent=1`) buttons.
 
-**Allergen management:** 23 allergens (Almond, Barley, Brazil Nut, Cashew, Crustacean,
-Egg, Fish, Hazelnut, Lupin, Macadamia, Milk, Mollusc, Oats, Peanut, Pecan, Pine nut,
+**Allergen management:** 24 allergens (Almond, Barley, Brazil Nut, Cashew, Crustacean,
+Egg, Fish, Gluten, Hazelnut, Lupin, Macadamia, Milk, Mollusc, Oats, Peanut, Pecan, Pine nut,
 Pistachio, Rye, Sesame, Soy, Sulphites, Walnut, Wheat) managed via `AllergenPicker`
 component with grouped buttons (DAIRY, NUTS, GRAINS, etc.). Allergens are stored as
 comma-separated `dietaryInfo` on `MenuItem`. The `GET /api/admin/menu-items` endpoint
@@ -1258,7 +1258,7 @@ Receives `order.created` / `order.updated` AND `product.created` / `product.upda
 
 **Pull (Woo → app):**
 - `lib/woo-sync.ts` `runProductPull(venueId?)` — paginated product fetch, upserts `MenuItem`s, logs to `SyncLog`
-- `upsertProductFromWoo()` stores category **names** (not IDs), downloads featured images to local uploads, strips HTML from descriptions, and **decodes HTML entities** (`&amp;` → `&` etc.) from names and descriptions before storage to prevent double-encoding on push-back
+- `upsertProductFromWoo()` stores category **IDs** (numeric, for reliable push-back), downloads featured images to local uploads, and **decodes HTML entities** (`&amp;` → `&` etc.) from names and descriptions before storage to prevent double-encoding on push-back
 - `fetchWooCategories()` fetches all product categories from the WooCommerce REST API — used by the category autocomplete dropdown in the admin UI
 - `lib/woo-orders-sync.ts` `runOrderPull(venueId?)` — paginated order fetch, upserts `WooOrder` + `WooOrderItem`, runs recipe explosion, auto-seating, and gift card detection per order, logs to `SyncLog`
 
@@ -1268,7 +1268,7 @@ Receives `order.created` / `order.updated` AND `product.created` / `product.upda
 - **Images pushed:** `buildProductPushPayload` includes `images` when `imageUrl` is set; relative `/api/upload/...` paths are resolved to absolute URLs using `APP_URL` or `NEXTAUTH_URL`
 - **Short description pushed:** `buildProductPushPayload` includes `short_description` when `shortDescription` is set
 - **Variable products:** toggling VARIABLE PRODUCT in the recipe editor sets `isVariable: true` and stores variation names/prices in JSON. On push, `type: "variable"` and `attributes` are sent so WooCommerce creates a variable product with size options. Variations themselves (prices per variant) must be managed on WooCommerce after the initial create.
-- **Category handling:** numeric `wooCategoryId` → `categories: [{ id }]`; non-numeric (name) → `categories: [{ name }]`
+- **Category handling:** numeric `wooCategoryId` → `categories: [{ id }]`; non-numeric is omitted (category names are resolved to IDs in the UI dropdown before storage)
 - `pushOrderStatus()` fires on order status change via `PATCH /api/admin/orders/[id]` (Orders page STATUS dropdown)
 - All pushes best-effort: log to `SyncLog`, never throw, never block the save
 

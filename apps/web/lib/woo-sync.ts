@@ -178,7 +178,7 @@ export async function upsertProductFromWoo(
   const wooProductId = String(product.id)
   const name = decodeEntities(product.name ?? 'IMPORTED PRODUCT').toUpperCase()
   const price = parseFloat(product.price ?? '0')
-  const categoryName = product.categories?.[0]?.name ? String(product.categories[0].name) : null
+  const categoryId = product.categories?.[0]?.id ? String(product.categories[0].id) : null
   const remoteImageUrl = product.images?.[0]?.src ?? null
   const description = product.description?.replace(/<[^>]*>/g, '').trim() ?? null
   const cleanDescription = description ? decodeEntities(description) : null
@@ -194,7 +194,7 @@ export async function upsertProductFromWoo(
   if (existing) {
     await prisma.menuItem.update({
       where: { id: existing.id },
-      data: { name, price, wooCategoryId: categoryName, imageUrl, description: cleanDescription, shortDescription: cleanShortDescription, isVariable },
+      data: { name, price, wooCategoryId: categoryId, imageUrl, description: cleanDescription, shortDescription: cleanShortDescription, isVariable },
     })
     return 'updated'
   }
@@ -206,7 +206,7 @@ export async function upsertProductFromWoo(
       recipeId: null, // link recipe manually in admin (Recipes & Menu Items)
       price,
       wooProductId,
-      wooCategoryId: categoryName,
+      wooCategoryId: categoryId,
       imageUrl,
       description: cleanDescription,
       shortDescription: cleanShortDescription,
