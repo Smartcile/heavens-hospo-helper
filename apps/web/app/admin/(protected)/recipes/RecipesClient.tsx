@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -57,6 +57,8 @@ export function RecipesClient() {
   const [formWooProductId, setFormWooProductId] = useState('')
   const [formWooCategories, setFormWooCategories] = useState<string[]>([])
   const [wooCatInput, setWooCatInput] = useState('')
+  const [wooCatSuggestions, setWooCatSuggestions] = useState<string[]>([])
+  const [wooCatShowDropdown, setWooCatShowDropdown] = useState(false)
   const [formExistingMenuItemId, setFormExistingMenuItemId] = useState<string | null>(null)
   const [formDietaryInfo, setFormDietaryInfo] = useState<string[]>([])
   const [allergenPopout, setAllergenPopout] = useState<{ allergen: string; source: string } | null>(null)
@@ -74,6 +76,7 @@ export function RecipesClient() {
   const [uoms, setUoms] = useState<Uom[]>([])
   const [inventoryItems, setInventoryItems] = useState<InvItem[]>([])
   const [allRecipes, setAllRecipes] = useState<RecipeBrief[]>([])
+  const [wooCategories, setWooCategories] = useState<string[]>([])
 
   const [lineItems, setLineItems] = useState<LineItem[]>([])
   const [newItemType, setNewItemType] = useState<'inventory' | 'recipe'>('inventory')
@@ -85,6 +88,12 @@ export function RecipesClient() {
   const [editingLineId, setEditingLineId] = useState<string | null>(null)
   const [editLineQty, setEditLineQty] = useState('1')
   const [editLineUomId, setEditLineUomId] = useState('')
+
+  const filteredWooCats = useMemo(() => {
+    if (!wooCatInput.trim()) return []
+    const q = wooCatInput.toUpperCase()
+    return wooCategories.filter((c) => c.includes(q) && !formWooCategories.includes(c)).slice(0, 8)
+  }, [wooCatInput, wooCategories, formWooCategories])
 
   function resetForm() {
     setFormName(''); setFormYieldQty('1'); setFormYieldUnitId('')
@@ -156,6 +165,14 @@ export function RecipesClient() {
       const orphaned = arr.filter((m: any) => !m.recipe || !m.recipeId)
       setOrphanItems(orphaned)
     }
+    // Load WooCommerce categories for the category picker
+    try {
+      const wcRes = await fetch('/api/admin/woocommerce/categories')
+      if (wcRes.ok) {
+        const data = await wcRes.json()
+        setWooCategories((data.categories ?? []).map((c: { name: string }) => c.name))
+      }
+    } catch { /* best-effort */ }
     setLoading(false)
   }
 
@@ -483,35 +500,49 @@ export function RecipesClient() {
                       </div>
                       <div>
                         <label className="font-mono text-xs uppercase text-grey-light block mb-1">WOO PRODUCT ID</label>
-                        <Input value={formWooProductId} onChange={(e) => setFormWooProductId(e.target.value)} placeholder="e.g. 30331" />
+                        <Input value={formWooProductId} onChange={(e) => setFormWooProductId(e.target.value)} placeholder="AUTO-GENERATED ON SAVE" disabled={true} />
                       </div>
-                      <div>
+                      <div className="relative">
                         <label className="font-mono text-xs uppercase text-grey-light block mb-1">WOO CATEGORY</label>
-                        <div className="flex flex-wrap items-center gap-1 bg-black border border-grey-mid px-3 py-2 focus-within:border-white min-h-[38px]">
+                        <div className={`flex flex-wrap items-center gap-1 bg-black border px-3 py-2 min-h-[38px] ${wooCatShowDropdown && filteredWooCats.length > 0 ? 'border-white' : 'border-grey-mid focus-within:border-white'}`}>
                           {formWooCategories.map((c, i) => (
                             <span key={i} className="inline-flex items-center gap-1 bg-grey-mid border border-grey-light px-1.5 py-0.5 font-mono text-[10px] text-white leading-none">
                               {c}
                               <button onClick={() => setFormWooCategories(prev => prev.filter((_, j) => j !== i))}
-                                className="text-grey-light hover:text-danger text-xs leading-none">×</button>
+                                className="text-grey-light hover:text-danger text-xs leading-none">&times;</button>
                             </span>
                           ))}
                           <input value={wooCatInput}
+                            onFocus={() => { if (wooCatInput.trim() && filteredWooCats.length > 0) setWooCatShowDropdown(true) }}
+                            onBlur={() => setTimeout(() => setWooCatShowDropdown(false), 150)}
                             onChange={(e) => {
                               const v = e.target.value
                               if (v.endsWith(',')) {
                                 const tag = v.replace(/,/g, '').trim().toUpperCase()
                                 if (tag && !formWooCategories.includes(tag)) setFormWooCategories(prev => [...prev, tag])
-                                setWooCatInput('')
-                              } else { setWooCatInput(v) }
+                                setWooCatInput(''); setWooCatShowDropdown(false)
+                              } else { setWooCatInput(v); if (v.trim()) setWooCatShowDropdown(true) }
                             }}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter') { e.preventDefault(); const tag = wooCatInput.trim().toUpperCase(); if (tag && !formWooCategories.includes(tag)) setFormWooCategories(prev => [...prev, tag]); setWooCatInput('') }
+                              if (e.key === 'Enter') { e.preventDefault(); const tag = wooCatInput.trim().toUpperCase(); if (tag && !formWooCategories.includes(tag)) setFormWooCategories(prev => [...prev, tag]); setWooCatInput(''); setWooCatShowDropdown(false) }
                               else if (e.key === 'Backspace' && !wooCatInput && formWooCategories.length > 0) { setFormWooCategories(prev => prev.slice(0, -1)) }
+                              else if (e.key === 'Escape') { setWooCatShowDropdown(false) }
                             }}
-                            placeholder={formWooCategories.length === 0 ? 'TYPE CATEGORY, PRESS ENTER...' : ''}
+                            placeholder={formWooCategories.length === 0 ? 'SEARCH OR TYPE CATEGORY...' : ''}
                             className="flex-1 min-w-[120px] bg-transparent border-none outline-hidden text-white font-mono text-xs placeholder:text-grey-light"
                           />
                         </div>
+                        {wooCatShowDropdown && filteredWooCats.length > 0 && (
+                          <div className="absolute top-full left-0 right-0 z-50 mt-1 border border-grey-mid bg-black max-h-48 overflow-y-auto shadow-lg">
+                            {filteredWooCats.map((c) => (
+                              <button key={c}
+                                onMouseDown={(e) => { e.preventDefault(); if (!formWooCategories.includes(c)) setFormWooCategories(prev => [...prev, c]); setWooCatInput(''); setWooCatShowDropdown(false) }}
+                                className="w-full text-left px-3 py-1.5 font-mono text-xs text-white hover:bg-grey-dark border-b border-grey-mid last:border-b-0 uppercase">
+                                {c}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

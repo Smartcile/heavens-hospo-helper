@@ -361,16 +361,11 @@ as the lookup key; past bookings show status, date, party size, and tables.
 ### Floor planner (Phase 1 + 2, built)
 To-scale venue layout editor using **PixiJS v7** canvas (migrated from Konva 2026-06 — Konva's
 draggable+React caused unresolvable event target and race condition bugs). Admin creates floor
-plans with room dimensions (real cm), then drags elements from a palette onto a grid-snapped
-canvas. Elements are drawn in real cm; room.scale transform handles zoom/pan (no per-element
-scaling). Canvas fills available space via ResizeObserver.
-
-**Palette:** WALL, DOOR, WINDOW, TABLE, CHAIR, COUNTER, BAR, SINK, KITCHEN_EQUIP, STORAGE,
-ENTRY, EXIT, STAIRS, TOILET, PLANT, OTHER (static palette items), plus dynamic **INVENTORY**
-section listing furniture inventory items with availableQty badges (stock-aware tracking:
-`totalQty - placedOnPlan`, live updates as items are placed). TABLE items are pre-created
-in the inventory module as FURNITURE-category templates. Drop is blocked with a toast
-notification when `availableQty ≤ 0`.
+plans with room dimensions (real cm). Elements are drawn using drawing modes (WALLS, DRAW BOOTH,
+SECTIONS) directly on the canvas. Tables are created and managed from the **inventory module**
+(`/admin/inventory` → FURNITURE/TABLES category), not from a drag palette. Elements are drawn
+in real cm; room.scale transform handles zoom/pan (no per-element scaling). Canvas fills
+available space via ResizeObserver.
 
 **Canvas features:** middle-click pan, mouse-wheel zoom (0.2x–5x centered on cursor), zoom
 slider in toolbar via `FloorplanToolbar`. Element drag uses pointer-delta (captured start
@@ -408,14 +403,11 @@ automatically (same `servedTableIds` logic).
 
 **Data flow:** Bulk SAVE sends all elements as one PUT to `/api/admin/floorplan/[id]/elements`,
 which diffs incoming IDs vs existing DB IDs — soft-deletes removed elements, updates existing,
-creates new ones. The save API also accepts `inventoryLinks` to create `ElementInventoryItem`
-rows atomically. Response includes `_clientId`→real-ID mapping so local state updates consistently.
+creates new ones (all in one
+transaction). Response includes `_clientId`→real-ID mapping so local state updates consistently.
 
-**Save validation:** Two backend checks run on every save:
-- **Stock limits:** counts `ElementInventoryItem` rows per item on this plan, rejects with 400
-  if any item's placed count exceeds its `totalQty`.
-- **Table label uniqueness:** deduplicates table labels within the plan — no two TABLE elements
-  can share the same label.
+**Save validation:** Deduplicates table labels within the plan — no two TABLE elements
+can share the same label.
 
 **Multiple views** per venue (slug-based, one default). Workers see a read-only PixiJS canvas
 at `/w/floorplan` with zoom/pan enabled and a view switcher if venue has multiple plans.
@@ -455,9 +447,10 @@ scale with seat count, per-table items don't). Profiles also carry `tableNumbers
 identifiers like `["20","21","22"]`) for auto-assignment.
 
 **Setup Editor:** `FloorPlanEditor.tsx` has been extended with a setup toolbar (switcher
-dropdown, +NEW, DELETE, GROUP/UNGROUP buttons). When a setup is active, the palette shows
-`TableProfile` records instead of static items. Dragging a profile onto the canvas creates a
-`SetupItem` with auto-assigned lowest-available `tableNumber` from the pool. Available/pool
+dropdown, +NEW, DELETE, GROUP/UNGROUP buttons). When a setup is active, placing tables
+from Table Profiles is done via the canvas — existing tables are created through the
+inventory module (`/admin/inventory` → TABLES category), added to plans as `SetupItem`
+records. Available/pool
 counts are shown as badges (`3/5`). Canvas rubber-band selection works for setup items.
 
 **Magnetic Edge Snapping + auto-join:** When a `SetupItem` is dragged close to another
@@ -528,16 +521,8 @@ and the loop was closed end-to-end:
 - **Live per-area totals** and **section auto-tagging via zones** (see Section detection above).
 - **Two-layer UX** — while a setup is active the base plan dims + locks (`baseLayer.eventMode
   = 'none'`) and base-only tools (SECTIONS / DRAW BOOTH) hide; a "BASE PLAN LOCKED" note shows.
-- **Per-event auto-layout** — the setup toolbar's **⚡ GENERATE** runs `planAutoSeat` in
-  `lib/auto-seat.ts` (greedy first-fit bin-packing extracted from the WooCommerce auto-seater)
-  to place + number tables for a target party size.
 - **Fixes** — undo/redo now snapshots `{ elements, setupItems, zones }`; stale room-dimension
   closure in the Pixi init effect fixed; the dead Konva `FloorPlanElementVisual` renderer removed.
-
-**Ghost tables (inventory preview):** Furniture inventory items with `availableQty > 0` render
-on the base plan as semi-transparent (20% opacity) placeholder elements showing their default
-width/depth at (0,0). Staff can see what furniture is available to be placed without it
-blocking the view. Ghost tables update in real time as elements are added/removed from the plan.
 
 **WALLS drawing mode:** Toolbar WALLS toggle activates a click-to-place wall mode. Each click
 places a wall anchor point; points connect as thick grey segments (`WALL` elements with
@@ -586,9 +571,7 @@ Full inventory management system: `InventoryCategory` (8 built-in including FURN
 
 **Stock-aware tracking:** `InventoryItem.totalQty` is the physical count of items owned. The
 `GET /api/admin/inventory` route returns `placedCount` (from `_count.elements`) so the UI can
-compute `availableQty = totalQty - placedCount` per item. The floor plan palette shows live
-`availableQty/totalQty` badges; drag is blocked when `availableQty ≤ 0` with a toast
-notification. Items always remain visible in the palette (no more used-once filtering).
+compute `availableQty = totalQty - placedCount` per item.
 
 **Admin pages:** `/admin/inventory` has a master-detail layout — left column (vertical CATEGORIES
 nav + INVENTORY SUMMARY tree), right column (item list with real AVAIL column + compact PROPERTIES
@@ -1280,9 +1263,24 @@ Recursive BOM parser: walks `RecipeLineItem` tree, converts all quantities to ba
 ### WooCommerce Webhook (`/api/webhooks/woocommerce`)
 Receives `order.created` / `order.updated` AND `product.created` / `product.updated` / `product.deleted` (branched on `x-wc-webhook-topic`). HMAC-SHA256 signature auth. Echo guard: pushes stamp `_updated_by: hospo-ops` + `_hospo_ops_pushed_at`; `isSelfEcho()` (lib/woo-push.ts) skips webhooks arriving within 2 min of our own push — genuine later edits still sync. Orders: upserts `WooOrder` + `WooOrderItem` in transaction, runs `explodeRecipe` per line item, stores exploded ingredients as JSON on order items. Products: `upsertProductFromWoo()` / soft-delete on `product.deleted`. Auto-seating engine: greedy first-fit bin-packing on partySize → `CalendarEvent` → `FloorPlanSetup` → `SetupItem` → `TableGroup`. Every event logs to `SyncLog`.
 
-### Two-Way Sync (built 2026-07)
-- **Pull (Woo → app):** `lib/woo-sync.ts` `runProductPull(venueId?)` — paginated product fetch, upserts `MenuItem`s, logs to `SyncLog`. `lib/woo-orders-sync.ts` `runOrderPull(venueId?)` — paginated order fetch, upserts `WooOrder` + `WooOrderItem`, runs recipe explosion, auto-seating, and gift card detection per order, logs to `SyncLog`.
-- **Push (app → Woo):** `lib/woo-push.ts` — `pushProduct()` fires on menu item / recipe menu-link save (name/price/category → `PUT wc/v3/products/{id}`); `pushOrderStatus()` fires on order status change via `PATCH /api/admin/orders/[id]` (Orders page STATUS dropdown). All pushes best-effort: log to `SyncLog`, never throw, never block the save.
+### Two-Way Sync (built 2026-07, refined 2026-07)
+
+**Pull (Woo → app):**
+- `lib/woo-sync.ts` `runProductPull(venueId?)` — paginated product fetch, upserts `MenuItem`s, logs to `SyncLog`
+- `upsertProductFromWoo()` stores category **names** (not IDs), downloads featured images to local uploads, and strips HTML from descriptions
+- `fetchWooCategories()` fetches all product categories from the WooCommerce REST API — used by the category autocomplete dropdown in the admin UI
+- `lib/woo-orders-sync.ts` `runOrderPull(venueId?)` — paginated order fetch, upserts `WooOrder` + `WooOrderItem`, runs recipe explosion, auto-seating, and gift card detection per order, logs to `SyncLog`
+
+**Push (app → Woo):**
+- `lib/woo-push.ts` — `pushProduct()` fires on every menu item / recipe menu-link save (name, price, category, and images → `PUT wc/v3/products/{id}`)
+- **Auto-create on WooCommerce:** if the item has no `wooProductId` (new product) or the PUT returns 400/404 (product doesn't exist on Woo), `pushProduct()` POSTs to `wc/v3/products` to create it, then stores the returned WooCommerce product ID in the database
+- **Images pushed:** `buildProductPushPayload` includes `images` when `imageUrl` is set
+- **Category handling:** numeric `wooCategoryId` → `categories: [{ id }]`; non-numeric (name) → `categories: [{ name }]`
+- `pushOrderStatus()` fires on order status change via `PATCH /api/admin/orders/[id]` (Orders page STATUS dropdown)
+- All pushes best-effort: log to `SyncLog`, never throw, never block the save
+
+**Auto-generated Woo Product ID:**
+- When creating a menu item via POST (both `/api/admin/menu-items` and the recipe LINK TO MENU flow) without providing a `wooProductId`, the API queries `max(existing wooProductId) + 1` for the venue and auto-assigns it. This gives new products an ID to push with — the push then creates the product on WooCommerce if it doesn't exist yet.
 - **Sync dashboard:** `/admin/sync` (`SyncClient`) — PULL PRODUCTS / PULL ORDERS / PUSH PRODUCTS NOW buttons (`POST /api/admin/sync/pull|pull-orders|push`), live `SyncLog` feed (`GET /api/admin/sync/log`, 10s auto-refresh, direction/status filters, errors in red).
 
 ### Internal Cron Scheduler (`instrumentation.ts` + `lib/internal-cron.ts`)
@@ -1298,7 +1296,7 @@ Started once on server boot via Next's `instrumentationHook` (enabled in next.co
 `InventoryCategory.tab` (FOOD, BEVERAGE, null). 20 built-in categories auto-seeded. FOOD tab: PROTEIN, DAIRY, PRODUCE, DRY GOODS, BAKERY, CONDIMENTS. BEVERAGE tab: LIQUOR, WINE, BEER, SOFT DRINK, JUICE, COFFEE. OTHER tab: existing equipment categories. Deep inventory fields: `countingUnitId`, `orderingUnitId`, `yieldPercentage`, `costPrice`, `expiryDate`, `fallbackCategoryId`, `allergyInfo`.
 
 ### Recipes & Menu Items (combined page)
-`/admin/recipes` merged with `/admin/menu-items` (redirects). Recipe editor has LINK TO MENU toggle with price + WooCommerce fields. Tag-input for Woo categories. Searchable Combobox for ingredient/sub-recipe selection with popover modal. Orphaned WooCommerce products shown in yellow. 23 allergen toggle buttons (Almond, Barley, Brazil Nut, Cashew, Crustacean, Egg, Fish, Hazelnut, Lupin, Macadamia, Milk, Mollusc, Oats, Peanut, Pecan, Pine nut, Pistachio, Rye, Sesame, Soy, Sulphites, Walnut, Wheat) — stored as comma-separated `dietaryInfo` on `MenuItem`.
+`/admin/recipes` merged with `/admin/menu-items` (redirects). Recipe editor has LINK TO MENU toggle with price + WooCommerce fields. Woo Category field is a searchable autocomplete dropdown populated from the WooCommerce store's categories via `GET /api/admin/woocommerce/categories` (fetched on page load). Woo Product ID is **read-only** — auto-generated as `max(existing) + 1` on create and updated with the real WooCommerce ID after the first push. Searchable Combobox for ingredient/sub-recipe selection with popover modal. Orphaned WooCommerce products shown in yellow. 23 allergen toggle buttons — stored as comma-separated `dietaryInfo` on `MenuItem`.
 
 ### EOD Reconciliation (`/api/admin/inventory/reconcile`)
 Aggregates exploded ingredients from completed orders, tallies `requiredBaseQty` per inventory item. Returned as reconciliation report. Deferred inventory deduction (Phase 5).
@@ -1395,6 +1393,7 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/auto-seat.ts` — `planAutoSeat` (bin-packing layout) | ✅ (7 tests) |
 | `lib/inventory-engine.ts` — `explodeRecipe` (recursive BOM explosion) | ✅ (5 tests) |
 | `lib/woo-push.ts` — `mapStatusToWoo`, payload builders, `isSelfEcho` echo guard | ✅ |
+| `lib/woo-sync.ts` — `runProductPull`, `upsertProductFromWoo`, `fetchWooCategories` | ✅ |
 | `lib/internal-cron.ts` — `dueJobs`, `localParts` (scheduler due-checks) | ✅ |
 | `lib/auth.ts` — `authOptions` | ⬜ TODO |
 

@@ -5,10 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Combobox } from '@/components/ui/Combobox'
-import {
-  PALETTE_ITEMS,
-  computeSectionSummary, type PaletteItem, type ElementData,
-} from '@/components/admin/floorplan-elements'
+import { computeSectionSummary, type ElementData } from '@/components/admin/floorplan-elements'
 import type { SetupItemInput, TableProfileView } from '@hospo-ops/types'
 import type { SectionBoundaryP } from '@/components/admin/floorplan-pixi'
 import { ElementInventoryPanel } from '@/components/admin/ElementInventoryPanel'
@@ -19,7 +16,6 @@ import { FloorplanInspector } from '@/components/admin/FloorplanInspector'
 import { traceBoothPerimeter } from '@/lib/booth-trace'
 import { calculateSetupInventory, unionTablePolygons, computeGroupChairs, computeSetupSectionTotals, type TableProfileWithBom } from '@/lib/floorplan-inventory'
 import { defaultEdgeChairs, adjustEdgeChairs, emptyEdgeChairs, type TableEdge } from '@/lib/floorplan-chairs'
-import { planAutoSeat, type AutoSeatProfile } from '@/lib/auto-seat'
 import { pushToast, ToastContainer } from '@/components/ui/Toast'
 
 interface SectionZone {
@@ -58,7 +54,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [paletteOpen, setPaletteOpen] = useState(true)
   const [snapEnabled, setSnapEnabled] = useState(true)
   const [snap45Enabled, setSnap45Enabled] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
@@ -74,27 +69,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [zoneSectionId, setZoneSectionId] = useState(sections[0]?.id ?? '')
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
   const [selRect, setSelRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
-  const [customPresets, setCustomPresets] = useState<PaletteItem[]>([])
-  const [presetFormOpen, setPresetFormOpen] = useState(false)
-  const [presetName, setPresetName] = useState('')
-  const [presetW, setPresetW] = useState(80)
-  const [presetD, setPresetD] = useState(80)
-  const [presetFill, setPresetFill] = useState('#555')
-  const [furnitureItems, setFurnitureItems] = useState<any[]>([])
-  const [furnitureCatId, setFurnitureCatId] = useState('')
-  const [paletteDefaults, setPaletteDefaults] = useState<Record<string, { width: number; depth: number }>>({})
-  const [rightClickItem, setRightClickItem] = useState<string | null>(null)
-  const [editDefW, setEditDefW] = useState('80')
-  const [editDefD, setEditDefD] = useState('80')
-  const [newTableOpen, setNewTableOpen] = useState(false)
-  const [newTableName, setNewTableName] = useState('')
-  const [newTableW, setNewTableW] = useState('80')
-  const [newTableD, setNewTableD] = useState('80')
-  const [newTableColour, setNewTableColour] = useState('#555')
-  const [newTableChairs, setNewTableChairs] = useState('0')
-  const [newTableTotalQty, setNewTableTotalQty] = useState('10')
-
-  const INVENTORY_TYPES = ['TABLE', 'CHAIR', 'BOOTH_BENCH', 'BAR', 'COUNTER', 'SINK', 'STORAGE', 'KITCHEN_EQUIP']
 
   const containerRef = useRef<HTMLDivElement>(null)
   const nextIdCounter = useRef(1)
@@ -217,48 +191,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     const created = await r.json()
     setSetups(prev => [...prev, created])
     handleSetupChange(created.id)
-  }
-
-  function handleGenerateSeating() {
-    if (!activeSetupId) return
-    const input = prompt('How many covers (party size)?')
-    const partySize = parseInt(input ?? '')
-    if (!partySize || partySize <= 0) return
-    const profiles: AutoSeatProfile[] = tableProfiles.map((tp: any) => ({
-      id: tp.id, capacity: tp.capacity ?? tp.chairCount, chairCount: tp.chairCount,
-      width: tp.width, depth: tp.depth, tableNumbers: tp.tableNumbers ?? null,
-    }))
-    const usedNumbers: Record<string, string[]> = {}
-    for (const i of setupItems) {
-      if (i.assignedNumber) (usedNumbers[i.tableProfileId] ??= []).push(i.assignedNumber)
-    }
-    const placements = planAutoSeat(partySize, profiles, { usedNumbers })
-    if (placements.length === 0) {
-      pushToast('No table profiles available to auto-seat.', 'error')
-      return
-    }
-    pushHistory()
-    const newItems: SetupItemInput[] = placements.map((pl) => {
-      const id = `new_setup_${nextIdCounter.current++}`
-      const tp = tableProfiles.find(t => t.id === pl.profileId)
-      return {
-        id,
-        tableProfileId: pl.profileId,
-        assignedNumber: pl.assignedNumber,
-        x: pl.x, y: pl.y, rotation: 0,
-        width: pl.width, depth: pl.depth,
-        label: pl.assignedNumber ?? tp?.name ?? 'TABLE',
-        sectionId: sectionForPoint(pl.x + pl.width / 2, pl.y + pl.depth / 2),
-        chairEdges: defaultEdgeChairs({
-          width: pl.width, depth: pl.depth,
-          seatingDensity: tp?.seatingDensity ?? null,
-          maxHeadChairs: (tp as any)?.maxHeadChairs ?? 1,
-          capacity: tp?.chairCount ?? 0,
-        }),
-      }
-    })
-    setSetupItems(prev => [...prev, ...newItems])
-    pushToast(`Placed ${placements.length} tables for ${partySize} covers.`, 'success')
   }
 
   async function handleDeleteSetup() {
@@ -429,23 +361,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           }
           if (data.zones) setZones(data.zones)
         }
-        const furnRes = await fetch('/api/admin/inventory?furniture=true')
-        if (furnRes.ok) {
-          const fiData = await furnRes.json()
-          setFurnitureItems(Array.isArray(fiData) ? fiData : [])
-          if (Array.isArray(fiData) && fiData.length > 0 && !furnitureCatId) setFurnitureCatId(fiData[0].categoryId)
-        }
-        const catRes = await fetch('/api/admin/inventory/categories')
-        if (catRes.ok) { const cats = await catRes.json(); const fc = Array.isArray(cats) ? cats.find((c: any) => c.name === 'FURNITURE') : null; if (fc) setFurnitureCatId(fc.id) }
-        const defRes = await fetch('/api/admin/palette-defaults')
-        if (defRes.ok) {
-          const defs: any[] = await defRes.json()
-          if (Array.isArray(defs)) {
-            const map: Record<string, { width: number; depth: number }> = {}
-            for (const d of defs) map[d.type] = { width: d.width, depth: d.height ?? d.depth }
-            setPaletteDefaults(map)
-          }
-        }
       } catch (e) {
         console.error('FloorPlanEditor load error:', e)
       }
@@ -484,40 +399,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     setSelectedIds([])
   }
 
-  function addFromPalette(item: PaletteItem, pos: { x: number; y: number }, furnItem?: any) {
-    const id = `new_${nextIdCounter.current++}`
-    const gu = plan.gridUnit
-    const def = paletteDefaults[item.type]
-    const w = furnItem?.elementWidth ?? def?.width ?? item.w
-    const d = furnItem?.elementDepth ?? def?.depth ?? item.d
-    const fill = furnItem?.defaultColour ?? item.fill
-    const label = furnItem?.name ?? nextLabel(item.type, elements)
-    const el: ElementData = {
-      id,
-      type: item.type,
-      shape: furnItem?.elementShape ?? (item.circle ? 'CIRCLE' : 'RECTANGLE'),
-      label,
-      labelVisible: true,
-      x: snapEnabled ? snap(pos.x - (item.circle ? 0 : w / 2), gu) : (pos.x - (item.circle ? 0 : w / 2)),
-      y: snapEnabled ? snap(pos.y - (item.circle ? 0 : d / 2), gu) : (pos.y - (item.circle ? 0 : d / 2)),
-      width: w || gu,
-      depth: d || gu,
-      radius: item.circle ? (snapEnabled ? snap(Math.min(w, d) / 2, gu) : Math.min(w, d) / 2) : null,
-      rotation: 0,
-      fillColour: fill,
-      opacity: 1,
-      zIndex: elements.length + 1,
-      sortOrder: elements.length,
-      isActive: true,
-      style: null,
-      chairCount: furnItem?.defaultChairCount ?? 0,
-      _furnitureItemId: furnItem?.id ?? undefined,
-    }
-    pushHistory()
-    setElements((prev) => [...prev, el])
-    setSelectedIds([id])
-  }
-
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Escape' && boothPainting) {
       e.preventDefault()
@@ -554,13 +435,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       }
     }
     setSaving(true)
-    const inventoryLinks: { elementId: string; itemId: string; quantity?: number; remove?: boolean }[] = []
     const saveElements = elements.map((el) => {
       const isNew = el.id?.startsWith('new_')
       const clientId = el._clientId ?? el.id ?? ''
-      if (el._furnitureItemId) {
-        inventoryLinks.push({ elementId: clientId, itemId: el._furnitureItemId as string, quantity: 1 })
-      }
       return { ...el, _clientId: clientId, id: isNew ? undefined : el.id }
     })
     const r = await fetch(`/api/admin/floorplan/${plan.id}/elements`, {
@@ -569,7 +446,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       body: JSON.stringify({
         elements: saveElements,
         zones: zones.length > 0 ? zones : undefined,
-        inventoryLinks,
       }),
     })
     if (r.ok) {
@@ -579,16 +455,10 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       setElements((prev) =>
         prev.map((el) => {
           const realId = clientToReal.get(el._clientId ?? el.id!)
-          if (realId && realId !== el.id) return { ...el, id: realId, _clientId: undefined, _furnitureItemId: undefined }
-          return { ...el, _clientId: undefined, _furnitureItemId: undefined }
+          if (realId && realId !== el.id) return { ...el, id: realId, _clientId: undefined }
+          return { ...el, _clientId: undefined }
         })
       )
-      // Refresh furniture items after save
-      const furnRes = await fetch('/api/admin/inventory?furniture=true')
-      if (furnRes.ok) {
-        const fiData = await furnRes.json()
-        setFurnitureItems(Array.isArray(fiData) ? fiData : [])
-      }
     }
     // Save setup items (always when a setup is active, so deletions persist)
     if (activeSetupId) {
@@ -646,17 +516,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   }
 
   const summary = showSummary ? computeSectionSummary(elements, sections) : null
-
-  const furnitureWithAvailability = useMemo(() => {
-    if (!Array.isArray(furnitureItems)) return []
-    return furnitureItems.map((fi: any) => {
-      const placed = elements.filter((e) => {
-        if (e._furnitureItemId === fi.id) return true
-        return ((e as any).inventoryItems ?? []).some((inv: any) => inv.itemId === fi.id)
-      }).length
-      return { ...fi, availableQty: (fi.totalQty ?? 0) - placed }
-    })
-  }, [furnitureItems, elements])
 
   // Merged-group outlines + redistributed chairs (rules-based) for grouped setup tables
   const setupGroupRenders = useMemo(() => {
@@ -818,10 +677,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         </label>
         {activeSetupId ? (
           <>
-            <button onClick={handleGenerateSeating}
-              className="font-mono text-[10px] uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-accent hover:text-accent">
-              ⚡ GENERATE
-            </button>
             {setupSelectedIds.length >= 2 && (
               <button onClick={handleGroup}
                 className="font-mono text-[10px] uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-white">
@@ -905,239 +760,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         </div>
         <FloorplanToolbar zoom={zoomLevel} onZoomChange={(z) => { setZoomLevel(z); viewRef.current.zoom = z; setRebuildKey((k) => k + 1) }}
           showDimensions={showDimensions} onShowDimensionsChange={setShowDimensions} />
-        <button onClick={() => setPaletteOpen(!paletteOpen)}
-          className={`font-mono text-xs uppercase px-2 py-1 border ${paletteOpen ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:border-white transition-colors'}`}>
-          PALETTE
-        </button>
       </div>
 
       <div className="flex flex-1 min-h-0">
-        {paletteOpen && (
-          <div className="w-44 flex-shrink-0 border-r border-grey-mid overflow-y-auto bg-grey-dark p-2 space-y-1">
-            {/* ── BASE PLAN PALETTE ── */}
-            {!activeSetupId && (
-              <>
-                {(['FIXTURE', 'FURNITURE'] as const).map((cat) => {
-                  const items = [...PALETTE_ITEMS, ...customPresets].filter((i) => i.category === cat)
-                  if (items.length === 0) return null
-                  return (
-                    <div key={cat}>
-                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2 first:mt-0">{cat}</p>
-                      {items.map((item) => {
-                        const def = paletteDefaults[item.type]
-                        const dispW = def?.width ?? item.w; const dispD = def?.depth ?? item.d
-                        return (
-                          <div key={item.type}>
-                            <div
-                              draggable
-                              onDragStart={(e) => {
-                                e.dataTransfer.setData('text/plain', item.type)
-                                const dragImg = new globalThis.Image()
-                                dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-                                e.dataTransfer.setDragImage(dragImg, 0, 0)
-                              }}
-                              onContextMenu={(e) => { e.preventDefault(); setRightClickItem(rightClickItem === item.type ? null : item.type); setEditDefW(dispW.toString()); setEditDefD(dispD.toString()) }}
-                              className="flex items-center gap-2 p-1.5 cursor-grab hover:bg-grey-mid transition-colors"
-                            >
-                              <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.fill }} />
-                              <span className="font-mono text-[10px] text-white uppercase truncate">{item.label}</span>
-                              <span className="font-mono text-[8px] text-grey-light ml-auto">{dispW}×{dispD}</span>
-                            </div>
-                            {rightClickItem === item.type && (
-                              <div className="flex items-center gap-1 px-1 pb-1">
-                                <input type="number" value={editDefW} onChange={(e) => setEditDefW(e.target.value)}
-                                  className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[8px] px-1 py-0.5 text-center" />
-                                <span className="text-grey-light text-[8px]">×</span>
-                                <input type="number" value={editDefD} onChange={(e) => setEditDefD(e.target.value)}
-                                  className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[8px] px-1 py-0.5 text-center" />
-                                <button onClick={async () => {
-                                  const w = parseFloat(editDefW) || dispW; const d = parseFloat(editDefD) || dispD
-                                  await fetch('/api/admin/palette-defaults', {
-                                    method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ items: [{ type: item.type, width: w, depth: d }] }),
-                                  })
-                                  setPaletteDefaults((prev) => ({ ...prev, [item.type]: { width: w, depth: d } }))
-                                  setRightClickItem(null)
-                                }}
-                                  className="font-mono text-[8px] text-success hover:text-white uppercase">OK</button>
-                                <button onClick={() => setRightClickItem(null)}
-                                  className="font-mono text-[8px] text-grey-light hover:text-white uppercase">✕</button>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )
-                })}
-                {furnitureWithAvailability.length > 0 && (
-                  <div>
-                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2">INVENTORY</p>
-                    {furnitureWithAvailability.map((fi: any) => (
-                      <div
-                        key={`furn_${fi.id}`}
-                        draggable={fi.availableQty > 0}
-                        onDragStart={(e) => {
-                          if (fi.availableQty <= 0) { e.preventDefault(); return }
-                          e.dataTransfer.setData('text/plain', `furn_${fi.id}`)
-                          const dragImg = new globalThis.Image()
-                          dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-                          e.dataTransfer.setDragImage(dragImg, 0, 0)
-                        }}
-                        className={`flex items-center gap-2 p-1.5 transition-colors ${fi.availableQty > 0 ? 'cursor-grab hover:bg-grey-mid' : 'cursor-not-allowed opacity-40'}`}
-                      >
-                        <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: fi.defaultColour ?? '#555' }} />
-                        <span className="font-mono text-[10px] text-white truncate">{fi.name}</span>
-                        <span className="font-mono text-[8px] text-grey-light ml-auto">{fi.elementWidth}×{fi.elementDepth}</span>
-                        <span className={`font-mono text-[8px] ml-1 ${fi.availableQty > 0 ? 'text-accent' : 'text-danger'}`}>
-                          {fi.availableQty}/{fi.totalQty ?? 0}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-            {/* ── TABLE LAYOUT PALETTE ── */}
-            {activeSetupId && tableProfiles.length > 0 && (
-              <div>
-                <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2">TABLE PROFILES</p>
-                {tableProfiles.map(tp => {
-                  const pool = (tp as any)?.tableNumbers
-                  const poolArr: string[] = Array.isArray(pool) ? pool.map(String) : []
-                  const used = new Set(
-                    setupItems
-                      .filter(i => i.tableProfileId === tp.id && i.assignedNumber)
-                      .map(i => i.assignedNumber!)
-                  )
-                  const available = poolArr.filter(n => !used.has(n))
-                  const canDrag = poolArr.length === 0 || available.length > 0
-                  return (
-                    <div key={tp.id} draggable={canDrag}
-                      onDragStart={(e) => {
-                        if (!canDrag) { e.preventDefault(); pushToast(`All table numbers for ${tp.name} are in use.`, 'error'); return }
-                        e.dataTransfer.setData('text/plain', `tp_${tp.id}`)
-                        const dragImg = new globalThis.Image()
-                        dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-                        e.dataTransfer.setDragImage(dragImg, 0, 0)
-                      }}
-                      className={`flex items-center gap-2 p-1.5 transition-colors ${canDrag ? 'cursor-grab hover:bg-grey-mid' : 'cursor-not-allowed opacity-40'}`}
-                    >
-                      <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: tp.colour ?? '#555' }} />
-                      <span className="font-mono text-[10px] text-white truncate">{tp.name}</span>
-                      <span className="font-mono text-[8px] text-grey-light ml-auto">{tp.width}×{tp.depth}</span>
-                      <span className="font-mono text-[8px] text-grey-light">{tp.chairCount}S</span>
-                      {poolArr.length > 0 && (
-                        <span className={`font-mono text-[8px] ml-1 ${available.length > 0 ? 'text-success' : 'text-danger'}`}>
-                          {available.length}/{poolArr.length}
-                        </span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-            {!activeSetupId && (
-              <>
-                {(furnitureItems.length > 0 || true) && (
-                  <div className="border-t border-grey-mid pt-1 mt-1">
-                    {newTableOpen ? (
-                      <div className="space-y-1 px-1">
-                        <Input label="Name" value={newTableName} onChange={(e) => setNewTableName(e.target.value)} placeholder="TABLE" />
-                        <div className="grid grid-cols-2 gap-1">
-                          <Input label="W" type="number" value={newTableW} onChange={(e) => setNewTableW(e.target.value)} />
-                          <Input label="D" type="number" value={newTableD} onChange={(e) => setNewTableD(e.target.value)} />
-                        </div>
-                        <Input label="Colour" value={newTableColour} onChange={(e) => setNewTableColour(e.target.value)} placeholder="#555" />
-                        <Input label="Chairs" type="number" value={newTableChairs} onChange={(e) => setNewTableChairs(e.target.value)} />
-                        <Input label="Stock Qty" type="number" value={newTableTotalQty} onChange={(e) => setNewTableTotalQty(e.target.value)} />
-                        <div className="flex gap-1">
-                          <button onClick={async () => {
-                            const name = (newTableName || `TABLE-${Math.floor(Math.random() * 1000)}`).toUpperCase().trim()
-                            if (!name) return
-                            let catId = furnitureCatId
-                            if (!catId) {
-                              const cre = await fetch('/api/admin/inventory/categories')
-                              if (cre.ok) { const cats = await cre.json(); const fc = cats.find((c: any) => c.name === 'FURNITURE'); if (fc) { catId = fc.id; setFurnitureCatId(fc.id) } }
-                            }
-                            if (!catId) return
-                            const r = await fetch('/api/admin/inventory', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                name,
-                                categoryId: catId,
-                                unit: 'EA', defaultParLevel: 0, totalQty: parseInt(newTableTotalQty) || 10,
-                                furnitureType: 'TABLE',
-                                elementWidth: parseFloat(newTableW) || 80,
-                                elementDepth: parseFloat(newTableD) || 80,
-                                elementShape: 'RECTANGLE',
-                                defaultColour: newTableColour,
-                                defaultChairCount: parseInt(newTableChairs) || 0,
-                              }),
-                            })
-                            if (r.ok) {
-                              const created = await r.json()
-                              setFurnitureItems((prev) => [...prev, created])
-                              setNewTableOpen(false); setNewTableName(''); setNewTableW('80'); setNewTableD('80'); setNewTableColour('#555'); setNewTableChairs('0'); setNewTableTotalQty('10')
-                            }
-                          }}
-                            className="font-mono text-[10px] text-success hover:text-white uppercase px-1.5 py-0.5 border border-success flex-1">
-                            CREATE
-                          </button>
-                          <button onClick={() => setNewTableOpen(false)}
-                            className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5">
-                            CANCEL
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button onClick={() => setNewTableOpen(true)}
-                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-1 w-full text-left">
-                        + NEW TABLE
-                      </button>
-                    )}
-                  </div>
-                )}
-                <div className="border-t border-grey-mid pt-2 mt-2">
-                  {presetFormOpen ? (
-                    <div className="space-y-1 px-1">
-                      <Input label="Name" value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="E.G. TABLE-60X60" />
-                      <div className="grid grid-cols-2 gap-1">
-                        <Input label="W" type="number" value={presetW.toString()} onChange={(e) => setPresetW(parseInt(e.target.value) || 80)} />
-                        <Input label="D" type="number" value={presetD.toString()} onChange={(e) => setPresetD(parseInt(e.target.value) || 80)} />
-                      </div>
-                      <Input label="Colour" value={presetFill} onChange={(e) => setPresetFill(e.target.value)} placeholder="#555" />
-                      <div className="flex gap-1">
-                        <button onClick={() => {
-                          if (!presetName.trim()) return
-                          const p: PaletteItem = { type: presetName.toUpperCase().trim(), label: presetName.toUpperCase().trim(), w: presetW, d: presetD, fill: presetFill, category: 'FURNITURE' }
-                          setCustomPresets((prev) => [...prev, p])
-                          setPresetName(''); setPresetW(80); setPresetD(80); setPresetFill('#555')
-                          setPresetFormOpen(false)
-                        }}
-                          className="font-mono text-[10px] text-success hover:text-white uppercase px-1.5 py-0.5 border border-success flex-1">
-                          ADD
-                        </button>
-                        <button onClick={() => setPresetFormOpen(false)}
-                          className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5">
-                          CANCEL
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button onClick={() => setPresetFormOpen(true)}
-                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-1 w-full text-left">
-                      + ADD PRESET
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
         <div
           ref={containerRef}
           className="flex-1 overflow-hidden bg-black"
@@ -1152,28 +777,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             const screenY = e.clientY - rect.top
             const x = (screenX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
             const y = (screenY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
-            if (type.startsWith('furn_')) {
-              if (!Array.isArray(furnitureItems)) return
-              const fi = furnitureItems.find((f: any) => `furn_${f.id}` === type)
-              if (!fi) return
-              const placed = elements.filter((e) => {
-                if (e._furnitureItemId === fi.id) return true
-                return ((e as any).inventoryItems ?? []).some((inv: any) => inv.itemId === fi.id)
-              }).length
-              const available = (fi.totalQty ?? 0) - placed
-              if (available <= 0) { pushToast('Out of stock. Please add more to inventory.', 'error'); return }
-              const paletteItem: PaletteItem = {
-                type: fi.furnitureType ?? 'TABLE',
-                label: fi.name,
-                w: fi.elementWidth ?? 80,
-                d: fi.elementDepth ?? 80,
-                fill: fi.defaultColour ?? '#555',
-                category: 'FURNITURE',
-                circle: fi.elementShape === 'CIRCLE',
-              }
-              addFromPalette(paletteItem, { x, y }, fi)
-              return
-            }
             // TableProfile drop (setup mode)
             if (type.startsWith('tp_') && activeSetupId) {
               const tpId = type.replace('tp_', '')
@@ -1212,9 +815,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               setSetupItems(prev => [...prev, item])
               return
             }
-            const item = [...PALETTE_ITEMS, ...customPresets].find((p) => p.type === type)
-            if (!item) return
-            addFromPalette(item, { x, y })
           }}
         >
           <FloorPlanPixiCanvas
@@ -1561,24 +1161,22 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                         onBlur={() => { if (selected.id) updateElement(selected.id, { y: snap(selected.y, plan.gridUnit) }) }} />
                     </div>
                   </div>
-                  {INVENTORY_TYPES.includes(selected.type) && (
-                    <div className="border border-grey-mid p-3">
-                      <button onClick={() => setShowInvTab(!showInvTab)}
-                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase w-full text-left mb-2">
-                        {showInvTab ? '▼ INVENTORY' : '▶ INVENTORY'}
-                      </button>
-                      {showInvTab && selected.id ? (
-                        <ElementInventoryPanel elementId={selected.id} floorPlanId={plan.id} />
-                      ) : showInvTab ? null : null}
-                      <div className="space-y-2">
-                        <Select label="Section" value={selected.sectionId ?? ''}
-                          onChange={(e) => updateElement(selected.id!, { sectionId: e.target.value || null })}
-                          options={sections.map((s) => ({ value: s.id, label: s.name }))} placeholder="NONE" />
-                        <Input label="Capacity" type="number" value={selected.capacity?.toString() ?? ''}
-                          onChange={(e) => updateElement(selected.id!, { capacity: e.target.value ? parseInt(e.target.value) : null })} />
-                      </div>
+                  <div className="border border-grey-mid p-3">
+                    <button onClick={() => setShowInvTab(!showInvTab)}
+                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase w-full text-left mb-2">
+                      {showInvTab ? '▼ INVENTORY' : '▶ INVENTORY'}
+                    </button>
+                    {showInvTab && selected.id ? (
+                      <ElementInventoryPanel elementId={selected.id} floorPlanId={plan.id} />
+                    ) : showInvTab ? null : null}
+                    <div className="space-y-2">
+                      <Select label="Section" value={selected.sectionId ?? ''}
+                        onChange={(e) => updateElement(selected.id!, { sectionId: e.target.value || null })}
+                        options={sections.map((s) => ({ value: s.id, label: s.name }))} placeholder="NONE" />
+                      <Input label="Capacity" type="number" value={selected.capacity?.toString() ?? ''}
+                        onChange={(e) => updateElement(selected.id!, { capacity: e.target.value ? parseInt(e.target.value) : null })} />
                     </div>
-                  )}
+                  </div>
                   {selected.type === 'TABLE' && (
                     <div className="border border-grey-mid p-3 space-y-2">
                       <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">CHAIRS</p>

@@ -97,6 +97,46 @@ async function fetchWooProducts(storeUrl: string, consumerKey: string, consumerS
   return products
 }
 
+// Fetch all product categories from a WooCommerce store.
+// Uses the same three-tier auth fallback as fetchWooProducts.
+export async function fetchWooCategories(storeUrl: string, consumerKey: string, consumerSecret: string): Promise<{ id: number; name: string }[]> {
+  const baseUrl = storeUrl.replace(/\/+$/, '')
+  const categories: { id: number; name: string }[] = []
+  let page = 1
+
+  for (;;) {
+    const url = `${baseUrl}/wp-json/wc/v3/products/categories?per_page=100&page=${page}`
+    let response = await fetch(url, {
+      headers: { Authorization: wooAuthHeader(consumerKey, consumerSecret), 'Content-Type': 'application/json' },
+    })
+    if (response.status === 401) {
+      response = await fetch(
+        `${url}&consumer_key=${encodeURIComponent(consumerKey)}&consumer_secret=${encodeURIComponent(consumerSecret)}`,
+        { headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    if (response.status === 401) {
+      response = await fetch(oauthSignedUrl('GET', url, consumerKey, consumerSecret), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    if (!response.ok) break
+
+    const text = await response.text()
+    let batch: any
+    try { batch = JSON.parse(text) } catch { break }
+    if (!Array.isArray(batch)) break
+
+    for (const cat of batch) {
+      if (cat.id && cat.name) categories.push({ id: cat.id, name: cat.name })
+    }
+    if (batch.length < 100) break
+    page++
+  }
+
+  return categories.sort((a, b) => a.name.localeCompare(b.name))
+}
+
 // Download an image from a URL and store it in the local uploads directory.
 // Returns the relative URL path (e.g. /api/upload/uuid-filename.jpg) on success,
 // or the original URL on failure (best-effort — never throws).

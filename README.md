@@ -204,21 +204,21 @@ per-corner rounding, bracket chairs, section assignment, capacities, undo/redo, 
 furniture layouts (e.g. "WEDDING RECEPTION", "CONFERENCE"). Each setup can have its own table
 arrangement, saved independently from the base plan. Switch between setups in the toolbar.
 
-**Table Profiles & BOM:** Define table types at **Admin → Table Profiles**. Each profile has
+**Table Profiles & BOM:** Define table types at **Admin → Inventory → TABLES**. Each profile has
 dimensions, colour, seat count, seating density (cm per chair), head chair caps, and a Bill of
 Materials (BOM) — linking to inventory items with per-chair or per-table quantities. Physical
 table numbers (e.g. "20", "21") are managed via tag input and auto-assigned on placement.
 
 **Two-layer editing:** The base plan (walls, fixtures, section zones) and the movable tables
 live on separate layers. Pick a setup from the SETUP dropdown and the base plan **dims and
-locks** so you only move furniture; the palette switches to your Table Profiles. Deselect the
-setup to edit the base plan again. Rubber-band lasso selection works across the canvas.
+locks** so you only move furniture. Deselect the setup to edit the base plan again.
+Rubber-band lasso selection works across the canvas.
 
-**Direct-manipulation tables:** Drag a Table Profile onto the canvas to place a table (with an
-auto-assigned number). Select it to **rotate via a drag handle** (or the preset angle buttons)
-and set chairs by **clicking the table's edges** — left-click adds a chair to that side,
-right-click removes one, up to the profile's capacity and head-of-table caps. Delete key or the
-panel button removes tables.
+**Direct-manipulation tables:** Tables are created and managed from the **inventory module**
+(`/admin/inventory` → TABLES category). Select a table on the canvas to **rotate via a drag
+handle** (or the preset angle buttons) and set chairs by **clicking the table's edges** —
+left-click adds a chair to that side, right-click removes one, up to the profile's capacity
+and head-of-table caps. Delete key or the panel button removes tables.
 
 **Auto-join (banquet joinery):** Drag two same-profile tables flush together and they **snap
 and join automatically** into one banquet block (or use the GROUP button). A joined block moves
@@ -228,10 +228,6 @@ perimeter**, respecting head-of-table constraints (no cramming chairs on short s
 **Live per-area totals:** Each section zone shows a running `N TBL · M PAX` badge, and the setup
 toolbar shows the grand total — both update as you drag tables in and out. A table auto-tags to
 the zone its centre lands in.
-
-**Auto-generate a layout:** Click **⚡ GENERATE**, enter a party size, and the planner places and
-numbers enough tables to cover it (greedy first-fit bin-packing over your Table Profiles) for you
-to fine-tune.
 
 **Inventory Check:** The right panel INVENTORY CHECK runs `calculateSetupInventory` for the
 active setup — comparing required items (from each profile's BOM) against total venue stock and

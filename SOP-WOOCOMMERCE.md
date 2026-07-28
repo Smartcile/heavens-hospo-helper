@@ -8,8 +8,16 @@
 |------|-----------|-------|
 | Orders (Woo → HOSPO OPS) | Webhook + built-in 15-minute REST API pull | Instant / 15 min worst case |
 | Products (Woo → HOSPO OPS) | Webhooks + built-in 15-minute pull | Instant / 15 min worst case |
-| Products (HOSPO OPS → Woo) | Automatic push on save + manual PUSH button | Instant |
+| Products (HOSPO OPS → Woo) | Automatic push on save (auto-creates on WooCommerce if needed) + manual PUSH button | Instant |
 | Order status (HOSPO OPS → Woo) | Automatic push on status change | Instant |
+
+**Product sync refinements (2026-07):**
+- **Categories** are pulled as **names** (e.g. "BURGERS"), not numeric IDs — human-readable in the admin UI.
+- **Category picker** shows a dropdown of all existing WooCommerce categories — fetched live from the store so you can pick instead of typing. Both the Recipes & Menu Items page and the Menu Items page use this.
+- **Featured images** are downloaded from WooCommerce and stored locally on pull.
+- **Images, prices, and categories** are all pushed back to WooCommerce on save.
+- **New products auto-create on WooCommerce** — if a menu item has no `wooProductId` (freshly created locally), the push POSTs it as a new product on WooCommerce and stores the returned product ID automatically.
+- **Woo Product ID is read-only** in the UI — auto-generated as `max(existing) + 1` when creating a new item, then updated with the real WooCommerce ID after the first push.
 
 Every sync event (in both directions) is recorded on the **SYNC dashboard**
 (**HOSPO OPS → Woo Sync**), including errors — use it to watch the integration
@@ -212,7 +220,7 @@ and a product pull appears in the feed within ~15 seconds of startup.
 | `woocommerce_rest_cannot_view` (WordPress behind Cloudflare Tunnel / proxy) | WordPress can't detect HTTPS (`is_ssl()` is false), so WooCommerce rejects plain credentials. The app automatically falls back to OAuth 1.0a signed requests, which work regardless. You can also fix WordPress itself — add to `wp-config.php` above `/* That's all */`: `if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') { $_SERVER['HTTPS'] = 'on'; }` |
 | `PRODUCT UPSERT FAILED ... MenuItem_recipeId_fkey` | Fixed in current versions (imported products no longer require a recipe). Update the app — the schema change applies automatically on redeploy. |
 | Pushes failing (`PUSH FAILED — HTTP 401`) | Consumer Key permissions must be `Read/Write`, not `Read`. |
-| `PUSH SKIPPED — NO LINKED WOOCOMMERCE PRODUCT` | The menu item has no WOO PRODUCT ID — link it on the Recipes & Menu Items page. |
+| Categories showing as numbers | Fixed in current versions — categories are now pulled and stored as names. To update existing items, re-pull products. |
 | Sync loops (same change bouncing back and forth) | Should not happen — pushes are stamped with `_updated_by: hospo-ops` and echo webhooks within 2 minutes are skipped (logged as `SKIPPED — ECHO OF OUR OWN PUSH`). |
 | 401 Unauthorized on /api/cron | Verify `CRON_SECRET` env var is set and matches the `Authorization: Bearer` header exactly. |
 | Secrets masked after save | This is by design. To update a secret, type the new value in the password field and save. Leaving it as dots preserves the existing secret. |

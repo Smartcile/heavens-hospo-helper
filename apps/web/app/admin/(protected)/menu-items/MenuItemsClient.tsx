@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { SearchSelect } from '@/components/ui/SearchSelect'
 
 interface MenuItem {
   id: string; name: string; recipeId: string; price: number
@@ -34,6 +35,9 @@ export function MenuItemsClient() {
   const [formSharedPriceOverride, setFormSharedPriceOverride] = useState('')
   const [selectedIsShared, setSelectedIsShared] = useState(false)
 
+  const [wooCategories, setWooCategories] = useState<{ value: string; label: string }[]>([])
+  const [wooCategoriesLoaded, setWooCategoriesLoaded] = useState(false)
+
   function resetForm() {
     setFormName(''); setFormRecipeId(''); setFormPrice('0')
     setFormWooProductId(''); setFormWooCategoryId(''); setFormDescription('')
@@ -47,6 +51,17 @@ export function MenuItemsClient() {
     setFormDescription(m.description ?? '')
     setFormSharedPriceOverride(m.sharedPriceOverride != null ? String(m.sharedPriceOverride) : '')
     setSelectedIsShared(!!m.sharedFromVenueId)
+  }
+
+  async function loadWooCategories() {
+    if (wooCategoriesLoaded) return
+    const res = await fetch('/api/admin/woocommerce/categories')
+    if (res.ok) {
+      const data = await res.json()
+      const cats = data.categories ?? []
+      setWooCategories(cats.map((c: { name: string }) => ({ value: c.name, label: c.name })))
+    }
+    setWooCategoriesLoaded(true)
   }
 
   async function load() {
@@ -63,7 +78,7 @@ export function MenuItemsClient() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); loadWooCategories() }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (selectedId && !isCreating) {
@@ -189,11 +204,16 @@ export function MenuItemsClient() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
                         <label className="font-mono text-xs uppercase text-grey-light block mb-1">PRODUCT ID</label>
-                        <Input value={formWooProductId} onChange={(e) => setFormWooProductId(e.target.value)} placeholder="WOOCOMMERCE PRODUCT ID" />
+                        <Input value={formWooProductId} onChange={(e) => setFormWooProductId(e.target.value)} placeholder="AUTO-GENERATED" disabled={true} />
                       </div>
                       <div>
-                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">CATEGORY ID</label>
-                        <Input value={formWooCategoryId} onChange={(e) => setFormWooCategoryId(e.target.value)} placeholder="WOOCOMMERCE CATEGORY ID" />
+                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">CATEGORY</label>
+                        <SearchSelect
+                          options={wooCategories}
+                          value={formWooCategoryId}
+                          onChange={(v) => setFormWooCategoryId(v)}
+                          placeholder="SEARCH OR TYPE CATEGORY..."
+                        />
                       </div>
                     </div>
                   </div>
