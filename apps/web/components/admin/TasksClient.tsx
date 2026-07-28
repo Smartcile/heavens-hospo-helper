@@ -132,13 +132,15 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     const params = new URLSearchParams()
     if (filterVenue) params.set('venueId', filterVenue)
     if (filterDept) params.set('departmentId', filterDept)
+    const qs = params.toString() ? `?${params}` : ''
+    const venueParam = filterVenue ? `?venueId=${encodeURIComponent(filterVenue)}` : ''
     const [tR, vR, dR, sR, mR, cR] = await Promise.all([
-      fetch(`/api/admin/tasks?${params}`),
+      fetch(`/api/admin/tasks${qs}`),
       fetch('/api/admin/venues'),
       fetch('/api/admin/departments'),
       fetch('/api/admin/sections'),
-      fetch('/api/admin/guides'),
-      fetch('/api/admin/checklists'),
+      fetch(`/api/admin/guides${venueParam}`),
+      fetch(`/api/admin/checklists${venueParam}`),
     ])
     const [tData, vData, dData, sData, mData, cData] = await Promise.all([tR.json(), vR.json(), dR.json(), sR.json(), mR.json(), cR.json()])
     setTasks(tData)

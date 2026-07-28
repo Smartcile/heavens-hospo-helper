@@ -90,9 +90,10 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
   }
 
   async function loadMeta() {
+    const staffVenueParam = venueId ? `?venueId=${encodeURIComponent(venueId)}` : ''
     const [vR, sR, fR] = await Promise.all([
       fetch('/api/admin/venues'),
-      fetch('/api/admin/staff'),
+      fetch(`/api/admin/staff${staffVenueParam}`),
       venueId ? fetch(`/api/admin/floorplan?venueId=${venueId}`) : Promise.resolve(null),
     ])
     const [vData, sData] = await Promise.all([vR.json(), sR.json()])

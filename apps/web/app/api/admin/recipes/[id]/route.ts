@@ -97,7 +97,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   // Push linked menu item changes to WooCommerce (best-effort — logs to SyncLog)
   const linkedMenuItem = (updated as any)?.menuItems?.[0]
-  if (linkedMenuItem?.wooProductId) {
+  if (linkedMenuItem) {
     await pushProduct(linkedMenuItem.id)
   }
 

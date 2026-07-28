@@ -1,6 +1,8 @@
 import { prisma } from '@hospo-ops/db'
 import { logSync } from '@/lib/sync-log'
 import { oauthSignedUrl } from '@/lib/woo-oauth'
+import { writeFile, mkdir } from 'fs/promises'
+import { join } from 'path'
 
 // ── WooCommerce Product Pull ──────────────────────────────────────────
 // Shared by: the internal scheduler, GET /api/cron/woocommerce-sync,
@@ -95,6 +97,26 @@ async function fetchWooProducts(storeUrl: string, consumerKey: string, consumerS
   return products
 }
 
+// Download an image from a URL and store it in the local uploads directory.
+// Returns the relative URL path (e.g. /api/upload/uuid-filename.jpg) on success,
+// or the original URL on failure (best-effort — never throws).
+async function downloadAndStoreImage(imageUrl: string, productName: string): Promise<string> {
+  try {
+    const res = await fetch(imageUrl)
+    if (!res.ok) return imageUrl
+    const buffer = Buffer.from(await res.arrayBuffer())
+    const uploadPath = process.env.UPLOAD_PATH ?? '/app/uploads'
+    await mkdir(uploadPath, { recursive: true })
+    const ext = imageUrl.split('.').pop()?.split('?')[0]?.replace(/[^a-z0-9]/gi, '') ?? 'jpg'
+    const safeName = productName.replace(/[^a-z0-9]/gi, '_').slice(0, 40)
+    const filename = `${crypto.randomUUID()}-${safeName}.${ext}`
+    await writeFile(join(uploadPath, filename), buffer)
+    return `/api/upload/${filename}`
+  } catch {
+    return imageUrl
+  }
+}
+
 // Upsert a single WooCommerce product payload into the MenuItem table.
 // Returns 'created' | 'updated'.
 export async function upsertProductFromWoo(
@@ -104,9 +126,10 @@ export async function upsertProductFromWoo(
   const wooProductId = String(product.id)
   const name = product.name?.toUpperCase() ?? 'IMPORTED PRODUCT'
   const price = parseFloat(product.price ?? '0')
-  const categoryId = product.categories?.[0]?.id ? String(product.categories[0].id) : null
-  const imageUrl = product.images?.[0]?.src ?? null
+  const categoryName = product.categories?.[0]?.name ? String(product.categories[0].name) : null
+  const remoteImageUrl = product.images?.[0]?.src ?? null
   const description = product.description?.replace(/<[^>]*>/g, '').trim() ?? null
+  const imageUrl = remoteImageUrl ? await downloadAndStoreImage(remoteImageUrl, name) : null
 
   const existing = await prisma.menuItem.findFirst({
     where: { wooProductId, venueId, deletedAt: null },
@@ -115,7 +138,7 @@ export async function upsertProductFromWoo(
   if (existing) {
     await prisma.menuItem.update({
       where: { id: existing.id },
-      data: { name, price, wooCategoryId: categoryId, imageUrl, description },
+      data: { name, price, wooCategoryId: categoryName, imageUrl, description },
     })
     return 'updated'
   }
@@ -127,7 +150,7 @@ export async function upsertProductFromWoo(
       recipeId: null, // link recipe manually in admin (Recipes & Menu Items)
       price,
       wooProductId,
-      wooCategoryId: categoryId,
+      wooCategoryId: categoryName,
       imageUrl,
       description,
     },

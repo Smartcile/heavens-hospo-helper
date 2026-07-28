@@ -53,8 +53,10 @@ export function NoticesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   const [ackRows, setAckRows] = useState<AckRow[]>([])
 
   async function load() {
+    const activeVenueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
+    const venueParam = activeVenueId ? `?venueId=${encodeURIComponent(activeVenueId)}` : ''
     const [nR, vR, dR] = await Promise.all([
-      fetch('/api/admin/notices'),
+      fetch(`/api/admin/notices${venueParam}`),
       fetch('/api/admin/venues'),
       fetch('/api/admin/departments'),
     ])

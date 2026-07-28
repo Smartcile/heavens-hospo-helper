@@ -33,10 +33,12 @@ export async function GET(req: NextRequest) {
   const venueId = searchParams.get('venueId')
   const accessibleVenueIds = getAccessibleVenueIds(session)
 
-  const where = {
+  const where: Record<string, unknown> = {
     deletedAt: null,
     ...(venueId ? { venueId } : {}),
-    ...(session.user.role === 'MANAGER' ? { venueId: { in: accessibleVenueIds } } : {}),
+    ...(session.user.role === 'MANAGER'
+      ? { venueId: { in: accessibleVenueIds } }
+      : !venueId ? { venue: { NOT: { isDemo: true, isActive: false } } } : {}),
   }
 
   const staff = await prisma.staff.findMany({

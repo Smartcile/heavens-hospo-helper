@@ -8,14 +8,19 @@ function maskSecret(secret: string | null): string | null {
   return '•'.repeat(secret.length - 4) + secret.slice(-4)
 }
 
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Resolve shared Woo source venue
-  let wcVenueId = session.user.venueId
+  // Resolve effective venue: ADMIN can pass venueId via query param
+  const wcVenueParam = new URL(req.url).searchParams.get('venueId')
+  const effectiveVenueId = session.user.role === 'ADMIN' && wcVenueParam
+    ? wcVenueParam
+    : session.user.venueId
+
+  let wcVenueId = effectiveVenueId
   const venue = await prisma.venue.findUnique({
-    where: { id: session.user.venueId, deletedAt: null },
+    where: { id: effectiveVenueId, deletedAt: null },
     select: { sharedWooVenueId: true },
   })
   const sharedSourceId = venue?.sharedWooVenueId ?? null
@@ -49,9 +54,16 @@ export async function PUT(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { wcStoreUrl, wcConsumerKey, wcConsumerSecret, wcWebhookSecret, wcActive, venueId } = await req.json()
+
+  // ADMIN can specify which venue's WooCommerce to configure
+  const effectiveVenueId = session.user.role === 'ADMIN' && venueId
+    ? venueId
+    : session.user.venueId
+
   // Venues using a shared Woo source cannot configure their own WooCommerce
   const venue = await prisma.venue.findUnique({
-    where: { id: session.user.venueId, deletedAt: null },
+    where: { id: effectiveVenueId, deletedAt: null },
     select: { isDemo: true, sharedWooVenueId: true },
   })
   if (venue?.isDemo) {
@@ -60,8 +72,6 @@ export async function PUT(req: NextRequest) {
   if (venue?.sharedWooVenueId) {
     return NextResponse.json({ error: 'WooCommerce is managed by the shared source venue' }, { status: 400 })
   }
-
-  const { wcStoreUrl, wcConsumerKey, wcConsumerSecret, wcWebhookSecret, wcActive } = await req.json()
 
   const data: Record<string, unknown> = {}
   if (wcStoreUrl !== undefined) data.storeUrl = String(wcStoreUrl).trim()
@@ -80,10 +90,10 @@ export async function PUT(req: NextRequest) {
   if (wcActive !== undefined) data.isActive = wcActive
 
   const integration = await prisma.wooIntegration.upsert({
-    where: { venueId: session.user.venueId },
+    where: { venueId: effectiveVenueId },
     update: data,
     create: {
-      venueId: session.user.venueId,
+      venueId: effectiveVenueId,
       storeUrl: data.storeUrl?.toString() ?? '',
       consumerKey: data.consumerKey?.toString() ?? '',
       consumerSecret: data.consumerSecret?.toString() ?? '',

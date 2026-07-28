@@ -39,8 +39,10 @@ export function QRCodesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   const [error, setError] = useState('')
 
   async function load() {
+    const activeVenueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
+    const venueParam = activeVenueId ? `?venueId=${encodeURIComponent(activeVenueId)}` : ''
     const [cR, vR] = await Promise.all([
-      fetch('/api/admin/qrcodes'),
+      fetch(`/api/admin/qrcodes${venueParam}`),
       fetch('/api/admin/venues'),
     ])
     const [codesData, venueData] = await Promise.all([cR.json(), vR.json()])
