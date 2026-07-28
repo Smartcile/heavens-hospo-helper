@@ -13,6 +13,8 @@ interface Venue {
   googleCalendarUrl: string | null
   icalFeedUrl: string | null
   externalRefreshMinutes: number
+  sharingEnabled: boolean
+  sharedWooVenueId: string | null
 }
 
 const REFRESH_OPTIONS = [
@@ -27,10 +29,14 @@ export function SettingsClient({
   staffId,
   role,
   sessionVenueId,
+  defaultVenueId,
+  venueIsDemo,
 }: {
   staffId: string
   role: string
   sessionVenueId: string
+  defaultVenueId: string | null | undefined
+  venueIsDemo: boolean
 }) {
   // Change password
   const [newPassword, setNewPassword] = useState('')
@@ -45,6 +51,11 @@ export function SettingsClient({
   const [pinSaving, setPinSaving] = useState(false)
   const [pinMessage, setPinMessage] = useState('')
   const [pinError, setPinError] = useState('')
+
+  // Default venue
+  const [defVenueId, setDefVenueId] = useState(defaultVenueId ?? '')
+  const [defSaving, setDefSaving] = useState(false)
+  const [defMessage, setDefMessage] = useState('')
 
   // Integrations
   const [venues, setVenues] = useState<Venue[]>([])
@@ -65,6 +76,30 @@ export function SettingsClient({
   const [wcSaving, setWcSaving] = useState(false)
   const [wcMessage, setWcMessage] = useState('')
   const [wcLastSync, setWcLastSync] = useState<string | null>(null)
+
+  // Demo venue
+  const [demoVenue, setDemoVenue] = useState<{ id: string; name: string; isActive: boolean } | null>(null)
+  const [demoIsActive, setDemoIsActive] = useState(false)
+  const [demoSaving, setDemoSaving] = useState(false)
+  const [demoMessage, setDemoMessage] = useState('')
+
+  // Venue sharing
+  const [sharingEnabled, setSharingEnabled] = useState(false)
+  const [sharedWooVenueId, setSharedWooVenueId] = useState('')
+  const [shareSaving, setShareSaving] = useState(false)
+  const [shareMessage, setShareMessage] = useState('')
+  const [shareVenues, setShareVenues] = useState<{ id: string; name: string }[]>([])
+
+  // Backup & restore (admin only)
+  const [backupLoading, setBackupLoading] = useState(false)
+  const [backupMessage, setBackupMessage] = useState('')
+  const [backupError, setBackupError] = useState('')
+  const [includeUploads, setIncludeUploads] = useState(false)
+  const [restoreFile, setRestoreFile] = useState<File | null>(null)
+  const [restoreLoading, setRestoreLoading] = useState(false)
+  const [restoreMessage, setRestoreMessage] = useState('')
+  const [restoreError, setRestoreError] = useState('')
+  const [confirmRestore, setConfirmRestore] = useState(false)
 
   useEffect(() => {
     fetch('/api/admin/venues').then((r) => r.json()).then((data: Venue[]) => {
@@ -89,12 +124,34 @@ export function SettingsClient({
       })
   }, [])
 
+  useEffect(() => {
+    if (role !== 'ADMIN') return
+    fetch('/api/admin/settings/demo-venue')
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (d?.venue) {
+          setDemoVenue(d.venue)
+          setDemoIsActive(d.venue.isActive)
+        }
+      })
+  }, [role])
+
+  useEffect(() => {
+    fetch('/api/admin/venues')
+      .then((r) => r.json())
+      .then((data: Venue[]) => {
+        setShareVenues(data.filter((v) => v.sharingEnabled).map((v) => ({ id: v.id, name: v.name })))
+      })
+  }, [venueId])
+
   function applyVenue(v: Venue) {
     setVenueId(v.id)
     setLoadedUrl(v.loadedRosterUrl ?? '')
     setGoogleUrl(v.googleCalendarUrl ?? '')
     setIcalUrl(v.icalFeedUrl ?? '')
     setRefresh(String(v.externalRefreshMinutes ?? 0))
+    setSharingEnabled(v.sharingEnabled ?? false)
+    setSharedWooVenueId(v.sharedWooVenueId ?? '')
   }
 
   function onPickVenue(id: string) {
@@ -170,6 +227,79 @@ export function SettingsClient({
     }
   }
 
+  async function toggleDemoVenue() {
+    if (!demoVenue) return
+    setDemoSaving(true); setDemoMessage('')
+    const next = !demoIsActive
+    const r = await fetch('/api/admin/settings/demo-venue', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isActive: next }),
+    })
+    setDemoSaving(false)
+    if (r.ok) {
+      const d = await r.json()
+      setDemoIsActive(d.venue.isActive)
+      setDemoMessage(`DEMO VENUE ${d.venue.isActive ? 'ENABLED' : 'DISABLED'}`)
+    } else {
+      setDemoMessage('UPDATE FAILED')
+    }
+  }
+
+  async function handleBackup() {
+    setBackupLoading(true); setBackupError(''); setBackupMessage('')
+    try {
+      const r = await fetch(`/api/admin/backup${includeUploads ? '?uploads=1' : ''}`)
+      if (!r.ok) { const d = await r.json(); setBackupError(d.error ?? 'BACKUP FAILED'); setBackupLoading(false); return }
+      const blob = await r.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const disposition = r.headers.get('Content-Disposition') ?? ''
+      const match = disposition.match(/filename="(.+)"/)
+      a.download = match?.[1] ?? 'hospo-ops-backup.sql'
+      a.click()
+      URL.revokeObjectURL(url)
+      setBackupMessage('DOWNLOADED')
+    } catch (err: any) {
+      setBackupError(err.message ?? 'BACKUP FAILED')
+    }
+    setBackupLoading(false)
+  }
+
+  async function handleRestore() {
+    if (!restoreFile) { setRestoreError('SELECT A FILE'); return }
+    setRestoreLoading(true); setRestoreError(''); setRestoreMessage('')
+    const form = new FormData()
+    form.append('file', restoreFile)
+    const r = await fetch('/api/admin/backup/restore', { method: 'POST', body: form })
+    if (!r.ok) { const d = await r.json(); setRestoreError(d.error ?? 'RESTORE FAILED'); setRestoreLoading(false); return }
+    const d = await r.json()
+    setRestoreMessage(`RESTORED · ${d.models ?? 'DATABASE'} · RE-SEEDING RECOMMENDED`)
+    setConfirmRestore(false); setRestoreFile(null)
+    setRestoreLoading(false)
+  }
+
+  async function saveSharing() {
+    if (!venueId) return
+    setShareSaving(true); setShareMessage('')
+    const r = await fetch(`/api/admin/venues/${venueId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sharingEnabled,
+        sharedWooVenueId: sharedWooVenueId || null,
+      }),
+    })
+    setShareSaving(false)
+    if (r.ok) {
+      setShareMessage('SAVED')
+    } else {
+      const d = await r.json()
+      setShareMessage(d.error ?? 'SAVE FAILED')
+    }
+  }
+
   return (
     <div className="p-6 space-y-8">
       <h1 className="font-mono text-xl font-bold uppercase tracking-widest">SETTINGS</h1>
@@ -224,6 +354,128 @@ export function SettingsClient({
         </div>
       </div>
 
+      {/* Demo Venue (admin only) */}
+      {role === 'ADMIN' && demoVenue && (
+        <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">
+          <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">DEMO VENUE</h2>
+          <p className="font-mono text-xs text-grey-light mb-3">
+            THE DEMO VENUE IS A SEEDED SAMPLE VENUE FOR EVALUATION AND PRESENTATION. WHEN DISABLED IT IS HIDDEN FROM WORKER VIEWS, VENUE LISTS, AND MANAGER LOGINS. ADMIN LOGIN AND DIRECT ACCESS STILL WORK. DEMO DATA IS READ-ONLY FOR NON-ADMIN USERS AND IS EXCLUDED FROM ALL SYNCS.
+          </p>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={toggleDemoVenue}
+                disabled={demoSaving}
+                className={`font-mono text-xs uppercase px-3 py-1.5 border ${demoIsActive ? 'border-success text-success' : 'border-grey-mid text-grey-light'} disabled:opacity-40`}
+              >
+                {demoIsActive ? 'ENABLED' : 'DISABLED'}
+              </button>
+              <span className="font-mono text-xs text-grey-light">
+                {demoVenue.name}
+              </span>
+            </div>
+            {demoMessage && <p className={`font-mono text-xs ${demoMessage.includes('FAILED') ? 'text-danger' : 'text-success'}`}>{demoMessage}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* Backup & Restore (admin only) */}
+      {role === 'ADMIN' && (
+        <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">
+          <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">BACKUP & RESTORE</h2>
+          <p className="font-mono text-xs text-grey-light mb-3">
+            DOWNLOAD A FULL DATABASE BACKUP. RESTORE THIS FILE ON A FRESH INSTALL TO MIGRATE ALL DATA. RESTORE DROPS AND RECREATES THE ENTIRE DATABASE — USE WITH CAUTION.
+          </p>
+          <div className="space-y-4">
+            {/* Backup */}
+              <div className="flex items-center gap-2 flex-wrap">
+              <Button onClick={handleBackup} loading={backupLoading} size="sm" variant="ghost">DOWNLOAD BACKUP</Button>
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input type="checkbox" checked={includeUploads} onChange={(e) => setIncludeUploads(e.target.checked)} className="accent-white" />
+                <span className="font-mono text-[10px] uppercase text-grey-light">INCLUDE UPLOADED FILES</span>
+              </label>
+              {backupMessage && <span className="font-mono text-xs text-success">{backupMessage}</span>}
+              {backupError && <span className="font-mono text-xs text-danger">{backupError}</span>}
+            </div>
+
+            {/* Restore */}
+            <div className="border-t border-grey-mid pt-3">
+              <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider mb-2">RESTORE FROM BACKUP</h3>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <label className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors cursor-pointer">
+                    {restoreFile ? restoreFile.name : 'CHOOSE FILE'}
+                    <input type="file" accept=".sql,.json" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) { setRestoreFile(f); setConfirmRestore(false); setRestoreError(''); setRestoreMessage('') } }} />
+                  </label>
+                  {restoreFile && (
+                    <span className="font-mono text-xs text-grey-light">({(restoreFile.size / 1024 / 1024).toFixed(1)} MB)</span>
+                  )}
+                </div>
+                {restoreFile && !confirmRestore && (
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="danger" onClick={() => setConfirmRestore(true)}>CONFIRM RESTORE — DESTROYS CURRENT DATA</Button>
+                  </div>
+                )}
+                {restoreFile && confirmRestore && (
+                  <div className="space-y-2">
+                    <p className="font-mono text-xs text-danger font-bold uppercase">THIS WILL DELETE ALL CURRENT DATA AND REPLACE IT WITH THE BACKUP. CANNOT BE UNDONE.</p>
+                    <div className="flex items-center gap-2">
+                      <Button onClick={handleRestore} loading={restoreLoading} variant="danger">RESTORE DATABASE</Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setConfirmRestore(false); setRestoreFile(null) }}>CANCEL</Button>
+                    </div>
+                  </div>
+                )}
+                {restoreMessage && <p className="font-mono text-xs text-success">{restoreMessage}</p>}
+                {restoreError && <p className="font-mono text-xs text-danger">{restoreError}</p>}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Venue sharing */}
+      <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">
+        <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">VENUE SHARING</h2>
+        <p className="font-mono text-xs text-grey-light mb-3">
+          ENABLE SHARING TO ALLOW THIS VENUE&apos;S PRODUCTS, STAFF AND WOOCOMMERCE CONNECTION TO BE USED BY OTHER VENUES. VENUES LINKED TO THIS ONE WILL PULL PRODUCTS AND ORDERS FROM THE SAME WOOCOMMERCE STORE.
+        </p>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSharingEnabled(!sharingEnabled)}
+              className={`font-mono text-xs uppercase px-3 py-1.5 border ${sharingEnabled ? 'border-success text-success' : 'border-grey-mid text-grey-light'}`}
+            >
+              {sharingEnabled ? 'ENABLED' : 'DISABLED'}
+            </button>
+            <span className="font-mono text-xs text-grey-light">VENUE SHARING</span>
+          </div>
+
+          {sharingEnabled && (
+            <Select
+              label="WOOCOMMERCE SOURCE VENUE"
+              value={sharedWooVenueId}
+              onChange={(e) => setSharedWooVenueId(e.target.value)}
+              options={[
+                { value: '', label: 'NONE (USE OWN WOOCOMMERCE)' },
+                ...shareVenues
+                  .filter((v) => v.id !== venueId)
+                  .map((v) => ({ value: v.id, label: v.name })),
+              ]}
+            />
+          )}
+
+          <p className="font-mono text-[10px] text-grey-light">
+            {sharingEnabled
+              ? 'OTHER VENUES CAN NOW USE THIS VENUE AS THEIR WOOCOMMERCE SOURCE. SET THE WOOCOMMERCE SOURCE ABOVE TO PULL PRODUCTS AND ORDERS FROM ANOTHER VENUE.'
+              : 'TURN ON SHARING TO ALLOW OTHER VENUES TO PULL FROM THIS VENUE.'}
+          </p>
+
+          {shareMessage && <p className={`font-mono text-xs ${shareMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{shareMessage}</p>}
+          <Button onClick={saveSharing} loading={shareSaving} size="sm">SAVE SHARING</Button>
+        </div>
+      </div>
+
       {/* NZ break entitlements reference */}
       <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">
         <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">NZ BREAK ENTITLEMENTS</h2>
@@ -248,6 +500,37 @@ export function SettingsClient({
       </div>
 
       <div className="max-w-md grid md:grid-cols-2 gap-6">
+        {/* Default venue (admin only) */}
+        {role === 'ADMIN' && (
+          <div className="border-l-4 border-l-grey-mid pl-4">
+            <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">DEFAULT VENUE</h2>
+            <p className="font-mono text-xs text-grey-light mb-3">AUTO-SELECT THIS VENUE IN ALL ADMIN MODULES.</p>
+            <div className="space-y-3">
+              <Select
+                value={defVenueId}
+                onChange={(e) => { setDefVenueId(e.target.value); setDefMessage('') }}
+                options={[{ value: '', label: 'NONE (ALL VENUES)' }, ...venues.map((v) => ({ value: v.id, label: v.name }))]}
+              />
+              {defMessage && <p className="font-mono text-xs text-success">{defMessage}</p>}
+              <Button
+                size="sm"
+                loading={defSaving}
+                onClick={async () => {
+                  setDefSaving(true); setDefMessage('')
+                  const r = await fetch(`/api/admin/staff/${staffId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ defaultVenueId: defVenueId || null }),
+                  })
+                  setDefSaving(false)
+                  if (r.ok) setDefMessage('SAVED — SIGN OUT & BACK IN TO APPLY.')
+                }}
+              >
+                SAVE DEFAULT
+              </Button>
+            </div>
+          </div>
+        )}
         {/* Change password */}
         <div className="border-l-4 border-l-grey-mid pl-4">
           <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">CHANGE PASSWORD</h2>

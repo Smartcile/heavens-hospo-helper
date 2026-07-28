@@ -26,13 +26,18 @@ migrations and seeds the demo data (safe to re-run on redeploys).
 1. Repository URL: `https://github.com/Smartcile/heavens-hospo-helper`
 2. Compose path: `docker-compose.yml`
 3. Under **Environment variables**, set:
+   - `INSTANCE_NAME` — a unique short name for this instance (e.g. `venue1`,
+     `cbd-bar`). Container names become `venue1-app` / `venue1-db`. **Use
+     a different name for each stack** — this is how you run multiple copies
+     side-by-side without conflicts.
    - `DB_PASSWORD` — a strong database password
    - `NEXTAUTH_SECRET` — `openssl rand -base64 32`
    - `WORKER_SESSION_SECRET` — `openssl rand -base64 32`
    - `APP_URL` — the **one** public URL you reach the app at, e.g.
      `http://192.168.1.100:9008` (LAN) or `https://hospo.example.com`
      (Cloudflare Tunnel). Drives both admin login and the QR codes.
-   - `APP_PORT` — *(optional)* published host port, default `3000`
+   - `APP_PORT` — *(important for multi-instance)* published host port, default `3000`.
+     Each stack must have a unique host port (e.g. `9001`, `9002`).
 4. Click **Deploy the stack**.
 
 #### Option B — plain docker compose
@@ -94,23 +99,67 @@ After seeding, the following accounts exist.
 | Role | Email | Password |
 |---|---|---|
 | Admin | `admin@demo.com` | `admin1234` |
-| Bar Manager | `bar@demo.com` | `bar1234` |
-| Kitchen Manager | `kitchen@demo.com` | `kitchen1234` |
-| FOH Manager | `foh@demo.com` | `foh1234` |
+| BOH Manager (demo) | `boh@demo.com` | `boh1234` |
+| FOH Manager (demo) | `foh@demo.com` | `foh1234` |
 
-**Floor worker login (QR + PIN):** `0000` (admin) · `1111` (bar) · `2222` (kitchen) · `3333` (foh)
+> **The admin account is the bootstrap login for every install.** The BOH/FOH
+> manager accounts live in the seeded **demo venue** (see below). Re-deploying
+> never resets credentials — once you change the admin password it stays.
 
-**Change these immediately in production.** Passwords are changed via **Settings** in the admin panel.
+**Floor worker login (QR + PIN):** `0000` (admin) · `1111` (manager) · `1234` (BOH staff) · `2345` (BOH staff) · `3456` (FOH staff) · `4567` (FOH staff)
+
+**Change these immediately in production.** Passwords and PINs are changed via **Settings** in the admin panel.
+
+### Demo venue
+
+The seed creates a **DEMO VENUE — AUCKLAND** — a full sample venue with departments, staff,
+tasks, checklists, and training modules. On a fresh install it is **enabled** so you can
+evaluate the app immediately. On an existing install with real venues it is created **disabled**.
+
+- **Disable/enable** in **Settings → DEMO VENUE** (admin only). When disabled the demo
+  venue is hidden from worker login, admin venue lists, and dashboards.
+- **Read-only for managers**: demo-venue managers can use the venue (tick tasks, complete
+  stocktakes) but all configuration edits (tasks, checklists, staff, training, settings)
+  are blocked. Only an **ADMIN**-role login can edit demo data.
+- **Isolated from syncs**: the demo venue is excluded from WooCommerce product/order sync,
+  calendar imports, webhooks, and expiry scans.
+- **Legacy cleanup**: on redeploy, the seed automatically cleans up demo data from any
+  non-demo venue (a prior design placed demo data into the first venue).
+
+### Venue sharing
+
+Venues can opt into sharing via **Settings → VENUE SHARING**. When enabled:
+
+- **Staff** can be assigned to multiple venues (**Staff → Edit → SHARED VENUES**). Workers
+  can then clock in at any assigned venue. Multi-venue managers see a venue dropdown in the
+  sidebar instead of a single-venue label.
+- **Products (menu items)** can be shared to other venues with optional per-venue price
+  overrides. Shared items appear with a blue `(SHARED FROM X)` badge on the **Menu Items** page.
+- **WooCommerce** uses a **source-venue model** — one venue connects to WooCommerce, other
+  venues pull products and orders through it by setting a **WooCommerce Source Venue** in
+  Settings. The sync dashboard, webhooks, and push all route through the source venue.
+
+### Department linking
+
+Departments can be linked to share tasks and checklists. **Admin → Venues → DEPARTMENTS → EDIT**
+on any department — search and add other departments in the **LINKED DEPARTMENTS** section.
+Linked departments appear as blue badges in the department list and structure tree.
+
+When departments are linked, staff in one department see tasks and checklists from all
+linked departments alongside their own. Linked-department tasks show up in both the worker
+task list and the admin Tasks page.
 
 ---
 
 ## HOW TO ACCESS THE ADMIN PANEL
 
-1. Open `http://your-server-ip:3000/admin/login`
-2. Enter your email and password
+1. Open `http://your-server-ip:3000/` — the landing page is a split screen
+2. Enter your email and password in the **ADMIN PANEL** area on the right
 3. You will land on the Dashboard
 
-The worker login (for QR scanning) is at `http://your-server-ip:3000/w/login`.
+The worker login (for QR scanning) is the **VENUE** side of the landing page, or
+directly at `http://your-server-ip:3000/w/login`. The worker venue picker also
+has an **ADMIN PANEL** button that returns to the landing page.
 
 On a phone, the admin panel collapses to a **burger menu** (top-left) that slides
 out the navigation; on desktop the sidebar is always visible.
@@ -123,8 +172,7 @@ HOSPO OPS is an **operational board**: one place that shows what's going on, wit
 the work and the knowledge that backs it linked together. The spine is:
 
 ```
-Venue → Department → Section* → tasks + training/SOPs/FAQs → completion → follow-up
-                                                                  (*planned layer)
+Venue → Department → Section → tasks + training/SOPs/FAQs → completion → follow-up
 ```
 
 - A **task** can be scoped venue-wide, to a department, to a section, or to one
@@ -132,12 +180,15 @@ Venue → Department → Section* → tasks + training/SOPs/FAQs → completion 
   photo), which feeds the dashboard and the overdue tracker.
 - Tasks and knowledge (SOPs, training, how-tos) bundle together per area so the
   guide is one tap from the task.
-- Coming next: **sections** (bar / coffee / cabinet / floor under a department)
-  and **follow-up triggers** — a missed or incorrectly-done task auto-assigns its
-  training, and a task done by an untrained person prompts a manager to upskill.
+- **Sections** (bar / coffee / cabinet / floor under a department) and **follow-up
+  triggers** are built: a missed or incorrectly-done task auto-assigns its training,
+  and a task done by an untrained person prompts a manager to upskill
+  (`/admin/followups`).
 
-**See it live:** open **Admin → Structure** (`/admin/structure`) for a tree of how
-your venues, departments, staff, tasks and training are currently linked.
+**See it live:** open **Admin → Structure** (`/admin/structure`). The **TREE** tab
+shows a collapsible tree of how your venues, departments, staff, tasks and training
+are linked; the **MAP** tab is an interactive link graph for mapping out workflows —
+click any node to trace how lists talk to tasks and training/SOP.
 
 The full model and the build plan are documented in
 [`ECOSYSTEM.md`](./ECOSYSTEM.md).
@@ -158,25 +209,40 @@ dimensions, colour, seat count, seating density (cm per chair), head chair caps,
 Materials (BOM) — linking to inventory items with per-chair or per-table quantities. Physical
 table numbers (e.g. "20", "21") are managed via tag input and auto-assigned on placement.
 
-**Canvas Features:** 3-layer PixiJS rendering (base/fixtures layer, section boundary layer,
-interactive setup layer). Magnetic edge snapping auto-aligns tables flush against neighbours.
-Section boundary polygons detect which station a table sits in on drop. Rubber-band lasso
-selection works across both elements and setup items.
+**Two-layer editing:** The base plan (walls, fixtures, section zones) and the movable tables
+live on separate layers. Pick a setup from the SETUP dropdown and the base plan **dims and
+locks** so you only move furniture; the palette switches to your Table Profiles. Deselect the
+setup to edit the base plan again. Rubber-band lasso selection works across the canvas.
 
-**Grouping & Banquet Joinery:** Select multiple same-profile tables and click GROUP to form
-a banquet block. The engine computes the composite perimeter and distributes chairs evenly
-along exposed edges, respecting head-of-table constraints (no cramming chairs on short sides).
+**Direct-manipulation tables:** Drag a Table Profile onto the canvas to place a table (with an
+auto-assigned number). Select it to **rotate via a drag handle** (or the preset angle buttons)
+and set chairs by **clicking the table's edges** — left-click adds a chair to that side,
+right-click removes one, up to the profile's capacity and head-of-table caps. Delete key or the
+panel button removes tables.
 
-**Inventory Check:** The right panel INVENTORY CHECK runs `calculateSetupInventory` for
-the active setup — comparing required items (from BOM) against total venue stock and
-showing shortages in red. Fires on button click, never during drag (60fps canvas stays smooth).
+**Auto-join (banquet joinery):** Drag two same-profile tables flush together and they **snap
+and join automatically** into one banquet block (or use the GROUP button). A joined block moves
+as a unit, renders as a single outline, and its chairs redistribute **evenly around the exposed
+perimeter**, respecting head-of-table constraints (no cramming chairs on short sides).
+
+**Live per-area totals:** Each section zone shows a running `N TBL · M PAX` badge, and the setup
+toolbar shows the grand total — both update as you drag tables in and out. A table auto-tags to
+the zone its centre lands in.
+
+**Auto-generate a layout:** Click **⚡ GENERATE**, enter a party size, and the planner places and
+numbers enough tables to cover it (greedy first-fit bin-packing over your Table Profiles) for you
+to fine-tune.
+
+**Inventory Check:** The right panel INVENTORY CHECK runs `calculateSetupInventory` for the
+active setup — comparing required items (from each profile's BOM) against total venue stock and
+showing shortages in red.
 
 **Worker View:** Staff see floor plans at **Menu → Floor Plan** with a read-only PixiJS
 canvas. A setup switcher dropdown (alongside the view switcher) lets them switch between
 event layouts. Assigned table numbers display as labels. Calendar events can link to setups.
 
-**API:** 11 new API routes for TableProfile CRUD, FloorPlanSetup CRUD, SetupItem bulk save,
-TableGroup management, SectionBoundary CRUD, and worker setup views.
+**API:** routes for TableProfile CRUD, FloorPlanSetup CRUD, SetupItem bulk save, TableGroup
+management, SectionBoundary CRUD, and worker setup views.
 
 ### BUDGET SPLITTER
 
@@ -254,18 +320,42 @@ for plain compose). Everything else is derived automatically.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
+| `INSTANCE_NAME` | **Yes** | `hospo-ops` | Unique name for this instance. Drives container names (`{name}-app`, `{name}-db`). Use a different value per stack for multi-instance deploys |
 | `DB_PASSWORD` | **Yes** | — | PostgreSQL password |
 | `NEXTAUTH_SECRET` | **Yes** | — | Admin session signing secret (`openssl rand -base64 32`) |
 | `WORKER_SESSION_SECRET` | **Yes** | — | Worker PIN session signing secret (`openssl rand -base64 32`) |
 | `APP_URL` | **Yes** | — | The one public URL (incl. port if not 80/443). Drives admin login **and** QR codes |
-| `APP_PORT` | No | `3000` | Host port the app is published on |
+| `APP_PORT` | No | `3000` | Host port the app is published on. **Must be unique per stack** for multi-instance deploys |
 | `APP_NAME` | No | `HOSPO OPS` | Display / white-label name |
 | `DB_USER` | No | `hospo_ops_user` | PostgreSQL username |
+| `DB_DATA` | No | `postgres_data` | Where PostgreSQL stores its data. Default is a named Docker volume (auto-scoped per stack). Set to a host path (e.g. `/mnt/data/db`) for a bind mount |
+| `UPLOADS_DATA` | No | `uploads_data` | Where task photos / uploads are stored. Default is a named Docker volume (auto-scoped per stack). Set to a host path (e.g. `/mnt/data/uploads`) for a bind mount |
 | `WORKER_SESSION_EXPIRY_MINUTES` | No | `15` | Worker auto-logout timeout |
+| `INTERNAL_CRON` | No | `true` | Built-in scheduler (WooCommerce product sync every 15 min + daily expiry scan). Set `false` to use an external scheduler instead |
+| `CRON_SECRET` | No | — | Bearer token for the `/api/cron/*` endpoints — only needed for external schedulers or manual triggers |
 
 > `DATABASE_URL` and `NEXTAUTH_URL` are **not** set by hand — the compose file
 > builds `DATABASE_URL` from `DB_USER`/`DB_PASSWORD` and derives `NEXTAUTH_URL`
-> from `APP_URL`. Uploads always go to the `uploads_data` volume.
+> from `APP_URL`. Uploads and database storage use `UPLOADS_DATA` / `DB_DATA`
+> (named volumes by default, or host paths for bind mounts).
+
+---
+
+## WOOCOMMERCE SYNC (OPTIONAL)
+
+HOSPO OPS syncs two-way with a WooCommerce store — orders and products flow in
+via webhooks (instant) and a built-in REST API pull (product + order, every 15 min),
+product/order-status changes push back automatically. **No host crontab
+or OS access is needed**, so this works the same on Portainer, plain compose,
+or any managed container platform.
+
+- Setup guide: [`SOP-WOOCOMMERCE.md`](SOP-WOOCOMMERCE.md)
+- Live sync monitor: **Admin → Woo Sync** (`/admin/sync`) — every pull, push,
+  and webhook is logged there with errors in red, plus manual PULL PRODUCTS / PULL ORDERS / PUSH buttons.
+- FOH operations view: **Admin → Orders → FOH VIEW** tab — bookings by date with table
+  assignments, dietary info, and category totals.
+- Kitchen view: workers access **Menu → KITCHEN** (`/w/kitchen`) for today's orders
+  grouped by table with dietary badges.
 
 ---
 
@@ -274,7 +364,8 @@ for plain compose). Everything else is derived automatically.
 If you expose the app through a Cloudflare Tunnel:
 
 1. **Point the tunnel** at the app container — public hostname
-   `hospo.example.com` → service `http://hospo-ops-app:3000` (or `http://<host-ip>:<APP_PORT>`).
+   `hospo.example.com` → service `http://<instance>-app:3000`, where `<instance>`
+   is your `INSTANCE_NAME` (default `hospo-ops`). Or point it at `http://<host-ip>:<APP_PORT>`.
 2. **Set `APP_URL=https://hospo.example.com`** (no port). This makes admin login
    cookies and the QR codes all use the HTTPS hostname. With a tunnel you don't
    need to publish `APP_PORT` on the host at all.
@@ -284,6 +375,8 @@ If you expose the app through a Cloudflare Tunnel:
    - `/w/*` — worker PIN login + task view
    - `/api/worker/*` — worker API
    - `/api/upload/*` — task photos
+   - `/api/webhooks/*` — WooCommerce webhooks (HMAC-verified by the app itself)
+   - `/api/cron/*` — only if you use an external scheduler (bearer-token protected)
 
    Keep `/admin/*` and `/api/admin/*` behind Access for an extra auth layer if
    you like — the app still requires its own admin login on top.
@@ -313,7 +406,7 @@ docker compose up -d     # recreate the app container
 
 Database migrations run automatically inside the container on every start, so
 schema changes are applied for you. (To auto-update without clicking, point
-[Watchtower](https://containrrr.dev/watchtower/) at the `hospo-ops-app` container.)
+[Watchtower](https://containrrr.dev/watchtower/) at the `<instance>-app` container.)
 
 ---
 
@@ -324,7 +417,7 @@ The container publishes port `3000`. Make sure you deployed *this* repo's
 top-level `docker-compose.yml` (not a hand-pasted older copy). In Portainer use
 **Stacks → Add stack → Repository** with compose path `docker-compose.yml`, so
 you always get the current file with the `ports:` mapping. After deploy, the
-`hospo-ops-app` container should show `0.0.0.0:3000->3000/tcp`. If you set
+`<instance>-app` container should show `0.0.0.0:3000->3000/tcp`. If you set
 `APP_PORT`, it shows that host port instead.
 
 **`unauthorized` when pulling the image.**
@@ -339,7 +432,8 @@ including the port. Fix them in the stack env and redeploy.
 
 ## BACKUP (POSTGRESQL DATA)
 
-The PostgreSQL data is stored in a Docker volume (`postgres_data`). To back it up:
+The PostgreSQL data is stored in a Docker volume or bind mount (controlled by
+`DB_DATA` — default named volume `postgres_data`, or a host path). To back it up:
 
 ```bash
 # Dump to a file

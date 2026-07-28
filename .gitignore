@@ -37,5 +37,7 @@ npm-debug.log*
 .vscode/
 .idea/
 
-# Docker
-*.pid
+# Local dev tools
+.test-checklist.md
+build-and-push.ps1
+rebuild.ps1

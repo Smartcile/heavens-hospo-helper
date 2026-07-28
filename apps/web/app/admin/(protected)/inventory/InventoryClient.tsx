@@ -4,16 +4,28 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { Modal } from '@/components/ui/Modal'
+import { Combobox } from '@/components/ui/Combobox'
+import { AllergenPicker } from '@/components/ui/AllergenPicker'
+import { ALLERGENS } from '@/lib/allergens'
 import { TableProfileForm } from '@/components/admin/TableProfileForm'
 
-interface Category { id: string; name: string; isBuiltIn: boolean; venueId: string | null; tab: string | null }
+interface Category { id: string; name: string; isBuiltIn: boolean; venueId: string | null; tab: string | null; showDeepFields: boolean; showEquipmentFields: boolean }
 interface Item {
   id: string; name: string; categoryId: string; unit: string; defaultParLevel: number; totalQty: number; placedCount: number; category: Category
   furnitureType?: string | null; elementWidth?: number | null; elementDepth?: number | null
   elementShape?: string | null; defaultColour?: string | null; defaultChairCount?: number
   countingUnitId?: string | null; orderingUnitId?: string | null; yieldPercentage?: number | null; costPrice?: number | null; expiryDate?: string | null; fallbackCategoryId?: string | null; allergyInfo?: string | null
+  shelfLifeDays?: number | null; canFreeze?: boolean; freezerShelfLifeDays?: number | null
+  // Equipment / tool tracking
+  imageUrls?: string[] | null; storageSectionId?: string | null; storageNotes?: string | null
+  serialNumber?: string | null; purchaseDate?: string | null; warrantyExpiry?: string | null
+  serviceIntervalDays?: number | null; lastServicedAt?: string | null; nextServiceAt?: string | null
+  maintenanceNotes?: string | null; supplierId?: string | null
 }
 interface Uom { id: string; name: string; baseUnit: string }
+interface SectionLite { id: string; name: string; department: { id: string; name: string } }
+interface SupplierLite { id: string; name: string }
 
 interface StockItem { id: string; name: string; quantity: number; unit: string }
 interface StockTable { id: string; label: string; width: number; depth: number; planName: string; planId: string; inventoryItems: StockItem[] }
@@ -27,9 +39,21 @@ export function InventoryClient() {
   const [stockLoading, setStockLoading] = useState(false)
   const [showNewCat, setShowNewCat] = useState(false)
   const [newCatName, setNewCatName] = useState('')
+  const [showCatModal, setShowCatModal] = useState(false)
+  const [editingCat, setEditingCat] = useState<Category | null>(null)
+  const [showDeleted, setShowDeleted] = useState(false)
+  const [deletedItems, setDeletedItems] = useState<Item[]>([])
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [maintLogs, setMaintLogs] = useState<{ id: string; note: string; createdAt: string; staffName: string | null }[]>([])
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [showCatDropdown, setShowCatDropdown] = useState(false)
-  const [activeTab, setActiveTab] = useState<'FOOD' | 'BEVERAGE' | 'OTHER'>('OTHER')
+  const [activeTab, setActiveTab] = useState<'FOOD' | 'BEVERAGE' | 'OTHER'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('hospo-inventory-tab')
+      if (saved === 'FOOD' || saved === 'BEVERAGE' || saved === 'OTHER') return saved
+    }
+    return 'OTHER'
+  })
   const [uoms, setUoms] = useState<Uom[]>([])
 
   // Property editor (non-furniture items)
@@ -51,7 +75,34 @@ export function InventoryClient() {
   const [formExpiryDate, setFormExpiryDate] = useState('')
   const [formFallbackCatId, setFormFallbackCatId] = useState('')
   const [formAllergyInfo, setFormAllergyInfo] = useState('')
-  const [showDeepFields, setShowDeepFields] = useState(false)
+  const [showDeepFields, setShowDeepFields] = useState(true)
+  const [formShelfLifeDays, setFormShelfLifeDays] = useState('')
+  const [formCanFreeze, setFormCanFreeze] = useState(false)
+  const [formFreezerShelfLifeDays, setFormFreezerShelfLifeDays] = useState('')
+  const [formCountingUnitQty, setFormCountingUnitQty] = useState('')
+  const [formOrderingUnitQty, setFormOrderingUnitQty] = useState('')
+  const [formParLevelUnitId, setFormParLevelUnitId] = useState('')
+
+  // Equipment / tool tracking
+  const [formImageUrls, setFormImageUrls] = useState<string[]>([])
+  const [formStorageSectionId, setFormStorageSectionId] = useState('')
+  const [formStorageNotes, setFormStorageNotes] = useState('')
+  const [formSerialNumber, setFormSerialNumber] = useState('')
+  const [formPurchaseDate, setFormPurchaseDate] = useState('')
+  const [formWarrantyExpiry, setFormWarrantyExpiry] = useState('')
+  const [formWarrantyMonths, setFormWarrantyMonths] = useState('')
+  const [formServiceIntervalDays, setFormServiceIntervalDays] = useState('')
+  const [formLastServicedAt, setFormLastServicedAt] = useState('')
+  const [formNextServiceAt, setFormNextServiceAt] = useState('')
+  const [formMaintenanceNotes, setFormMaintenanceNotes] = useState('')
+  const [formSupplierId, setFormSupplierId] = useState('')
+  const [formAltSupplierIds, setFormAltSupplierIds] = useState<string[]>([])
+  const [showEquipmentFields, setShowEquipmentFields] = useState(true)
+  const [catShowDeep, setCatShowDeep] = useState(false)
+  const [catShowEquip, setCatShowEquip] = useState(false)
+  const [formUploadingImg, setFormUploadingImg] = useState(false)
+  const [sections, setSections] = useState<SectionLite[]>([])
+  const [suppliers, setSuppliers] = useState<SupplierLite[]>([])
 
   // Table profile editor
   const [showTableProfile, setShowTableProfile] = useState(false)
@@ -61,7 +112,12 @@ export function InventoryClient() {
   function resetForm() {
     setFormName(''); setFormCat(''); setFormUnit('EA'); setFormPar('0'); setFormTotalQty('0')
     setFormCountingUnitId(''); setFormOrderingUnitId(''); setFormYield(''); setFormCostPrice('')
-    setFormExpiryDate(''); setFormFallbackCatId(''); setFormAllergyInfo(''); setShowDeepFields(false)
+    setFormExpiryDate(''); setFormFallbackCatId(''); setFormAllergyInfo(''); setShowDeepFields(true)
+    setFormShelfLifeDays(''); setFormCanFreeze(false); setFormFreezerShelfLifeDays('')
+    setFormImageUrls([]); setFormStorageSectionId(''); setFormStorageNotes('')
+    setFormSerialNumber(''); setFormPurchaseDate(''); setFormWarrantyExpiry('')
+    setFormServiceIntervalDays(''); setFormLastServicedAt(''); setFormNextServiceAt('')
+    setFormMaintenanceNotes(''); setFormSupplierId(''); setShowEquipmentFields(false)
   }
 
   function populateForm(item: Item) {
@@ -72,15 +128,40 @@ export function InventoryClient() {
     setFormCostPrice(item.costPrice != null ? String(item.costPrice) : '')
     setFormExpiryDate(item.expiryDate ?? ''); setFormFallbackCatId(item.fallbackCategoryId ?? '')
     setFormAllergyInfo(item.allergyInfo ?? '')
+    setFormShelfLifeDays(item.shelfLifeDays != null ? String(item.shelfLifeDays) : '')
+    setFormCanFreeze(!!item.canFreeze)
+    setFormFreezerShelfLifeDays(item.freezerShelfLifeDays != null ? String(item.freezerShelfLifeDays) : '')
+    setFormImageUrls(Array.isArray(item.imageUrls) ? item.imageUrls : item.imageUrls ? [item.imageUrls as any] : [])
+    setFormStorageSectionId(item.storageSectionId ?? '')
+    setFormStorageNotes(item.storageNotes ?? '')
+    setFormSerialNumber(item.serialNumber ?? '')
+    setFormPurchaseDate(item.purchaseDate ? String(item.purchaseDate).slice(0, 10) : '')
+    setFormWarrantyExpiry(item.warrantyExpiry ? String(item.warrantyExpiry).slice(0, 10) : '')
+    setFormServiceIntervalDays(item.serviceIntervalDays != null ? String(item.serviceIntervalDays) : '')
+    setFormLastServicedAt(item.lastServicedAt ? String(item.lastServicedAt).slice(0, 10) : '')
+    setFormNextServiceAt(item.nextServiceAt ? String(item.nextServiceAt).slice(0, 10) : '')
+    setFormMaintenanceNotes(item.maintenanceNotes ?? '')
+    setFormSupplierId(item.supplierId ?? '')
+    const itemCat = categories.find((c) => c.id === item.categoryId)
+    setShowDeepFields(itemCat?.showDeepFields ?? false)
+    setShowEquipmentFields(itemCat?.showEquipmentFields ?? false)
+    setCatShowDeep(itemCat?.showDeepFields ?? (itemCat?.tab === 'FOOD' || itemCat?.tab === 'BEVERAGE'))
+    setCatShowEquip(itemCat?.showEquipmentFields ?? (itemCat?.tab == null || itemCat?.name === 'TABLES'))
+    // Fetch maintenance logs
+    fetch(`/api/admin/inventory/${item.id}/logs`).then((r) => r.json()).then((logs) => {
+      if (Array.isArray(logs)) setMaintLogs(logs)
+    }).catch(() => {})
   }
 
   async function load() {
     setLoading(true)
-    const [catRes, itemRes, prRes, uomRes] = await Promise.all([
+    const [catRes, itemRes, prRes, uomRes, secRes, supRes] = await Promise.all([
       fetch('/api/admin/inventory/categories'),
       fetch('/api/admin/inventory'),
       fetch('/api/admin/table-profiles'),
       fetch('/api/admin/uoms'),
+      fetch('/api/admin/sections'),
+      fetch('/api/admin/suppliers'),
     ])
     if (catRes.ok) setCategories(await catRes.json())
     if (itemRes.ok) setItems(await itemRes.json())
@@ -92,6 +173,14 @@ export function InventoryClient() {
       const data = await uomRes.json()
       setUoms(Array.isArray(data) ? data : [])
     }
+    if (secRes.ok) {
+      const data = await secRes.json()
+      setSections(Array.isArray(data) ? data : [])
+    }
+    if (supRes.ok) {
+      const data = await supRes.json()
+      setSuppliers(Array.isArray(data) ? data : [])
+    }
     setLoading(false)
   }
 
@@ -100,6 +189,22 @@ export function InventoryClient() {
     const r = await fetch('/api/admin/stock/hierarchy')
     if (r.ok) setStock((await r.json()).sections)
     setStockLoading(false)
+  }
+
+  async function loadDeleted() {
+    const r = await fetch('/api/admin/inventory?deleted=true')
+    if (r.ok) setDeletedItems(await r.json())
+  }
+
+  async function restoreItem(id: string) {
+    await fetch(`/api/admin/inventory/${id}/restore`, { method: 'POST' })
+    load(); loadDeleted()
+  }
+
+  async function purgeItem(id: string) {
+    if (!confirm('PERMANENTLY DELETE THIS ITEM? THIS CANNOT BE UNDONE.')) return
+    await fetch(`/api/admin/inventory/${id}?permanent=1`, { method: 'DELETE' })
+    load(); loadDeleted()
   }
 
   useEffect(() => { load(); loadStock() }, [])
@@ -117,6 +222,15 @@ export function InventoryClient() {
     })
   }, [loading])
 
+  async function uploadImage(file: File) {
+    setFormUploadingImg(true)
+    const form = new FormData()
+    form.append('file', file)
+    const r = await fetch('/api/admin/upload', { method: 'POST', body: form })
+    setFormUploadingImg(false)
+    if (r.ok) { const data = await r.json(); setFormImageUrls((prev) => [...prev, data.url]) }
+  }
+
   async function handleSave() {
     const body: any = {
       name: (formName || 'ITEM').toUpperCase().trim(),
@@ -131,6 +245,20 @@ export function InventoryClient() {
       expiryDate: formExpiryDate || null,
       fallbackCategoryId: formFallbackCatId || null,
       allergyInfo: formAllergyInfo || null,
+      imageUrls: formImageUrls.length ? formImageUrls : null,
+      storageSectionId: formStorageSectionId || null,
+      storageNotes: formStorageNotes || null,
+      serialNumber: formSerialNumber || null,
+      purchaseDate: formPurchaseDate || null,
+      warrantyExpiry: formWarrantyExpiry || null,
+      serviceIntervalDays: formServiceIntervalDays ? parseInt(formServiceIntervalDays) : null,
+      lastServicedAt: formLastServicedAt || null,
+      nextServiceAt: formNextServiceAt || null,
+      maintenanceNotes: formMaintenanceNotes || null,
+      supplierId: formSupplierId || null,
+      shelfLifeDays: formShelfLifeDays ? parseInt(formShelfLifeDays) : null,
+      canFreeze: formCanFreeze,
+      freezerShelfLifeDays: formFreezerShelfLifeDays ? parseInt(formFreezerShelfLifeDays) : null,
     }
     if (isCreating) {
       if (!body.name || !body.categoryId) return
@@ -171,7 +299,9 @@ export function InventoryClient() {
 
   function startCreate(catId: string) {
     const cat = categories.find((c) => c.id === catId)
-    if (cat?.name === 'FURNITURE') {
+    // Auto-expand collapsed category
+    if (cat) setCollapsed((prev) => { const next = new Set(prev); next.delete(cat.name); return next })
+    if (cat?.name === 'TABLES') {
       setEditProfileId(null)
       setShowTableProfile(true)
     } else {
@@ -179,6 +309,10 @@ export function InventoryClient() {
       setFormCat(catId)
       setCreateCat('')
       setShowCatDropdown(false)
+      setShowDeepFields(cat?.showDeepFields ?? false)
+      setShowEquipmentFields(cat?.showEquipmentFields ?? false)
+      setCatShowDeep(cat?.showDeepFields ?? (cat?.tab === 'FOOD' || cat?.tab === 'BEVERAGE'))
+      setCatShowEquip(cat?.showEquipmentFields ?? (cat?.tab == null || cat?.name === 'TABLES'))
     }
   }
 
@@ -210,29 +344,16 @@ export function InventoryClient() {
         <div className="flex items-center gap-2">
           <div className="flex items-center border border-grey-mid">
             {([['FOOD', 'FOOD'], ['BEVERAGE', 'BEVERAGE'], ['OTHER', 'OTHER']] as const).map(([key, label]) => (
-              <button key={key} onClick={() => setActiveTab(key)}
+              <button key={key} onClick={() => { setActiveTab(key); localStorage.setItem('hospo-inventory-tab', key) }}
                 className={`font-mono text-[10px] uppercase px-3 py-1.5 border-r border-grey-mid last:border-r-0 ${activeTab === key ? 'bg-grey-mid/30 text-white' : 'text-grey-light hover:text-white'}`}>
                 {label}
               </button>
             ))}
           </div>
-          <Button size="sm" onClick={() => setShowNewCat(!showNewCat)} variant="ghost">+ CATEGORY</Button>
+          <Button size="sm" onClick={() => { setEditingCat(null); setNewCatName(''); setNewCatTab('FOOD'); setShowCatModal(true) }} variant="ghost">+ CATEGORY</Button>
+          <Button size="sm" onClick={() => { if (!showDeleted) loadDeleted(); setShowDeleted(!showDeleted) }} variant="ghost">{showDeleted ? 'HIDE DELETED' : 'SHOW DELETED'}</Button>
         </div>
       </div>
-
-      {showNewCat && (
-        <div className="border border-grey-mid p-4 flex gap-2 items-center flex-wrap">
-          <Input value={newCatName} onChange={(e) => setNewCatName(e.target.value.toUpperCase())} placeholder="CATEGORY NAME" className="flex-1 min-w-[200px]" />
-          <select value={newCatTab} onChange={(e) => setNewCatTab(e.target.value)}
-            className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-hidden">
-            <option value="FOOD">FOOD TAB</option>
-            <option value="BEVERAGE">BEVERAGE TAB</option>
-            <option value="OTHER">OTHER TAB</option>
-          </select>
-          <Button size="sm" onClick={addCategory} disabled={!newCatName}>CREATE</Button>
-          <Button size="sm" variant="ghost" onClick={() => setShowNewCat(false)}>CANCEL</Button>
-        </div>
-      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left: Expandable category boxes */}
@@ -254,87 +375,30 @@ export function InventoryClient() {
             </div>
           </div>
 
-          {/* Inline create form — appears at top when adding */}
-          {isCreating && (
-            <div className="border border-grey-mid bg-grey-dark p-4 space-y-3 mb-3">
-              <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">NEW ITEM</h3>
-              <div className="grid grid-cols-6 gap-2">
-                <div className="col-span-4">
-                  <Input label="NAME" value={formName} onChange={(e) => setFormName(e.target.value.toUpperCase())} placeholder="ITEM NAME" />
-                </div>
-                <div className="col-span-2">
-                  <Select label="CATEGORY" value={formCat} onChange={(e) => setFormCat(e.target.value)}
-                    options={tabCategories.map((c) => ({ value: c.id, label: c.name }))} />
-                </div>
-              </div>
-              <div className="grid grid-cols-6 gap-2">
-                <div className="col-span-2">
-                  <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
-                    options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
-                </div>
-                <div className="col-span-2">
-                  <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
-                </div>
-                <div className="col-span-2">
-                  <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
-                </div>
-              </div>
-              <button onClick={() => setShowDeepFields(!showDeepFields)}
-                className="font-mono text-[10px] uppercase text-grey-light hover:text-white text-left">
-                {showDeepFields ? '▾ DEEP INVENTORY' : '▸ DEEP INVENTORY'}
-              </button>
-              {showDeepFields && (
-                <div className="grid grid-cols-6 gap-2 border-t border-grey-mid pt-3">
-                  <div className="col-span-3">
-                    <Select label="COUNTING UOM" value={formCountingUnitId} onChange={(e) => setFormCountingUnitId(e.target.value)}
-                      options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
-                  </div>
-                  <div className="col-span-3">
-                    <Select label="ORDERING UOM" value={formOrderingUnitId} onChange={(e) => setFormOrderingUnitId(e.target.value)}
-                      options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
-                  </div>
-                  <div className="col-span-2">
-                    <Input label="YIELD %" type="number" step="0.1" value={formYield} onChange={(e) => setFormYield(e.target.value)} />
-                  </div>
-                  <div className="col-span-2">
-                    <Input label="COST PRICE" type="number" step="0.01" value={formCostPrice} onChange={(e) => setFormCostPrice(e.target.value)} />
-                  </div>
-                  <div className="col-span-2">
-                    <Input label="EXPIRY DATE" type="date" value={formExpiryDate} onChange={(e) => setFormExpiryDate(e.target.value)} />
-                  </div>
-                  <div className="col-span-3">
-                    <Select label="FALLBACK CATEGORY" value={formFallbackCatId} onChange={(e) => setFormFallbackCatId(e.target.value)}
-                      options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="—" />
-                  </div>
-                  <div className="col-span-3">
-                    <Input label="ALLERGENS" value={formAllergyInfo} onChange={(e) => setFormAllergyInfo(e.target.value.toUpperCase())} placeholder="GLUTEN, DAIRY, NUTS" />
-                  </div>
-                </div>
-              )}
-              <div className="flex gap-2">
-                <Button size="sm" onClick={handleSave} disabled={!formName || !formCat}>CREATE</Button>
-                <Button size="sm" variant="ghost" onClick={() => { setIsCreating(false); resetForm() }}>CANCEL</Button>
-              </div>
-            </div>
-          )}
-
           {tabCategories.map((cat) => {
             const catItemList = catItems.get(cat.id) ?? []
             const isCollapsed = collapsed.has(cat.name)
-            const isFurniture = cat.name === 'FURNITURE'
+            const isFurniture = cat.name === 'TABLES'
             return (
               <div key={cat.id} className="border border-grey-mid">
-                <button onClick={() => toggleCollapse(cat.name)}
-                  className="w-full flex items-center justify-between px-3 py-2 hover:bg-grey-mid/20">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs text-grey-light">{isCollapsed ? '▸' : '▾'}</span>
-                    <span className="font-mono text-xs font-bold text-white uppercase">{cat.name}</span>
-                    <span className="font-mono text-[10px] text-grey-light">({catItemList.length})</span>
-                  </div>
-                  <span className="font-mono text-[10px] text-grey-light uppercase">
+                <div className="flex items-center">
+                  <button onClick={() => toggleCollapse(cat.name)}
+                    className="flex-1 flex items-center justify-between px-3 py-2 hover:bg-grey-mid/20 text-left">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs text-grey-light">{isCollapsed ? '▸' : '▾'}</span>
+                      <span className="font-mono text-xs font-bold text-white uppercase">{cat.name}</span>
+                      <span className="font-mono text-[10px] text-grey-light">({catItemList.length})</span>
+                    </div>
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); startCreate(cat.id) }}
+                    className="font-mono text-[10px] uppercase text-grey-light hover:text-white px-3 py-2 border-l border-grey-mid">
                     {isFurniture ? '+ ADD TABLE' : '+ ADD'}
-                  </span>
-                </button>
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); setEditingCat(cat); setNewCatName(cat.name); setNewCatTab(cat.tab ?? 'OTHER'); setShowCatModal(true) }}
+                    className="font-mono text-[10px] uppercase text-[#c4a530] hover:text-white px-2 py-2 border-l border-grey-mid">
+                    EDIT
+                  </button>
+                </div>
 
                 {!isCollapsed && (
                   <div className="border-t border-grey-mid">
@@ -355,6 +419,10 @@ export function InventoryClient() {
                             {isFurnitureItem && item.defaultColour && (
                               <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.defaultColour }} />
                             )}
+                            {Array.isArray(item.imageUrls) && item.imageUrls.length > 0 && (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={item.imageUrls[0]} alt={item.name} className="w-5 h-5 object-cover border border-grey-mid flex-shrink-0" />
+                            )}
                             <div className="flex-1 min-w-0">
                               <span className="font-mono text-xs text-white block truncate">
                                 {item.name}
@@ -371,7 +439,13 @@ export function InventoryClient() {
                                   {profileNumbers.map((n: string, i: number) => (
                                     <span key={i} className="font-mono text-[10px] text-white border border-grey-mid px-1.5 py-px bg-grey-dark/50">{n}</span>
                                   ))}
-                                </div>
+      <Modal isOpen={previewImage != null} onClose={() => setPreviewImage(null)} title="" size="lg">
+        {previewImage && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={previewImage} alt="Preview" className="w-full border border-grey-mid" />
+        )}
+      </Modal>
+    </div>
                               )}
                             </div>
                             <div className="flex items-center gap-3 text-right flex-shrink-0">
@@ -411,135 +485,37 @@ export function InventoryClient() {
                           {idx < catItemList.length - 1 && (
                             <div className="mx-3 border-b border-grey-mid" />
                           )}
-
-                          {/* Inline property editor for non-furniture items */}
-                          {selectedItem?.id === item.id && !isFurnitureItem && (
-                            <div className="border-t border-grey-mid bg-grey-dark p-4 space-y-3">
-                              <div className="grid grid-cols-6 gap-2">
-                                <div className="col-span-4">
-                                  <Input label="NAME" value={formName} onChange={(e) => setFormName(e.target.value.toUpperCase())} placeholder="ITEM NAME" />
-                                </div>
-                                <div className="col-span-2">
-                                  <Select label="CATEGORY" value={formCat} onChange={(e) => setFormCat(e.target.value)}
-                                    options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="CATEGORY" />
-                                </div>
-                              </div>
-                              <div className="grid grid-cols-6 gap-2">
-                                <div className="col-span-2">
-                                  <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
-                                    options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
-                                </div>
-                                <div className="col-span-2">
-                                  <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
-                                </div>
-                                <div className="col-span-2">
-                                  <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
-                                </div>
-                              </div>
-                              <button onClick={() => setShowDeepFields(!showDeepFields)}
-                                className="font-mono text-[10px] uppercase text-grey-light hover:text-white">
-                                {showDeepFields ? '▾ DEEP INVENTORY' : '▸ DEEP INVENTORY'}
-                              </button>
-                              {showDeepFields && (
-                                <div className="grid grid-cols-6 gap-2 border-t border-grey-mid pt-3">
-                                  <div className="col-span-3">
-                                    <Select label="COUNTING UOM" value={formCountingUnitId} onChange={(e) => setFormCountingUnitId(e.target.value)}
-                                      options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
-                                  </div>
-                                  <div className="col-span-3">
-                                    <Select label="ORDERING UOM" value={formOrderingUnitId} onChange={(e) => setFormOrderingUnitId(e.target.value)}
-                                      options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
-                                  </div>
-                                  <div className="col-span-2">
-                                    <Input label="YIELD %" type="number" step="0.1" value={formYield} onChange={(e) => setFormYield(e.target.value)} />
-                                  </div>
-                                  <div className="col-span-2">
-                                    <Input label="COST PRICE" type="number" step="0.01" value={formCostPrice} onChange={(e) => setFormCostPrice(e.target.value)} />
-                                  </div>
-                                  <div className="col-span-2">
-                                    <Input label="EXPIRY DATE" type="date" value={formExpiryDate} onChange={(e) => setFormExpiryDate(e.target.value)} />
-                                  </div>
-                                  <div className="col-span-3">
-                                    <Select label="FALLBACK CATEGORY" value={formFallbackCatId} onChange={(e) => setFormFallbackCatId(e.target.value)}
-                                      options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="—" />
-                                  </div>
-                                </div>
-                              )}
-                              <div className="flex gap-2">
-                                <Button size="sm" onClick={handleSave} disabled={!formName || !formCat}>SAVE</Button>
-                                <Button size="sm" variant="ghost" onClick={() => { setSelectedItem(null); resetForm() }}>CANCEL</Button>
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )
                     })}
-
-                    {/* Inline create form for non-furniture categories */}
-                    {isCreating && formCat === cat.id && !isFurniture && (
-                      <div className="border-t border-grey-mid bg-grey-dark p-4 space-y-3">
-                        <div className="grid grid-cols-6 gap-2">
-                          <div className="col-span-4">
-                            <Input label="NAME" value={formName} onChange={(e) => setFormName(e.target.value.toUpperCase())} placeholder="ITEM NAME" />
-                          </div>
-                          <div className="col-span-2">
-                            <Select label="CATEGORY" value={formCat} onChange={(e) => setFormCat(e.target.value)}
-                              options={categories.map((c) => ({ value: c.id, label: c.name }))} />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-6 gap-2">
-                          <div className="col-span-2">
-                            <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
-                              options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
-                          </div>
-                          <div className="col-span-2">
-                            <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
-                          </div>
-                          <div className="col-span-2">
-                            <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
-                          </div>
-                        </div>
-                        <button onClick={() => setShowDeepFields(!showDeepFields)}
-                          className="font-mono text-[10px] uppercase text-grey-light hover:text-white text-left">
-                          {showDeepFields ? '▾ DEEP INVENTORY' : '▸ DEEP INVENTORY'}
-                        </button>
-                        {showDeepFields && (
-                          <div className="grid grid-cols-6 gap-2 border-t border-grey-mid pt-3">
-                            <div className="col-span-3">
-                              <Select label="COUNTING UOM" value={formCountingUnitId} onChange={(e) => setFormCountingUnitId(e.target.value)}
-                                options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
-                            </div>
-                            <div className="col-span-3">
-                              <Select label="ORDERING UOM" value={formOrderingUnitId} onChange={(e) => setFormOrderingUnitId(e.target.value)}
-                                options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
-                            </div>
-                            <div className="col-span-2">
-                              <Input label="YIELD %" type="number" step="0.1" value={formYield} onChange={(e) => setFormYield(e.target.value)} />
-                            </div>
-                            <div className="col-span-2">
-                              <Input label="COST PRICE" type="number" step="0.01" value={formCostPrice} onChange={(e) => setFormCostPrice(e.target.value)} />
-                            </div>
-                            <div className="col-span-2">
-                              <Input label="EXPIRY DATE" type="date" value={formExpiryDate} onChange={(e) => setFormExpiryDate(e.target.value)} />
-                            </div>
-                            <div className="col-span-3">
-                              <Select label="FALLBACK CATEGORY" value={formFallbackCatId} onChange={(e) => setFormFallbackCatId(e.target.value)}
-                                options={categories.map((c) => ({ value: c.id, label: c.name }))} placeholder="—" />
-                            </div>
-                          </div>
-                        )}
-                        <div className="flex gap-2">
-                          <Button size="sm" onClick={handleSave} disabled={!formName || !formCat}>CREATE</Button>
-                          <Button size="sm" variant="ghost" onClick={() => { setIsCreating(false); resetForm() }}>CANCEL</Button>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
             )
           })}
         </div>
+
+        {/* Restore deleted items */}
+        {showDeleted && (
+          <div className="border border-grey-mid border-dashed">
+            <div className="px-3 py-2 border-b border-grey-mid font-mono text-xs font-bold text-white uppercase bg-grey-dark/50">DELETED ITEMS</div>
+            {deletedItems.length === 0 ? (
+              <p className="px-3 py-3 font-mono text-xs text-grey-light">No deleted items.</p>
+            ) : (
+              <div className="divide-y divide-grey-mid">
+                {deletedItems.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between px-3 py-2">
+                    <span className="font-mono text-xs text-grey-light line-through">{item.name}</span>
+                    <div className="flex gap-2">
+                      <button onClick={() => restoreItem(item.id)} className="font-mono text-[10px] text-success hover:text-white border border-grey-mid px-1.5 py-0.5">RESTORE</button>
+                      <button onClick={() => purgeItem(item.id)} className="font-mono text-[10px] text-danger hover:text-white border border-grey-mid px-1.5 py-0.5">PURGE</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Right: Summary + TableProfileForm */}
         <div className="lg:col-span-4 space-y-4">
@@ -551,7 +527,7 @@ export function InventoryClient() {
               <p className="font-mono text-xs text-grey-light">No categories yet.</p>
             ) : (
               <div className="space-y-1">
-                {tabCategories.map((cat) => {
+          {!showDeleted && tabCategories.map((cat) => {
                   const list = catItems.get(cat.id) ?? []
                   const totalStock = list.reduce((s, i) => s + (i.totalQty ?? 0), 0)
                   return (
@@ -596,7 +572,7 @@ export function InventoryClient() {
           )}
 
           {showTableProfile && (
-            <div className="border border-grey-mid p-4">
+            <Modal isOpen={showTableProfile} onClose={() => { setShowTableProfile(false); setEditProfileId(null) }} title={editProfileId ? 'EDIT TABLE' : 'NEW TABLE'} size="lg">
               <TableProfileForm
                 onSaved={() => { setShowTableProfile(false); setEditProfileId(null); load() }}
                 onCancel={() => { setShowTableProfile(false); setEditProfileId(null) }}
@@ -608,10 +584,294 @@ export function InventoryClient() {
                   }
                 }}
               />
-            </div>
+            </Modal>
           )}
         </div>
       </div>
+
+      <Modal isOpen={showCatModal} onClose={() => setShowCatModal(false)} title={editingCat ? 'EDIT CATEGORY' : 'NEW CATEGORY'} size="sm">
+        <div className="space-y-3">
+          <Input value={newCatName} onChange={(e) => setNewCatName(e.target.value.toUpperCase())} placeholder="CATEGORY NAME" />
+          <Select label="TAB" value={newCatTab} onChange={(e) => setNewCatTab(e.target.value)}
+            options={[{ value: 'FOOD', label: 'FOOD' }, { value: 'BEVERAGE', label: 'BEVERAGE' }, { value: 'OTHER', label: 'OTHER' }]} />
+          <div className="flex flex-wrap gap-2">
+            <label className="flex items-center gap-1 cursor-pointer">
+              <input type="checkbox" checked={!showDeepFields} onChange={(e) => setShowDeepFields(!e.target.checked)} className="accent-white" />
+              <span className="font-mono text-[10px] uppercase text-grey-light">DEEP INVENTORY FIELDS</span>
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer">
+              <input type="checkbox" checked={showEquipmentFields} onChange={(e) => setShowEquipmentFields(e.target.checked)} className="accent-white" />
+              <span className="font-mono text-[10px] uppercase text-grey-light">EQUIPMENT / TOOL TRACKING</span>
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={async () => {
+              if (!newCatName) return
+              if (editingCat) {
+                await fetch(`/api/admin/inventory/categories/${editingCat.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName, tab: newCatTab === 'OTHER' ? null : newCatTab, showDeepFields: !showDeepFields, showEquipmentFields }) })
+              } else {
+                await fetch('/api/admin/inventory/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName, tab: newCatTab === 'OTHER' ? null : newCatTab, showDeepFields: !showDeepFields, showEquipmentFields }) })
+              }
+              setShowCatModal(false); load()
+            }} disabled={!newCatName}>{editingCat ? 'SAVE' : 'CREATE'}</Button>
+            <Button variant="ghost" onClick={() => setShowCatModal(false)}>CANCEL</Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={selectedItem != null || isCreating} onClose={() => { setSelectedItem(null); setIsCreating(false); resetForm() }} title={isCreating ? 'NEW ITEM' : 'EDIT ITEM'} size="lg">
+        <div className="space-y-3">
+          <div className="grid grid-cols-6 gap-2">
+            <div className="col-span-4">
+              <Input label="NAME" value={formName} onChange={(e) => setFormName(e.target.value.toUpperCase())} placeholder="ITEM NAME" />
+            </div>
+            <div className="col-span-2">
+              <Select label="CATEGORY" value={formCat} onChange={(e) => setFormCat(e.target.value)}
+                options={categories.filter((c) => !selectedItem?.furnitureType || c.name === 'TABLES').map((c) => ({ value: c.id, label: c.name }))} placeholder="CATEGORY"
+                disabled={!!selectedItem?.furnitureType} />
+            </div>
+          </div>
+          <div className="grid grid-cols-6 gap-2">
+            {catShowDeep ? (
+              <div className="col-span-6">
+                <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
+              </div>
+            ) : (
+              <>
+                <div className="col-span-2">
+                  <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
+                    options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
+                </div>
+                <div className="col-span-2">
+                  <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
+                </div>
+                <div className="col-span-2">
+                  <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
+                </div>
+              </>
+            )}
+          </div>
+          {catShowDeep && (
+            <button onClick={() => setShowDeepFields(!showDeepFields)}
+              className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
+              {showDeepFields ? '▾ DEEP INVENTORY' : '▸ DEEP INVENTORY'}
+            </button>
+          )}
+          {catShowDeep && showDeepFields && (
+            <div className="grid grid-cols-6 gap-2 border-t border-grey-mid pt-3">
+              <div className="col-span-2">
+                <Select label="COUNTING UOM" value={formCountingUnitId} onChange={(e) => setFormCountingUnitId(e.target.value)}
+                  options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
+              </div>
+              <div className="col-span-1">
+                <Input label="QTY" type="number" step="0.01" value={formCountingUnitQty} onChange={(e) => setFormCountingUnitQty(e.target.value)} placeholder="1" />
+              </div>
+              <div className="col-span-2">
+                <Select label="ORDERING UOM" value={formOrderingUnitId} onChange={(e) => setFormOrderingUnitId(e.target.value)}
+                  options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
+              </div>
+              <div className="col-span-1">
+                <Input label="QTY" type="number" step="0.01" value={formOrderingUnitQty} onChange={(e) => setFormOrderingUnitQty(e.target.value)} placeholder="1" />
+              </div>
+              <div className="col-span-2">
+                <Select label="PAR LEVEL UOM" value={formParLevelUnitId} onChange={(e) => setFormParLevelUnitId(e.target.value)}
+                  options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
+              </div>
+              <div className="col-span-1">
+                <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
+              </div>
+              <div className="col-span-2">
+                <Input label="YIELD %" type="number" step="0.1" value={formYield} onChange={(e) => setFormYield(e.target.value)} />
+              </div>
+              <div className="col-span-2">
+                <Input label="COST PRICE" type="number" step="0.01" value={formCostPrice} onChange={(e) => setFormCostPrice(e.target.value)} />
+              </div>
+              <div className="col-span-2">
+                <Input label="SHELF LIFE (DAYS)" type="number" value={formShelfLifeDays} onChange={(e) => setFormShelfLifeDays(e.target.value)} placeholder="e.g. 7" />
+              </div>
+              <div className="col-span-3">
+                <label className="flex items-center gap-2 cursor-pointer pt-1">
+                  <input type="checkbox" checked={formCanFreeze} onChange={(e) => setFormCanFreeze(e.target.checked)} className="accent-white" />
+                  <span className="font-mono text-[10px] uppercase text-grey-light">CAN BE FROZEN</span>
+                </label>
+              </div>
+              {formCanFreeze && (
+                <div className="col-span-3">
+                  <Input label="FREEZER SHELF LIFE (DAYS)" type="number" value={formFreezerShelfLifeDays} onChange={(e) => setFormFreezerShelfLifeDays(e.target.value)} placeholder="e.g. 90" />
+                </div>
+              )}
+              <div className="col-span-6">
+                <label className="font-mono text-xs uppercase text-grey-light tracking-wider block mb-1">ALLERGENS</label>
+                <div className="space-y-1.5">
+                  {(() => {
+                    const groups = [
+                      { label: 'DAIRY', items: ['MILK'] },
+                      { label: 'EGGS', items: ['EGG'] },
+                      { label: 'NUTS & SEEDS', items: ['ALMOND','BRAZIL NUT','CASHEW','HAZELNUT','LUPIN','MACADAMIA','PEANUT','PECAN','PINE NUT','PISTACHIO','WALNUT'] },
+                      { label: 'GRAINS', items: ['BARLEY','OATS','RYE','WHEAT'] },
+                      { label: 'SEAFOOD', items: ['CRUSTACEAN','FISH','MOLLUSC'] },
+                      { label: 'OTHER', items: ['SESAME','SOY','SULPHITES'] },
+                    ]
+                    const selected = (formAllergyInfo || '').toUpperCase().split(',').map((a: string) => a.trim()).filter(Boolean)
+                    return groups.map((grp) => {
+                      const visible = grp.items.filter((a) => (ALLERGENS as readonly string[]).includes(a))
+                      if (visible.length === 0) return null
+                      return (
+                        <div key={grp.label}>
+                          <div className="font-mono text-[8px] uppercase text-grey-light mb-0.5">{grp.label}</div>
+                          <div className="flex flex-wrap gap-1">
+                            {visible.map((a) => {
+                              const on = selected.includes(a)
+                              return (
+                                <button key={a} type="button"
+                                  onClick={() => {
+                                    const next = on ? selected.filter((x: string) => x !== a) : [...selected, a]
+                                    setFormAllergyInfo(next.join(', '))
+                                  }}
+                                  className={`font-mono text-[9px] uppercase px-1.5 py-0.5 border transition-colors ${on ? 'bg-[#c4a530]/10 text-[#c4a530] border-[#c4a530]/50' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>
+                                  {on ? '✓ ' : ''}{a}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
+            {catShowEquip && (
+              <>
+                <button onClick={() => setShowEquipmentFields(!showEquipmentFields)}
+                  className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
+                  {showEquipmentFields ? '▾ EQUIPMENT / TOOL TRACKING' : '▸ EQUIPMENT / TOOL TRACKING'}
+                </button>
+                {showEquipmentFields && (
+                  <div className="border-t border-grey-mid pt-3 space-y-3" onPaste={(e) => {
+                    const items = e.clipboardData?.items
+                    if (items) {
+                      for (const item of Array.from(items)) {
+                        if (item.type.startsWith('image/')) {
+                          const file = item.getAsFile()
+                          if (file) uploadImage(file)
+                          break
+                        }
+                      }
+                    }
+                  }}>
+                  <div className="flex items-center gap-2">
+                    <input id="inv-img-upload" type="file" accept="image/*" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
+                    <button type="button" onClick={() => document.getElementById('inv-img-upload')?.click()}
+                      className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
+                      {formUploadingImg ? 'UPLOADING_' : 'ADD PHOTO'}
+                    </button>
+                    <span className="font-mono text-[9px] text-grey-light/50">OR PASTE IMAGE (CTRL+V)</span>
+                  </div>
+                  {formImageUrls.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {formImageUrls.map((url, i) => (
+                        <div key={i} className="relative group">
+                          <img src={url} alt={`photo ${i + 1}`} className="h-16 w-16 object-cover border border-grey-mid cursor-pointer"
+                            onClick={() => setPreviewImage(url)} />
+                          <button onClick={() => setFormImageUrls((prev) => prev.filter((_, idx) => idx !== i))}
+                            className="absolute -top-1 -right-1 w-4 h-4 bg-danger text-black font-mono text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-6 gap-2">
+                    <div className="col-span-3">
+                      <Select label="STORAGE SECTION" value={formStorageSectionId} onChange={(e) => setFormStorageSectionId(e.target.value)}
+                        options={sections.map((s) => ({ value: s.id, label: `${s.department?.name ?? ''} → ${s.name}` }))} placeholder="—" />
+                    </div>
+                    <div className="col-span-3">
+                      <Select label="SUPPLIER" value={formSupplierId} onChange={(e) => setFormSupplierId(e.target.value)}
+                        options={suppliers.map((s) => ({ value: s.id, label: s.name }))} placeholder="—" />
+                    </div>
+                    <div className="col-span-3">
+                      <Combobox label="ALT. SUPPLIERS"
+                        options={suppliers.filter((s) => s.id !== formSupplierId).map((s) => ({ value: s.id, label: s.name }))}
+                        selected={formAltSupplierIds}
+                        onChange={setFormAltSupplierIds}
+                        placeholder="Search..."
+                        hideTags
+                      />
+                    </div>
+                    <div className="col-span-6">
+                      <Input label="STORAGE NOTES" value={formStorageNotes} onChange={(e) => setFormStorageNotes(e.target.value)} placeholder="TOP SHELF, ABOVE THE COFFEE STATION" />
+                    </div>
+                    <div className="col-span-3">
+                      <Input label="SERIAL NUMBER" value={formSerialNumber} onChange={(e) => setFormSerialNumber(e.target.value)} placeholder="SN-12345" />
+                    </div>
+                    <div className="col-span-3">
+                      <Input label="SERVICE INTERVAL (DAYS)" type="number" value={formServiceIntervalDays} onChange={(e) => setFormServiceIntervalDays(e.target.value)} placeholder="180" />
+                    </div>
+                    <div className="col-span-3">
+                      <Input label="PURCHASE DATE" type="date" value={formPurchaseDate} onChange={(e) => setFormPurchaseDate(e.target.value)} />
+                    </div>
+                    <div className="col-span-3">
+                      <Input label="WARRANTY (MONTHS)" type="number" value={formWarrantyMonths} onChange={(e) => {
+                        setFormWarrantyMonths(e.target.value)
+                        if (formPurchaseDate && e.target.value) {
+                          const d = new Date(formPurchaseDate)
+                          d.setMonth(d.getMonth() + parseInt(e.target.value))
+                          setFormWarrantyExpiry(d.toISOString().slice(0, 10))
+                        }
+                      }} placeholder="e.g. 12" />
+                    </div>
+                    <div className="col-span-3">
+                      <Input label="WARRANTY EXPIRY" type="date" value={formWarrantyExpiry} onChange={(e) => setFormWarrantyExpiry(e.target.value)} />
+                    </div>
+                    <div className="col-span-3">
+                      <Input label="LAST SERVICED" type="date" value={formLastServicedAt} onChange={(e) => setFormLastServicedAt(e.target.value)} />
+                    </div>
+                    <div className="col-span-3">
+                      <Input label="NEXT SERVICE" type="date" value={formNextServiceAt} onChange={(e) => setFormNextServiceAt(e.target.value)} />
+                    </div>
+                    <div className="col-span-6">
+                      <Input label="MAINTENANCE NOTES" value={formMaintenanceNotes} onChange={(e) => setFormMaintenanceNotes(e.target.value)} placeholder="LAST OIL CHANGE: JAN 2026" />
+                    </div>
+                  </div>
+                </div>
+                )}
+              </>
+            )}
+            {maintLogs.length > 0 && (
+              <div className="border-t border-grey-mid pt-3">
+                <label className="font-mono text-xs uppercase text-grey-light tracking-wider block mb-2">MAINTENANCE HISTORY</label>
+                <div className="border border-grey-mid max-h-40 overflow-y-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-grey-mid bg-grey-dark/30">
+                        <th className="font-mono text-[9px] uppercase text-grey-light px-2 py-1">DATE</th>
+                        <th className="font-mono text-[9px] uppercase text-grey-light px-2 py-1">BY</th>
+                        <th className="font-mono text-[9px] uppercase text-grey-light px-2 py-1">NOTE</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-grey-mid/30">
+                      {maintLogs.map((l) => (
+                        <tr key={l.id}>
+                          <td className="font-mono text-[9px] text-white px-2 py-1 whitespace-nowrap">{String(l.createdAt).slice(0, 10)}</td>
+                          <td className="font-mono text-[9px] text-grey-light px-2 py-1 whitespace-nowrap">{l.staffName || '—'}</td>
+                          <td className="font-mono text-[9px] text-white px-2 py-1">{l.note}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            <div className="flex gap-2 pt-2">
+              <Button onClick={handleSave} disabled={!formName || !formCat}>{isCreating ? 'CREATE' : 'SAVE'}</Button>
+              <Button variant="ghost" onClick={() => { setSelectedItem(null); setIsCreating(false); resetForm() }}>CANCEL</Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

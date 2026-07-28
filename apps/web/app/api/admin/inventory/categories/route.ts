@@ -3,30 +3,30 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 
-const BUILT_IN: { name: string; tab: string | null }[] = [
+const BUILT_IN: { name: string; tab: string | null; showDeepFields: boolean; showEquipmentFields: boolean }[] = [
   // FOOD
-  { name: 'PROTEIN', tab: 'FOOD' },
-  { name: 'DAIRY', tab: 'FOOD' },
-  { name: 'PRODUCE', tab: 'FOOD' },
-  { name: 'DRY GOODS', tab: 'FOOD' },
-  { name: 'BAKERY', tab: 'FOOD' },
-  { name: 'CONDIMENTS', tab: 'FOOD' },
+  { name: 'PROTEIN', tab: 'FOOD', showDeepFields: true, showEquipmentFields: false },
+  { name: 'DAIRY', tab: 'FOOD', showDeepFields: true, showEquipmentFields: false },
+  { name: 'PRODUCE', tab: 'FOOD', showDeepFields: true, showEquipmentFields: false },
+  { name: 'DRY GOODS', tab: 'FOOD', showDeepFields: true, showEquipmentFields: false },
+  { name: 'BAKERY', tab: 'FOOD', showDeepFields: true, showEquipmentFields: false },
+  { name: 'CONDIMENTS', tab: 'FOOD', showDeepFields: true, showEquipmentFields: false },
   // BEVERAGE
-  { name: 'LIQUOR', tab: 'BEVERAGE' },
-  { name: 'WINE', tab: 'BEVERAGE' },
-  { name: 'BEER', tab: 'BEVERAGE' },
-  { name: 'SOFT DRINK', tab: 'BEVERAGE' },
-  { name: 'JUICE', tab: 'BEVERAGE' },
-  { name: 'COFFEE', tab: 'BEVERAGE' },
+  { name: 'LIQUOR', tab: 'BEVERAGE', showDeepFields: true, showEquipmentFields: false },
+  { name: 'WINE', tab: 'BEVERAGE', showDeepFields: true, showEquipmentFields: false },
+  { name: 'BEER', tab: 'BEVERAGE', showDeepFields: true, showEquipmentFields: false },
+  { name: 'SOFT DRINK', tab: 'BEVERAGE', showDeepFields: true, showEquipmentFields: false },
+  { name: 'JUICE', tab: 'BEVERAGE', showDeepFields: true, showEquipmentFields: false },
+  { name: 'COFFEE', tab: 'BEVERAGE', showDeepFields: true, showEquipmentFields: false },
   // OTHER (equipment, utensils, etc.)
-  { name: 'CUTLERY', tab: null },
-  { name: 'GLASSWARE', tab: null },
-  { name: 'LINEN', tab: null },
-  { name: 'BARWARE', tab: null },
-  { name: 'CROCKERY', tab: null },
-  { name: 'CLEANING', tab: null },
-  { name: 'MISCELLANEOUS', tab: null },
-  { name: 'FURNITURE', tab: null },
+  { name: 'CUTLERY', tab: null, showDeepFields: false, showEquipmentFields: true },
+  { name: 'GLASSWARE', tab: null, showDeepFields: false, showEquipmentFields: true },
+  { name: 'LINEN', tab: null, showDeepFields: false, showEquipmentFields: true },
+  { name: 'BARWARE', tab: null, showDeepFields: false, showEquipmentFields: true },
+  { name: 'CROCKERY', tab: null, showDeepFields: false, showEquipmentFields: true },
+  { name: 'CLEANING', tab: null, showDeepFields: false, showEquipmentFields: true },
+  { name: 'MISCELLANEOUS', tab: null, showDeepFields: false, showEquipmentFields: true },
+  { name: 'TABLES', tab: null, showDeepFields: false, showEquipmentFields: true },
 ]
 
 const BUILT_IN_NAMES = BUILT_IN.map((b) => b.name)
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
   const currentNames = new Set(current.map((c) => c.name))
   for (const bi of BUILT_IN) {
     if (!currentNames.has(bi.name)) {
-      await prisma.inventoryCategory.create({ data: { name: bi.name, tab: bi.tab, isBuiltIn: true, venueId: null } })
+      await prisma.inventoryCategory.create({ data: { name: bi.name, tab: bi.tab, showDeepFields: bi.showDeepFields, showEquipmentFields: bi.showEquipmentFields, isBuiltIn: true, venueId: null } })
     }
   }
 
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name, tab } = await req.json()
+  const { name, tab, showDeepFields, showEquipmentFields } = await req.json()
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
 
   const upper = name.toUpperCase().trim()
@@ -82,6 +82,8 @@ export async function POST(req: NextRequest) {
       venueId: session.user.venueId,
       name: upper,
       tab: tab || null,
+      showDeepFields: !!showDeepFields,
+      showEquipmentFields: !!showEquipmentFields,
       isBuiltIn: false,
     },
   })

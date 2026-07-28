@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { BudgetMonthSelector } from '@/components/admin/BudgetMonthSelector'
 import { BudgetSetupPanel } from '@/components/admin/BudgetSetupPanel'
 import { BudgetDailyGrid } from '@/components/admin/BudgetDailyGrid'
+import { BudgetSyncModal } from '@/components/admin/BudgetSyncModal'
+import { getActiveVenueId } from '@/lib/active-venue'
 import { generateDailyBudgetsNormalized, computeBreakdowns } from '@/lib/budget-math'
 import type {
   DayWeight,
@@ -46,20 +48,21 @@ const DEFAULT_WEIGHTS: DayWeight = { mon: 5, tue: 5, wed: 10, thu: 15, fri: 25, 
 export function BudgetPageClient({
   role,
   sessionVenueId,
+  defaultVenueId,
   year,
   month,
 }: {
-  role: string; sessionVenueId: string; year: number; month: number
+  role: string; sessionVenueId: string; defaultVenueId?: string; year: number; month: number
 }) {
   const [period, setPeriod] = useState<ApiPeriod | null>(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [syncing, setSyncing] = useState(false)
+  const [syncModalOpen, setSyncModalOpen] = useState(false)
   const [message, setMessage] = useState('')
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
-  const [selectedVenueId, setSelectedVenueId] = useState(role === 'MANAGER' ? sessionVenueId : '')
+  const [selectedVenueId, setSelectedVenueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [revenueCategoryId, setRevenueCategoryId] = useState(crypto.randomUUID())
 
   const [totalBudget, setTotalBudget] = useState(0)
@@ -216,23 +219,15 @@ export function BudgetPageClient({
     if (r.ok) { await load(); setMessage('SAVED') } else { setMessage('SAVE FAILED') }
   }
 
-  async function handleSyncBreakdowns() {
+  function handleOpenSyncModal() {
     const vid = role === 'MANAGER' ? sessionVenueId : selectedVenueId
     if (!vid || breakdownCategories.length === 0) return
-    if (!confirm(`Copy breakdowns to ALL months in this venue?`)) return
-    setSyncing(true); setMessage('')
-    const r = await fetch('/api/admin/budget/sync-breakdowns', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        venueId: vid,
-        sourceCategories: breakdownCategories.map((c) => ({
-          name: c.name, departmentId: c.departmentId || null, percentage: c.percentage,
-        })),
-      }),
-    })
-    setSyncing(false)
-    if (r.ok) { const d = await r.json(); setMessage(`SYNCED ${d.syncedPeriods} MONTHS`) }
-    else { setMessage('SYNC FAILED') }
+    setSyncModalOpen(true)
+  }
+
+  function handleSyncComplete(msg: string) {
+    setMessage(msg)
+    load()
   }
 
   async function handleDelete() {
@@ -267,16 +262,27 @@ export function BudgetPageClient({
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
       ) : (
         <>
-          <BudgetSetupPanel role={role} selectedVenueId={selectedVenueId} periodId={period?.id || null} totalBudget={totalBudget} dailyWeights={dailyWeights} savedBreakdowns={breakdownCategories} onDepartmentsLoad={handleDepartmentsLoad} onPeriodCreated={handlePeriodCreated} onUpdateTotal={setTotalBudget} onUpdateWeights={setDailyWeights} onUpdateCategories={setBreakdownCategories}             onGenerate={handleGenerate}
-            onSyncBreakdowns={handleSyncBreakdowns}
+          <BudgetSetupPanel role={role} selectedVenueId={selectedVenueId} periodId={period?.id || null} totalBudget={totalBudget} dailyWeights={dailyWeights} savedBreakdowns={breakdownCategories} onDepartmentsLoad={handleDepartmentsLoad} onPeriodCreated={handlePeriodCreated} onUpdateTotal={setTotalBudget} onUpdateWeights={setDailyWeights} onUpdateCategories={setBreakdownCategories} onGenerate={handleGenerate}
+            onOpenSyncModal={handleOpenSyncModal}
             onSave={handleSave} onDelete={handleDelete}
             budgetStats={budgetStats}
             generating={generating}
             saving={saving}
-            syncing={syncing} message={message} year={year} month={month} />
+            message={message} year={year} month={month} />
           {generatedResult && (
             <BudgetDailyGrid result={generatedResult} allocations={allocations} revenueCategoryId={revenueCategoryId} breakdownCategories={breakdownCategories} onAllocationChange={handleAllocationChange} />
           )}
+
+          <BudgetSyncModal
+            isOpen={syncModalOpen}
+            onClose={() => setSyncModalOpen(false)}
+            venueId={role === 'MANAGER' ? sessionVenueId : selectedVenueId}
+            year={year}
+            breakdownCategories={breakdownCategories.map((c) => ({
+              name: c.name, departmentId: c.departmentId, percentage: c.percentage,
+            }))}
+            onSynced={handleSyncComplete}
+          />
         </>
       )}
     </div>

@@ -26,6 +26,16 @@ interface FormState {
 
 const EMPTY_FORM: FormState = { name: '', venueId: '', colour: '#6B6B6B' }
 
+const DEPT_COLOURS = [
+  { value: '#F87171', label: 'RED' }, { value: '#FB923C', label: 'ORANGE' }, { value: '#FACC15', label: 'AMBER' },
+  { value: '#A3E635', label: 'LIME' }, { value: '#4ADE80', label: 'GREEN' }, { value: '#34D399', label: 'EMERALD' },
+  { value: '#2DD4BF', label: 'TEAL' }, { value: '#22D3EE', label: 'CYAN' }, { value: '#38BDF8', label: 'SKY' },
+  { value: '#60A5FA', label: 'BLUE' }, { value: '#818CF8', label: 'INDIGO' }, { value: '#A78BFA', label: 'VIOLET' },
+  { value: '#C084FC', label: 'PURPLE' }, { value: '#E879F9', label: 'FUCHSIA' }, { value: '#F472B6', label: 'PINK' },
+  { value: '#FB7185', label: 'ROSE' }, { value: '#78716C', label: 'BROWN' }, { value: '#A3A3A3', label: 'SILVER' },
+  { value: '#6B6B6B', label: 'GREY' }, { value: '#F5F5F5', label: 'WHITE' },
+]
+
 export function DepartmentsClient({ role, venueId }: { role: string; venueId: string }) {
   const [departments, setDepartments] = useState<Department[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
@@ -51,7 +61,14 @@ export function DepartmentsClient({ role, venueId }: { role: string; venueId: st
 
   function openCreate() {
     setEditing(null)
-    setForm({ ...EMPTY_FORM, venueId: role === 'MANAGER' ? venueId : '' })
+    const usedHexes = new Set(departments.map((d) => d.colour).filter(Boolean) as string[])
+    const avail = DEPT_COLOURS.filter((c) => !usedHexes.has(c.value) && c.value !== '#6B6B6B')
+    if (avail.length === 0) {
+      const fallback = DEPT_COLOURS.find((c) => !usedHexes.has(c.value))
+      setForm({ ...EMPTY_FORM, venueId: role === 'MANAGER' ? venueId : '', colour: fallback ? fallback.value : DEPT_COLOURS[Math.floor(Math.random() * DEPT_COLOURS.length)].value })
+    } else {
+      setForm({ ...EMPTY_FORM, venueId: role === 'MANAGER' ? venueId : '', colour: avail[Math.floor(Math.random() * avail.length)].value })
+    }
     setError('')
     setModalOpen(true)
   }

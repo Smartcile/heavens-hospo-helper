@@ -29,10 +29,10 @@ hospo-ops/
 ├── apps/
 │   └── web/                        # Next.js app (admin + worker UI)
 │       ├── app/
+│       │   ├── page.tsx            # / — split-screen landing (worker link + admin login)
 │       │   ├── admin/
-│       │   │   ├── (protected)/    # Auth-gated admin routes (/admin/*)
-│       │   │   │   └── floorplan/  # Floor plan editor (/admin/floorplan)
-│       │   │   └── login/          # /admin/login — public
+│       │   │   └── (protected)/    # Auth-gated admin routes (/admin/*)
+│       │   │       └── floorplan/  # Floor plan editor (/admin/floorplan)
 │       │   ├── w/
 │       │   │   ├── (authenticated)/# PIN-gated worker routes (/w/*)
 │       │   │   │   └── floorplan/  # Worker floor plan view (/w/floorplan)
@@ -120,6 +120,9 @@ kept in the repo for reference / future controlled migrations.
 
 In Portainer: **Stacks → Add stack → Repository**, compose path
 `docker-compose.yml`, set the env vars from the table below, deploy.
+For multiple instances running side-by-side, give each stack a unique
+`INSTANCE_NAME` (container names become `{name}-app` / `{name}-db`) and a
+unique `APP_PORT`.
 
 ## DATABASE
 
@@ -150,12 +153,27 @@ cd packages/db && npx prisma studio
 | `APP_NAME` | App display name (white-label) |
 | `APP_URL` | Public URL used for QR code generation |
 | `DEFAULT_TIMEZONE` | Fallback timezone (e.g. Pacific/Auckland) |
+| `INTERNAL_CRON` | Built-in scheduler (Woo product pull + expiry scan). Default true; `false` = use external scheduler |
+| `CRON_SECRET` | Bearer token for the /api/cron endpoints (external schedulers only) |
 | `WORKER_SESSION_SECRET` | JWT secret for worker PIN sessions |
 | `WORKER_SESSION_EXPIRY_MINUTES` | Worker auto-logout timeout (default: 15) |
 | `UPLOAD_PROVIDER` | `local` (Phase 1) — future: `s3` |
 | `UPLOAD_PATH` | Where uploaded files are written to disk |
 | `NEXT_PUBLIC_APP_NAME` | Client-side app name |
 | `NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES` | Client-side inactivity timer value |
+
+### Compose / Portainer-only variables
+
+These are set as stack env vars (or in `.env` for plain compose). They are NOT
+passed into the app container — they are consumed by Docker Compose itself.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `INSTANCE_NAME` | `hospo-ops` | Unique short name. Drives container names (`{name}-app`, `{name}-db`). Change per stack for multi-instance deploys |
+| `DB_DATA` | `postgres_data` | PostgreSQL storage. Named volume by default; set to a host path (e.g. `/mnt/data/db`) for a bind mount |
+| `UPLOADS_DATA` | `uploads_data` | Upload storage. Named volume by default; set to a host path (e.g. `/mnt/data/uploads`) for a bind mount |
+| `APP_PORT` | `3000` | Host port the app publishes on. Must be unique per stack |
+| `IMAGE_TAG` | `latest` | Docker image tag to pull (e.g. `develop` for pre-release fixes) |
 
 ## ADMIN LOGIN SYSTEM
 
@@ -176,19 +194,75 @@ Worker QR+PIN logins remain `0000` / `1111` / `2222` / `3333`.
 PIN as the password. The seed backfills `email`/`password` from those for any
 existing ADMIN/MANAGER (and frees `swiftPosId`), so no one is locked out.
 
-### Training (Phase 3)
-`TrainingModule` + `TrainingStep` hold guides (steps: text + `imageUrl` upload +
-`videoUrl` link). A module applies to a person when it is onboarding
-(`isOnboarding`, all staff), department-scoped (`departmentId` == staff's dept),
-or individually assigned (`TrainingAssignment`, with a `reason` for upskill/areas
-to work on). `requiresSignOff` toggles staff-self-complete vs manager sign-off.
-`linkedTaskId` ties a guide to a task so it surfaces in the worker task view.
-`TrainingCompletion` records who completed what (`selfCompleted` vs
-`signedOffById`). `lib/training.ts:getStaffTraining()` is the shared resolver
-used by the admin per-staff panel (`/api/admin/staff/[id]/training`) and the
-worker view (`/api/worker/training`). Admin authoring at `/admin/training`;
-sign-off/assign from the Staff page; worker view at `/w/training`. Step photos
-upload via `/api/admin/upload`.
+### Playbook Guides (Phase 6 — replaces Training)
+
+`Guide` + `GuideStep` replace the old `TrainingModule`/`TrainingStep` system.
+Steps are simplified — just `heading`, `content`, `imageUrl`, and `videoUrl`. All
+step-level junction tables (StepInventoryItem, StepTask, StepModule,
+linkedChecklistId, linkedTaskId on step) have been removed.
+
+A guide has:
+- `status`: `DRAFT` | `PUBLISHED` — new guides start as DRAFT and must be
+  explicitly published before workers can see them. No guide ever goes live by
+  accident.
+- `isTracked: boolean` — replaces the old `kind` enum. When true, the guide shows
+  in the worker's "My Guides" list, tracks completions, and supports sign-off and
+  onboarding. When false, it's a reference-only document (old SOP/FAQ/HOWTO).
+- `requiresSignOff: boolean` — when true, a manager must sign off via the Staff
+  page modal. When false, the worker self-completes.
+- `isOnboarding: boolean` — applies to ALL staff regardless of department.
+- `departmentId: String?` — auto-applies to all staff in that department.
+
+A guide applies to a person when any of:
+1. `isOnboarding: true` (all staff)
+2. `departmentId` matches staff's department
+3. Individually assigned via `GuideAssignment` (with `reason` for upskill/areas to
+   work on)
+
+**Task linking** is done via `TaskGuide` — a single junction with
+`isRequiredForCompetency: boolean`. When true, completing this guide is a
+**competency requirement** before the task can be performed. When false, the
+guide is a how-to reference for the task. Both are set from the guide form and
+the task edit form.
+
+**Completion** is tracked in `GuideCompletion` (`@@unique([guideId, staffId])`).
+`selfCompleted: true` for worker self-complete; `signedOffById` for manager
+sign-off. Revoke hard-deletes the row.
+
+**Admin authoring** at `/admin/guides` (`GuidesClient`) — grid of guide cards
+with DRAFT/PUBLISHED badges, PUBLISH button per card. Form has title,
+description, category, department, linked tasks + competency tasks comboboxes,
+isTracked/requiresSignOff/isOnboarding checkboxes, and steps (heading, content,
+video, photo upload). PUBLISHED guides are visible to workers; DRAFT guides
+are sandboxed and used only for staging.
+
+**Staff management** via Staff page → GUIDES button → `StaffGuidesModal` —
+shows all applicable guides per staff member with completion status, MARK
+TRAINED (sign-off), REVOKE, UNASSIGN actions, and ASSIGN section with reason
+input.
+
+**Worker view** at `/w/guides` (`WorkerGuidesClient`) — progress bar, list of
+applicable guides, full-screen step-by-step reader with photos and videos,
+MARK COMPLETE button (self-complete, blocked if sign-off required),
+MANAGER SIGN-OFF message when appropriate. Dashboard widget shows % complete.
+
+**API routes:**
+| Route | Methods | Purpose |
+|-------|---------|---------|
+| `/api/admin/guides` | GET, POST | List/create guides |
+| `/api/admin/guides/[id]` | GET, PUT, DELETE | Single guide CRUD |
+| `/api/admin/guides/[id]/publish` | PATCH | Toggle DRAFT ↔ PUBLISHED |
+| `/api/admin/guides/complete` | POST, DELETE | Sign-off / revoke |
+| `/api/admin/guides/assign` | POST, DELETE | Assign / unassign |
+| `/api/admin/staff/[id]/guides` | GET | Staff's applicable guides + completions |
+| `/api/worker/guides` | GET | Worker's applicable guides + completion status |
+| `/api/worker/guides/[id]/complete` | POST | Self-complete (rejects sign-off-required) |
+
+**Migration:** `packages/db/prisma/migrate-to-guides.ts` reads old
+`TrainingModule`/`TrainingStep` data, creates `Guide`/`GuideStep`/`TaskGuide`
+rows with `status: 'DRAFT'`, flattens `StepInventoryItem` into
+`legacyToolsNote`, drops step-level junctions. Idempotent — runs in `start.ps1`
+and skips if guides already exist. Old tables left intact for reference.
 
 ### External embeds + calendar import + NZ breaks
 Per-venue integration links live on `Venue` (`loadedRosterUrl`,
@@ -232,6 +306,57 @@ own upcoming shifts and request/cancel time off at `/w/calendar`
 (`/api/worker/calendar`, `/api/worker/timeoff`). Times are local strings (no tz
 math); dates are @db.Date keyed via `formatDateKey`. `lib/calendar.ts` has the
 month/range/time-validation helpers.
+
+### Booking system (Phase 5, built)
+`Booking` + `BookingTable` models drive a table reservation system with floor plan
+integration. `Booking` holds date, start/end time (local "HH:mm"), party size,
+contact details, source (ONLINE/PHONE/WALK_IN/WOOCOMMERCE), and status
+(CONFIRMED/PENDING/CANCELLED/SEATED/COMPLETED/NO_SHOW). `BookingTable` is a
+junction linking bookings to `SetupItem` (specific tables).
+
+**Availability engine:** `lib/booking-availability.ts` exports pure functions
+(`checkAvailability`, `getAvailableTables`) that filter booked tables from
+overlapping time slots. `GET /api/admin/bookings/availability` exposes this as
+an endpoint, accepting date, time range, party size, and venue ID — returns
+per-setup available table count and total capacity.
+
+**Auto-seat on create:** `POST /api/admin/bookings` reuses `planAutoSeat()` from
+`lib/auto-seat.ts` with greedy bin-packing. On create it fetches the chosen
+`FloorPlanSetup`, collects existing tables + booked tables, runs the bin-packer,
+and creates `SetupItem` + `TableGroup` rows automatically. Also creates a
+`CalendarEvent` (MANUAL source) for calendar visibility with floor plan linking.
+
+**Admin page:** `/admin/bookings` — time-grid diary view (06:00–24:00 in
+half-hour increments) with booking cards showing contact, party size, duration,
+table assignments, and colour-coded status. Date navigation, venue selector,
++ NEW BOOKING modal with availability check, inline STATUS changes, and
+soft-delete.
+
+**API routes:**
+| Route | Methods | Purpose |
+|-------|---------|---------|
+| `/api/admin/bookings` | GET, POST | List by date+venue; create with auto-seat |
+| `/api/admin/bookings/[id]` | PUT, DELETE | Update fields/status; soft-delete |
+| `/api/admin/bookings/availability` | GET | Check per-setup capacity for date/time/party |
+
+**Integration:** Bookings create `CalendarEvent` rows (source: MANUAL) and
+`FloorPlanSetup` rows linked via `calendarEventId` — the same chain used by
+WooCommerce auto-seating. This means bookings appear on the calendar, the FOH
+view, and the worker floor plan view with auto-switching layouts.
+
+**Two booking views:** DIARY (time-slot list 06:00–24:00) and TABLE (tables down
+left grouped by section, 15-min time columns across top). TABLE view supports
+click-to-create, drag-edge-to-resize, and colour-coded booking blocks. New
+bookings auto-select the first available Room/Setup for table assignment.
+
+**Backup/export:** `GET /api/admin/backup` streams a tar.gz containing `data.json` (all
+venue-scoped models, active and soft-deleted) plus `uploads/` files. `GET /api/admin/seed-export`
+returns a SQL-like dump of active venue data for seeding new instances. Both exclude demo venue
+data and are admin-only.
+
+**Customer database:** `/admin/customers` — searchable table by phone or name, detail popup
+with contact info and booking history per customer. Customers are identified by phone number
+as the lookup key; past bookings show status, date, party size, and tables.
 
 ### Floor planner (Phase 1 + 2, built)
 To-scale venue layout editor using **PixiJS v7** canvas (migrated from Konva 2026-06 — Konva's
@@ -335,15 +460,21 @@ dropdown, +NEW, DELETE, GROUP/UNGROUP buttons). When a setup is active, the pale
 `SetupItem` with auto-assigned lowest-available `tableNumber` from the pool. Available/pool
 counts are shown as badges (`3/5`). Canvas rubber-band selection works for setup items.
 
-**Magnetic Edge Snapping:** When a `SetupItem` is dragged close to another same-profile item,
-the canvas detects edge proximity (parallelism, distance, facing, overlap), auto-aligns
-rotation, and snaps the item flush against the target edge. Configurable `snapThreshold`
-(default 15cm). Fires on `pointerup` only.
+**Magnetic Edge Snapping + auto-join:** When a `SetupItem` is dragged close to another
+same-profile item, the canvas detects edge proximity (parallelism, distance, facing, overlap)
+and snaps the item flush against the target edge (`snapThreshold`, default 15cm; fires on
+`pointerup`). A flush snap also **auto-joins** the two into a `TableGroup` — new joins use a
+client-side temp group id (`new_group_*`) that `handleSave` materialises into a real
+`TableGroup` row once items have DB ids. Grouped tables then **move as a unit**.
 
-**Section Boundary Detection:** `pointInPolygon` (ray-casting algorithm in
-`lib/floorplan-inventory.ts`) runs on `pointerup` to determine which `SectionBoundary`
-polygon (RECTANGLE or POLYGON shape) a dropped table sits inside, auto-assigning its
-`sectionId`. RECTANGLE boundaries are auto-converted to 4-vertex polygons.
+**Section detection + live totals:** On drop/drag-end a table auto-tags to the section **zone**
+(the coloured rectangles drawn in SECTIONS mode) its centre lands in — this replaced the
+`SectionBoundary` path in the editor (the model/API remain but nothing in the editor creates
+boundaries). `computeSetupSectionTotals(setupItems, zones, profiles)` in
+`lib/floorplan-inventory.ts` then tallies tables + effective seats per zone (grouped tables
+counted as a unit via `computeEffectiveChairs`); the canvas draws a live `N TBL · M PAX` badge
+on each zone and the setup toolbar shows the grand total. `pointInPolygon` (ray-casting) still
+backs the geometry.
 
 **Inventory Calculation Engine:** `calculateSetupInventory(setupItems, profiles, inventory)` in
 `lib/floorplan-inventory.ts` is a pure function that tallies BOM items across all placed tables,
@@ -384,11 +515,68 @@ the existing view switcher). Workers can switch between the base plan and any se
 items render on the read-only canvas with auto-assigned numbers as labels. A setup banner
 shows the active setup name.
 
-**Vitest Coverage:** 211 tests across 29 files. `lib/floorplan-inventory.test.ts` has 46 tests
-covering `calculateSetupInventory`, `rectangleToCorners`, `unionTablePolygons`,
-`polygonPerimeter`, `distributeChairsAlongPerimeter`, `computeGroupChairs`, `computeEffectiveChairs`,
-`pointInPolygon`, section boundary detection, and BOM integration. `TableProfilesClient.test.tsx`
-(10 tests) and `SetupInventoryPanel.test.tsx` (7 tests) cover the new components.
+**Interactive overhaul (2026-07):** the setup layer became the single interactive table layer
+and the loop was closed end-to-end:
+- **Direct-manipulation editing** — select a `SetupItem` to delete (Delete key / panel), rotate
+  (on-canvas drag handle + preset buttons), and set chairs by **clicking table edges** (left =
+  add, right = remove) up to capacity/head caps. Per-edge counts live in `SetupItem.chairEdges`
+  (`Json?`); `lib/floorplan-chairs.ts` holds the pure `adjustEdgeChairs` / `defaultEdgeChairs` /
+  `maxChairsForEdge` logic.
+- **Auto-join on proximity** (see Magnetic Edge Snapping above) with grouped-move.
+- **Merged-group rendering** — grouped tables draw one union outline (`unionTablePolygons`) with
+  chairs redistributed evenly (`computeGroupChairs`) instead of N separate rectangles.
+- **Live per-area totals** and **section auto-tagging via zones** (see Section detection above).
+- **Two-layer UX** — while a setup is active the base plan dims + locks (`baseLayer.eventMode
+  = 'none'`) and base-only tools (SECTIONS / DRAW BOOTH) hide; a "BASE PLAN LOCKED" note shows.
+- **Per-event auto-layout** — the setup toolbar's **⚡ GENERATE** runs `planAutoSeat` in
+  `lib/auto-seat.ts` (greedy first-fit bin-packing extracted from the WooCommerce auto-seater)
+  to place + number tables for a target party size.
+- **Fixes** — undo/redo now snapshots `{ elements, setupItems, zones }`; stale room-dimension
+  closure in the Pixi init effect fixed; the dead Konva `FloorPlanElementVisual` renderer removed.
+
+**Ghost tables (inventory preview):** Furniture inventory items with `availableQty > 0` render
+on the base plan as semi-transparent (20% opacity) placeholder elements showing their default
+width/depth at (0,0). Staff can see what furniture is available to be placed without it
+blocking the view. Ghost tables update in real time as elements are added/removed from the plan.
+
+**WALLS drawing mode:** Toolbar WALLS toggle activates a click-to-place wall mode. Each click
+places a wall anchor point; points connect as thick grey segments (`WALL` elements with
+`shape: WALL_POINT`). Double-click or pressing Escape finishes the wall polyline. Existing walls
+still render as styled thick lines with toggleable labels. Wall point elements are stored with
+`vertices` arrays recording the anchor positions; the canvas renders them as connected polygons
+with rounded joints.
+
+**Polygon section zones:** SECTIONS mode supports two drawing methods — rectangle drag (existing)
+and freeform polygon. POLYGON toggle in the zone palette switches to click-to-place polygon
+vertices; double-click closes the shape. Polygons use `pointInPolygon` (ray-casting) for
+element section detection, same as rectangular zones. The inspector shows vertex count + area.
+Both rectangle and polygon zones render with section colour fill, watermarked name, and 8
+resize handles (rectangles) or vertex edit handles (polygons).
+
+**Door swing arcs + sliding arrows:** DOOR elements render with a 90° swing arc (dashed
+quarter-circle) showing the door's open path, anchored to the hinge side. Sliding doors draw
+parallel arrows along the wall direction indicating slide path. The swing direction is stored
+in `style.swingDirection` (`LEFT` / `RIGHT`) and toggled from the inspector. Door width sets
+the arc radius.
+
+**20-colour palette:** Section zones use a fixed palette of 20 visually distinct colours
+with 0.06 fill / 0.5 border opacity. Colours auto-assign when creating a new zone, cycling
+through the palette. The `SectionZonesList` sidebar shows each zone's assigned colour swatch.
+Zones are grouped by department in the sidebar; the group header colour matches the department
+badge. Zone colours are stored per-zone and surfaced on the calendar event modal + worker
+floor plan view for consistent visual mapping.
+
+**Section overlap validation:** On zone draw-end and resize-end, the canvas checks the new
+zone's bounding box against all other zones on the plan. If the overlap exceeds 5% of the
+smaller zone's area, the zone snaps back to its previous position and a toast warns
+"SECTIONS CANNOT OVERLAP." Pure geometry check via polygon intersection — no API round-trip.
+
+**Vitest Coverage:** 232 tests across 31 files. `lib/floorplan-inventory.test.ts` has 49 tests
+covering `calculateSetupInventory`, geometry helpers, `computeGroupChairs`,
+`computeEffectiveChairs`, `computeSetupSectionTotals`, `pointInPolygon`, and BOM integration.
+`lib/floorplan-chairs.test.ts` (11) covers per-edge chair logic and `lib/auto-seat.test.ts` (7)
+covers the bin-packing planner. `TableProfilesClient.test.tsx` (10) and `SetupInventoryPanel.test.tsx`
+(7) cover the new components.
 
 ### Inventory + stocktake (Phase 2, built)
 Full inventory management system: `InventoryCategory` (8 built-in including FURNITURE + per-venue custom) and
@@ -414,7 +602,75 @@ Dashboard stocktake card with pending count. Hamburger menu entry.
 
 **AdminNav:** Inventory under Organisation, Stocktake under Operations.
 
-### Stock hierarchy (Phase 2, built)
+**Equipment & tool tracking (Phase 5):** `InventoryItem` has new fields for
+physical asset management:
+- `imageUrl` — photo of the item
+- `storageSectionId` — FK to `Section` (where the item lives)
+- `storageNotes` — e.g. "TOP SHELF, ABOVE THE COFFEE STATION"
+- `serialNumber` — equipment serial number
+- `purchaseDate`, `warrantyExpiry` — procurement tracking
+- `serviceIntervalDays`, `lastServicedAt`, `nextServiceAt` — maintenance schedule
+- `maintenanceNotes` — free-text service history
+- `supplierId` — supplier for servicing/parts (existing FK)
+These fields enable tracking tools, appliances, and equipment alongside
+consumable stock. Items with a `storageSectionId` appear in the structure tree
+under their section. Combined with `StepInventoryItem`, training/SOP steps can
+reference the exact tools needed, showing staff the item photo, storage location,
+and supplier details directly in the training view.
+
+**Category visibility toggles:** `InventoryCategory.showDeepFields` and
+`showEquipmentFields` control which form sections appear per category. FOOD and
+BEVERAGE categories show DEEP INVENTORY (shelf life, freeze, costing); OTHER
+and TABLES categories show EQUIPMENT TRACKING (photo, storage, maintenance).
+
+**Deep inventory redesign:** FOOD/BEVERAGE item forms now use `shelfLifeDays`,
+`canFreeze`, and `freezerShelfLifeDays` instead of a single expiry date. Unit
+and Total QTY are hidden (replaced by Par Level). Fallback category has been
+removed — deleted categories automatically unassign items. Shelf life fields:
+`shelfLifeDays Int?`, `canFreeze Boolean`, `freezerShelfLifeDays Int?`.
+
+**Table profiles in inventory:** Table Profile management has been merged into
+the inventory under TABLES. The standalone `/admin/table-profiles` nav item
+removed. Creating/editing tables opens a modal popup via `TableProfileForm`.
+
+**Restore deleted items:** SHOW DELETED toggle in inventory displays soft-deleted
+items with RESTORE (`POST .../restore`) and PURGE (`DELETE ?permanent=1`) buttons.
+
+**Allergen management:** 23 allergens (Almond, Barley, Brazil Nut, Cashew, Crustacean,
+Egg, Fish, Hazelnut, Lupin, Macadamia, Milk, Mollusc, Oats, Peanut, Pecan, Pine nut,
+Pistachio, Rye, Sesame, Soy, Sulphites, Walnut, Wheat) managed via `AllergenPicker`
+component with grouped buttons (DAIRY, NUTS, GRAINS, etc.). Allergens are stored as
+comma-separated `dietaryInfo` on `MenuItem`. The `GET /api/admin/menu-items` endpoint
+resolves inherited allergens by walking the recursive recipe BOM — a menu item shows
+its own allergens PLUS any allergens from sub-recipes, with inherited ones locked (⚿)
+and showing the source recipe in a popup. The recipe editor has a LINK TO MENU toggle;
+linked products show up as inherited allergen sources.
+
+**UOM conversion fields:** Deep inventory items have `countingUnitQty` (how many
+base units make one counting unit), `orderingUnitQty` (how many base units make one
+ordering unit), and `parLevelUnitId` (which unit the par level applies to). Units
+of measure use a chain of `UnitOfMeasure` rows with `baseConversionRatio` for
+standardised stock math.
+
+**Alternative suppliers:** `InventoryItem.alternativeSupplierIds Json` holds an
+ordered array of backup supplier UUIDs. The `SupplierItemCode` junction links each
+supplier to an item with that supplier's SKU. The inventory form shows all linked
+suppliers with their codes and supports reordering.
+
+**Maintenance logs:** `MaintenanceLog` records service events per inventory item
+with `notes`, `hoursAtService`, and `performedById`. Shown in a chronological log
+in the item form. `nextServiceAt` auto-calculates from `lastServicedAt +
+serviceIntervalDays` in hours.
+
+**Photo paste-to-upload:** `imageUrls` is a JSON array of URLs. The equipment form
+renders a photo gallery with paste-to-upload support (paste an image from clipboard
+→ uploads to `/api/admin/upload` → appends URL). Photos can be reordered and
+deleted individually.
+
+**Restore deleted items:** SHOW DELETED toggle in inventory displays soft-deleted
+items with RESTORE (`POST .../restore`) and PURGE (`DELETE ?permanent=1`) buttons.
+
+### Calendar (roster + time off)
 `GET /api/admin/stock/hierarchy` returns a Section → Table → Inventory Items tree in one query.
 The Structure API (`GET /api/admin/structure`) extends with `floorPlan { tables, chairs, equip }`
 per section.
@@ -426,11 +682,27 @@ LoadedReports. These are editable in the Staff form now; automated sync is a
 future item (see ROADMAP). `email` doubles as a natural cross-system match key.
 
 ### Live structure map
-`/admin/structure` (`StructureClient` + `GET /api/admin/structure`) renders the
-live entity tree — venue → department → section → staff / tasks / training, plus a
-venue-wide bucket — as collapsible nodes with counts. Manager sees own venue,
-admin sees all. The API also extends with `floorPlan { tables, chairs, equip }`
-per section. It's a read-only visual review.
+`/admin/structure` (`StructureClient`) has two views, toggled by a **TREE / MAP** tab:
+
+- **TREE** (`GET /api/admin/structure`) renders the live entity tree — venue →
+  department → section → staff / tasks / training, plus a venue-wide bucket — as
+  collapsible nodes with counts. The API also extends with
+  `floorPlan { tables, chairs, equip }` per section.
+- **MAP** (`GET /api/admin/structure/graph`) is an interactive node-graph
+  (`StructureGraph`, React Flow / `@xyflow/react`, dynamic `ssr:false`) for
+  mapping out workflows — how **lists** talk to **tasks** and **training/SOP**.
+  Nodes are laid out left→right in workflow order (venue → department → section →
+  staff → checklist → task → training) and edges encode every real relationship:
+  `contains`/`member`/`works` (hierarchy), `scope` (dept/section scoping),
+  `assigned` (task→person), `list-task` (checklist→task), `how-to`
+  (module/step→task via `linkedTask`/`ModuleTask`/`StepLinkedTask`), `requires`
+  (`TaskRequiredTraining`), `embeds` (step→checklist), `related` (`ResourceLink`).
+  Click a node to focus it (its links highlight/animate, the rest dim); type-chip
+  filters hide/show any layer; venue selector, drag, zoom, minimap. Layout/focus
+  logic lives in the pure, unit-tested `lib/structure-graph.ts`
+  (`buildGraphLayout`, `focusNeighbours`).
+
+Manager sees own venue, admin sees all. Both views are read-only visual reviews.
 
 ### Responsive admin nav
 `AdminNav` renders a static sidebar on `md+` and, on mobile, a fixed top bar with
@@ -480,6 +752,10 @@ fixed mobile bar.
   whole venue). Staff acknowledge via the existing `/w/notices` GOT IT flow;
   managers track acks on `/admin/notices`. Reuses notice/ack infra — no new
   worker screen. Best-effort (never blocks the save).
+- **Task filter "NOT IN THIS LIST".** When editing a checklist, a dynamic
+  `'notinthis'` usage filter appears showing all tasks except those already in
+  the current checklist — allowing tasks already used elsewhere to be added.
+  Defaults to `'notinthis'` when opening a checklist for editing.
 - **Grouped admin nav.** `AdminNav` renders collapsible groups (Overview /
   Organisation / Work / Daily ops / Finance + a standalone Settings); the active
   group auto-opens; the mobile burger drawer shares the same groups.
@@ -516,13 +792,35 @@ write-up in `ECOSYSTEM.md`; keep it in sync.
 ### Route structure
 - Admin routes live under `app/admin/(protected)/` — the inner route group applies the auth layout without affecting URL structure.
 - Worker routes live under `app/w/(authenticated)/` — same pattern.
-- Login pages (`/admin/login`, `/w/login`) are outside the protected groups so they don't inherit the auth check.
+- The **landing page (`/`)** is a split screen: the left panel links to the worker area (`/w/login`); the right panel is the admin email/password login (inline `signIn`). There is **no separate `/admin/login` page** — the old one was removed and its login form now lives on `/`. NextAuth `signIn` page, the middleware guard on `/admin/*`, the protected admin layout, and the AdminNav sign-out all redirect to `/`. The worker venue picker also has an "ADMIN PANEL" box that links back to `/`.
+- Worker login (`/w/login`) is outside the authenticated group so it doesn't inherit the auth check.
 
 ### Soft deletes everywhere
 Every model has `deletedAt DateTime?`. Set `deletedAt: new Date()` to delete. Never use Prisma `delete()`. Always add `where: { deletedAt: null }` to all queries.
 
 ### ALL CAPS convention
 Task titles, venue names, department names, and staff names are stored in UPPERCASE. Apply `.toUpperCase().trim()` before every insert/update.
+
+### Venue sharing (multi-venue)
+
+Per-venue opt-in via `Venue.sharingEnabled`. When enabled for a venue:
+
+| Feature | Model | Behaviour |
+|---|---|---|
+| Staff multi-venue | `StaffVenue` (staffId, venueId, @@unique) | Staff can work at multiple venues. `auth.ts` loads all venue IDs into `availableVenueIds` in the JWT. `VenueSwitcher` shows a dropdown for multi-venue managers. Worker login checks both `staff.venueId` and `StaffVenue`. |
+| WooCommerce source | `Venue.sharedWooVenueId` (self-FK) | A venue can point to another venue's WooCommerce integration. `lib/woo-sync.ts`, `lib/woo-orders-sync.ts`, `lib/woo-push.ts` all call `resolveWooVenueId()` before sync/push. Settings WooCommerce GET returns the source venue's data read-only; PUT is blocked. |
+| Product sharing | `MenuItemVenue` (menuItemId, venueId, priceOverride, @@unique) | Products can be shared to other venues with optional price overrides. `GET /api/admin/menu-items` returns local + shared items. `PATCH /api/admin/menu-item-venues/[id]` updates overrides. Shared items show blue `(SHARED FROM X)` badge in the menu items list. |
+
+Key helpers in `lib/venue-scope.ts`: `getManagerVenueId(session, req)` returns the effective venue ID from the `admin-active-venue` cookie, and `getAccessibleVenueIds(session)` returns all venue IDs the user can access.
+
+### Department linking
+
+`DepartmentLink` (fromDepartmentId, toDepartmentId, @@unique) — M:M self-referential junction on `Department`. When a department links to another:
+
+- **Worker task list** (`/api/worker/tasks`): resolves linked departments from `DepartmentLink`, includes their tasks/checklists via `departmentId: { in: [...linkedIds] }`
+- **Admin task list** (`/api/admin/tasks`): same resolution when filtering by department
+- **Department UI** (`OrganisationClient`): SearchSelect-style inline picker in the EDIT modal; selected departments appear as removable tags
+- **Structure tree** (`StructureClient`): shows `→ DEPT1, DEPT2` arrows on department nodes
 
 ### Prisma client singleton
 `packages/db/index.ts` exports a global singleton Prisma client to prevent connection pool exhaustion in Next.js dev (hot reload creates new instances without this pattern).
@@ -643,6 +941,167 @@ tasks into a new template. Admin UI lives at `/admin/templates`.
 - Components: `PascalCase.tsx`
 - Client components: always marked `'use client'`
 
+## SEED DATA CONVENTIONS
+
+When modifying the seed file (`packages/db/prisma/seed.ts`), follow these patterns:
+
+### Demo venue architecture
+
+A seeded **demo venue** (`Venue.isDemo: true`, id `00000000-0000-0000-00d0-000000000001`)
+holds all sample data — departments, staff, tasks, checklists, training. The demo venue is
+separate from real user data and can be disabled in **Settings → DEMO VENUE** (admin only).
+
+| Area | Behaviour |
+|---|---|
+| Auth login | `authorize()` blocks MANAGER login when demo venue is disabled (`isActive: false`). ADMIN always logs in. `venueIsDemo` is stamped in the NextAuth JWT/session. |
+| Write blocking | `middleware.ts` + `lib/demo-block.ts` (pure, tested) blocks non-GET requests to `/api/admin/*` for demo-venue managers (403 "read-only"). ADMIN bypasses. Workers (task completions etc.) are NOT blocked. |
+| Sync isolation | `woo-sync.ts`, `woo-orders-sync.ts`, `webhook/woocommerce` filter integrations by `venue: { isDemo: false }`. `external-sync.ts` excludes demo venues. `expiry-scan.ts` skips demo-venue items. Woo settings PUT is blocked for demo venues. |
+| Venue visibility | Disabled demo venues are hidden from `/api/venues` (worker picker), `/api/admin/venues` (admin switcher), and overdue tasks are filtered out (`NOT: { isDemo: true, isActive: false }`). |
+| Seed lifecycle | Fresh install: demo created **active**. Existing install with real venues: demo created **disabled**. Legacy demo entities (old `...0001` prefix UUIDs) are auto-cleaned from non-demo venues on every seed run — staff are kept if their email was changed (repurposed account), otherwise soft-deleted with `email: null` to free the `@demo.com` email. The bootstrap admin (`...0020`) is NEVER touched and its credentials are NEVER reset on re-deploy (`update: {}`). |
+
+New demo entities use UUID pattern `00000000-0000-0000-00d0-XXXXXXXXXXXX` (prefix `00d0`).
+The helper `d(id)` in seed.ts generates these: `d('000000000020')` → demo admin staff UUID.
+
+### Fixed IDs for reproducibility
+Every seed entity uses a hardcoded UUID in the `00000000-0000-0000-XXXX-0000000000YY` pattern where `XXXX` is an entity-group prefix and `YY` is a zero-padded counter. This makes upserts idempotent and safe to re-run.
+
+| Prefix | Entity |
+|--------|--------|
+| `0001` | Department tasks (daily) |
+| `0002` | Department tasks (weekly) |
+| `0010` | Departments |
+| `0020` | Staff |
+| `0030` | QR Codes |
+| `00a0` | Task templates |
+| `00b0` | Training modules |
+
+### Staff seeding pattern
+```typescript
+const pwHash = await bcrypt.hash('password', 10)
+const staff = await prisma.staff.upsert({
+  where: { id: 'FIXED-UUID-HERE' },
+  update: { email: 'user@demo.com', password: pwHash },  // update keeps login current
+  create: {
+    id: 'FIXED-UUID-HERE',
+    firstName: 'FIRST',       // UPPERCASE
+    lastName: 'LAST',          // UPPERCASE
+    pin: pinHash,
+    email: 'user@demo.com',
+    password: pwHash,
+    role: Role.MANAGER,
+    venueId: venue.id,
+    departmentId: deptX.id,
+    hourlyRate: 25,            // optional, for payroll
+    employmentType: 'FULL_TIME', // optional: FULL_TIME | PART_TIME | CASUAL
+    isActive: true,
+  },
+})
+```
+
+### Department seeding pattern
+```typescript
+const dept = await prisma.department.upsert({
+  where: { id: 'FIXED-UUID' },
+  update: {},
+  create: {
+    id: 'FIXED-UUID',
+    name: 'BACK OF HOUSE',    // UPPERCASE
+    venueId: venue.id,
+    colour: '#FACC15',        // hex colour for UI badge
+    isActive: true,
+  },
+})
+```
+
+### Task seeding pattern
+```typescript
+const dailyTasks = [
+  { title: 'TASK TITLE', description: 'What to do', type: CompletionType.TICK },
+  { title: 'TASK WITH PHOTO', description: 'Snap a pic', type: CompletionType.TICK_PHOTO },
+]
+for (let i = 0; i < dailyTasks.length; i++) {
+  const { type, ...task } = dailyTasks[i]
+  await prisma.task.upsert({
+    where: { id: `00000000-0000-0000-0001-${String(i).padStart(12, '0')}` },
+    update: {},
+    create: {
+      id: `00000000-0000-0000-0001-${String(i).padStart(12, '0')}`,
+      ...task,
+      venueId: venue.id,
+      departmentId: dept.id,
+      completionType: type,
+      scheduleType: ScheduleType.DAILY,
+      scheduleDays: [],
+      sortOrder: i,
+      isActive: true,
+    },
+  })
+}
+
+// Weekly tasks use scheduleDays: [dayOfWeek] (0=Sun, 1=Mon, ...)
+const weeklyTasks = [
+  { title: 'WEEKLY CLEAN', description: 'Deep clean', days: [1] }, // Monday
+]
+for (let i = 0; i < weeklyTasks.length; i++) {
+  const { days, ...task } = weeklyTasks[i]
+  await prisma.task.upsert({
+    where: { id: `00000000-0000-0000-0002-${String(i).padStart(12, '0')}` },
+    update: {},
+    create: {
+      id: `00000000-0000-0000-0002-${String(i).padStart(12, '0')}`,
+      ...task,
+      venueId: venue.id,
+      departmentId: dept.id,
+      completionType: CompletionType.TICK_NOTE,
+      scheduleType: ScheduleType.WEEKLY,
+      scheduleDays: days,
+      sortOrder: dailyTasks.length + i,
+      isActive: true,
+    },
+  })
+}
+```
+
+### Template seeding pattern
+Built-in templates use `upsert` with `update: { name, description, category, isBuiltIn: true }` so re-seeding refreshes them. Items are deleted and recreated via `deleteMany` + `createMany` to stay in sync:
+
+```typescript
+await prisma.taskTemplate.upsert({
+  where: { id: tpl.id },
+  update: { name: tpl.name, description: tpl.description, category: tpl.category, isBuiltIn: true },
+  create: { id: tpl.id, name: tpl.name, description: tpl.description, category: tpl.category, isBuiltIn: true, venueId: null },
+})
+await prisma.taskTemplateItem.deleteMany({ where: { templateId: tpl.id } })
+await prisma.taskTemplateItem.createMany({ data: items })
+```
+
+### Training module seeding pattern
+Same pattern as templates — `upsert` the module, `deleteMany` + `createMany` for steps:
+
+```typescript
+await prisma.trainingModule.upsert({
+  where: { id: m.id },
+  update: { title, description, category, departmentId, linkedTaskId, ... },
+  create: { id: m.id, title, description, category, venueId: venue.id, departmentId, ... },
+})
+await prisma.trainingStep.deleteMany({ where: { moduleId: m.id } })
+await prisma.trainingStep.createMany({ data: steps })
+```
+
+### Removing a department
+To remove a department from the seed, delete its `prisma.department.upsert()` block, its staff, its tasks, its QR codes, and its templates/training. Reassign staff IDs or soft-delete them. Update the console output at the bottom of `main()`.
+
+### Console output
+Always end `main()` with a clear login summary:
+```typescript
+console.log('Seed complete.')
+console.log('Admin/manager web logins (email / password):')
+console.log('  user@demo.com / password    (ROLE)')
+console.log('')
+console.log('Staff PIN logins:')
+console.log('  1234 (First Last - DEPT TYPE)')
+```
+
 ## DOS-MODERN DESIGN SYSTEM
 
 The app uses a custom dark-mode monospace aesthetic. All new UI should follow these
@@ -683,6 +1142,7 @@ Disabled:   disabled:opacity-40
 Number:     text-right (for alignment)
 Placeholder: placeholder:text-grey-light
 Select:     Matches inputs — use className overrides for font-mono text-xs px-2 py-1.5
+Active:     border-[#60A5FA] (blue border) when a non-default value is selected — indicates an active filter
 ```
 
 ### Button variants (from `@/components/ui/Button`)
@@ -811,28 +1271,43 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 
 ## ERP & WOOCOMMERCE (BUILT 2026-07)
 
-### Schema: 52 models (43 core + 9 ERP)
-New models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`, `RecipeLineItem` (recursive BOM), `WooIntegration`, `MenuItem`, `WooOrder`, `WooOrderItem`. `@@unique([venueId])` on WooIntegration.
+### Schema: 53 models (43 core + 10 ERP)
+New models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`, `RecipeLineItem` (recursive BOM), `WooIntegration`, `MenuItem`, `WooOrder`, `WooOrderItem`, `SyncLog`. `@@unique([venueId])` on WooIntegration.
 
 ### Recipe Explosion Engine (`lib/inventory-engine.ts`)
 Recursive BOM parser: walks `RecipeLineItem` tree, converts all quantities to base units via UOM conversion ratios, returns flattened `Map<inventoryItemId, requiredBaseQty>`. DAG-safe cycle detection via visited set. 5 Vitest tests with mocked PrismaClient.
 
 ### WooCommerce Webhook (`/api/webhooks/woocommerce`)
-Receives `order.created` / `order.updated`. HMAC-SHA256 signature auth. Guards against self-triggered loops (`_updated_by: hospo-ops`). Upserts `WooOrder` + `WooOrderItem` in transaction. Runs `explodeRecipe` per line item, stores exploded ingredients as JSON on order items. Auto-seating engine: greedy first-fit bin-packing on partySize → `CalendarEvent` → `FloorPlanSetup` → `SetupItem` → `TableGroup`.
+Receives `order.created` / `order.updated` AND `product.created` / `product.updated` / `product.deleted` (branched on `x-wc-webhook-topic`). HMAC-SHA256 signature auth. Echo guard: pushes stamp `_updated_by: hospo-ops` + `_hospo_ops_pushed_at`; `isSelfEcho()` (lib/woo-push.ts) skips webhooks arriving within 2 min of our own push — genuine later edits still sync. Orders: upserts `WooOrder` + `WooOrderItem` in transaction, runs `explodeRecipe` per line item, stores exploded ingredients as JSON on order items. Products: `upsertProductFromWoo()` / soft-delete on `product.deleted`. Auto-seating engine: greedy first-fit bin-packing on partySize → `CalendarEvent` → `FloorPlanSetup` → `SetupItem` → `TableGroup`. Every event logs to `SyncLog`.
 
-### Cron Jobs (`/api/cron/`)
-- `woocommerce-sync`: daily product sync from WooCommerce REST API (Basic auth) → upserts `MenuItem` records
-- `expiry-scan`: sweeps expired `InventoryItem`s, traces BOM to parent WooCommerce products, applies `fallbackCategoryId`
-- Both authenticated via `Authorization: Bearer <CRON_SECRET>` header
+### Two-Way Sync (built 2026-07)
+- **Pull (Woo → app):** `lib/woo-sync.ts` `runProductPull(venueId?)` — paginated product fetch, upserts `MenuItem`s, logs to `SyncLog`. `lib/woo-orders-sync.ts` `runOrderPull(venueId?)` — paginated order fetch, upserts `WooOrder` + `WooOrderItem`, runs recipe explosion, auto-seating, and gift card detection per order, logs to `SyncLog`.
+- **Push (app → Woo):** `lib/woo-push.ts` — `pushProduct()` fires on menu item / recipe menu-link save (name/price/category → `PUT wc/v3/products/{id}`); `pushOrderStatus()` fires on order status change via `PATCH /api/admin/orders/[id]` (Orders page STATUS dropdown). All pushes best-effort: log to `SyncLog`, never throw, never block the save.
+- **Sync dashboard:** `/admin/sync` (`SyncClient`) — PULL PRODUCTS / PULL ORDERS / PUSH PRODUCTS NOW buttons (`POST /api/admin/sync/pull|pull-orders|push`), live `SyncLog` feed (`GET /api/admin/sync/log`, 10s auto-refresh, direction/status filters, errors in red).
+
+### Internal Cron Scheduler (`instrumentation.ts` + `lib/internal-cron.ts`)
+Started once on server boot via Next's `instrumentationHook` (enabled in next.config.mjs). Minute tick; pure `dueJobs(state, now, tz)` decides what fires (Vitest-covered). Jobs: product pull every 15 min (`runProductPull`), order pull every 15 min (`runOrderPull`), expiry scan daily 03:00 in `DEFAULT_TIMEZONE` (`runExpiryScan` in `lib/expiry-scan.ts`). Fully self-contained — no host crontab. Disable with `INTERNAL_CRON=false`. Dev hot-reload guarded via `globalThis.__hospoInternalCron`.
+
+### Cron Endpoints (`/api/cron/`) — external scheduler fallback
+- `woocommerce-sync`: thin wrapper over `runProductPull()`
+- `woocommerce-orders-sync`: thin wrapper over `runOrderPull()`
+- `expiry-scan`: thin wrapper over `runExpiryScan()` — sweeps expired `InventoryItem`s, traces BOM to parent WooCommerce products, applies `fallbackCategoryId`
+- All authenticated via `Authorization: Bearer <CRON_SECRET>` header
 
 ### Inventory Tabs
 `InventoryCategory.tab` (FOOD, BEVERAGE, null). 20 built-in categories auto-seeded. FOOD tab: PROTEIN, DAIRY, PRODUCE, DRY GOODS, BAKERY, CONDIMENTS. BEVERAGE tab: LIQUOR, WINE, BEER, SOFT DRINK, JUICE, COFFEE. OTHER tab: existing equipment categories. Deep inventory fields: `countingUnitId`, `orderingUnitId`, `yieldPercentage`, `costPrice`, `expiryDate`, `fallbackCategoryId`, `allergyInfo`.
 
 ### Recipes & Menu Items (combined page)
-`/admin/recipes` merged with `/admin/menu-items` (redirects). Recipe editor has LINK TO MENU toggle with price + WooCommerce fields. Tag-input for Woo categories. Searchable Combobox for ingredient/sub-recipe selection with grouped dropdown. Orphaned WooCommerce products shown in yellow.
+`/admin/recipes` merged with `/admin/menu-items` (redirects). Recipe editor has LINK TO MENU toggle with price + WooCommerce fields. Tag-input for Woo categories. Searchable Combobox for ingredient/sub-recipe selection with popover modal. Orphaned WooCommerce products shown in yellow. 23 allergen toggle buttons (Almond, Barley, Brazil Nut, Cashew, Crustacean, Egg, Fish, Hazelnut, Lupin, Macadamia, Milk, Mollusc, Oats, Peanut, Pecan, Pine nut, Pistachio, Rye, Sesame, Soy, Sulphites, Walnut, Wheat) — stored as comma-separated `dietaryInfo` on `MenuItem`.
 
 ### EOD Reconciliation (`/api/admin/inventory/reconcile`)
 Aggregates exploded ingredients from completed orders, tallies `requiredBaseQty` per inventory item. Returned as reconciliation report. Deferred inventory deduction (Phase 5).
+
+### FOH Operations View (`/admin/orders` — FOH VIEW tab)
+`GET /api/admin/orders/foh?date=` returns bookings for a date with table assignments (via CalendarEvent → FloorPlanSetup → SetupItem chain), line items with dietary info, and category totals. Admin UI has tabbed ORDERS / FOH VIEW with date picker, booking cards (party size, tables, line items, status), and right sidebar showing dish totals by inventory category.
+
+### Kitchen Worker View (`/w/kitchen`)
+`GET /api/worker/kitchen` (JWT via `jose`) returns today's order items grouped by table with dietary badges, unassigned items section, and prep totals grid. Auto-refreshes every 15s. Worker hamburger menu has KITCHEN tile. Admin nav has KITCHEN under Operations. Groundwork for future live service mode: `KitchenStatus` enum (PENDING/COOKING/READY/SERVED) on `WooOrderItem.kitchenStatus`.
 
 ## FUTURE INTEGRATION STUBS
 
@@ -855,6 +1330,7 @@ Aggregates exploded ingredients from completed orders, tallies `requiredBaseQty`
 | Microsoft Teams notifications | Send task overdue alerts to Teams channels | 5 |
 | Outlook calendar sync | Overlay venue events on task schedule view | 5 |
 | SwiftPOS deep sync | Roster data → automatic task assignment | 5 |
+| Food H&S diary + ESP32 temp logging | Digital food-safety diary; ESP32 sensor ingest endpoint, fridge/delivery/cook-probe temps, threshold alerts (see ROADMAP) | 5 |
 | Multi-tenant SaaS mode | White-label per business, isolated data per tenant | 6 |
 | Role-based permission system | Granular permissions beyond ADMIN/MANAGER/STAFF | 6 |
 | Public API | REST API for third-party integrations | 6 |
@@ -910,11 +1386,16 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/utils.ts` — all 8 exports | ✅ |
 | `lib/training.ts` — `getStaffTraining`, `getStaffSops` | ✅ |
 | `lib/retrain.ts` — `postRetrainNotice` | ✅ |
+| `lib/demo-block.ts` — `shouldBlockDemoWrite` | ✅ (14 tests) |
 | `lib/worker-session.ts` — `workerCookieSecure` | ✅ |
 | `lib/followups.ts` — `checkUntrainedOnCompletion` | ✅ |
 | `lib/external-sync.ts` — `syncVenueCalendar` | ✅ |
-| `lib/floorplan-inventory.ts` — `calculateSetupInventory`, `pointInPolygon`, geometry fns | ✅ (46 tests) |
+| `lib/floorplan-inventory.ts` — `calculateSetupInventory`, `computeSetupSectionTotals`, `pointInPolygon`, geometry fns | ✅ (49 tests) |
+| `lib/floorplan-chairs.ts` — `adjustEdgeChairs`, `defaultEdgeChairs`, `maxChairsForEdge` | ✅ (11 tests) |
+| `lib/auto-seat.ts` — `planAutoSeat` (bin-packing layout) | ✅ (7 tests) |
 | `lib/inventory-engine.ts` — `explodeRecipe` (recursive BOM explosion) | ✅ (5 tests) |
+| `lib/woo-push.ts` — `mapStatusToWoo`, payload builders, `isSelfEcho` echo guard | ✅ |
+| `lib/internal-cron.ts` — `dueJobs`, `localParts` (scheduler due-checks) | ✅ |
 | `lib/auth.ts` — `authOptions` | ⬜ TODO |
 
 ### Component Regression Tests
@@ -935,6 +1416,48 @@ pushing, run: `npm run lint && npm run test`.
 | `Select` (ui) — options, placeholder, error, onChange | ✅ |
 | `TableProfilesClient.tsx` — render, loading, fetch, headings, empty state, selection, form | ✅ (10 tests) |
 | `SetupInventoryPanel.tsx` — button states, shortage list, idle, empty, disabled | ✅ (7 tests) |
+
+## PRE-COMMIT CHECKLIST
+
+When the user signals intent to commit and test (e.g. "I'm going to commit",
+"time to push", "ready to test on live", "let's ship this"):
+
+1. **Run the quality gates:** `npm run lint && npm run build && npm run test`
+   - Lint: 0 errors expected (warnings are ok if pre-existing)
+   - Build: must compile all pages
+   - Tests: all passing (8 `@hospo-ops/db` failures in local vitest are a known
+     monorepo issue — they pass in CI with turborepo)
+
+2. **Offer to prebuild the Docker image** so GitHub Actions only runs lint+test
+   as a gate, skipping the slow Docker build. Run `build-and-push.ps1` (gitignored)
+   if the user wants to push directly to GHCR. (Requires Docker running + GHCR login.)
+
+3. **Produce a test checklist** — write it into `.test-checklist.md` (gitignored)
+   as a markdown checkbox list. Group items by page using path-style navigation
+   (e.g. `Admin → Operations → Bookings`, `Admin → Organisation → Inventory`).
+   The user uses these markers:
+
+   | Marker | Meaning |
+   |---|---|
+   | `- [x]` | Done — tested and works, stays visible for progress tracking |
+   | `- [ ]` | Not yet tested |
+   | `- ` (dash, no bracket) | New feature idea or item to add |
+   | Tab-indented line below an item | Note/issue — needs work and retest |
+
+   Read the file first to preserve existing progress and notes. Skip completed
+   `[x]` items when planning fixes. Focus on items with notes (need retest) and
+   unchecked `[ ]` items.
+
+   Do NOT edit the file while the user is working on it live — they update it
+   during testing. Only write to it at the start of a new session or when
+   generating a fresh checklist for a new round of changes.
+
+4. **Update the docs** (CLAUDE.md, ROADMAP.md, ECOSYSTEM.md) to reflect any
+   new models, API routes, design conventions, or feature phases.
+
+5. **GitHub Actions CI** — remind the user of the workflow fixes if relevant
+   (Prisma generate step, turbo test command). If the workflow file was changed
+   in this session, flag it.
 
 ## WHAT NOT TO DO
 

@@ -1,6 +1,4 @@
-import { PrismaClient } from '@prisma/client'
-
-const prisma = new PrismaClient()
+import { prisma } from '../index'
 
 const VENUE_ID = '00000000-0000-0000-0000-000000000001'
 

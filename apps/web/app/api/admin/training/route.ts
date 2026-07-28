@@ -10,6 +10,9 @@ interface IncomingStep {
   videoUrl?: string | null
   linkedTaskId?: string | null
   linkedChecklistId?: string | null
+  taskIds?: string[]
+  linkedModuleIds?: string[]
+  inventoryItemIds?: { itemId: string; quantity?: number }[]
 }
 
 export async function GET(req: NextRequest) {
@@ -28,8 +31,16 @@ export async function GET(req: NextRequest) {
   const modules = await prisma.trainingModule.findMany({
     where,
     include: {
-      steps: { orderBy: { order: 'asc' } },
+      steps: {
+        orderBy: { order: 'asc' },
+        include: {
+          stepTasks: { select: { taskId: true } },
+          stepModules: { select: { moduleId: true } },
+        },
+      },
       department: { select: { id: true, name: true } },
+      moduleDepartments: { select: { departmentId: true } },
+      moduleTasks: { select: { taskId: true } },
       linkedTask: { select: { id: true, title: true } },
       resourceSections: { select: { sectionId: true } },
       linksFrom: { select: { toModuleId: true } },
@@ -60,6 +71,8 @@ export async function POST(req: NextRequest) {
     steps,
     sectionIds,
     linkedResourceIds,
+    departmentIds,
+    taskIds,
   } = body as {
     title: string
     description?: string
@@ -74,6 +87,8 @@ export async function POST(req: NextRequest) {
     steps: IncomingStep[]
     sectionIds?: string[]
     linkedResourceIds?: string[]
+    departmentIds?: string[]
+    taskIds?: string[]
   }
 
   if (!title?.trim()) {
@@ -96,6 +111,8 @@ export async function POST(req: NextRequest) {
       kind: kind ?? 'TRAINING',
       departmentId: departmentId || null,
       linkedTaskId: linkedTaskId || null,
+      moduleDepartments: departmentIds?.length ? { create: departmentIds.map((did) => ({ departmentId: did })) } : undefined,
+      moduleTasks: taskIds?.length ? { create: taskIds.map((tid) => ({ taskId: tid })) } : undefined,
       requiresSignOff: !!requiresSignOff,
       isOnboarding: !!isOnboarding,
       onboardingOrder: onboardingOrder ?? 0,
@@ -108,6 +125,11 @@ export async function POST(req: NextRequest) {
           videoUrl: s.videoUrl?.trim() || null,
           linkedTaskId: s.linkedTaskId || null,
           linkedChecklistId: s.linkedChecklistId || null,
+          stepTasks: s.taskIds?.length ? { create: s.taskIds.map((tid) => ({ taskId: tid })) } : undefined,
+          stepModules: s.linkedModuleIds?.length ? { create: s.linkedModuleIds.map((mid) => ({ moduleId: mid })) } : undefined,
+          inventoryItems: s.inventoryItemIds?.length
+            ? { create: s.inventoryItemIds.map((inv) => ({ itemId: inv.itemId, quantity: inv.quantity ?? 1 })) }
+            : undefined,
         })),
       },
       resourceSections: Array.isArray(sectionIds) && sectionIds.length

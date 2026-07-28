@@ -3,11 +3,16 @@ WORKDIR /app
 
 RUN apk add --no-cache libc6-compat openssl
 
-# Copy everything
-COPY . .
-
-# Install all dependencies (including devDeps for prisma CLI + ts-node)
+# Install dependencies first — cached when package files don't change
+COPY package.json package-lock.json ./
+COPY packages/db/package.json packages/db/
+COPY packages/types/package.json packages/types/
+COPY packages/config/package.json packages/config/
+COPY apps/web/package.json apps/web/
 RUN npm install --legacy-peer-deps
+
+# Copy source — invalidates the build layer, but deps remain cached
+COPY . .
 
 # Generate Prisma client
 RUN cd packages/db && npx prisma generate

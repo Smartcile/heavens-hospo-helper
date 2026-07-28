@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
         },
         orderBy: { sortOrder: 'asc' },
       },
-      menuItems: { select: { id: true, price: true, wooProductId: true, wooCategoryId: true } },
+      menuItems: { select: { id: true, price: true, wooProductId: true, wooCategoryId: true, dietaryInfo: true } },
     },
     orderBy: { name: 'asc' },
   })
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId } = await req.json()
+  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, existingMenuItemId, dietaryInfo } = await req.json()
   if (!name?.trim() || !yieldUnitId) {
     return NextResponse.json({ error: 'name and yieldUnitId are required' }, { status: 400 })
   }
@@ -63,16 +63,29 @@ export async function POST(req: NextRequest) {
     })
 
     if (linkToMenu) {
-      await tx.menuItem.create({
-        data: {
-          venueId: session.user.venueId,
-          name: name.toUpperCase().trim(),
-          recipeId: r.id,
-          price: parseFloat(String(price)) || 0,
-          wooProductId: wooProductId || null,
-          wooCategoryId: wooCategoryId || null,
-        },
-      })
+      if (existingMenuItemId) {
+        await tx.menuItem.update({
+          where: { id: existingMenuItemId },
+          data: {
+            recipeId: r.id,
+            price: parseFloat(String(price)) || 0,
+            wooCategoryId: wooCategoryId || null,
+            dietaryInfo: dietaryInfo || null,
+          },
+        })
+      } else {
+        await tx.menuItem.create({
+          data: {
+            venueId: session.user.venueId,
+            name: name.toUpperCase().trim(),
+            recipeId: r.id,
+            price: parseFloat(String(price)) || 0,
+            wooProductId: wooProductId || null,
+            wooCategoryId: wooCategoryId || null,
+            dietaryInfo: dietaryInfo || null,
+          },
+        })
+      }
     }
 
     return r

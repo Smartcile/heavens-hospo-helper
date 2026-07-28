@@ -10,6 +10,10 @@ interface MenuItem {
   wooProductId: string | null; wooCategoryId: string | null
   imageUrl: string | null; description: string | null; isActive: boolean
   recipe?: { id: string; name: string }
+  sharedFromVenueName?: string
+  sharedFromVenueId?: string
+  sharedPriceOverride?: number | null
+  menuItemVenueId?: string
 }
 
 interface RecipeBrief { id: string; name: string }
@@ -27,16 +31,22 @@ export function MenuItemsClient() {
   const [formWooProductId, setFormWooProductId] = useState('')
   const [formWooCategoryId, setFormWooCategoryId] = useState('')
   const [formDescription, setFormDescription] = useState('')
+  const [formSharedPriceOverride, setFormSharedPriceOverride] = useState('')
+  const [selectedIsShared, setSelectedIsShared] = useState(false)
 
   function resetForm() {
     setFormName(''); setFormRecipeId(''); setFormPrice('0')
     setFormWooProductId(''); setFormWooCategoryId(''); setFormDescription('')
+    setFormSharedPriceOverride(''); setSelectedIsShared(false)
   }
 
   function populateForm(m: MenuItem) {
-    setFormName(m.name); setFormRecipeId(m.recipeId); setFormPrice(String(m.price))
+    setFormName(m.name); setFormRecipeId(m.recipeId)
+    setFormPrice(String(m.sharedPriceOverride ?? m.price))
     setFormWooProductId(m.wooProductId ?? ''); setFormWooCategoryId(m.wooCategoryId ?? '')
     setFormDescription(m.description ?? '')
+    setFormSharedPriceOverride(m.sharedPriceOverride != null ? String(m.sharedPriceOverride) : '')
+    setSelectedIsShared(!!m.sharedFromVenueId)
   }
 
   async function load() {
@@ -64,6 +74,21 @@ export function MenuItemsClient() {
 
   async function handleSave() {
     if (!formName.trim() || !formRecipeId) return
+
+    // For shared items, just update the price override
+    if (selectedIsShared && selectedId) {
+      const shared = items.find((x) => x.id === selectedId)
+      if (shared?.menuItemVenueId) {
+        await fetch(`/api/admin/menu-item-venues/${shared.menuItemVenueId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ priceOverride: formSharedPriceOverride ? parseFloat(formSharedPriceOverride) : null }),
+        })
+      }
+      setSelectedId(null); resetForm(); load()
+      return
+    }
+
     const body = {
       name: formName.trim().toUpperCase(),
       recipeId: formRecipeId,
@@ -108,8 +133,15 @@ export function MenuItemsClient() {
               {items.map((m) => (
                 <button key={m.id} onClick={() => { setIsCreating(false); setSelectedId(m.id) }}
                   className={`w-full text-left px-2 py-1.5 font-mono text-xs uppercase border ${selectedId === m.id && !isCreating ? 'border-white text-white' : 'border-transparent text-grey-light hover:border-grey-mid hover:text-white'}`}>
-                  <span className="block truncate">{m.name}</span>
-                  <span className="block text-[10px] text-grey-light normal-case">${m.price.toFixed(2)} · {m.recipe?.name ?? 'NO RECIPE'}</span>
+                  <span className="block truncate">
+                    {m.name}
+                    {m.sharedFromVenueName && (
+                      <span className="ml-1 font-mono text-[9px] text-[#60A5FA] normal-case">(SHARED FROM {m.sharedFromVenueName})</span>
+                    )}
+                  </span>
+                  <span className="block text-[10px] text-grey-light normal-case">
+                    ${(m.sharedPriceOverride ?? m.price).toFixed(2)} · {m.recipe?.name ?? 'NO RECIPE'}
+                  </span>
                 </button>
               ))}
               {items.length === 0 && <p className="font-mono text-xs text-grey-light px-2 py-1">No menu items yet.</p>}
@@ -130,41 +162,53 @@ export function MenuItemsClient() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className="font-mono text-xs uppercase text-grey-light block mb-1">NAME</label>
-                    <Input value={formName} onChange={(e) => setFormName(e.target.value.toUpperCase())} placeholder="MENU ITEM NAME" />
+                    <Input value={formName} onChange={(e) => setFormName(e.target.value.toUpperCase())} disabled={selectedIsShared} placeholder="MENU ITEM NAME" />
                   </div>
                   <div>
-                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">PRICE</label>
-                    <Input type="number" step="0.01" value={formPrice} onChange={(e) => setFormPrice(e.target.value)} />
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">
+                      {selectedIsShared ? 'SOURCE PRICE (READ ONLY)' : 'PRICE'}
+                    </label>
+                    <Input type="number" step="0.01" value={formPrice} onChange={(e) => setFormPrice(e.target.value)} disabled={selectedIsShared} />
                   </div>
+                  {selectedIsShared && (
+                    <div>
+                      <label className="font-mono text-xs uppercase text-[#60A5FA] block mb-1">PRICE OVERRIDE</label>
+                      <Input type="number" step="0.01" value={formSharedPriceOverride} onChange={(e) => setFormSharedPriceOverride(e.target.value)} placeholder="LEAVE BLANK FOR SOURCE PRICE" />
+                    </div>
+                  )}
                   <div className="md:col-span-2">
                     <label className="font-mono text-xs uppercase text-grey-light block mb-1">ATTACH RECIPE</label>
-                    <Select value={formRecipeId} onChange={(e) => setFormRecipeId(e.target.value)}
+                    <Select value={formRecipeId} onChange={(e) => setFormRecipeId(e.target.value)} disabled={selectedIsShared}
                       options={recipes.map((r) => ({ value: r.id, label: r.name }))} placeholder="SELECT RECIPE" />
                   </div>
                 </div>
 
-                <div className="border-t border-grey-mid pt-3">
-                  <p className="font-mono text-[10px] text-grey-light uppercase mb-3">WOOCOMMERCE SYNC</p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label className="font-mono text-xs uppercase text-grey-light block mb-1">PRODUCT ID</label>
-                      <Input value={formWooProductId} onChange={(e) => setFormWooProductId(e.target.value)} placeholder="WOOCOMMERCE PRODUCT ID" />
-                    </div>
-                    <div>
-                      <label className="font-mono text-xs uppercase text-grey-light block mb-1">CATEGORY ID</label>
-                      <Input value={formWooCategoryId} onChange={(e) => setFormWooCategoryId(e.target.value)} placeholder="WOOCOMMERCE CATEGORY ID" />
+                {!selectedIsShared && (
+                  <div className="border-t border-grey-mid pt-3">
+                    <p className="font-mono text-[10px] text-grey-light uppercase mb-3">WOOCOMMERCE SYNC</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">PRODUCT ID</label>
+                        <Input value={formWooProductId} onChange={(e) => setFormWooProductId(e.target.value)} placeholder="WOOCOMMERCE PRODUCT ID" />
+                      </div>
+                      <div>
+                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">CATEGORY ID</label>
+                        <Input value={formWooCategoryId} onChange={(e) => setFormWooCategoryId(e.target.value)} placeholder="WOOCOMMERCE CATEGORY ID" />
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
-                <div>
-                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">DESCRIPTION</label>
-                  <Input value={formDescription} onChange={(e) => setFormDescription(e.target.value)} placeholder="DESCRIPTION" />
-                </div>
+                {!selectedIsShared && (
+                  <div>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">DESCRIPTION</label>
+                    <Input value={formDescription} onChange={(e) => setFormDescription(e.target.value)} placeholder="DESCRIPTION" />
+                  </div>
+                )}
 
                 <div className="border-t border-grey-mid pt-3 flex items-center gap-2">
-                  <Button onClick={handleSave} disabled={!formName.trim() || !formRecipeId}>SAVE</Button>
-                  {!isCreating && <Button variant="danger" size="sm" onClick={handleDelete}>DELETE</Button>}
+                  <Button onClick={handleSave} disabled={!formName.trim() || !formRecipeId}>{selectedIsShared ? 'SAVE OVERRIDE' : 'SAVE'}</Button>
+                  {!isCreating && !selectedIsShared && <Button variant="danger" size="sm" onClick={handleDelete}>DELETE</Button>}
                   <Button variant="ghost" size="sm" onClick={() => { setSelectedId(null); setIsCreating(false); resetForm() }}>CANCEL</Button>
                 </div>
               </>

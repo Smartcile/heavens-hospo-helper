@@ -11,10 +11,21 @@ export async function GET(req: NextRequest) {
   const venueId = searchParams.get('venueId')
   const departmentId = searchParams.get('departmentId')
 
+  // Resolve linked department IDs — when filtering by a department, also show
+  // tasks from departments linked TO it.
+  let departmentIds: string[] | undefined
+  if (departmentId) {
+    const links = await prisma.departmentLink.findMany({
+      where: { fromDepartmentId: departmentId },
+      select: { toDepartmentId: true },
+    })
+    departmentIds = [departmentId, ...links.map((l) => l.toDepartmentId)]
+  }
+
   const where = {
     deletedAt: null,
     ...(venueId ? { venueId } : {}),
-    ...(departmentId ? { departmentId } : {}),
+    ...(departmentIds ? { departmentId: { in: departmentIds } } : {}),
     ...(session.user.role === 'MANAGER' ? { venueId: session.user.venueId } : {}),
   }
 
@@ -24,6 +35,7 @@ export async function GET(req: NextRequest) {
       department: { select: { id: true, name: true, colour: true } },
       section: { select: { id: true, name: true } },
       requiredTraining: { select: { moduleId: true, module: { select: { kind: true } } } },
+      taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
       trainingModules: { select: { kind: true } }, // modules whose how-to is this task
       _count: { select: { checklistLinks: true } },
     },
@@ -53,6 +65,7 @@ export async function POST(req: NextRequest) {
     monthlyOption,
     monthlyDay,
     requiredTrainingIds,
+    competencyGuideIds,
   } = body
 
   if (!title?.trim() || !venueId) {
@@ -91,8 +104,18 @@ export async function POST(req: NextRequest) {
       monthlyDay: scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? (Number(monthlyDay) || 1) : null,
       sortOrder: (maxSort?.sortOrder ?? -1) + 1,
       requiredTraining: { create: reqIds.map((moduleId) => ({ moduleId })) },
+      taskGuides: Array.isArray(competencyGuideIds) && competencyGuideIds.length
+        ? { create: competencyGuideIds.map((guideId: string) => ({ guideId, isRequiredForCompetency: true })) }
+        : undefined,
     },
   })
+
+  if (reqIds.length > 0) {
+    await prisma.trainingModule.updateMany({
+      where: { id: { in: reqIds } },
+      data: { linkedTaskId: task.id },
+    })
+  }
 
   return NextResponse.json(task, { status: 201 })
 }

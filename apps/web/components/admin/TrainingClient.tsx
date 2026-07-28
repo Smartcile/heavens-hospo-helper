@@ -7,14 +7,18 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
+import { Combobox, ComboboxHandle } from '@/components/ui/Combobox'
+import { getActiveVenueId } from '@/lib/active-venue'
 
 interface Step {
   title: string
   content: string
   imageUrl: string | null
-  videoUrl: string
   linkedTaskId: string
   linkedChecklistId: string
+  videoUrl: string
+  taskIds: string[]
+  linkedModuleIds: string[]
 }
 
 interface TrainingModule {
@@ -23,6 +27,7 @@ interface TrainingModule {
   description: string | null
   category: string | null
   kind: string
+  venueId: string
   departmentId: string | null
   linkedTaskId: string | null
   requiresSignOff: boolean
@@ -37,13 +42,18 @@ interface TrainingModule {
     videoUrl: string | null
     linkedTaskId: string | null
     linkedChecklistId: string | null
+    stepTasks?: { taskId: string }[]
+    stepModules?: { moduleId: string }[]
   }[]
   department: { id: string; name: string } | null
   linkedTask: { id: string; title: string } | null
   resourceSections: { sectionId: string }[]
+  moduleDepartments?: { departmentId: string }[]
+  moduleTasks?: { taskId: string }[]
   _count: { completions: number }
 }
 
+interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string }
 interface TaskLite { id: string; title: string; venueId: string }
 interface Section { id: string; name: string; venueId: string }
@@ -56,13 +66,14 @@ const KIND_OPTIONS = [
 ]
 
 function emptyStep(): Step {
-  return { title: '', content: '', imageUrl: null, videoUrl: '', linkedTaskId: '', linkedChecklistId: '' }
+  return { title: '', content: '', imageUrl: null, videoUrl: '', linkedTaskId: '', linkedChecklistId: '', taskIds: [], linkedModuleIds: [] }
 }
 
-interface ChecklistLite { id: string; name: string; departmentId: string | null }
+interface ChecklistLite { id: string; name: string; departmentId: string | null; venueId: string }
 
-export function TrainingClient({ role, sessionVenueId }: { role: string; sessionVenueId: string }) {
+export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [modules, setModules] = useState<TrainingModule[]>([])
+  const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [tasks, setTasks] = useState<TaskLite[]>([])
   const [sections, setSections] = useState<Section[]>([])
@@ -76,6 +87,12 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
   const [category, setCategory] = useState('')
   const [kind, setKind] = useState('TRAINING')
   const [sectionIds, setSectionIds] = useState<string[]>([])
+  const [departmentIds, setDepartmentIds] = useState<string[]>([])
+  const [taskIds, setTaskIds] = useState<string[]>([])
+  const [venueId, setVenueId] = useState('')
+  const deptRef = useRef<ComboboxHandle>(null)
+  const taskRef = useRef<ComboboxHandle>(null)
+  const sectionRef = useRef<ComboboxHandle>(null)
   const [departmentId, setDepartmentId] = useState('')
   const [linkedTaskId, setLinkedTaskId] = useState('')
   const [requiresSignOff, setRequiresSignOff] = useState(false)
@@ -107,14 +124,29 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
 
   useEffect(() => { load() }, [])
 
+  useEffect(() => {
+    if (role === 'ADMIN') {
+      fetch('/api/admin/venues')
+        .then((r) => r.json())
+        .then((v: Venue[]) => {
+          setVenues(v)
+          if (!venueId && v.length > 0) {
+            const active = getActiveVenueId(role, sessionVenueId, defaultVenueId)
+            setVenueId(active || v[0].id)
+          }
+        })
+    }
+  }, [role])
+
   function openCreate() {
     setEditing(null)
     setTitle(''); setDescription(''); setCategory('')
     setKind('TRAINING'); setSectionIds([])
-    setDepartmentId(''); setLinkedTaskId('')
+    setDepartmentIds([]); setTaskIds([]); setDepartmentId(''); setLinkedTaskId('')
     setRequiresSignOff(false); setIsOnboarding(false)
     setReqRetrain(false); setChangeSummary('')
     setSteps([emptyStep()])
+    setVenueId(getActiveVenueId(role, sessionVenueId, defaultVenueId))
     setError(''); setOpen(true)
   }
 
@@ -122,8 +154,11 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
     setEditing(m)
     setTitle(m.title); setDescription(m.description ?? ''); setCategory(m.category ?? '')
     setKind(m.kind ?? 'TRAINING'); setSectionIds((m.resourceSections ?? []).map((r) => r.sectionId))
+    setDepartmentIds((m.moduleDepartments ?? []).map((md: any) => md.departmentId))
+    setTaskIds((m.moduleTasks ?? []).map((mt: any) => mt.taskId))
     setDepartmentId(m.departmentId ?? ''); setLinkedTaskId(m.linkedTaskId ?? '')
     setRequiresSignOff(m.requiresSignOff); setIsOnboarding(m.isOnboarding)
+    setVenueId(m.venueId)
     setReqRetrain(false); setChangeSummary('')
     setSteps(
       m.steps.length
@@ -134,6 +169,8 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
             videoUrl: s.videoUrl ?? '',
             linkedTaskId: s.linkedTaskId ?? '',
             linkedChecklistId: s.linkedChecklistId ?? '',
+            taskIds: (s.stepTasks ?? []).map((st: any) => st.taskId),
+            linkedModuleIds: (s.stepModules ?? []).map((sm: any) => sm.moduleId),
           }))
         : [emptyStep()]
     )
@@ -166,7 +203,10 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
     setSaving(true); setError('')
     const payload = {
       title, description, category, kind,
-      sectionIds,
+      venueId: role === 'ADMIN' ? venueId : undefined,
+      sectionIds: sectionRef.current?.getFinalSelection() ?? sectionIds,
+      departmentIds: deptRef.current?.getFinalSelection() ?? departmentIds,
+      taskIds: taskRef.current?.getFinalSelection() ?? taskIds,
       departmentId: departmentId || null,
       linkedTaskId: linkedTaskId || null,
       requiresSignOff, isOnboarding,
@@ -178,6 +218,8 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
         videoUrl: s.videoUrl || null,
         linkedTaskId: s.linkedTaskId || null,
         linkedChecklistId: s.linkedChecklistId || null,
+        taskIds: s.taskIds.length ? s.taskIds : undefined,
+        linkedModuleIds: s.linkedModuleIds.length ? s.linkedModuleIds : undefined,
       })),
     }
     const url = editing ? `/api/admin/training/${editing.id}` : '/api/admin/training'
@@ -196,22 +238,27 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
     load()
   }
 
+  const effectiveVenueId = role === 'ADMIN' ? venueId : sessionVenueId
+
+  const filteredDepartments = departments.filter((d) => !effectiveVenueId || d.venueId === effectiveVenueId)
+  const filteredTasks = tasks.filter((t) => !effectiveVenueId || t.venueId === effectiveVenueId)
+  const filteredSections = sections.filter((s) => !effectiveVenueId || s.venueId === effectiveVenueId)
+  const filteredChecklists = checklists.filter((c) => !effectiveVenueId || c.venueId === effectiveVenueId)
+  const filteredModules = modules.filter((m) => !effectiveVenueId || m.venueId === effectiveVenueId)
+
   const deptOptions = [
     { value: '', label: 'ALL STAFF (NOT DEPT-SPECIFIC)' },
-    ...departments.map((d) => ({ value: d.id, label: d.name })),
+    ...filteredDepartments.map((d) => ({ value: d.id, label: d.name })),
   ]
-  const formSections = sections.filter((s) => s.venueId === sessionVenueId)
-  function toggleSection(id: string) {
-    setSectionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
-  }
+  const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
   const taskOptions = [
     { value: '', label: 'NOT LINKED TO A TASK' },
-    ...tasks.map((t) => ({ value: t.id, label: t.title })),
+    ...filteredTasks.map((t) => ({ value: t.id, label: t.title })),
   ]
   // Checklists offered per step — filtered to the module's department (or shared).
   const stepChecklistOptions = [
     { value: '', label: '+ EMBED A CHECKLIST (OPTIONAL)' },
-    ...checklists
+    ...filteredChecklists
       .filter((c) => !departmentId || c.departmentId === departmentId || c.departmentId === null)
       .map((c) => ({ value: c.id, label: c.name })),
   ]
@@ -267,35 +314,42 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
         <div className="space-y-4">
           <Input label="Title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="HOW TO CLEAN THE COFFEE MACHINE" />
           <Textarea label="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} />
+          {role === 'ADMIN' && !editing && (
+            <Select label="Venue" value={venueId} onChange={(e) => setVenueId(e.target.value)} options={venueOptions} />
+          )}
           <div className="grid grid-cols-2 gap-3">
             <Select label="Type" value={kind} onChange={(e) => setKind(e.target.value)} options={KIND_OPTIONS} />
             <Input label="Category (optional)" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="BAR" />
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Select label="Auto-assign to department" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} options={deptOptions} />
-            <Select label="Link to a task (optional)" value={linkedTaskId} onChange={(e) => setLinkedTaskId(e.target.value)} options={taskOptions} />
+            <Combobox
+              ref={deptRef}
+              label="Auto-assign to departments"
+              options={deptOptions.filter(o => o.value !== '').map(d => ({ value: d.value, label: d.label }))}
+              selected={departmentIds}
+              onChange={setDepartmentIds}
+              placeholder="Search departments..."
+            />
+            <Combobox
+              ref={taskRef}
+              label="Link to tasks (optional)"
+              options={taskOptions.filter(o => o.value !== '').map(t => ({ value: t.value, label: t.label }))}
+              selected={taskIds}
+              onChange={setTaskIds}
+              onPreview={(id) => window.open(`/admin/tasks?task=${id}`, '_blank')}
+              placeholder="Search tasks..."
+            />
           </div>
 
-          {formSections.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Show in sections (optional)</label>
-              <div className="flex flex-wrap gap-1">
-                {formSections.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => toggleSection(s.id)}
-                    className={`font-mono text-xs px-2 py-1.5 border transition-colors ${
-                      sectionIds.includes(s.id)
-                        ? 'bg-white text-black border-white'
-                        : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
-                    }`}
-                  >
-                    {s.name}
-                  </button>
-                ))}
-              </div>
-            </div>
+          {filteredSections.length > 0 && (
+            <Combobox
+              ref={sectionRef}
+              label="Show in sections (optional)"
+              options={filteredSections.map(s => ({ value: s.id, label: s.name }))}
+              selected={sectionIds}
+              onChange={setSectionIds}
+              placeholder="Search sections..."
+            />
           )}
 
           <div className="flex flex-wrap gap-4">
@@ -327,8 +381,24 @@ export function TrainingClient({ role, sessionVenueId }: { role: string; session
                 <Input value={s.videoUrl} onChange={(e) => updateStep(i, { videoUrl: e.target.value })} placeholder="VIDEO LINK (YOUTUBE/VIMEO, OPTIONAL)" />
                 <Select value={s.linkedChecklistId} onChange={(e) => updateStep(i, { linkedChecklistId: e.target.value })} options={stepChecklistOptions} />
                 {s.linkedChecklistId && (
-                  <p className="font-mono text-[10px] uppercase text-grey-light">THIS LIST APPEARS IN THE TRAINING TO TICK OFF IN PERSON.</p>
+                  <p className="font-mono text-xs uppercase text-grey-light">THIS LIST APPEARS IN THE TRAINING TO TICK OFF IN PERSON.</p>
                 )}
+                <Combobox
+                  label="Linked tasks"
+                  options={filteredTasks.map((t: any) => ({ value: t.id, label: t.title }))}
+                  selected={s.taskIds}
+                  onChange={(ids) => updateStep(i, { taskIds: ids })}
+                  onPreview={(id) => window.open(`/admin/tasks?task=${id}`, '_blank')}
+                  placeholder="Search tasks..."
+                />
+                <Combobox
+                  label="Linked training / SOPs"
+                  options={filteredModules.filter((m: any) => !editing || m.id !== editing.id).map((m: any) => ({ value: m.id, label: m.title, description: `${m.kind} · ${m.category ?? ''}` }))}
+                  selected={s.linkedModuleIds}
+                  onChange={(ids) => updateStep(i, { linkedModuleIds: ids })}
+                  onPreview={(id) => window.open(`/admin/training?module=${id}`, '_blank')}
+                  placeholder="Search modules..."
+                />
                 <div className="flex items-center gap-2">
                   <input
                     ref={(el) => { fileRefs.current[i] = el }}

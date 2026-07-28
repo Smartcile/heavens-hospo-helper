@@ -11,11 +11,23 @@ Start-Sleep -Seconds 2
 # Sync schema and generate Prisma client (self-healing — safe to run every time)
 Write-Host "Syncing database schema..."
 $dbDir = Join-Path $PSScriptRoot "packages\db"
+# Load DATABASE_URL from apps/web/.env.local for prisma db push
+$envLocal = Join-Path $PSScriptRoot "apps\web\.env.local"
+if (Test-Path $envLocal) {
+    Get-Content $envLocal | ForEach-Object {
+        if ($_ -match '^\s*([^#][^=]+)=(.*)') {
+            $name = $matches[1].Trim()
+            $val = $matches[2].Trim()
+            Set-Item -Path "env:$name" -Value $val
+        }
+    }
+}
 Push-Location -LiteralPath $dbDir
 try {
     npx prisma generate
     if ($?) { npx prisma db push }
     if ($?) { Write-Host "Pushing DB seed..."; npm run db:seed }
+    if ($?) { Write-Host "Migrating to Guide model..."; npm run db:migrate-guides }
 } finally {
     Pop-Location
 }

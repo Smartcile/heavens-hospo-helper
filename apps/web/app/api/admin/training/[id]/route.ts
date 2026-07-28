@@ -15,6 +15,9 @@ interface IncomingStep {
   videoUrl?: string | null
   linkedTaskId?: string | null
   linkedChecklistId?: string | null
+  taskIds?: string[]
+  linkedModuleIds?: string[]
+  inventoryItemIds?: { itemId: string; quantity?: number }[]
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {
@@ -24,10 +27,19 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const trainingModule = await prisma.trainingModule.findUnique({
     where: { id: params.id },
     include: {
-      steps: { orderBy: { order: 'asc' } },
+      steps: {
+        orderBy: { order: 'asc' },
+        include: {
+          stepTasks: { select: { taskId: true } },
+          stepModules: { select: { moduleId: true } },
+          inventoryItems: { select: { id: true, itemId: true, quantity: true } },
+        },
+      },
       department: { select: { id: true, name: true } },
       linkedTask: { select: { id: true, title: true } },
       resourceSections: { select: { sectionId: true } },
+      moduleDepartments: { select: { departmentId: true } },
+      moduleTasks: { select: { taskId: true } },
       linksFrom: { select: { toModuleId: true } },
     },
   })
@@ -63,6 +75,14 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.onboardingOrder !== undefined) updates.onboardingOrder = body.onboardingOrder
   if (body.isActive !== undefined) updates.isActive = !!body.isActive
 
+  if (body.departmentIds !== undefined) {
+    const ids: string[] = Array.isArray(body.departmentIds) ? body.departmentIds : []
+    updates.moduleDepartments = { deleteMany: {}, create: ids.map((departmentId: string) => ({ departmentId })) }
+  }
+  if (body.taskIds !== undefined) {
+    const ids: string[] = Array.isArray(body.taskIds) ? body.taskIds : []
+    updates.moduleTasks = { deleteMany: {}, create: ids.map((taskId: string) => ({ taskId })) }
+  }
   if (body.sectionIds !== undefined) {
     const ids: string[] = Array.isArray(body.sectionIds) ? body.sectionIds : []
     updates.resourceSections = { deleteMany: {}, create: ids.map((sectionId: string) => ({ sectionId })) }
@@ -84,6 +104,11 @@ export async function PUT(req: NextRequest, { params }: Params) {
         videoUrl: s.videoUrl?.trim() || null,
         linkedTaskId: s.linkedTaskId || null,
         linkedChecklistId: s.linkedChecklistId || null,
+        stepTasks: s.taskIds?.length ? { create: s.taskIds.map((tid: string) => ({ taskId: tid })) } : undefined,
+        stepModules: s.linkedModuleIds?.length ? { create: s.linkedModuleIds.map((mid: string) => ({ moduleId: mid })) } : undefined,
+        inventoryItems: s.inventoryItemIds?.length
+          ? { create: s.inventoryItemIds.map((inv) => ({ itemId: inv.itemId, quantity: inv.quantity ?? 1 })) }
+          : undefined,
       })),
     }
   }

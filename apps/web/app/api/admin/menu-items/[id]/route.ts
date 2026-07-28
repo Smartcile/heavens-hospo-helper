@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { pushProduct } from '@/lib/woo-push'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -30,6 +31,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     data,
     include: { recipe: { select: { id: true, name: true } } },
   })
+
+  // Push the change to WooCommerce (best-effort — logs to SyncLog, never throws)
+  if (updated.wooProductId) {
+    await pushProduct(updated.id)
+  }
+
   return NextResponse.json(updated)
 }
 

@@ -108,7 +108,49 @@ export interface WorkerSession {
   venueId: string
   departmentId: string | null
   firstName: string
+  role: Role
   expiresAt: number
+}
+
+// ── TIME CLOCK + PAYROLL ──
+
+export interface TimeClockView {
+  id: string
+  staffId: string
+  venueId: string
+  clockIn: Date
+  clockOut: Date | null
+  isActive: boolean
+  geoValid: boolean
+  note: string | null
+  staff: { firstName: string; lastName: string; department: { name: string } | null }
+}
+
+export interface TimeClockStatus {
+  isClockedIn: boolean
+  activeSession: TimeClockView | null
+  todayMinutes: number
+  recentSessions: TimeClockView[]
+}
+
+export interface PayPeriodView {
+  id: string
+  venueId: string
+  startDate: string
+  endDate: string
+  status: string
+  entryCount: number
+}
+
+export interface PayrollEntryView {
+  id: string
+  payPeriodId: string
+  staffId: string
+  totalHours: number
+  hourlyRate: number
+  totalPay: number
+  note: string | null
+  staff: { firstName: string; lastName: string; employmentType: string | null }
 }
 
 export interface WorkerTaskView {
@@ -118,16 +160,20 @@ export interface WorkerTaskView {
   completionType: string
   departmentName: string | null
   sectionName: string | null
-  assigneeName: string | null      // nominally assigned to this person (still shared)
+  assigneeName: string | null
   guide: { id: string; title: string } | null
   isCompleted: boolean
-  completedByName: string | null   // who ticked it (shared list — done for everyone)
+  completedByName: string | null
   completion: {
     id: string
     note: string | null
     photoUrl: string | null
     completedAt: Date
   } | null
+  isOneOff: boolean
+  dueDate: string | null
+  rolloverEnabled: boolean
+  rolledOverFrom: string | null
 }
 
 // ── FLOOR PLAN SPATIAL ENGINE ──
@@ -155,6 +201,9 @@ export interface TableProfileView {
   bomItems: TableProfileBomItem[]
 }
 
+export type TableEdge = 'top' | 'bottom' | 'left' | 'right'
+export type EdgeChairs = Record<TableEdge, number>
+
 export interface SetupItemInput {
   id: string
   tableProfileId: string
@@ -167,6 +216,7 @@ export interface SetupItemInput {
   sectionId?: string | null
   assignedNumber?: string | null
   label?: string | null
+  chairEdges?: EdgeChairs | null
 }
 
 export interface InventoryStockLine {

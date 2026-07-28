@@ -43,6 +43,22 @@ enum CalendarSource {
   MANUAL
 }
 
+enum BookingStatus {
+  CONFIRMED
+  PENDING
+  CANCELLED
+  SEATED
+  COMPLETED
+  NO_SHOW
+}
+
+enum BookingSource {
+  ONLINE
+  PHONE
+  WALK_IN
+  WOOCOMMERCE
+}
+
 // A knowledge resource's type. TRAINING is a sign-off-able guide; the rest are
 // reference material that bundles alongside tasks in a section.
 enum ResourceKind {
@@ -50,6 +66,11 @@ enum ResourceKind {
   SOP
   FAQ
   HOWTO
+}
+
+enum GuideStatus {
+  DRAFT
+  PUBLISHED
 }
 
 enum FollowUpKind {
@@ -69,12 +90,22 @@ model Venue {
   address    String?
   timezone   String    @default("Pacific/Auckland")
   isActive   Boolean   @default(true)
+  isDemo     Boolean   @default(false) // seeded demo venue — read-only for non-admins, excluded from syncs
+  sharingEnabled       Boolean   @default(false) // venue can share/receive staff, products, and WooCommerce data
+  sharedWooVenueId     String?   // source venue for WooCommerce sync (source-venue model)
+  sharedWooVenue       Venue?    @relation("SharedWooVenue", fields: [sharedWooVenueId], references: [id])
+  wooSourceFor         Venue[]   @relation("SharedWooVenue")
   // External embeds (pasteable links shown live in the app)
   loadedRosterUrl        String?
   googleCalendarUrl      String?   // also imported into the planner via its derived iCal feed
   icalFeedUrl            String?   // any .ics subscribe link (e.g. a Loaded/roster calendar feed) — imported
   externalRefreshMinutes Int     @default(0) // 0 = manual refresh only
   lastExternalSyncAt     DateTime? // last successful calendar import
+  // Geo-fence for timeclock punches (centre point + allowed radius in metres).
+  // Null means geo-fencing is off for this venue.
+  geoLat                 Float?
+  geoLon                 Float?
+  geoRadius              Int?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   deletedAt  DateTime?
@@ -85,6 +116,7 @@ model Venue {
   qrCodes     QRCode[]
   budgetPeriods BudgetPeriod[]
   trainingModules TrainingModule[]
+  guides         Guide[]
   taskTemplates TaskTemplate[]
   shiftNotes  ShiftNote[]
   shifts      Shift[]
@@ -106,6 +138,13 @@ model Venue {
   wooIntegrations     WooIntegration[]
   menuItems           MenuItem[]
   wooOrders           WooOrder[]
+  giftCards           GiftCard[]
+  timeClocks          TimeClock[]
+  payPeriods          PayPeriod[]
+  syncLogs            SyncLog[]
+  staffVenues         StaffVenue[]
+  menuItemVenues      MenuItemVenue[]
+  bookings            Booking[]
 }
 
 model Department {
@@ -122,11 +161,27 @@ model Department {
   staff  Staff[]
   tasks  Task[]
   trainingModules TrainingModule[]
+  guides          Guide[]
   shifts Shift[]
   notices Notice[]
   sections Section[]
   checklists Checklist[]
   budgetCategories BudgetCategory[]
+  moduleDepartments ModuleDepartment[]
+  linkedFrom        DepartmentLink[] @relation("FromDepartment")
+  linkedTo          DepartmentLink[] @relation("ToDepartment")
+}
+
+model DepartmentLink {
+  id                String   @id @default(uuid())
+  fromDepartmentId  String
+  toDepartmentId    String
+  createdAt         DateTime @default(now())
+
+  fromDepartment    Department @relation("FromDepartment", fields: [fromDepartmentId], references: [id], onDelete: Cascade)
+  toDepartment      Department @relation("ToDepartment", fields: [toDepartmentId], references: [id], onDelete: Cascade)
+
+  @@unique([fromDepartmentId, toDepartmentId])
 }
 
 model Staff {
@@ -146,6 +201,9 @@ model Staff {
   swiftPosId      String?   // SwiftPOS staff id
   myHrId          String?   // MyHR id
   loadedReportsId String?   // LoadedReports id
+  hourlyRate      Float?    // pay rate per hour
+  employmentType  String?   // FULL_TIME | PART_TIME | CASUAL
+  defaultVenueId  String?   // admin's preferred default venue across all modules
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
@@ -155,6 +213,8 @@ model Staff {
   taskCompletions  TaskCompletion[]
   trainingAssignments TrainingAssignment[]
   trainingCompletions TrainingCompletion[]
+  guideCompletions     GuideCompletion[]
+  guideAssignments     GuideAssignment[]
   shiftNotes       ShiftNote[]
   shifts           Shift[]
   timeOffRequests  TimeOffRequest[]
@@ -163,6 +223,10 @@ model Staff {
   followUps            FollowUp[]
   stocktakeCompletions StocktakeRecord[] @relation("stocktakeCompletedBy")
   stocktakeAssignments StocktakeRecord[] @relation("stocktakeAssignedTo")
+  timeClocks           TimeClock[]
+  payrollEntries       PayrollEntry[]
+  staffVenues          StaffVenue[]
+  maintenanceLogs      MaintenanceLog[]
 }
 
 model Task {
@@ -182,6 +246,11 @@ model Task {
   monthlyDay        Int?         // MONTHLY + SPECIFIC_DAY: day of month (1-31, clamped)
   isActive          Boolean      @default(true)
   sortOrder         Int          @default(0)
+  // One-off / side-work task
+  isOneOff          Boolean      @default(false) // ad-hoc task (not recurring)
+  dueDate           DateTime?    @db.Date       // must be completed by this date
+  rolloverEnabled   Boolean      @default(false) // if not done by dueDate, show again next day
+  rolledOverFrom    DateTime?    @db.Date       // if this is a rollover copy, the original date
   version           Int          @default(1) // bumped on a "significant change" (drives re-train)
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
@@ -192,10 +261,13 @@ model Task {
   section          Section?         @relation(fields: [sectionId], references: [id])
   taskCompletions  TaskCompletion[]
   trainingSteps    TrainingStep[]   @relation("StepLinkedTask")
+  stepTasks        StepTask[]
   trainingModules  TrainingModule[] @relation("ModuleLinkedTask")
   requiredTraining TaskRequiredTraining[]
+  taskGuides       TaskGuide[]
   checklistLinks   ChecklistTask[]
   followUps        FollowUp[]
+  moduleTasks      ModuleTask[]
 }
 
 model TaskCompletion {
@@ -289,6 +361,33 @@ model TrainingModule {
   linksFrom   ResourceLink[] @relation("ResourceLinkFrom")
   linksTo     ResourceLink[] @relation("ResourceLinkTo")
   followUps   FollowUp[]
+  moduleDepartments ModuleDepartment[]
+  moduleTasks       ModuleTask[]
+  stepModules       StepModule[]
+
+  @@index([venueId])
+}
+
+model ModuleDepartment {
+  id         String @id @default(uuid())
+  moduleId   String
+  departmentId String
+
+  module     TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  department Department     @relation(fields: [departmentId], references: [id])
+
+  @@unique([moduleId, departmentId])
+}
+
+model ModuleTask {
+  id       String @id @default(uuid())
+  moduleId String
+  taskId   String
+
+  module   TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  task     Task           @relation(fields: [taskId], references: [id])
+
+  @@unique([moduleId, taskId])
 }
 
 model TrainingStep {
@@ -307,6 +406,49 @@ model TrainingStep {
   module          TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   linkedTask      Task?          @relation("StepLinkedTask", fields: [linkedTaskId], references: [id])
   linkedChecklist Checklist?     @relation(fields: [linkedChecklistId], references: [id])
+  stepTasks       StepTask[]
+  stepModules     StepModule[]
+  inventoryItems  StepInventoryItem[]
+}
+
+model StepInventoryItem {
+  id        String   @id @default(uuid())
+  stepId    String
+  itemId    String
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  step TrainingStep  @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  item InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([stepId, itemId])
+  @@index([stepId])
+  @@index([itemId])
+}
+
+// Many-to-many: step ↔ task
+model StepTask {
+  id     String @id @default(uuid())
+  stepId String
+  taskId String
+
+  step TrainingStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  task Task         @relation(fields: [taskId], references: [id])
+
+  @@unique([stepId, taskId])
+}
+
+// Many-to-many: step ↔ other training modules (for cross-linking SOPs, HOWTOs, etc.)
+model StepModule {
+  id       String @id @default(uuid())
+  stepId   String
+  moduleId String
+
+  step   TrainingStep   @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  module TrainingModule @relation(fields: [moduleId], references: [id])
+
+  @@unique([stepId, moduleId])
 }
 
 // Individual assignment of a module to a person (upskill / area to work on).
@@ -429,9 +571,53 @@ model CalendarEvent {
 
   venue Venue @relation(fields: [venueId], references: [id])
   wooOrders WooOrder[]
+  bookings Booking[]
 
   @@unique([venueId, source, uid])
   @@index([venueId, startsAt])
+}
+
+model Booking {
+  id              String        @id @default(uuid())
+  venueId         String
+  date            DateTime      @db.Date // venue-local calendar date
+  startTime       String                 // "HH:mm" venue-local
+  endTime         String                 // "HH:mm" venue-local
+  partySize       Int
+  contactName     String
+  contactPhone    String?
+  contactEmail    String?
+  source          BookingSource @default(PHONE)
+  status          BookingStatus @default(CONFIRMED)
+  notes           String?
+  calendarEventId String?       // links to CalendarEvent for calendar display
+  floorPlanSlug   String?       // which floor plan layout this booking uses
+  seatingSetupId  String?       // FK to FloorPlanSetup for the generated table layout
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  deletedAt       DateTime?
+
+  venue         Venue            @relation(fields: [venueId], references: [id])
+  calendarEvent CalendarEvent?   @relation(fields: [calendarEventId], references: [id])
+  tables        BookingTable[]
+
+  @@index([venueId, date])
+  @@index([venueId])
+}
+
+model BookingTable {
+  id         String   @id @default(uuid())
+  bookingId  String
+  setupItemId String   // FK to SetupItem (the table placed on the plan)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  setupItem SetupItem @relation(fields: [setupItemId], references: [id])
+
+  @@unique([bookingId, setupItemId])
+  @@index([bookingId])
+  @@index([setupItemId])
 }
 
 model TimeOffRequest {
@@ -455,6 +641,76 @@ model TimeOffRequest {
   @@index([venueId, status])
   @@index([staffId])
 }
+
+// ── TIME CLOCK + PAYROLL ──
+
+// A single clock-in/out session (one shift's worth of actual time).
+// A staff member can have at most one active session at a time (enforced via
+// the API layer — not a DB constraint because Prisma doesn't support partial
+// unique indexes).
+model TimeClock {
+  id          String    @id @default(uuid())
+  staffId     String
+  venueId     String
+  clockIn     DateTime
+  clockOut    DateTime?  // null until punched out
+  isActive    Boolean   @default(true)
+  clockInLat  Float?
+  clockInLon  Float?
+  clockOutLat Float?
+  clockOutLon Float?
+  geoValid    Boolean   @default(true)
+  note        String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  staff Staff @relation(fields: [staffId], references: [id])
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@index([staffId, clockIn])
+  @@index([venueId, clockIn])
+  @@index([isActive])
+}
+
+// A pay cycle for a venue. Entries are calculated when the period is CLOSED.
+model PayPeriod {
+  id        String   @id @default(uuid())
+  venueId   String
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  status    String   @default("OPEN") // OPEN | CLOSED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  venue   Venue          @relation(fields: [venueId], references: [id])
+  entries PayrollEntry[]
+
+  @@index([venueId, startDate])
+}
+
+// Per-staff calculated hours for one pay period. Created by the period-closing
+// engine; re-closing a CLOSED period deletes old entries and recalculates.
+model PayrollEntry {
+  id          String   @id @default(uuid())
+  payPeriodId String
+  staffId     String
+  totalHours  Float
+  hourlyRate  Float
+  totalPay    Float
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  payPeriod PayPeriod @relation(fields: [payPeriodId], references: [id])
+  staff     Staff     @relation(fields: [staffId], references: [id])
+
+  @@unique([payPeriodId, staffId])
+}
+
+// ── SHIFT NOTES ──
 
 // Manager end-of-day notes about a person for a given shift date. An
 // "AREA TO WORK ON" can be linked to a training module assigned to address it.
@@ -603,6 +859,7 @@ model Section {
   floorPlanElements FloorPlanElement[]
   boundaries        SectionBoundary[]
   setupItems        SetupItem[]
+  storedItems       InventoryItem[]
 
   @@index([venueId])
   @@index([departmentId])
@@ -619,6 +876,18 @@ model StaffSection {
   section Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
 
   @@unique([staffId, sectionId])
+}
+
+model StaffVenue {
+  id        String   @id @default(uuid())
+  staffId   String
+  venueId   String
+  createdAt DateTime @default(now())
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, venueId])
 }
 
 // Resource ⇄ Section (a resource can be shared across many sections).
@@ -683,6 +952,99 @@ model FollowUp {
 
   @@unique([venueId, staffId, kind, taskId, dueDate])
   @@index([venueId, status])
+}
+
+// --- PLAYBOOK GUIDES (Phase 6 — simplified replacement for TrainingModule) ---
+
+model Guide {
+  id              String      @id @default(uuid())
+  title           String
+  description     String?
+  category        String?
+  venueId         String
+  departmentId    String?
+  status          GuideStatus @default(DRAFT)
+  isTracked       Boolean     @default(false)
+  isOnboarding    Boolean     @default(false)
+  requiresSignOff Boolean     @default(false)
+  legacyToolsNote String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  deletedAt       DateTime?
+
+  venue      Venue       @relation(fields: [venueId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+  steps      GuideStep[]
+  taskGuides TaskGuide[]
+  completions GuideCompletion[]
+  assignments GuideAssignment[]
+
+  @@index([venueId])
+  @@index([venueId, status])
+}
+
+model GuideStep {
+  id        String   @id @default(uuid())
+  guideId   String
+  order     Int
+  heading   String?
+  content   String
+  imageUrl  String?
+  videoUrl  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  guide Guide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+
+  @@index([guideId])
+}
+
+model TaskGuide {
+  id                     String   @id @default(uuid())
+  taskId                 String
+  guideId                String
+  isRequiredForCompetency Boolean  @default(false)
+  createdAt              DateTime @default(now())
+
+  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  guide Guide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, guideId])
+  @@index([guideId])
+}
+
+model GuideCompletion {
+  id            String   @id @default(uuid())
+  guideId       String
+  staffId       String
+  selfCompleted Boolean  @default(true)
+  signedOffById String?
+  completedAt   DateTime @default(now())
+  note          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  guide Guide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@unique([guideId, staffId])
+  @@index([staffId])
+}
+
+model GuideAssignment {
+  id           String    @id @default(uuid())
+  guideId      String
+  staffId      String
+  assignedById String?
+  reason       String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  guide Guide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@unique([guideId, staffId])
 }
 
 // --- FLOOR PLANNER ---
@@ -812,6 +1174,7 @@ model SetupItem {
   tableGroupId   String?
   assignedNumber String?
   label          String?
+  chairEdges     Json?
   sortOrder      Int       @default(0)
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())
@@ -822,6 +1185,7 @@ model SetupItem {
   tableProfile TableProfile   @relation(fields: [tableProfileId], references: [id])
   section      Section?       @relation(fields: [sectionId], references: [id])
   tableGroup   TableGroup?    @relation(fields: [tableGroupId], references: [id])
+  bookingLinks BookingTable[]
 
   @@index([setupId])
 }
@@ -923,16 +1287,51 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum GiftCardStatus {
+  DRAFT
+  ISSUED
+  SENT
+  REDEEMED
+  VOIDED
+  EXPIRED
+}
+
+enum SyncDirection {
+  PULL
+  PUSH
+  WEBHOOK
+}
+
+enum SyncEntity {
+  PRODUCT
+  ORDER
+}
+
+enum SyncStatus {
+  SUCCESS
+  ERROR
+  SKIPPED
+}
+
+enum KitchenStatus {
+  PENDING
+  COOKING
+  READY
+  SERVED
+}
+
 model InventoryCategory {
-  id        String   @id @default(uuid())
-  venueId   String?
-  name      String
-  tab       String?
-  isBuiltIn Boolean  @default(false)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
+  id                  String   @id @default(uuid())
+  venueId             String?
+  name                String
+  tab                 String?
+  isBuiltIn           Boolean  @default(false)
+  isActive            Boolean  @default(true)
+  showDeepFields      Boolean  @default(false) // controls visibility of counting/ordering/cost/expiry/allergen fields
+  showEquipmentFields Boolean  @default(false) // controls visibility of equipment/tool tracking section
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  deletedAt           DateTime?
 
   venue Venue?         @relation(fields: [venueId], references: [id])
   items InventoryItem[]
@@ -964,28 +1363,65 @@ model InventoryItem {
   // --- Deep inventory fields ---
   supplierId         String?
   countingUnitId     String?
+  countingUnitQty    Float?
   orderingUnitId     String?
+  orderingUnitQty    Float?
+  parLevelUnitId     String?
   yieldPercentage    Float?
   costPrice          Float?
   expiryDate         DateTime?
   fallbackCategoryId String?
+  // --- Food-specific shelf life ---
+  shelfLifeDays         Int?
+  canFreeze             Boolean  @default(false)
+  freezerShelfLifeDays  Int?
 
   allergyInfo   String? // e.g. "GLUTEN, DAIRY, NUTS" for display on recipe ingredients
+
+  // --- Equipment / tool tracking ---
+  imageUrls         Json?    // array of photo URLs
+  storageSectionId  String? // FK to Section — where this item lives
+  storageNotes      String? // e.g. "TOP SHELF, ABOVE THE COFFEE STATION"
+  serialNumber      String?
+  purchaseDate      DateTime?
+  warrantyExpiry    DateTime?
+  serviceIntervalDays Int?  // e.g. 180 = every 6 months; drives calendar bookings
+  lastServicedAt    DateTime?
+  nextServiceAt     DateTime?
+  maintenanceNotes       String?
+  alternativeSupplierIds Json?    // array of supplier UUIDs
 
   venue     Venue                @relation(fields: [venueId], references: [id])
   category          InventoryCategory    @relation(fields: [categoryId], references: [id])
   supplier          Supplier?            @relation(fields: [supplierId], references: [id])
   countingUnit      UnitOfMeasure?       @relation("CountingUOM", fields: [countingUnitId], references: [id])
   orderingUnit      UnitOfMeasure?       @relation("OrderingUOM", fields: [orderingUnitId], references: [id])
+  parLevelUnit      UnitOfMeasure?       @relation("ParLevelUOM", fields: [parLevelUnitId], references: [id])
   fallbackCategory  InventoryCategory?   @relation("FallbackCategory", fields: [fallbackCategoryId], references: [id])
+  storageSection    Section?             @relation(fields: [storageSectionId], references: [id])
   elements          ElementInventoryItem[]
   tableProfileItems TableProfileItem[]
   stocktake         StocktakeLineItem[]
   supplierCodes     SupplierItemCode[]
   recipeLineItems   RecipeLineItem[]
+  stepLinks         StepInventoryItem[]
+  maintenanceLogs   MaintenanceLog[]
 
   @@index([venueId])
   @@index([categoryId])
+}
+
+model MaintenanceLog {
+  id              String   @id @default(uuid())
+  inventoryItemId String
+  staffId         String?
+  note            String
+  createdAt       DateTime @default(now())
+
+  item  InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  staff Staff?        @relation(fields: [staffId], references: [id])
+
+  @@index([inventoryItemId])
 }
 
 model ElementInventoryItem {
@@ -1098,6 +1534,7 @@ model UnitOfMeasure {
   venue              Venue?           @relation(fields: [venueId], references: [id])
   countingItems      InventoryItem[]  @relation("CountingUOM")
   orderingItems      InventoryItem[]  @relation("OrderingUOM")
+  parLevelItems      InventoryItem[]  @relation("ParLevelUOM")
   recipeYields       Recipe[]         @relation("RecipeYield")
   recipeLineItems    RecipeLineItem[]
   supplierItemCodes  SupplierItemCode[]
@@ -1114,8 +1551,8 @@ model SupplierItemCode {
   purchasePrice   Float?
   orderingUnitId  String?
   isPreferred     Boolean  @default(false)
-  notes           String?
-  createdAt       DateTime @default(now())
+  notes         String?
+  createdAt     DateTime  @default(now())
   updatedAt       DateTime @updatedAt
 
   supplier      Supplier       @relation(fields: [supplierId], references: [id])
@@ -1198,23 +1635,40 @@ model MenuItem {
   id              String    @id @default(uuid())
   venueId         String
   name            String
-  recipeId        String
+  recipeId        String?
   price           Float     @default(0)
   wooProductId    String?   @unique
   wooCategoryId   String?
   imageUrl        String?
   description     String?
+  dietaryInfo     String?
   isActive        Boolean   @default(true)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
   venue       Venue          @relation(fields: [venueId], references: [id])
-  recipe      Recipe         @relation(fields: [recipeId], references: [id])
+  recipe      Recipe?        @relation(fields: [recipeId], references: [id])
   orderItems  WooOrderItem[]
+  venueShares MenuItemVenue[]
 
   @@index([venueId])
   @@index([wooProductId])
+}
+
+model MenuItemVenue {
+  id           String   @id @default(uuid())
+  menuItemId   String
+  venueId      String
+  priceOverride Float?  // venue-specific price (null = use menuItem.price)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  venue    Venue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@unique([menuItemId, venueId])
+  @@index([venueId])
 }
 
 // --- ORDERS & AUTO-SEATING ---
@@ -1240,6 +1694,7 @@ model WooOrder {
   venue          Venue           @relation(fields: [venueId], references: [id])
   calendarEvent  CalendarEvent?  @relation(fields: [calendarEventId], references: [id])
   items          WooOrderItem[]
+  giftCards      GiftCard[]
 
   @@index([venueId])
   @@index([wooOrderId])
@@ -1254,6 +1709,7 @@ model WooOrderItem {
   qty        Int      @default(1)
   unitPrice  Float?
   notes      String?
+  kitchenStatus KitchenStatus @default(PENDING)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -1262,4 +1718,54 @@ model WooOrderItem {
 
   @@index([orderId])
   @@index([menuItemId])
+}
+
+model GiftCard {
+  id            String         @id @default(uuid())
+  venueId       String
+  number        String         @unique
+  amount        Float
+  customerName  String?
+  customerEmail String?
+  message       String?
+  status        GiftCardStatus @default(DRAFT)
+  isInternal    Boolean        @default(false)
+  wooOrderId    String?
+  issuedAt      DateTime?
+  sentAt        DateTime?
+  expiresAt     DateTime?
+  pdfPath       String?
+  notes         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
+
+  venue    Venue     @relation(fields: [venueId], references: [id])
+  wooOrder WooOrder? @relation(fields: [wooOrderId], references: [id])
+
+  @@index([venueId])
+  @@index([number])
+  @@index([status])
+}
+
+// --- WOOCOMMERCE SYNC LOG ---
+
+model SyncLog {
+  id         String        @id @default(uuid())
+  venueId    String?
+  direction  SyncDirection
+  entity     SyncEntity
+  status     SyncStatus
+  externalId String?
+  message    String
+  detail     Json?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  deletedAt  DateTime?
+
+  venue Venue? @relation(fields: [venueId], references: [id])
+
+  @@index([venueId])
+  @@index([createdAt])
+  @@index([status])
 }

@@ -6,8 +6,10 @@ guide: once you understand the spine (venue → department → section → work 
 knowledge → completion → follow-up), every screen makes sense.
 
 > **See it live:** the admin panel has a **Structure** page (`/admin/structure`)
-> that renders this tree from your real data — venues, departments, staff, tasks
-> and training, with counts. Use it as a visual review while we build the rest out.
+> with two views. The **TREE** tab renders this hierarchy from your real data —
+> venues, departments, staff, tasks and training, with counts. The **MAP** tab is
+> an interactive link graph of the whole web (nodes + relationship edges) for
+> mapping out workflows. Use it as a visual review while we build the rest out.
 
 ---
 
@@ -96,9 +98,18 @@ managers move between them in one place.
 └──────────────────────────────────────────────────────────┘
 ```
 
-SOPs, FAQs, how-tos and training are **one kind of thing** (a "resource" with a
-type), not four separate silos — that's what lets them group and cross-reference
-freely.
+SOPs, FAQs, how-tos and training are **one kind of thing** — a `Guide` with
+`isTracked: boolean`. Tracked guides have completion and sign-off; reference
+guides (isTracked: false) are pure reference. One table, one editor, one
+worker view.
+
+**Inventory items as tools/equipment:** Individual training/SOP steps can
+reference `InventoryItem` records via `StepInventoryItem` — so a step like
+"Use the T20 Torx to open the grinder" can link the exact tool from inventory.
+Staff then see: the tool photo, its storage location (department → section path),
+storage notes (e.g. "TOP SHELF, ABOVE COFFEE"), and supplier — all inline in the
+training view. Items also track serial numbers, purchase dates, warranties, and
+maintenance schedules per-item for full asset management.
 
 ---
 
@@ -152,13 +163,13 @@ generalisation + one new link** — not a rebuild. All four phases are now live:
   rendered live on the **Structure** page.
 
 **Phase B — Knowledge as "resources"** ✅
-- `TrainingModule.kind`: `TRAINING | SOP | FAQ | HOWTO`. One table, one editor
-  (the Training page). Non-TRAINING kinds are reference-only (excluded from "my training").
-- Attach to sections via `ResourceSection`; cross-reference via `ResourceLink`.
+- `Guide` replaces `TrainingModule`. `isTracked: boolean` replaces the old `kind`
+  enum. Guides are authored at `/admin/guides` with DRAFT/PUBLISHED workflow.
+- `TaskGuide` links tasks to guides with `isRequiredForCompetency: boolean`.
 
 **Phase C — Competency link** ✅
-- `TaskRequiredTraining` (`Task ⇄ Training` "requires"), set per task in the Task form.
-- Competency = existing `TrainingCompletion`.
+- `TaskGuide` with `isRequiredForCompetency: true` set per task in the Task form.
+- Competency = existing `GuideCompletion`.
 
 **Phase D — Trigger engine + notifications** ✅
 - `FollowUp` model + `lib/followups.ts`:
@@ -173,8 +184,17 @@ generalisation + one new link** — not a rebuild. All four phases are now live:
   `@@unique([venueId, staffId, kind, taskId, dueDate])`. In-app for now; push /
   WhatsApp is the next step.
 
-> The **Structure** page (`/admin/structure`) now renders the full live tree:
-> venue → department → **section** → staff / tasks / training.
+**Booking system** — `Booking` + `BookingTable` models link reservations to
+specific `SetupItem` tables. Auto-seat reuses the same `planAutoSeat()` bin-packer
+that WooCommerce uses. Bookings create `CalendarEvent` + `FloorPlanSetup` rows,
+appearing on the calendar, the FOH view, and the worker floor plan with
+auto-switching event layouts.
+
+> The **Structure** page (`/admin/structure`) now renders the full live tree
+> (TREE tab): venue → department → **section** → staff / tasks / training — and a
+> **MAP** tab: an interactive link graph where you can click a node to trace how
+> lists, tasks and training/SOP connect (edges for list→task, how-to,
+> requires-training, embeds, related, scoping and assignment).
 
 ---
 

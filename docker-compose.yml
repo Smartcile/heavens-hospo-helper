@@ -1,4 +1,5 @@
-# HOSPO OPS — Phase 1 stack (Next.js admin + worker app + PostgreSQL).
+# HOSPO OPS — self-hosted hospitality operations platform
+# (Next.js admin + worker app + PostgreSQL 16).
 #
 # The app image is built by GitHub Actions and published to GHCR, so Portainer
 # just PULLS it. Deploy as a Stack in Portainer (Stacks → Add stack → Repository),
@@ -16,26 +17,39 @@
 #   APP_PORT                (optional)  host port the app is published on (default 3000)
 #   APP_NAME                (optional)  display / white-label name (default "HOSPO OPS")
 #   DB_USER                 (optional)  database username (default hospo_ops_user)
+#   INTERNAL_CRON           (optional)  built-in scheduler for WooCommerce product
+#                                       sync (every 15 min) + daily expiry scan.
+#                                       Default true — no host crontab needed.
+#   CRON_SECRET             (optional)  bearer token for the /api/cron endpoints
+#                                       (only needed for EXTERNAL schedulers or
+#                                       manual curl triggers)
+#   IMAGE_TAG               (optional)  Docker image tag to pull (default latest,
+#                                       or set to develop for the latest fixes)
 #
-# On first start the app container auto-runs DB migrations and seeds the demo
-# data (1 venue, 3 departments, 4 logins, example tasks + QR codes). Seeding is
-# safe to re-run, so redeploys won't duplicate anything.
+# On first start the app container regenerates the Prisma client, reconciles the
+# DB schema (`prisma db push`), and seeds the demo data (1 venue, departments,
+# logins, example tasks + QR codes). All steps are idempotent — redeploys won't
+# duplicate anything.
 #
-# Default logins after first deploy (change these in Settings):
-#   admin@demo.com / 0000   bar@demo.com / 1111
-#   kitchen@demo.com / 2222 foh@demo.com / 3333
+# Default logins after first deploy (CHANGE THESE in Settings):
+#   Admin/manager web login (email + password):
+#     admin@demo.com / admin1234    bar@demo.com / bar1234
+#     kitchen@demo.com / kitchen1234  foh@demo.com / foh1234
+#   Floor worker login (QR + PIN):  0000 · 1111 · 2222 · 3333
 
 services:
   db:
     image: postgres:16-alpine
-    container_name: hospo-ops-db
+    container_name: ${INSTANCE_NAME:-hospo-ops}-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: hospo_ops
       POSTGRES_USER: ${DB_USER:-hospo_ops_user}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in Portainer env}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Set DB_DATA to a host path (e.g. /mnt/data/db) for a bind mount,
+      # or leave it as the default named volume (scoped per stack in Portainer).
+      - ${DB_DATA:-postgres_data}:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-hospo_ops_user} -d hospo_ops"]
       interval: 10s
@@ -43,8 +57,8 @@ services:
       retries: 5
 
   app:
-    image: ghcr.io/smartcile/heavens-hospo-helper:latest
-    container_name: hospo-ops-app
+    image: ghcr.io/smartcile/heavens-hospo-helper:${IMAGE_TAG:-latest}
+    container_name: ${INSTANCE_NAME:-hospo-ops}-app
     restart: unless-stopped
     pull_policy: always
     depends_on:
@@ -72,11 +86,15 @@ services:
       # Phase 1: uploaded task photos are stored on the local volume below.
       UPLOAD_PROVIDER: local
       UPLOAD_PATH: /app/uploads
-      # Cron job authentication for product sync and expiry scan.
+      # Internal cron scheduler (WooCommerce product sync + expiry scan).
+      # Runs inside the app container — no host crontab needed.
+      INTERNAL_CRON: ${INTERNAL_CRON:-true}
+      # Bearer auth for the /api/cron endpoints (external schedulers only).
       CRON_SECRET: ${CRON_SECRET:-}
     volumes:
-      # Task completion photos persist here across redeploys.
-      - uploads_data:/app/uploads
+      # Set UPLOADS_DATA to a host path (e.g. /mnt/data/uploads) for a bind mount,
+      # or leave it as the default named volume (scoped per stack in Portainer).
+      - ${UPLOADS_DATA:-uploads_data}:/app/uploads
 
 volumes:
   postgres_data:

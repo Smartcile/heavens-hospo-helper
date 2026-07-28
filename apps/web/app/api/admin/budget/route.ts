@@ -38,9 +38,20 @@ export async function GET(req: NextRequest) {
   const year = Number(searchParams.get('year') ?? now.getUTCFullYear())
   const month = Number(searchParams.get('month') ?? now.getUTCMonth() + 1)
   const venueId = searchParams.get('venueId')
+  const listMonths = searchParams.get('listMonths') === '1'
   const venueScope = session.user.role === 'MANAGER' ? session.user.venueId : venueId || undefined
 
-  if (!venueScope) return NextResponse.json({ period: null })
+  if (!venueScope) {
+    return listMonths ? NextResponse.json({ months: [] }) : NextResponse.json({ period: null })
+  }
+
+  if (listMonths) {
+    const months = await prisma.budgetPeriod.findMany({
+      where: { venueId: venueScope, year, deletedAt: null },
+      select: { month: true },
+    })
+    return NextResponse.json({ months: months.map((m) => m.month) })
+  }
 
   const period = await prisma.budgetPeriod.findFirst({
     where: { venueId: venueScope, year, month, deletedAt: null },

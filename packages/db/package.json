@@ -9,6 +9,7 @@
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:migrate-budget": "tsx prisma/migrate-budget-day-allocations.ts",
+    "db:migrate-guides": "tsx prisma/migrate-to-guides.ts",
     "db:reset": "prisma migrate reset --force",
     "db:studio": "prisma studio"
   },

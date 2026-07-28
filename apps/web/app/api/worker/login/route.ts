@@ -11,10 +11,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Venue and PIN required' }, { status: 400 })
   }
 
-  // Find staff matching PIN in this venue
+  // Block login for disabled / demo-inactive venues
+  const venue = await prisma.venue.findUnique({
+    where: { id: venueId, deletedAt: null },
+    select: { isActive: true, isDemo: true },
+  })
+  if (!venue || !venue.isActive) {
+    return NextResponse.json({ error: 'Venue not available' }, { status: 404 })
+  }
+
+  // Find staff matching PIN in this venue (home venue OR shared venue)
   const staffList = await prisma.staff.findMany({
     where: {
-      venueId,
+      OR: [
+        { venueId },
+        { staffVenues: { some: { venueId } } },
+      ],
       isActive: true,
       deletedAt: null,
       pin: { not: null },
@@ -40,6 +52,7 @@ export async function POST(req: NextRequest) {
     venueId,
     departmentId: matched.departmentId,
     firstName: matched.firstName,
+    role: matched.role,
   })
 
   const response = NextResponse.json({ success: true, firstName: matched.firstName })

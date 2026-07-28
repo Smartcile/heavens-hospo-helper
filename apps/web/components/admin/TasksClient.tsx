@@ -7,8 +7,10 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
+import { Combobox } from '@/components/ui/Combobox'
 import { moveItem } from '@/lib/array'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
+import { getActiveVenueId } from '@/lib/active-venue'
 
 interface Task {
   id: string
@@ -29,6 +31,7 @@ interface Task {
   department: { id: string; name: string; colour: string | null } | null
   section: { id: string; name: string } | null
   requiredTraining: { moduleId: string; module?: { kind: string } }[]
+  taskGuides?: { guideId: string; isRequiredForCompetency: boolean }[]
   trainingModules?: { kind: string }[]
   _count?: { checklistLinks: number }
 }
@@ -36,7 +39,7 @@ interface Task {
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string; colour: string | null }
 interface Section { id: string; name: string; departmentId: string; venueId: string }
-interface TrainingLite { id: string; title: string; venueId: string; kind: string }
+interface GuideLite { id: string; title: string; venueId: string; isTracked: boolean; description: string | null }
 
 interface ChecklistCardTask { id: string; title: string; isActive: boolean; version: number }
 interface Checklist {
@@ -66,12 +69,13 @@ interface FormState {
   monthlyOption: string
   monthlyDay: number
   requiredTrainingIds: string[]
+  competencyGuideIds: string[]
 }
 
 const EMPTY_FORM: FormState = {
   title: '', description: '', venueId: '', departmentId: '', sectionId: '',
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
-  intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, requiredTrainingIds: [],
+  intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, requiredTrainingIds: [], competencyGuideIds: [],
 }
 
 const COMPLETION_OPTIONS = [
@@ -87,12 +91,12 @@ const SCHEDULE_OPTIONS = [
 ]
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
-export function TasksClient({ role, sessionVenueId }: { role: string; sessionVenueId: string }) {
+export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [sections, setSections] = useState<Section[]>([])
-  const [modules, setModules] = useState<TrainingLite[]>([])
+  const [guides, setGuides] = useState<GuideLite[]>([])
   const [checklists, setChecklists] = useState<Checklist[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -102,11 +106,11 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [filterVenue, setFilterVenue] = useState(role === 'MANAGER' ? sessionVenueId : '')
+  const [filterVenue, setFilterVenue] = useState(getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [filterDept, setFilterDept] = useState('')
   const [filterSection, setFilterSection] = useState('')
   const [search, setSearch] = useState('')
-  const [filterUsage, setFilterUsage] = useState('')
+  const [filterUsage, setFilterUsage] = useState('nolist')
   const [requireRetrain, setRequireRetrain] = useState(false)
   const [changeSummary, setChangeSummary] = useState('')
 
@@ -114,7 +118,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
   const [clEditing, setClEditing] = useState<Checklist | 'new' | null>(null)
   const [clName, setClName] = useState('')
   const [clDesc, setClDesc] = useState('')
-  const [clVenueId, setClVenueId] = useState(role === 'MANAGER' ? sessionVenueId : '')
+  const [clVenueId, setClVenueId] = useState(getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [clDeptId, setClDeptId] = useState('')
   const [clSectionId, setClSectionId] = useState('')
   const [clSelected, setClSelected] = useState<string[]>([])
@@ -133,7 +137,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
       fetch('/api/admin/venues'),
       fetch('/api/admin/departments'),
       fetch('/api/admin/sections'),
-      fetch('/api/admin/training'),
+      fetch('/api/admin/guides'),
       fetch('/api/admin/checklists'),
     ])
     const [tData, vData, dData, sData, mData, cData] = await Promise.all([tR.json(), vR.json(), dR.json(), sR.json(), mR.json(), cR.json()])
@@ -141,7 +145,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
     setVenues(vData)
     setDepartments(dData)
     setSections(sData)
-    setModules(mData)
+    setGuides(mData)
     setChecklists(cData)
     setLoading(false)
   }
@@ -151,7 +155,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
   // --- Task modal ---
   function openCreate() {
     setEditing(null)
-    setForm({ ...EMPTY_FORM, venueId: role === 'MANAGER' ? sessionVenueId : '' })
+    setForm({ ...EMPTY_FORM, venueId: getActiveVenueId(role, sessionVenueId, defaultVenueId) })
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
   }
@@ -164,6 +168,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
       customCron: t.customCron ?? '',
       intervalMonths: t.intervalMonths ?? 1, monthlyOption: t.monthlyOption ?? 'FIRST_DAY', monthlyDay: t.monthlyDay ?? 1,
       requiredTrainingIds: (t.requiredTraining ?? []).map((r) => r.moduleId),
+      competencyGuideIds: (t.taskGuides ?? []).filter((g) => g.isRequiredForCompetency).map((g) => g.guideId),
     })
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
@@ -183,6 +188,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
         departmentId: form.departmentId || null,
         sectionId: form.sectionId || null,
         requiredTrainingIds: form.requiredTrainingIds,
+        competencyGuideIds: form.competencyGuideIds,
         customCron: form.scheduleType === 'CUSTOM' ? form.customCron : null,
         scheduleDays: form.scheduleType === 'DAILY' ? [] : form.scheduleDays,
         ...(editing ? { requireRetrain, changeSummary } : {}),
@@ -206,7 +212,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
     setForm({ ...form, scheduleDays: days })
   }
   function toggleRequired(id: string) {
-    setForm((f) => ({ ...f, requiredTrainingIds: f.requiredTrainingIds.includes(id) ? f.requiredTrainingIds.filter((x) => x !== id) : [...f.requiredTrainingIds, id] }))
+    setForm((f) => ({ ...f, competencyGuideIds: f.competencyGuideIds.includes(id) ? f.competencyGuideIds.filter((x) => x !== id) : [...f.competencyGuideIds, id] }))
   }
 
   // --- Checklist editor ---
@@ -221,6 +227,11 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
     setClName(c.name); setClDesc(c.description ?? '')
     setClVenueId(c.venueId); setClDeptId(c.departmentId ?? ''); setClSectionId(c.sectionId ?? '')
     setClSelected(c.tasks.map((t) => t.id)); setClAppearFrom(c.appearFromTime ?? ''); setClError('')
+    // Auto-scope left panel filters to match this checklist
+    if (c.venueId) setFilterVenue(c.venueId)
+    if (c.departmentId) setFilterDept(c.departmentId)
+    if (c.sectionId) setFilterSection(c.sectionId)
+    setFilterUsage('notinthis')
   }
   function addToChecklist(id: string) {
     setClSelected((prev) => (prev.includes(id) ? prev : [...prev, id]))
@@ -246,10 +257,11 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
 
   // --- Derived ---
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
+  const selClass = (v: string) => v ? 'border-[#60A5FA]' : ''
   const filterDeptOptions = [{ value: '', label: 'ALL DEPARTMENTS' }, ...departments.filter((d) => !filterVenue || d.venueId === filterVenue).map((d) => ({ value: d.id, label: d.name }))]
   const formDeptOptions = [{ value: '', label: 'NO DEPARTMENT' }, ...departments.filter((d) => d.venueId === form.venueId).map((d) => ({ value: d.id, label: d.name }))]
   const formSectionOptions = [{ value: '', label: 'NO SECTION' }, ...sections.filter((s) => s.departmentId === form.departmentId).map((s) => ({ value: s.id, label: s.name }))]
-  const trainingOptions = modules.filter((m) => m.venueId === form.venueId && m.kind === 'TRAINING')
+  const guideOptions = guides.filter((g) => g.venueId === form.venueId)
 
   const taskById = new Map(tasks.map((t) => [t.id, t]))
   const clDeptOptions = [{ value: '', label: 'WHOLE VENUE' }, ...departments.filter((d) => d.venueId === clVenueId).map((d) => ({ value: d.id, label: d.name }))]
@@ -274,13 +286,15 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
     { value: 'list', label: 'IN A CHECKLIST' },
     { value: 'nolist', label: 'NOT IN A LIST' },
     { value: 'training', label: 'HAS TRAINING/SOP' },
+    ...(clEditing ? [{ value: 'notinthis', label: 'NOT IN THIS LIST' }] : []),
   ]
-  const hasTrainingUse = (t: Task) => (t.trainingModules?.length ?? 0) > 0 || (t.requiredTraining?.length ?? 0) > 0
+  const hasTrainingUse = (t: Task) => (t.trainingModules?.length ?? 0) > 0 || (t.requiredTraining?.length ?? 0) > 0 || (t.taskGuides?.length ?? 0) > 0
   const visibleTasks = tasks.filter((t) => {
     if (filterSection && t.sectionId !== filterSection) return false
     if (search.trim() && !t.title.toLowerCase().includes(search.trim().toLowerCase())) return false
     if (filterUsage === 'list' && !(t._count?.checklistLinks)) return false
     if (filterUsage === 'nolist' && (t._count?.checklistLinks ?? 0) > 0) return false
+    if (filterUsage === 'notinthis' && clEditing && clEditing !== 'new' && clEditing.tasks?.some((ct) => ct.id === t.id)) return false
     if (filterUsage === 'training' && !hasTrainingUse(t)) return false
     return true
   })
@@ -292,6 +306,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
     const kinds = new Set<string>()
     ;(t.trainingModules ?? []).forEach((m) => kinds.add(m.kind))
     ;(t.requiredTraining ?? []).forEach((r) => { if (r.module) kinds.add(r.module.kind) })
+    if ((t.taskGuides ?? []).length > 0) kinds.add('TRAINING')
     if (kinds.has('TRAINING')) out.push({ text: 'TRAINING', cls: 'text-accent' })
     if (kinds.has('SOP')) out.push({ text: 'SOP', cls: 'text-warning' })
     if (kinds.has('HOWTO') || kinds.has('FAQ')) out.push({ text: 'GUIDE', cls: 'text-grey-light' })
@@ -344,9 +359,9 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
     <div className="p-4 md:p-6 space-y-4">
       <h1 className="font-mono text-xl font-bold uppercase tracking-widest">TASKS &amp; CHECKLISTS</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" style={{ height: 'calc(100vh - 10rem)', overflow: 'hidden' }}>
         {/* LEFT — tasks grouped by department → section */}
-        <div className="space-y-4">
+        <div className="space-y-4 overflow-y-auto pr-2">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <h2 className="font-mono text-sm uppercase tracking-widest text-grey-light">TASKS</h2>
             <Button onClick={openCreate} size="sm">+ NEW TASK</Button>
@@ -357,17 +372,17 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
             <div className="flex gap-2 flex-wrap">
               {role === 'ADMIN' && (
                 <div className="w-36">
-                  <Select value={filterVenue} onChange={(e) => { setFilterVenue(e.target.value); setFilterDept(''); setFilterSection('') }} options={[{ value: '', label: 'ALL VENUES' }, ...venueOptions]} />
+                  <Select value={filterVenue} onChange={(e) => { setFilterVenue(e.target.value); setFilterDept(''); setFilterSection('') }} options={[{ value: '', label: 'ALL VENUES' }, ...venueOptions]} className={selClass(filterVenue)} />
                 </div>
               )}
               <div className="w-36">
-                <Select value={filterDept} onChange={(e) => { setFilterDept(e.target.value); setFilterSection('') }} options={filterDeptOptions} />
+                <Select value={filterDept} onChange={(e) => { setFilterDept(e.target.value); setFilterSection('') }} options={filterDeptOptions} className={selClass(filterDept)} />
               </div>
               <div className="w-36">
-                <Select value={filterSection} onChange={(e) => setFilterSection(e.target.value)} options={filterSectionOptions} />
+                <Select value={filterSection} onChange={(e) => setFilterSection(e.target.value)} options={filterSectionOptions} className={selClass(filterSection)} />
               </div>
               <div className="w-40">
-                <Select value={filterUsage} onChange={(e) => setFilterUsage(e.target.value)} options={USAGE_OPTIONS} />
+                <Select value={filterUsage} onChange={(e) => setFilterUsage(e.target.value)} options={USAGE_OPTIONS} className={selClass(filterUsage)} />
               </div>
             </div>
           </div>
@@ -454,6 +469,7 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
                         >
                           <span className="font-mono text-xs text-white truncate">{i + 1}. {t?.title ?? '(task removed)'}</span>
                           <div className="flex gap-2 flex-shrink-0">
+                            {t && <button type="button" onClick={() => openEdit(t)} className="font-mono text-xs uppercase text-grey-light hover:text-white">EDIT</button>}
                             <button type="button" disabled={i === 0} onClick={() => setClSelected((p) => moveItem(p, i, i - 1))} className="font-mono text-xs text-grey-light hover:text-white disabled:opacity-30">↑</button>
                             <button type="button" disabled={i === clSelected.length - 1} onClick={() => setClSelected((p) => moveItem(p, i, i + 1))} className="font-mono text-xs text-grey-light hover:text-white disabled:opacity-30">↓</button>
                             <button type="button" onClick={() => setClSelected((p) => p.filter((x) => x !== id))} className="font-mono text-xs text-grey-light hover:text-danger">✕</button>
@@ -463,7 +479,15 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
                     })
                   )}
                 </div>
-                <Select value="" onChange={(e) => { if (e.target.value) addToChecklist(e.target.value) }} options={clAddOptions} />
+                <Combobox
+                  options={tasks
+                    .filter((t) => t.venueId === clVenueId && (clSectionId ? t.sectionId === clSectionId : clDeptId ? t.departmentId === clDeptId : true))
+                    .map((t) => ({ value: t.id, label: t.title, description: t.description }))}
+                  selected={clSelected}
+                  onChange={(ids) => setClSelected(ids)}
+                  placeholder="+ ADD A TASK..."
+                  hideTags
+                />
               </div>
 
               {clError && <p className="font-mono text-xs text-danger">{clError}</p>}
@@ -523,16 +547,15 @@ export function TasksClient({ role, sessionVenueId }: { role: string; sessionVen
           </div>
           <Select label="Section (optional)" value={form.sectionId} onChange={(e) => setForm({ ...form, sectionId: e.target.value })} options={formSectionOptions} />
 
-          {trainingOptions.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Required training (competency)</label>
-              <div className="flex flex-wrap gap-1">
-                {trainingOptions.map((m) => (
-                  <button key={m.id} type="button" onClick={() => toggleRequired(m.id)} className={`font-mono text-xs px-2 py-1.5 border transition-colors ${form.requiredTrainingIds.includes(m.id) ? 'bg-white text-black border-white' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>{m.title}</button>
-                ))}
-              </div>
-              <p className="font-mono text-xs text-grey-light">IF SOMEONE COMPLETES THIS TASK WITHOUT THE TICKED TRAINING, A FOLLOW-UP IS RAISED FOR A MANAGER.</p>
-            </div>
+          {guideOptions.length > 0 && (
+            <Combobox
+              label="Required training (competency)"
+              options={guideOptions.map((g) => ({ value: g.id, label: g.title, description: g.description ?? undefined }))}
+              selected={form.competencyGuideIds}
+              onChange={(ids) => setForm({ ...form, competencyGuideIds: ids })}
+              onPreview={(id) => window.open(`/admin/guides?guide=${id}`, '_blank')}
+              placeholder="Search guides..."
+            />
           )}
 
           <div className="grid grid-cols-2 gap-3">

@@ -5,6 +5,32 @@ import { prisma } from '@hospo-ops/db'
 
 interface Params { params: { id: string } }
 
+export async function PUT(req: NextRequest, { params }: Params) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const cat = await prisma.inventoryCategory.findFirst({
+    where: { id: params.id, deletedAt: null },
+  })
+  if (!cat) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (session.user.role === 'MANAGER' && cat.venueId && cat.venueId !== session.user.venueId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const { name, tab, showDeepFields, showEquipmentFields } = await req.json()
+  const data: Record<string, unknown> = {}
+  if (name !== undefined) data.name = String(name).toUpperCase().trim()
+  if (tab !== undefined) data.tab = tab || null
+  if (showDeepFields !== undefined) data.showDeepFields = !!showDeepFields
+  if (showEquipmentFields !== undefined) data.showEquipmentFields = !!showEquipmentFields
+
+  const updated = await prisma.inventoryCategory.update({
+    where: { id: params.id },
+    data,
+  })
+  return NextResponse.json(updated)
+}
+
 export async function DELETE(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

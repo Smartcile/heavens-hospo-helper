@@ -18,6 +18,24 @@ export interface StaffTrainingItem {
     imageUrl: string | null
     videoUrl: string | null
     linkedChecklist: { id: string; name: string; tasks: { id: string; title: string }[] } | null
+    linkedTasks: { id: string; title: string }[]
+    linkedModules: { id: string; title: string; kind: string }[]
+    linkedInventoryItems: {
+      id: string
+      itemId: string
+      quantity: number
+      item: {
+        id: string
+        name: string
+        unit: string
+        imageUrls: string[] | null
+        category: { id: string; name: string } | null
+        storageSection: { id: string; name: string; department: { id: string; name: string } } | null
+        storageNotes: string | null
+        supplier: { id: string; name: string } | null
+        totalQty: number
+      }
+    }[]
   }[]
   source: 'ONBOARDING' | 'DEPARTMENT' | 'ASSIGNED'
   assignmentReason: string | null
@@ -73,6 +91,25 @@ export async function getStaffTraining(staffId: string): Promise<{
               id: true,
               name: true,
               tasks: { orderBy: { sortOrder: 'asc' }, include: { task: { select: { id: true, title: true, deletedAt: true } } } },
+            },
+          },
+          stepTasks: { include: { task: { select: { id: true, title: true } } } },
+          stepModules: { include: { module: { select: { id: true, title: true, kind: true } } } },
+          inventoryItems: {
+            include: {
+              item: {
+                select: {
+                  id: true,
+                  name: true,
+                  unit: true,
+                  imageUrls: true,
+                  category: { select: { id: true, name: true } },
+                  storageSection: { select: { id: true, name: true, department: { select: { id: true, name: true } } } },
+                  storageNotes: true,
+                  supplier: { select: { id: true, name: true } },
+                  totalQty: true,
+                },
+              },
             },
           },
         },
@@ -136,6 +173,14 @@ export async function getStaffTraining(staffId: string): Promise<{
                 .map((ct) => ({ id: ct.task.id, title: ct.task.title })),
             }
           : null,
+        linkedTasks: (s.stepTasks ?? []).map((st) => ({ id: st.task.id, title: st.task.title })),
+        linkedModules: (s.stepModules ?? []).map((sm) => ({ id: sm.module.id, title: sm.module.title, kind: sm.module.kind })),
+        linkedInventoryItems: (s.inventoryItems ?? []).map((si) => ({
+          id: si.id,
+          itemId: si.item.id,
+          quantity: si.quantity,
+          item: { ...si.item, imageUrls: (si.item.imageUrls as any) as string[] | null },
+        })),
       })),
       source,
       assignmentReason: reasonByModule.get(m.id) ?? null,
@@ -193,6 +238,23 @@ export async function getStaffSops(staffId: string): Promise<{
               },
             },
           },
+          inventoryItems: {
+            include: {
+              item: {
+                select: {
+                  id: true,
+                  name: true,
+                  unit: true,
+                  imageUrls: true,
+                  category: { select: { id: true, name: true } },
+                  storageSection: { select: { id: true, name: true, department: { select: { id: true, name: true } } } },
+                  storageNotes: true,
+                  supplier: { select: { id: true, name: true } },
+                  totalQty: true,
+                },
+              },
+            },
+          },
         },
       },
       department: { select: { id: true, name: true } },
@@ -222,6 +284,14 @@ export async function getStaffSops(staffId: string): Promise<{
               .map((ct) => ({ id: ct.task.id, title: ct.task.title })),
           }
         : null,
+      linkedTasks: [],
+      linkedModules: [],
+      linkedInventoryItems: (s.inventoryItems ?? []).map((si: any) => ({
+        id: si.id,
+        itemId: si.item.id,
+        quantity: si.quantity,
+        item: { ...si.item, imageUrls: (si.item.imageUrls as any) as string[] | null },
+      })),
     })),
   }))
 

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useMemo } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { Combobox } from '@/components/ui/Combobox'
 import {
   PALETTE_ITEMS,
   computeSectionSummary, type PaletteItem, type ElementData,
@@ -16,7 +17,9 @@ import { FloorPlanPixiCanvas, type ViewState } from '@/components/admin/floorpla
 import { FloorplanToolbar } from '@/components/admin/FloorplanToolbar'
 import { FloorplanInspector } from '@/components/admin/FloorplanInspector'
 import { traceBoothPerimeter } from '@/lib/booth-trace'
-import { calculateSetupInventory } from '@/lib/floorplan-inventory'
+import { calculateSetupInventory, unionTablePolygons, computeGroupChairs, computeSetupSectionTotals, type TableProfileWithBom } from '@/lib/floorplan-inventory'
+import { defaultEdgeChairs, adjustEdgeChairs, emptyEdgeChairs, type TableEdge } from '@/lib/floorplan-chairs'
+import { planAutoSeat, type AutoSeatProfile } from '@/lib/auto-seat'
 import { pushToast, ToastContainer } from '@/components/ui/Toast'
 
 interface SectionZone {
@@ -29,7 +32,7 @@ interface SectionZone {
   label?: string
 }
 
-interface Section { id: string; name: string; colour: string | null; departmentId: string }
+interface Section { id: string; name: string; colour: string | null; departmentId: string; department?: { id: string; name: string; colour: string | null } }
 
 interface FullPlan {
   id: string; name: string; slug: string; isDefault: boolean
@@ -62,6 +65,10 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [showInvTab, setShowInvTab] = useState(false)
   const [zones, setZones] = useState<SectionZone[]>([])
   const [zoneDrawing, setZoneDrawing] = useState(false)
+  const [zonePolyMode, setZonePolyMode] = useState(false)
+  const [zonePolyPoints, setZonePolyPoints] = useState<{ x: number; y: number }[]>([])
+  const [wallDrawing, setWallDrawing] = useState(false)
+  const [wallPoints, setWallPoints] = useState<{ x: number; y: number }[]>([])
   const [zoneDrawStart, setZoneDrawStart] = useState<{ x: number; y: number } | null>(null)
   const [zoneDrawRect, setZoneDrawRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [zoneSectionId, setZoneSectionId] = useState(sections[0]?.id ?? '')
@@ -104,6 +111,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [setups, setSetups] = useState<{ id: string; name: string; eventDate?: string }[]>([])
   const [activeSetupId, setActiveSetupId] = useState<string | null>(null)
   const [setupItems, setSetupItems] = useState<SetupItemInput[]>([])
+  const [ghostItems, setGhostItems] = useState<SetupItemInput[]>([])
   const [setupSelectedIds, setSetupSelectedIds] = useState<string[]>([])
   const [tableProfiles, setTableProfiles] = useState<TableProfileView[]>([])
   const [sectionBoundaries, setSectionBoundaries] = useState<SectionBoundaryP[]>([])
@@ -111,10 +119,36 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [shortages, setShortages] = useState<any[] | null>(null)
   const [checkingInventory, setCheckingInventory] = useState(false)
 
-  const historyRef = useRef<{ past: ElementData[][]; future: ElementData[][] }>({ past: [], future: [] })
+  type HistorySnapshot = { elements: ElementData[]; setupItems: SetupItemInput[]; zones: SectionZone[] }
+  const historyRef = useRef<{ past: HistorySnapshot[]; future: HistorySnapshot[] }>({ past: [], future: [] })
+
+  // Load ghost tables from first setup for base plan preview
+  useEffect(() => {
+    if (!activeSetupId && setups.length > 0 && plan) {
+      const firstSetupId = setups[0].id
+      fetch(`/api/admin/floorplan/${plan.id}/setups/${firstSetupId}/items`)
+        .then(r => r.ok ? r.json() : [])
+        .then(items => setGhostItems(Array.isArray(items) ? items : []))
+        .catch(() => setGhostItems([]))
+    }
+  }, [activeSetupId, setups, plan])
+
+  function snapshot(): HistorySnapshot {
+    return {
+      elements: JSON.parse(JSON.stringify(elements)),
+      setupItems: JSON.parse(JSON.stringify(setupItems)),
+      zones: JSON.parse(JSON.stringify(zones)),
+    }
+  }
+
+  function restore(s: HistorySnapshot) {
+    setElements(s.elements)
+    setSetupItems(s.setupItems)
+    setZones(s.zones)
+  }
 
   function pushHistory() {
-    historyRef.current.past.push(JSON.parse(JSON.stringify(elements)))
+    historyRef.current.past.push(snapshot())
     historyRef.current.future = []
   }
 
@@ -122,16 +156,16 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     const { past, future } = historyRef.current
     if (past.length === 0) return
     const prev = past.pop()!
-    future.push(JSON.parse(JSON.stringify(elements)))
-    setElements(prev)
+    future.push(snapshot())
+    restore(prev)
   }
 
   function redo() {
     const { past, future } = historyRef.current
     if (future.length === 0) return
     const next = future.pop()!
-    past.push(JSON.parse(JSON.stringify(elements)))
-    setElements(next)
+    past.push(snapshot())
+    restore(next)
   }
 
   // ── Setup layer functions ──
@@ -166,6 +200,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       tableGroupId: i.tableGroupId ?? null,
       assignedNumber: i.assignedNumber ?? null,
       label: i.assignedNumber ?? i.label ?? null,
+      chairEdges: i.chairEdges ?? null,
     }))
     setSetupItems(items)
   }
@@ -184,6 +219,48 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     handleSetupChange(created.id)
   }
 
+  function handleGenerateSeating() {
+    if (!activeSetupId) return
+    const input = prompt('How many covers (party size)?')
+    const partySize = parseInt(input ?? '')
+    if (!partySize || partySize <= 0) return
+    const profiles: AutoSeatProfile[] = tableProfiles.map((tp: any) => ({
+      id: tp.id, capacity: tp.capacity ?? tp.chairCount, chairCount: tp.chairCount,
+      width: tp.width, depth: tp.depth, tableNumbers: tp.tableNumbers ?? null,
+    }))
+    const usedNumbers: Record<string, string[]> = {}
+    for (const i of setupItems) {
+      if (i.assignedNumber) (usedNumbers[i.tableProfileId] ??= []).push(i.assignedNumber)
+    }
+    const placements = planAutoSeat(partySize, profiles, { usedNumbers })
+    if (placements.length === 0) {
+      pushToast('No table profiles available to auto-seat.', 'error')
+      return
+    }
+    pushHistory()
+    const newItems: SetupItemInput[] = placements.map((pl) => {
+      const id = `new_setup_${nextIdCounter.current++}`
+      const tp = tableProfiles.find(t => t.id === pl.profileId)
+      return {
+        id,
+        tableProfileId: pl.profileId,
+        assignedNumber: pl.assignedNumber,
+        x: pl.x, y: pl.y, rotation: 0,
+        width: pl.width, depth: pl.depth,
+        label: pl.assignedNumber ?? tp?.name ?? 'TABLE',
+        sectionId: sectionForPoint(pl.x + pl.width / 2, pl.y + pl.depth / 2),
+        chairEdges: defaultEdgeChairs({
+          width: pl.width, depth: pl.depth,
+          seatingDensity: tp?.seatingDensity ?? null,
+          maxHeadChairs: (tp as any)?.maxHeadChairs ?? 1,
+          capacity: tp?.chairCount ?? 0,
+        }),
+      }
+    })
+    setSetupItems(prev => [...prev, ...newItems])
+    pushToast(`Placed ${placements.length} tables for ${partySize} covers.`, 'success')
+  }
+
   async function handleDeleteSetup() {
     if (!activeSetupId || !confirm('Delete this setup?')) return
     await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}`, { method: 'DELETE' })
@@ -193,7 +270,40 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
   function handleSetupItemDragEnd(id: string, x: number, y: number) {
     pushHistory()
-    setSetupItems(prev => prev.map(i => i.id === id ? { ...i, x, y } : i))
+    setSetupItems(prev => {
+      const item = prev.find(i => i.id === id)
+      if (!item) return prev
+      const dx = x - item.x; const dy = y - item.y
+      const place = (it: SetupItemInput, nx: number, ny: number): SetupItemInput => ({
+        ...it, x: nx, y: ny, sectionId: sectionForPoint(nx + it.width / 2, ny + it.depth / 2),
+      })
+      // Move the whole group as a unit when the dragged table is grouped
+      if (item.tableGroupId) {
+        return prev.map(i =>
+          i.id === id ? place(i, x, y)
+            : i.tableGroupId === item.tableGroupId ? place(i, i.x + dx, i.y + dy)
+              : i)
+      }
+      return prev.map(i => i.id === id ? place(i, x, y) : i)
+    })
+  }
+
+  // Auto-join two same-profile tables dragged flush together (Phase 2).
+  // Uses a temporary group id; real TableGroup rows are materialised on save.
+  function handleSetupItemsJoin(draggedId: string, targetId: string) {
+    setSetupItems(prev => {
+      const dragged = prev.find(i => i.id === draggedId)
+      const target = prev.find(i => i.id === targetId)
+      if (!dragged || !target) return prev
+      const groupId = target.tableGroupId ?? dragged.tableGroupId ?? `new_group_${nextIdCounter.current++}`
+      const draggedOldGroup = dragged.tableGroupId
+      return prev.map(i => {
+        if (i.id === draggedId || i.id === targetId) return { ...i, tableGroupId: groupId }
+        // pull along any members of the dragged table's previous group
+        if (draggedOldGroup && i.tableGroupId === draggedOldGroup) return { ...i, tableGroupId: groupId }
+        return i
+      })
+    })
   }
 
   function handleSetupItemDropToSection(id: string, sectionId: string) {
@@ -256,6 +366,42 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       i.tableGroupId === item.tableGroupId ? { ...i, tableGroupId: null } : i
     ))
     setSetupSelectedIds([])
+  }
+
+  function deleteSetupSelected() {
+    if (setupSelectedIds.length === 0) return
+    pushHistory()
+    const idSet = new Set(setupSelectedIds)
+    setSetupItems(prev => prev.filter(i => !idSet.has(i.id)))
+    setSetupSelectedIds([])
+  }
+
+  function rotateSetupSelected(rotation: number) {
+    if (setupSelectedIds.length === 0) return
+    pushHistory()
+    const idSet = new Set(setupSelectedIds)
+    setSetupItems(prev => prev.map(i => idSet.has(i.id) ? { ...i, rotation } : i))
+  }
+
+  function handleSetupItemRotate(id: string, rotation: number) {
+    pushHistory()
+    setSetupItems(prev => prev.map(i => i.id === id ? { ...i, rotation } : i))
+  }
+
+  function handleSetupChairEdge(id: string, edge: TableEdge, delta: number) {
+    setSetupItems(prev => prev.map(i => {
+      if (i.id !== id) return i
+      const profile = tableProfiles.find(p => p.id === i.tableProfileId)
+      const opts = {
+        width: i.width,
+        depth: i.depth,
+        seatingDensity: profile?.seatingDensity ?? null,
+        maxHeadChairs: profile?.maxHeadChairs ?? 1,
+        capacity: profile?.chairCount ?? 0,
+      }
+      const current = i.chairEdges ?? emptyEdgeChairs()
+      return { ...i, chairEdges: adjustEdgeChairs(current, edge, delta, opts) }
+    }))
   }
 
   const [rebuildKey, setRebuildKey] = useState(0)
@@ -381,6 +527,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       return
     }
     if (e.key === 'Delete') {
+      if (setupSelectedIds.length > 0) { e.preventDefault(); deleteSetupSelected(); return }
       if (selectedIds.length > 0) { e.preventDefault(); deleteSelected(); return }
       if (zoneDrawing && selectedZoneId) { e.preventDefault(); setZones((prev) => prev.filter((z) => z.id !== selectedZoneId)); setSelectedZoneId(null); return }
     }
@@ -396,6 +543,16 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   }
 
   async function handleSave() {
+    // Check for overlapping section zones
+    for (let i = 0; i < zones.length; i++) {
+      for (let j = i + 1; j < zones.length; j++) {
+        const a = zones[i]; const b = zones[j]
+        if (a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y) {
+          pushToast(`ZONES "${sectionMap.get(a.sectionId)?.name ?? '?'}" AND "${sectionMap.get(b.sectionId)?.name ?? '?'}" OVERLAP`, 'error')
+          setSaving(false); return
+        }
+      }
+    }
     setSaving(true)
     const inventoryLinks: { elementId: string; itemId: string; quantity?: number; remove?: boolean }[] = []
     const saveElements = elements.map((el) => {
@@ -433,16 +590,26 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         setFurnitureItems(Array.isArray(fiData) ? fiData : [])
       }
     }
-    // Save setup items
-    if (activeSetupId && setupItems.length > 0) {
+    // Save setup items (always when a setup is active, so deletions persist)
+    if (activeSetupId) {
       try {
+        // Collect temp groups (client-side joins not yet materialised as TableGroup rows)
+        const tempGroups = new Map<string, string[]>()
+        for (const i of setupItems) {
+          if (i.tableGroupId?.startsWith('new_group_')) {
+            if (!tempGroups.has(i.tableGroupId)) tempGroups.set(i.tableGroupId, [])
+            tempGroups.get(i.tableGroupId)!.push(i.id)
+          }
+        }
         const saveItems = setupItems.map(i => ({
           ...i,
           id: i.id.startsWith('new_setup_') ? undefined : i.id,
           _clientId: i.id,
-          label: i.assignedNumber ?? undefined,
+          assignedNumber: i.assignedNumber ?? null,
+          label: i.assignedNumber ?? i.label ?? undefined,
           sectionId: i.sectionId ?? null,
-          tableGroupId: i.tableGroupId ?? null,
+          // Temp group ids aren't real FKs yet — save null, then create the group below
+          tableGroupId: i.tableGroupId?.startsWith('new_group_') ? null : (i.tableGroupId ?? null),
         }))
         const r = await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}/items`, {
           method: 'PUT',
@@ -451,10 +618,26 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         })
         if (r.ok) {
           const res = await r.json()
-          const clientToReal = new Map((res.saved ?? []).map((s: any) => [s._clientId, s.id]))
+          const clientToReal = new Map<string, string>((res.saved ?? []).map((s: any) => [s._clientId, s.id]))
+          // Materialise real TableGroups for temp groups now that items have real ids
+          const tempToRealGroup = new Map<string, string>()
+          for (const [tempId, memberClientIds] of tempGroups) {
+            const realIds = memberClientIds.map(cid => clientToReal.get(cid)).filter((v): v is string => !!v)
+            if (realIds.length >= 2) {
+              const gr = await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}/groups`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: null, itemIds: realIds }),
+              })
+              if (gr.ok) { const g = await gr.json(); tempToRealGroup.set(tempId, g.id) }
+            }
+          }
           setSetupItems(prev => prev.map(i => {
-            const realId = clientToReal.get(i.id) as string | undefined
-            return realId ? { ...i, id: realId } : i
+            const realId = clientToReal.get(i.id) ?? i.id
+            let groupId = i.tableGroupId ?? null
+            if (groupId && tempToRealGroup.has(groupId)) groupId = tempToRealGroup.get(groupId)!
+            else if (groupId?.startsWith('new_group_')) groupId = null
+            return { ...i, id: realId, tableGroupId: groupId }
           }))
         }
       } catch {}
@@ -475,6 +658,71 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     })
   }, [furnitureItems, elements])
 
+  // Merged-group outlines + redistributed chairs (rules-based) for grouped setup tables
+  const setupGroupRenders = useMemo(() => {
+    if (!activeSetupId) return []
+    const groups = new Map<string, SetupItemInput[]>()
+    for (const i of setupItems) {
+      if (!i.tableGroupId) continue
+      if (!groups.has(i.tableGroupId)) groups.set(i.tableGroupId, [])
+      groups.get(i.tableGroupId)!.push(i)
+    }
+    const out: { id: string; outline: [number, number][][]; chairs: { x: number; y: number }[] }[] = []
+    for (const [gid, members] of groups) {
+      if (members.length < 2) continue
+      const profile = tableProfiles.find(p => p.id === members[0].tableProfileId)
+      const tables = members.map(m => ({ x: m.x, y: m.y, width: m.width, depth: m.depth, rotation: m.rotation ?? 0 }))
+      const outline = unionTablePolygons(tables)
+      let chairs: { x: number; y: number }[] = []
+      if (profile?.seatingDensity && profile.seatingDensity > 0) {
+        const headWidth = Math.min(profile.width, profile.depth)
+        let headDir: number | undefined
+        if (profile.width !== profile.depth) {
+          const rb = (members[0].rotation ?? 0) % 180
+          headDir = profile.width > profile.depth ? ((rb + 90) % 180 + 180) % 180 : ((rb % 180) + 180) % 180
+        }
+        const res = computeGroupChairs(tables, profile.seatingDensity, undefined, headWidth, profile.maxHeadChairs, headDir)
+        chairs = res.placements.map(p => ({ x: p.x, y: p.y }))
+      }
+      out.push({ id: gid, outline, chairs })
+    }
+    return out
+  }, [activeSetupId, setupItems, tableProfiles])
+
+  const profilesForCalc = useMemo(() => {
+    return new Map<string, TableProfileWithBom>(
+      tableProfiles.map((tp: any) => [tp.id, {
+        id: tp.id, name: tp.name, chairCount: tp.chairCount,
+        seatingDensity: tp.seatingDensity, width: tp.width, depth: tp.depth, maxHeadChairs: tp.maxHeadChairs,
+        bomItems: (tp.bomItems ?? []).map((b: any) => ({ inventoryItemId: b.inventoryItemId ?? b.item?.id, quantity: b.quantity, perChair: b.perChair ?? false })),
+      }])
+    )
+  }, [tableProfiles])
+
+  // Live per-section totals keyed by sectionId (for the zone badges + summary)
+  const zoneTotals = useMemo(() => {
+    if (!activeSetupId) return {}
+    const zoneRects = zones.map(z => ({ sectionId: z.sectionId, x: z.x, y: z.y, width: z.width, height: z.height }))
+    const totals = computeSetupSectionTotals(setupItems, zoneRects, profilesForCalc)
+    const map: Record<string, { tables: number; seats: number }> = {}
+    for (const t of totals) if (t.sectionId) map[t.sectionId] = { tables: t.tables, seats: t.seats }
+    return map
+  }, [activeSetupId, setupItems, zones, profilesForCalc])
+
+  const setupGrand = useMemo(() => {
+    if (!activeSetupId) return { tables: 0, seats: 0 }
+    const zoneRects = zones.map(z => ({ sectionId: z.sectionId, x: z.x, y: z.y, width: z.width, height: z.height }))
+    const totals = computeSetupSectionTotals(setupItems, zoneRects, profilesForCalc)
+    return totals.reduce((acc, t) => ({ tables: acc.tables + t.tables, seats: acc.seats + t.seats }), { tables: 0, seats: 0 })
+  }, [activeSetupId, setupItems, zones, profilesForCalc])
+
+  function sectionForPoint(cx: number, cy: number): string | null {
+    for (const z of zones) {
+      if (cx >= z.x && cx <= z.x + z.width && cy >= z.y && cy <= z.y + z.height) return z.sectionId
+    }
+    return null
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -486,7 +734,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   return (
     <div tabIndex={0} onKeyDown={handleKeyDown} className="flex flex-col h-full outline-none">
       <ToastContainer />
-      <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-grey-mid bg-black flex-wrap">
+      {/* ── TOP BAR ── */}
+      <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-grey-mid bg-black">
         <div className="flex items-center gap-3">
           <button onClick={onBack} className="font-mono text-xs uppercase text-grey-light hover:text-white">← BACK</button>
           <h1 className="font-mono text-sm font-bold uppercase tracking-widest text-white">{plan.name}</h1>
@@ -509,163 +758,248 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               if (r.ok) setRebuildKey((k) => k + 1)
             }}
               className="font-mono text-[10px] text-success hover:text-white uppercase px-1 py-0.5 border border-success">
-              SAVE ROOM
+              APPLY
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <FloorplanToolbar zoom={zoomLevel} onZoomChange={(z) => { setZoomLevel(z); viewRef.current.zoom = z; setRebuildKey((k) => k + 1) }}
-            showDimensions={showDimensions} onShowDimensionsChange={setShowDimensions} />
-          <div className="flex items-center gap-1">
-            <span className="font-mono text-[8px] text-grey-light">TEXT</span>
-            <input type="range" min="0.5" max="3" step="0.1" value={textScale} onChange={(e) => setTextScale(parseFloat(e.target.value))}
-              className="w-16 accent-white" />
-            <span className="font-mono text-[9px] text-grey-light w-5">{textScale.toFixed(1)}×</span>
-          </div>
-          <button onClick={() => setPaletteOpen(!paletteOpen)}
-            className={`font-mono text-xs uppercase px-2 py-1 border ${paletteOpen ? 'border-white text-white' : 'border-grey-mid text-grey-light'} hover:border-white transition-colors`}>
-            PALETTE
-          </button>
-          <label className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
-            <input type="checkbox" checked={snapEnabled} onChange={() => setSnapEnabled(!snapEnabled)} className="accent-white" />
-            GRID
-          </label>
-          <label className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
-            <input type="checkbox" checked={snap45Enabled} onChange={() => setSnap45Enabled(!snap45Enabled)} className="accent-white" />
-            45°
-          </label>
-          <button onClick={() => {
-            if (zoneDrawing) { setZoneDrawing(false); setZoneDrawStart(null); setZoneDrawRect(null) }
-            else { setZoneDrawing(true); setBoothPainting(false) }
-          }}
-            className={`font-mono text-[10px] uppercase px-2 py-1 border ${zoneDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
-            SECTIONS {zoneDrawing ? '· ON' : ''}
-          </button>
-          <button onClick={() => {
-            if (boothPainting) { setBoothPainting(false); boothCellsRef.current.clear(); setBoothPaintKey(k => k + 1) }
-            else { setBoothPainting(true); setZoneDrawing(false); setSelectedIds([]) }
-          }}
-            className={`font-mono text-[10px] uppercase px-2 py-1 border ${boothPainting ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
-            DRAW BOOTH {boothPainting ? '· ON' : ''}
-          </button>
-          {boothPainting && boothCellsRef.current.size > 0 && (
-            <button onClick={() => {
-              const result = traceBoothPerimeter(boothCellsRef.current)
-              if (!result) return
-              const label = nextLabel('BOOTH_BENCH', elements)
-              const id = `new_${nextIdCounter.current++}`
-              const el: ElementData = {
-                id, type: 'BOOTH_BENCH', shape: 'POLYGON', label, labelVisible: true,
-                x: result.bx, y: result.by, width: result.bw, depth: result.bd,
-                vertices: result.outerVertices, rotation: 0, fillColour: '#3D3D4D',
-                opacity: 1, zIndex: elements.length + 1, sortOrder: elements.length, isActive: true,
-                style: { cushionVertices: result.cushionVertices }, chairCount: 0,
-              }
-              pushHistory()
-              setElements(prev => [...prev, el])
-              setSelectedIds([id])
-              boothCellsRef.current.clear()
-              setBoothPainting(false)
-              setBoothPaintKey(k => k + 1)
-            }}
-              className="font-mono text-[10px] text-success hover:text-white uppercase px-2 py-1 border border-success">
-              SAVE SHAPE ({boothCellsRef.current.size} BLOCKS)
-            </button>
-          )}
-          <button onClick={() => setShowSummary(!showSummary)}
-            className={`font-mono text-[10px] uppercase px-2 py-1 border ${showSummary ? 'border-success text-success' : 'border-grey-mid text-grey-light'} hover:border-success transition-colors`}>
-            SUMMARY
-          </button>
+        <div className="flex items-center gap-2">
           <Button onClick={handleSave} loading={saving} size="sm">SAVE</Button>
           <button onClick={undo} className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid px-2 py-1">↶</button>
           <button onClick={redo} className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid px-2 py-1">↷</button>
         </div>
       </div>
 
+      {/* ── LAYER TOGGLE ── */}
+      <div className="flex items-center justify-between px-4 py-1.5 border-b border-grey-mid bg-grey-dark">
+        <div className="flex items-center">
+          <button onClick={() => handleSetupChange(null)}
+            className={`font-mono text-xs uppercase px-3 py-1 border-l border-t border-b ${!activeSetupId ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'}`}>
+            BASE PLAN
+          </button>
+          <button onClick={() => {
+            if (!activeSetupId && setups.length === 0) handleNewSetup()
+            else if (!activeSetupId && setups.length > 0) handleSetupChange(setups[0].id)
+          }}
+            className={`font-mono text-xs uppercase px-3 py-1 border ${activeSetupId ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'}`}>
+            TABLE LAYOUT
+          </button>
+          {activeSetupId && setups.length > 0 && (
+            <div className="flex items-center ml-3 gap-1">
+              <select
+                value={activeSetupId}
+                onChange={(e) => handleSetupChange(e.target.value || null)}
+                className="bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-2 py-1 outline-none"
+              >
+                {setups.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <button onClick={handleNewSetup}
+                className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5 border border-grey-mid">
+                + NEW
+              </button>
+              <button onClick={handleDeleteSetup}
+                className="font-mono text-[10px] text-danger hover:text-white uppercase px-1.5 py-0.5 border border-red-800/50">
+                DELETE
+              </button>
+            </div>
+          )}
+        </div>
+        {activeSetupId && (
+          <span className="font-mono text-[10px] uppercase text-success tracking-wider">
+            {setupGrand.tables} TBL · {setupGrand.seats} PAX
+          </span>
+        )}
+      </div>
+
+      {/* ── CONTEXT TOOLBAR ── */}
+      <div className="flex items-center gap-2 px-4 py-1.5 border-b border-grey-mid bg-black flex-wrap">
+        <label className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+          <input type="checkbox" checked={snapEnabled} onChange={() => setSnapEnabled(!snapEnabled)} className="accent-white" />
+          GRID
+        </label>
+        {activeSetupId ? (
+          <>
+            <button onClick={handleGenerateSeating}
+              className="font-mono text-[10px] uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-accent hover:text-accent">
+              ⚡ GENERATE
+            </button>
+            {setupSelectedIds.length >= 2 && (
+              <button onClick={handleGroup}
+                className="font-mono text-[10px] uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-white">
+                GROUP
+              </button>
+            )}
+            {setupSelectedIds.length === 1 && (() => {
+              const grouped = setupItems.find(i => i.id === setupSelectedIds[0] && i.tableGroupId)
+              return grouped ? (
+                <button onClick={handleUngroup}
+                  className="font-mono text-[10px] uppercase px-2 py-1 border border-red-800/50 text-danger hover:border-red-700">
+                  UNGROUP
+                </button>
+              ) : null
+            })()}
+            <span className="font-mono text-[9px] text-grey-light ml-1">BASE PLAN LOCKED</span>
+          </>
+        ) : (
+          <>
+            <label className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+              <input type="checkbox" checked={snap45Enabled} onChange={() => setSnap45Enabled(!snap45Enabled)} className="accent-white" />
+              45°
+            </label>
+            <button onClick={() => {
+              if (zoneDrawing) { setZoneDrawing(false); setZoneDrawStart(null); setZoneDrawRect(null) }
+              else { setZoneDrawing(true); setBoothPainting(false) }
+            }}
+              className={`font-mono text-[10px] uppercase px-2 py-1 border ${zoneDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
+              SECTIONS {zoneDrawing ? '· ON' : ''}
+            </button>
+            <button onClick={() => {
+              if (wallDrawing) { setWallDrawing(false); setWallPoints([]) }
+              else { setWallDrawing(true); setZoneDrawing(false); setBoothPainting(false) }
+            }}
+              className={`font-mono text-[10px] uppercase px-2 py-1 border ${wallDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
+              WALLS {wallDrawing ? '· ON' : ''}
+            </button>
+            <button onClick={() => {
+              if (boothPainting) { setBoothPainting(false); boothCellsRef.current.clear(); setBoothPaintKey(k => k + 1) }
+              else { setBoothPainting(true); setZoneDrawing(false); setSelectedIds([]) }
+            }}
+              className={`font-mono text-[10px] uppercase px-2 py-1 border ${boothPainting ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
+              DRAW BOOTH {boothPainting ? '· ON' : ''}
+            </button>
+            {boothPainting && boothCellsRef.current.size > 0 && (
+              <button onClick={() => {
+                const result = traceBoothPerimeter(boothCellsRef.current)
+                if (!result) return
+                const label = nextLabel('BOOTH_BENCH', elements)
+                const id = `new_${nextIdCounter.current++}`
+                const el: ElementData = {
+                  id, type: 'BOOTH_BENCH', shape: 'POLYGON', label, labelVisible: true,
+                  x: result.bx, y: result.by, width: result.bw, depth: result.bd,
+                  vertices: result.outerVertices, rotation: 0, fillColour: '#3D3D4D',
+                  opacity: 1, zIndex: elements.length + 1, sortOrder: elements.length, isActive: true,
+                  style: { cushionVertices: result.cushionVertices }, chairCount: 0,
+                }
+                pushHistory()
+                setElements(prev => [...prev, el])
+                setSelectedIds([id])
+                boothCellsRef.current.clear()
+                setBoothPainting(false)
+                setBoothPaintKey(k => k + 1)
+              }}
+                className="font-mono text-[10px] text-success hover:text-white uppercase px-2 py-1 border border-success">
+                SAVE SHAPE ({boothCellsRef.current.size} BLOCKS)
+              </button>
+            )}
+            <button onClick={() => setShowSummary(!showSummary)}
+              className={`font-mono text-[10px] uppercase px-2 py-1 border ${showSummary ? 'border-success text-success' : 'border-grey-mid text-grey-light hover:border-success'}`}>
+              SUMMARY
+            </button>
+          </>
+        )}
+        <span className="flex-1" />
+        <div className="flex items-center gap-1">
+          <span className="font-mono text-[8px] text-grey-light">TEXT</span>
+          <input type="range" min="0.5" max="3" step="0.1" value={textScale} onChange={(e) => setTextScale(parseFloat(e.target.value))}
+            className="w-16 accent-white" />
+          <span className="font-mono text-[9px] text-grey-light w-5">{textScale.toFixed(1)}×</span>
+        </div>
+        <FloorplanToolbar zoom={zoomLevel} onZoomChange={(z) => { setZoomLevel(z); viewRef.current.zoom = z; setRebuildKey((k) => k + 1) }}
+          showDimensions={showDimensions} onShowDimensionsChange={setShowDimensions} />
+        <button onClick={() => setPaletteOpen(!paletteOpen)}
+          className={`font-mono text-xs uppercase px-2 py-1 border ${paletteOpen ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:border-white transition-colors'}`}>
+          PALETTE
+        </button>
+      </div>
+
       <div className="flex flex-1 min-h-0">
         {paletteOpen && (
           <div className="w-44 flex-shrink-0 border-r border-grey-mid overflow-y-auto bg-grey-dark p-2 space-y-1">
-            {(['FIXTURE', 'FURNITURE'] as const).map((cat) => {
-              const items = [...PALETTE_ITEMS, ...customPresets].filter((i) => i.category === cat)
-              if (items.length === 0) return null
-              return (
-                <div key={cat}>
-                  <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2 first:mt-0">{cat}</p>
-                  {items.map((item) => {
-                    const def = paletteDefaults[item.type]
-                    const dispW = def?.width ?? item.w; const dispD = def?.depth ?? item.d
-                    return (
-                      <div key={item.type}>
-                        <div
-                          draggable
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData('text/plain', item.type)
-                            const dragImg = new globalThis.Image()
-                            dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-                            e.dataTransfer.setDragImage(dragImg, 0, 0)
-                          }}
-                          onContextMenu={(e) => { e.preventDefault(); setRightClickItem(rightClickItem === item.type ? null : item.type); setEditDefW(dispW.toString()); setEditDefD(dispD.toString()) }}
-                          className="flex items-center gap-2 p-1.5 cursor-grab hover:bg-grey-mid transition-colors"
-                        >
-                          <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.fill }} />
-                          <span className="font-mono text-[10px] text-white uppercase truncate">{item.label}</span>
-                          <span className="font-mono text-[8px] text-grey-light ml-auto">{dispW}×{dispD}</span>
-                        </div>
-                        {rightClickItem === item.type && (
-                          <div className="flex items-center gap-1 px-1 pb-1">
-                            <input type="number" value={editDefW} onChange={(e) => setEditDefW(e.target.value)}
-                              className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[8px] px-1 py-0.5 text-center" />
-                            <span className="text-grey-light text-[8px]">×</span>
-                            <input type="number" value={editDefD} onChange={(e) => setEditDefD(e.target.value)}
-                              className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[8px] px-1 py-0.5 text-center" />
-                            <button onClick={async () => {
-                              const w = parseFloat(editDefW) || dispW; const d = parseFloat(editDefD) || dispD
-                              await fetch('/api/admin/palette-defaults', {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ items: [{ type: item.type, width: w, depth: d }] }),
-                              })
-                              setPaletteDefaults((prev) => ({ ...prev, [item.type]: { width: w, depth: d } }))
-                              setRightClickItem(null)
-                            }}
-                              className="font-mono text-[8px] text-success hover:text-white uppercase">OK</button>
-                            <button onClick={() => setRightClickItem(null)}
-                              className="font-mono text-[8px] text-grey-light hover:text-white uppercase">✕</button>
+            {/* ── BASE PLAN PALETTE ── */}
+            {!activeSetupId && (
+              <>
+                {(['FIXTURE', 'FURNITURE'] as const).map((cat) => {
+                  const items = [...PALETTE_ITEMS, ...customPresets].filter((i) => i.category === cat)
+                  if (items.length === 0) return null
+                  return (
+                    <div key={cat}>
+                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2 first:mt-0">{cat}</p>
+                      {items.map((item) => {
+                        const def = paletteDefaults[item.type]
+                        const dispW = def?.width ?? item.w; const dispD = def?.depth ?? item.d
+                        return (
+                          <div key={item.type}>
+                            <div
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData('text/plain', item.type)
+                                const dragImg = new globalThis.Image()
+                                dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+                                e.dataTransfer.setDragImage(dragImg, 0, 0)
+                              }}
+                              onContextMenu={(e) => { e.preventDefault(); setRightClickItem(rightClickItem === item.type ? null : item.type); setEditDefW(dispW.toString()); setEditDefD(dispD.toString()) }}
+                              className="flex items-center gap-2 p-1.5 cursor-grab hover:bg-grey-mid transition-colors"
+                            >
+                              <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.fill }} />
+                              <span className="font-mono text-[10px] text-white uppercase truncate">{item.label}</span>
+                              <span className="font-mono text-[8px] text-grey-light ml-auto">{dispW}×{dispD}</span>
+                            </div>
+                            {rightClickItem === item.type && (
+                              <div className="flex items-center gap-1 px-1 pb-1">
+                                <input type="number" value={editDefW} onChange={(e) => setEditDefW(e.target.value)}
+                                  className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[8px] px-1 py-0.5 text-center" />
+                                <span className="text-grey-light text-[8px]">×</span>
+                                <input type="number" value={editDefD} onChange={(e) => setEditDefD(e.target.value)}
+                                  className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[8px] px-1 py-0.5 text-center" />
+                                <button onClick={async () => {
+                                  const w = parseFloat(editDefW) || dispW; const d = parseFloat(editDefD) || dispD
+                                  await fetch('/api/admin/palette-defaults', {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ items: [{ type: item.type, width: w, depth: d }] }),
+                                  })
+                                  setPaletteDefaults((prev) => ({ ...prev, [item.type]: { width: w, depth: d } }))
+                                  setRightClickItem(null)
+                                }}
+                                  className="font-mono text-[8px] text-success hover:text-white uppercase">OK</button>
+                                <button onClick={() => setRightClickItem(null)}
+                                  className="font-mono text-[8px] text-grey-light hover:text-white uppercase">✕</button>
+                              </div>
+                            )}
                           </div>
-                        )}
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+                {furnitureWithAvailability.length > 0 && (
+                  <div>
+                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2">INVENTORY</p>
+                    {furnitureWithAvailability.map((fi: any) => (
+                      <div
+                        key={`furn_${fi.id}`}
+                        draggable={fi.availableQty > 0}
+                        onDragStart={(e) => {
+                          if (fi.availableQty <= 0) { e.preventDefault(); return }
+                          e.dataTransfer.setData('text/plain', `furn_${fi.id}`)
+                          const dragImg = new globalThis.Image()
+                          dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+                          e.dataTransfer.setDragImage(dragImg, 0, 0)
+                        }}
+                        className={`flex items-center gap-2 p-1.5 transition-colors ${fi.availableQty > 0 ? 'cursor-grab hover:bg-grey-mid' : 'cursor-not-allowed opacity-40'}`}
+                      >
+                        <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: fi.defaultColour ?? '#555' }} />
+                        <span className="font-mono text-[10px] text-white truncate">{fi.name}</span>
+                        <span className="font-mono text-[8px] text-grey-light ml-auto">{fi.elementWidth}×{fi.elementDepth}</span>
+                        <span className={`font-mono text-[8px] ml-1 ${fi.availableQty > 0 ? 'text-accent' : 'text-danger'}`}>
+                          {fi.availableQty}/{fi.totalQty ?? 0}
+                        </span>
                       </div>
-                    )
-                  })}
-                </div>
-              )
-            })}
-            {furnitureWithAvailability.length > 0 && (
-              <div>
-                <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2">INVENTORY</p>
-                {furnitureWithAvailability.map((fi: any) => (
-                  <div
-                    key={`furn_${fi.id}`}
-                    draggable={fi.availableQty > 0}
-                    onDragStart={(e) => {
-                      if (fi.availableQty <= 0) { e.preventDefault(); return }
-                      e.dataTransfer.setData('text/plain', `furn_${fi.id}`)
-                      const dragImg = new globalThis.Image()
-                      dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-                      e.dataTransfer.setDragImage(dragImg, 0, 0)
-                    }}
-                    className={`flex items-center gap-2 p-1.5 transition-colors ${fi.availableQty > 0 ? 'cursor-grab hover:bg-grey-mid' : 'cursor-not-allowed opacity-40'}`}
-                  >
-                    <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: fi.defaultColour ?? '#555' }} />
-                    <span className="font-mono text-[10px] text-white truncate">{fi.name}</span>
-                    <span className="font-mono text-[8px] text-grey-light ml-auto">{fi.elementWidth}×{fi.elementDepth}</span>
-                    <span className={`font-mono text-[8px] ml-1 ${fi.availableQty > 0 ? 'text-accent' : 'text-danger'}`}>
-                      {fi.availableQty}/{fi.totalQty ?? 0}
-                    </span>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
-            {/* TableProfile palette (setup mode) */}
+            {/* ── TABLE LAYOUT PALETTE ── */}
             {activeSetupId && tableProfiles.length > 0 && (
               <div>
                 <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2">TABLE PROFILES</p>
@@ -704,129 +1038,110 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 })}
               </div>
             )}
-            {(furnitureItems.length > 0 || true) && (
-              <div className="border-t border-grey-mid pt-1 mt-1">
-                {newTableOpen ? (
-                  <div className="space-y-1 px-1">
-                    <Input label="Name" value={newTableName} onChange={(e) => setNewTableName(e.target.value)} placeholder="TABLE" />
-                    <div className="grid grid-cols-2 gap-1">
-                      <Input label="W" type="number" value={newTableW} onChange={(e) => setNewTableW(e.target.value)} />
-                      <Input label="D" type="number" value={newTableD} onChange={(e) => setNewTableD(e.target.value)} />
-                    </div>
-                    <Input label="Colour" value={newTableColour} onChange={(e) => setNewTableColour(e.target.value)} placeholder="#555" />
-                    <Input label="Chairs" type="number" value={newTableChairs} onChange={(e) => setNewTableChairs(e.target.value)} />
-                    <Input label="Stock Qty" type="number" value={newTableTotalQty} onChange={(e) => setNewTableTotalQty(e.target.value)} />
-                    <div className="flex gap-1">
-                      <button onClick={async () => {
-                        const name = (newTableName || `TABLE-${Math.floor(Math.random() * 1000)}`).toUpperCase().trim()
-                        if (!name) return
-                        let catId = furnitureCatId
-                        if (!catId) {
-                          const cre = await fetch('/api/admin/inventory/categories')
-                          if (cre.ok) { const cats = await cre.json(); const fc = cats.find((c: any) => c.name === 'FURNITURE'); if (fc) { catId = fc.id; setFurnitureCatId(fc.id) } }
-                        }
-                        if (!catId) return
-                        const r = await fetch('/api/admin/inventory', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            name,
-                            categoryId: catId,
-                            unit: 'EA', defaultParLevel: 0, totalQty: parseInt(newTableTotalQty) || 10,
-                            furnitureType: 'TABLE',
-                            elementWidth: parseFloat(newTableW) || 80,
-                            elementDepth: parseFloat(newTableD) || 80,
-                            elementShape: 'RECTANGLE',
-                            defaultColour: newTableColour,
-                            defaultChairCount: parseInt(newTableChairs) || 0,
-                          }),
-                        })
-                        if (r.ok) {
-                          const created = await r.json()
-                          setFurnitureItems((prev) => [...prev, created])
-                          setNewTableOpen(false); setNewTableName(''); setNewTableW('80'); setNewTableD('80'); setNewTableColour('#555'); setNewTableChairs('0'); setNewTableTotalQty('10')
-                        }
-                      }}
-                        className="font-mono text-[10px] text-success hover:text-white uppercase px-1.5 py-0.5 border border-success flex-1">
-                        CREATE
+            {!activeSetupId && (
+              <>
+                {(furnitureItems.length > 0 || true) && (
+                  <div className="border-t border-grey-mid pt-1 mt-1">
+                    {newTableOpen ? (
+                      <div className="space-y-1 px-1">
+                        <Input label="Name" value={newTableName} onChange={(e) => setNewTableName(e.target.value)} placeholder="TABLE" />
+                        <div className="grid grid-cols-2 gap-1">
+                          <Input label="W" type="number" value={newTableW} onChange={(e) => setNewTableW(e.target.value)} />
+                          <Input label="D" type="number" value={newTableD} onChange={(e) => setNewTableD(e.target.value)} />
+                        </div>
+                        <Input label="Colour" value={newTableColour} onChange={(e) => setNewTableColour(e.target.value)} placeholder="#555" />
+                        <Input label="Chairs" type="number" value={newTableChairs} onChange={(e) => setNewTableChairs(e.target.value)} />
+                        <Input label="Stock Qty" type="number" value={newTableTotalQty} onChange={(e) => setNewTableTotalQty(e.target.value)} />
+                        <div className="flex gap-1">
+                          <button onClick={async () => {
+                            const name = (newTableName || `TABLE-${Math.floor(Math.random() * 1000)}`).toUpperCase().trim()
+                            if (!name) return
+                            let catId = furnitureCatId
+                            if (!catId) {
+                              const cre = await fetch('/api/admin/inventory/categories')
+                              if (cre.ok) { const cats = await cre.json(); const fc = cats.find((c: any) => c.name === 'FURNITURE'); if (fc) { catId = fc.id; setFurnitureCatId(fc.id) } }
+                            }
+                            if (!catId) return
+                            const r = await fetch('/api/admin/inventory', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                name,
+                                categoryId: catId,
+                                unit: 'EA', defaultParLevel: 0, totalQty: parseInt(newTableTotalQty) || 10,
+                                furnitureType: 'TABLE',
+                                elementWidth: parseFloat(newTableW) || 80,
+                                elementDepth: parseFloat(newTableD) || 80,
+                                elementShape: 'RECTANGLE',
+                                defaultColour: newTableColour,
+                                defaultChairCount: parseInt(newTableChairs) || 0,
+                              }),
+                            })
+                            if (r.ok) {
+                              const created = await r.json()
+                              setFurnitureItems((prev) => [...prev, created])
+                              setNewTableOpen(false); setNewTableName(''); setNewTableW('80'); setNewTableD('80'); setNewTableColour('#555'); setNewTableChairs('0'); setNewTableTotalQty('10')
+                            }
+                          }}
+                            className="font-mono text-[10px] text-success hover:text-white uppercase px-1.5 py-0.5 border border-success flex-1">
+                            CREATE
+                          </button>
+                          <button onClick={() => setNewTableOpen(false)}
+                            className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5">
+                            CANCEL
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={() => setNewTableOpen(true)}
+                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-1 w-full text-left">
+                        + NEW TABLE
                       </button>
-                      <button onClick={() => setNewTableOpen(false)}
-                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5">
-                        CANCEL
-                      </button>
-                    </div>
+                    )}
                   </div>
-                ) : (
-                  <button onClick={() => setNewTableOpen(true)}
-                    className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-1 w-full text-left">
-                    + NEW TABLE
-                  </button>
                 )}
-              </div>
-            )}
-            <div className="border-t border-grey-mid pt-2 mt-2">
-              {presetFormOpen ? (
-                <div className="space-y-1 px-1">
-                  <Input label="Name" value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="E.G. TABLE-60X60" />
-                  <div className="grid grid-cols-2 gap-1">
-                    <Input label="W" type="number" value={presetW.toString()} onChange={(e) => setPresetW(parseInt(e.target.value) || 80)} />
-                    <Input label="D" type="number" value={presetD.toString()} onChange={(e) => setPresetD(parseInt(e.target.value) || 80)} />
-                  </div>
-                  <Input label="Colour" value={presetFill} onChange={(e) => setPresetFill(e.target.value)} placeholder="#555" />
-                  <div className="flex gap-1">
-                    <button onClick={() => {
-                      if (!presetName.trim()) return
-                      const p: PaletteItem = { type: presetName.toUpperCase().trim(), label: presetName.toUpperCase().trim(), w: presetW, d: presetD, fill: presetFill, category: 'FURNITURE' }
-                      setCustomPresets((prev) => [...prev, p])
-                      setPresetName(''); setPresetW(80); setPresetD(80); setPresetFill('#555')
-                      setPresetFormOpen(false)
-                    }}
-                      className="font-mono text-[10px] text-success hover:text-white uppercase px-1.5 py-0.5 border border-success flex-1">
-                      ADD
+                <div className="border-t border-grey-mid pt-2 mt-2">
+                  {presetFormOpen ? (
+                    <div className="space-y-1 px-1">
+                      <Input label="Name" value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="E.G. TABLE-60X60" />
+                      <div className="grid grid-cols-2 gap-1">
+                        <Input label="W" type="number" value={presetW.toString()} onChange={(e) => setPresetW(parseInt(e.target.value) || 80)} />
+                        <Input label="D" type="number" value={presetD.toString()} onChange={(e) => setPresetD(parseInt(e.target.value) || 80)} />
+                      </div>
+                      <Input label="Colour" value={presetFill} onChange={(e) => setPresetFill(e.target.value)} placeholder="#555" />
+                      <div className="flex gap-1">
+                        <button onClick={() => {
+                          if (!presetName.trim()) return
+                          const p: PaletteItem = { type: presetName.toUpperCase().trim(), label: presetName.toUpperCase().trim(), w: presetW, d: presetD, fill: presetFill, category: 'FURNITURE' }
+                          setCustomPresets((prev) => [...prev, p])
+                          setPresetName(''); setPresetW(80); setPresetD(80); setPresetFill('#555')
+                          setPresetFormOpen(false)
+                        }}
+                          className="font-mono text-[10px] text-success hover:text-white uppercase px-1.5 py-0.5 border border-success flex-1">
+                          ADD
+                        </button>
+                        <button onClick={() => setPresetFormOpen(false)}
+                          className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5">
+                          CANCEL
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => setPresetFormOpen(true)}
+                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-1 w-full text-left">
+                      + ADD PRESET
                     </button>
-                    <button onClick={() => setPresetFormOpen(false)}
-                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5">
-                      CANCEL
-                    </button>
-                  </div>
+                  )}
                 </div>
-              ) : (
-                <button onClick={() => setPresetFormOpen(true)}
-                  className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-1 w-full text-left">
-                  + ADD PRESET
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Setup toolbar */}
-        {setups.length > 0 && (
-          <div className="flex items-center gap-2 border-b border-grey-mid px-3 py-1.5">
-            <span className="font-mono text-[10px] uppercase text-grey-light tracking-wider">SETUP:</span>
-            <select
-              value={activeSetupId ?? ''}
-              onChange={(e) => handleSetupChange(e.target.value || null)}
-              className="bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-2 py-1 outline-none"
-            >
-              <option value="">— BASE PLAN —</option>
-              {setups.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-            <Button size="sm" onClick={handleNewSetup}>+ NEW</Button>
-            {activeSetupId && <Button size="sm" variant="danger" onClick={handleDeleteSetup}>DELETE</Button>}
-            {activeSetupId && setupSelectedIds.length >= 2 && (
-              <Button size="sm" variant="ghost" onClick={handleGroup}>GROUP</Button>
+              </>
             )}
-            {activeSetupId && setupSelectedIds.length === 1 && (() => {
-              const grouped = setupItems.find(i => i.id === setupSelectedIds[0] && i.tableGroupId)
-              return grouped ? <Button size="sm" variant="danger" onClick={handleUngroup}>UNGROUP</Button> : null
-            })()}
           </div>
         )}
 
         <div
           ref={containerRef}
           className="flex-1 overflow-hidden bg-black"
+          onContextMenu={(e) => e.preventDefault()}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault()
@@ -873,16 +1188,25 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               }
               const id = `new_setup_${nextIdCounter.current++}`
               const gu = plan.gridUnit
+              const itemX = snapEnabled ? snap(x, gu) - tp.width / 2 : x - tp.width / 2
+              const itemY = snapEnabled ? snap(y, gu) - tp.depth / 2 : y - tp.depth / 2
               const item: SetupItemInput = {
                 id,
                 tableProfileId: tp.id,
                 assignedNumber,
-                x: snapEnabled ? snap(x, gu) - tp.width / 2 : x - tp.width / 2,
-                y: snapEnabled ? snap(y, gu) - tp.depth / 2 : y - tp.depth / 2,
+                x: itemX,
+                y: itemY,
                 rotation: 0,
                 width: tp.width,
                 depth: tp.depth,
+                sectionId: sectionForPoint(itemX + tp.width / 2, itemY + tp.depth / 2),
                 label: assignedNumber ?? tp.name,
+                chairEdges: defaultEdgeChairs({
+                  width: tp.width, depth: tp.depth,
+                  seatingDensity: tp.seatingDensity ?? null,
+                  maxHeadChairs: (tp as any).maxHeadChairs ?? 1,
+                  capacity: tp.chairCount ?? 0,
+                }),
               }
               pushHistory()
               setSetupItems(prev => [...prev, item])
@@ -981,8 +1305,21 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               ...i,
               colour: tableProfiles.find(tp => tp.id === i.tableProfileId)?.colour ?? '#555',
               chairCount: tableProfiles.find(tp => tp.id === i.tableProfileId)?.chairCount ?? 0,
-            })) : undefined}
+              chairEdges: i.chairEdges ?? null,
+            })) : (ghostItems.length > 0 ? ghostItems.map(i => ({
+              ...i,
+              colour: tableProfiles.find(tp => tp.id === i.tableProfileId)?.colour ?? '#555',
+              chairCount: tableProfiles.find(tp => tp.id === i.tableProfileId)?.chairCount ?? 0,
+              chairEdges: i.chairEdges ?? null,
+            })) : undefined)}
             setupSelectedIds={activeSetupId ? setupSelectedIds : []}
+            ghostMode={!activeSetupId && setups.length > 0}
+            wallDrawing={wallDrawing}
+            wallPoints={wallPoints}
+            onWallPoint={(x, y) => setWallPoints((prev) => [...prev, { x: Math.round(x), y: Math.round(y) }])}
+            zonePolyMode={zonePolyMode}
+            zonePolyPoints={zonePolyPoints}
+            onZonePolyAdd={(x, y) => setZonePolyPoints((prev) => [...prev, { x: Math.round(x), y: Math.round(y) }])}
             onSetupItemClick={(id, ctrlKey) => {
               if (!id) { setSetupSelectedIds([]); return }
               setSetupSelectedIds(prev =>
@@ -991,6 +1328,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               )
             }}
             onSetupItemDragEnd={handleSetupItemDragEnd}
+            onSetupChairEdge={handleSetupChairEdge}
+            onSetupItemRotate={handleSetupItemRotate}
+            onSetupItemsJoin={handleSetupItemsJoin}
+            setupGroups={activeSetupId ? setupGroupRenders : undefined}
+            zoneTotals={activeSetupId ? zoneTotals : undefined}
+            setupActive={!!activeSetupId}
             sectionBoundaries={activeSetupId ? sectionBoundaries : undefined}
             onElementDropToSection={activeSetupId ? handleSetupItemDropToSection : undefined}
           />
@@ -998,133 +1341,253 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
         {/* Right panel — always rendered */}
         <div className="w-56 flex-shrink-0 border-l border-grey-mid overflow-y-auto bg-grey-dark p-3 space-y-3">
+          {wallDrawing && (
+            <div className="border border-[#4488FF] p-3 space-y-2">
+              <h2 className="font-mono text-xs font-bold text-[#4488FF] uppercase tracking-wider">WALL DRAWING</h2>
+              <p className="font-mono text-[10px] text-grey-light">{wallPoints.length} POINT{wallPoints.length !== 1 ? 'S' : ''}</p>
+              <div className="flex gap-1">
+                <Button size="sm" onClick={() => {
+                  pushHistory()
+                  const newElements: ElementData[] = []
+                  for (let i = 0; i < wallPoints.length - 1; i++) {
+                    const a = wallPoints[i]; const b = wallPoints[i + 1]
+                    newElements.push({
+                      id: `w-${Math.random().toString(36).slice(2)}`, type: 'WALL', shape: 'LINE',
+                      x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+                      width: Math.abs(b.x - a.x) || 5,
+                      depth: Math.abs(b.y - a.y) || 5,
+                      rotation: 0, fillColour: '#4488FF', opacity: 1, zIndex: 0, sortOrder: 0, isActive: true,
+                      label: '',
+                    })
+                  }
+                  setElements((prev) => [...prev, ...newElements])
+                  setWallDrawing(false); setWallPoints([])
+                }} disabled={wallPoints.length < 2}>
+                  SAVE WALLS
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => { setWallDrawing(false); setWallPoints([]) }}>
+                  CANCEL
+                </Button>
+              </div>
+            </div>
+          )}
           <SetupInventoryPanel
             activeSetupId={activeSetupId}
             shortages={shortages}
             onCheck={handleInventoryCheck}
             checking={checkingInventory}
           />
-          {selectedIds.length > 0 && selected ? (
+          {setupSelectedIds.length > 0 ? (() => {
+            const sel = setupItems.filter(i => setupSelectedIds.includes(i.id))
+            const first = sel[0]
+            const profile = first ? tableProfiles.find(p => p.id === first.tableProfileId) : null
+            const sectionName = first?.sectionId ? sectionMap.get(first.sectionId)?.name : null
+            const edges = first?.chairEdges ?? { top: 0, bottom: 0, left: 0, right: 0 }
+            const totalChairs = edges.top + edges.bottom + edges.left + edges.right
+            return (
+              <>
+                {/* ── TABLE IDENTITY ── */}
+                <div className="border border-grey-mid p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 flex-shrink-0 border border-grey-mid" style={{ backgroundColor: profile?.colour ?? '#555' }} />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-mono text-xs font-bold text-white uppercase truncate">
+                        {sel.length > 1 ? `${sel.length} TABLES` : (first?.label || profile?.name || 'TABLE')}
+                      </p>
+                      {profile && (
+                        <p className="font-mono text-[9px] text-grey-light">{profile.name} · {profile.chairCount}S CAP</p>
+                      )}
+                    </div>
+                    <button onClick={deleteSetupSelected}
+                      className="font-mono text-[10px] text-danger hover:text-white uppercase border border-red-800/50 px-1.5 py-0.5 flex-shrink-0">
+                      ×
+                    </button>
+                  </div>
+                  {sel.length === 1 && (
+                    <p className="font-mono text-[10px] text-grey-light uppercase pt-1 border-t border-grey-mid">
+                      SECTION: {sectionName ?? 'NONE'}
+                      {first.tableGroupId && <span className="text-accent ml-1">· GROUPED</span>}
+                    </p>
+                  )}
+                </div>
+
+                {/* ── ROTATION ── */}
+                {sel.length === 1 && (
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">ROTATION</p>
+                    <div className="flex flex-wrap gap-1">
+                      {[0, 45, 90, 135, 180, 270].map((angle) => (
+                        <button key={angle} onClick={() => rotateSetupSelected(angle)}
+                          className={`font-mono text-[10px] px-2 py-1 border ${first && Math.round(first.rotation) === angle ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
+                          {angle}°
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── CHAIRS ── */}
+                {sel.length === 1 && !first?.tableGroupId && (
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">CHAIRS ({totalChairs})</p>
+                      <button onClick={() => handleSetupChairEdge(first.id, 'top', -edges.top)}
+                        className="font-mono text-[9px] text-danger hover:text-white border border-red-800/50 px-1">CLEAR</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1">
+                      {(['top', 'bottom', 'left', 'right'] as const).map((edge) => (
+                        <div key={edge} className="flex items-center justify-between border border-grey-mid p-1.5">
+                          <span className="font-mono text-[10px] text-grey-light uppercase">{edge}</span>
+                          <div className="flex items-center gap-0.5">
+                            <button onClick={() => handleSetupChairEdge(first.id, edge, -1)}
+                              className="font-mono text-[10px] text-grey-light hover:text-white px-1 py-0.5 border border-grey-mid hover:border-white">
+                              −
+                            </button>
+                            <span className="font-mono text-[11px] text-white w-5 text-center">{edges[edge]}</span>
+                            <button onClick={() => handleSetupChairEdge(first.id, edge, 1)}
+                              className="font-mono text-[10px] text-grey-light hover:text-white px-1 py-0.5 border border-grey-mid hover:border-accent hover:text-accent">
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {sel.length >= 2 && (
+                  <div className="border border-grey-mid p-3">
+                    <p className="font-mono text-[10px] text-grey-light">Select GROUP from the toolbar to join these tables.</p>
+                  </div>
+                )}
+              </>
+            )
+          })() : selectedIds.length > 0 && selected ? (
             <>
               {selectedIds.length > 1 && (
-                <p className="font-mono text-[10px] text-accent uppercase">{selectedIds.length} ELEMENTS SELECTED</p>
-              )}
-              <div className="flex items-center justify-between">
-                <input value={selected.type}
-                  onChange={(e) => updateElement(selected.id!, { type: e.target.value.toUpperCase() || 'OTHER' })}
-                  className="font-mono text-xs font-bold text-white bg-transparent border-0 p-0 outline-none w-24" />
-                <button onClick={deleteSelected}
-                  className="font-mono text-[10px] text-danger hover:text-white uppercase border border-danger px-1.5 py-0.5">
-                  DELETE{selectedIds.length > 1 ? ` ${selectedIds.length}` : ''}
-                </button>
-              </div>
-              {INVENTORY_TYPES.includes(selected.type) && (
-                <div className="flex border-b border-grey-mid -mx-3 px-3 pb-2">
-                  <button onClick={() => setShowInvTab(false)}
-                    className={`font-mono text-[10px] uppercase px-2 py-1 ${!showInvTab ? 'border-b border-white text-white' : 'text-grey-light'}`}>
-                    PROPERTIES
-                  </button>
-                  <button onClick={() => setShowInvTab(true)}
-                    className={`font-mono text-[10px] uppercase px-2 py-1 ${showInvTab ? 'border-b border-white text-white' : 'text-grey-light'}`}>
-                    INVENTORY
+                <div className="border border-grey-mid p-3">
+                  <p className="font-mono text-[10px] text-accent uppercase">{selectedIds.length} ELEMENTS SELECTED</p>
+                  <button onClick={deleteSelected}
+                    className="mt-2 font-mono text-[10px] text-danger hover:text-white uppercase border border-red-800/50 px-2 py-1 w-full">
+                    DELETE {selectedIds.length}
                   </button>
                 </div>
               )}
-              {showInvTab && INVENTORY_TYPES.includes(selected.type) && selected.id ? (
-                <ElementInventoryPanel elementId={selected.id} floorPlanId={plan.id} />
-              ) : (
+              {selectedIds.length === 1 && (
                 <>
-                  <Input label="Label" value={selected.label ?? ''}
-                    onChange={(e) => updateElement(selected.id!, { label: e.target.value.toUpperCase() || null })} />
-                  <label className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none">
-                    <input type="checkbox" checked={selected.labelVisible !== false}
-                      onChange={(e) => updateElement(selected.id!, { labelVisible: e.target.checked })}
-                      className="accent-white" />
-                    SHOW LABEL
-                  </label>
-                  <Input label="Label Scale" type="number" min="0.5" max="3" step="0.1" value={((selected.style as any)?.labelScale ?? 1).toString()}
-                    onChange={(e) => updateElement(selected.id!, { style: { ...(selected.style ?? {}), labelScale: Math.max(0.5, Math.min(3, parseFloat(e.target.value) || 1)) } })} />
-                  {selected.type === 'BOOTH_BENCH' && (
-                    <div className="space-y-1">
-                      <p className="font-mono text-[10px] text-grey-light uppercase">Serves Tables</p>
-                      {elements.filter((e) => e.type === 'TABLE').map((t) => {
-                        const served: string[] = (selected.style as any)?.servedTableIds ?? []
-                        const checked = served.includes(t.id!)
-                        return (
-                          <label key={t.id} className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none">
-                            <input type="checkbox" checked={checked}
-                              onChange={() => {
-                                const s: string[] = [...served]
-                                if (checked) { const idx = s.indexOf(t.id!); if (idx >= 0) s.splice(idx, 1) }
-                                else { s.push(t.id!) }
-                                updateElement(selected.id!, { style: { ...(selected.style ?? {}), servedTableIds: s } })
-                              }}
-                              className="accent-white" />
-                            <span>{t.label || t.type}</span>
-                          </label>
-                        )
-                      })}
-                      {elements.filter((e) => e.type === 'TABLE').length === 0 && (
-                        <p className="font-mono text-[10px] text-grey-light italic">No tables on plan</p>
-                      )}
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 flex-shrink-0 border border-grey-mid" style={{ backgroundColor: selected.fillColour ?? '#666' }} />
+                      <div className="min-w-0 flex-1">
+                        <input value={selected.type}
+                          onChange={(e) => updateElement(selected.id!, { type: e.target.value.toUpperCase() || 'OTHER' })}
+                          className="font-mono text-xs font-bold text-white bg-transparent border-0 p-0 outline-none w-full" />
+                      </div>
+                      <button onClick={deleteSelected}
+                        className="font-mono text-[10px] text-danger hover:text-white uppercase border border-red-800/50 px-1.5 py-0.5 flex-shrink-0">
+                        ×
+                      </button>
                     </div>
-                  )}
-                  <Input label="Fill Colour" value={selected.fillColour ?? ''}
-                    onChange={(e) => updateElement(selected.id!, { fillColour: e.target.value || null })} placeholder="#555" />
-                  {selected.shape === 'RECTANGLE' && (
-                    <div>
-                      <p className="font-mono text-[10px] text-grey-light uppercase mb-1">Corner Radius</p>
-                      <div className="grid grid-cols-4 gap-1">
-                        {['TL', 'TR', 'BR', 'BL'].map((label, idx) => {
-                          const cr: number[] = ((selected.style as any)?.cornerRadius) ?? [0, 0, 0, 0]
-                          return (
-                            <Input key={label} label={label} type="number" min="0" max={Math.min(selected.width, selected.depth) / 2}
-                              value={cr[idx]?.toString() ?? '0'}
-                              onChange={(e) => {
-                                const next = [...cr]
-                                next[idx] = Math.min(parseInt(e.target.value) || 0, Math.min(selected.width, selected.depth) / 2)
-                                updateElement(selected.id!, { style: { ...(selected.style ?? {}), cornerRadius: next } })
-                              }} />
-                          )
-                        })}
+                    {selected.sectionId && (
+                      <p className="font-mono text-[10px] text-grey-light uppercase pt-1 border-t border-grey-mid">
+                        {sectionMap.get(selected.sectionId)?.name ?? selected.sectionId}
+                      </p>
+                    )}
+                  </div>
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">SIZE</p>
+                    <FloorplanInspector selectedElement={selected} elements={elements}
+                      onChange={(patch) => updateElement(selected.id!, patch)} />
+                  </div>
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">LABEL & STYLE</p>
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 flex-shrink-0 border border-grey-mid" style={{ backgroundColor: selected.fillColour ?? '#666' }} />
+                      <Input label="Fill" value={selected.fillColour ?? ''}
+                        onChange={(e) => updateElement(selected.id!, { fillColour: e.target.value || null })} placeholder="#555" />
+                    </div>
+                    <Input label="Label" value={selected.label ?? ''}
+                      onChange={(e) => updateElement(selected.id!, { label: e.target.value.toUpperCase() || null })} />
+                    <label className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+                      <input type="checkbox" checked={selected.labelVisible !== false}
+                        onChange={(e) => updateElement(selected.id!, { labelVisible: e.target.checked })}
+                        className="accent-white" />
+                      SHOW LABEL
+                    </label>
+                    {selected.shape === 'RECTANGLE' && (
+                      <div>
+                        <p className="font-mono text-[10px] text-grey-light uppercase mb-1">Corner Radius</p>
+                        <div className="grid grid-cols-4 gap-1">
+                          {['TL', 'TR', 'BR', 'BL'].map((label, idx) => {
+                            const cr: number[] = ((selected.style as any)?.cornerRadius) ?? [0, 0, 0, 0]
+                            return (
+                              <Input key={label} label={label} type="number" min="0" max={Math.min(selected.width, selected.depth) / 2}
+                                value={cr[idx]?.toString() ?? '0'}
+                                onChange={(e) => {
+                                  const next = [...cr]
+                                  next[idx] = Math.min(parseInt(e.target.value) || 0, Math.min(selected.width, selected.depth) / 2)
+                                  updateElement(selected.id!, { style: { ...(selected.style ?? {}), cornerRadius: next } })
+                                }} />
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    <Input label="Opacity" type="number" min="0" max="1" step="0.1"
+                      value={selected.opacity.toString()}
+                      onChange={(e) => updateElement(selected.id!, { opacity: Math.min(1, Math.max(0, parseFloat(e.target.value) || 1)) })} />
+                    <Input label="Label Scale" type="number" min="0.5" max="3" step="0.1" value={((selected.style as any)?.labelScale ?? 1).toString()}
+                      onChange={(e) => updateElement(selected.id!, { style: { ...(selected.style ?? {}), labelScale: Math.max(0.5, Math.min(3, parseFloat(e.target.value) || 1)) } })} />
+                  </div>
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">ROTATION</p>
+                    <div className="flex flex-wrap gap-1">
+                      {[0, 45, 90, 135, 180, 270].map((angle) => (
+                        <button key={angle} onClick={() => updateElement(selected.id!, { rotation: angle })}
+                          className={`font-mono text-[10px] px-2 py-1 border ${Math.round(selected.rotation ?? 0) === angle ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
+                          {angle}°
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">POSITION</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input label="X (cm)" type="number" step="10" value={Math.round(selected.x).toString()}
+                        onChange={(e) => updateElement(selected.id!, { x: parseFloat(e.target.value) || 0 })}
+                        onBlur={() => { if (selected.id) updateElement(selected.id, { x: snap(selected.x, plan.gridUnit) }) }} />
+                      <Input label="Y (cm)" type="number" step="10" value={Math.round(selected.y).toString()}
+                        onChange={(e) => updateElement(selected.id!, { y: parseFloat(e.target.value) || 0 })}
+                        onBlur={() => { if (selected.id) updateElement(selected.id, { y: snap(selected.y, plan.gridUnit) }) }} />
+                    </div>
+                  </div>
+                  {INVENTORY_TYPES.includes(selected.type) && (
+                    <div className="border border-grey-mid p-3">
+                      <button onClick={() => setShowInvTab(!showInvTab)}
+                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase w-full text-left mb-2">
+                        {showInvTab ? '▼ INVENTORY' : '▶ INVENTORY'}
+                      </button>
+                      {showInvTab && selected.id ? (
+                        <ElementInventoryPanel elementId={selected.id} floorPlanId={plan.id} />
+                      ) : showInvTab ? null : null}
+                      <div className="space-y-2">
+                        <Select label="Section" value={selected.sectionId ?? ''}
+                          onChange={(e) => updateElement(selected.id!, { sectionId: e.target.value || null })}
+                          options={sections.map((s) => ({ value: s.id, label: s.name }))} placeholder="NONE" />
+                        <Input label="Capacity" type="number" value={selected.capacity?.toString() ?? ''}
+                          onChange={(e) => updateElement(selected.id!, { capacity: e.target.value ? parseInt(e.target.value) : null })} />
                       </div>
                     </div>
                   )}
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input label="X (cm)" type="number" step="10" value={Math.round(selected.x).toString()}
-                      onChange={(e) => updateElement(selected.id!, { x: parseFloat(e.target.value) || 0 })}
-                      onBlur={() => { if (selected.id) updateElement(selected.id, { x: snap(selected.x, plan.gridUnit) }) }} />
-                    <Input label="Y (cm)" type="number" step="10" value={Math.round(selected.y).toString()}
-                      onChange={(e) => updateElement(selected.id!, { y: parseFloat(e.target.value) || 0 })}
-                      onBlur={() => { if (selected.id) updateElement(selected.id, { y: snap(selected.y, plan.gridUnit) }) }} />
-                  </div>
-                  <FloorplanInspector selectedElement={selected} elements={elements}
-                    onChange={(patch) => updateElement(selected.id!, patch)} />
-                  <p className="font-mono text-[10px] text-grey-light uppercase">Rotation</p>
-                  <div className="flex flex-wrap gap-1">
-                    {[0, 45, 90, 135, 180, 270].map((angle) => (
-                      <button key={angle} onClick={() => updateElement(selected.id!, { rotation: angle })}
-                        className={`font-mono text-[10px] px-2 py-1 border ${Math.round(selected.rotation) === angle ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
-                        {angle}°
-                      </button>
-                    ))}
-                  </div>
-                  <Input label="Opacity" type="number" min="0" max="1" step="0.1"
-                    value={selected.opacity.toString()}
-                    onChange={(e) => updateElement(selected.id!, { opacity: Math.min(1, Math.max(0, parseFloat(e.target.value) || 1)) })} />
-                  <Select label="Section" value={selected.sectionId ?? ''}
-                    onChange={(e) => updateElement(selected.id!, { sectionId: e.target.value || null })}
-                    options={sections.map((s) => ({ value: s.id, label: s.name }))} placeholder="NONE" />
-                  <Input label="Capacity" type="number" value={selected.capacity?.toString() ?? ''}
-                    onChange={(e) => updateElement(selected.id!, { capacity: e.target.value ? parseInt(e.target.value) : null })} />
                   {selected.type === 'TABLE' && (
-                    <>
-                      <Input label="Chair Count" type="number" min="0" value={(selected.chairCount ?? 0).toString()}
+                    <div className="border border-grey-mid p-3 space-y-2">
+                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">CHAIRS</p>
+                      <Input label="Count" type="number" min="0" value={(selected.chairCount ?? 0).toString()}
                         onChange={(e) => updateElement(selected.id!, { chairCount: parseInt(e.target.value) || 0 })} />
-                      <Select label="Chair Style" value={((selected.style as any)?.chairStyle ?? 'bracket') as string}
+                      <Select label="Style" value={((selected.style as any)?.chairStyle ?? 'bracket') as string}
                         onChange={(e) => updateElement(selected.id!, { style: { ...(selected.style ?? {}), chairStyle: e.target.value } })}
                         options={[{ value: 'round', label: 'ROUND' }, { value: 'bracket', label: 'BRACKET' }]} />
-                      <p className="font-mono text-[10px] text-grey-light uppercase">Chairs On Sides</p>
+                      <p className="font-mono text-[10px] text-grey-light uppercase">On Sides</p>
                       <div className="grid grid-cols-2 gap-1">
                         {['top', 'bottom', 'left', 'right'].map((side) => {
                           const sides: string[] = ((selected.style as any)?.chairSides) ?? ['top', 'bottom', 'left', 'right']
@@ -1142,14 +1605,39 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                           )
                         })}
                       </div>
-                    </>
+                    </div>
+                  )}
+                  {selected.type === 'BOOTH_BENCH' && (
+                    <div className="border border-grey-mid p-3 space-y-2">
+                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">SERVES TABLES</p>
+                      {elements.filter((e) => e.type === 'TABLE').map((t) => {
+                        const served: string[] = (selected.style as any)?.servedTableIds ?? []
+                        const checked = served.includes(t.id!)
+                        return (
+                          <label key={t.id} className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none py-0.5">
+                            <input type="checkbox" checked={checked}
+                              onChange={() => {
+                                const s: string[] = [...served]
+                                if (checked) { const idx = s.indexOf(t.id!); if (idx >= 0) s.splice(idx, 1) }
+                                else { s.push(t.id!) }
+                                updateElement(selected.id!, { style: { ...(selected.style ?? {}), servedTableIds: s } })
+                              }}
+                              className="accent-white" />
+                            <span>{t.label || t.type}</span>
+                          </label>
+                        )
+                      })}
+                      {elements.filter((e) => e.type === 'TABLE').length === 0 && (
+                        <p className="font-mono text-[10px] text-grey-light italic">No tables on plan</p>
+                      )}
+                    </div>
                   )}
                   {selected.style !== undefined && (
-                      <button onClick={() => updateElement(selected.id!, { style: null })}
-                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1">
-                        RESET STYLE
-                      </button>
-                    )}
+                    <button onClick={() => updateElement(selected.id!, { style: null })}
+                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1 w-full">
+                      RESET STYLE
+                    </button>
+                  )}
                 </>
               )}
             </>
@@ -1210,23 +1698,65 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           ) : zoneDrawing ? (
             <>
               <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider">SECTION ZONES</h2>
-              <p className="font-mono text-[10px] text-grey-light">Drag on canvas to draw or move zones.</p>
-              <Select label="Section" value={zoneSectionId}
-                onChange={(e) => setZoneSectionId(e.target.value)}
-                options={sections.map((s) => ({ value: s.id, label: s.name }))} />
+              <p className="font-mono text-[10px] text-grey-light">Draw zones on canvas. Toggle POLYGON for custom shapes.</p>
+              <Button size="sm" variant="ghost" onClick={() => { setZonePolyMode(!zonePolyMode); setZonePolyPoints([]) }}
+                className={zonePolyMode ? 'border-accent text-accent' : ''}>
+                {zonePolyMode ? 'POLYGON · ON' : 'POLYGON'}
+              </Button>
+              {zonePolyMode && (
+                <div className="border border-accent/30 p-2 space-y-1">
+                  <p className="font-mono text-[9px] text-grey-light">{zonePolyPoints.length} VERTEX{zonePolyPoints.length !== 1 ? 'TICES' : ''}</p>
+                  <div className="flex gap-1">
+                    <Button size="sm" onClick={() => {
+                      if (zonePolyPoints.length < 3) return
+                      const xs = zonePolyPoints.map((p) => p.x); const ys = zonePolyPoints.map((p) => p.y)
+                      const id = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)
+                      setZones((prev) => [...prev, {
+                        id, sectionId: zoneSectionId,
+                        x: Math.min(...xs), y: Math.min(...ys),
+                        width: Math.max(...xs) - Math.min(...xs),
+                        height: Math.max(...ys) - Math.min(...ys),
+                        vertices: zonePolyPoints.map((p) => ({ x: p.x - Math.min(...xs), y: p.y - Math.min(...ys) })),
+                      }])
+                      setZonePolyPoints([]); setZonePolyMode(false)
+                    }} disabled={zonePolyPoints.length < 3}>SAVE</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setZonePolyMode(false); setZonePolyPoints([]) }}>CANCEL</Button>
+                  </div>
+                </div>
+              )}
+              <Combobox label="Section"
+                options={sections.map((s) => ({ value: s.id, label: s.name }))}
+                selected={zoneSectionId ? [zoneSectionId] : []}
+                onChange={(ids) => setZoneSectionId(ids[0] || '')}
+                placeholder="Search sections..."
+                multiple={false}
+              />
               <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
-                {zones.map((z) => {
-                  const sec = sectionMap.get(z.sectionId)
-                  return (
-                    <div key={z.id} onClick={() => setSelectedZoneId(z.id)}
-                      className={`flex items-center gap-2 p-1.5 cursor-pointer font-mono text-[10px] ${z.id === selectedZoneId ? 'bg-grey-mid text-white' : 'text-grey-light hover:text-white'}`}>
-                      <div className="w-3 h-3 flex-shrink-0" style={{ backgroundColor: sec?.colour ?? '#666' }} />
-                      <span className="truncate flex-1">{sec?.name ?? '?'}</span>
-                      <span>{Math.round(z.width)}×{Math.round(z.height)}</span>
+                {(() => {
+                  const deptMap = new Map<string, { name: string; zones: typeof zones }>()
+                  for (const z of zones) {
+                    const sec = sectionMap.get(z.sectionId)
+                    const deptName = sec?.department?.name ?? sec?.departmentId ?? 'UNSORTED'
+                    if (!deptMap.has(deptName)) deptMap.set(deptName, { name: deptName, zones: [] })
+                    deptMap.get(deptName)!.zones.push(z)
+                  }
+                  return Array.from(deptMap.entries()).map(([dept, grp]) => (
+                    <div key={dept}>
+                      <div className="font-mono text-[8px] uppercase text-grey-light px-1 py-0.5 border-b border-grey-mid/30">{dept}</div>
+                      {grp.zones.map((z) => {
+                        const sec = sectionMap.get(z.sectionId)
+                        return (
+                          <div key={z.id} onClick={() => setSelectedZoneId(z.id)}
+                            className={`flex items-center gap-2 p-1.5 cursor-pointer font-mono text-[10px] ${z.id === selectedZoneId ? 'bg-grey-mid text-white' : 'text-grey-light hover:text-white'}`}>
+                            <div className="w-3 h-3 flex-shrink-0" style={{ backgroundColor: sec?.colour ?? '#666' }} />
+                            <span className="truncate flex-1">{sec?.name ?? '?'}</span>
+                            <span>{Math.round(z.width)}×{Math.round(z.height)}</span>
+                          </div>
+                        )
+                      })}
                     </div>
-                  )
-                })}
-                {zones.length === 0 && <p className="font-mono text-[10px] text-grey-light italic">No zones yet</p>}
+                  ))
+                })()}
               </div>
               {selectedZoneId && (() => {
                 const z = zones.find((x) => x.id === selectedZoneId)

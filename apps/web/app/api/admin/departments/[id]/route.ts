@@ -12,7 +12,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { name, colour, isActive } = body
+  const { name, colour, isActive, linkedDepartmentIds } = body
 
   const dept = await prisma.department.update({
     where: { id: params.id },
@@ -22,6 +22,17 @@ export async function PUT(req: NextRequest, { params }: Params) {
       ...(isActive !== undefined ? { isActive } : {}),
     },
   })
+
+  // Sync linked departments
+  if (linkedDepartmentIds !== undefined) {
+    const ids: string[] = (Array.isArray(linkedDepartmentIds) ? linkedDepartmentIds : []).filter((toId) => toId !== params.id)
+    await prisma.departmentLink.deleteMany({ where: { fromDepartmentId: params.id } })
+    if (ids.length > 0) {
+      await prisma.departmentLink.createMany({
+        data: ids.map((toId) => ({ fromDepartmentId: params.id, toDepartmentId: toId })),
+      })
+    }
+  }
 
   return NextResponse.json(dept)
 }

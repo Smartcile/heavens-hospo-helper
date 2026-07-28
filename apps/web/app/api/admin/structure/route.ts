@@ -38,7 +38,7 @@ export async function GET() {
     }),
   ])
 
-  const [sections, staffSections, floorPlanElements] = await Promise.all([
+  const [sections, staffSections, floorPlanElements, deptLinks, storedItems] = await Promise.all([
     prisma.section.findMany({
       where: { deletedAt: null, venueId: { in: venueIds } },
       select: { id: true, name: true, colour: true, departmentId: true },
@@ -49,7 +49,62 @@ export async function GET() {
       where: { deletedAt: null, sectionId: { not: null }, floorPlan: { deletedAt: null } },
       select: { id: true, type: true, sectionId: true, label: true, _count: { select: { inventoryItems: true } } },
     }),
+    prisma.departmentLink.findMany({
+      where: { fromDepartment: { venueId: { in: venueIds } } },
+      select: { fromDepartmentId: true, toDepartment: { select: { id: true, name: true, colour: true } } },
+    }),
+    prisma.inventoryItem.findMany({
+      where: { deletedAt: null, venueId: { in: venueIds }, storageSectionId: { not: null } },
+      select: { id: true, name: true, unit: true, storageSectionId: true, storageNotes: true, totalQty: true, imageUrls: true },
+      orderBy: { name: 'asc' },
+    }),
   ])
+
+  // Build map of departmentId → linked department info
+  const deptLinksByDept = new Map<string, { id: string; name: string; colour: string | null }[]>()
+  for (const dl of deptLinks) {
+    const arr = deptLinksByDept.get(dl.fromDepartmentId) ?? []
+    arr.push(dl.toDepartment)
+    deptLinksByDept.set(dl.fromDepartmentId, arr)
+  }
+  // Workflow links per task (mirrors the MAP edges): which checklists list a
+  // task (list-task), which training is its how-to guide (how-to), and which
+  // training it requires (requires). Rendered as coloured tags on each task.
+  const [linkChecklists, linkTraining] = await Promise.all([
+    prisma.checklist.findMany({
+      where: { deletedAt: null, venueId: { in: venueIds } },
+      select: { id: true, name: true, appearFromTime: true, tasks: { select: { taskId: true } } },
+    }),
+    prisma.trainingModule.findMany({
+      where: { deletedAt: null, venueId: { in: venueIds } },
+      select: {
+        id: true, title: true, kind: true, linkedTaskId: true,
+        steps: { select: { linkedTaskId: true } },
+        moduleTasks: { select: { taskId: true } },
+        requiredByTasks: { select: { taskId: true } },
+        _count: { select: { steps: true } },
+      },
+    }),
+  ])
+  type TaskLink = { label: string; colour: string; kind: string; targetId: string; targetType: string; targetSub: string }
+  const linksByTask = new Map<string, TaskLink[]>()
+  const pushLink = (taskId: string, link: TaskLink) => {
+    const arr = linksByTask.get(taskId) ?? []
+    if (!arr.some((l) => l.kind === link.kind && l.targetId === link.targetId)) arr.push(link)
+    linksByTask.set(taskId, arr)
+  }
+  for (const c of linkChecklists) {
+    const sub = `${c.tasks.length} TASK${c.tasks.length !== 1 ? 'S' : ''}${c.appearFromTime ? ` · FROM ${c.appearFromTime}` : ''}`
+    for (const ct of c.tasks) pushLink(ct.taskId, { label: c.name, colour: '#4ADE80', kind: 'list', targetId: c.id, targetType: 'CHECKLIST', targetSub: sub })
+  }
+  for (const m of linkTraining) {
+    const sub = `${m.kind} · ${m._count.steps} STEP${m._count.steps !== 1 ? 'S' : ''}`
+    const tType = m.kind === 'TRAINING' ? 'TRAINING MODULE' : m.kind
+    if (m.linkedTaskId) pushLink(m.linkedTaskId, { label: m.title, colour: '#F97316', kind: 'how-to', targetId: m.id, targetType: tType, targetSub: sub })
+    for (const mt of m.moduleTasks) pushLink(mt.taskId, { label: m.title, colour: '#F97316', kind: 'how-to', targetId: m.id, targetType: tType, targetSub: sub })
+    for (const st of m.steps) if (st.linkedTaskId) pushLink(st.linkedTaskId, { label: m.title, colour: '#F97316', kind: 'how-to', targetId: m.id, targetType: tType, targetSub: sub })
+    for (const rt of m.requiredByTasks) pushLink(rt.taskId, { label: m.title, colour: '#F87171', kind: 'requires', targetId: m.id, targetType: tType, targetSub: sub })
+  }
   const staffIdsBySection = new Map<string, string[]>()
   for (const ss of staffSections) {
     const arr = staffIdsBySection.get(ss.sectionId) ?? []
@@ -66,6 +121,13 @@ export async function GET() {
     fpBySection.set(key, cur)
   }
 
+  const storedBySection = new Map<string, { id: string; name: string; unit: string; storageNotes: string | null; totalQty: number; imageUrls: string[] | null }[]>()
+  for (const inv of storedItems) {
+    const arr = storedBySection.get(inv.storageSectionId!) ?? []
+    arr.push({ id: inv.id, name: inv.name, unit: inv.unit, storageNotes: inv.storageNotes, totalQty: inv.totalQty, imageUrls: inv.imageUrls as string[] | null })
+    storedBySection.set(inv.storageSectionId!, arr)
+  }
+
   const staffName = new Map(staff.map((s) => [s.id, `${s.firstName} ${s.lastName}`]))
 
   const fmtStaff = (s: (typeof staff)[number]) => ({ id: s.id, name: `${s.firstName} ${s.lastName}`, role: s.role })
@@ -76,6 +138,7 @@ export async function GET() {
     active: t.isActive,
     scope: t.assignedToStaffId ? 'PERSON' : t.sectionId ? 'SECTION' : t.departmentId ? 'DEPARTMENT' : 'VENUE',
     assignee: t.assignedToStaffId ? staffName.get(t.assignedToStaffId) ?? null : null,
+    links: linksByTask.get(t.id) ?? [],
   })
   const fmtTraining = (t: (typeof training)[number]) => ({
     id: t.id,
@@ -96,6 +159,7 @@ export async function GET() {
         id: d.id,
         name: d.name,
         colour: d.colour,
+        linkedDepartments: deptLinksByDept.get(d.id) ?? [],
         // Department-level lists exclude items pushed down into a section.
         staff: vStaff.filter((s) => s.departmentId === d.id).map(fmtStaff),
         tasks: vTasks.filter((t) => t.departmentId === d.id && !t.sectionId).map(fmtTask),
@@ -110,6 +174,7 @@ export async function GET() {
               staff: vStaff.filter((s) => memberIds.has(s.id)).map(fmtStaff),
               tasks: vTasks.filter((t) => t.sectionId === sec.id).map(fmtTask),
               floorPlan: fp,
+              inventoryItems: storedBySection.get(sec.id) ?? [],
             }
           }),
       }

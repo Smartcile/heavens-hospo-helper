@@ -88,17 +88,24 @@ export async function PUT(req: NextRequest, { params }: Params) {
   return NextResponse.json(updated)
 }
 
-export async function DELETE(_req: NextRequest, { params }: Params) {
+export async function DELETE(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const permanent = req.nextUrl.searchParams.get('permanent') === '1'
+
   const profile = await prisma.tableProfile.findFirst({
-    where: { id: params.id, deletedAt: null },
+    where: { id: params.id },
     select: { id: true, venueId: true, name: true },
   })
   if (!profile) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (session.user.role === 'MANAGER' && profile.venueId !== session.user.venueId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  if (permanent) {
+    await prisma.tableProfile.delete({ where: { id: params.id } })
+    return NextResponse.json({ ok: true })
   }
 
   await prisma.$transaction([

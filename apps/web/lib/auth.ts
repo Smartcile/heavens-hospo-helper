@@ -9,7 +9,7 @@ export const authOptions: NextAuthOptions = {
     maxAge: 8 * 60 * 60, // 8 hours
   },
   pages: {
-    signIn: '/admin/login',
+    signIn: '/',
   },
   providers: [
     CredentialsProvider({
@@ -28,12 +28,37 @@ export const authOptions: NextAuthOptions = {
             isActive: true,
             role: { in: ['ADMIN', 'MANAGER'] },
           },
+          include: {
+            venue: { select: { isDemo: true, isActive: true } },
+            staffVenues: { select: { venueId: true } },
+          },
         })
 
         if (!staff?.password) return null
 
+        // Block manager login when the demo venue is disabled (but allow ADMIN).
+        if (staff.role !== 'ADMIN' && staff.venue.isDemo && !staff.venue.isActive) {
+          return null
+        }
+
         const isValid = await bcrypt.compare(credentials.password, staff.password)
         if (!isValid) return null
+
+        // Build available venue IDs: home venue + shared assignments (for MANAGER);
+        // all non-deleted venues for ADMIN.
+        let availableVenueIds: string[] = [staff.venueId]
+        if (staff.role === 'ADMIN') {
+          const allVenues = await prisma.venue.findMany({
+            where: { deletedAt: null },
+            select: { id: true },
+          })
+          availableVenueIds = allVenues.map((v) => v.id)
+        } else {
+          availableVenueIds = [
+            staff.venueId,
+            ...staff.staffVenues.map((sv) => sv.venueId),
+          ]
+        }
 
         return {
           id: staff.id,
@@ -41,6 +66,9 @@ export const authOptions: NextAuthOptions = {
           email: staff.email ?? credentials.email,
           role: staff.role,
           venueId: staff.venueId,
+          defaultVenueId: staff.defaultVenueId ?? undefined,
+          venueIsDemo: staff.venue.isDemo,
+          availableVenueIds,
         }
       },
     }),
@@ -51,6 +79,9 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id
         token.role = user.role
         token.venueId = user.venueId
+        token.defaultVenueId = user.defaultVenueId
+        token.venueIsDemo = user.venueIsDemo
+        token.availableVenueIds = user.availableVenueIds
       }
       return token
     },
@@ -59,6 +90,9 @@ export const authOptions: NextAuthOptions = {
         session.user.id = token.id as string
         session.user.role = token.role as string
         session.user.venueId = token.venueId as string
+        session.user.defaultVenueId = (token.defaultVenueId as string) ?? undefined
+        session.user.venueIsDemo = (token.venueIsDemo as boolean) ?? false
+        session.user.availableVenueIds = (token.availableVenueIds as string[]) ?? []
       }
       return session
     },

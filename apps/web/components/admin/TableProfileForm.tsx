@@ -53,6 +53,7 @@ export function TableProfileForm({ onSaved, onCancel, profileId, onDelete }: Pro
   const [chairCount, setChairCount] = useState('0')
   const [seatingDensity, setSeatingDensity] = useState('')
   const [maxHeadChairs, setMaxHeadChairs] = useState('1')
+  const [edgeChairs, setEdgeChairs] = useState<{ t: number; b: number; l: number; r: number }>({ t: 0, b: 0, l: 0, r: 0 })
   const [bomItems, setBomItems] = useState<BomItemView[]>([])
   const [newBomItemId, setNewBomItemId] = useState('')
   const [newBomQty, setNewBomQty] = useState('1')
@@ -88,6 +89,8 @@ export function TableProfileForm({ onSaved, onCancel, profileId, onDelete }: Pro
         setSeatingDensity(p.seatingDensity != null ? String(p.seatingDensity) : '')
         setMaxHeadChairs(String(p.maxHeadChairs ?? 1))
         setTableNumbers(Array.isArray((p as any).tableNumbers) ? (p as any).tableNumbers.map(String) : [])
+        const ec = (p as any).edgeChairs
+        if (ec && typeof ec === 'object') setEdgeChairs({ t: ec.t ?? 0, b: ec.b ?? 0, l: ec.l ?? 0, r: ec.r ?? 0 })
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -287,6 +290,68 @@ export function TableProfileForm({ onSaved, onCancel, profileId, onDelete }: Pro
         <div>
           <label className="font-mono text-xs uppercase text-grey-light block mb-1">MAX HEAD CHAIRS</label>
           <Input type="number" value={maxHeadChairs} onChange={(e) => setMaxHeadChairs(e.target.value)} />
+        </div>
+      </div>
+
+      {/* Chair edge visual selector */}
+      <div>
+        <label className="font-mono text-xs uppercase text-grey-light block mb-2">CHAIR EDGES (CLICK EDGE TO ADD/REMOVE)</label>
+        <div className="flex items-start gap-4">
+          <div className="relative" style={{ width: Math.max(80, Math.min(200, (parseInt(width) || 80) * 0.5)), height: Math.max(80, Math.min(200, (parseInt(depth) || 80) * 0.5)) }}>
+            {/* Top edge */}
+            <button
+              onClick={() => setEdgeChairs((prev) => ({ ...prev, t: prev.t + 1 }))}
+              onContextMenu={(e) => { e.preventDefault(); setEdgeChairs((prev) => ({ ...prev, t: Math.max(0, prev.t - 1) })) }}
+              className="absolute top-0 left-0 right-0 h-6 flex items-center justify-center gap-0.5 cursor-pointer hover:bg-white/5 border-t border-x border-grey-mid"
+              style={{ backgroundColor: '#1a1a1a' }}
+              title="LEFT CLICK: add chair · RIGHT CLICK: remove chair">
+              {Array.from({ length: edgeChairs.t }, (_, i) => (
+                <span key={i} className="w-2 h-4 border border-[#c4a530] bg-[#c4a530]/20" />
+              ))}
+            </button>
+            {/* Bottom edge */}
+            <button
+              onClick={() => setEdgeChairs((prev) => ({ ...prev, b: prev.b + 1 }))}
+              onContextMenu={(e) => { e.preventDefault(); setEdgeChairs((prev) => ({ ...prev, b: Math.max(0, prev.b - 1) })) }}
+              className="absolute bottom-0 left-0 right-0 h-6 flex items-center justify-center gap-0.5 cursor-pointer hover:bg-white/5 border-b border-x border-grey-mid"
+              style={{ backgroundColor: '#1a1a1a' }}
+              title="LEFT CLICK: add chair · RIGHT CLICK: remove chair">
+              {Array.from({ length: edgeChairs.b }, (_, i) => (
+                <span key={i} className="w-2 h-4 border border-[#c4a530] bg-[#c4a530]/20" />
+              ))}
+            </button>
+            {/* Left edge */}
+            <button
+              onClick={() => setEdgeChairs((prev) => ({ ...prev, l: prev.l + 1 }))}
+              onContextMenu={(e) => { e.preventDefault(); setEdgeChairs((prev) => ({ ...prev, l: Math.max(0, prev.l - 1) })) }}
+              className="absolute left-0 top-6 bottom-6 w-6 flex flex-col items-center justify-center gap-0.5 cursor-pointer hover:bg-white/5 border-l border-y border-grey-mid"
+              style={{ backgroundColor: '#1a1a1a' }}
+              title="LEFT CLICK: add chair · RIGHT CLICK: remove chair">
+              {Array.from({ length: edgeChairs.l }, (_, i) => (
+                <span key={i} className="h-2 w-4 border border-[#c4a530] bg-[#c4a530]/20" />
+              ))}
+            </button>
+            {/* Right edge */}
+            <button
+              onClick={() => setEdgeChairs((prev) => ({ ...prev, r: prev.r + 1 }))}
+              onContextMenu={(e) => { e.preventDefault(); setEdgeChairs((prev) => ({ ...prev, r: Math.max(0, prev.r - 1) })) }}
+              className="absolute right-0 top-6 bottom-6 w-6 flex flex-col items-center justify-center gap-0.5 cursor-pointer hover:bg-white/5 border-r border-y border-grey-mid"
+              style={{ backgroundColor: '#1a1a1a' }}
+              title="LEFT CLICK: add chair · RIGHT CLICK: remove chair">
+              {Array.from({ length: edgeChairs.r }, (_, i) => (
+                <span key={i} className="h-2 w-4 border border-[#c4a530] bg-[#c4a530]/20" />
+              ))}
+            </button>
+            {/* Table top surface */}
+            <div className="absolute inset-6 flex items-center justify-center border border-grey-mid" style={{ backgroundColor: colour || '#e6c347' }}>
+              <span className="font-mono text-[8px] text-black/70">{width}×{depth}</span>
+            </div>
+          </div>
+          <div className="text-left font-mono text-[9px] text-grey-light space-y-0.5">
+            <div>T: {edgeChairs.t} · B: {edgeChairs.b}</div>
+            <div>L: {edgeChairs.l} · R: {edgeChairs.r}</div>
+            <div className="text-white">TOTAL: {edgeChairs.t + edgeChairs.b + edgeChairs.l + edgeChairs.r}</div>
+          </div>
         </div>
       </div>
 

@@ -19,7 +19,9 @@ export async function GET(req: NextRequest) {
   const taskWhere = {
     deletedAt: null,
     isActive: true,
-    ...(session.user.role === 'MANAGER' ? { venueId: session.user.venueId } : {}),
+    ...(session.user.role === 'MANAGER'
+      ? { venueId: session.user.venueId }
+      : { venue: { NOT: { isDemo: true, isActive: false } } }),
   }
 
   const tasks = await prisma.task.findMany({

@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { BudgetMonthSelector } from '@/components/admin/BudgetMonthSelector'
+import { getActiveVenueId } from '@/lib/active-venue'
 
 interface Venue { id: string; name: string }
 
-export function BudgetLandingClient({ role, sessionVenueId }: { role: string; sessionVenueId: string }) {
+export function BudgetLandingClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const now = new Date()
   const [venues, setVenues] = useState<Venue[]>([])
-  const [selectedVenueId, setSelectedVenueId] = useState(role === 'MANAGER' ? sessionVenueId : '')
+  const [selectedVenueId, setSelectedVenueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
 
   useEffect(() => {
     if (role === 'ADMIN') {

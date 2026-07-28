@@ -2,7 +2,7 @@
 
 ## Prerequisites
 - Docker Desktop (running)
-- Node.js 18+
+- Node.js 20+ (the Docker image builds on Node 22)
 
 ## One-time setup
 

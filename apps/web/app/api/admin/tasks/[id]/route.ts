@@ -8,6 +8,25 @@ interface Params {
   params: { id: string }
 }
 
+export async function GET(_req: NextRequest, { params }: Params) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const task = await prisma.task.findUnique({
+    where: { id: params.id },
+    select: {
+      id: true, title: true, description: true, venueId: true, departmentId: true, sectionId: true,
+      assignedToStaffId: true,
+      completionType: true, scheduleType: true, scheduleDays: true, customCron: true,
+      intervalMonths: true, monthlyOption: true, monthlyDay: true, isActive: true,
+      requiredTraining: { select: { moduleId: true } },
+      taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
+    },
+  })
+  if (!task) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  return NextResponse.json(task)
+}
+
 export async function PUT(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -40,6 +59,30 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.requiredTrainingIds !== undefined) {
     const reqIds: string[] = Array.isArray(body.requiredTrainingIds) ? body.requiredTrainingIds : []
     updates.requiredTraining = { deleteMany: {}, create: reqIds.map((moduleId: string) => ({ moduleId })) }
+
+    // Sync linkedTaskId back to the training modules (bidirectional link)
+    await prisma.trainingModule.updateMany({
+      where: { linkedTaskId: params.id, id: { notIn: reqIds } },
+      data: { linkedTaskId: null },
+    })
+    if (reqIds.length > 0) {
+      await prisma.trainingModule.updateMany({
+        where: { id: { in: reqIds } },
+        data: { linkedTaskId: params.id },
+      })
+    }
+  }
+  if (body.competencyGuideIds !== undefined) {
+    const guideIds: string[] = Array.isArray(body.competencyGuideIds) ? body.competencyGuideIds : []
+    // Remove old competency TaskGuide rows, then create new ones
+    await prisma.taskGuide.deleteMany({
+      where: { taskId: params.id, isRequiredForCompetency: true },
+    })
+    if (guideIds.length > 0) {
+      await prisma.taskGuide.createMany({
+        data: guideIds.map((guideId: string) => ({ taskId: params.id, guideId, isRequiredForCompetency: true })),
+      })
+    }
   }
 
   // "Significant change" → bump version + post a re-train notice to the group.
