@@ -89,8 +89,10 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const isAdmin = role === 'ADMIN'
 
   async function load() {
+    const activeVenueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
+    const venueParam = isAdmin && activeVenueId ? `?venueId=${encodeURIComponent(activeVenueId)}` : ''
     const [sR, vR, dR, secR] = await Promise.all([
-      fetch('/api/admin/staff'),
+      fetch(`/api/admin/staff${venueParam}`),
       fetch('/api/admin/venues'),
       fetch('/api/admin/departments'),
       fetch('/api/admin/sections'),

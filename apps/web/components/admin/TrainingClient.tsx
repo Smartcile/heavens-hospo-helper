@@ -106,8 +106,10 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: { role:
   const fileRefs = useRef<(HTMLInputElement | null)[]>([])
 
   async function load() {
+    const activeVenueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
+    const venueParam = activeVenueId ? `?venueId=${encodeURIComponent(activeVenueId)}` : ''
     const [mR, dR, tR, sR, cR] = await Promise.all([
-      fetch('/api/admin/training'),
+      fetch(`/api/admin/training${venueParam}`),
       fetch('/api/admin/departments'),
       fetch('/api/admin/tasks'),
       fetch('/api/admin/sections'),

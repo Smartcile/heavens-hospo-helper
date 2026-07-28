@@ -68,6 +68,19 @@ export function SettingsClient({
   const [intMessage, setIntMessage] = useState('')
 
   // WooCommerce
+  const [wcVenueId, setWcVenueId] = useState<string>(() => {
+    if (role !== 'ADMIN') return sessionVenueId
+    if (typeof document !== 'undefined') {
+      for (const entry of document.cookie.split('; ')) {
+        if (entry.startsWith('admin-active-venue=')) {
+          const v = entry.substring('admin-active-venue='.length)
+          if (v) return v
+          break
+        }
+      }
+    }
+    return defaultVenueId || sessionVenueId
+  })
   const [wcStoreUrl, setWcStoreUrl] = useState('')
   const [wcConsumerKey, setWcConsumerKey] = useState('')
   const [wcConsumerSecret, setWcConsumerSecret] = useState('')
@@ -76,6 +89,8 @@ export function SettingsClient({
   const [wcSaving, setWcSaving] = useState(false)
   const [wcMessage, setWcMessage] = useState('')
   const [wcLastSync, setWcLastSync] = useState<string | null>(null)
+  const [wcReadOnly, setWcReadOnly] = useState(false)
+  const [wcSharedFrom, setWcSharedFrom] = useState<string | null>(null)
 
   // Demo venue
   const [demoVenue, setDemoVenue] = useState<{ id: string; name: string; isActive: boolean } | null>(null)
@@ -110,7 +125,8 @@ export function SettingsClient({
   }, [])
 
   useEffect(() => {
-    fetch('/api/admin/settings/woocommerce')
+    const params = role === 'ADMIN' && wcVenueId ? `?venueId=${encodeURIComponent(wcVenueId)}` : ''
+    fetch(`/api/admin/settings/woocommerce${params}`)
       .then((r) => r.ok ? r.json() : null)
       .then((d) => {
         if (d) {
@@ -120,9 +136,11 @@ export function SettingsClient({
           setWcWebhookSecret(d.wcWebhookSecret ?? '')
           setWcActive(d.wcActive ?? false)
           setWcLastSync(d.lastSyncAt ?? null)
+          setWcReadOnly(d.readOnly ?? false)
+          setWcSharedFrom(d.sharedWooVenueId ?? null)
         }
       })
-  }, [])
+  }, [wcVenueId, role])
 
   useEffect(() => {
     if (role !== 'ADMIN') return
@@ -203,16 +221,18 @@ export function SettingsClient({
 
   async function saveWooCommerce() {
     setWcSaving(true); setWcMessage('')
+    const body: Record<string, unknown> = {
+      wcStoreUrl: wcStoreUrl,
+      wcConsumerKey: wcConsumerKey,
+      wcConsumerSecret: wcConsumerSecret,
+      wcWebhookSecret: wcWebhookSecret,
+      wcActive,
+    }
+    if (role === 'ADMIN' && wcVenueId) body.venueId = wcVenueId
     const r = await fetch('/api/admin/settings/woocommerce', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        wcStoreUrl: wcStoreUrl,
-        wcConsumerKey: wcConsumerKey,
-        wcConsumerSecret: wcConsumerSecret,
-        wcWebhookSecret: wcWebhookSecret,
-        wcActive,
-      }),
+      body: JSON.stringify(body),
     })
     setWcSaving(false)
     if (r.ok) {
@@ -330,7 +350,11 @@ export function SettingsClient({
           CONNECT YOUR WOOCOMMERCE STORE TO SYNC ORDERS AND AUTO-ALLOCATE INVENTORY. THE WEBHOOK SECRET IS USED TO VERIFY INCOMING ORDER NOTIFICATIONS.
         </p>
         <div className="space-y-3">
-          <Input label="STORE URL" value={wcStoreUrl} onChange={(e) => setWcStoreUrl(e.target.value)} placeholder="https://yourshop.co.nz" />
+          {role === 'ADMIN' && venues.length > 1 && (
+            <Select label="Venue" value={wcVenueId} onChange={(e) => setWcVenueId(e.target.value)} options={venues.map((v) => ({ value: v.id, label: v.name }))} />
+          )}
+          {wcReadOnly && <p className="font-mono text-xs text-[#FACC15]">READ-ONLY — WOOCOMMERCE IS MANAGED BY {wcSharedFrom ? venues.find((v) => v.id === wcSharedFrom)?.name ?? 'THE SOURCE VENUE' : 'ANOTHER VENUE'}</p>}
+          <Input label="STORE URL" value={wcStoreUrl} onChange={(e) => setWcStoreUrl(e.target.value)} placeholder="https://yourshop.co.nz" disabled={wcReadOnly} />
           <div className="grid grid-cols-2 gap-3">
             <Input label="CONSUMER KEY" type="password" value={wcConsumerKey} onChange={(e) => setWcConsumerKey(e.target.value)} placeholder={wcConsumerKey ? '••••••••' : 'ck_...'} autoComplete="off" />
             <Input label="CONSUMER SECRET" type="password" value={wcConsumerSecret} onChange={(e) => setWcConsumerSecret(e.target.value)} placeholder={wcConsumerSecret ? '••••••••' : 'cs_...'} autoComplete="off" />

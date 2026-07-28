@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { pushProduct } from '@/lib/woo-push'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -63,6 +64,20 @@ export async function POST(req: NextRequest) {
     })
 
     if (linkToMenu) {
+      // Auto-generate wooProductId as max existing + 1 when not provided
+      let effectiveWooProductId = wooProductId || null
+      if (!effectiveWooProductId) {
+        const max = await tx.menuItem.findFirst({
+          where: { wooProductId: { not: null }, venueId: session.user.venueId, deletedAt: null },
+          orderBy: { wooProductId: 'desc' },
+          select: { wooProductId: true },
+        })
+        if (max?.wooProductId) {
+          const num = parseInt(max.wooProductId, 10)
+          if (!isNaN(num)) effectiveWooProductId = String(num + 1)
+        }
+      }
+
       if (existingMenuItemId) {
         await tx.menuItem.update({
           where: { id: existingMenuItemId },
@@ -80,7 +95,7 @@ export async function POST(req: NextRequest) {
             name: name.toUpperCase().trim(),
             recipeId: r.id,
             price: parseFloat(String(price)) || 0,
-            wooProductId: wooProductId || null,
+            wooProductId: effectiveWooProductId,
             wooCategoryId: wooCategoryId || null,
             dietaryInfo: dietaryInfo || null,
           },
@@ -90,6 +105,15 @@ export async function POST(req: NextRequest) {
 
     return r
   })
+
+  // Push the linked menu item to WooCommerce (best-effort)
+  if (linkToMenu) {
+    const linked = await prisma.menuItem.findFirst({
+      where: { recipeId: recipe.id, deletedAt: null },
+      select: { id: true },
+    })
+    if (linked) await pushProduct(linked.id)
+  }
 
   return NextResponse.json(recipe, { status: 201 })
 }

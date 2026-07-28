@@ -82,8 +82,10 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const compRef = useRef<ComboboxHandle>(null)
 
   async function load() {
+    const activeVenueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
+    const venueParam = activeVenueId ? `?venueId=${encodeURIComponent(activeVenueId)}` : ''
     const [gR, dR, tR] = await Promise.all([
-      fetch('/api/admin/guides'),
+      fetch(`/api/admin/guides${venueParam}`),
       fetch('/api/admin/departments'),
       fetch('/api/admin/tasks'),
     ])

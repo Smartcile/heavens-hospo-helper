@@ -33,9 +33,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   })
 
   // Push the change to WooCommerce (best-effort — logs to SyncLog, never throws)
-  if (updated.wooProductId) {
-    await pushProduct(updated.id)
-  }
+  await pushProduct(updated.id)
 
   return NextResponse.json(updated)
 }

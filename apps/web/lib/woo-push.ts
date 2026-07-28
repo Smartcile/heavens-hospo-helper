@@ -45,7 +45,7 @@ export function mapStatusToWoo(status: OrderStatus): string {
   return map[status] ?? 'pending'
 }
 
-export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 'wooCategoryId'>, now: Date = new Date()) {
+export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 'wooCategoryId' | 'imageUrl'>, now: Date = new Date()) {
   const payload: Record<string, unknown> = {
     name: item.name,
     regular_price: String(item.price ?? 0),
@@ -53,7 +53,14 @@ export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 
   }
   if (item.wooCategoryId) {
     const id = parseInt(item.wooCategoryId, 10)
-    if (!isNaN(id)) payload.categories = [{ id }]
+    if (!isNaN(id)) {
+      payload.categories = [{ id }]
+    } else {
+      payload.categories = [{ name: item.wooCategoryId }]
+    }
+  }
+  if (item.imageUrl) {
+    payload.images = [{ src: item.imageUrl }]
   }
   return payload
 }
@@ -120,23 +127,53 @@ async function wooPut(
   return { ok: response.ok, status: response.status, body: responseBody }
 }
 
-// Push a menu item's name / price / category to its linked WooCommerce product.
+async function wooPost(
+  integration: WooIntegration,
+  path: string,
+  payload: unknown,
+): Promise<{ ok: boolean; status: number; body: string }> {
+  const baseUrl = integration.storeUrl.replace(/\/+$/, '')
+  const url = `${baseUrl}/wp-json/wc/v3/${path}`
+  const body = JSON.stringify(payload)
+
+  let response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: wooAuthHeader(integration.consumerKey, integration.consumerSecret),
+      'Content-Type': 'application/json',
+    },
+    body,
+  })
+
+  if (response.status === 401) {
+    const sep = url.includes('?') ? '&' : '?'
+    response = await fetch(
+      `${url}${sep}consumer_key=${encodeURIComponent(integration.consumerKey)}&consumer_secret=${encodeURIComponent(integration.consumerSecret)}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body },
+    )
+  }
+
+  if (response.status === 401) {
+    response = await fetch(
+      oauthSignedUrl('POST', url, integration.consumerKey, integration.consumerSecret),
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body },
+    )
+  }
+
+  const responseBody = await response.text()
+  return { ok: response.ok, status: response.status, body: responseBody }
+}
+
+// Push a menu item's name / price / category / image to its linked WooCommerce product.
+// If no wooProductId exists, creates the product on WooCommerce via POST and
+// stores the returned ID. If a PUT fails because the product doesn't exist,
+// falls back to POST creation.
 export async function pushProduct(menuItemId: string): Promise<void> {
   try {
     const item = await prisma.menuItem.findFirst({
       where: { id: menuItemId, deletedAt: null },
     })
     if (!item) return
-    if (!item.wooProductId) {
-      await logSync({
-        venueId: item.venueId,
-        direction: 'PUSH',
-        entity: 'PRODUCT',
-        status: 'SKIPPED',
-        message: `PUSH SKIPPED — ${item.name} HAS NO LINKED WOOCOMMERCE PRODUCT`,
-      })
-      return
-    }
 
     const integration = await getIntegration(item.venueId)
     if (!integration) {
@@ -145,25 +182,82 @@ export async function pushProduct(menuItemId: string): Promise<void> {
         direction: 'PUSH',
         entity: 'PRODUCT',
         status: 'SKIPPED',
-        externalId: item.wooProductId,
         message: `PUSH SKIPPED — NO ACTIVE WOOCOMMERCE INTEGRATION FOR VENUE`,
       })
       return
     }
 
     const payload = buildProductPushPayload(item)
-    const res = await wooPut(integration, `products/${item.wooProductId}`, payload)
+
+    // If we have a wooProductId, try PUT first.
+    if (item.wooProductId) {
+      const res = await wooPut(integration, `products/${item.wooProductId}`, payload)
+      if (res.ok) {
+        await logSync({
+          venueId: item.venueId,
+          direction: 'PUSH',
+          entity: 'PRODUCT',
+          status: 'SUCCESS',
+          externalId: item.wooProductId,
+          message: `PUSHED ${item.name} TO WOOCOMMERCE (PRODUCT #${item.wooProductId})`,
+          detail: { payload },
+        })
+        return
+      }
+      // If the product doesn't exist on WooCommerce, fall through to POST create.
+      if (res.status !== 400 && res.status !== 404) {
+        await logSync({
+          venueId: item.venueId,
+          direction: 'PUSH',
+          entity: 'PRODUCT',
+          status: 'ERROR',
+          externalId: item.wooProductId,
+          message: `PUSH FAILED FOR ${item.name} — HTTP ${res.status}`,
+          detail: { payload, response: res.body.slice(0, 1000) },
+        })
+        return
+      }
+    }
+
+    // No wooProductId or PUT returned 400/404 — create via POST.
+    const postRes = await wooPost(integration, 'products', payload)
+    if (!postRes.ok) {
+      await logSync({
+        venueId: item.venueId,
+        direction: 'PUSH',
+        entity: 'PRODUCT',
+        status: 'ERROR',
+        externalId: item.wooProductId,
+        message: `PUSH FAILED FOR ${item.name} — POST CREATE HTTP ${postRes.status}`,
+        detail: { payload, response: postRes.body.slice(0, 1000) },
+      })
+      return
+    }
+
+    // Parse the created product's ID from the response and store it.
+    let newWooId: string | null = null
+    try {
+      const created = JSON.parse(postRes.body)
+      if (created?.id) newWooId = String(created.id)
+    } catch { /* best-effort */ }
+
+    if (newWooId) {
+      await prisma.menuItem.update({
+        where: { id: item.id },
+        data: { wooProductId: newWooId },
+      })
+    }
 
     await logSync({
       venueId: item.venueId,
       direction: 'PUSH',
       entity: 'PRODUCT',
-      status: res.ok ? 'SUCCESS' : 'ERROR',
-      externalId: item.wooProductId,
-      message: res.ok
-        ? `PUSHED ${item.name} TO WOOCOMMERCE (PRODUCT #${item.wooProductId})`
-        : `PUSH FAILED FOR ${item.name} — HTTP ${res.status}`,
-      detail: res.ok ? { payload } : { payload, response: res.body.slice(0, 1000) },
+      status: 'SUCCESS',
+      externalId: newWooId ?? undefined,
+      message: newWooId
+        ? `PUSHED ${item.name} — CREATED ON WOOCOMMERCE AS PRODUCT #${newWooId}`
+        : `PUSHED ${item.name} — CREATED ON WOOCOMMERCE`,
+      detail: { payload },
     })
   } catch (e) {
     console.error('pushProduct failed (non-blocking):', e)
@@ -177,22 +271,15 @@ export async function pushProduct(menuItemId: string): Promise<void> {
 }
 
 // Push all linked menu items for a venue (manual PUSH NOW button).
-export async function pushAllProducts(venueId: string): Promise<{ pushed: number; skipped: number }> {
+export async function pushAllProducts(venueId: string): Promise<{ pushed: number }> {
   const items = await prisma.menuItem.findMany({
     where: { venueId, deletedAt: null },
-    select: { id: true, wooProductId: true },
+    select: { id: true },
   })
-  let pushed = 0
-  let skipped = 0
   for (const item of items) {
-    if (item.wooProductId) {
-      await pushProduct(item.id)
-      pushed++
-    } else {
-      skipped++
-    }
+    await pushProduct(item.id)
   }
-  return { pushed, skipped }
+  return { pushed: items.length }
 }
 
 // Push a local order status change to the WooCommerce order.

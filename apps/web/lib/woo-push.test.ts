@@ -38,7 +38,7 @@ describe('mapStatusToWoo', () => {
 
 describe('buildProductPushPayload', () => {
   it('includes name, price string, and the self-update meta stamps', () => {
-    const payload = buildProductPushPayload({ name: 'FISH & CHIPS', price: 24.5, wooCategoryId: null }, NOW)
+    const payload = buildProductPushPayload({ name: 'FISH & CHIPS', price: 24.5, wooCategoryId: null, imageUrl: null }, NOW)
     expect(payload.name).toBe('FISH & CHIPS')
     expect(payload.regular_price).toBe('24.5')
     expect(payload.meta_data).toEqual([
@@ -46,20 +46,26 @@ describe('buildProductPushPayload', () => {
       { key: '_hospo_ops_pushed_at', value: NOW.toISOString() },
     ])
     expect(payload.categories).toBeUndefined()
+    expect(payload.images).toBeUndefined()
   })
 
   it('includes categories when wooCategoryId is numeric', () => {
-    const payload = buildProductPushPayload({ name: 'PIE', price: 8, wooCategoryId: '17' }, NOW)
+    const payload = buildProductPushPayload({ name: 'PIE', price: 8, wooCategoryId: '17', imageUrl: null }, NOW)
     expect(payload.categories).toEqual([{ id: 17 }])
   })
 
-  it('omits categories when wooCategoryId is not numeric', () => {
-    const payload = buildProductPushPayload({ name: 'PIE', price: 8, wooCategoryId: 'mains' }, NOW)
-    expect(payload.categories).toBeUndefined()
+  it('sends category as name when wooCategoryId is not numeric', () => {
+    const payload = buildProductPushPayload({ name: 'PIE', price: 8, wooCategoryId: 'mains', imageUrl: null }, NOW)
+    expect(payload.categories).toEqual([{ name: 'mains' }])
+  })
+
+  it('includes images when imageUrl is set', () => {
+    const payload = buildProductPushPayload({ name: 'BURGER', price: 12, wooCategoryId: null, imageUrl: '/api/upload/abc.jpg' }, NOW)
+    expect(payload.images).toEqual([{ src: '/api/upload/abc.jpg' }])
   })
 
   it('defaults price to "0" when null-ish', () => {
-    const payload = buildProductPushPayload({ name: 'X', price: null as unknown as number, wooCategoryId: null }, NOW)
+    const payload = buildProductPushPayload({ name: 'X', price: null as unknown as number, wooCategoryId: null, imageUrl: null }, NOW)
     expect(payload.regular_price).toBe('0')
   })
 })

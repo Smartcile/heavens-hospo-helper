@@ -53,9 +53,23 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name, recipeId, price, wooProductId, wooCategoryId, description, sharedVenueIds } = await req.json()
+  const { name, recipeId, price, wooProductId: providedWooProductId, wooCategoryId, description, sharedVenueIds } = await req.json()
   if (!name?.trim() || !recipeId) {
     return NextResponse.json({ error: 'name and recipeId are required' }, { status: 400 })
+  }
+
+  // Auto-generate wooProductId as max existing + 1 when not provided
+  let wooProductId = providedWooProductId || null
+  if (!wooProductId) {
+    const max = await prisma.menuItem.findFirst({
+      where: { wooProductId: { not: null }, venueId: session.user.venueId, deletedAt: null },
+      orderBy: { wooProductId: 'desc' },
+      select: { wooProductId: true },
+    })
+    if (max?.wooProductId) {
+      const num = parseInt(max.wooProductId, 10)
+      if (!isNaN(num)) wooProductId = String(num + 1)
+    }
   }
 
   const item = await prisma.menuItem.create({
@@ -64,7 +78,7 @@ export async function POST(req: NextRequest) {
       name: name.toUpperCase().trim(),
       recipeId,
       price: parseFloat(String(price)) || 0,
-      wooProductId: wooProductId || null,
+      wooProductId,
       wooCategoryId: wooCategoryId || null,
       description: description || null,
     },
@@ -81,10 +95,8 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Push the new link to WooCommerce (best-effort — logs to SyncLog, never throws)
-  if (item.wooProductId) {
-    await pushProduct(item.id)
-  }
+  // Push to WooCommerce (best-effort — logs to SyncLog, never throws)
+  await pushProduct(item.id)
 
   return NextResponse.json(item, { status: 201 })
 }

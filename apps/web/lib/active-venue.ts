@@ -2,11 +2,11 @@ export function getActiveVenueId(role: string, sessionVenueId: string, defaultVe
   if (role === 'MANAGER') return sessionVenueId
 
   if (typeof document !== 'undefined') {
-    const cookie = document.cookie
-      .split('; ')
-      .find((r) => r.startsWith('admin-active-venue='))
-      ?.split('=')[1]
-    if (cookie) return cookie
+    for (const entry of document.cookie.split('; ')) {
+      if (entry.startsWith('admin-active-venue=')) {
+        return entry.substring('admin-active-venue='.length)
+      }
+    }
   }
 
   return defaultVenueId ?? ''

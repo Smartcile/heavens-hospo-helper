@@ -11,12 +11,18 @@ export async function GET(req: NextRequest) {
   const categoryId = url.searchParams.get('categoryId')
   const furnitureOnly = url.searchParams.get('furniture') === 'true'
   const deleted = url.searchParams.get('deleted') === 'true'
+  const venueId = url.searchParams.get('venueId')
 
-  const where: any = { venueId: session.user.venueId }
+  const where: any = {}
   if (deleted) { where.deletedAt = { not: null } } else { where.deletedAt = null }
   if (categoryId) where.categoryId = categoryId
   if (furnitureOnly) where.furnitureType = { not: null }
-  if (session.user.role === 'ADMIN') delete where.venueId
+
+  if (session.user.role === 'MANAGER') {
+    where.venueId = session.user.venueId
+  } else if (venueId) {
+    where.venueId = venueId
+  }
 
   const items = await prisma.inventoryItem.findMany({
     where,
