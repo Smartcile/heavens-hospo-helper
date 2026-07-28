@@ -17,7 +17,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, dietaryInfo } = await req.json()
+  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, imageUrl, dietaryInfo } = await req.json()
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = String(name).toUpperCase().trim()
   if (yieldQty !== undefined) data.yieldQty = parseFloat(String(yieldQty)) || 1
@@ -57,6 +57,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
           price: parseFloat(String(price)) || 0,
           wooProductId: wooProductId || null,
           wooCategoryId: wooCategoryId || null,
+          imageUrl: imageUrl || null,
         }
         if (dietaryInfo !== undefined) menuData.dietaryInfo = dietaryInfo || null
         if (existing) {
@@ -88,7 +89,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
           },
           orderBy: { sortOrder: 'asc' },
         },
-        menuItems: { select: { id: true, price: true, wooProductId: true, wooCategoryId: true, dietaryInfo: true } },
+        menuItems: { select: { id: true, price: true, wooProductId: true, wooCategoryId: true, imageUrl: true, dietaryInfo: true } },
       },
     })
   })

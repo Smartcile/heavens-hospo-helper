@@ -60,7 +60,10 @@ export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 
     }
   }
   if (item.imageUrl) {
-    payload.images = [{ src: item.imageUrl }]
+    const src = item.imageUrl.startsWith('http')
+      ? item.imageUrl
+      : `${process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? ''}${item.imageUrl}`
+    payload.images = [{ src }]
   }
   return payload
 }

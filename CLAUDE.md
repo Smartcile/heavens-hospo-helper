@@ -1267,14 +1267,14 @@ Receives `order.created` / `order.updated` AND `product.created` / `product.upda
 
 **Pull (Woo → app):**
 - `lib/woo-sync.ts` `runProductPull(venueId?)` — paginated product fetch, upserts `MenuItem`s, logs to `SyncLog`
-- `upsertProductFromWoo()` stores category **names** (not IDs), downloads featured images to local uploads, and strips HTML from descriptions
+- `upsertProductFromWoo()` stores category **names** (not IDs), downloads featured images to local uploads, strips HTML from descriptions, and **decodes HTML entities** (`&amp;` → `&` etc.) from names and descriptions before storage to prevent double-encoding on push-back
 - `fetchWooCategories()` fetches all product categories from the WooCommerce REST API — used by the category autocomplete dropdown in the admin UI
 - `lib/woo-orders-sync.ts` `runOrderPull(venueId?)` — paginated order fetch, upserts `WooOrder` + `WooOrderItem`, runs recipe explosion, auto-seating, and gift card detection per order, logs to `SyncLog`
 
 **Push (app → Woo):**
 - `lib/woo-push.ts` — `pushProduct()` fires on every menu item / recipe menu-link save (name, price, category, and images → `PUT wc/v3/products/{id}`)
 - **Auto-create on WooCommerce:** if the item has no `wooProductId` (new product) or the PUT returns 400/404 (product doesn't exist on Woo), `pushProduct()` POSTs to `wc/v3/products` to create it, then stores the returned WooCommerce product ID in the database
-- **Images pushed:** `buildProductPushPayload` includes `images` when `imageUrl` is set
+- **Images pushed:** `buildProductPushPayload` includes `images` when `imageUrl` is set; relative `/api/upload/...` paths are resolved to absolute URLs using `APP_URL` or `NEXTAUTH_URL`
 - **Category handling:** numeric `wooCategoryId` → `categories: [{ id }]`; non-numeric (name) → `categories: [{ name }]`
 - `pushOrderStatus()` fires on order status change via `PATCH /api/admin/orders/[id]` (Orders page STATUS dropdown)
 - All pushes best-effort: log to `SyncLog`, never throw, never block the save
@@ -1282,6 +1282,10 @@ Receives `order.created` / `order.updated` AND `product.created` / `product.upda
 **Auto-generated Woo Product ID:**
 - When creating a menu item via POST (both `/api/admin/menu-items` and the recipe LINK TO MENU flow) without providing a `wooProductId`, the API queries `max(existing wooProductId) + 1` for the venue and auto-assigns it. This gives new products an ID to push with — the push then creates the product on WooCommerce if it doesn't exist yet.
 - **Sync dashboard:** `/admin/sync` (`SyncClient`) — PULL PRODUCTS / PULL ORDERS / PUSH PRODUCTS NOW buttons (`POST /api/admin/sync/pull|pull-orders|push`), live `SyncLog` feed (`GET /api/admin/sync/log`, 10s auto-refresh, direction/status filters, errors in red).
+
+| Route | Methods | Purpose |
+|-------|---------|---------|
+| `/api/admin/woocommerce/categories` | GET | Returns all WooCommerce categories for the venue's store (used by the category picker in both the recipe editor and menu items) |
 
 ### Internal Cron Scheduler (`instrumentation.ts` + `lib/internal-cron.ts`)
 Started once on server boot via Next's `instrumentationHook` (enabled in next.config.mjs). Minute tick; pure `dueJobs(state, now, tz)` decides what fires (Vitest-covered). Jobs: product pull every 15 min (`runProductPull`), order pull every 15 min (`runOrderPull`), expiry scan daily 03:00 in `DEFAULT_TIMEZONE` (`runExpiryScan` in `lib/expiry-scan.ts`). Fully self-contained — no host crontab. Disable with `INTERNAL_CRON=false`. Dev hot-reload guarded via `globalThis.__hospoInternalCron`.
@@ -1296,7 +1300,7 @@ Started once on server boot via Next's `instrumentationHook` (enabled in next.co
 `InventoryCategory.tab` (FOOD, BEVERAGE, null). 20 built-in categories auto-seeded. FOOD tab: PROTEIN, DAIRY, PRODUCE, DRY GOODS, BAKERY, CONDIMENTS. BEVERAGE tab: LIQUOR, WINE, BEER, SOFT DRINK, JUICE, COFFEE. OTHER tab: existing equipment categories. Deep inventory fields: `countingUnitId`, `orderingUnitId`, `yieldPercentage`, `costPrice`, `expiryDate`, `fallbackCategoryId`, `allergyInfo`.
 
 ### Recipes & Menu Items (combined page)
-`/admin/recipes` merged with `/admin/menu-items` (redirects). Recipe editor has LINK TO MENU toggle with price + WooCommerce fields. Woo Category field is a searchable autocomplete dropdown populated from the WooCommerce store's categories via `GET /api/admin/woocommerce/categories` (fetched on page load). Woo Product ID is **read-only** — auto-generated as `max(existing) + 1` on create and updated with the real WooCommerce ID after the first push. Searchable Combobox for ingredient/sub-recipe selection with popover modal. Orphaned WooCommerce products shown in yellow. 23 allergen toggle buttons — stored as comma-separated `dietaryInfo` on `MenuItem`.
+`/admin/recipes` merged with `/admin/menu-items` (redirects). Recipe editor has LINK TO MENU toggle with price + WooCommerce fields. Woo Category field is a searchable autocomplete dropdown populated from the WooCommerce store's categories via `GET /api/admin/woocommerce/categories` (fetched on page load). Woo Product ID is **read-only** — auto-generated as `max(existing) + 1` on create and updated with the real WooCommerce ID after the first push. **Product image upload** (ADD IMAGE / REPLACE IMAGE / REMOVE button + thumbnail preview) appears in both the recipe editor's LINK TO WOO section and the menu item's WOOCOMMERCE SYNC section — uploads go to `/api/admin/upload` and images are pushed to WooCommerce. Searchable Combobox for ingredient/sub-recipe selection with popover modal. Orphaned WooCommerce products shown in yellow. 23 allergen toggle buttons — stored as comma-separated `dietaryInfo` on `MenuItem`.
 
 ### EOD Reconciliation (`/api/admin/inventory/reconcile`)
 Aggregates exploded ingredients from completed orders, tallies `requiredBaseQty` per inventory item. Returned as reconciliation report. Deferred inventory deduction (Phase 5).

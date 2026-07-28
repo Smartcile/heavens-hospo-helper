@@ -157,6 +157,18 @@ async function downloadAndStoreImage(imageUrl: string, productName: string): Pro
   }
 }
 
+// Decode common HTML entities returned by WooCommerce (e.g. &amp; → &).
+// Prevents double-encoding when the value is later uppercased and pushed back.
+function decodeEntities(str: string): string {
+  return str
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;/gi, "'")
+    .replace(/&#x0*27;/gi, "'")
+}
+
 // Upsert a single WooCommerce product payload into the MenuItem table.
 // Returns 'created' | 'updated'.
 export async function upsertProductFromWoo(
@@ -164,11 +176,12 @@ export async function upsertProductFromWoo(
   product: any,
 ): Promise<'created' | 'updated'> {
   const wooProductId = String(product.id)
-  const name = product.name?.toUpperCase() ?? 'IMPORTED PRODUCT'
+  const name = decodeEntities(product.name ?? 'IMPORTED PRODUCT').toUpperCase()
   const price = parseFloat(product.price ?? '0')
   const categoryName = product.categories?.[0]?.name ? String(product.categories[0].name) : null
   const remoteImageUrl = product.images?.[0]?.src ?? null
   const description = product.description?.replace(/<[^>]*>/g, '').trim() ?? null
+  const cleanDescription = description ? decodeEntities(description) : null
   const imageUrl = remoteImageUrl ? await downloadAndStoreImage(remoteImageUrl, name) : null
 
   const existing = await prisma.menuItem.findFirst({
@@ -178,7 +191,7 @@ export async function upsertProductFromWoo(
   if (existing) {
     await prisma.menuItem.update({
       where: { id: existing.id },
-      data: { name, price, wooCategoryId: categoryName, imageUrl, description },
+      data: { name, price, wooCategoryId: categoryName, imageUrl, description: cleanDescription },
     })
     return 'updated'
   }
@@ -192,7 +205,7 @@ export async function upsertProductFromWoo(
       wooProductId,
       wooCategoryId: categoryName,
       imageUrl,
-      description,
+      description: cleanDescription,
     },
   })
   return 'created'

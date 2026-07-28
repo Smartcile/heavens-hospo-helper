@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -14,7 +14,7 @@ interface Recipe {
   prepTime: number | null; version: number; isActive: boolean
   yieldUnit?: { id: string; name: string }
   lineItems?: LineItem[]
-  menuItem?: { id: string; price: number; wooProductId: string | null; wooCategoryId: string | null; dietaryInfo: string | null } | null
+  menuItem?: { id: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; dietaryInfo: string | null } | null
 }
 
 interface LineItem {
@@ -31,10 +31,22 @@ interface InvItem { id: string; name: string; unit: string; allergyInfo?: string
 interface RecipeBrief { id: string; name: string }
 
 interface OrphanMenuItem {
-  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null; dietaryInfo: string | null
+  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; dietaryInfo: string | null
 }
 
-function generateId() { return crypto.randomUUID() }
+  function generateId() { return crypto.randomUUID() }
+
+  async function uploadImage(file: File) {
+    setImageUploading(true)
+    const form = new FormData()
+    form.append('file', file)
+    const r = await fetch('/api/admin/upload', { method: 'POST', body: form })
+    setImageUploading(false)
+    if (r.ok) {
+      const data = await r.json()
+      setFormImageUrl(data.url)
+    }
+  }
 
 export function RecipesClient() {
   const [recipes, setRecipes] = useState<Recipe[]>([])
@@ -62,6 +74,11 @@ export function RecipesClient() {
   const [formExistingMenuItemId, setFormExistingMenuItemId] = useState<string | null>(null)
   const [formDietaryInfo, setFormDietaryInfo] = useState<string[]>([])
   const [allergenPopout, setAllergenPopout] = useState<{ allergen: string; source: string } | null>(null)
+
+  // Image upload for linked Woo product
+  const [formImageUrl, setFormImageUrl] = useState<string | null>(null)
+  const [imageUploading, setImageUploading] = useState(false)
+  const imageFileRef = useRef<HTMLInputElement | null>(null)
 
   const ALLERGENS = ['ALMOND','BARLEY','BRAZIL NUT','CASHEW','CRUSTACEAN','EGG','FISH','HAZELNUT','LUPIN','MACADAMIA','MILK','MOLLUSC','OATS','PEANUT','PECAN','PINE NUT','PISTACHIO','RYE','SESAME','SOY','SULPHITES','WALNUT','WHEAT']
   const ALLERGEN_GROUPS: { label: string; items: string[] }[] = [
@@ -100,7 +117,7 @@ export function RecipesClient() {
     setFormInstructions(''); setFormPrepTime(''); setLineItems([])
     setNewItemId(''); setNewItemQty('1'); setNewItemUomId('')
     setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([]); setWooCatInput('')
-    setFormDietaryInfo([])
+    setFormDietaryInfo([]); setFormImageUrl(null)
     setFormExistingMenuItemId(null)
   }
 
@@ -121,9 +138,10 @@ export function RecipesClient() {
       setFormWooProductId(r.menuItem.wooProductId ?? '')
       setFormWooCategories(r.menuItem.wooCategoryId ? r.menuItem.wooCategoryId.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
       setFormDietaryInfo(r.menuItem.dietaryInfo ? r.menuItem.dietaryInfo.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
+      setFormImageUrl(r.menuItem.imageUrl ?? null)
     } else {
     setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([]); setWooCatInput('')
-    setFormDietaryInfo([])
+    setFormDietaryInfo([]); setFormImageUrl(null)
     }
   }
 
@@ -134,6 +152,7 @@ export function RecipesClient() {
     setLinkToMenu(true); setFormPrice(String(o.price))
     setFormWooProductId(o.wooProductId ?? ''); setFormWooCategories(o.wooCategoryId ? o.wooCategoryId.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
     setFormDietaryInfo(o.dietaryInfo ? o.dietaryInfo.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
+    setFormImageUrl(o.imageUrl ?? null)
     setFormExistingMenuItemId(o.id)
   }
 
@@ -247,6 +266,7 @@ export function RecipesClient() {
       price: linkToMenu ? parseFloat(formPrice) || 0 : undefined,
       wooProductId: linkToMenu ? (formWooProductId || null) : undefined,
       wooCategoryId: linkToMenu ? (formWooCategories.length > 0 ? formWooCategories.join(', ') : null) : undefined,
+      imageUrl: linkToMenu ? formImageUrl : undefined,
       existingMenuItemId: formExistingMenuItemId || undefined,
       dietaryInfo: formDietaryInfo.length > 0 ? formDietaryInfo.join(',') : null,
     }
@@ -543,6 +563,28 @@ export function RecipesClient() {
                             ))}
                           </div>
                         )}
+                      </div>
+
+                      <div className="md:col-span-3">
+                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">PRODUCT IMAGE</label>
+                        <div className="flex items-center gap-2">
+                          <input ref={imageFileRef} type="file" accept="image/*" className="hidden"
+                            onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
+                          <button type="button" onClick={() => imageFileRef.current?.click()}
+                            className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors">
+                            {imageUploading ? 'UPLOADING_' : formImageUrl ? 'REPLACE IMAGE' : 'ADD IMAGE'}
+                          </button>
+                          {formImageUrl && (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={formImageUrl} alt="product" className="h-10 w-10 object-cover border border-grey-mid" />
+                              <button type="button" onClick={() => setFormImageUrl(null)}
+                                className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">
+                                REMOVE
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}

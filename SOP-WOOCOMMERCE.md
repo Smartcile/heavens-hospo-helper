@@ -15,9 +15,11 @@
 - **Categories** are pulled as **names** (e.g. "BURGERS"), not numeric IDs — human-readable in the admin UI.
 - **Category picker** shows a dropdown of all existing WooCommerce categories — fetched live from the store so you can pick instead of typing. Both the Recipes & Menu Items page and the Menu Items page use this.
 - **Featured images** are downloaded from WooCommerce and stored locally on pull.
+- **Product images** can be uploaded via ADD IMAGE in the recipe LINK TO WOO section or menu item WOOCOMMERCE SYNC section — served locally and pushed back to WooCommerce (relative URLs auto-resolved to absolute).
 - **Images, prices, and categories** are all pushed back to WooCommerce on save.
 - **New products auto-create on WooCommerce** — if a menu item has no `wooProductId` (freshly created locally), the push POSTs it as a new product on WooCommerce and stores the returned product ID automatically.
 - **Woo Product ID is read-only** in the UI — auto-generated as `max(existing) + 1` when creating a new item, then updated with the real WooCommerce ID after the first push.
+- **HTML entities decoded** on pull (`&amp;` → `&`) so names like "SALT & PEPPER" don't double-encode on push-back.
 
 Every sync event (in both directions) is recorded on the **SYNC dashboard**
 (**HOSPO OPS → Woo Sync**), including errors — use it to watch the integration

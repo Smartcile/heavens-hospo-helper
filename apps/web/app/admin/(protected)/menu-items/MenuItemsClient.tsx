@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -38,10 +38,14 @@ export function MenuItemsClient() {
   const [wooCategories, setWooCategories] = useState<{ value: string; label: string }[]>([])
   const [wooCategoriesLoaded, setWooCategoriesLoaded] = useState(false)
 
+  const [formImageUrl, setFormImageUrl] = useState<string | null>(null)
+  const [imageUploading, setImageUploading] = useState(false)
+  const imageFileRef = useRef<HTMLInputElement | null>(null)
+
   function resetForm() {
     setFormName(''); setFormRecipeId(''); setFormPrice('0')
     setFormWooProductId(''); setFormWooCategoryId(''); setFormDescription('')
-    setFormSharedPriceOverride(''); setSelectedIsShared(false)
+    setFormSharedPriceOverride(''); setSelectedIsShared(false); setFormImageUrl(null)
   }
 
   function populateForm(m: MenuItem) {
@@ -51,6 +55,19 @@ export function MenuItemsClient() {
     setFormDescription(m.description ?? '')
     setFormSharedPriceOverride(m.sharedPriceOverride != null ? String(m.sharedPriceOverride) : '')
     setSelectedIsShared(!!m.sharedFromVenueId)
+    setFormImageUrl(m.imageUrl ?? null)
+  }
+
+  async function uploadImage(file: File) {
+    setImageUploading(true)
+    const form = new FormData()
+    form.append('file', file)
+    const r = await fetch('/api/admin/upload', { method: 'POST', body: form })
+    setImageUploading(false)
+    if (r.ok) {
+      const data = await r.json()
+      setFormImageUrl(data.url)
+    }
   }
 
   async function loadWooCategories() {
@@ -110,6 +127,7 @@ export function MenuItemsClient() {
       price: parseFloat(formPrice) || 0,
       wooProductId: formWooProductId || null,
       wooCategoryId: formWooCategoryId || null,
+      imageUrl: formImageUrl || null,
       description: formDescription || null,
     }
     if (isCreating) {
@@ -223,6 +241,30 @@ export function MenuItemsClient() {
                   <div>
                     <label className="font-mono text-xs uppercase text-grey-light block mb-1">DESCRIPTION</label>
                     <Input value={formDescription} onChange={(e) => setFormDescription(e.target.value)} placeholder="DESCRIPTION" />
+                  </div>
+                )}
+
+                {!selectedIsShared && (
+                  <div>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">PRODUCT IMAGE</label>
+                    <div className="flex items-center gap-2">
+                      <input ref={imageFileRef} type="file" accept="image/*" className="hidden"
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
+                      <button type="button" onClick={() => imageFileRef.current?.click()}
+                        className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors">
+                        {imageUploading ? 'UPLOADING_' : formImageUrl ? 'REPLACE IMAGE' : 'ADD IMAGE'}
+                      </button>
+                      {formImageUrl && (
+                        <>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={formImageUrl} alt="product" className="h-10 w-10 object-cover border border-grey-mid" />
+                          <button type="button" onClick={() => setFormImageUrl(null)}
+                            className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">
+                            REMOVE
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 )}
 

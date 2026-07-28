@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
         },
         orderBy: { sortOrder: 'asc' },
       },
-      menuItems: { select: { id: true, price: true, wooProductId: true, wooCategoryId: true, dietaryInfo: true } },
+      menuItems: { select: { id: true, price: true, wooProductId: true, wooCategoryId: true, imageUrl: true, dietaryInfo: true } },
     },
     orderBy: { name: 'asc' },
   })
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, existingMenuItemId, dietaryInfo } = await req.json()
+  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, imageUrl, existingMenuItemId, dietaryInfo } = await req.json()
   if (!name?.trim() || !yieldUnitId) {
     return NextResponse.json({ error: 'name and yieldUnitId are required' }, { status: 400 })
   }
@@ -85,6 +85,7 @@ export async function POST(req: NextRequest) {
             recipeId: r.id,
             price: parseFloat(String(price)) || 0,
             wooCategoryId: wooCategoryId || null,
+            imageUrl: imageUrl || null,
             dietaryInfo: dietaryInfo || null,
           },
         })
@@ -97,6 +98,7 @@ export async function POST(req: NextRequest) {
             price: parseFloat(String(price)) || 0,
             wooProductId: effectiveWooProductId,
             wooCategoryId: wooCategoryId || null,
+            imageUrl: imageUrl || null,
             dietaryInfo: dietaryInfo || null,
           },
         })
