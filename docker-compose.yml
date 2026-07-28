@@ -40,14 +40,16 @@
 services:
   db:
     image: postgres:16-alpine
-    container_name: hospo-ops-db
+    container_name: ${INSTANCE_NAME:-hospo-ops}-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: hospo_ops
       POSTGRES_USER: ${DB_USER:-hospo_ops_user}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in Portainer env}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Set DB_DATA to a host path (e.g. /mnt/data/db) for a bind mount,
+      # or leave it as the default named volume (scoped per stack in Portainer).
+      - ${DB_DATA:-postgres_data}:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-hospo_ops_user} -d hospo_ops"]
       interval: 10s
@@ -56,7 +58,7 @@ services:
 
   app:
     image: ghcr.io/smartcile/heavens-hospo-helper:${IMAGE_TAG:-latest}
-    container_name: hospo-ops-app
+    container_name: ${INSTANCE_NAME:-hospo-ops}-app
     restart: unless-stopped
     pull_policy: always
     depends_on:
@@ -90,8 +92,9 @@ services:
       # Bearer auth for the /api/cron endpoints (external schedulers only).
       CRON_SECRET: ${CRON_SECRET:-}
     volumes:
-      # Task completion photos persist here across redeploys.
-      - uploads_data:/app/uploads
+      # Set UPLOADS_DATA to a host path (e.g. /mnt/data/uploads) for a bind mount,
+      # or leave it as the default named volume (scoped per stack in Portainer).
+      - ${UPLOADS_DATA:-uploads_data}:/app/uploads
 
 volumes:
   postgres_data:

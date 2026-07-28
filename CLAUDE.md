@@ -120,6 +120,9 @@ kept in the repo for reference / future controlled migrations.
 
 In Portainer: **Stacks → Add stack → Repository**, compose path
 `docker-compose.yml`, set the env vars from the table below, deploy.
+For multiple instances running side-by-side, give each stack a unique
+`INSTANCE_NAME` (container names become `{name}-app` / `{name}-db`) and a
+unique `APP_PORT`.
 
 ## DATABASE
 
@@ -158,6 +161,19 @@ cd packages/db && npx prisma studio
 | `UPLOAD_PATH` | Where uploaded files are written to disk |
 | `NEXT_PUBLIC_APP_NAME` | Client-side app name |
 | `NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES` | Client-side inactivity timer value |
+
+### Compose / Portainer-only variables
+
+These are set as stack env vars (or in `.env` for plain compose). They are NOT
+passed into the app container — they are consumed by Docker Compose itself.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `INSTANCE_NAME` | `hospo-ops` | Unique short name. Drives container names (`{name}-app`, `{name}-db`). Change per stack for multi-instance deploys |
+| `DB_DATA` | `postgres_data` | PostgreSQL storage. Named volume by default; set to a host path (e.g. `/mnt/data/db`) for a bind mount |
+| `UPLOADS_DATA` | `uploads_data` | Upload storage. Named volume by default; set to a host path (e.g. `/mnt/data/uploads`) for a bind mount |
+| `APP_PORT` | `3000` | Host port the app publishes on. Must be unique per stack |
+| `IMAGE_TAG` | `latest` | Docker image tag to pull (e.g. `develop` for pre-release fixes) |
 
 ## ADMIN LOGIN SYSTEM
 

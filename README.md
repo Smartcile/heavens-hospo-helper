@@ -26,13 +26,18 @@ migrations and seeds the demo data (safe to re-run on redeploys).
 1. Repository URL: `https://github.com/Smartcile/heavens-hospo-helper`
 2. Compose path: `docker-compose.yml`
 3. Under **Environment variables**, set:
+   - `INSTANCE_NAME` — a unique short name for this instance (e.g. `venue1`,
+     `cbd-bar`). Container names become `venue1-app` / `venue1-db`. **Use
+     a different name for each stack** — this is how you run multiple copies
+     side-by-side without conflicts.
    - `DB_PASSWORD` — a strong database password
    - `NEXTAUTH_SECRET` — `openssl rand -base64 32`
    - `WORKER_SESSION_SECRET` — `openssl rand -base64 32`
    - `APP_URL` — the **one** public URL you reach the app at, e.g.
      `http://192.168.1.100:9008` (LAN) or `https://hospo.example.com`
      (Cloudflare Tunnel). Drives both admin login and the QR codes.
-   - `APP_PORT` — *(optional)* published host port, default `3000`
+   - `APP_PORT` — *(important for multi-instance)* published host port, default `3000`.
+     Each stack must have a unique host port (e.g. `9001`, `9002`).
 4. Click **Deploy the stack**.
 
 #### Option B — plain docker compose
@@ -315,20 +320,24 @@ for plain compose). Everything else is derived automatically.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
+| `INSTANCE_NAME` | **Yes** | `hospo-ops` | Unique name for this instance. Drives container names (`{name}-app`, `{name}-db`). Use a different value per stack for multi-instance deploys |
 | `DB_PASSWORD` | **Yes** | — | PostgreSQL password |
 | `NEXTAUTH_SECRET` | **Yes** | — | Admin session signing secret (`openssl rand -base64 32`) |
 | `WORKER_SESSION_SECRET` | **Yes** | — | Worker PIN session signing secret (`openssl rand -base64 32`) |
 | `APP_URL` | **Yes** | — | The one public URL (incl. port if not 80/443). Drives admin login **and** QR codes |
-| `APP_PORT` | No | `3000` | Host port the app is published on |
+| `APP_PORT` | No | `3000` | Host port the app is published on. **Must be unique per stack** for multi-instance deploys |
 | `APP_NAME` | No | `HOSPO OPS` | Display / white-label name |
 | `DB_USER` | No | `hospo_ops_user` | PostgreSQL username |
+| `DB_DATA` | No | `postgres_data` | Where PostgreSQL stores its data. Default is a named Docker volume (auto-scoped per stack). Set to a host path (e.g. `/mnt/data/db`) for a bind mount |
+| `UPLOADS_DATA` | No | `uploads_data` | Where task photos / uploads are stored. Default is a named Docker volume (auto-scoped per stack). Set to a host path (e.g. `/mnt/data/uploads`) for a bind mount |
 | `WORKER_SESSION_EXPIRY_MINUTES` | No | `15` | Worker auto-logout timeout |
 | `INTERNAL_CRON` | No | `true` | Built-in scheduler (WooCommerce product sync every 15 min + daily expiry scan). Set `false` to use an external scheduler instead |
 | `CRON_SECRET` | No | — | Bearer token for the `/api/cron/*` endpoints — only needed for external schedulers or manual triggers |
 
 > `DATABASE_URL` and `NEXTAUTH_URL` are **not** set by hand — the compose file
 > builds `DATABASE_URL` from `DB_USER`/`DB_PASSWORD` and derives `NEXTAUTH_URL`
-> from `APP_URL`. Uploads always go to the `uploads_data` volume.
+> from `APP_URL`. Uploads and database storage use `UPLOADS_DATA` / `DB_DATA`
+> (named volumes by default, or host paths for bind mounts).
 
 ---
 
@@ -355,7 +364,8 @@ or any managed container platform.
 If you expose the app through a Cloudflare Tunnel:
 
 1. **Point the tunnel** at the app container — public hostname
-   `hospo.example.com` → service `http://hospo-ops-app:3000` (or `http://<host-ip>:<APP_PORT>`).
+   `hospo.example.com` → service `http://<instance>-app:3000`, where `<instance>`
+   is your `INSTANCE_NAME` (default `hospo-ops`). Or point it at `http://<host-ip>:<APP_PORT>`.
 2. **Set `APP_URL=https://hospo.example.com`** (no port). This makes admin login
    cookies and the QR codes all use the HTTPS hostname. With a tunnel you don't
    need to publish `APP_PORT` on the host at all.
@@ -396,7 +406,7 @@ docker compose up -d     # recreate the app container
 
 Database migrations run automatically inside the container on every start, so
 schema changes are applied for you. (To auto-update without clicking, point
-[Watchtower](https://containrrr.dev/watchtower/) at the `hospo-ops-app` container.)
+[Watchtower](https://containrrr.dev/watchtower/) at the `<instance>-app` container.)
 
 ---
 
@@ -407,7 +417,7 @@ The container publishes port `3000`. Make sure you deployed *this* repo's
 top-level `docker-compose.yml` (not a hand-pasted older copy). In Portainer use
 **Stacks → Add stack → Repository** with compose path `docker-compose.yml`, so
 you always get the current file with the `ports:` mapping. After deploy, the
-`hospo-ops-app` container should show `0.0.0.0:3000->3000/tcp`. If you set
+`<instance>-app` container should show `0.0.0.0:3000->3000/tcp`. If you set
 `APP_PORT`, it shows that host port instead.
 
 **`unauthorized` when pulling the image.**
@@ -422,7 +432,8 @@ including the port. Fix them in the stack env and redeploy.
 
 ## BACKUP (POSTGRESQL DATA)
 
-The PostgreSQL data is stored in a Docker volume (`postgres_data`). To back it up:
+The PostgreSQL data is stored in a Docker volume or bind mount (controlled by
+`DB_DATA` — default named volume `postgres_data`, or a host path). To back it up:
 
 ```bash
 # Dump to a file
