@@ -14,7 +14,7 @@ interface Recipe {
   prepTime: number | null; version: number; isActive: boolean
   yieldUnit?: { id: string; name: string }
   lineItems?: LineItem[]
-  menuItem?: { id: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: { name: string; price: number }[] | null; dietaryInfo: string | null } | null
+  menuItem?: { id: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: Variation[] | null; dietaryInfo: string | null } | null
 }
 
 interface LineItem {
@@ -29,9 +29,10 @@ interface LineItem {
 interface Uom { id: string; name: string; baseUnit: string; conversionRatio: number }
 interface InvItem { id: string; name: string; unit: string; allergyInfo?: string | null; category?: { id: string; name: string; tab: string | null } }
 interface RecipeBrief { id: string; name: string }
+interface Variation { name: string; price: number; wooVariationId?: number }
 
 interface OrphanMenuItem {
-  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: { name: string; price: number }[] | null; dietaryInfo: string | null
+  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: Variation[] | null; dietaryInfo: string | null
 }
 
   function generateId() { return crypto.randomUUID() }
@@ -79,7 +80,7 @@ export function RecipesClient() {
 
   // Variable product variations
   const [formIsVariable, setFormIsVariable] = useState(false)
-  const [formVariations, setFormVariations] = useState<{ name: string; price: number }[]>([])
+  const [formVariations, setFormVariations] = useState<Variation[]>([])
 
   const ALLERGENS = ['ALMOND','BARLEY','BRAZIL NUT','CASHEW','CRUSTACEAN','EGG','FISH','GLUTEN','HAZELNUT','LUPIN','MACADAMIA','MILK','MOLLUSC','OATS','PEANUT','PECAN','PINE NUT','PISTACHIO','RYE','SESAME','SOY','SULPHITES','WALNUT','WHEAT']
   const ALLERGEN_GROUPS: { label: string; items: string[] }[] = [
@@ -652,8 +653,8 @@ export function RecipesClient() {
                             <p className="font-mono text-[10px] text-grey-light leading-relaxed">
                               EACH VARIATION CREATES A UNIQUE PRICE POINT ON WOOCOMMERCE.
                               THE MAIN PRICE ABOVE IS THE DEFAULT (LOWEST) PRICE.<br />
-                              WHEN PUSHED, THE PRODUCT BECOMES A VARIABLE PRODUCT WITH THESE SIZE OPTIONS.
-                              VARIATIONS MUST BE MANAGED ON WOOCOMMERCE AFTER THE INITIAL PUSH.
+                              VARIATION PRICES ARE SYNCED BACK TO WOOCOMMERCE ON SAVE WHEN
+                              A WOO VARIATION ID IS PRESENT (PULLED FROM STORE).
                             </p>
                             <div className="space-y-2">
                               {formVariations.map((v, i) => (

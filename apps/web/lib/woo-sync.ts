@@ -2,7 +2,9 @@ import { prisma } from '@hospo-ops/db'
 import { logSync } from '@/lib/sync-log'
 import { oauthSignedUrl } from '@/lib/woo-oauth'
 import { writeFile, mkdir } from 'fs/promises'
+import { existsSync } from 'fs'
 import { join } from 'path'
+import { createHash } from 'crypto'
 
 // ── WooCommerce Product Pull ──────────────────────────────────────────
 // Shared by: the internal scheduler, GET /api/cron/woocommerce-sync,
@@ -137,20 +139,72 @@ export async function fetchWooCategories(storeUrl: string, consumerKey: string, 
   return categories.sort((a, b) => a.name.localeCompare(b.name))
 }
 
+// Fetch variations for a WooCommerce variable product.
+export async function fetchProductVariations(
+  wooProductId: string,
+  storeUrl: string,
+  consumerKey: string,
+  consumerSecret: string,
+): Promise<{ wooVariationId: number; name: string; price: number }[]> {
+  const baseUrl = storeUrl.replace(/\/+$/, '')
+  const url = `${baseUrl}/wp-json/wc/v3/products/${wooProductId}/variations?per_page=100`
+
+  let response = await fetch(url, {
+    headers: { Authorization: wooAuthHeader(consumerKey, consumerSecret), 'Content-Type': 'application/json' },
+  })
+  if (response.status === 401) {
+    response = await fetch(
+      `${url}&consumer_key=${encodeURIComponent(consumerKey)}&consumer_secret=${encodeURIComponent(consumerSecret)}`,
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }
+  if (response.status === 401) {
+    response = await fetch(oauthSignedUrl('GET', url, consumerKey, consumerSecret), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  if (!response.ok) return []
+
+  const text = await response.text()
+  let batch: any
+  try { batch = JSON.parse(text) } catch { return [] }
+  if (!Array.isArray(batch)) return []
+
+  return batch.map((v: any) => ({
+    wooVariationId: v.id,
+    name: v.attributes?.[0]?.option ?? `#${v.id}`,
+    price: parseFloat(v.regular_price ?? '0'),
+  }))
+}
+
 // Download an image from a URL and store it in the local uploads directory.
-// Returns the relative URL path (e.g. /api/upload/uuid-filename.jpg) on success,
-// or the original URL on failure (best-effort — never throws).
+// Uses a content-addressed filename (hash of URL) so the same remote image
+// never re-downloads. Images larger than 2 MB are kept as remote URLs to
+// avoid filling up local storage.
 async function downloadAndStoreImage(imageUrl: string, productName: string): Promise<string> {
   try {
+    const ext = imageUrl.split('.').pop()?.split('?')[0]?.replace(/[^a-z0-9]/gi, '') ?? 'jpg'
+    const hash = createHash('md5').update(imageUrl).digest('hex').slice(0, 12)
+    const safeName = productName.replace(/[^a-z0-9]/gi, '_').slice(0, 30)
+    const filename = `${hash}-${safeName}.${ext}`
+    const uploadPath = process.env.UPLOAD_PATH ?? '/app/uploads'
+    const filePath = join(uploadPath, filename)
+
+    // Already downloaded — skip
+    if (existsSync(filePath)) return `/api/upload/${filename}`
+
+    // Check size before downloading
+    const head = await fetch(imageUrl, { method: 'HEAD' })
+    const contentLength = head.headers.get('content-length')
+    if (contentLength && parseInt(contentLength, 10) > 2 * 1024 * 1024) return imageUrl
+
     const res = await fetch(imageUrl)
     if (!res.ok) return imageUrl
     const buffer = Buffer.from(await res.arrayBuffer())
-    const uploadPath = process.env.UPLOAD_PATH ?? '/app/uploads'
+    if (buffer.length > 2 * 1024 * 1024) return imageUrl
+
     await mkdir(uploadPath, { recursive: true })
-    const ext = imageUrl.split('.').pop()?.split('?')[0]?.replace(/[^a-z0-9]/gi, '') ?? 'jpg'
-    const safeName = productName.replace(/[^a-z0-9]/gi, '_').slice(0, 40)
-    const filename = `${crypto.randomUUID()}-${safeName}.${ext}`
-    await writeFile(join(uploadPath, filename), buffer)
+    await writeFile(filePath, buffer)
     return `/api/upload/${filename}`
   } catch {
     return imageUrl
@@ -252,6 +306,24 @@ export async function runProductPull(venueId?: string): Promise<ProductPullResul
           const outcome = await upsertProductFromWoo(integration.venueId, product)
           if (outcome === 'created') created++
           else updated++
+
+          // Fetch and store variations for variable products
+          if (product.type === 'variable') {
+            try {
+              const variations = await fetchProductVariations(
+                String(product.id),
+                integration.storeUrl,
+                integration.consumerKey,
+                integration.consumerSecret,
+              )
+              if (variations.length) {
+                await prisma.menuItem.updateMany({
+                  where: { wooProductId: String(product.id), venueId: integration.venueId, deletedAt: null },
+                  data: { variations },
+                })
+              }
+            } catch { /* best-effort */ }
+          }
         } catch (e) {
           errors++
           await logSync({

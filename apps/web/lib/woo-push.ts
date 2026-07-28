@@ -214,6 +214,7 @@ export async function pushProduct(menuItemId: string): Promise<void> {
           message: `PUSHED ${item.name} TO WOOCOMMERCE (PRODUCT #${item.wooProductId})`,
           detail: { payload },
         })
+        await pushVariationPrices(item, integration)
         return
       }
       // If the product doesn't exist on WooCommerce, fall through to POST create.
@@ -271,6 +272,7 @@ export async function pushProduct(menuItemId: string): Promise<void> {
         : `PUSHED ${item.name} — CREATED ON WOOCOMMERCE`,
       detail: { payload },
     })
+    await pushVariationPrices(item, integration)
   } catch (e) {
     console.error('pushProduct failed (non-blocking):', e)
     await logSync({
@@ -279,6 +281,30 @@ export async function pushProduct(menuItemId: string): Promise<void> {
       status: 'ERROR',
       message: `PUSH FAILED — ${String(e)}`,
     })
+  }
+}
+
+// Push variation prices for a variable product to WooCommerce.
+// Only pushes variations that already have a wooVariationId (pulled from Woo).
+async function pushVariationPrices(item: NonNullable<Awaited<ReturnType<typeof prisma.menuItem.findFirst>>>, integration: WooIntegration) {
+  const variations = item.variations as any[] | undefined
+  if (!item.wooProductId || !variations?.length) return
+
+  for (const v of variations) {
+    if (!v.wooVariationId || v.price == null) continue
+    const payload = { regular_price: String(v.price), meta_data: selfUpdateMeta() }
+    const path = `products/${item.wooProductId}/variations/${v.wooVariationId}`
+    const res = await wooPut(integration, path, payload)
+    if (!res.ok) {
+      await logSync({
+        venueId: item.venueId,
+        direction: 'PUSH',
+        entity: 'PRODUCT',
+        status: 'ERROR',
+        externalId: String(v.wooVariationId),
+        message: `VARIATION #${v.wooVariationId} (${v.name ?? ''}) PUSH FAILED — HTTP ${res.status}`,
+      })
+    }
   }
 }
 

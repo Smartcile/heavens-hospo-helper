@@ -1258,7 +1258,8 @@ Receives `order.created` / `order.updated` AND `product.created` / `product.upda
 
 **Pull (Woo → app):**
 - `lib/woo-sync.ts` `runProductPull(venueId?)` — paginated product fetch, upserts `MenuItem`s, logs to `SyncLog`
-- `upsertProductFromWoo()` stores category **IDs** (numeric, for reliable push-back), downloads featured images to local uploads, and **decodes HTML entities** (`&amp;` → `&` etc.) from names and descriptions before storage to prevent double-encoding on push-back
+- `upsertProductFromWoo()` stores category **IDs** (numeric, for reliable push-back), downloads featured images to local uploads (content-addressed filenames prevent re-download; skips images >2MB), and **decodes HTML entities** (`&amp;` → `&` etc.) from names and descriptions before storage to prevent double-encoding on push-back
+- `fetchProductVariations()` pulls variation data (ID, name, price) from WooCommerce for variable products and stores them in the `variations` JSON field
 - `fetchWooCategories()` fetches all product categories from the WooCommerce REST API — used by the category autocomplete dropdown in the admin UI
 - `lib/woo-orders-sync.ts` `runOrderPull(venueId?)` — paginated order fetch, upserts `WooOrder` + `WooOrderItem`, runs recipe explosion, auto-seating, and gift card detection per order, logs to `SyncLog`
 
@@ -1267,7 +1268,7 @@ Receives `order.created` / `order.updated` AND `product.created` / `product.upda
 - **Auto-create on WooCommerce:** if the item has no `wooProductId` (new product) or the PUT returns 400/404 (product doesn't exist on Woo), `pushProduct()` POSTs to `wc/v3/products` to create it, then stores the returned WooCommerce product ID in the database
 - **Images pushed:** `buildProductPushPayload` includes `images` when `imageUrl` is set; relative `/api/upload/...` paths are resolved to absolute URLs using `APP_URL` or `NEXTAUTH_URL`
 - **Short description pushed:** `buildProductPushPayload` includes `short_description` when `shortDescription` is set
-- **Variable products:** toggling VARIABLE PRODUCT in the recipe editor sets `isVariable: true` and stores variation names/prices in JSON. On push, `type: "variable"` and `attributes` are sent so WooCommerce creates a variable product with size options. Variations themselves (prices per variant) must be managed on WooCommerce after the initial create.
+- **Variable products:** toggling VARIABLE PRODUCT in the recipe editor sets `isVariable: true` and stores variation names/prices in JSON. On push, `type: "variable"` and `attributes` are sent so WooCommerce creates a variable product with size options. **Variation prices are pushed back individually** via `PUT /products/{id}/variations/{varId}` for variations that have a `wooVariationId` (pulled from WooCommerce).
 - **Category handling:** numeric `wooCategoryId` → `categories: [{ id }]`; non-numeric is omitted (category names are resolved to IDs in the UI dropdown before storage)
 - `pushOrderStatus()` fires on order status change via `PATCH /api/admin/orders/[id]` (Orders page STATUS dropdown)
 - All pushes best-effort: log to `SyncLog`, never throw, never block the save
@@ -1389,8 +1390,8 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/floorplan-chairs.ts` — `adjustEdgeChairs`, `defaultEdgeChairs`, `maxChairsForEdge` | ✅ (11 tests) |
 | `lib/auto-seat.ts` — `planAutoSeat` (bin-packing layout) | ✅ (7 tests) |
 | `lib/inventory-engine.ts` — `explodeRecipe` (recursive BOM explosion) | ✅ (5 tests) |
-| `lib/woo-push.ts` — `mapStatusToWoo`, `buildProductPushPayload` (images, categories, variable products), `isSelfEcho` echo guard | ✅ |
-| `lib/woo-sync.ts` — `runProductPull`, `upsertProductFromWoo`, `fetchWooCategories` | ✅ |
+| `lib/woo-push.ts` — `mapStatusToWoo`, `buildProductPushPayload` (images, categories, variable products), `pushVariationPrices`, `isSelfEcho` echo guard | ✅ |
+| `lib/woo-sync.ts` — `runProductPull`, `upsertProductFromWoo`, `fetchWooCategories`, `fetchProductVariations` | ✅ |
 | `lib/internal-cron.ts` — `dueJobs`, `localParts` (scheduler due-checks) | ✅ |
 | `lib/auth.ts` — `authOptions` | ⬜ TODO |
 
