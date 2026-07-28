@@ -361,7 +361,7 @@ as the lookup key; past bookings show status, date, party size, and tables.
 ### Floor planner (Phase 1 + 2, built)
 To-scale venue layout editor using **PixiJS v7** canvas (migrated from Konva 2026-06 — Konva's
 draggable+React caused unresolvable event target and race condition bugs). Admin creates floor
-plans with room dimensions (real cm). Elements are drawn using drawing modes (WALLS, DRAW BOOTH,
+plans with room dimensions (real cm). Elements are drawn using drawing modes (WALLS,
 SECTIONS) directly on the canvas. Tables are created and managed from the **inventory module**
 (`/admin/inventory` → FURNITURE/TABLES category), not from a drag palette. Elements are drawn
 in real cm; room.scale transform handles zoom/pan (no per-element scaling). Canvas fills
@@ -390,16 +390,6 @@ border + faint fill when element matches a zone's sectionId). SECTIONS mode butt
 drawing/drag — zones non-interactive otherwise. Zone resize handles (8 white squares — TL/TC/TR/
 ML/MR/BL/BC/BR — drag to resize, grid-snapped). Zones with auto-rotated watermark for portrait
 orientations. Per-element/zone labelScale input.
-
-**Custom painted booths (DRAW BOOTH):** Toolbar toggle shifts the canvas into a paint mode.
-User clicks and drags to paint 50×50cm grid squares (blue preview at 30% opacity); Shift+drag
-erases. On "SAVE SHAPE", `lib/booth-trace.ts` uses `polygon-clipping` to union all painted cells
-into a single outer perimeter, then `polygon-offset` to shrink by 8cm for the cushion inset
-polygon. The result is saved as a `BOOTH_BENCH` element with `shape: 'POLYGON'`, outer vertices
-and cushion vertices stored in the element's `vertices` and `style.cushionVertices`. Rendered
-in PixiJS with the outer polygon as solid fill and the cushion as a transparent stroked inner
-shape. Labels drawn at the polygon centroid. Existing golden dashed bench connectors work
-automatically (same `servedTableIds` logic).
 
 **Data flow:** Bulk SAVE sends all elements as one PUT to `/api/admin/floorplan/[id]/elements`,
 which diffs incoming IDs vs existing DB IDs — soft-deletes removed elements, updates existing,
@@ -520,20 +510,21 @@ and the loop was closed end-to-end:
   chairs redistributed evenly (`computeGroupChairs`) instead of N separate rectangles.
 - **Live per-area totals** and **section auto-tagging via zones** (see Section detection above).
 - **Two-layer UX** — while a setup is active the base plan dims + locks (`baseLayer.eventMode
-  = 'none'`) and base-only tools (SECTIONS / DRAW BOOTH) hide; a "BASE PLAN LOCKED" note shows.
+  = 'none'`) and base-only tools (SECTIONS) hide; a "BASE PLAN LOCKED" note shows.
 - **Fixes** — undo/redo now snapshots `{ elements, setupItems, zones }`; stale room-dimension
   closure in the Pixi init effect fixed; the dead Konva `FloorPlanElementVisual` renderer removed.
 
 **WALLS drawing mode:** Toolbar WALLS toggle activates a click-to-place wall mode. Each click
-places a wall anchor point; points connect as thick grey segments (`WALL` elements with
-`shape: WALL_POINT`). Double-click or pressing Escape finishes the wall polyline. Existing walls
-still render as styled thick lines with toggleable labels. Wall point elements are stored with
-`vertices` arrays recording the anchor positions; the canvas renders them as connected polygons
-with rounded joints.
+places a wall anchor point; points connect as thick grey rectangles with a configurable
+thickness (default 15cm). The wall direction is determined by the line between two consecutive
+points — walls auto-orient horizontally or vertically. SAVE WALLS finalises the polyline.
+Wall elements are stored as `RECTANGLE` shapes with the specified thickness
+and render as solid grey blocks.
 
 **Polygon section zones:** SECTIONS mode supports two drawing methods — rectangle drag (existing)
-and freeform polygon. POLYGON toggle in the zone palette switches to click-to-place polygon
-vertices; double-click closes the shape. Polygons use `pointInPolygon` (ray-casting) for
+and freeform polygon. POLYGON toggle in the toolbar switches to click-to-place polygon
+vertices; click the canvas to add points, then click SAVE in the right panel. Polygons use
+`pointInPolygon` (ray-casting) for
 element section detection, same as rectangular zones. The inspector shows vertex count + area.
 Both rectangle and polygon zones render with section colour fill, watermarked name, and 8
 resize handles (rectangles) or vertex edit handles (polygons).
@@ -1275,6 +1266,7 @@ Receives `order.created` / `order.updated` AND `product.created` / `product.upda
 - `lib/woo-push.ts` — `pushProduct()` fires on every menu item / recipe menu-link save (name, price, category, and images → `PUT wc/v3/products/{id}`)
 - **Auto-create on WooCommerce:** if the item has no `wooProductId` (new product) or the PUT returns 400/404 (product doesn't exist on Woo), `pushProduct()` POSTs to `wc/v3/products` to create it, then stores the returned WooCommerce product ID in the database
 - **Images pushed:** `buildProductPushPayload` includes `images` when `imageUrl` is set; relative `/api/upload/...` paths are resolved to absolute URLs using `APP_URL` or `NEXTAUTH_URL`
+- **Short description pushed:** `buildProductPushPayload` includes `short_description` when `shortDescription` is set
 - **Category handling:** numeric `wooCategoryId` → `categories: [{ id }]`; non-numeric (name) → `categories: [{ name }]`
 - `pushOrderStatus()` fires on order status change via `PATCH /api/admin/orders/[id]` (Orders page STATUS dropdown)
 - All pushes best-effort: log to `SyncLog`, never throw, never block the save
@@ -1300,7 +1292,7 @@ Started once on server boot via Next's `instrumentationHook` (enabled in next.co
 `InventoryCategory.tab` (FOOD, BEVERAGE, null). 20 built-in categories auto-seeded. FOOD tab: PROTEIN, DAIRY, PRODUCE, DRY GOODS, BAKERY, CONDIMENTS. BEVERAGE tab: LIQUOR, WINE, BEER, SOFT DRINK, JUICE, COFFEE. OTHER tab: existing equipment categories. Deep inventory fields: `countingUnitId`, `orderingUnitId`, `yieldPercentage`, `costPrice`, `expiryDate`, `fallbackCategoryId`, `allergyInfo`.
 
 ### Recipes & Menu Items (combined page)
-`/admin/recipes` merged with `/admin/menu-items` (redirects). Recipe editor has LINK TO MENU toggle with price + WooCommerce fields. Woo Category field is a searchable autocomplete dropdown populated from the WooCommerce store's categories via `GET /api/admin/woocommerce/categories` (fetched on page load). Woo Product ID is **read-only** — auto-generated as `max(existing) + 1` on create and updated with the real WooCommerce ID after the first push. **Product image upload** (ADD IMAGE / REPLACE IMAGE / REMOVE button + thumbnail preview) appears in both the recipe editor's LINK TO WOO section and the menu item's WOOCOMMERCE SYNC section — uploads go to `/api/admin/upload` and images are pushed to WooCommerce. Searchable Combobox for ingredient/sub-recipe selection with popover modal. Orphaned WooCommerce products shown in yellow. 23 allergen toggle buttons — stored as comma-separated `dietaryInfo` on `MenuItem`.
+`/admin/recipes` merged with `/admin/menu-items` (redirects). Recipe editor has LINK TO MENU toggle with price + WooCommerce fields. Woo Category field is a searchable autocomplete dropdown populated from the WooCommerce store's categories via `GET /api/admin/woocommerce/categories` (fetched on page load). Woo Product ID is **read-only** — auto-generated as `max(existing) + 1` on create and updated with the real WooCommerce ID after the first push. **Product image upload** (ADD IMAGE / REPLACE IMAGE / REMOVE button + thumbnail preview) appears in both the recipe editor's LINK TO WOO section and the menu item's WOOCOMMERCE SYNC section — uploads go to `/api/admin/upload` and images are pushed to WooCommerce. **Short description** field syncs to WooCommerce's `short_description` (product excerpt). Searchable Combobox for ingredient/sub-recipe selection with popover modal. Orphaned WooCommerce products shown in yellow. 23 allergen toggle buttons — stored as comma-separated `dietaryInfo` on `MenuItem`.
 
 ### EOD Reconciliation (`/api/admin/inventory/reconcile`)
 Aggregates exploded ingredients from completed orders, tallies `requiredBaseQty` per inventory item. Returned as reconciliation report. Deferred inventory deduction (Phase 5).

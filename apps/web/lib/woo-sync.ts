@@ -182,6 +182,8 @@ export async function upsertProductFromWoo(
   const remoteImageUrl = product.images?.[0]?.src ?? null
   const description = product.description?.replace(/<[^>]*>/g, '').trim() ?? null
   const cleanDescription = description ? decodeEntities(description) : null
+  const shortDescription = product.short_description?.replace(/<[^>]*>/g, '').trim() ?? null
+  const cleanShortDescription = shortDescription ? decodeEntities(shortDescription) : null
   const imageUrl = remoteImageUrl ? await downloadAndStoreImage(remoteImageUrl, name) : null
 
   const existing = await prisma.menuItem.findFirst({
@@ -191,7 +193,7 @@ export async function upsertProductFromWoo(
   if (existing) {
     await prisma.menuItem.update({
       where: { id: existing.id },
-      data: { name, price, wooCategoryId: categoryName, imageUrl, description: cleanDescription },
+      data: { name, price, wooCategoryId: categoryName, imageUrl, description: cleanDescription, shortDescription: cleanShortDescription },
     })
     return 'updated'
   }
@@ -206,6 +208,7 @@ export async function upsertProductFromWoo(
       wooCategoryId: categoryName,
       imageUrl,
       description: cleanDescription,
+      shortDescription: cleanShortDescription,
     },
   })
   return 'created'

@@ -14,7 +14,7 @@ interface Recipe {
   prepTime: number | null; version: number; isActive: boolean
   yieldUnit?: { id: string; name: string }
   lineItems?: LineItem[]
-  menuItem?: { id: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; dietaryInfo: string | null } | null
+  menuItem?: { id: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; dietaryInfo: string | null } | null
 }
 
 interface LineItem {
@@ -31,22 +31,10 @@ interface InvItem { id: string; name: string; unit: string; allergyInfo?: string
 interface RecipeBrief { id: string; name: string }
 
 interface OrphanMenuItem {
-  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; dietaryInfo: string | null
+  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; dietaryInfo: string | null
 }
 
   function generateId() { return crypto.randomUUID() }
-
-  async function uploadImage(file: File) {
-    setImageUploading(true)
-    const form = new FormData()
-    form.append('file', file)
-    const r = await fetch('/api/admin/upload', { method: 'POST', body: form })
-    setImageUploading(false)
-    if (r.ok) {
-      const data = await r.json()
-      setFormImageUrl(data.url)
-    }
-  }
 
 export function RecipesClient() {
   const [recipes, setRecipes] = useState<Recipe[]>([])
@@ -79,6 +67,7 @@ export function RecipesClient() {
   const [formImageUrl, setFormImageUrl] = useState<string | null>(null)
   const [imageUploading, setImageUploading] = useState(false)
   const imageFileRef = useRef<HTMLInputElement | null>(null)
+  const [formShortDescription, setFormShortDescription] = useState('')
 
   const ALLERGENS = ['ALMOND','BARLEY','BRAZIL NUT','CASHEW','CRUSTACEAN','EGG','FISH','HAZELNUT','LUPIN','MACADAMIA','MILK','MOLLUSC','OATS','PEANUT','PECAN','PINE NUT','PISTACHIO','RYE','SESAME','SOY','SULPHITES','WALNUT','WHEAT']
   const ALLERGEN_GROUPS: { label: string; items: string[] }[] = [
@@ -106,6 +95,18 @@ export function RecipesClient() {
   const [editLineQty, setEditLineQty] = useState('1')
   const [editLineUomId, setEditLineUomId] = useState('')
 
+  async function uploadImage(file: File) {
+    setImageUploading(true)
+    const form = new FormData()
+    form.append('file', file)
+    const r = await fetch('/api/admin/upload', { method: 'POST', body: form })
+    setImageUploading(false)
+    if (r.ok) {
+      const data = await r.json()
+      setFormImageUrl(data.url)
+    }
+  }
+
   const filteredWooCats = useMemo(() => {
     if (!wooCatInput.trim()) return []
     const q = wooCatInput.toUpperCase()
@@ -117,7 +118,7 @@ export function RecipesClient() {
     setFormInstructions(''); setFormPrepTime(''); setLineItems([])
     setNewItemId(''); setNewItemQty('1'); setNewItemUomId('')
     setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([]); setWooCatInput('')
-    setFormDietaryInfo([]); setFormImageUrl(null)
+    setFormDietaryInfo([]); setFormImageUrl(null); setFormShortDescription('')
     setFormExistingMenuItemId(null)
   }
 
@@ -139,9 +140,10 @@ export function RecipesClient() {
       setFormWooCategories(r.menuItem.wooCategoryId ? r.menuItem.wooCategoryId.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
       setFormDietaryInfo(r.menuItem.dietaryInfo ? r.menuItem.dietaryInfo.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
       setFormImageUrl(r.menuItem.imageUrl ?? null)
+      setFormShortDescription(r.menuItem.shortDescription ?? '')
     } else {
     setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([]); setWooCatInput('')
-    setFormDietaryInfo([]); setFormImageUrl(null)
+    setFormDietaryInfo([]); setFormImageUrl(null); setFormShortDescription('')
     }
   }
 
@@ -153,6 +155,7 @@ export function RecipesClient() {
     setFormWooProductId(o.wooProductId ?? ''); setFormWooCategories(o.wooCategoryId ? o.wooCategoryId.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
     setFormDietaryInfo(o.dietaryInfo ? o.dietaryInfo.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
     setFormImageUrl(o.imageUrl ?? null)
+    setFormShortDescription(o.shortDescription ?? '')
     setFormExistingMenuItemId(o.id)
   }
 
@@ -267,6 +270,7 @@ export function RecipesClient() {
       wooProductId: linkToMenu ? (formWooProductId || null) : undefined,
       wooCategoryId: linkToMenu ? (formWooCategories.length > 0 ? formWooCategories.join(', ') : null) : undefined,
       imageUrl: linkToMenu ? formImageUrl : undefined,
+      shortDescription: linkToMenu ? (formShortDescription || null) : undefined,
       existingMenuItemId: formExistingMenuItemId || undefined,
       dietaryInfo: formDietaryInfo.length > 0 ? formDietaryInfo.join(',') : null,
     }
@@ -563,6 +567,11 @@ export function RecipesClient() {
                             ))}
                           </div>
                         )}
+                      </div>
+
+                      <div className="md:col-span-3">
+                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">SHORT DESCRIPTION</label>
+                        <Input value={formShortDescription} onChange={(e) => setFormShortDescription(e.target.value)} placeholder="BRIEF EXCERPT FOR PRODUCT LISTING" />
                       </div>
 
                       <div className="md:col-span-3">

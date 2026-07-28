@@ -9,7 +9,7 @@ import { SearchSelect } from '@/components/ui/SearchSelect'
 interface MenuItem {
   id: string; name: string; recipeId: string; price: number
   wooProductId: string | null; wooCategoryId: string | null
-  imageUrl: string | null; description: string | null; isActive: boolean
+  imageUrl: string | null; shortDescription: string | null; description: string | null; isActive: boolean
   recipe?: { id: string; name: string }
   sharedFromVenueName?: string
   sharedFromVenueId?: string
@@ -41,10 +41,11 @@ export function MenuItemsClient() {
   const [formImageUrl, setFormImageUrl] = useState<string | null>(null)
   const [imageUploading, setImageUploading] = useState(false)
   const imageFileRef = useRef<HTMLInputElement | null>(null)
+  const [formShortDescription, setFormShortDescription] = useState('')
 
   function resetForm() {
     setFormName(''); setFormRecipeId(''); setFormPrice('0')
-    setFormWooProductId(''); setFormWooCategoryId(''); setFormDescription('')
+    setFormWooProductId(''); setFormWooCategoryId(''); setFormDescription(''); setFormShortDescription('')
     setFormSharedPriceOverride(''); setSelectedIsShared(false); setFormImageUrl(null)
   }
 
@@ -52,7 +53,7 @@ export function MenuItemsClient() {
     setFormName(m.name); setFormRecipeId(m.recipeId)
     setFormPrice(String(m.sharedPriceOverride ?? m.price))
     setFormWooProductId(m.wooProductId ?? ''); setFormWooCategoryId(m.wooCategoryId ?? '')
-    setFormDescription(m.description ?? '')
+    setFormDescription(m.description ?? ''); setFormShortDescription(m.shortDescription ?? '')
     setFormSharedPriceOverride(m.sharedPriceOverride != null ? String(m.sharedPriceOverride) : '')
     setSelectedIsShared(!!m.sharedFromVenueId)
     setFormImageUrl(m.imageUrl ?? null)
@@ -128,6 +129,7 @@ export function MenuItemsClient() {
       wooProductId: formWooProductId || null,
       wooCategoryId: formWooCategoryId || null,
       imageUrl: formImageUrl || null,
+      shortDescription: formShortDescription || null,
       description: formDescription || null,
     }
     if (isCreating) {
@@ -234,6 +236,13 @@ export function MenuItemsClient() {
                         />
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {!selectedIsShared && (
+                  <div>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">SHORT DESCRIPTION</label>
+                    <Input value={formShortDescription} onChange={(e) => setFormShortDescription(e.target.value)} placeholder="BRIEF EXCERPT FOR PRODUCT LISTING" />
                   </div>
                 )}
 

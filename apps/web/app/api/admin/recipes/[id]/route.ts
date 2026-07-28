@@ -17,7 +17,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, imageUrl, dietaryInfo } = await req.json()
+  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, imageUrl, shortDescription, dietaryInfo } = await req.json()
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = String(name).toUpperCase().trim()
   if (yieldQty !== undefined) data.yieldQty = parseFloat(String(yieldQty)) || 1
@@ -58,6 +58,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
           wooProductId: wooProductId || null,
           wooCategoryId: wooCategoryId || null,
           imageUrl: imageUrl || null,
+          shortDescription: shortDescription || null,
         }
         if (dietaryInfo !== undefined) menuData.dietaryInfo = dietaryInfo || null
         if (existing) {

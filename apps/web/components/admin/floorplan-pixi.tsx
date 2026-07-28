@@ -51,9 +51,6 @@ interface PixiCanvasProps {
   onSelRectEnd?: (x: number, y: number) => void
   onViewChange?: (zoom: number) => void
   showDimensions?: boolean
-  boothPainting?: boolean
-  boothCellsRef?: React.MutableRefObject<Set<string>>
-  onBoothCellToggle?: (col: number, row: number) => void
   rebuildKey?: number
   // Setup layer
   setupItems?: { id: string; tableProfileId?: string; x: number; y: number; rotation: number; width: number; depth: number; label?: string | null; colour?: string; chairCount?: number; tableGroupId?: string | null; chairEdges?: { top: number; bottom: number; left: number; right: number } | null }[]
@@ -91,15 +88,6 @@ function computeView(sw: number, sh: number, rw: number, rd: number, zoom: numbe
   return { baseScale, ox, oy, zoom, panX, panY }
 }
 
-function drawPaintPreview(g: PIXI.Graphics, cells: Set<string>) {
-  g.beginFill(0x4488FF, 0.3)
-  for (const key of cells) {
-    const [col, row] = key.split(',').map(Number)
-    g.drawRect(col * 50, row * 50, 50, 50)
-  }
-  g.endFill()
-}
-
 function applyRoomTransform(room: PIXI.Container, vs: ViewState) {
   room.scale.set(vs.baseScale * vs.zoom)
   room.position.set(vs.ox + vs.panX, vs.oy + vs.panY)
@@ -114,7 +102,7 @@ export function FloorPlanPixiCanvas({
   onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd,
   onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange,
   textScale = 1, selRect, onSelRectStart, onSelRectMove, onSelRectEnd,
-  rebuildKey, showDimensions = false, boothPainting = false, boothCellsRef, onBoothCellToggle,
+  rebuildKey, showDimensions = false,
   setupItems, setupSelectedIds, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, setupGroups, zoneTotals, setupActive = false, ghostMode = false,
   wallDrawing, wallPoints, onWallPoint,
   zonePolyMode, zonePolyPoints, onZonePolyAdd,
@@ -128,9 +116,8 @@ export function FloorPlanPixiCanvas({
   // Keep current room dimensions available to the init-effect handlers (which have [] deps)
   const dimsRef = useRef({ roomWidth, roomDepth, gridUnit })
   dimsRef.current = { roomWidth, roomDepth, gridUnit }
-  const paintPreviewRef = useRef<PIXI.Graphics | null>(null)
-  const cbRef = useRef({ onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, boothPainting, onBoothCellToggle, boothCellsRef, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin })
-  cbRef.current = { onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, boothPainting, onBoothCellToggle, boothCellsRef, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin }
+  const cbRef = useRef({ onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin })
+  cbRef.current = { onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin }
 
   // Init app once
   useEffect(() => {
@@ -168,7 +155,6 @@ export function FloorPlanPixiCanvas({
     app.stage.eventMode = 'static'
     app.stage.hitArea = new PIXI.Rectangle(0, 0, w, h)
     app.stage.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
-      if (cbRef.current.boothPainting) return
         if (e.target === app.stage) { 
         if (wallDrawing && onWallPoint) {
           const vs = viewRef.current
@@ -223,53 +209,10 @@ export function FloorPlanPixiCanvas({
       panning = null
     })
 
-    // Booth paint mode
-    let paintDragging: { col: number; row: number } | null = null
-    function paintCellToggle(cx: number, cy: number, shiftKey: boolean) {
-      const col = Math.floor(cx / 50); const row = Math.floor(cy / 50)
-      if (col < 0 || row < 0 || col >= Math.ceil(dimsRef.current.roomWidth / 50) || row >= Math.ceil(dimsRef.current.roomDepth / 50)) return
-      const cells = cbRef.current.boothCellsRef?.current
-      if (!cells) return
-      const key = `${col},${row}`
-      if (shiftKey) { cells.delete(key) } else { cells.add(key) }
-      cbRef.current.onBoothCellToggle?.(col, row)
-      if (paintPreviewRef.current) {
-        paintPreviewRef.current.clear()
-        drawPaintPreview(paintPreviewRef.current, cells)
-      }
-    }
-    app.stage.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
-      if (e.button !== 0) return
-      if (cbRef.current.boothPainting) {
-        const vs = viewRef.current
-        const cx = (e.globalX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
-        const cy = (e.globalY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
-        paintCellToggle(cx, cy, e.shiftKey)
-        paintDragging = { col: Math.floor(cx / 50), row: Math.floor(cy / 50) }
-        return
-      }
-    })
-    app.stage.on('globalpointermove', (e: PIXI.FederatedPointerEvent) => {
-      if (!paintDragging) return
-      const vs = viewRef.current
-      const cx = (e.globalX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
-      const cy = (e.globalY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
-      const col = Math.floor(cx / 50); const row = Math.floor(cy / 50)
-      if (col !== paintDragging.col || row !== paintDragging.row) {
-        paintDragging.col = col; paintDragging.row = row
-        paintCellToggle(cx, cy, e.shiftKey)
-      }
-    })
-    app.stage.on('pointerup', (e: PIXI.FederatedPointerEvent) => {
-      if (!paintDragging) return
-      paintDragging = null
-    })
-
     // Zone drawing / selection rect on stage
     let zd: { sx: number; sy: number; mode: 'zone' | 'sel' } | null = null
     app.stage.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
       if (e.button !== 0) return
-      if (cbRef.current.boothPainting) return
       if (e.target !== app.stage) return
       const vs = viewRef.current
       const cx = (e.globalX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
@@ -285,7 +228,6 @@ export function FloorPlanPixiCanvas({
     })
     app.stage.on('globalpointermove', (e: PIXI.FederatedPointerEvent) => {
       if (!zd) return
-      if (cbRef.current.boothPainting) return
       const vs = viewRef.current
       const cx = (e.globalX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
       const cy = (e.globalY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
@@ -353,16 +295,6 @@ export function FloorPlanPixiCanvas({
     for (let i = 0; i <= roomWidth; i += gridUnit) { gd.moveTo(i, 0); gd.lineTo(i, roomDepth) }
     for (let j = 0; j <= roomDepth; j += gridUnit) { gd.moveTo(0, j); gd.lineTo(roomWidth, j) }
     gd.eventMode = 'none'; baseLayer?.addChild(gd)
-
-    // Booth paint preview
-    if (boothPainting && boothCellsRef) {
-      const pp = new PIXI.Graphics()
-      drawPaintPreview(pp, boothCellsRef.current)
-      pp.eventMode = 'none'; baseLayer?.addChild(pp)
-      paintPreviewRef.current = pp
-    } else {
-      paintPreviewRef.current = null
-    }
 
     // Zone draw preview
     if (zoneDrawing && zoneDrawRect) {
@@ -831,7 +763,7 @@ export function FloorPlanPixiCanvas({
         setupLayer.addChild(c)
       })
     }
-  }, [elements, zones, selectedIds, selectedZoneId, zoneDrawing, zoneDrawRect, selRect, roomWidth, roomDepth, gridUnit, snapEnabled, rebuildKey, boothPainting, showDimensions, setupItems, setupSelectedIds, setupGroups, zoneTotals, setupActive, textScale])
+  }, [elements, zones, selectedIds, selectedZoneId, zoneDrawing, zoneDrawRect, selRect, roomWidth, roomDepth, gridUnit, snapEnabled, rebuildKey, showDimensions, setupItems, setupSelectedIds, setupGroups, zoneTotals, setupActive, textScale])
 
   function magneticSnap(
     item: { x: number; y: number; width: number; depth: number; rotation: number },
@@ -905,7 +837,6 @@ export function FloorPlanPixiCanvas({
     let dd: { sx: number; sy: number; ex: number; ey: number } | null = null
     node.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
       e.stopPropagation()
-      if (cbRef.current.boothPainting) return
       const inSectionsMode = cbRef.current.zoneDrawing
       const isFixtureEl = isFixture(el.type)
       if (inSectionsMode && !isFixtureEl) return
@@ -966,7 +897,6 @@ export function FloorPlanPixiCanvas({
     let dd: { sx: number; sy: number; ex: number; ey: number } | null = null
     node.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
       e.stopPropagation()
-      if (cbRef.current.boothPainting) return
       cbRef.current.onSetupItemClick?.(item.id, e.ctrlKey || e.shiftKey)
       dd = { sx: e.globalX, sy: e.globalY, ex: node.x, ey: node.y }
       const app = appRef.current

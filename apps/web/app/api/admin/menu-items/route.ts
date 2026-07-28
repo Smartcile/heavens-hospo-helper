@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name, recipeId, price, wooProductId: providedWooProductId, wooCategoryId, imageUrl, description, sharedVenueIds } = await req.json()
+  const { name, recipeId, price, wooProductId: providedWooProductId, wooCategoryId, imageUrl, shortDescription, description, sharedVenueIds } = await req.json()
   if (!name?.trim() || !recipeId) {
     return NextResponse.json({ error: 'name and recipeId are required' }, { status: 400 })
   }
@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
       wooProductId,
       wooCategoryId: wooCategoryId || null,
       imageUrl: imageUrl || null,
+      shortDescription: shortDescription || null,
       description: description || null,
     },
     include: { recipe: { select: { id: true, name: true } } },

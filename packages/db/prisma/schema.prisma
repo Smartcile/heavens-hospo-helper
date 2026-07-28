@@ -1641,6 +1641,7 @@ model MenuItem {
   wooCategoryId   String?
   imageUrl        String?
   description     String?
+  shortDescription String?
   dietaryInfo     String?
   isActive        Boolean   @default(true)
   createdAt       DateTime  @default(now())

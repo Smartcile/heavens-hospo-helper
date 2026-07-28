@@ -45,7 +45,7 @@ export function mapStatusToWoo(status: OrderStatus): string {
   return map[status] ?? 'pending'
 }
 
-export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 'wooCategoryId' | 'imageUrl'>, now: Date = new Date()) {
+export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 'wooCategoryId' | 'imageUrl' | 'shortDescription'>, now: Date = new Date()) {
   const payload: Record<string, unknown> = {
     name: item.name,
     regular_price: String(item.price ?? 0),
@@ -64,6 +64,9 @@ export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 
       ? item.imageUrl
       : `${process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? ''}${item.imageUrl}`
     payload.images = [{ src }]
+  }
+  if (item.shortDescription) {
+    payload.short_description = item.shortDescription
   }
   return payload
 }

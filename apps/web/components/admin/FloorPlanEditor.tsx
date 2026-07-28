@@ -13,7 +13,6 @@ import { SetupInventoryPanel } from '@/components/admin/SetupInventoryPanel'
 import { FloorPlanPixiCanvas, type ViewState } from '@/components/admin/floorplan-pixi'
 import { FloorplanToolbar } from '@/components/admin/FloorplanToolbar'
 import { FloorplanInspector } from '@/components/admin/FloorplanInspector'
-import { traceBoothPerimeter } from '@/lib/booth-trace'
 import { calculateSetupInventory, unionTablePolygons, computeGroupChairs, computeSetupSectionTotals, type TableProfileWithBom } from '@/lib/floorplan-inventory'
 import { defaultEdgeChairs, adjustEdgeChairs, emptyEdgeChairs, type TableEdge } from '@/lib/floorplan-chairs'
 import { pushToast, ToastContainer } from '@/components/ui/Toast'
@@ -37,18 +36,6 @@ interface FullPlan {
 
 function snap(v: number, unit: number) { return Math.round(v / unit) * unit }
 
-function nextLabel(type: string, existing: ElementData[]): string {
-  const map: Record<string, string> = { TABLE: 'T', CHAIR: 'C', BOOTH_BENCH: 'B' }
-  const prefix = map[type]
-  if (!prefix) return type
-  const nums = existing.filter((e) => e.type === type).map((e) => {
-    const m = (e.label ?? '').match(/^(\d+)$/)
-    return m ? parseInt(m[1]) : 0
-  })
-  const max = nums.length > 0 ? Math.max(...nums) : 0
-  return `${prefix}${max + 1}`
-}
-
 export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; sections: Section[]; onBack: () => void }) {
   const [elements, setElements] = useState<ElementData[]>([])
   const [loading, setLoading] = useState(true)
@@ -64,6 +51,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [zonePolyPoints, setZonePolyPoints] = useState<{ x: number; y: number }[]>([])
   const [wallDrawing, setWallDrawing] = useState(false)
   const [wallPoints, setWallPoints] = useState<{ x: number; y: number }[]>([])
+  const [wallThickness, setWallThickness] = useState(15)
   const [zoneDrawStart, setZoneDrawStart] = useState<{ x: number; y: number } | null>(null)
   const [zoneDrawRect, setZoneDrawRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [zoneSectionId, setZoneSectionId] = useState(sections[0]?.id ?? '')
@@ -76,9 +64,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const zdStartRef = useRef<{ x: number; y: number } | null>(null)
   const [zoomLevel, setZoomLevel] = useState(1)
   const [showDimensions, setShowDimensions] = useState(false)
-  const [boothPainting, setBoothPainting] = useState(false)
-  const [boothPaintKey, setBoothPaintKey] = useState(0)
-  const boothCellsRef = useRef<Set<string>>(new Set())
   const [textScale, setTextScale] = useState(1)
 
   // ── Setup layer state ──
@@ -400,13 +385,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Escape' && boothPainting) {
-      e.preventDefault()
-      setBoothPainting(false)
-      boothCellsRef.current.clear()
-      setBoothPaintKey(k => k + 1)
-      return
-    }
     if (e.key === 'Delete') {
       if (setupSelectedIds.length > 0) { e.preventDefault(); deleteSetupSelected(); return }
       if (selectedIds.length > 0) { e.preventDefault(); deleteSelected(); return }
@@ -702,49 +680,25 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             </label>
             <button onClick={() => {
               if (zoneDrawing) { setZoneDrawing(false); setZoneDrawStart(null); setZoneDrawRect(null) }
-              else { setZoneDrawing(true); setBoothPainting(false) }
+              else { setZoneDrawing(true); setZonePolyMode(false); setZonePolyPoints([]) }
             }}
-              className={`font-mono text-[10px] uppercase px-2 py-1 border ${zoneDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
-              SECTIONS {zoneDrawing ? '· ON' : ''}
+              className={`font-mono text-[10px] uppercase px-2 py-1 border ${zoneDrawing && !zonePolyMode ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
+              SECTIONS {zoneDrawing && !zonePolyMode ? '· ON' : ''}
+            </button>
+            <button onClick={() => {
+              if (zonePolyMode) { setZonePolyMode(false); setZonePolyPoints([]); setZoneDrawing(false) }
+              else { setZonePolyMode(true); setZoneDrawing(false); setZonePolyPoints([]) }
+            }}
+              className={`font-mono text-[10px] uppercase px-2 py-1 border ${zonePolyMode ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
+              POLYGON {zonePolyMode ? '· ON' : ''}
             </button>
             <button onClick={() => {
               if (wallDrawing) { setWallDrawing(false); setWallPoints([]) }
-              else { setWallDrawing(true); setZoneDrawing(false); setBoothPainting(false) }
+              else { setWallDrawing(true); setZoneDrawing(false) }
             }}
               className={`font-mono text-[10px] uppercase px-2 py-1 border ${wallDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
               WALLS {wallDrawing ? '· ON' : ''}
             </button>
-            <button onClick={() => {
-              if (boothPainting) { setBoothPainting(false); boothCellsRef.current.clear(); setBoothPaintKey(k => k + 1) }
-              else { setBoothPainting(true); setZoneDrawing(false); setSelectedIds([]) }
-            }}
-              className={`font-mono text-[10px] uppercase px-2 py-1 border ${boothPainting ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
-              DRAW BOOTH {boothPainting ? '· ON' : ''}
-            </button>
-            {boothPainting && boothCellsRef.current.size > 0 && (
-              <button onClick={() => {
-                const result = traceBoothPerimeter(boothCellsRef.current)
-                if (!result) return
-                const label = nextLabel('BOOTH_BENCH', elements)
-                const id = `new_${nextIdCounter.current++}`
-                const el: ElementData = {
-                  id, type: 'BOOTH_BENCH', shape: 'POLYGON', label, labelVisible: true,
-                  x: result.bx, y: result.by, width: result.bw, depth: result.bd,
-                  vertices: result.outerVertices, rotation: 0, fillColour: '#3D3D4D',
-                  opacity: 1, zIndex: elements.length + 1, sortOrder: elements.length, isActive: true,
-                  style: { cushionVertices: result.cushionVertices }, chairCount: 0,
-                }
-                pushHistory()
-                setElements(prev => [...prev, el])
-                setSelectedIds([id])
-                boothCellsRef.current.clear()
-                setBoothPainting(false)
-                setBoothPaintKey(k => k + 1)
-              }}
-                className="font-mono text-[10px] text-success hover:text-white uppercase px-2 py-1 border border-success">
-                SAVE SHAPE ({boothCellsRef.current.size} BLOCKS)
-              </button>
-            )}
             <button onClick={() => setShowSummary(!showSummary)}
               className={`font-mono text-[10px] uppercase px-2 py-1 border ${showSummary ? 'border-success text-success' : 'border-grey-mid text-grey-light hover:border-success'}`}>
               SUMMARY
@@ -898,9 +852,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             }}
             rebuildKey={rebuildKey}
             showDimensions={showDimensions}
-            boothPainting={boothPainting}
-            boothCellsRef={boothCellsRef}
-            onBoothCellToggle={() => setBoothPaintKey(k => k + 1)}
             setupItems={activeSetupId ? setupItems.map(i => ({
               ...i,
               colour: tableProfiles.find(tp => tp.id === i.tableProfileId)?.colour ?? '#555',
@@ -945,18 +896,23 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             <div className="border border-[#4488FF] p-3 space-y-2">
               <h2 className="font-mono text-xs font-bold text-[#4488FF] uppercase tracking-wider">WALL DRAWING</h2>
               <p className="font-mono text-[10px] text-grey-light">{wallPoints.length} POINT{wallPoints.length !== 1 ? 'S' : ''}</p>
+              <Input label="THICKNESS (CM)" type="number" value={wallThickness.toString()} onChange={(e) => setWallThickness(Math.max(2, parseInt(e.target.value) || 15))} />
               <div className="flex gap-1">
                 <Button size="sm" onClick={() => {
                   pushHistory()
                   const newElements: ElementData[] = []
+                  const t = wallThickness
                   for (let i = 0; i < wallPoints.length - 1; i++) {
                     const a = wallPoints[i]; const b = wallPoints[i + 1]
+                    const dx = b.x - a.x; const dy = b.y - a.y
+                    const isHorizontal = Math.abs(dx) >= Math.abs(dy)
                     newElements.push({
-                      id: `w-${Math.random().toString(36).slice(2)}`, type: 'WALL', shape: 'LINE',
-                      x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
-                      width: Math.abs(b.x - a.x) || 5,
-                      depth: Math.abs(b.y - a.y) || 5,
-                      rotation: 0, fillColour: '#4488FF', opacity: 1, zIndex: 0, sortOrder: 0, isActive: true,
+                      id: `w-${Math.random().toString(36).slice(2)}`, type: 'WALL', shape: 'RECTANGLE',
+                      x: isHorizontal ? Math.min(a.x, b.x) : Math.min(a.x, b.x) - t / 2 + (Math.abs(dx) || t) / 2,
+                      y: isHorizontal ? Math.min(a.y, b.y) - t / 2 + (Math.abs(dy) || t) / 2 : Math.min(a.y, b.y),
+                      width: isHorizontal ? Math.abs(dx) || t : t,
+                      depth: isHorizontal ? t : Math.abs(dy) || t,
+                      rotation: 0, fillColour: '#4A4A4A', opacity: 1, zIndex: 0, sortOrder: 0, isActive: true,
                       label: '',
                     })
                   }
@@ -1293,14 +1249,14 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 </div>
               )}
             </>
-          ) : zoneDrawing ? (
+          ) : (zoneDrawing || zonePolyMode) ? (
             <>
-              <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider">SECTION ZONES</h2>
-              <p className="font-mono text-[10px] text-grey-light">Draw zones on canvas. Toggle POLYGON for custom shapes.</p>
-              <Button size="sm" variant="ghost" onClick={() => { setZonePolyMode(!zonePolyMode); setZonePolyPoints([]) }}
-                className={zonePolyMode ? 'border-accent text-accent' : ''}>
-                {zonePolyMode ? 'POLYGON · ON' : 'POLYGON'}
-              </Button>
+              <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider">{zonePolyMode ? 'POLYGON ZONE' : 'RECTANGLE ZONE'}</h2>
+              <p className="font-mono text-[10px] text-grey-light">
+                {zonePolyMode
+                  ? 'Click canvas to place vertices. Double-click or click SAVE below when done.'
+                  : 'Drag on canvas to draw a rectangle zone.'}
+              </p>
               {zonePolyMode && (
                 <div className="border border-accent/30 p-2 space-y-1">
                   <p className="font-mono text-[9px] text-grey-light">{zonePolyPoints.length} VERTEX{zonePolyPoints.length !== 1 ? 'TICES' : ''}</p>
