@@ -14,7 +14,7 @@ interface Recipe {
   prepTime: number | null; version: number; isActive: boolean
   yieldUnit?: { id: string; name: string }
   lineItems?: LineItem[]
-  menuItem?: { id: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; dietaryInfo: string | null } | null
+  menuItem?: { id: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: { name: string; price: number }[] | null; dietaryInfo: string | null } | null
 }
 
 interface LineItem {
@@ -31,7 +31,7 @@ interface InvItem { id: string; name: string; unit: string; allergyInfo?: string
 interface RecipeBrief { id: string; name: string }
 
 interface OrphanMenuItem {
-  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; dietaryInfo: string | null
+  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: { name: string; price: number }[] | null; dietaryInfo: string | null
 }
 
   function generateId() { return crypto.randomUUID() }
@@ -68,13 +68,25 @@ export function RecipesClient() {
   const [imageUploading, setImageUploading] = useState(false)
   const imageFileRef = useRef<HTMLInputElement | null>(null)
   const [formShortDescription, setFormShortDescription] = useState('')
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
 
-  const ALLERGENS = ['ALMOND','BARLEY','BRAZIL NUT','CASHEW','CRUSTACEAN','EGG','FISH','HAZELNUT','LUPIN','MACADAMIA','MILK','MOLLUSC','OATS','PEANUT','PECAN','PINE NUT','PISTACHIO','RYE','SESAME','SOY','SULPHITES','WALNUT','WHEAT']
+  // Add ingredient modal
+  const [showAddIngredient, setShowAddIngredient] = useState(false)
+  const [newIngredientName, setNewIngredientName] = useState('')
+  const [newIngredientUomId, setNewIngredientUomId] = useState('')
+  const [newIngredientCatId, setNewIngredientCatId] = useState('')
+  const [addingIngredient, setAddingIngredient] = useState(false)
+
+  // Variable product variations
+  const [formIsVariable, setFormIsVariable] = useState(false)
+  const [formVariations, setFormVariations] = useState<{ name: string; price: number }[]>([])
+
+  const ALLERGENS = ['ALMOND','BARLEY','BRAZIL NUT','CASHEW','CRUSTACEAN','EGG','FISH','GLUTEN','HAZELNUT','LUPIN','MACADAMIA','MILK','MOLLUSC','OATS','PEANUT','PECAN','PINE NUT','PISTACHIO','RYE','SESAME','SOY','SULPHITES','WALNUT','WHEAT']
   const ALLERGEN_GROUPS: { label: string; items: string[] }[] = [
     { label: 'DAIRY', items: ['MILK'] },
     { label: 'EGGS', items: ['EGG'] },
     { label: 'NUTS & SEEDS', items: ['ALMOND','BRAZIL NUT','CASHEW','HAZELNUT','LUPIN','MACADAMIA','PEANUT','PECAN','PINE NUT','PISTACHIO','WALNUT'] },
-    { label: 'GRAINS', items: ['BARLEY','OATS','RYE','WHEAT'] },
+    { label: 'GRAINS', items: ['BARLEY','GLUTEN','OATS','RYE','WHEAT'] },
     { label: 'SEAFOOD', items: ['CRUSTACEAN','FISH','MOLLUSC'] },
     { label: 'OTHER', items: ['SESAME','SOY','SULPHITES'] },
   ]
@@ -83,6 +95,7 @@ export function RecipesClient() {
   const [inventoryItems, setInventoryItems] = useState<InvItem[]>([])
   const [allRecipes, setAllRecipes] = useState<RecipeBrief[]>([])
   const [wooCategories, setWooCategories] = useState<string[]>([])
+  const [categories, setCategories] = useState<{ id: string; name: string; tab: string | null }[]>([])
 
   const [lineItems, setLineItems] = useState<LineItem[]>([])
   const [newItemType, setNewItemType] = useState<'inventory' | 'recipe'>('inventory')
@@ -107,7 +120,43 @@ export function RecipesClient() {
     }
   }
 
+  async function handleAddIngredient() {
+    if (!newIngredientName.trim() || !newIngredientUomId || !newIngredientCatId) return
+    setAddingIngredient(true)
+    const r = await fetch('/api/admin/inventory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: newIngredientName.trim().toUpperCase(),
+        uomId: newIngredientUomId,
+        categoryId: newIngredientCatId,
+        totalQty: 0,
+      }),
+    })
+    if (r.ok) {
+      const created = await r.json()
+      setShowAddIngredient(false)
+      setNewIngredientName(''); setNewIngredientUomId(''); setNewIngredientCatId('')
+      // Refresh inventory items and select the new one
+      const iRes = await fetch('/api/admin/inventory')
+      if (iRes.ok) { const data = await iRes.json(); setInventoryItems(Array.isArray(data) ? data : []) }
+      setNewItemId(created.id)
+      setNewItemType('inventory')
+      if (uoms.length > 0) {
+        const u = uoms.find((um) => um.id === newIngredientUomId)
+        if (u) setNewItemUomId(u.id)
+      }
+    }
+    setAddingIngredient(false)
+  }
+
   const filteredWooCats = useMemo(() => {
+
+  function addVariation() { setFormVariations(prev => [...prev, { name: '', price: 0 }]) }
+  function updateVariation(i: number, field: 'name' | 'price', value: string) {
+    setFormVariations(prev => prev.map((v, j) => j === i ? { ...v, [field]: field === 'price' ? (parseFloat(value) || 0) : value } : v))
+  }
+  function removeVariation(i: number) { setFormVariations(prev => prev.filter((_, j) => j !== i)) }
     if (!wooCatInput.trim()) return []
     const q = wooCatInput.toUpperCase()
     return wooCategories.filter((c) => c.includes(q) && !formWooCategories.includes(c)).slice(0, 8)
@@ -119,6 +168,7 @@ export function RecipesClient() {
     setNewItemId(''); setNewItemQty('1'); setNewItemUomId('')
     setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([]); setWooCatInput('')
     setFormDietaryInfo([]); setFormImageUrl(null); setFormShortDescription('')
+    setFormIsVariable(false); setFormVariations([])
     setFormExistingMenuItemId(null)
   }
 
@@ -141,9 +191,12 @@ export function RecipesClient() {
       setFormDietaryInfo(r.menuItem.dietaryInfo ? r.menuItem.dietaryInfo.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
       setFormImageUrl(r.menuItem.imageUrl ?? null)
       setFormShortDescription(r.menuItem.shortDescription ?? '')
+      setFormIsVariable(r.menuItem.isVariable ?? false)
+      setFormVariations(r.menuItem.variations ?? [])
     } else {
     setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([]); setWooCatInput('')
     setFormDietaryInfo([]); setFormImageUrl(null); setFormShortDescription('')
+    setFormIsVariable(false); setFormVariations([])
     }
   }
 
@@ -156,16 +209,19 @@ export function RecipesClient() {
     setFormDietaryInfo(o.dietaryInfo ? o.dietaryInfo.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
     setFormImageUrl(o.imageUrl ?? null)
     setFormShortDescription(o.shortDescription ?? '')
+    setFormIsVariable(o.isVariable ?? false)
+    setFormVariations(o.variations ?? [])
     setFormExistingMenuItemId(o.id)
   }
 
   async function load() {
     setLoading(true)
-    const [rRes, uRes, iRes, mRes] = await Promise.all([
+    const [rRes, uRes, iRes, mRes, cRes] = await Promise.all([
       fetch('/api/admin/recipes'),
       fetch('/api/admin/uoms'),
       fetch('/api/admin/inventory'),
       fetch('/api/admin/menu-items'),
+      fetch('/api/admin/inventory/categories'),
     ])
     if (rRes.ok) {
       const prs = await rRes.json()
@@ -186,6 +242,10 @@ export function RecipesClient() {
       // Filter: menu items whose recipe is null (no recipe linked)
       const orphaned = arr.filter((m: any) => !m.recipe || !m.recipeId)
       setOrphanItems(orphaned)
+    }
+    if (cRes.ok) {
+      const data = await cRes.json()
+      setCategories(Array.isArray(data) ? data : [])
     }
     // Load WooCommerce categories for the category picker
     try {
@@ -252,7 +312,7 @@ export function RecipesClient() {
   }
 
   async function handleSave() {
-    if (!formName.trim() || !formYieldUnitId) return
+    if (!formName.trim()) return
     setSaving(true)
     const body: any = {
       name: formName.trim().toUpperCase(),
@@ -271,6 +331,8 @@ export function RecipesClient() {
       wooCategoryId: linkToMenu ? (formWooCategories.length > 0 ? formWooCategories.join(', ') : null) : undefined,
       imageUrl: linkToMenu ? formImageUrl : undefined,
       shortDescription: linkToMenu ? (formShortDescription || null) : undefined,
+      isVariable: linkToMenu ? formIsVariable : undefined,
+      variations: linkToMenu ? (formVariations.length > 0 ? formVariations : null) : undefined,
       existingMenuItemId: formExistingMenuItemId || undefined,
       dietaryInfo: formDietaryInfo.length > 0 ? formDietaryInfo.join(',') : null,
     }
@@ -455,7 +517,8 @@ export function RecipesClient() {
                         }
                       }
                     }}
-                      groups={searchGroups} placeholder="SEARCH INGREDIENT OR RECIPE..." className="flex-1" />
+                      groups={searchGroups} placeholder="SEARCH INGREDIENT OR RECIPE..." className="flex-1"
+          footerAction={{ label: 'ADD INGREDIENT', onClick: () => setShowAddIngredient(true) }} />
                     <Input type="number" step="0.01" value={newItemQty} onChange={(e) => setNewItemQty(e.target.value)} className="w-20" />
                     <Select value={newItemUomId} onChange={(e) => setNewItemUomId(e.target.value)}
                       options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="UOM" className="w-28" />
@@ -571,22 +634,75 @@ export function RecipesClient() {
 
                       <div className="md:col-span-3">
                         <label className="font-mono text-xs uppercase text-grey-light block mb-1">SHORT DESCRIPTION</label>
-                        <Input value={formShortDescription} onChange={(e) => setFormShortDescription(e.target.value)} placeholder="BRIEF EXCERPT FOR PRODUCT LISTING" />
+                        <textarea value={formShortDescription} onChange={(e) => setFormShortDescription(e.target.value)}
+                          placeholder="BRIEF EXCERPT FOR PRODUCT LISTING..."
+                          rows={3}
+                          className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light resize-y" />
+                      </div>
+
+                      <div className="md:col-span-3">
+                        <label className="flex items-center gap-2">
+                          <input type="checkbox" checked={formIsVariable} onChange={(e) => { setFormIsVariable(e.target.checked); if (!e.target.checked) setFormVariations([]) }}
+                            className="bg-black border border-grey-mid accent-white" />
+                          <span className="font-mono text-xs uppercase text-white">VARIABLE PRODUCT</span>
+                          <span className="font-mono text-[10px] text-grey-light">(E.G. SMALL, MEDIUM, LARGE)</span>
+                        </label>
+                        {formIsVariable && (
+                          <div className="mt-3 ml-2 border-l border-grey-mid pl-4 space-y-3">
+                            <p className="font-mono text-[10px] text-grey-light leading-relaxed">
+                              EACH VARIATION CREATES A UNIQUE PRICE POINT ON WOOCOMMERCE.
+                              THE MAIN PRICE ABOVE IS THE DEFAULT (LOWEST) PRICE.<br />
+                              WHEN PUSHED, THE PRODUCT BECOMES A VARIABLE PRODUCT WITH THESE SIZE OPTIONS.
+                              VARIATIONS MUST BE MANAGED ON WOOCOMMERCE AFTER THE INITIAL PUSH.
+                            </p>
+                            <div className="space-y-2">
+                              {formVariations.map((v, i) => (
+                                <div key={i} className="flex items-center gap-2">
+                                  <input value={v.name} onChange={(e) => updateVariation(i, 'name', e.target.value.toUpperCase())}
+                                    placeholder="e.g. SMALL"
+                                    className="w-32 bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light" />
+                                  <span className="font-mono text-xs text-grey-light">$</span>
+                                  <input type="number" step="0.01" value={v.price || ''} onChange={(e) => updateVariation(i, 'price', e.target.value)}
+                                    placeholder="0.00"
+                                    className="w-24 bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light text-right" />
+                                  <button onClick={() => removeVariation(i)}
+                                    className="text-grey-light hover:text-danger font-mono text-xs">×</button>
+                                </div>
+                              ))}
+                              <button onClick={addVariation}
+                                className="font-mono text-[10px] uppercase text-[#60A5FA] hover:text-white">
+                                + ADD VARIATION
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       <div className="md:col-span-3">
                         <label className="font-mono text-xs uppercase text-grey-light block mb-1">PRODUCT IMAGE</label>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2" onPaste={(e) => {
+                          const items = e.clipboardData?.items
+                          if (items) {
+                            for (const item of Array.from(items)) {
+                              if (item.type.startsWith('image/')) {
+                                const file = item.getAsFile()
+                                if (file) uploadImage(file)
+                                break
+                              }
+                            }
+                          }
+                        }}>
                           <input ref={imageFileRef} type="file" accept="image/*" className="hidden"
                             onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
                           <button type="button" onClick={() => imageFileRef.current?.click()}
                             className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors">
                             {imageUploading ? 'UPLOADING_' : formImageUrl ? 'REPLACE IMAGE' : 'ADD IMAGE'}
                           </button>
+                          <span className="font-mono text-[9px] text-grey-light/50 hidden sm:inline">OR PASTE (CTRL+V)</span>
                           {formImageUrl && (
                             <>
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={formImageUrl} alt="product" className="h-10 w-10 object-cover border border-grey-mid" />
+                              <img src={formImageUrl} alt="product" className="h-10 w-10 object-cover border border-grey-mid cursor-pointer" onClick={() => setPreviewImage(formImageUrl)} />
                               <button type="button" onClick={() => setFormImageUrl(null)}
                                 className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">
                                 REMOVE
@@ -600,7 +716,7 @@ export function RecipesClient() {
                 </div>
 
                 <div className="border-t border-grey-mid pt-3 flex items-center gap-2">
-                  <Button onClick={handleSave} disabled={saving || !formName.trim() || !formYieldUnitId}>
+                  <Button onClick={handleSave} disabled={saving || !formName.trim()}>
                     {saving ? 'SAVING...' : 'SAVE'}
                   </Button>
                   {!isCreating && <Button variant="danger" size="sm" onClick={handleDelete}>DELETE</Button>}
@@ -654,6 +770,37 @@ export function RecipesClient() {
             </div>
             <Button variant="ghost" onClick={() => setAllergenPopout(null)}>CLOSE</Button>
           </div>
+        )}
+      </Modal>
+
+      <Modal isOpen={showAddIngredient} onClose={() => { setShowAddIngredient(false); setNewIngredientName(''); setNewIngredientUomId(''); setNewIngredientCatId('') }} title="ADD INGREDIENT" size="sm">
+        <div className="space-y-4">
+          <div>
+            <label className="font-mono text-xs uppercase text-grey-light block mb-1">NAME</label>
+            <Input value={newIngredientName} onChange={(e) => setNewIngredientName(e.target.value.toUpperCase())} placeholder="INGREDIENT NAME" />
+          </div>
+          <div>
+            <label className="font-mono text-xs uppercase text-grey-light block mb-1">CATEGORY</label>
+            <Select value={newIngredientCatId} onChange={(e) => setNewIngredientCatId(e.target.value)}
+              options={categories.filter(c => c.tab === 'FOOD' || c.tab === 'BEVERAGE').map(c => ({ value: c.id, label: c.name }))} placeholder="SELECT CATEGORY" />
+          </div>
+          <div>
+            <label className="font-mono text-xs uppercase text-grey-light block mb-1">UNIT</label>
+            <Select value={newIngredientUomId} onChange={(e) => setNewIngredientUomId(e.target.value)}
+              options={uoms.map(u => ({ value: u.id, label: u.name }))} placeholder="SELECT UNIT" />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <Button onClick={handleAddIngredient} disabled={addingIngredient || !newIngredientName.trim() || !newIngredientUomId || !newIngredientCatId}>
+              {addingIngredient ? 'CREATING...' : 'CREATE'}
+            </Button>
+            <Button variant="ghost" onClick={() => { setShowAddIngredient(false); setNewIngredientName(''); setNewIngredientUomId(''); setNewIngredientCatId('') }}>CANCEL</Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={previewImage != null} onClose={() => setPreviewImage(null)} title="" size="lg">
+        {previewImage && (
+          <img src={previewImage} alt="Product preview" className="w-full border border-grey-mid" />
         )}
       </Modal>
     </div>

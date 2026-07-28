@@ -1642,6 +1642,8 @@ model MenuItem {
   imageUrl        String?
   description     String?
   shortDescription String?
+  isVariable      Boolean   @default(false)
+  variations      Json?
   dietaryInfo     String?
   isActive        Boolean   @default(true)
   createdAt       DateTime  @default(now())

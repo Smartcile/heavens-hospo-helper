@@ -185,6 +185,7 @@ export async function upsertProductFromWoo(
   const shortDescription = product.short_description?.replace(/<[^>]*>/g, '').trim() ?? null
   const cleanShortDescription = shortDescription ? decodeEntities(shortDescription) : null
   const imageUrl = remoteImageUrl ? await downloadAndStoreImage(remoteImageUrl, name) : null
+  const isVariable = product.type === 'variable'
 
   const existing = await prisma.menuItem.findFirst({
     where: { wooProductId, venueId, deletedAt: null },
@@ -193,7 +194,7 @@ export async function upsertProductFromWoo(
   if (existing) {
     await prisma.menuItem.update({
       where: { id: existing.id },
-      data: { name, price, wooCategoryId: categoryName, imageUrl, description: cleanDescription, shortDescription: cleanShortDescription },
+      data: { name, price, wooCategoryId: categoryName, imageUrl, description: cleanDescription, shortDescription: cleanShortDescription, isVariable },
     })
     return 'updated'
   }
@@ -209,6 +210,7 @@ export async function upsertProductFromWoo(
       imageUrl,
       description: cleanDescription,
       shortDescription: cleanShortDescription,
+      isVariable,
     },
   })
   return 'created'

@@ -17,7 +17,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, recipeId, price, wooProductId, wooCategoryId, imageUrl, shortDescription, description } = await req.json()
+  const { name, recipeId, price, wooProductId, wooCategoryId, imageUrl, shortDescription, isVariable, variations, description } = await req.json()
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = String(name).toUpperCase().trim()
   if (recipeId !== undefined) data.recipeId = recipeId
@@ -26,6 +26,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (wooCategoryId !== undefined) data.wooCategoryId = wooCategoryId || null
   if (imageUrl !== undefined) data.imageUrl = imageUrl || null
   if (shortDescription !== undefined) data.shortDescription = shortDescription || null
+  if (isVariable !== undefined) data.isVariable = isVariable
+  if (variations !== undefined) data.variations = variations
   if (description !== undefined) data.description = description || null
 
   const updated = await prisma.menuItem.update({

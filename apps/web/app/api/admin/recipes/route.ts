@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
         },
         orderBy: { sortOrder: 'asc' },
       },
-      menuItems: { select: { id: true, price: true, wooProductId: true, wooCategoryId: true, imageUrl: true, dietaryInfo: true } },
+      menuItems: { select: { id: true, price: true, wooProductId: true, wooCategoryId: true, imageUrl: true, shortDescription: true, isVariable: true, variations: true, dietaryInfo: true } },
     },
     orderBy: { name: 'asc' },
   })
@@ -36,9 +36,9 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, imageUrl, shortDescription, existingMenuItemId, dietaryInfo } = await req.json()
-  if (!name?.trim() || !yieldUnitId) {
-    return NextResponse.json({ error: 'name and yieldUnitId are required' }, { status: 400 })
+  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, imageUrl, shortDescription, isVariable, variations, existingMenuItemId, dietaryInfo } = await req.json()
+  if (!name?.trim()) {
+    return NextResponse.json({ error: 'name is required' }, { status: 400 })
   }
 
   const recipe = await prisma.$transaction(async (tx) => {
@@ -87,6 +87,8 @@ export async function POST(req: NextRequest) {
             wooCategoryId: wooCategoryId || null,
             imageUrl: imageUrl || null,
             shortDescription: shortDescription || null,
+            isVariable: isVariable || false,
+            variations: variations || null,
             dietaryInfo: dietaryInfo || null,
           },
         })
@@ -101,6 +103,8 @@ export async function POST(req: NextRequest) {
             wooCategoryId: wooCategoryId || null,
             imageUrl: imageUrl || null,
             shortDescription: shortDescription || null,
+            isVariable: isVariable || false,
+            variations: variations || null,
             dietaryInfo: dietaryInfo || null,
           },
         })

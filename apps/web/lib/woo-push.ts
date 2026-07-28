@@ -45,11 +45,19 @@ export function mapStatusToWoo(status: OrderStatus): string {
   return map[status] ?? 'pending'
 }
 
-export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 'wooCategoryId' | 'imageUrl' | 'shortDescription'>, now: Date = new Date()) {
+export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 'wooCategoryId' | 'imageUrl' | 'shortDescription' | 'isVariable' | 'variations'>, now: Date = new Date()) {
   const payload: Record<string, unknown> = {
     name: item.name,
     regular_price: String(item.price ?? 0),
     meta_data: selfUpdateMeta(now),
+  }
+  if (item.isVariable) {
+    payload.type = 'variable'
+    const variations = item.variations as any[] | undefined
+    if (variations?.length) {
+      const names = variations.map((v: any) => v.name).filter(Boolean)
+      if (names.length) payload.attributes = [{ name: 'Size', options: names, variation: true, visible: true }]
+    }
   }
   if (item.wooCategoryId) {
     const id = parseInt(item.wooCategoryId, 10)

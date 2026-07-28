@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
       wooCategoryId: wooCategoryId || null,
       imageUrl: imageUrl || null,
       shortDescription: shortDescription || null,
+      isVariable: false,
       description: description || null,
     },
     include: { recipe: { select: { id: true, name: true } } },

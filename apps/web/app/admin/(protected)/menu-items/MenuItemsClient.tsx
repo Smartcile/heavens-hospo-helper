@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { SearchSelect } from '@/components/ui/SearchSelect'
+import { Modal } from '@/components/ui/Modal'
 
 interface MenuItem {
   id: string; name: string; recipeId: string; price: number
@@ -42,6 +43,7 @@ export function MenuItemsClient() {
   const [imageUploading, setImageUploading] = useState(false)
   const imageFileRef = useRef<HTMLInputElement | null>(null)
   const [formShortDescription, setFormShortDescription] = useState('')
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
 
   function resetForm() {
     setFormName(''); setFormRecipeId(''); setFormPrice('0')
@@ -242,7 +244,10 @@ export function MenuItemsClient() {
                 {!selectedIsShared && (
                   <div>
                     <label className="font-mono text-xs uppercase text-grey-light block mb-1">SHORT DESCRIPTION</label>
-                    <Input value={formShortDescription} onChange={(e) => setFormShortDescription(e.target.value)} placeholder="BRIEF EXCERPT FOR PRODUCT LISTING" />
+                    <textarea value={formShortDescription} onChange={(e) => setFormShortDescription(e.target.value)}
+                      placeholder="BRIEF EXCERPT FOR PRODUCT LISTING..."
+                      rows={3}
+                      className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light resize-y" />
                   </div>
                 )}
 
@@ -256,17 +261,29 @@ export function MenuItemsClient() {
                 {!selectedIsShared && (
                   <div>
                     <label className="font-mono text-xs uppercase text-grey-light block mb-1">PRODUCT IMAGE</label>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2" onPaste={(e) => {
+                      const items = e.clipboardData?.items
+                      if (items) {
+                        for (const item of Array.from(items)) {
+                          if (item.type.startsWith('image/')) {
+                            const file = item.getAsFile()
+                            if (file) uploadImage(file)
+                            break
+                          }
+                        }
+                      }
+                    }}>
                       <input ref={imageFileRef} type="file" accept="image/*" className="hidden"
                         onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
                       <button type="button" onClick={() => imageFileRef.current?.click()}
                         className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors">
                         {imageUploading ? 'UPLOADING_' : formImageUrl ? 'REPLACE IMAGE' : 'ADD IMAGE'}
                       </button>
+                      <span className="font-mono text-[9px] text-grey-light/50 hidden sm:inline">OR PASTE (CTRL+V)</span>
                       {formImageUrl && (
                         <>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={formImageUrl} alt="product" className="h-10 w-10 object-cover border border-grey-mid" />
+                          <img src={formImageUrl} alt="product" className="h-10 w-10 object-cover border border-grey-mid cursor-pointer" onClick={() => setPreviewImage(formImageUrl)} />
                           <button type="button" onClick={() => setFormImageUrl(null)}
                             className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">
                             REMOVE
@@ -287,6 +304,12 @@ export function MenuItemsClient() {
           </div>
         </div>
       </div>
+
+      <Modal isOpen={previewImage != null} onClose={() => setPreviewImage(null)} title="" size="lg">
+        {previewImage && (
+          <img src={previewImage} alt="Product preview" className="w-full border border-grey-mid" />
+        )}
+      </Modal>
     </div>
   )
 }
