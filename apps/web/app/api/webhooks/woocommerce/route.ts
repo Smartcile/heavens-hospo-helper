@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 6. Process order via shared logic ──
-  const result = await processWooOrder(venueId, matched.id, body)
+  const result = await processWooOrder(venueId, matched.id, body, matched.metaFieldMap)
 
   const wooStatus = body.status ?? 'pending'
 

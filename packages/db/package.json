@@ -10,6 +10,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:migrate-budget": "tsx prisma/migrate-budget-day-allocations.ts",
     "db:migrate-guides": "tsx prisma/migrate-to-guides.ts",
+    "db:backfill-orders": "tsx prisma/backfill-orders-phase1.ts",
     "db:reset": "prisma migrate reset --force",
     "db:studio": "prisma studio"
   },

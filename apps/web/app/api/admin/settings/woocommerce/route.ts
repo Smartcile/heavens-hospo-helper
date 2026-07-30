@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { DEFAULT_META_MAP, META_MAP_FIELDS, resolveMetaMap } from '@/lib/woo-meta-map'
 
 function maskSecret(secret: string | null): string | null {
   if (!secret || secret.length <= 4) return secret
@@ -34,6 +35,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       wcStoreUrl: '', wcConsumerKey: '', wcConsumerSecret: '', wcWebhookSecret: '',
       wcActive: false, lastSyncAt: null, sharedWooVenueId: sharedSourceId, readOnly: !!sharedSourceId,
+      metaFieldMap: DEFAULT_META_MAP, metaFieldDefaults: DEFAULT_META_MAP,
     })
   }
 
@@ -47,6 +49,10 @@ export async function GET(req: NextRequest) {
     lastSyncAt: existing.lastSyncAt,
     sharedWooVenueId: sharedSourceId,
     readOnly: !!sharedSourceId,
+    // Effective map (stored merged over defaults) plus the defaults themselves,
+    // so the UI can show what a blank field will fall back to.
+    metaFieldMap: resolveMetaMap(existing.metaFieldMap),
+    metaFieldDefaults: DEFAULT_META_MAP,
   })
 }
 
@@ -54,7 +60,7 @@ export async function PUT(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { wcStoreUrl, wcConsumerKey, wcConsumerSecret, wcWebhookSecret, wcActive, venueId } = await req.json()
+  const { wcStoreUrl, wcConsumerKey, wcConsumerSecret, wcWebhookSecret, wcActive, venueId, metaFieldMap } = await req.json()
 
   // ADMIN can specify which venue's WooCommerce to configure
   const effectiveVenueId = session.user.role === 'ADMIN' && venueId
@@ -89,6 +95,20 @@ export async function PUT(req: NextRequest) {
   }
   if (wcActive !== undefined) data.isActive = wcActive
 
+  // Accept only known fields, each a clean list of non-empty string keys.
+  if (metaFieldMap !== undefined && metaFieldMap !== null) {
+    const clean: Record<string, string[]> = {}
+    for (const field of META_MAP_FIELDS) {
+      const raw = (metaFieldMap as Record<string, unknown>)[field]
+      const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : []
+      clean[field] = list
+        .filter((k): k is string => typeof k === 'string')
+        .map((k) => k.trim())
+        .filter((k) => k !== '')
+    }
+    data.metaFieldMap = clean
+  }
+
   const integration = await prisma.wooIntegration.upsert({
     where: { venueId: effectiveVenueId },
     update: data,
@@ -110,5 +130,7 @@ export async function PUT(req: NextRequest) {
     wcWebhookSecret: maskSecret(integration.webhookSecret),
     wcActive: integration.isActive,
     lastSyncAt: integration.lastSyncAt,
+    metaFieldMap: resolveMetaMap(integration.metaFieldMap),
+    metaFieldDefaults: DEFAULT_META_MAP,
   })
 }

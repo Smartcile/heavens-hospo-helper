@@ -451,12 +451,59 @@ Weekly roster view styled like Loaded Reports, complementing the existing month 
 
 ---
 
-## Orders Page Rework ☐
+## Orders Page Rework ✅ (all 5 phases built)
 
-- Full redesign of `/admin/orders`
-- Better order card layout with clearer status, items, and actions
-- Improved FOH view with table map integration
-- Order timeline / audit trail
+Turning `/admin/orders` from a read-only Woo mirror into the all-in-one ordering
+workspace. Payments remain WooCommerce's job throughout — the app never handles money.
+
+### Phase 1 — Data foundation ✅
+- `Customer` model, venue-scoped, with normalised `emailKey` / `phoneKey` match keys
+- `lib/customer-match.ts` — email → phone → name precedence, conservative name
+  fallback, enrich-blanks-only on match (27 Vitest tests)
+- `WooOrder`: nullable `wooOrderId` + `source`/`orderNumber` (manual orders now
+  representable), `serviceDate`/`serviceTime`, `fulfillmentType`, and an
+  operational lifecycle (`opStatus`, `paymentStatus`, `paymentMethod`, plus
+  `paidAt`/`arrivedAt`/`deliveredAt`/`finalisedAt`) kept separate from the
+  Woo-mirrored `status`
+- `WooOrderItem`: `notes` de-overloaded into `productName` + `explodedIngredients`,
+  new `customerNote` / `allergenNote` for per-line allergy requests
+- Idempotent backfill script (`npm run db:backfill-orders`)
+
+### Phase 2 — Woo mapping + customer capture ✅
+- `WooIntegration.metaFieldMap` + Settings → WooCommerce → ORDER FIELD MAPPING —
+  map any plugin's `meta_data` keys to serviceDate / partySize / etc.
+  **Required**, not optional: the Tyche delivery-date plugin exposes its field
+  under the label configured in its own settings, so a hardcoded key breaks on rename
+- `lib/woo-meta-map.ts` — unix seconds/ms, ISO, day-first dates, slot ranges,
+  12h/24h times (30 tests)
+- Payment read from `date_paid_gmt` (not `date_paid` — store-local, no offset)
+- Customers deduped and linked on every sync
+- `opStatus` / `fulfillmentType` never overwritten by a sync — operator state survives
+- `pushOrderStatus` no-ops for local orders
+- Recommended plugin: Order Delivery Date for WooCommerce – Lite (free)
+
+### Phase 3 — Menus + min/max ✅
+- `Menu` (minPax / maxPax) + `MenuMenuItem` (minQty / maxQty) — Friday Night
+  Bistro vs Event Catering, both menu-level pax range and per-item quantity caps
+- `minQty` is a floor once ordered, not a "must order"; duplicate lines summed first
+- Pure `lib/menu-rules.ts` (19 tests), admin UI at `/admin/menus`
+
+### Phase 4 — The orders page ✅
+- One date-driven page, four renderers over one payload: SERVICE (time slots),
+  KITCHEN (allergy alerts + dish/category totals), FOH (by table), PRODUCTION (pick list)
+- `lib/order-views.ts` — every projection pure and tested (34 tests)
+- `OrderView` model — named, saveable filter/grouping presets, shared or private
+- Manual orders with `M-0001` refs, server-side menu validation, customer dedupe
+- Detail drawer: allergies first, contact, service, progress, payment, items
+- Lifecycle stamps (`arrivedAt`/`deliveredAt`/`finalisedAt`) set on first arrival only
+- Fixed the unbounded order fetch and the per-line-item `recipe.findUnique` loop —
+  now 4 fixed queries; `undatedCount` surfaces orders a date-driven page would hide
+
+### Phase 5 — Integration ✅
+- `WooOrder.bookingId` + `lib/order-booking-link.ts` (11 tests) — pre-orders
+  attach to the matching reservation, whose tables then take precedence
+- Matches on customer/email/phone, never name alone; skips cancelled bookings
+- Floor plan tables resolved in the FOH view via booking or the CalendarEvent chain
 
 ---
 

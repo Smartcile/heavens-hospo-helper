@@ -137,6 +137,9 @@ model Venue {
   recipes             Recipe[]
   wooIntegrations     WooIntegration[]
   menuItems           MenuItem[]
+  menus               Menu[]
+  orderViews          OrderView[]
+  customers           Customer[]
   wooOrders           WooOrder[]
   giftCards           GiftCard[]
   timeClocks          TimeClock[]
@@ -600,6 +603,7 @@ model Booking {
   venue         Venue            @relation(fields: [venueId], references: [id])
   calendarEvent CalendarEvent?   @relation(fields: [calendarEventId], references: [id])
   tables        BookingTable[]
+  orders        WooOrder[]
 
   @@index([venueId, date])
   @@index([venueId])
@@ -1287,6 +1291,42 @@ enum OrderStatus {
   CANCELLED
 }
 
+// Where the order came from. WOO orders are owned by WooCommerce (status pushes
+// back); MANUAL/PHONE orders are local-only and must never be pushed.
+enum OrderSource {
+  WOO
+  MANUAL
+  PHONE
+}
+
+enum FulfillmentType {
+  DINE_IN
+  PICKUP
+  DELIVERY
+}
+
+// Operational lifecycle, deliberately separate from `OrderStatus` (which mirrors
+// WooCommerce and is payment/store-centric). Not a strict linear machine — the
+// relevant transitions depend on `fulfillmentType`, and the UI gates them.
+enum OrderOpStatus {
+  NEW
+  CONFIRMED
+  IN_PREP
+  READY
+  ARRIVED
+  OUT_FOR_DELIVERY
+  HANDED_OVER
+  FINALISED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  REFUNDED
+}
+
 enum GiftCardStatus {
   DRAFT
   ISSUED
@@ -1620,6 +1660,12 @@ model WooIntegration {
   consumerKey     String
   consumerSecret  String
   webhookSecret   String?
+  // Maps WooCommerce `meta_data` keys onto our order fields. Necessary because
+  // date/party-size plugins expose their value under a key derived from the
+  // field label configured inside the plugin — a hardcoded key breaks the
+  // moment someone renames a field. Shape: `{ serviceDate: string[], ... }`,
+  // each an ordered list of candidate keys. Null = use DEFAULT_META_MAP.
+  metaFieldMap    Json?
   lastSyncAt      DateTime?
   isActive        Boolean   @default(true)
   createdAt       DateTime  @default(now())
@@ -1654,6 +1700,7 @@ model MenuItem {
   recipe      Recipe?        @relation(fields: [recipeId], references: [id])
   orderItems  WooOrderItem[]
   venueShares MenuItemVenue[]
+  menuLinks   MenuMenuItem[]
 
   @@index([venueId])
   @@index([wooProductId])
@@ -1674,20 +1721,142 @@ model MenuItemVenue {
   @@index([venueId])
 }
 
+// --- MENUS ---
+
+// A named, orderable menu — "FRIDAY NIGHT BISTRO", "EVENT CATERING". Groups
+// existing MenuItems and carries the ordering rules for them. A MenuItem can
+// appear on several menus with different limits on each.
+model Menu {
+  id          String    @id @default(uuid())
+  venueId     String
+  name        String
+  description String?
+  // Headcount range the menu is offered for (e.g. catering from 20 to 150).
+  // Null on either side means unbounded in that direction.
+  minPax      Int?
+  maxPax      Int?
+  isActive    Boolean   @default(true)
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  venue  Venue          @relation(fields: [venueId], references: [id])
+  items  MenuMenuItem[]
+  orders WooOrder[]
+
+  @@unique([venueId, name])
+  @@index([venueId])
+}
+
+model MenuMenuItem {
+  id         String   @id @default(uuid())
+  menuId     String
+  menuItemId String
+  // Per-item quantity limits, applied when the item is ordered at all.
+  // minQty does NOT force the item onto every order — it is the minimum you
+  // must take *if* you take any (e.g. a platter that only serves 20+).
+  minQty     Int?
+  maxQty     Int?
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  menu     Menu     @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([menuId, menuItemId])
+  @@index([menuId])
+  @@index([menuItemId])
+}
+
+// A named filter/grouping preset on the orders page. The renderer is fixed
+// (`viewType`); everything the user can bend — filters, grouping, visible
+// columns — lives in `config` so adding a control needs no migration.
+model OrderView {
+  id        String    @id @default(uuid())
+  venueId   String
+  name      String
+  viewType  String    // SERVICE | KITCHEN | FOH | PRODUCTION
+  config    Json
+  isShared  Boolean   @default(true) // false = only the creator sees it
+  createdById String?
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@index([venueId])
+}
+
+// --- CUSTOMERS ---
+
+// One row per real person, per venue. Orders and (later) bookings link here so
+// the same customer arriving via WooCommerce, phone, and the booking form does
+// not become three records. Matching lives in `lib/customer-match.ts`.
+model Customer {
+  id        String    @id @default(uuid())
+  venueId   String
+  name      String
+  email     String?
+  phone     String?
+  // Normalised match keys, derived on write: lowercased/trimmed email and
+  // digits-only phone. Indexed so dedupe lookups are a single query.
+  emailKey  String?
+  phoneKey  String?
+  notes     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  venue  Venue      @relation(fields: [venueId], references: [id])
+  orders WooOrder[]
+
+  // Email is a strong identity — enforced at the DB so a duplicate is impossible.
+  // Phone is only indexed, not unique: households legitimately share a landline,
+  // so it is a matching heuristic rather than a constraint.
+  @@unique([venueId, emailKey])
+  @@index([venueId])
+  @@index([venueId, phoneKey])
+}
+
 // --- ORDERS & AUTO-SEATING ---
 
 model WooOrder {
   id                String      @id @default(uuid())
   venueId           String
-  wooOrderId        String      @unique
+  // Null for MANUAL/PHONE orders — only WooCommerce-sourced orders carry one.
+  wooOrderId        String?     @unique
+  source            OrderSource @default(WOO)
+  orderNumber       String?     // local reference for orders raised in-app
+  // Denormalised contact details as they arrived on the order. `customerId` is
+  // the deduped link; these stay as the point-in-time record.
+  customerId        String?
+  menuId            String?     // which menu this order was placed against
+  // Set when a pre-order is matched to a table reservation, so the order shows
+  // against the booked table rather than an auto-seated one of its own.
+  bookingId         String?
   customerName      String?
   customerEmail     String?
   customerPhone     String?
   partySize         Int?
-  fulfillmentDate   DateTime?
-  status            OrderStatus @default(PENDING)
+  fulfillmentDate   DateTime?   // legacy — superseded by serviceDate/serviceTime
+  serviceDate       DateTime?   @db.Date // the date the order is FOR (venue-local)
+  serviceTime       String?     // "HH:mm" venue-local
+  fulfillmentType   FulfillmentType @default(DINE_IN)
+  status            OrderStatus @default(PENDING) // mirrors WooCommerce
+  opStatus          OrderOpStatus   @default(NEW) // our operational lifecycle
+  paymentStatus     PaymentStatus   @default(UNPAID)
+  paymentMethod     String?     // e.g. Woo's payment_method_title
+  paidAt            DateTime?
+  arrivedAt         DateTime?
+  deliveredAt       DateTime?
+  finalisedAt       DateTime?
   totalAmount       Float?
   notes             String?
+  allergenNote      String?     // order-level allergy note from the Woo checkout
   calendarEventId   String?
   syncedAt          DateTime?
   createdAt         DateTime    @default(now())
@@ -1695,14 +1864,20 @@ model WooOrder {
   deletedAt         DateTime?
 
   venue          Venue           @relation(fields: [venueId], references: [id])
+  customer       Customer?       @relation(fields: [customerId], references: [id])
+  menu           Menu?           @relation(fields: [menuId], references: [id])
+  booking        Booking?        @relation(fields: [bookingId], references: [id])
   calendarEvent  CalendarEvent?  @relation(fields: [calendarEventId], references: [id])
   items          WooOrderItem[]
   giftCards      GiftCard[]
 
+  @@unique([venueId, orderNumber])
   @@index([venueId])
   @@index([wooOrderId])
   @@index([status])
   @@index([calendarEventId])
+  @@index([customerId])
+  @@index([venueId, serviceDate])
 }
 
 model WooOrderItem {
@@ -1711,7 +1886,14 @@ model WooOrderItem {
   menuItemId String
   qty        Int      @default(1)
   unitPrice  Float?
-  notes      String?
+  // `notes` historically held BOTH the Woo line-item name and the exploded-recipe
+  // JSON blob. Those are now split out into productName/explodedIngredients so
+  // notes is free for genuine operator notes.
+  notes               String?
+  productName         String?  // line-item name exactly as it was ordered
+  explodedIngredients Json?    // recursive recipe BOM result for this line
+  customerNote        String?  // customer request against this line
+  allergenNote        String?  // allergy requirement for this line — kitchen alert
   kitchenStatus KitchenStatus @default(PENDING)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt

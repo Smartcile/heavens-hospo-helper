@@ -78,7 +78,8 @@ export async function GET(req: NextRequest) {
 
     for (const item of order.items) {
       const entry = {
-        orderId: order.wooOrderId,
+        // Manual orders carry no wooOrderId — fall back to the local reference.
+        orderId: order.wooOrderId ?? order.orderNumber ?? order.id,
         name: item.menuItem?.name ?? 'UNKNOWN',
         dietaryInfo: item.menuItem?.dietaryInfo ?? null,
         qty: item.qty,

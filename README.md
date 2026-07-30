@@ -348,10 +348,34 @@ or any managed container platform.
 - Setup guide: [`SOP-WOOCOMMERCE.md`](SOP-WOOCOMMERCE.md)
 - Live sync monitor: **Admin → Woo Sync** (`/admin/sync`) — every pull, push,
   and webhook is logged there with errors in red, plus manual PULL PRODUCTS / PULL ORDERS / PUSH buttons.
-- FOH operations view: **Admin → Orders → FOH VIEW** tab — bookings by date with table
-  assignments, dietary info, and category totals.
+- Order field mapping: **Admin → Settings → WooCommerce → ORDER FIELD MAPPING** —
+  tells HOSPO OPS which WooCommerce custom fields hold the service date, time slot,
+  party size and allergy note. Needed before the Orders page can group by day.
 - Kitchen view: workers access **Menu → KITCHEN** (`/w/kitchen`) for today's orders
   grouped by table with dietary badges.
+
+### Orders
+
+**Admin → Orders** is a day view with four ways of reading the same data,
+switchable on the fly:
+
+| View | Shows |
+|------|-------|
+| SERVICE | Orders by time slot, with covers per slot |
+| KITCHEN | Allergy alerts first, then dish totals and a category rollup |
+| FOH | Grouped by table |
+| PRODUCTION | Flat pick list with tick boxes |
+
+Filter by progress, payment or allergy and save the combination as a named view.
+Orders can be raised by hand (**+ NEW ORDER**) for phone and walk-in business —
+these stay local and are never pushed to WooCommerce.
+
+**Payments are always taken in WooCommerce.** HOSPO OPS records what was paid,
+how, and when, but never handles money itself.
+
+**Admin → Menus** defines what can be ordered — e.g. a Friday Night Bistro menu
+and an Event Catering menu, each with a guest-count range and per-item minimum
+and maximum quantities.
 
 ---
 

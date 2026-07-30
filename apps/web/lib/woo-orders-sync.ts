@@ -4,7 +4,10 @@ import { wooAuthHeader } from '@/lib/woo-sync'
 import { oauthSignedUrl } from '@/lib/woo-oauth'
 import { explodeRecipe } from '@/lib/inventory-engine'
 import { getNextNumber } from '@/lib/gift-cards'
-import type { PrismaClient, OrderStatus } from '@prisma/client'
+import { resolveOrderMeta } from '@/lib/woo-meta-map'
+import { resolveCustomer } from '@/lib/customer-match'
+import { autoLinkBooking } from '@/lib/order-booking-link'
+import type { PrismaClient, OrderStatus, OrderOpStatus, PaymentStatus } from '@prisma/client'
 
 // ── Shared WooCommerce Order Processing ────────────────────────────────
 // Used by both the webhook handler (instant) and the REST API pull
@@ -16,6 +19,7 @@ export async function processWooOrder(
   venueId: string,
   integrationId: string,
   body: any,
+  metaFieldMap?: unknown,
 ): Promise<{ orderId: string; wooOrderId: string; lineItems: number }> {
   const wooOrderId = String(body.id)
   const wooStatus = body.status ?? 'pending'
@@ -28,9 +32,32 @@ export async function processWooOrder(
   const customerEmail = body.billing?.email ?? null
   const customerPhone = body.billing?.phone ?? null
   const metaData: any[] = body.meta_data ?? []
-  const partySize = extractMetaInt(metaData, ['party_size', 'partySize'])
-  const fulfillmentDate = extractMetaDate(metaData, ['pickup_date', 'fulfillment_date', 'event_date'])
+  const meta = resolveOrderMeta(metaData, metaFieldMap)
+  const partySize = meta.partySize
   const notes = body.customer_note?.trim() || null
+
+  // Payment is WooCommerce's job — we only mirror what it reports.
+  // Prefer `date_paid_gmt`: `date_paid` is in the store's local timezone with no
+  // offset, so parsing it directly lands the stamp hours out.
+  const paidAt = parseWooDate(body.date_paid_gmt, body.date_paid)
+  const paymentMethod = body.payment_method_title?.trim() || null
+  const paymentStatus: PaymentStatus =
+    wooStatus === 'refunded' ? 'REFUNDED' : paidAt ? 'PAID' : 'UNPAID'
+
+  /*
+   * `fulfillmentDate` is still written alongside `serviceDate` because the FOH
+   * and kitchen routes filter on it. Phase 4 moves them across; until then,
+   * dropping it here would silently empty both screens.
+   */
+  const fulfillmentDate = combineDateTime(meta.serviceDate, meta.serviceTime)
+
+  // Deduped customer record — the same person ordering online, by phone, and
+  // via the booking form resolves to one row. See lib/customer-match.ts.
+  const customerId = await resolveCustomer(prisma, venueId, {
+    name: customerName,
+    email: customerEmail,
+    phone: customerPhone,
+  })
 
   const order = await prisma.$transaction(async (tx) => {
     const woo = await tx.wooOrder.upsert({
@@ -41,22 +68,42 @@ export async function processWooOrder(
         customerName: customerName || undefined,
         customerEmail,
         customerPhone,
+        customerId,
         partySize,
         fulfillmentDate,
+        serviceDate: meta.serviceDate,
+        serviceTime: meta.serviceTime,
+        paymentStatus,
+        paymentMethod,
+        paidAt,
         notes,
+        allergenNote: meta.allergens,
         syncedAt: new Date(),
+        // `opStatus` and `fulfillmentType` are deliberately NOT updated — they
+        // are our operational state. A staff member marking an order IN_PREP
+        // must not be reset by the next webhook or 15-minute pull.
       },
       create: {
         venueId,
         wooOrderId,
+        source: 'WOO',
         status: mapWooStatus(wooStatus) as OrderStatus,
+        opStatus: mapWooOpStatus(wooStatus),
+        fulfillmentType: meta.fulfillmentType ?? 'DINE_IN',
         totalAmount,
         customerName: customerName || null,
         customerEmail,
         customerPhone,
+        customerId,
         partySize,
         fulfillmentDate,
+        serviceDate: meta.serviceDate,
+        serviceTime: meta.serviceTime,
+        paymentStatus,
+        paymentMethod,
+        paidAt,
         notes,
+        allergenNote: meta.allergens,
         syncedAt: new Date(),
       },
     })
@@ -92,7 +139,7 @@ export async function processWooOrder(
         if (existing) {
           await tx.wooOrderItem.update({
             where: { id: existing.id },
-            data: { qty, unitPrice, notes: li.name ?? null },
+            data: { qty, unitPrice, productName: li.name ?? null },
           })
           keptIds.add(existing.id)
         } else {
@@ -102,7 +149,7 @@ export async function processWooOrder(
               menuItemId: menuItem.id,
               qty,
               unitPrice,
-              notes: li.name ?? null,
+              productName: li.name ?? null,
             },
           })
           keptIds.add(created.id)
@@ -155,13 +202,13 @@ export async function processWooOrder(
           await prisma.wooOrderItem.update({
             where: { id: orderItem.id },
             data: {
-              notes: JSON.stringify({
-                productName: li.name,
+              productName: li.name ?? null,
+              explodedIngredients: {
                 recipeId: menuItem.recipeId,
                 recipeName: menuItem.recipe?.name,
                 orderQty: qty,
-                explodedIngredients: exploded,
-              }),
+                ingredients: exploded,
+              },
             },
           })
         }
@@ -171,7 +218,9 @@ export async function processWooOrder(
 
   if (partySize && partySize > 0 && fulfillmentDate) {
     try {
-      await tryAutoSeat(order, venueId, partySize, fulfillmentDate)
+      // `wooOrderId` is nullable on the model (manual orders), but this path is
+      // only ever reached for a Woo-sourced order — pass the known-good local.
+      await tryAutoSeat({ ...order, wooOrderId }, venueId, partySize, fulfillmentDate)
     } catch (e) {
       console.error('Auto-seating failed (non-blocking):', e)
       await logSync({
@@ -186,8 +235,23 @@ export async function processWooOrder(
     }
   }
 
+  // Attach the order to a table reservation for the same person, if one exists.
+  // Only when not already linked, so an operator's manual correction sticks.
+  if (!order.bookingId) {
+    try {
+      await autoLinkBooking(prisma, order.id, venueId, meta.serviceDate, {
+        customerId,
+        customerPhone,
+        customerEmail,
+        serviceTime: meta.serviceTime,
+      })
+    } catch (e) {
+      console.error('Booking auto-link failed (non-blocking):', e)
+    }
+  }
+
   try {
-    await detectGiftCards(lineItems, venueId, order, customerName, customerEmail)
+    await detectGiftCards(lineItems, venueId, { ...order, wooOrderId }, customerName, customerEmail)
   } catch (e) {
     console.error('Gift card detection failed (non-blocking):', e)
   }
@@ -296,7 +360,7 @@ export async function runOrderPull(venueId?: string): Promise<OrderPullResult[]>
 
       for (const order of orders) {
         try {
-          await processWooOrder(integration.venueId, integration.id, order)
+          await processWooOrder(integration.venueId, integration.id, order, integration.metaFieldMap)
           synced++
         } catch (e) {
           errors++
@@ -400,26 +464,45 @@ async function detectGiftCards(
   }
 }
 
-function extractMetaInt(meta: any[], keys: string[]): number | null {
-  for (const key of keys) {
-    const m = meta.find((x: any) => x.key === key)
-    if (m?.value != null) {
-      const n = parseInt(String(m.value))
-      if (!isNaN(n)) return n
-    }
+/*
+ * Our operational lifecycle seeded from the Woo status. Only ever applied when
+ * an order is first created — see the upsert above for why.
+ */
+function mapWooOpStatus(status: string): OrderOpStatus {
+  const map: Record<string, OrderOpStatus> = {
+    pending: 'NEW',
+    'on-hold': 'NEW',
+    processing: 'CONFIRMED',
+    completed: 'CONFIRMED',
+    cancelled: 'CANCELLED',
+    refunded: 'CANCELLED',
+    failed: 'CANCELLED',
   }
-  return null
+  return map[status.toLowerCase()] ?? 'NEW'
 }
 
-function extractMetaDate(meta: any[], keys: string[]): Date | null {
-  for (const key of keys) {
-    const m = meta.find((x: any) => x.key === key)
-    if (m?.value) {
-      const d = new Date(m.value)
-      if (!isNaN(d.getTime())) return d
-    }
-  }
-  return null
+/*
+ * WooCommerce emits `*_gmt` fields as naive strings that are actually UTC, so
+ * they need an explicit Z before parsing. Falls back to the local-time variant
+ * when the GMT one is absent.
+ */
+function parseWooDate(gmt?: string | null, local?: string | null): Date | null {
+  const raw = gmt || local
+  if (!raw) return null
+  const iso = gmt && !/[Zz]|[+-]\d{2}:?\d{2}$/.test(gmt) ? `${gmt}Z` : raw
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? null : d
+}
+
+/** Fold a "HH:mm" onto a UTC-midnight date for the legacy `fulfillmentDate`. */
+function combineDateTime(date: Date | null, time: string | null): Date | null {
+  if (!date) return null
+  if (!time) return date
+
+  const [h, m] = time.split(':').map(Number)
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), h, m),
+  )
 }
 
 async function assignTableNumber(

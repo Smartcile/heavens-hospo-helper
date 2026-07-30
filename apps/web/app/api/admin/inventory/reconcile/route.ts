@@ -10,40 +10,36 @@ export async function POST(_req: NextRequest) {
   const venueId = session.user.venueId
 
   // Find completed orders with exploded ingredient data
-  // (stored in WooOrderItem.notes as JSON by the webhook handler)
+  // (stored on WooOrderItem.explodedIngredients by the sync / webhook handler)
   const orderItems = await prisma.wooOrderItem.findMany({
     where: {
-      notes: { not: null },
       order: { venueId, status: 'COMPLETED', deletedAt: null },
     },
-    include: {
-      order: { select: { wooOrderId: true } },
-      menuItem: { select: { name: true } },
+    select: {
+      orderId: true,
+      explodedIngredients: true,
     },
   })
 
-  // Parse exploded ingredients from each order item
+  // Tally exploded ingredients from each order item
   const tally = new Map<string, { requiredBaseQty: number; itemName?: string }>()
-  let ordersProcessed = 0
   const processedOrders = new Set<string>()
 
   for (const li of orderItems) {
-    try {
-      const parsed = JSON.parse(li.notes!)
-      if (parsed.explodedIngredients && Array.isArray(parsed.explodedIngredients)) {
-        for (const ing of parsed.explodedIngredients) {
-          const existing = tally.get(ing.inventoryItemId)
-          if (existing) {
-            existing.requiredBaseQty += ing.requiredBaseQty
-          } else {
-            tally.set(ing.inventoryItemId, { requiredBaseQty: ing.requiredBaseQty })
-          }
-        }
-        processedOrders.add(li.order.wooOrderId)
+    const blob = li.explodedIngredients as {
+      ingredients?: { inventoryItemId: string; requiredBaseQty: number }[]
+    } | null
+    if (!blob?.ingredients || !Array.isArray(blob.ingredients)) continue
+
+    for (const ing of blob.ingredients) {
+      const existing = tally.get(ing.inventoryItemId)
+      if (existing) {
+        existing.requiredBaseQty += ing.requiredBaseQty
+      } else {
+        tally.set(ing.inventoryItemId, { requiredBaseQty: ing.requiredBaseQty })
       }
-    } catch {
-      // Skip unparseable notes
     }
+    processedOrders.add(li.orderId)
   }
 
   const details = []

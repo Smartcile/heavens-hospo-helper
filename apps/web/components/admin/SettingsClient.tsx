@@ -25,6 +25,35 @@ const REFRESH_OPTIONS = [
   { value: '60', label: 'EVERY 60 MIN' },
 ]
 
+const META_FIELDS: { key: string; label: string; hint: string }[] = [
+  { key: 'serviceDate', label: 'SERVICE DATE', hint: 'THE DATE THE ORDER IS FOR' },
+  { key: 'serviceTime', label: 'SERVICE TIME', hint: 'TIME OR TIME SLOT' },
+  { key: 'partySize', label: 'PARTY SIZE', hint: 'NUMBER OF GUESTS' },
+  { key: 'allergens', label: 'ALLERGY NOTE', hint: 'CUSTOMER ALLERGY / DIETARY FIELD' },
+  { key: 'fulfillmentType', label: 'FULFILLMENT TYPE', hint: 'DINE IN / PICKUP / DELIVERY' },
+]
+
+/** Server sends `{ field: string[] }`; the inputs edit comma-separated text. */
+function metaMapToText(map: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!map || typeof map !== 'object') return out
+  for (const [k, v] of Object.entries(map as Record<string, unknown>)) {
+    out[k] = Array.isArray(v) ? v.join(', ') : typeof v === 'string' ? v : ''
+  }
+  return out
+}
+
+function metaTextToMap(text: Record<string, string>): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const { key } of META_FIELDS) {
+    out[key] = (text[key] ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }
+  return out
+}
+
 export function SettingsClient({
   staffId,
   role,
@@ -91,6 +120,10 @@ export function SettingsClient({
   const [wcLastSync, setWcLastSync] = useState<string | null>(null)
   const [wcReadOnly, setWcReadOnly] = useState(false)
   const [wcSharedFrom, setWcSharedFrom] = useState<string | null>(null)
+  // Meta-field mapping — stored as comma-separated strings while editing.
+  const [wcMetaMap, setWcMetaMap] = useState<Record<string, string>>({})
+  const [wcMetaDefaults, setWcMetaDefaults] = useState<Record<string, string[]>>({})
+  const [wcShowMeta, setWcShowMeta] = useState(false)
 
   // Demo venue
   const [demoVenue, setDemoVenue] = useState<{ id: string; name: string; isActive: boolean } | null>(null)
@@ -138,6 +171,8 @@ export function SettingsClient({
           setWcLastSync(d.lastSyncAt ?? null)
           setWcReadOnly(d.readOnly ?? false)
           setWcSharedFrom(d.sharedWooVenueId ?? null)
+          setWcMetaMap(metaMapToText(d.metaFieldMap))
+          setWcMetaDefaults(d.metaFieldDefaults ?? {})
         }
       })
   }, [wcVenueId, role])
@@ -227,6 +262,7 @@ export function SettingsClient({
       wcConsumerSecret: wcConsumerSecret,
       wcWebhookSecret: wcWebhookSecret,
       wcActive,
+      metaFieldMap: metaTextToMap(wcMetaMap),
     }
     if (role === 'ADMIN' && wcVenueId) body.venueId = wcVenueId
     const r = await fetch('/api/admin/settings/woocommerce', {
@@ -241,6 +277,7 @@ export function SettingsClient({
       setWcConsumerSecret(d.wcConsumerSecret ?? '')
       setWcWebhookSecret(d.wcWebhookSecret ?? '')
       setWcLastSync(d.lastSyncAt ?? null)
+      setWcMetaMap(metaMapToText(d.metaFieldMap))
       setWcMessage('SAVED')
     } else {
       setWcMessage('SAVE FAILED')
@@ -371,6 +408,38 @@ export function SettingsClient({
               <span className="font-mono text-[10px] text-grey-light">
                 LAST SYNC: {new Date(wcLastSync).toLocaleString()}
               </span>
+            )}
+          </div>
+          {/* Meta-field mapping */}
+          <div className="border border-grey-mid">
+            <button
+              onClick={() => setWcShowMeta(!wcShowMeta)}
+              className="w-full flex items-center justify-between px-3 py-2 font-mono text-xs uppercase text-grey-light hover:text-white tracking-wider"
+            >
+              <span>ORDER FIELD MAPPING</span>
+              <span>{wcShowMeta ? '▾' : '▸'}</span>
+            </button>
+            {wcShowMeta && (
+              <div className="border-t border-grey-mid p-3 space-y-3">
+                <p className="font-mono text-[10px] text-grey-light leading-relaxed">
+                  DATE, TIME AND PARTY SIZE ARRIVE AS CUSTOM FIELDS ON THE ORDER. THE KEY
+                  DEPENDS ON YOUR PLUGIN AND THE LABEL YOU GAVE THE FIELD — SO MAP THEM HERE
+                  RATHER THAN RELYING ON A FIXED NAME. COMMA-SEPARATE SEVERAL KEYS TO TRY IN
+                  ORDER. LEAVE BLANK TO USE THE DEFAULTS.
+                </p>
+                {META_FIELDS.map((f) => (
+                  <div key={f.key}>
+                    <Input
+                      label={f.label}
+                      value={wcMetaMap[f.key] ?? ''}
+                      onChange={(e) => setWcMetaMap({ ...wcMetaMap, [f.key]: e.target.value })}
+                      placeholder={(wcMetaDefaults[f.key] ?? []).join(', ')}
+                      disabled={wcReadOnly}
+                    />
+                    <p className="font-mono text-[9px] text-grey-light mt-0.5">{f.hint}</p>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
           {wcMessage && <p className={`font-mono text-xs ${wcMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{wcMessage}</p>}

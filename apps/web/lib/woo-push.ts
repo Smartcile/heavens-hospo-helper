@@ -328,6 +328,19 @@ export async function pushOrderStatus(orderId: string): Promise<void> {
     })
     if (!order) return
 
+    // Orders raised in-app have no WooCommerce counterpart. Pushing one would
+    // PUT to `orders/null` and log a spurious failure on every status change.
+    if (order.source !== 'WOO' || !order.wooOrderId) {
+      await logSync({
+        venueId: order.venueId,
+        direction: 'PUSH',
+        entity: 'ORDER',
+        status: 'SKIPPED',
+        message: `PUSH SKIPPED — ${order.source} ORDER ${order.orderNumber ?? order.id} IS LOCAL-ONLY`,
+      })
+      return
+    }
+
     const integration = await getIntegration(order.venueId)
     if (!integration) {
       await logSync({

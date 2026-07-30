@@ -10,6 +10,19 @@
 | Products (Woo → HOSPO OPS) | Webhooks + built-in 15-minute pull | Instant / 15 min worst case |
 | Products (HOSPO OPS → Woo) | Automatic push on save (auto-creates on WooCommerce if needed) + manual PUSH button | Instant |
 | Order status (HOSPO OPS → Woo) | Automatic push on status change | Instant |
+| Payments | **WooCommerce only** — HOSPO OPS records what was paid, never takes money | — |
+
+**What arrives with an order (2026-07):**
+- **Customer details** are deduped into **Admin → Customers** on every sync —
+  matched by email, then phone (country-code and formatting agnostic). The same
+  person ordering online, by phone, and via the booking form stays one record.
+- **Service date, time slot, party size, allergy note and fulfillment type** are
+  read from the order's custom fields using the mapping in Phase 2b.
+- **Payment method and paid time** are mirrored from WooCommerce.
+- **Internal progress** (`IN PREP`, `READY`, `HANDED OVER`…) is HOSPO OPS's own
+  and is **never overwritten by a sync** — a webhook or 15-minute pull will not
+  reset what the kitchen has marked.
+- **Manual orders** raised in HOSPO OPS stay local and are never pushed to Woo.
 
 **Product sync refinements (2026-07):**
 - **Categories** are stored as numeric IDs, not names — ensures reliable push-back to WooCommerce.
@@ -70,6 +83,52 @@ platform (Portainer, Railway, Render, Fly.io, etc.).
 
 5. Toggle the button to **ACTIVE**.
 6. Click **SAVE WOOCOMMERCE**.
+
+---
+
+## Phase 2b: Order Field Mapping (required for the Orders page)
+
+The date an order is **for**, its time slot, party size and any allergy note
+arrive as custom fields (`meta_data`) on the WooCommerce order. The key depends
+on which plugin you use **and on the label you gave the field** — so it is
+mapped, not hardcoded.
+
+### Install a date plugin
+
+If you are not already collecting an order date, install
+**[Order Delivery Date for WooCommerce – Lite](https://wordpress.org/plugins/order-delivery-date-for-woocommerce/)**
+(free, Tyche Softwares). It writes `_orddd_lite_timestamp`. The Pro version adds
+time slots and per-slot order caps, which is worth it for catering.
+
+### Map the fields
+
+1. Go to **Settings → WOOCOMMERCE → ORDER FIELD MAPPING**.
+2. Each row takes a comma-separated list of candidate keys, tried in order.
+   Leave a row blank to use the defaults.
+3. Click **SAVE WOOCOMMERCE**.
+
+| Field | Defaults tried |
+|-------|----------------|
+| SERVICE DATE | `_orddd_lite_timestamp`, `_orddd_timestamp`, `delivery_date`, `pickup_date`, `fulfillment_date`, `event_date` |
+| SERVICE TIME | `orddd_time_slot`, `_orddd_timeslot`, `delivery_time`, `pickup_time`, `time_slot` |
+| PARTY SIZE | `party_size`, `guests`, `number_of_guests`, `pax` |
+| ALLERGY NOTE | `allergies`, `allergens`, `dietary_requirements`, `dietary` |
+| FULFILLMENT TYPE | `fulfillment_type`, `order_type`, `service_type` |
+
+Matching ignores case, spaces, underscores and dashes — `Delivery Date`,
+`delivery_date` and `deliverydate` are the same key.
+
+### Finding the real key
+
+Place a test order on the store, then pull orders on `/admin/sync`. If the
+Orders page banners **"N ORDERS HAVE NO SERVICE DATE"**, the mapping is wrong.
+To find the actual key, open the order in WooCommerce REST
+(`/wp-json/wc/v3/orders/<id>`) and look at the `meta_data` array — or check the
+plugin's own documentation for its meta key.
+
+> **Dates are read day-first.** `15/08/2026` is 15 August, not 8 March. Unix
+> timestamps (seconds or milliseconds) and ISO dates are also accepted, and a
+> slot like `"6:00 PM - 6:30 PM"` is stored as its start time, `18:00`.
 
 ---
 
@@ -135,20 +194,28 @@ every 10 seconds and shows every pull, push, and webhook — errors in red.
 
 1. Click **↓ PULL PRODUCTS NOW** — you should see a `PULLED N PRODUCTS...`
    SUCCESS row, and the imported products under **Recipes & Menu Items**.
-2. Click **↓ PULL ORDERS NOW** — historical orders populate the **Orders** page
-   and the **FOH VIEW** tab.
-3. Create a test order in WooCommerce — a `ORDER #... SYNCED (ORDER.UPDATED)`
-   WEBHOOK row appears within seconds, and the order shows on **Orders**.
-3. Edit a product in WooCommerce — a `PRODUCT #... UPDATED FROM WEBHOOK` row
+2. Click **↓ PULL ORDERS NOW** — historical orders populate the **Orders** page.
+3. Open **Orders** and set the date to a day you know has orders. If the page is
+   empty but a yellow banner reads **"N ORDERS HAVE NO SERVICE DATE"**, the sync
+   worked but the **order field mapping** is wrong — go back to Phase 2b.
+4. Create a test order in WooCommerce — an `ORDER #... SYNCED (ORDER.UPDATED)`
+   WEBHOOK row appears within seconds, and the order shows on **Orders** on its
+   service date.
+5. Check the order's detail drawer — the customer's name, phone and email should
+   be there, and **Admin → Customers** should show them exactly once (order the
+   same person again with a differently formatted phone number to confirm no
+   duplicate appears).
+6. Edit a product in WooCommerce — a `PRODUCT #... UPDATED FROM WEBHOOK` row
    appears and the menu item updates.
-4. Edit a linked menu item's price in HOSPO OPS — a `PUSHED ... TO WOOCOMMERCE`
+7. Edit a linked menu item's price in HOSPO OPS — a `PUSHED ... TO WOOCOMMERCE`
    row appears and the price changes on the store.
-5. Change an order's status on the **Orders** page (expand the order → STATUS
-   dropdown) — a `PUSHED ORDER #... STATUS` row appears and the WooCommerce
-   order updates.
-6. Verify the **WOOCOMMERCE** section in **Settings** shows `LAST SYNC: <timestamp>`.
-7. Link each imported product to a **Recipe** to enable inventory explosion on
-   order.
+8. Change an order's **WOOCOMMERCE STATUS** in the detail drawer — a
+   `PUSHED ORDER #... STATUS` row appears and the WooCommerce order updates.
+   (The **PROGRESS** buttons above it are internal and deliberately do *not*
+   push — they are your kitchen/floor state, not the store's.)
+9. Verify the **WOOCOMMERCE** section in **Settings** shows `LAST SYNC: <timestamp>`.
+10. Link each imported product to a **Recipe** to enable inventory explosion on
+    order.
 
 ---
 
@@ -218,6 +285,10 @@ and a product pull appears in the feed within ~15 seconds of startup.
 |-------|-------|
 | `Delivery URL returned response code: 401` when SAVING a webhook in wp-admin | Update HOSPO OPS — older versions rejected WooCommerce's unsigned activation ping. Current versions acknowledge it (a `WEBHOOK ACTIVATION PING ACKNOWLEDGED` row appears on `/admin/sync`). After updating, re-save the webhook and set its Status back to Active. |
 | Nothing on the SYNC dashboard | Verify the integration is ACTIVE in Settings and credentials are saved. Check container logs for `[internal-cron] started`. |
+| Orders sync but the Orders page is empty / banner says "N ORDERS HAVE NO SERVICE DATE" | The sync is fine — the **order field mapping** is wrong, so we cannot tell what day the order is for. Go to **Settings → WooCommerce → ORDER FIELD MAPPING** and set the SERVICE DATE key to whatever your date plugin actually writes (see Phase 2b for how to find it). Re-pull orders afterwards. |
+| Order date is a day out, or 15/08 imported as 8 March | Day-first formats are handled, but check the plugin isn't emitting a timezone-shifted local time. Prefer a plugin that writes a unix timestamp (e.g. `_orddd_lite_timestamp`). |
+| Same customer appearing twice in Admin → Customers | Matching is by email first, then phone. Two records mean neither matched — usually one order had no email and a phone typo. Merge by correcting the contact details on the order (this re-runs the match). Note customers are **per venue** by design, so the same person at two venues is intentionally two records. |
+| Kitchen marked an order IN PREP and it reset | Should not happen — sync never touches internal progress. If it does, check nobody is editing the order through the old `/api/admin/orders/foh` endpoint or a script. |
 | Orders not appearing | Click **↓ PULL ORDERS NOW** on `/admin/sync` to fetch historical orders via the REST API. For webhook issues, look for red `WEBHOOK REJECTED` rows on `/admin/sync`. `SIGNATURE DID NOT MATCH` means the webhook Secret in WordPress doesn't exactly match the Webhook Secret in Settings. No rows at all → verify the Delivery URL is reachable from WordPress (WooCommerce → Settings → Advanced → Webhooks → Logs). |
 | Webhooks blocked behind Cloudflare Access | Add a **Bypass** policy for `/api/webhooks/*` — WordPress can't pass a Cloudflare login. The endpoint is HMAC-verified by the app itself. |
 | Products not syncing instantly | Verify the three product webhooks from Phase 3 exist and are Active. The 15-minute pull will still catch changes. |

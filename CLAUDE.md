@@ -547,7 +547,7 @@ zone's bounding box against all other zones on the plan. If the overlap exceeds 
 smaller zone's area, the zone snaps back to its previous position and a toast warns
 "SECTIONS CANNOT OVERLAP." Pure geometry check via polygon intersection — no API round-trip.
 
-**Vitest Coverage:** 232 tests across 31 files. `lib/floorplan-inventory.test.ts` has 49 tests
+**Vitest Coverage:** 435 tests across 56 files. `lib/floorplan-inventory.test.ts` has 49 tests
 covering `calculateSetupInventory`, geometry helpers, `computeGroupChairs`,
 `computeEffectiveChairs`, `computeSetupSectionTotals`, `pointInPolygon`, and BOM integration.
 `lib/floorplan-chairs.test.ts` (11) covers per-edge chair logic and `lib/auto-seat.test.ts` (7)
@@ -1245,8 +1245,158 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 
 ## ERP & WOOCOMMERCE (BUILT 2026-07)
 
-### Schema: 53 models (43 core + 10 ERP)
-New models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`, `RecipeLineItem` (recursive BOM), `WooIntegration`, `MenuItem`, `WooOrder`, `WooOrderItem`, `SyncLog`. `@@unique([venueId])` on WooIntegration.
+### Schema: 57 models (43 core + 14 ERP)
+New models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`, `RecipeLineItem` (recursive BOM), `WooIntegration`, `MenuItem`, `Menu`, `MenuMenuItem`, `OrderView`, `Customer`, `WooOrder`, `WooOrderItem`, `SyncLog`. `@@unique([venueId])` on WooIntegration.
+
+### Orders Rework — Phase 1: data foundation (built 2026-07)
+
+Groundwork for the orders overhaul. No UI change yet; Phases 2–5 build on this.
+
+**`Customer` model** — one row per real person, per venue. Replaces the old
+approach of deriving customers by grouping `Booking` rows at request time, so
+the same person arriving via WooCommerce, phone, and the booking form becomes
+one record instead of three. Carries normalised match keys (`emailKey`
+lowercased, `phoneKey` digits-only with the NZ country code folded to national
+format). `@@unique([venueId, emailKey])` makes a duplicate email impossible at
+the DB level; phone is indexed but **not** unique, because households
+legitimately share a landline.
+
+**`lib/customer-match.ts`** — the matching rules, as pure functions
+(`normaliseEmail`, `normalisePhone`, `buildCustomerKeys`, `findMatch`,
+`fieldsToEnrich`) plus a `resolveCustomer` find-or-create that takes a
+duck-typed client so it is testable without Prisma. Precedence is email → phone
+→ name, and **name is only consulted when the incoming contact has neither an
+email nor a phone** — otherwise one "JOHN SMITH" swallows every other John
+Smith. A match enriches blank fields only; it never overwrites contact details
+already held. 27 Vitest tests.
+
+**`WooOrder`** — `wooOrderId` is now **nullable** (manual orders have none) with
+`source` (WOO / MANUAL / PHONE) and `orderNumber` for local references.
+Service scheduling moves to `serviceDate` (@db.Date) + `serviceTime` ("HH:mm"),
+superseding `fulfillmentDate`. Operational lifecycle is deliberately **separate**
+from `status` (which mirrors WooCommerce and is payment/store-centric):
+`opStatus` (`OrderOpStatus`), `paymentStatus`, `paymentMethod`, and the
+`paidAt` / `arrivedAt` / `deliveredAt` / `finalisedAt` stamps. Also `customerId`,
+`fulfillmentType`, and `@@unique([venueId, orderNumber])`.
+
+**`WooOrderItem`** — `notes` previously held **either** the Woo line-item name
+**or** a JSON exploded-recipe blob. Those are now split into `productName` and
+`explodedIngredients` (shape: `{ recipeId, recipeName, orderQty, ingredients[] }`),
+freeing `notes` for genuine operator notes and adding `customerNote` +
+`allergenNote` for per-line allergy requests. `/api/admin/inventory/reconcile`
+reads the new column.
+
+**Backfill** — `packages/db/prisma/backfill-orders-phase1.ts`
+(`npm run db:backfill-orders` in `packages/db`). Builds customers from existing
+bookings + orders through the same matcher, splits the overloaded `notes`, and
+copies `fulfillmentDate` → `serviceDate`/`serviceTime` using UTC parts so a
+date-only value doesn't shift a day. Idempotent — clearing `notes` is the guard
+— so it is safe to re-run and safe to wire into the deploy entrypoint later.
+Payment fields are deliberately left at defaults rather than inferred from
+order status; Phase 2 reads the real `date_paid` from WooCommerce.
+
+### Orders Rework — Phase 2: field mapping + customer capture
+
+**`WooIntegration.metaFieldMap Json?`** + `lib/woo-meta-map.ts`. Order date,
+time slot, party size, allergy note and fulfillment type all arrive as custom
+`meta_data`, and **the key depends on the plugin and the label the operator gave
+the field** — Tyche's delivery-date plugin exposes its value under the
+configured label, so a hardcoded key breaks on rename. Each field maps to an
+ordered list of candidate keys; first present wins. Matching ignores case,
+spaces, underscores and dashes. Edited under Settings → WooCommerce → ORDER
+FIELD MAPPING; blank falls back to `DEFAULT_META_MAP`.
+
+Parsers handle what stores actually emit: unix seconds *and* milliseconds,
+ISO, **day-first** `15/08/2026` (not month-first), slot ranges collapsed to
+their start (`"6:00 PM - 6:30 PM"` → `18:00`), and 12h/24h times. 30 tests.
+
+**Payment** is mirrored from `date_paid_gmt` (not `date_paid` — the latter is
+store-local with no offset and lands the stamp hours out) plus
+`payment_method_title`.
+
+**`opStatus` and `fulfillmentType` are never updated by a sync** — only set on
+create. A staff member marking an order IN_PREP must not be reset by the next
+webhook or 15-minute pull. Everything else (Woo status, totals, contact,
+service date/time, payment) does update.
+
+**Customers are resolved on every sync** via `resolveCustomer`, so the same
+person ordering online, by phone, and through the booking form is one record.
+`pushOrderStatus` no-ops for non-WOO orders — pushing a local order would PUT to
+`orders/null` and log a failure on every status change.
+
+### Orders Rework — Phase 3: menus + min/max
+
+`Menu` (venue-scoped, `@@unique([venueId, name])`) + `MenuMenuItem` junction.
+Two independent rule levels, both of which real catering menus use:
+- **menu level** — `minPax`/`maxPax`, the headcount range the menu is offered for
+- **item level** — `minQty`/`maxQty`, limits on an item *if it is ordered*
+
+`minQty` deliberately does **not** force an item onto every order — it is the
+floor once you take any at all, otherwise an order that skips the item would be
+impossible. Duplicate lines for the same item are summed before checking, so two
+lines of 5 satisfy a minimum of 10.
+
+`lib/menu-rules.ts` (`validateOrderAgainstMenu`, `menuAllowsPartySize`,
+`describePaxRange`) is pure, so the same rules run in the browser for live
+feedback and on the server where they actually hold. 19 tests. Admin UI at
+`/admin/menus`.
+
+### Orders Rework — Phase 4: the orders page
+
+`/admin/orders` is now date-driven with four renderers over one payload, so
+switching view costs no round-trip:
+
+| View | Shows |
+|---|---|
+| SERVICE | Grouped by time slot, with covers per slot |
+| KITCHEN | Allergy alerts first, then dish totals and a category rollup |
+| FOH | Grouped by table (a multi-table order appears under each) |
+| PRODUCTION | Flat pick list with tick boxes and allergen tags |
+
+**`lib/order-views.ts`** holds every projection as a pure function
+(`aggregateDishTotals`, `aggregateCategoryTotals`, `collectAllergenAlerts`,
+`groupByTable`, `groupByTimeSlot`, `summarise`, `applyFilters`). 34 tests.
+
+Two decisions worth keeping:
+- `aggregateDishTotals` keys on **name, not id** — the same dish sold as two Woo
+  products is still one thing to cook.
+- `collectAllergenAlerts` surfaces **only customer-stated requirements**, never
+  the dish's own allergen tags. Those are on every card already; mixing them in
+  would bury the handful of real "severe nut allergy" instructions under dozens
+  of routine GLUTEN tags.
+
+**`OrderView` model** stores named filter/grouping presets per venue
+(`viewType` fixed, everything bendable in `config` Json so new controls need no
+migration). Private views are visible only to their creator.
+
+**Manual orders** — `POST /api/admin/orders` creates local orders with a
+sequential `M-0001` reference, validates against the chosen menu server-side
+(422 with the violations), and dedupes the customer. `PATCH` handles the
+operational lifecycle and auto-stamps `arrivedAt`/`deliveredAt`/`finalisedAt` on
+first arrival at a state (never rewriting history when moving back and forth).
+`PUT` replaces line items.
+
+**Performance:** the old `GET /api/admin/orders` fetched every order ever with
+no date filter, and the FOH route ran a `recipe.findUnique` **per line item**.
+The route is now a fixed 4 queries regardless of order count. Orders with no
+service date would be invisible on a date-driven page, so the response carries
+`undatedCount` and the UI banners it as a field-mapping problem rather than
+silently losing them.
+
+### Orders Rework — Phase 5: booking ↔ order linking
+
+`WooOrder.bookingId` + `lib/order-booking-link.ts`. A customer who books a table
+and then pre-orders online produces two unconnected records; linking them puts
+the order on the table the party is actually sitting at. When linked, the
+booking's tables **take precedence** over any layout auto-generated for the
+order.
+
+Identity must match on customer record, email, or phone — **never name alone**,
+since sending food to the wrong table is worse than leaving it unlinked.
+Cancelled/no-show reservations are skipped. Where one person has several
+bookings, the nearest in time wins. Runs on both manual creation and Woo sync,
+best-effort, and only when not already linked so a manual correction sticks.
+11 tests.
 
 ### Recipe Explosion Engine (`lib/inventory-engine.ts`)
 Recursive BOM parser: walks `RecipeLineItem` tree, converts all quantities to base units via UOM conversion ratios, returns flattened `Map<inventoryItemId, requiredBaseQty>`. DAG-safe cycle detection via visited set. 5 Vitest tests with mocked PrismaClient.
@@ -1280,6 +1430,12 @@ Receives `order.created` / `order.updated` AND `product.created` / `product.upda
 | Route | Methods | Purpose |
 |-------|---------|---------|
 | `/api/admin/woocommerce/categories` | GET | Returns all WooCommerce categories for the venue's store (used by the category picker in both the recipe editor and menu items) |
+| `/api/admin/orders` | GET, POST | Orders for a service date (4 fixed queries, all four views) / create a manual order |
+| `/api/admin/orders/[id]` | PATCH, PUT, DELETE | Lifecycle + fields / replace line items / soft-delete |
+| `/api/admin/menus` | GET, POST | List/create menus |
+| `/api/admin/menus/[id]` | GET, PUT, DELETE | Menu CRUD; PUT diffs the item set |
+| `/api/admin/order-views` | GET, POST | Saved order-page views |
+| `/api/admin/order-views/[id]` | PUT, DELETE | Saved view CRUD |
 
 ### Internal Cron Scheduler (`instrumentation.ts` + `lib/internal-cron.ts`)
 Started once on server boot via Next's `instrumentationHook` (enabled in next.config.mjs). Minute tick; pure `dueJobs(state, now, tz)` decides what fires (Vitest-covered). Jobs: product pull every 15 min (`runProductPull`), order pull every 15 min (`runOrderPull`), expiry scan daily 03:00 in `DEFAULT_TIMEZONE` (`runExpiryScan` in `lib/expiry-scan.ts`). Fully self-contained — no host crontab. Disable with `INTERNAL_CRON=false`. Dev hot-reload guarded via `globalThis.__hospoInternalCron`.
@@ -1299,8 +1455,15 @@ Started once on server boot via Next's `instrumentationHook` (enabled in next.co
 ### EOD Reconciliation (`/api/admin/inventory/reconcile`)
 Aggregates exploded ingredients from completed orders, tallies `requiredBaseQty` per inventory item. Returned as reconciliation report. Deferred inventory deduction (Phase 5).
 
-### FOH Operations View (`/admin/orders` — FOH VIEW tab)
-`GET /api/admin/orders/foh?date=` returns bookings for a date with table assignments (via CalendarEvent → FloorPlanSetup → SetupItem chain), line items with dietary info, and category totals. Admin UI has tabbed ORDERS / FOH VIEW with date picker, booking cards (party size, tables, line items, status), and right sidebar showing dish totals by inventory category.
+### FOH Operations View — superseded by the Orders rework
+The old ORDERS / FOH VIEW two-tab layout is gone. FOH is now one of the four
+view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
+`GET /api/admin/orders?date=` along with every other view.
+
+> **Orphan:** `GET /api/admin/orders/foh` still exists but nothing calls it —
+> the rework replaced its only consumer. Kept rather than deleted because it
+> predates this work; safe to remove once you're confident nothing external
+> depends on it.
 
 ### Kitchen Worker View (`/w/kitchen`)
 `GET /api/worker/kitchen` (JWT via `jose`) returns today's order items grouped by table with dietary badges, unassigned items section, and prep totals grid. Auto-refreshes every 15s. Worker hamburger menu has KITCHEN tile. Admin nav has KITCHEN under Operations. Groundwork for future live service mode: `KitchenStatus` enum (PENDING/COOKING/READY/SERVED) on `WooOrderItem.kitchenStatus`.
@@ -1390,6 +1553,11 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/floorplan-chairs.ts` — `adjustEdgeChairs`, `defaultEdgeChairs`, `maxChairsForEdge` | ✅ (11 tests) |
 | `lib/auto-seat.ts` — `planAutoSeat` (bin-packing layout) | ✅ (7 tests) |
 | `lib/inventory-engine.ts` — `explodeRecipe` (recursive BOM explosion) | ✅ (5 tests) |
+| `lib/customer-match.ts` — `normaliseEmail`, `normalisePhone`, `buildCustomerKeys`, `findMatch`, `fieldsToEnrich`, `resolveCustomer` | ✅ (27 tests) |
+| `lib/woo-meta-map.ts` — `resolveMetaMap`, `readMeta`, `parseServiceDate/Time`, `parsePartySize`, `parseFulfillmentType`, `resolveOrderMeta` | ✅ (30 tests) |
+| `lib/menu-rules.ts` — `validateOrderAgainstMenu`, `menuAllowsPartySize`, `describePaxRange` | ✅ (19 tests) |
+| `lib/order-views.ts` — `aggregateDishTotals`, `aggregateCategoryTotals`, `collectAllergenAlerts`, `groupByTable`, `groupByTimeSlot`, `summarise`, `applyFilters` | ✅ (34 tests) |
+| `lib/order-booking-link.ts` — `findBookingForOrder`, `autoLinkBooking` | ✅ (11 tests) |
 | `lib/woo-push.ts` — `mapStatusToWoo`, `buildProductPushPayload` (images, categories, variable products), `pushVariationPrices`, `isSelfEcho` echo guard | ✅ |
 | `lib/woo-sync.ts` — `runProductPull`, `upsertProductFromWoo`, `fetchWooCategories`, `fetchProductVariations` | ✅ |
 | `lib/internal-cron.ts` — `dueJobs`, `localParts` (scheduler due-checks) | ✅ |
