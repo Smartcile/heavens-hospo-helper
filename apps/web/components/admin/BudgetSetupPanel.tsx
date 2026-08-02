@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { BudgetLinesPanel } from '@/components/admin/BudgetLinesPanel'
 import type { DayWeight } from '@/lib/budget-math'
 
 interface Department { id: string; name: string; venueId: string }
@@ -58,6 +59,8 @@ const DAY_LABELS: { key: keyof DayWeight; label: string }[] = [
 
 const DEFAULT_WEIGHTS: DayWeight = { mon: 5, tue: 5, wed: 10, thu: 15, fri: 25, sat: 25, sun: 15 }
 
+type SetupTab = 'allocation' | 'lines'
+
 export function BudgetSetupPanel({
   role,
   selectedVenueId,
@@ -83,6 +86,7 @@ export function BudgetSetupPanel({
 }: Props) {
   const [departments, setDepartments] = useState<Department[]>([])
   const [creating, setCreating] = useState(false)
+  const [activeTab, setActiveTab] = useState<SetupTab>('allocation')
 
   const [localTotal, setLocalTotal] = useState(String(totalBudget || ''))
   const [localWeights, setLocalWeights] = useState<DayWeight>(dailyWeights || DEFAULT_WEIGHTS)
@@ -148,13 +152,39 @@ export function BudgetSetupPanel({
     <div className="space-y-4">
       {role === 'ADMIN' && !selectedVenueId ? (
         <p className="font-mono text-xs text-grey-light">SELECT A VENUE ABOVE TO MANAGE ITS BUDGET.</p>
-      ) : !periodId ? (
-        <div className="bg-grey-dark border border-grey-mid p-4 max-w-md space-y-3">
-          <p className="font-mono text-xs text-grey-light">NO BUDGET SET FOR THIS MONTH.</p>
-          <Input label="TOTAL BUDGET ($)" type="number" value={localTotal} onChange={(e) => handleTotalChange(e.target.value)} placeholder="350000" />
-          <Button onClick={createPeriod} loading={creating}>CREATE BUDGET</Button>
-        </div>
       ) : (
+        <>
+          <div className="flex items-center gap-4 border-b border-grey-mid">
+            <button
+              onClick={() => setActiveTab('allocation')}
+              className={`font-mono text-xs uppercase tracking-wider py-2 transition-colors ${
+                activeTab === 'allocation'
+                  ? 'text-white border-b-2 border-white font-bold'
+                  : 'text-grey-light hover:text-white'
+              }`}
+            >
+              ALLOCATION
+            </button>
+            <button
+              onClick={() => setActiveTab('lines')}
+              className={`font-mono text-xs uppercase tracking-wider py-2 transition-colors ${
+                activeTab === 'lines'
+                  ? 'text-white border-b-2 border-white font-bold'
+                  : 'text-grey-light hover:text-white'
+              }`}
+            >
+              P&amp;L LINES
+            </button>
+          </div>
+          {activeTab === 'lines' ? (
+            <BudgetLinesPanel venueId={selectedVenueId} year={year} month={month} />
+          ) : !periodId ? (
+            <div className="bg-grey-dark border border-grey-mid p-4 max-w-md space-y-3">
+              <p className="font-mono text-xs text-grey-light">NO BUDGET SET FOR THIS MONTH.</p>
+              <Input label="TOTAL BUDGET ($)" type="number" value={localTotal} onChange={(e) => handleTotalChange(e.target.value)} placeholder="350000" />
+              <Button onClick={createPeriod} loading={creating}>CREATE BUDGET</Button>
+            </div>
+          ) : (
         <div className="border border-grey-mid p-4 space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* LEFT: ALLOCATION */}
@@ -266,6 +296,8 @@ export function BudgetSetupPanel({
             </div>
           </div>
         </div>
+          )}
+        </>
       )}
     </div>
   )

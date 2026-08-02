@@ -41,3 +41,9 @@ npm-debug.log*
 .test-checklist.md
 build-and-push.ps1
 rebuild.ps1
+
+# Mock data (never publish)
+mock_data/
+
+# Database backups (never publish — full data dumps)
+*.dump

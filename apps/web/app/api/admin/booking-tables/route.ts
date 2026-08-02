@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { resolvePlacedFurniture } from '@/lib/furniture-server'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -18,7 +19,16 @@ export async function GET(req: NextRequest) {
       include: {
         items: {
           where: { deletedAt: null },
-          include: { tableProfile: { select: { id: true, name: true, capacity: true, colour: true } } },
+          include: {
+            furnitureItem: {
+              select: {
+                id: true, name: true, elementWidth: true, elementDepth: true,
+                elementShape: true, elementVertices: true, defaultColour: true,
+                defaultChairCount: true, seatingDensity: true, maxHeadChairs: true,
+              },
+            },
+            tableProfile: { select: { id: true, name: true, capacity: true, colour: true } },
+          },
           orderBy: { sortOrder: 'asc' },
         },
       },
@@ -50,12 +60,21 @@ export async function GET(req: NextRequest) {
   const tables: TableRow[] = []
   for (const setup of setups) {
     for (const item of setup.items) {
+      const f = resolvePlacedFurniture(item)
+      // No furniture means nothing to seat anyone at — skip rather than render
+      // a nameless row in the booking grid.
+      if (!f) continue
       const sec = item.sectionId ? sectionMap.get(item.sectionId) : null
       tables.push({
         id: item.id,
         assignedNumber: item.assignedNumber,
         label: item.label,
-        profile: item.tableProfile,
+        profile: {
+          id: f.id,
+          name: f.name,
+          capacity: item.tableProfile?.capacity ?? f.chairCount,
+          colour: f.colour,
+        },
         section: sec ? { id: sec.id, name: sec.name, colour: sec.colour, department: sec.department } : null,
         setupId: setup.id,
         setupName: setup.name,

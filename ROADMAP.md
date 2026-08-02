@@ -240,12 +240,38 @@ See [ECOSYSTEM.md](ECOSYSTEM.md) for the full design.
 - **Section overlap prevention:** Canvas-level validation on draw/resize — rejects >5% overlap with toast warning
 - **Zone grouping by department:** Sidebar groups zones under coloured department headers
 
-### Phase 2.8 — Floor Planner Rework ☐
-- **Remove Table Profiles tab** from floor planner — move to inventory area under FURNITURE
-- **Table builder** — vector/Canvas editor for laying out condiments, cutlery, and place settings on a table surface. Items are draggable on the table canvas. Visual top-down view changes based on chair positions.
-- **Chair-aware layout** — cutlery/condiments link to chair positions so the visual rotates/repositions when chairs move
-- **Grouping of items** — e.g. salt + pepper + candle as a set that can be placed together
-- **Default chair data seeding** — pre-populated chair dimension profiles (standard, barstool, banquet)
+### Phase 2.8 — Furniture Unification ⊞ (core built 2026-07-31)
+
+**Done:**
+- **One record per piece of furniture** — `TableProfile` folded into `InventoryItem`.
+  The two used to be joined only by matching name strings, so stock and geometry
+  silently detached on any rename. `FurnitureBomItem` replaces `TableProfileItem`.
+- **Table placement works again** — the setup layer's drop handler expected a
+  `tp_<id>` drag payload that nothing emitted after Table Profiles moved to
+  inventory, so no table could be added to a layout at all. New `FurniturePalette`
+  (visual tiles drawing each piece's real outline + `available/total` badges,
+  drag-to-canvas or click-to-place) restores the whole chain: tables → groups →
+  bookings → auto-seat.
+- **Custom furniture** — freeform polygon outlines (`FurnitureShapeEditor`): click
+  to place points, drag to adjust, grid-snapped, with live seat/area/perimeter
+  readout. L-booths, curved banquettes, sofas, odd bars.
+- **Chairs are real furniture** — chair types are inventory items with true cm
+  dimensions; each table picks one, chairs draw to scale and are individually
+  draggable around the outline (stored as `t` in [0,1), so rotation carries them).
+- **Default layout** — `FloorPlanSetup.isDefault`: one per plan, un-deletable,
+  owns the venue's real table numbers; event layouts inherit and override.
+- **Default chair seeding** — DINING / BANQUET / BARSTOOL / TUB profiles.
+- **Removed:** `/admin/table-profiles` page + API, `TableProfileForm` (whose
+  chair-edge designer was never included in its save body).
+
+**Still open:** ☐
+- **Table builder** — vector editor for laying out condiments, cutlery and place
+  settings on a table surface, with item photos. (`ChairSlot.t` gives the anchor
+  this needs — a setting can hang off a chair position.)
+- **Chair-aware layout** — settings rotate/reposition when chairs move
+- **Grouping of items** — salt + pepper + candle as a placeable set
+- **Drop `TableProfile` from the schema** — only once every deployment has run
+  `db:migrate-furniture` at least once (see CLAUDE.md for why it must linger)
 
 ---
 
@@ -279,11 +305,13 @@ See [ECOSYSTEM.md](ECOSYSTEM.md) for the full design.
 - 2-column dashboard with ALLOCATION + DAILY WEIGHTING + SUMMARY panels
 - Week-card grid with inline breakdowns
 - Auto-copy categories across months
+- P&L budget lines: hierarchical `BudgetLine` (GROUP/LINE/TOTAL) per period, section-linked
+- Excel P&L workbook import (read-excel-file): month-header detection, group/total/% classification, preview + commit, financial-year (Jun–May) mapping
 
 **Pending:** ☐
 - Loaded Reports export format
 - Labour cost visibility
-- Finance area needs purpose defined — payroll? P&L? actuals vs budget?
+- Finance area needs purpose defined — payroll? actuals vs budget? (P&L layer built; actuals comparison still open)
 
 ---
 

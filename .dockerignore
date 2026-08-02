@@ -14,5 +14,6 @@ Thumbs.db
 *.pid
 .env
 .env.*
+mock_data/
 apps/web/public/uploads/
 apps/web/.next/

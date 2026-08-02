@@ -84,6 +84,14 @@ enum FollowUpStatus {
   RESOLVED
 }
 
+// P&L budget line kinds. GROUP = header with children, LINE = a dollar line,
+// TOTAL = sums its children (amount never stored — computed at read time).
+enum BudgetLineKind {
+  GROUP
+  LINE
+  TOTAL
+}
+
 model Venue {
   id         String    @id @default(uuid())
   name       String
@@ -750,6 +758,7 @@ model BudgetPeriod {
   venue      Venue            @relation(fields: [venueId], references: [id])
   categories BudgetCategory[]
   days       BudgetDay[]
+  lines      BudgetLine[]
 
   @@unique([venueId, year, month])
 }
@@ -796,6 +805,32 @@ model BudgetDayAllocation {
   category BudgetCategory @relation(fields: [budgetCategoryId], references: [id], onDelete: Cascade)
 
   @@unique([budgetDayId, budgetCategoryId])
+}
+
+// P&L budget lines — a separate layer from the %-breakdown. Per-period copies
+// (one BudgetPeriod per venue/month), hierarchical via parentId, optionally
+// linked to a Section for venue-wide rollups. TOTAL lines sum their children;
+// GROUP lines are headers.
+model BudgetLine {
+  id             String    @id @default(uuid())
+  budgetPeriodId String
+  parentId       String?             // self-FK — hierarchy
+  sectionId      String?             // links to Section (venue-wide rollup)
+  name           String              // ALL CAPS
+  kind           BudgetLineKind      @default(LINE)
+  amount         Float?              // LINE rows only; TOTAL = sum of children
+  sortOrder      Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  period   BudgetPeriod @relation(fields: [budgetPeriodId], references: [id], onDelete: Cascade)
+  parent   BudgetLine?  @relation("BudgetLineTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children BudgetLine[] @relation("BudgetLineTree")
+  section  Section?     @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+
+  @@index([budgetPeriodId])
+  @@index([sectionId])
 }
 
 // --- CHECKLISTS (live task references — single source of truth) ---
@@ -864,6 +899,7 @@ model Section {
   boundaries        SectionBoundary[]
   setupItems        SetupItem[]
   storedItems       InventoryItem[]
+  budgetLines       BudgetLine[]
 
   @@index([venueId])
   @@index([departmentId])
@@ -1152,6 +1188,10 @@ model FloorPlanSetup {
   id              String    @id @default(uuid())
   floorPlanId     String
   name            String
+  /// Every floor plan has exactly one default layout: the venue's everyday
+  /// arrangement. It owns the real table numbers, can't be deleted, and is what
+  /// the venue reverts to when no event layout is active.
+  isDefault       Boolean   @default(false)
   eventDate       DateTime? @db.Date
   calendarEventId String?
   notes           String?
@@ -1170,7 +1210,10 @@ model FloorPlanSetup {
 model SetupItem {
   id             String    @id @default(uuid())
   setupId        String
-  tableProfileId String
+  /// Deprecated — superseded by furnitureItemId. Kept nullable so the furniture
+  /// migration can read it after `db push`; drop once every deploy has migrated.
+  tableProfileId String?
+  furnitureItemId String?  // the InventoryItem this placement is an instance of
   x              Float
   y              Float
   rotation       Float     @default(0)
@@ -1178,20 +1221,25 @@ model SetupItem {
   tableGroupId   String?
   assignedNumber String?
   label          String?
+  /// Deprecated — superseded by `chairs`. Per-edge counts can't express a chair
+  /// sitting anywhere along a curved or polygonal outline.
   chairEdges     Json?
+  chairs         Json?     // ChairSlot[]: { id, t (0..1 around perimeter), offset, rotation }
   sortOrder      Int       @default(0)
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
 
-  setup        FloorPlanSetup @relation(fields: [setupId], references: [id], onDelete: Cascade)
-  tableProfile TableProfile   @relation(fields: [tableProfileId], references: [id])
-  section      Section?       @relation(fields: [sectionId], references: [id])
-  tableGroup   TableGroup?    @relation(fields: [tableGroupId], references: [id])
-  bookingLinks BookingTable[]
+  setup         FloorPlanSetup @relation(fields: [setupId], references: [id], onDelete: Cascade)
+  tableProfile  TableProfile?  @relation(fields: [tableProfileId], references: [id])
+  furnitureItem InventoryItem? @relation(fields: [furnitureItemId], references: [id])
+  section       Section?       @relation(fields: [sectionId], references: [id])
+  tableGroup    TableGroup?    @relation(fields: [tableGroupId], references: [id])
+  bookingLinks  BookingTable[]
 
   @@index([setupId])
+  @@index([furnitureItemId])
 }
 
 model TableGroup {
@@ -1208,7 +1256,15 @@ model TableGroup {
   @@index([setupId])
 }
 
-// ── TABLE PROFILE (BILL OF MATERIALS) ──
+// ── TABLE PROFILE — DEPRECATED ──
+// Superseded by furniture fields on InventoryItem + FurnitureBomItem. A table
+// used to exist as both a TableProfile and an InventoryItem, joined only by
+// matching name strings, so stock and geometry drifted apart.
+//
+// Still declared because `docker-entrypoint.sh` runs `prisma db push
+// --accept-data-loss` BEFORE any migration script — removing these models here
+// would drop the tables before `migrate-furniture.ts` could read them. Delete
+// both models once every deployment has run the migration at least once.
 
 model TableProfile {
   id             String    @id @default(uuid())
@@ -1387,14 +1443,23 @@ model InventoryItem {
   name            String
   unit            String   @default("EA")
   defaultParLevel Int      @default(0)
-  // Furniture template fields (only for FURNITURE category items)
+  // --- Furniture fields (TABLES / furniture category items) ---
+  // A furniture item is the SINGLE source of truth for a physical piece: what it
+  // is, how many you own, its real footprint, and how it seats people. It
+  // replaces the old TableProfile, which duplicated all of this and was joined
+  // to inventory only by matching name strings.
   totalQty        Int      @default(0)  // physical items owned, drives availableQty
-  furnitureType   String?  // "TABLE" | "CHAIR" | null
-  elementWidth    Float?   // cm
-  elementDepth    Float?   // cm
-  elementShape    String?  // "RECTANGLE" | "CIRCLE"
+  furnitureType   String?  // "TABLE" | "CHAIR" | "BOOTH" | "SOFA" | "BAR" | "OTHER" | null
+  elementWidth    Float?   // cm — bounding box width
+  elementDepth    Float?   // cm — bounding box depth
+  elementShape    String?  // "RECTANGLE" | "CIRCLE" | "POLYGON"
+  elementVertices Json?    // POLYGON outline [{x,y}] in cm, relative to the bounding box top-left
   defaultColour   String?  // hex colour
-  defaultChairCount Int    @default(0)
+  defaultChairCount Int    @default(0)  // chairs this piece seats by default
+  seatingDensity  Float?   // cm of edge consumed per chair
+  maxHeadChairs   Int      @default(1)  // cap on chairs along a short (head) edge
+  tableNumbers    Json?    // string[] — physical table numbers this furniture can be assigned
+  chairItemId     String?  // which CHAIR furniture item seats this piece
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -1447,8 +1512,35 @@ model InventoryItem {
   stepLinks         StepInventoryItem[]
   maintenanceLogs   MaintenanceLog[]
 
+  // --- Furniture relations ---
+  chairItem       InventoryItem?     @relation("FurnitureChair", fields: [chairItemId], references: [id])
+  seatsFurniture  InventoryItem[]    @relation("FurnitureChair")
+  bomItems        FurnitureBomItem[] @relation("FurnitureBomParent")
+  usedInFurniture FurnitureBomItem[] @relation("FurnitureBomChild")
+  setupItems      SetupItem[]
+
   @@index([venueId])
   @@index([categoryId])
+  @@index([chairItemId])
+}
+
+// Bill of materials for a furniture item: what has to be laid on / carried with
+// each piece (linen, cutlery, glassware, candles...). Self-referential on
+// InventoryItem — replaces TableProfileItem now that furniture lives in inventory.
+model FurnitureBomItem {
+  id              String   @id @default(uuid())
+  furnitureItemId String   // the table / booth / sofa
+  inventoryItemId String   // what goes on it
+  quantity        Int      @default(1)
+  perChair        Boolean  @default(false) // scales with seat count rather than per piece
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  furniture InventoryItem @relation("FurnitureBomParent", fields: [furnitureItemId], references: [id], onDelete: Cascade)
+  item      InventoryItem @relation("FurnitureBomChild", fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  @@unique([furnitureItemId, inventoryItemId])
+  @@index([furnitureItemId])
 }
 
 model MaintenanceLog {

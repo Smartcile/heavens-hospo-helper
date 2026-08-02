@@ -4,6 +4,12 @@ import { useRef, useEffect } from 'react'
 import * as PIXI from 'pixi.js'
 import { isFixture, type ElementData } from '@/components/admin/floorplan-elements'
 import { pointInPolygon } from '@/lib/floorplan-inventory'
+import {
+  outlineOf,
+  chairWorldPlacements,
+  projectToPerimeter,
+  type FurnitureGeometry,
+} from '@/lib/furniture'
 
 interface ZoneP { id: string; x: number; y: number; width: number; height: number; sectionId: string; label?: string }
 
@@ -17,6 +23,35 @@ export interface SectionBoundaryP {
   width?: number | null; height?: number | null
   vertices?: { x: number; y: number }[] | null
   sectionId: string; sectionName?: string
+}
+
+/**
+ * A placed piece of furniture as the canvas needs it. Geometry is denormalised
+ * onto the placement so the renderer never has to look anything up mid-draw.
+ */
+export interface SetupItemP {
+  id: string
+  /** @deprecated Pre-migration rows only. */
+  tableProfileId?: string | null
+  furnitureItemId?: string | null
+  x: number
+  y: number
+  rotation: number
+  width: number
+  depth: number
+  /** "RECTANGLE" | "CIRCLE" | "POLYGON" */
+  shape?: string | null
+  vertices?: { x: number; y: number }[] | null
+  label?: string | null
+  colour?: string
+  chairCount?: number
+  tableGroupId?: string | null
+  /** @deprecated Superseded by `chairs`. */
+  chairEdges?: { top: number; bottom: number; left: number; right: number } | null
+  chairs?: { id: string; t: number; offset?: number }[] | null
+  /** Real chair dimensions in cm, so seats draw to scale. */
+  chairWidth?: number
+  chairDepth?: number
 }
 
 interface PixiCanvasProps {
@@ -52,14 +87,22 @@ interface PixiCanvasProps {
   onViewChange?: (zoom: number) => void
   showDimensions?: boolean
   rebuildKey?: number
-  // Setup layer
-  setupItems?: { id: string; tableProfileId?: string; x: number; y: number; rotation: number; width: number; depth: number; label?: string | null; colour?: string; chairCount?: number; tableGroupId?: string | null; chairEdges?: { top: number; bottom: number; left: number; right: number } | null }[]
+  // Setup layer — one placed piece of furniture
+  setupItems?: SetupItemP[]
   setupSelectedIds?: string[]
   onSetupItemClick?: (id: string | null, ctrlKey?: boolean) => void
   onSetupItemDragEnd?: (id: string, x: number, y: number) => void
   onSetupChairEdge?: (id: string, edge: 'top' | 'bottom' | 'left' | 'right', delta: number) => void
   onSetupItemRotate?: (id: string, rotation: number) => void
   onSetupItemsJoin?: (draggedId: string, targetId: string) => void
+  /** Drag a chair around its furniture's outline; `t` is 0..1 around the perimeter. */
+  onSetupChairMove?: (itemId: string, chairId: string, t: number) => void
+  /** Click the outline to add a chair, or a chair to remove it. */
+  onSetupChairAdd?: (itemId: string, t: number) => void
+  onSetupChairRemove?: (itemId: string, chairId: string) => void
+  /** A palette tile is armed — the next canvas click drops it. */
+  armedPlacement?: boolean
+  onCanvasPlace?: (x: number, y: number) => void
   ghostMode?: boolean
   wallDrawing?: boolean
   wallPoints?: { x: number; y: number }[]
@@ -104,6 +147,7 @@ export function FloorPlanPixiCanvas({
   textScale = 1, selRect, onSelRectStart, onSelRectMove, onSelRectEnd,
   rebuildKey, showDimensions = false,
   setupItems, setupSelectedIds, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, setupGroups, zoneTotals, setupActive = false, ghostMode = false,
+  onSetupChairMove, onSetupChairAdd, onSetupChairRemove, armedPlacement = false, onCanvasPlace,
   wallDrawing, wallPoints, onWallPoint,
   zonePolyMode, zonePolyPoints, onZonePolyAdd,
 }: PixiCanvasProps) {
@@ -116,8 +160,8 @@ export function FloorPlanPixiCanvas({
   // Keep current room dimensions available to the init-effect handlers (which have [] deps)
   const dimsRef = useRef({ roomWidth, roomDepth, gridUnit })
   dimsRef.current = { roomWidth, roomDepth, gridUnit }
-  const cbRef = useRef({ onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin })
-  cbRef.current = { onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin }
+  const cbRef = useRef({ onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, onSetupChairMove, onSetupChairAdd, onSetupChairRemove, onCanvasPlace, armedPlacement })
+  cbRef.current = { onElementClick, onElementDragEnd, onElementDropToSection, onZoneClick, onZoneDragEnd, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, onSetupChairMove, onSetupChairAdd, onSetupChairRemove, onCanvasPlace, armedPlacement }
 
   // Init app once
   useEffect(() => {
@@ -217,6 +261,12 @@ export function FloorPlanPixiCanvas({
       const vs = viewRef.current
       const cx = (e.globalX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
       const cy = (e.globalY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
+      // A palette tile is armed: this click drops it rather than starting a
+      // selection rectangle. Checked first so click-to-place always wins.
+      if (cbRef.current.armedPlacement && cbRef.current.onCanvasPlace) {
+        cbRef.current.onCanvasPlace(cx, cy)
+        return
+      }
       if (cbRef.current.zoneDrawing) {
         if (!cbRef.current.onZoneDrawStart) return
         zd = { sx: e.globalX, sy: e.globalY, mode: 'zone' }
@@ -667,10 +717,22 @@ export function FloorPlanPixiCanvas({
 
         const fill = parseInt((item.colour ?? '#555').replace('#', ''), 16)
         const isSel = setupSelectedIds?.includes(item.id)
+
+        // Draw the furniture's real outline — a rectangle, a circle, or the
+        // freeform shape drawn in the furniture editor. Everything reduces to
+        // one closed ring so there is a single drawing path.
+        const geom = {
+          shape: (item.shape as 'RECTANGLE' | 'CIRCLE' | 'POLYGON') ?? 'RECTANGLE',
+          width: item.width,
+          depth: item.depth,
+          vertices: item.vertices ?? null,
+        }
+        const ring = outlineOf(geom)
+
         const g = new PIXI.Graphics()
         g.lineStyle((isSel ? 2 : 1) / pxScale, isSel ? 0xFFFFFF : 0x666666, 0.9)
         g.beginFill(fill, 0.7)
-        g.drawRect(0, 0, item.width, item.depth)
+        g.drawPolygon(ring.flatMap((v) => [v.x, v.y]))
         g.endFill()
         c.addChild(g)
 
@@ -686,30 +748,66 @@ export function FloorPlanPixiCanvas({
           lbl.eventMode = 'none'; c.addChild(lbl)
         }
 
-        // Chairs — per-edge placement (grouped tables get merged chairs elsewhere)
-        const edges = item.chairEdges ?? null
-        const chairR = 6; const chairOff = 9
+        // Chairs — positioned around the outline and individually draggable.
+        // Grouped tables get one merged chair run drawn elsewhere, so skip them.
+        const chairs = item.chairs ?? []
         const singleSel = isSel && (setupSelectedIds?.length ?? 0) === 1 && !item.tableGroupId
-        if (edges && !item.tableGroupId) {
-          const chairG = new PIXI.Graphics()
-          chairG.beginFill(0x3A3A4A).lineStyle(0.75 / pxScale, 0x888888)
-          const drawEdge = (edge: 'top' | 'bottom' | 'left' | 'right', n: number) => {
-            for (let k = 0; k < n; k++) {
-              let cx = 0, cy = 0
-              if (edge === 'top') { cx = item.width * (k + 0.5) / n; cy = -chairOff }
-              else if (edge === 'bottom') { cx = item.width * (k + 0.5) / n; cy = item.depth + chairOff }
-              else if (edge === 'left') { cx = -chairOff; cy = item.depth * (k + 0.5) / n }
-              else { cx = item.width + chairOff; cy = item.depth * (k + 0.5) / n }
-              chairG.drawCircle(cx, cy, chairR)
+        const chairW = item.chairWidth ?? 45
+        const chairD = item.chairDepth ?? 45
+
+        if (chairs.length > 0 && !item.tableGroupId && !ghostMode) {
+          // Chair positions are computed in the item's own local space, so the
+          // container's rotation carries them without extra maths here.
+          const placements = chairWorldPlacements(
+            geom,
+            { x: 0, y: 0, rotation: 0 },
+            chairs,
+            Math.max(4, chairD / 2),
+          )
+
+          placements.forEach((p) => {
+            const chairG = new PIXI.Graphics()
+            chairG.beginFill(0x3A3A4A, 0.95).lineStyle(0.75 / pxScale, 0xA0A0A0, 0.9)
+            // Drawn to the real chair's footprint, centred on its seat point.
+            chairG.drawRoundedRect(-chairW / 2, -chairD / 2, chairW, chairD, Math.min(chairW, chairD) * 0.2)
+            chairG.endFill()
+            // A short bar on the table side reads as the chair back.
+            chairG.beginFill(0xA0A0A0, 0.8)
+            chairG.drawRect(-chairW / 2, chairD / 2 - chairD * 0.12, chairW, chairD * 0.12)
+            chairG.endFill()
+
+            chairG.x = p.x
+            chairG.y = p.y
+            chairG.rotation = ((p.rotation - 90) * Math.PI) / 180
+
+            if (singleSel) {
+              chairG.eventMode = 'static'
+              chairG.cursor = 'grab'
+              attachChairDrag(chairG, item, p.id, geom)
+            } else {
+              chairG.eventMode = 'none'
             }
-          }
-          drawEdge('top', edges.top); drawEdge('bottom', edges.bottom)
-          drawEdge('left', edges.left); drawEdge('right', edges.right)
-          chairG.endFill(); chairG.eventMode = 'none'; c.addChild(chairG)
+            c.addChild(chairG)
+          })
+        }
+
+        // Clicking the outline of a selected table seats someone there.
+        if (singleSel && cbRef.current.onSetupChairAdd) {
+          const hit = new PIXI.Graphics()
+          hit.lineStyle(10 / pxScale, 0x4488FF, 0.001) // invisible but hittable
+          hit.drawPolygon(ring.flatMap((v) => [v.x, v.y]))
+          hit.eventMode = 'static'
+          hit.cursor = 'copy'
+          hit.on('pointertap', (e: PIXI.FederatedPointerEvent) => {
+            e.stopPropagation()
+            const local = c.toLocal(e.global)
+            cbRef.current.onSetupChairAdd?.(item.id, projectToPerimeter(ring, local.x, local.y).t)
+          })
+          c.addChild(hit)
         }
 
         // Chair total badge
-        const cc = edges ? (edges.top + edges.bottom + edges.left + edges.right) : (item.chairCount ?? 0)
+        const cc = chairs.length > 0 ? chairs.length : (item.chairCount ?? 0)
         if (cc > 0 && item.label) {
           const badge = new PIXI.Text(`×${cc}`, {
             fontSize: Math.max(7, Math.min(item.width, item.depth) * 0.14 * pxScale * textScale),
@@ -721,31 +819,10 @@ export function FloorPlanPixiCanvas({
 
         attachSetupItemDrag(c, item)
 
-        // Interactive edge tabs (+chair / −chair) + rotation handle when singly selected
+        // Rotation handle when singly selected. The old per-edge +/− chair tabs
+        // are gone: chairs are dragged around the outline directly now, which
+        // works on shapes that have no "top" or "left" edge to label.
         if (singleSel) {
-          const tabOff = 22; const tabHalf = 8
-          const edgeMids: Record<'top' | 'bottom' | 'left' | 'right', [number, number]> = {
-            top: [item.width / 2, -tabOff],
-            bottom: [item.width / 2, item.depth + tabOff],
-            left: [-tabOff, item.depth / 2],
-            right: [item.width + tabOff, item.depth / 2],
-          }
-          ;(['top', 'bottom', 'left', 'right'] as const).forEach((edge) => {
-            const [mx, my] = edgeMids[edge]
-            const tab = new PIXI.Graphics()
-            tab.beginFill(0x1A1A1A, 0.9).lineStyle(1 / pxScale, 0x4488FF, 0.9)
-            tab.drawRect(mx - tabHalf, my - tabHalf, tabHalf * 2, tabHalf * 2).endFill()
-            const cnt = edges ? edges[edge] : 0
-            const tt = new PIXI.Text(`${cnt}`, { fontSize: Math.max(6, 9 * pxScale * textScale) / pxScale, fill: 0x88AAFF, fontFamily: 'monospace' })
-            tt.anchor.set(0.5); tt.x = mx; tt.y = my; tt.eventMode = 'none'; tab.addChild(tt)
-            tab.eventMode = 'static'; tab.cursor = 'pointer'
-            tab.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
-              e.stopPropagation()
-              const delta = e.button === 2 ? -1 : 1
-              cbRef.current.onSetupChairEdge?.(item.id, edge, delta)
-            })
-            c.addChild(tab)
-          })
           // Rotation handle
           const rotOff = 34
           const stem = new PIXI.Graphics()
@@ -893,7 +970,58 @@ export function FloorPlanPixiCanvas({
     })
   }
 
-  function attachSetupItemDrag(node: PIXI.Container, item: { id: string; tableProfileId?: string; x: number; y: number; rotation: number; width: number; depth: number; tableGroupId?: string | null }) {
+  /**
+   * Drag a chair around its table's outline.
+   *
+   * The pointer is converted into the table's own local space and projected
+   * onto the nearest point of the outline, so the chair slides along the edge
+   * instead of floating free — and it follows a curve just as happily as a
+   * straight side. Right-click removes the chair.
+   */
+  function attachChairDrag(
+    node: PIXI.Container,
+    item: SetupItemP,
+    chairId: string,
+    geom: FurnitureGeometry,
+  ) {
+    const ring = outlineOf(geom)
+    let dragging = false
+
+    node.on('rightdown', (e: PIXI.FederatedPointerEvent) => {
+      e.stopPropagation()
+      cbRef.current.onSetupChairRemove?.(item.id, chairId)
+    })
+
+    node.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+      if (e.button === 2) return
+      e.stopPropagation()
+      dragging = true
+      const app = appRef.current
+      if (!app) return
+
+      const parent = node.parent
+
+      const onMove = (ev: PIXI.FederatedPointerEvent) => {
+        if (!dragging || !parent) return
+        const local = parent.toLocal(ev.global)
+        const hit = projectToPerimeter(ring, local.x, local.y)
+        cbRef.current.onSetupChairMove?.(item.id, chairId, hit.t)
+      }
+
+      const onUp = () => {
+        dragging = false
+        app.stage.off('globalpointermove', onMove)
+        app.stage.off('pointerup', onUp)
+        app.stage.off('pointerupoutside', onUp)
+      }
+
+      app.stage.on('globalpointermove', onMove)
+      app.stage.on('pointerup', onUp)
+      app.stage.on('pointerupoutside', onUp)
+    })
+  }
+
+  function attachSetupItemDrag(node: PIXI.Container, item: SetupItemP) {
     let dd: { sx: number; sy: number; ex: number; ey: number } | null = null
     node.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
       e.stopPropagation()
@@ -918,9 +1046,19 @@ export function FloorPlanPixiCanvas({
         if (st.snap) { rx = edgeSnap(rx, item.width, st.gu); ry = edgeSnap(ry, item.depth, st.gu) }
         rx = Math.max(0, Math.min(rx, roomWidth - item.width))
         ry = Math.max(0, Math.min(ry, roomDepth - item.depth))
-        // Magnetic snap + auto-join against same-profile setup tables
+        // Magnetic snap + auto-join against tables of the same furniture.
+        //
+        // Match on the resolved key, never on tableProfileId alone: after the
+        // furniture migration every placement has tableProfileId === null, so
+        // comparing those directly would make every table on the plan snap and
+        // join to every other one regardless of what it actually is.
         let joinTargetId: string | null = null
-        const candidates = (setupItems ?? []).filter((s) => s.id !== item.id && s.tableProfileId === item.tableProfileId)
+        const itemKey = item.furnitureItemId ?? item.tableProfileId ?? null
+        const candidates = itemKey
+          ? (setupItems ?? []).filter(
+              (s) => s.id !== item.id && (s.furnitureItemId ?? s.tableProfileId ?? null) === itemKey,
+            )
+          : []
         const snap = magneticSnap(
           { x: rx, y: ry, width: item.width, depth: item.depth, rotation: item.rotation ?? 0 },
           candidates.map((s) => ({ x: s.x, y: s.y, width: s.width, depth: s.depth, rotation: s.rotation ?? 0 })),

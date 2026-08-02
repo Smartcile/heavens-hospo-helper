@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { checkAvailability } from '@/lib/booking-availability'
+import { resolvePlacedFurniture } from '@/lib/furniture-server'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -44,6 +45,13 @@ export async function GET(req: NextRequest) {
         items: {
           where: { deletedAt: null },
           include: {
+            furnitureItem: {
+              select: {
+                id: true, name: true, elementWidth: true, elementDepth: true,
+                elementShape: true, elementVertices: true, defaultColour: true,
+                defaultChairCount: true, seatingDensity: true, maxHeadChairs: true,
+              },
+            },
             tableProfile: {
               select: { id: true, name: true, capacity: true, chairCount: true, width: true, depth: true, colour: true },
             },
@@ -67,11 +75,25 @@ export async function GET(req: NextRequest) {
   const setupInfos = setups.map((s) => ({
     id: s.id,
     name: s.name,
-    tables: s.items.map((i) => ({
-      id: i.id,
-      profile: i.tableProfile,
-      assignedNumber: i.assignedNumber,
-    })),
+    // Placements whose furniture is gone can't seat anyone, so they're left out
+    // of availability rather than counted as free tables.
+    tables: s.items.flatMap((i) => {
+      const f = resolvePlacedFurniture(i)
+      if (!f) return []
+      return [{
+        id: i.id,
+        profile: {
+          id: f.id,
+          name: f.name,
+          capacity: i.tableProfile?.capacity ?? f.chairCount,
+          chairCount: f.chairCount,
+          width: f.width,
+          depth: f.depth,
+          colour: f.colour,
+        },
+        assignedNumber: i.assignedNumber,
+      }]
+    }),
   }))
 
   const results = checkAvailability(slot, partySize, setupInfos, bookings)

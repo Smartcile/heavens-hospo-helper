@@ -2,8 +2,23 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { jsonOrNull } from '@/lib/furniture-server'
 
 interface Params { params: { id: string; setupId: string } }
+
+/** Keep only well-formed chair slots — a bad `t` would put a seat nowhere. */
+function parseChairs(value: unknown): { id: string; t: number; offset?: number }[] | null {
+  if (!Array.isArray(value)) return null
+  return value
+    .filter((c): c is { id: unknown; t: unknown; offset?: unknown } => !!c && typeof c === 'object')
+    .map((c, i) => ({
+      id: typeof c.id === 'string' && c.id ? c.id : `c${i}`,
+      t: Number(c.t),
+      ...(c.offset != null && Number.isFinite(Number(c.offset)) ? { offset: Number(c.offset) } : {}),
+    }))
+    .filter((c) => Number.isFinite(c.t))
+    .map((c) => ({ ...c, t: ((c.t % 1) + 1) % 1 }))
+}
 
 export async function PUT(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
@@ -40,9 +55,20 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   const results: Record<string, unknown>[] = []
   for (const item of items) {
+    // Placements point at furniture now. `tableProfileId` is still accepted so a
+    // client that hasn't reloaded since the migration doesn't lose its work.
+    const furnitureItemId = item.furnitureItemId ?? null
+    if (!furnitureItemId && !item.tableProfileId) {
+      return NextResponse.json(
+        { error: 'each item needs a furnitureItemId' },
+        { status: 400 },
+      )
+    }
+
     const data = {
       setupId: params.setupId,
-      tableProfileId: item.tableProfileId,
+      furnitureItemId,
+      tableProfileId: item.tableProfileId ?? null,
       x: item.x ?? 0,
       y: item.y ?? 0,
       rotation: item.rotation ?? 0,
@@ -51,6 +77,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       assignedNumber: item.assignedNumber ?? null,
       label: item.label ?? null,
       chairEdges: item.chairEdges ?? undefined,
+      chairs: jsonOrNull(parseChairs(item.chairs)),
       sortOrder: item.sortOrder ?? 0,
       isActive: item.isActive ?? true,
     }

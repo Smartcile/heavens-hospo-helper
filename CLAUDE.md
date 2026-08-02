@@ -50,7 +50,7 @@ hospo-ops/
 ├── packages/
 │   ├── db/                         # Prisma 7 schema + PG adapter + seed
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma       # 52 models (core + ERP)
+│   │   │   ├── schema.prisma       # 58 models (core + ERP)
 │   │   │   └── migrations/
 │   │   ├── prisma.config.ts        # Prisma 7 config (datasource, seed)
 │   │   └── index.ts                # Exported Prisma client (global singleton, PG pool)
@@ -414,6 +414,99 @@ ViewState` shared with parent for coordinate conversion on drops. Canvas clamp p
 exiting room bounds. All element interaction is handled via pointer-events-tracking on the stage
 (not per-node), using ref-mutable state for drag operations.
 
+### Furniture Unification (Phase 2.8, built 2026-07-31)
+
+A table used to exist **three times over**, which is what made the planner feel
+"detailed but broken":
+
+| Old model | Held | Used by |
+|---|---|---|
+| `InventoryItem` (TABLES) | stock count, photos, purchase data | inventory page |
+| `TableProfile` | dimensions, chairs, numbers, BOM | setup layer, bookings, auto-seat |
+| `FloorPlanElement` type `TABLE` | its own x/y/w/d/chairs | base plan only |
+
+The first two were joined **only by matching name strings**
+(`profiles.find(p => p.name === item.name)`), so renaming either side silently
+detached stock from geometry. Worse, the setup layer had **no way to add a
+table at all**: the canvas drop handler expected a `tp_<id>` drag payload that
+nothing in the app emitted any more, so no tables → no groups → no bookings →
+nothing for auto-seat to seat.
+
+**Now: one record.** A piece of furniture is an `InventoryItem` with geometry
+fields set — name, photo, qty owned, footprint, shape, chair rules, table
+numbers and BOM all on one row.
+
+- New `InventoryItem` fields: `elementVertices` (polygon outline), `seatingDensity`,
+  `maxHeadChairs`, `tableNumbers`, `chairItemId` (which chair type seats it).
+  `elementShape` now accepts `POLYGON`.
+- `FurnitureBomItem` — self-referential BOM on `InventoryItem`, replaces `TableProfileItem`.
+- `SetupItem.furnitureItemId` replaces `tableProfileId` (kept nullable for migration);
+  `SetupItem.chairs` (Json `ChairSlot[]`) replaces `chairEdges`.
+- `FloorPlanSetup.isDefault` — see "Default layout" below.
+
+> **`TableProfile` is deprecated but still declared in `schema.prisma`.**
+> `docker-entrypoint.sh` runs `prisma db push --accept-data-loss` **before** any
+> migration script, so removing the models here would drop the tables before
+> `migrate-furniture.ts` could read them. Delete both models only once every
+> deployment has run the migration at least once.
+
+**Migration:** `packages/db/prisma/migrate-furniture.ts`
+(`npm run db:migrate-furniture`), wired into `docker-entrypoint.sh` **after**
+`db push` and into `start.ps1`. Idempotent — each phase re-checks its own state,
+so a half-finished run resumes on the next boot. Six phases: profiles →
+inventory, placements rewired, one default layout per plan guaranteed,
+base-plan tables lifted into the default layout (grouped by footprint so twelve
+identical tables become one furniture type with `totalQty` 12, elements
+soft-deleted), table numbering, default chair types seeded.
+
+**Default layout.** Every floor plan has exactly one `FloorPlanSetup` with
+`isDefault: true` — the venue's everyday arrangement. It is created on demand
+(`ensureDefaultSetup`), **cannot be deleted** (409 from the DELETE route), and
+**owns the real table numbers**: table 12 is a physical spot in the room. Event
+layouts are additional named setups that inherit the numbering and can override
+per table; the venue reverts to the default when no event is active. Promoting
+another layout to default demotes the incumbent in the same transaction.
+
+**Geometry + chairs — `lib/furniture.ts` (pure, 72 tests).** Rectangles,
+circles and freeform polygons all reduce to one closed ring wound so the
+outward normal of every edge is `(-uy, ux)`, so chairs, snapping and area
+totals have exactly one case to handle.
+
+- `logicalEdges()` merges raw segments into the sides a person would recognise
+  (turn angle < 30°). This is load-bearing: a circle is polygonised into 48
+  ~7cm segments that would each be rejected as "too short to seat", but they
+  bend gently so they merge into one 314cm side and seat evenly around the
+  curve. A rectangle's 90° corners exceed the tolerance, so it keeps its four
+  sides and its head-edge capping. Head caps are applied only to four-sided
+  outlines — applying them to a curve or an L-booth would strip out most seats.
+- **Chairs are stored as `t` in [0,1) around the outline**, not as per-edge
+  counts. That is what lets a chair be dragged anywhere on any shape, and
+  rotating the table carries its chairs for free. `projectToPerimeter` turns a
+  drag into a new `t`; `chairTFromWorld` is its world-space inverse.
+- `validatePolygon` rejects self-crossing outlines — a crossed shape makes
+  chair distribution and area totals nonsense.
+
+**UI.** `FurnitureForm` + `FurnitureShapeEditor` (in Inventory → TABLES) replace
+`TableProfileForm`, whose chair-edge designer was **never included in the save
+body** — every edit to it was silently discarded. The shape editor draws
+freeform outlines (click to place points, drag to adjust, grid-snapped) with a
+live chair/area/perimeter readout. `FurniturePalette` is the visual picker in
+the planner's right panel: each tile draws the piece's real outline and seats,
+with `available/total` badges; drag onto the canvas or click to arm and click to
+place. `/admin/table-profiles` and `/api/admin/table-profiles` are **removed**.
+
+**Watch out:** anything grouping placements by furniture must use
+`setupItemFurnitureKey()` (or `resolvePlacedFurniture()` server-side) and gate on
+a non-null key. Comparing `tableProfileId` directly is a trap — after migration
+every row has `null`, so `null === null` makes every table on the plan match
+every other one (this bug reached the snap/auto-join path and is now covered by
+`lib/furniture-key.test.ts`).
+
+| Route | Methods | Purpose |
+|---|---|---|
+| `/api/admin/furniture` | GET, POST | List (`?type=CHAIR` filters) / create furniture |
+| `/api/admin/furniture/[id]` | GET, PUT, DELETE | CRUD; DELETE 409s while still placed |
+
 ### Inventory-Aware Spatial Planning Engine (Phase 3+, built 2026-07)
 
 The floor planner has been upgraded from a basic drawing tool into a layered, inventory-aware
@@ -547,7 +640,8 @@ zone's bounding box against all other zones on the plan. If the overlap exceeds 
 smaller zone's area, the zone snaps back to its previous position and a toast warns
 "SECTIONS CANNOT OVERLAP." Pure geometry check via polygon intersection — no API round-trip.
 
-**Vitest Coverage:** 435 tests across 56 files. `lib/floorplan-inventory.test.ts` has 49 tests
+**Vitest Coverage:** 595 tests across 62 files. `lib/furniture.test.ts` has 66 tests covering
+the unified outline/chair engine (see "Furniture Unification"). `lib/floorplan-inventory.test.ts` has 49 tests
 covering `calculateSetupInventory`, geometry helpers, `computeGroupChairs`,
 `computeEffectiveChairs`, `computeSetupSectionTotals`, `pointInPolygon`, and BOM integration.
 `lib/floorplan-chairs.test.ts` (11) covers per-edge chair logic and `lib/auto-seat.test.ts` (7)
@@ -603,9 +697,10 @@ and Total QTY are hidden (replaced by Par Level). Fallback category has been
 removed — deleted categories automatically unassign items. Shelf life fields:
 `shelfLifeDays Int?`, `canFreeze Boolean`, `freezerShelfLifeDays Int?`.
 
-**Table profiles in inventory:** Table Profile management has been merged into
-the inventory under TABLES. The standalone `/admin/table-profiles` nav item
-removed. Creating/editing tables opens a modal popup via `TableProfileForm`.
+**Furniture in inventory:** furniture IS an inventory item — one record holding
+stock, footprint, shape, chair rules, table numbers and BOM (see "Furniture
+Unification"). Creating/editing opens `FurnitureForm` in a modal from the TABLES
+category. `TableProfile`, `TableProfileForm` and `/admin/table-profiles` are gone.
 
 **Restore deleted items:** SHOW DELETED toggle in inventory displays soft-deleted
 items with RESTORE (`POST .../restore`) and PURGE (`DELETE ?permanent=1`) buttons.
@@ -890,10 +985,52 @@ Weighted multi-category monthly budget tool with department-linked breakdowns.
 
 **Components:**
 - `BudgetMonthSelector` — dual variant: `grid` (12-month 3×4 CSS grid + year toggle for `/admin/budget`) and `compact` (slim `[←] MON YEAR [→]` + `VIEW ALL MONTHS` button for `/admin/budget/[year]/[month]`). Venue selector at top, auto-defaults to first venue for admins.
-- `BudgetSetupPanel` — 2-column dashboard: left = ALLOCATION (total budget, REVENUE locked at 100%, indented breakdown rows with department Select + `VENUE` option, auto-REMAINDER read-only row, progress bar); right = DAILY WEIGHTING (MON-SUN with 100% validation bar) + SUMMARY (TARGET/ALLOCATED/VARIANCE stats + GENERATE/SAVE/DELETE buttons). `↻ SYNC BREAKDOWNS` pushes categories to all venue months.
+- `BudgetSetupPanel` — 2-column dashboard: left = ALLOCATION (total budget, REVENUE locked at 100%, indented breakdown rows with department Select + `VENUE` option, auto-REMAINDER read-only row, progress bar); right = DAILY WEIGHTING (MON-SUN with 100% validation bar) + SUMMARY (TARGET/ALLOCATED/VARIANCE stats + GENERATE/SAVE/DELETE buttons). `↻ SYNC BREAKDOWNS` pushes categories to all venue months. Has a top tab bar — **ALLOCATION** (this panel) / **P&L LINES** (see below).
+- `BudgetLinesPanel` + `BudgetImportModal` — see "P&L budget lines" below.
 - `BudgetDailyGrid` — ISO week grouping into `lg:grid-cols-2` card grid. Week headers show date range + summed total. Single editable REVENUE input per day (no NOTE). Inline read-only breakdown text `BEV: $945 | REM: $2,205`. State lifted to parent — edits update `allocations` → stats recompute in SUMMARY panel.
 - `BudgetPageClient` — state coordinator. Computes `budgetStats` from `allocations` state. Manages venue selection, API load/save/delete/generate/sync flows.
 - `BudgetLandingClient` — client wrapper for landing page, fetches venues, renders grid variant.
+
+### P&L budget lines (built 2026-08)
+
+A second, independent layer on top of the %-breakdown. `BudgetLine` rows live on
+`BudgetPeriod` (per-month copies — same pattern as `BudgetCategory`) with a
+self-FK hierarchy (`parentId`), an optional `sectionId` (Section ecosystem —
+lines roll up across the venue), and `kind: BudgetLineKind` = `GROUP | LINE | TOTAL`.
+TOTAL rows never store an amount — the read path sums their LINE siblings under
+the same parent (`lib/budget-lines-import.ts` `buildLineTree`).
+
+**Excel import:** the P&L LINES tab (`BudgetLinesPanel`) imports a monthly P&L
+workbook (12 month columns). The client sends the .xlsx as **base64 JSON** to
+`POST /api/admin/budget-lines/import`, parsed with **`read-excel-file`** (note:
+the Node entry accepts a path or Readable stream, **not** a Buffer — the route
+wraps the decoded buffer in `Readable.from()`; the package ships no `types`
+field, so `types/read-excel-file.d.ts` declares the minimal ambient types).
+The pure parser (`parsePnlRows`, 18 Vitest tests) detects: the month header row
+(JUN–MAY aliases incl. SEPT, scanned within the first 15 rows), col-A section
+groups (depth 0), col-B label-only sub-groups (depth 1), data lines (depth 2),
+TOTAL rows (label contains "TOTAL", case-insensitive), `%` rows (SKIP by
+default), and value rows following a TOTAL become standalone computed rows
+(depth 0) until the next GROUP. `assignParentIndexes` rebuilds the hierarchy
+from depths (GROUP rows are the only parents); `monthYearForName` maps Jun–May
+across the financial-year boundary (base year = the year of June, JAN–MAY roll
+into year+1); `treeTotal` sums every LINE amount for the venue-wide figure.
+
+The preview modal (`BudgetImportModal`) lets the admin toggle include/skip per
+row, fix kind/label, and assign a section. `POST .../import/commit` creates (or
+fills) a `BudgetPeriod` per month column — new periods seed `totalBudget` from
+the first TOTAL row's value; months whose period **already has lines are
+skipped** (re-import never duplicates) — then creates all lines with hierarchy
+in one transaction. `budget-lines-import.test.ts` (18) mirrors the real Eatery
+workbook layout; verified against the actual `mock_data/Eatery.xlsx`.
+
+**API routes:**
+| Route | Methods | Purpose |
+|-------|---------|---------|
+| `/api/admin/budget-lines` | GET, POST | Period's lines + venue sections / add a line (upserts period) |
+| `/api/admin/budget-lines/[id]` | PUT, DELETE | Edit name/kind/section/parent/amount; soft-delete the whole subtree |
+| `/api/admin/budget-lines/import` | POST | base64 xlsx + venueId + year → parse preview (no writes) |
+| `/api/admin/budget-lines/import/commit` | POST | Preview selections → create periods + lines (transaction) |
 
 
 `TaskTemplate` + `TaskTemplateItem` hold reusable SOP task sets. Built-in
@@ -1245,7 +1382,7 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 
 ## ERP & WOOCOMMERCE (BUILT 2026-07)
 
-### Schema: 57 models (43 core + 14 ERP)
+### Schema: 58 models (44 core + 14 ERP)
 New models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`, `RecipeLineItem` (recursive BOM), `WooIntegration`, `MenuItem`, `Menu`, `MenuMenuItem`, `OrderView`, `Customer`, `WooOrder`, `WooOrderItem`, `SyncLog`. `@@unique([venueId])` on WooIntegration.
 
 ### Orders Rework — Phase 1: data foundation (built 2026-07)
@@ -1539,6 +1676,7 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/booth-trace.ts` — `traceBoothPerimeter` | ✅ |
 | `lib/breaks.ts` — `nzBreakEntitlement`, `shiftHours`, `formatBreaks` | ✅ |
 | `lib/budget-math.ts` — `generateDailyBudgetsNormalized`, `computeBreakdowns` | ✅ |
+| `lib/budget-lines-import.ts` — `parsePnlRows`, `findMonthRow`, `assignParentIndexes`, `monthYearForName`, `buildLineTree`, `treeTotal` | ✅ (18 tests) |
 | `lib/calendar.ts` — `monthDays`, `isValidTime`, `dateKeysBetween` | ✅ |
 | `lib/ical.ts` — `feedsForVenue`, `googleEmbedToIcal` | ✅ |
 | `lib/scheduling.ts` — `isTaskDueOnDate`, `describeSchedule`, `formatDateKey` | ✅ |
@@ -1550,7 +1688,9 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/followups.ts` — `checkUntrainedOnCompletion` | ✅ |
 | `lib/external-sync.ts` — `syncVenueCalendar` | ✅ |
 | `lib/floorplan-inventory.ts` — `calculateSetupInventory`, `computeSetupSectionTotals`, `pointInPolygon`, geometry fns | ✅ (49 tests) |
-| `lib/floorplan-chairs.ts` — `adjustEdgeChairs`, `defaultEdgeChairs`, `maxChairsForEdge` | ✅ (11 tests) |
+| `lib/furniture.ts` — `outlineOf`, `logicalEdges`, `pointAtPerimeter`, `projectToPerimeter`, `defaultChairSlots`, `chairWorldPlacements`, `chairTFromWorld`, `validatePolygon`, chair-set editing | ✅ (66 tests) |
+| `lib/furniture.ts` — `setupItemFurnitureKey` (null-key trap) | ✅ (6 tests) |
+| `lib/floorplan-chairs.ts` — `adjustEdgeChairs`, `defaultEdgeChairs`, `maxChairsForEdge` | ✅ (11 tests, deprecated with `chairEdges`) |
 | `lib/auto-seat.ts` — `planAutoSeat` (bin-packing layout) | ✅ (7 tests) |
 | `lib/inventory-engine.ts` — `explodeRecipe` (recursive BOM explosion) | ✅ (5 tests) |
 | `lib/customer-match.ts` — `normaliseEmail`, `normalisePhone`, `buildCustomerKeys`, `findMatch`, `fieldsToEnrich`, `resolveCustomer` | ✅ (27 tests) |
@@ -1572,6 +1712,8 @@ pushing, run: `npm run lint && npm run test`.
 | `AdminNav.test.tsx` — renders nav groups | ✅ |
 | `FloorPlanEditor.tsx` — 30+ hooks, useMemo, loading gate | ✅ |
 | `BudgetPageClient.tsx` — useCallback + useEffect chain | ✅ |
+| `BudgetLinesPanel.tsx` — tree render, totals, add/import flows | ✅ (5 tests) |
+| `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |
 | `WorkerTasksClient.tsx` — dual early-return paths | ✅ |
 | `FloorplanInspector.tsx` — presets, sliders, booth capacity | ✅ |
@@ -1579,8 +1721,9 @@ pushing, run: `npm run lint && npm run test`.
 | `Button` (ui) — variants, sizes, loading, disabled | ✅ |
 | `Input` (ui) — label, error, onChange | ✅ |
 | `Select` (ui) — options, placeholder, error, onChange | ✅ |
-| `TableProfilesClient.tsx` — render, loading, fetch, headings, empty state, selection, form | ✅ (10 tests) |
 | `SetupInventoryPanel.tsx` — button states, shortage list, idle, empty, disabled | ✅ (7 tests) |
+| `FurniturePalette.tsx` — tiles, availability, drag payload, arming, chair exclusion, filters, polygon render | ✅ (13 tests) |
+| `FurnitureShapeEditor.tsx` — preview vs draw mode, live seat/area readout, vertex handles, validation | ✅ (13 tests) |
 
 ## PRE-COMMIT CHECKLIST
 

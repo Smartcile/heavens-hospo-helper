@@ -26,6 +26,7 @@ Push-Location -LiteralPath $dbDir
 try {
     npx prisma generate
     if ($?) { npx prisma db push }
+    if ($?) { Write-Host "Unifying furniture into inventory..."; npm run db:migrate-furniture }
     if ($?) { Write-Host "Pushing DB seed..."; npm run db:seed }
     if ($?) { Write-Host "Migrating to Guide model..."; npm run db:migrate-guides }
 } finally {

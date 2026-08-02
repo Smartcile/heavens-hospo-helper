@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { ensureDefaultSetup } from '@/lib/furniture-server'
 
 interface Params { params: { id: string } }
 
@@ -15,12 +16,17 @@ export async function GET(_req: NextRequest, { params }: Params) {
   })
   if (!plan) return NextResponse.json({ error: 'Floor plan not found' }, { status: 404 })
 
+  // Every plan always has a default layout to fall back to, so create it on
+  // first read rather than making the editor cope with "no layouts at all".
+  await ensureDefaultSetup(params.id)
+
   const setups = await prisma.floorPlanSetup.findMany({
     where: { floorPlanId: params.id, deletedAt: null },
     include: {
       _count: { select: { items: true } },
     },
-    orderBy: { createdAt: 'desc' },
+    // Default first, then event layouts newest-first.
+    orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
   })
 
   return NextResponse.json(setups)

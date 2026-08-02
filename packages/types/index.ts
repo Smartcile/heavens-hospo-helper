@@ -184,6 +184,7 @@ export interface TableProfileBomItem {
   perChair: boolean
 }
 
+/** @deprecated Superseded by `FurnitureView`. Kept while the migration lands. */
 export interface TableProfileView {
   id: string
   venueId: string
@@ -201,22 +202,70 @@ export interface TableProfileView {
   bomItems: TableProfileBomItem[]
 }
 
+/**
+ * A piece of furniture as the planner sees it — one InventoryItem row. This is
+ * the single source of truth that replaced the TableProfile/InventoryItem pair.
+ */
+export interface FurnitureView {
+  id: string
+  venueId: string
+  name: string
+  /** "TABLE" | "CHAIR" | "BOOTH" | "SOFA" | "BAR" | "OTHER" */
+  furnitureType: string
+  /** "RECTANGLE" | "CIRCLE" | "POLYGON" */
+  shape: string
+  width: number
+  depth: number
+  vertices: { x: number; y: number }[] | null
+  colour: string | null
+  imageUrl: string | null
+  /** Physical pieces owned. */
+  totalQty: number
+  /** How many are already placed across all layouts. */
+  placedCount: number
+  defaultChairCount: number
+  seatingDensity: number | null
+  maxHeadChairs: number
+  tableNumbers: string[] | null
+  chairItemId: string | null
+  categoryId: string
+  isActive: boolean
+  bomItems: TableProfileBomItem[]
+}
+
+/** @deprecated Chairs are positioned around the outline now — see `ChairSlotInput`. */
 export type TableEdge = 'top' | 'bottom' | 'left' | 'right'
+/** @deprecated */
 export type EdgeChairs = Record<TableEdge, number>
+
+/** A seat pinned at position `t` (0..1) around its furniture's outline. */
+export interface ChairSlotInput {
+  id: string
+  t: number
+  offset?: number
+}
 
 export interface SetupItemInput {
   id: string
-  tableProfileId: string
+  /** @deprecated Use `furnitureItemId`. Still read so old rows keep rendering. */
+  tableProfileId?: string | null
+  /** The InventoryItem this placement is an instance of. */
+  furnitureItemId?: string | null
   x: number
   y: number
   rotation: number
   width: number
   depth: number
+  /** "RECTANGLE" | "CIRCLE" | "POLYGON" — copied from the furniture for drawing. */
+  shape?: string | null
+  vertices?: { x: number; y: number }[] | null
   tableGroupId?: string | null
   sectionId?: string | null
   assignedNumber?: string | null
   label?: string | null
+  /** @deprecated Superseded by `chairs`. */
   chairEdges?: EdgeChairs | null
+  chairs?: ChairSlotInput[] | null
 }
 
 export interface InventoryStockLine {

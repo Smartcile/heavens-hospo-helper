@@ -8,7 +8,8 @@ import { Modal } from '@/components/ui/Modal'
 import { Combobox } from '@/components/ui/Combobox'
 import { AllergenPicker } from '@/components/ui/AllergenPicker'
 import { ALLERGENS } from '@/lib/allergens'
-import { TableProfileForm } from '@/components/admin/TableProfileForm'
+import { FurnitureForm } from '@/components/admin/FurnitureForm'
+import type { FurnitureView } from '@hospo-ops/types'
 
 interface Category { id: string; name: string; isBuiltIn: boolean; venueId: string | null; tab: string | null; showDeepFields: boolean; showEquipmentFields: boolean }
 interface Item {
@@ -104,10 +105,11 @@ export function InventoryClient() {
   const [sections, setSections] = useState<SectionLite[]>([])
   const [suppliers, setSuppliers] = useState<SupplierLite[]>([])
 
-  // Table profile editor
+  // Furniture editor. Furniture is an InventoryItem with geometry set, so the
+  // id here is just the item's id — there is no separate profile record.
   const [showTableProfile, setShowTableProfile] = useState(false)
   const [editProfileId, setEditProfileId] = useState<string | null>(null)
-  const [profiles, setProfiles] = useState<any[]>([])
+  const [profiles, setProfiles] = useState<FurnitureView[]>([])
 
   function resetForm() {
     setFormName(''); setFormCat(''); setFormUnit('EA'); setFormPar('0'); setFormTotalQty('0')
@@ -158,7 +160,7 @@ export function InventoryClient() {
     const [catRes, itemRes, prRes, uomRes, secRes, supRes] = await Promise.all([
       fetch('/api/admin/inventory/categories'),
       fetch('/api/admin/inventory'),
-      fetch('/api/admin/table-profiles'),
+      fetch('/api/admin/furniture'),
       fetch('/api/admin/uoms'),
       fetch('/api/admin/sections'),
       fetch('/api/admin/suppliers'),
@@ -316,7 +318,7 @@ export function InventoryClient() {
     }
   }
 
-  const editingProfileName = editProfileId ? profiles.find((p: any) => p.id === editProfileId)?.name : null
+  const editingProfileName = editProfileId ? profiles.find((p) => p.id === editProfileId)?.name : null
 
   const tabCategories = categories.filter((c) => {
     if (activeTab === 'FOOD') return c.tab === 'FOOD'
@@ -408,10 +410,13 @@ export function InventoryClient() {
                     {catItemList.map((item, idx) => {
                       const isFurnitureItem = item.furnitureType != null
                       const avail = Math.max(0, (item.totalQty ?? 0) - (item.placedCount ?? 0))
-                      const isEditing = selectedItem?.id === item.id || (showTableProfile && editingProfileName === item.name)
-                      const matchingProfile = isFurnitureItem ? profiles.find((p: any) => p.name === item.name) : null
-                      const profileNumbers: string[] = Array.isArray((matchingProfile as any)?.tableNumbers) ? (matchingProfile as any).tableNumbers : []
-                      const profileCapacity = (matchingProfile as any)?.capacity ?? 0
+                      const isEditing = selectedItem?.id === item.id || (showTableProfile && editProfileId === item.id)
+                      // Furniture IS the inventory item now — matched by id, not
+                      // by name. The old name match silently detached geometry
+                      // from stock the moment either side was renamed.
+                      const matchingProfile = isFurnitureItem ? profiles.find((p) => p.id === item.id) : null
+                      const profileNumbers: string[] = matchingProfile?.tableNumbers ?? []
+                      const profileCapacity = matchingProfile?.defaultChairCount ?? 0
 
                       return (
                         <div key={item.id}>
@@ -439,13 +444,7 @@ export function InventoryClient() {
                                   {profileNumbers.map((n: string, i: number) => (
                                     <span key={i} className="font-mono text-[10px] text-white border border-grey-mid px-1.5 py-px bg-grey-dark/50">{n}</span>
                                   ))}
-      <Modal isOpen={previewImage != null} onClose={() => setPreviewImage(null)} title="" size="lg">
-        {previewImage && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={previewImage} alt="Preview" className="w-full border border-grey-mid" />
-        )}
-      </Modal>
-    </div>
+                                </div>
                               )}
                             </div>
                             <div className="flex items-center gap-3 text-right flex-shrink-0">
@@ -458,15 +457,11 @@ export function InventoryClient() {
                               )}
                               <button onClick={() => {
                                 if (isFurnitureItem) {
-                                  const profile = profiles.find((p: any) => p.name === item.name)
-                                  if (profile) {
-                                    if (showTableProfile && editProfileId === profile.id) {
-                                      setShowTableProfile(false); setEditProfileId(null)
-                                    } else {
-                                      setEditProfileId(profile.id); setShowTableProfile(true)
-                                    }
+                                  // The furniture form edits this very row.
+                                  if (showTableProfile && editProfileId === item.id) {
+                                    setShowTableProfile(false); setEditProfileId(null)
                                   } else {
-                                    setSelectedItem(item); populateForm(item)
+                                    setEditProfileId(item.id); setShowTableProfile(true)
                                   }
                                 } else {
                                   if (showTableProfile) { setShowTableProfile(false); setEditProfileId(null) }
@@ -572,22 +567,24 @@ export function InventoryClient() {
           )}
 
           {showTableProfile && (
-            <Modal isOpen={showTableProfile} onClose={() => { setShowTableProfile(false); setEditProfileId(null) }} title={editProfileId ? 'EDIT TABLE' : 'NEW TABLE'} size="lg">
-              <TableProfileForm
+            <Modal isOpen={showTableProfile} onClose={() => { setShowTableProfile(false); setEditProfileId(null) }} title={editProfileId ? 'EDIT FURNITURE' : 'NEW FURNITURE'} size="lg">
+              <FurnitureForm
+                furnitureId={editProfileId}
                 onSaved={() => { setShowTableProfile(false); setEditProfileId(null); load() }}
                 onCancel={() => { setShowTableProfile(false); setEditProfileId(null) }}
-                profileId={editProfileId}
-                onDelete={async () => {
-                  if (editProfileId) {
-                    await fetch(`/api/admin/table-profiles/${editProfileId}`, { method: 'DELETE' })
-                    setShowTableProfile(false); setEditProfileId(null); load()
-                  }
-                }}
+                onDeleted={() => { setShowTableProfile(false); setEditProfileId(null); load() }}
               />
             </Modal>
           )}
         </div>
       </div>
+
+      <Modal isOpen={previewImage != null} onClose={() => setPreviewImage(null)} title="" size="lg">
+        {previewImage && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={previewImage} alt="Preview" className="w-full border border-grey-mid" />
+        )}
+      </Modal>
 
       <Modal isOpen={showCatModal} onClose={() => setShowCatModal(false)} title={editingCat ? 'EDIT CATEGORY' : 'NEW CATEGORY'} size="sm">
         <div className="space-y-3">

@@ -40,6 +40,13 @@ npx prisma db push --schema=packages/db/prisma/schema.prisma --accept-data-loss 
 }
 
 echo ""
+echo "▸ Running furniture unification migration (post-sync)..."
+# Must run AFTER db push: it reads the deprecated TableProfile tables, which
+# only exist because they are still declared in schema.prisma. Idempotent.
+cd /app/packages/db
+npm run db:migrate-furniture || echo "⚠ Furniture migration step failed (see error above) — continuing to start the app."
+
+echo ""
 echo "▸ Seeding database (safe to re-run)..."
 cd /app/packages/db
 npm run db:seed || echo "⚠ Seed step failed (see error above) — continuing to start the app."

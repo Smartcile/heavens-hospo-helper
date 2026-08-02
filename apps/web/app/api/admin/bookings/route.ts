@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { planAutoSeat } from '@/lib/auto-seat'
 import type { AutoSeatProfile } from '@/lib/auto-seat'
+import { resolvePlacedFurniture } from '@/lib/furniture-server'
 
 function timeToMins(t: string) { const [h, m] = t.split(':').map(Number); return h * 60 + m }
 
@@ -104,7 +105,7 @@ export async function POST(req: NextRequest) {
       include: {
         items: {
           where: { deletedAt: null },
-          include: { tableProfile: true },
+          include: { furnitureItem: true, tableProfile: true },
         },
       },
     })
@@ -141,14 +142,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No tables available for this time slot' }, { status: 409 })
     }
 
-    const seatProfiles: AutoSeatProfile[] = availableItems.map((item) => ({
-      id: item.tableProfile.id,
-      capacity: item.tableProfile.capacity,
-      chairCount: item.tableProfile.chairCount,
-      width: item.tableProfile.width,
-      depth: item.tableProfile.depth,
-      tableNumbers: item.assignedNumber ? [item.assignedNumber] : [],
-    }))
+    const seatProfiles: AutoSeatProfile[] = availableItems.flatMap((item) => {
+      const f = resolvePlacedFurniture(item)
+      if (!f) return []
+      return [{
+        id: f.id,
+        // Furniture has no separate "capacity" — the chairs it seats is the
+        // capacity, and planAutoSeat already falls back to chairCount.
+        capacity: item.tableProfile?.capacity ?? f.chairCount,
+        chairCount: f.chairCount,
+        width: f.width,
+        depth: f.depth,
+        tableNumbers: item.assignedNumber ? [item.assignedNumber] : [],
+      }]
+    })
 
     const placements = planAutoSeat(parseInt(String(partySize)), seatProfiles)
 
@@ -159,13 +166,18 @@ export async function POST(req: NextRequest) {
     const reservedItemIds: string[] = []
     const usedItemIds = new Set<string>()
 
+    // `seatProfiles` is keyed by the resolved furniture id, so matching must use
+    // the same key — comparing against tableProfileId would match nothing on any
+    // layout that has been through the furniture migration.
+    const keyOf = (i: typeof availableItems[number]) => resolvePlacedFurniture(i)?.id ?? null
+
     for (const placement of placements) {
       let matched: typeof availableItems[number] | undefined
 
       if (placement.assignedNumber) {
         matched = availableItems.find(
           (i) =>
-            i.tableProfileId === placement.profileId &&
+            keyOf(i) === placement.profileId &&
             i.assignedNumber === placement.assignedNumber &&
             !usedItemIds.has(i.id),
         )
@@ -174,7 +186,7 @@ export async function POST(req: NextRequest) {
       if (!matched) {
         matched = availableItems.find(
           (i) =>
-            i.tableProfileId === placement.profileId &&
+            keyOf(i) === placement.profileId &&
             !usedItemIds.has(i.id),
         )
       }

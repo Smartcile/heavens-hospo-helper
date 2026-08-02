@@ -6,7 +6,17 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Combobox } from '@/components/ui/Combobox'
 import { computeSectionSummary, type ElementData } from '@/components/admin/floorplan-elements'
-import type { SetupItemInput, TableProfileView } from '@hospo-ops/types'
+import type { SetupItemInput, FurnitureView } from '@hospo-ops/types'
+import { FurniturePalette, FURNITURE_DRAG_PREFIX } from '@/components/admin/FurniturePalette'
+import {
+  defaultChairSlots,
+  chairTFromWorld,
+  addChair,
+  removeChair,
+  moveChair,
+  redistributeChairs,
+  type FurnitureShape,
+} from '@/lib/furniture'
 import type { SectionBoundaryP } from '@/components/admin/floorplan-pixi'
 import { ElementInventoryPanel } from '@/components/admin/ElementInventoryPanel'
 import { SetupInventoryPanel } from '@/components/admin/SetupInventoryPanel'
@@ -67,12 +77,14 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [textScale, setTextScale] = useState(1)
 
   // ── Setup layer state ──
-  const [setups, setSetups] = useState<{ id: string; name: string; eventDate?: string }[]>([])
+  const [setups, setSetups] = useState<{ id: string; name: string; eventDate?: string; isDefault?: boolean }[]>([])
   const [activeSetupId, setActiveSetupId] = useState<string | null>(null)
   const [setupItems, setSetupItems] = useState<SetupItemInput[]>([])
   const [ghostItems, setGhostItems] = useState<SetupItemInput[]>([])
   const [setupSelectedIds, setSetupSelectedIds] = useState<string[]>([])
-  const [tableProfiles, setTableProfiles] = useState<TableProfileView[]>([])
+  const [furniture, setFurniture] = useState<FurnitureView[]>([])
+  /** Armed palette tile — click the plan to drop it. */
+  const [armedFurnitureId, setArmedFurnitureId] = useState<string | null>(null)
   const [sectionBoundaries, setSectionBoundaries] = useState<SectionBoundaryP[]>([])
   const [allInventoryItems, setAllInventoryItems] = useState<any[]>([])
   const [shortages, setShortages] = useState<any[] | null>(null)
@@ -129,16 +141,36 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
   // ── Setup layer functions ──
 
-  function assignTableNumber(profileId: string, existingItems: SetupItemInput[]): string | null {
-    const profile = tableProfiles.find(p => p.id === profileId)
-    const pool = (profile as any)?.tableNumbers
-    if (!pool || !Array.isArray(pool) || pool.length === 0) return null
-    const used = new Set(
-      existingItems
-        .filter(i => i.tableProfileId === profileId && i.assignedNumber)
-        .map(i => i.assignedNumber!)
-    )
-    const sorted = [...pool].map(String).sort((a, b) => Number(a) - Number(b))
+  const furnitureById = useMemo(() => new Map(furniture.map((f) => [f.id, f])), [furniture])
+
+  /** The furniture a placement is an instance of, old key or new. */
+  function furnitureFor(item: SetupItemInput): FurnitureView | undefined {
+    const key = item.furnitureItemId ?? item.tableProfileId
+    return key ? furnitureById.get(key) : undefined
+  }
+
+  function geometryOf(f: FurnitureView) {
+    return {
+      shape: (f.shape as FurnitureShape) ?? 'RECTANGLE',
+      width: f.width,
+      depth: f.depth,
+      vertices: f.vertices,
+    }
+  }
+
+  /**
+   * Claim the next free number from the furniture's pool.
+   *
+   * Numbers are scoped to the whole layout, not to one furniture type: table 12
+   * is a spot in the room, so two different table types must never both claim
+   * it. The default layout is where real numbering lives; event layouts inherit
+   * and can be overridden per table.
+   */
+  function assignTableNumber(furnitureId: string, existingItems: SetupItemInput[]): string | null {
+    const pool = furnitureById.get(furnitureId)?.tableNumbers
+    if (!Array.isArray(pool) || pool.length === 0) return null
+    const used = new Set(existingItems.map((i) => i.assignedNumber).filter(Boolean) as string[])
+    const sorted = [...pool].map(String).sort((a, b) => (Number(a) || 0) - (Number(b) || 0))
     for (const num of sorted) { if (!used.has(num)) return num }
     return null
   }
@@ -150,39 +182,62 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     const r = await fetch(`/api/admin/floorplan/${plan.id}/setups/${setupId}`)
     if (!r.ok) return
     const data = await r.json()
-    const items: SetupItemInput[] = (data.items || []).map((i: any) => ({
-      id: i.id,
-      tableProfileId: i.tableProfileId,
-      x: i.x, y: i.y, rotation: i.rotation ?? 0,
-      width: i.tableProfile?.width ?? 80,
-      depth: i.tableProfile?.depth ?? 80,
-      tableGroupId: i.tableGroupId ?? null,
-      assignedNumber: i.assignedNumber ?? null,
-      label: i.assignedNumber ?? i.label ?? null,
-      chairEdges: i.chairEdges ?? null,
-    }))
+    // Geometry comes off the furniture item; the deprecated profile is still
+    // read so a layout saved before the migration still draws at the right size.
+    const items: SetupItemInput[] = (data.items || []).map((i: any) => {
+      const f = i.furnitureItem
+      return {
+        id: i.id,
+        furnitureItemId: i.furnitureItemId ?? null,
+        tableProfileId: i.tableProfileId ?? null,
+        x: i.x, y: i.y, rotation: i.rotation ?? 0,
+        width: f?.elementWidth ?? i.tableProfile?.width ?? 80,
+        depth: f?.elementDepth ?? i.tableProfile?.depth ?? 80,
+        shape: f?.elementShape ?? 'RECTANGLE',
+        vertices: Array.isArray(f?.elementVertices) ? f.elementVertices : null,
+        tableGroupId: i.tableGroupId ?? null,
+        assignedNumber: i.assignedNumber ?? null,
+        label: i.assignedNumber ?? i.label ?? null,
+        chairEdges: i.chairEdges ?? null,
+        chairs: Array.isArray(i.chairs) ? i.chairs : null,
+      }
+    })
     setSetupItems(items)
   }
 
   async function handleNewSetup() {
-    const name = prompt('Setup name:')
+    const name = prompt('Name this event layout:')
     if (!name?.trim()) return
     const r = await fetch(`/api/admin/floorplan/${plan.id}/setups`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: name.trim().toUpperCase() }),
     })
-    if (!r.ok) return
+    if (!r.ok) { pushToast('COULD NOT CREATE THE LAYOUT.', 'error'); return }
     const created = await r.json()
     setSetups(prev => [...prev, created])
     handleSetupChange(created.id)
   }
 
   async function handleDeleteSetup() {
-    if (!activeSetupId || !confirm('Delete this setup?')) return
-    await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}`, { method: 'DELETE' })
+    if (!activeSetupId) return
+    const target = setups.find(s => s.id === activeSetupId)
+    if (target?.isDefault) {
+      pushToast('THE DEFAULT LAYOUT CANNOT BE DELETED — EDIT IT INSTEAD.', 'error')
+      return
+    }
+    if (!confirm(`Delete the layout "${target?.name ?? ''}"?`)) return
+
+    const r = await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}`, { method: 'DELETE' })
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      pushToast(err.error ?? 'COULD NOT DELETE THE LAYOUT.', 'error')
+      return
+    }
     setSetups(prev => prev.filter(s => s.id !== activeSetupId))
-    handleSetupChange(null)
+    // Fall back to the default layout — the room always has one to revert to.
+    const fallback = setups.find(s => s.isDefault && s.id !== activeSetupId)
+    handleSetupChange(fallback?.id ?? null)
   }
 
   function handleSetupItemDragEnd(id: string, x: number, y: number) {
@@ -230,20 +285,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   function handleInventoryCheck() {
     if (!activeSetupId) return
     setCheckingInventory(true)
-    const profilesMap = new Map(
-      tableProfiles.map((tp: any) => [
-        tp.id,
-        {
-          id: tp.id, name: tp.name, chairCount: tp.chairCount,
-          seatingDensity: tp.seatingDensity, width: tp.width, depth: tp.depth, maxHeadChairs: tp.maxHeadChairs,
-          bomItems: (tp.bomItems ?? []).map((b: any) => ({
-            inventoryItemId: b.inventoryItemId ?? b.item?.id,
-            quantity: b.quantity,
-            perChair: b.perChair ?? false,
-          })),
-        },
-      ])
-    )
+    const profilesMap = profilesForCalc
     const invMap = new Map(
       allInventoryItems.map((i: any) => [i.id, { itemId: i.id, name: i.name, available: i.totalQty ?? 0 }])
     )
@@ -255,9 +297,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   async function handleGroup() {
     if (!activeSetupId) return
     const selected = setupItems.filter(i => setupSelectedIds.includes(i.id))
-    const profileIds = new Set(selected.map(i => i.tableProfileId))
-    if (profileIds.size > 1) {
-      pushToast('All items in a group must have the same table profile.', 'error')
+    const kinds = new Set(selected.map(i => i.furnitureItemId ?? i.tableProfileId))
+    if (kinds.size > 1) {
+      pushToast('JOINED TABLES MUST ALL BE THE SAME FURNITURE.', 'error')
       return
     }
     const r = await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}/groups`, {
@@ -305,20 +347,121 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     setSetupItems(prev => prev.map(i => i.id === id ? { ...i, rotation } : i))
   }
 
-  function handleSetupChairEdge(id: string, edge: TableEdge, delta: number) {
-    setSetupItems(prev => prev.map(i => {
-      if (i.id !== id) return i
-      const profile = tableProfiles.find(p => p.id === i.tableProfileId)
-      const opts = {
-        width: i.width,
-        depth: i.depth,
-        seatingDensity: profile?.seatingDensity ?? null,
-        maxHeadChairs: profile?.maxHeadChairs ?? 1,
-        capacity: profile?.chairCount ?? 0,
-      }
-      const current = i.chairEdges ?? emptyEdgeChairs()
-      return { ...i, chairEdges: adjustEdgeChairs(current, edge, delta, opts) }
-    }))
+  /**
+   * Drop a piece of furniture onto the active layout at room coordinates.
+   *
+   * Shared by the palette's drag-and-drop and its click-to-place mode, so both
+   * routes get the same number assignment, section tagging and default chairs.
+   */
+  function placeFurniture(furnitureId: string, roomX: number, roomY: number) {
+    if (!activeSetupId) {
+      pushToast('PICK A LAYOUT FIRST — FURNITURE GOES ON A LAYOUT, NOT THE BASE PLAN.', 'error')
+      return
+    }
+    const f = furnitureById.get(furnitureId)
+    if (!f) return
+
+    const available = f.totalQty - f.placedCount - setupItems.filter(i => i.furnitureItemId === f.id && i.id.startsWith('new_setup_')).length
+    if (f.totalQty > 0 && available <= 0) {
+      pushToast(`ALL ${f.totalQty} × ${f.name} ARE ALREADY PLACED.`, 'error')
+      return
+    }
+
+    const hasPool = Array.isArray(f.tableNumbers) && f.tableNumbers.length > 0
+    const assignedNumber = assignTableNumber(f.id, setupItems)
+    if (hasPool && assignedNumber === null) {
+      pushToast(`EVERY TABLE NUMBER FOR ${f.name} IS TAKEN ON THIS LAYOUT.`, 'error')
+      return
+    }
+
+    const gu = plan.gridUnit
+    const cx = snapEnabled ? snap(roomX, gu) : roomX
+    const cy = snapEnabled ? snap(roomY, gu) : roomY
+    const itemX = cx - f.width / 2
+    const itemY = cy - f.depth / 2
+
+    const item: SetupItemInput = {
+      id: `new_setup_${nextIdCounter.current++}`,
+      furnitureItemId: f.id,
+      assignedNumber,
+      x: itemX,
+      y: itemY,
+      rotation: 0,
+      width: f.width,
+      depth: f.depth,
+      shape: f.shape,
+      vertices: f.vertices,
+      sectionId: sectionForPoint(cx, cy),
+      label: assignedNumber ?? f.name,
+      chairs: defaultChairSlots(geometryOf(f), {
+        seatingDensity: f.seatingDensity,
+        maxHeadChairs: f.maxHeadChairs,
+        capacity: f.defaultChairCount || undefined,
+      }),
+    }
+
+    pushHistory()
+    setSetupItems(prev => [...prev, item])
+  }
+
+  // ── Chairs ──
+  // Chairs live at a position `t` (0..1) around the furniture's outline rather
+  // than as per-edge counts, so they can sit anywhere on any shape and be
+  // dragged. `chairsOf` fills in the default layout for a table that has never
+  // had its chairs touched.
+
+  function chairsOf(item: SetupItemInput) {
+    if (Array.isArray(item.chairs)) return item.chairs
+    const f = furnitureFor(item)
+    if (!f) return []
+    return defaultChairSlots(geometryOf(f), {
+      seatingDensity: f.seatingDensity,
+      maxHeadChairs: f.maxHeadChairs,
+      capacity: f.defaultChairCount || undefined,
+    })
+  }
+
+  function updateChairs(
+    id: string,
+    fn: (chairs: NonNullable<SetupItemInput['chairs']>, item: SetupItemInput) => NonNullable<SetupItemInput['chairs']>,
+  ) {
+    setSetupItems(prev => prev.map(i => (i.id === id ? { ...i, chairs: fn(chairsOf(i), i) } : i)))
+  }
+
+  /** Drag a chair to a new spot around its table. */
+  function handleChairMove(itemId: string, chairId: string, t: number) {
+    updateChairs(itemId, (chairs) => moveChair(chairs, chairId, t))
+  }
+
+  /** Click the outline to seat someone there. */
+  function handleChairAdd(itemId: string, t: number) {
+    pushHistory()
+    updateChairs(itemId, (chairs) => addChair(chairs, t))
+  }
+
+  function handleChairRemove(itemId: string, chairId: string) {
+    pushHistory()
+    updateChairs(itemId, (chairs) => removeChair(chairs, chairId))
+  }
+
+  /** Even out the spacing after a lot of manual dragging. */
+  function handleChairsTidy(itemId: string) {
+    pushHistory()
+    updateChairs(itemId, (chairs, item) => {
+      const f = furnitureFor(item)
+      return f ? redistributeChairs(geometryOf(f), chairs) : chairs
+    })
+  }
+
+  /** Put the chairs back to what the furniture says it seats. */
+  function handleChairsReset(itemId: string) {
+    pushHistory()
+    setSetupItems(prev => prev.map(i => (i.id === itemId ? { ...i, chairs: null } : i)))
+  }
+
+  function handleChairsClear(itemId: string) {
+    pushHistory()
+    setSetupItems(prev => prev.map(i => (i.id === itemId ? { ...i, chairs: [] } : i)))
   }
 
   const [rebuildKey, setRebuildKey] = useState(0)
@@ -351,7 +494,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       }
       // Background loads for setup layer
       fetch(`/api/admin/floorplan/${plan.id}/setups`).then(r => { if (r.ok) r.json().then((d: any[]) => setSetups(d)) }).catch(() => {})
-      fetch('/api/admin/table-profiles').then(r => { if (r.ok) r.json().then((d: any[]) => setTableProfiles(d)) }).catch(() => {})
+      fetch('/api/admin/furniture').then(r => { if (r.ok) r.json().then((d: FurnitureView[]) => setFurniture(d)) }).catch(() => {})
       fetch(`/api/admin/floorplan/${plan.id}/section-boundaries`).then(r => { if (r.ok) r.json().then((d: any[]) => setSectionBoundaries(d)) }).catch(() => {})
       fetch('/api/admin/inventory').then(r => { if (r.ok) r.json().then((d: any[]) => setAllInventoryItems(d)) }).catch(() => {})
       setLoading(false)
@@ -385,6 +528,11 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Escape' && armedFurnitureId) {
+      e.preventDefault()
+      setArmedFurnitureId(null)
+      return
+    }
     if (e.key === 'Delete') {
       if (setupSelectedIds.length > 0) { e.preventDefault(); deleteSetupSelected(); return }
       if (selectedIds.length > 0) { e.preventDefault(); deleteSelected(); return }
@@ -453,6 +601,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           ...i,
           id: i.id.startsWith('new_setup_') ? undefined : i.id,
           _clientId: i.id,
+          furnitureItemId: i.furnitureItemId ?? null,
+          chairs: chairsOf(i),
           assignedNumber: i.assignedNumber ?? null,
           label: i.assignedNumber ?? i.label ?? undefined,
           sectionId: i.sectionId ?? null,
@@ -507,34 +657,34 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     const out: { id: string; outline: [number, number][][]; chairs: { x: number; y: number }[] }[] = []
     for (const [gid, members] of groups) {
       if (members.length < 2) continue
-      const profile = tableProfiles.find(p => p.id === members[0].tableProfileId)
+      const f = furnitureFor(members[0])
       const tables = members.map(m => ({ x: m.x, y: m.y, width: m.width, depth: m.depth, rotation: m.rotation ?? 0 }))
       const outline = unionTablePolygons(tables)
       let chairs: { x: number; y: number }[] = []
-      if (profile?.seatingDensity && profile.seatingDensity > 0) {
-        const headWidth = Math.min(profile.width, profile.depth)
+      if (f?.seatingDensity && f.seatingDensity > 0) {
+        const headWidth = Math.min(f.width, f.depth)
         let headDir: number | undefined
-        if (profile.width !== profile.depth) {
+        if (f.width !== f.depth) {
           const rb = (members[0].rotation ?? 0) % 180
-          headDir = profile.width > profile.depth ? ((rb + 90) % 180 + 180) % 180 : ((rb % 180) + 180) % 180
+          headDir = f.width > f.depth ? ((rb + 90) % 180 + 180) % 180 : ((rb % 180) + 180) % 180
         }
-        const res = computeGroupChairs(tables, profile.seatingDensity, undefined, headWidth, profile.maxHeadChairs, headDir)
+        const res = computeGroupChairs(tables, f.seatingDensity, undefined, headWidth, f.maxHeadChairs, headDir)
         chairs = res.placements.map(p => ({ x: p.x, y: p.y }))
       }
       out.push({ id: gid, outline, chairs })
     }
     return out
-  }, [activeSetupId, setupItems, tableProfiles])
+  }, [activeSetupId, setupItems, furnitureById])
 
   const profilesForCalc = useMemo(() => {
     return new Map<string, TableProfileWithBom>(
-      tableProfiles.map((tp: any) => [tp.id, {
-        id: tp.id, name: tp.name, chairCount: tp.chairCount,
-        seatingDensity: tp.seatingDensity, width: tp.width, depth: tp.depth, maxHeadChairs: tp.maxHeadChairs,
-        bomItems: (tp.bomItems ?? []).map((b: any) => ({ inventoryItemId: b.inventoryItemId ?? b.item?.id, quantity: b.quantity, perChair: b.perChair ?? false })),
+      furniture.map((f) => [f.id, {
+        id: f.id, name: f.name, chairCount: f.defaultChairCount,
+        seatingDensity: f.seatingDensity, width: f.width, depth: f.depth, maxHeadChairs: f.maxHeadChairs,
+        bomItems: f.bomItems,
       }])
     )
-  }, [tableProfiles])
+  }, [furniture])
 
   // Live per-section totals keyed by sectionId (for the zone badges + summary)
   const zoneTotals = useMemo(() => {
@@ -546,12 +696,34 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     return map
   }, [activeSetupId, setupItems, zones, profilesForCalc])
 
+  const activeSetup = setups.find(s => s.id === activeSetupId) ?? null
+
   const setupGrand = useMemo(() => {
     if (!activeSetupId) return { tables: 0, seats: 0 }
     const zoneRects = zones.map(z => ({ sectionId: z.sectionId, x: z.x, y: z.y, width: z.width, height: z.height }))
     const totals = computeSetupSectionTotals(setupItems, zoneRects, profilesForCalc)
     return totals.reduce((acc, t) => ({ tables: acc.tables + t.tables, seats: acc.seats + t.seats }), { tables: 0, seats: 0 })
   }, [activeSetupId, setupItems, zones, profilesForCalc])
+
+  /**
+   * Flatten a placement into what the canvas draws. Geometry and chair
+   * dimensions are resolved here so the renderer never has to look anything up
+   * mid-draw, and chairs fall back to the furniture's default layout.
+   */
+  function toCanvasItem(i: SetupItemInput) {
+    const f = furnitureFor(i)
+    const chairItem = f?.chairItemId ? furnitureById.get(f.chairItemId) : undefined
+    return {
+      ...i,
+      shape: i.shape ?? f?.shape ?? 'RECTANGLE',
+      vertices: i.vertices ?? f?.vertices ?? null,
+      colour: f?.colour ?? '#e6c347',
+      chairCount: f?.defaultChairCount ?? 0,
+      chairs: chairsOf(i),
+      chairWidth: chairItem?.width ?? 45,
+      chairDepth: chairItem?.depth ?? 45,
+    }
+  }
 
   function sectionForPoint(cx: number, cy: number): string | null {
     for (const z of zones) {
@@ -614,8 +786,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             BASE PLAN
           </button>
           <button onClick={() => {
-            if (!activeSetupId && setups.length === 0) handleNewSetup()
-            else if (!activeSetupId && setups.length > 0) handleSetupChange(setups[0].id)
+            // Always land on the default layout — the everyday arrangement — so
+            // the button never dumps you into somebody's wedding setup.
+            if (!activeSetupId) handleSetupChange((setups.find(s => s.isDefault) ?? setups[0])?.id ?? null)
           }}
             className={`font-mono text-xs uppercase px-3 py-1 border ${activeSetupId ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'}`}>
             TABLE LAYOUT
@@ -627,19 +800,30 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 onChange={(e) => handleSetupChange(e.target.value || null)}
                 className="bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-2 py-1 outline-none"
               >
-                {setups.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {setups.map(s => (
+                  <option key={s.id} value={s.id}>{s.isDefault ? `★ ${s.name} (DEFAULT)` : s.name}</option>
+                ))}
               </select>
               <button onClick={handleNewSetup}
                 className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5 border border-grey-mid">
-                + NEW
+                + EVENT
               </button>
-              <button onClick={handleDeleteSetup}
-                className="font-mono text-[10px] text-danger hover:text-white uppercase px-1.5 py-0.5 border border-red-800/50">
-                DELETE
-              </button>
+              {/* The default layout is what the room reverts to between events,
+                  so it is editable but never removable. */}
+              {!activeSetup?.isDefault && (
+                <button onClick={handleDeleteSetup}
+                  className="font-mono text-[10px] text-danger hover:text-white uppercase px-1.5 py-0.5 border border-red-800/50">
+                  DELETE
+                </button>
+              )}
             </div>
           )}
         </div>
+        {activeSetup?.isDefault && (
+          <span className="font-mono text-[9px] uppercase text-grey-light tracking-wider">
+            EVERYDAY LAYOUT · OWNS TABLE NUMBERS
+          </span>
+        )}
         {activeSetupId && (
           <span className="font-mono text-[10px] uppercase text-success tracking-wider">
             {setupGrand.tables} TBL · {setupGrand.seats} PAX
@@ -731,43 +915,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             const screenY = e.clientY - rect.top
             const x = (screenX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
             const y = (screenY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
-            // TableProfile drop (setup mode)
-            if (type.startsWith('tp_') && activeSetupId) {
-              const tpId = type.replace('tp_', '')
-              const tp = tableProfiles.find(p => p.id === tpId)
-              if (!tp) return
-              const pool = (tp as any)?.tableNumbers
-              const poolArr: string[] = Array.isArray(pool) ? pool.map(String) : []
-              const assignedNumber = assignTableNumber(tp.id, setupItems)
-              if (poolArr.length > 0 && assignedNumber === null) {
-                pushToast(`All table numbers for ${tp.name} are assigned.`, 'error')
-                return
-              }
-              const id = `new_setup_${nextIdCounter.current++}`
-              const gu = plan.gridUnit
-              const itemX = snapEnabled ? snap(x, gu) - tp.width / 2 : x - tp.width / 2
-              const itemY = snapEnabled ? snap(y, gu) - tp.depth / 2 : y - tp.depth / 2
-              const item: SetupItemInput = {
-                id,
-                tableProfileId: tp.id,
-                assignedNumber,
-                x: itemX,
-                y: itemY,
-                rotation: 0,
-                width: tp.width,
-                depth: tp.depth,
-                sectionId: sectionForPoint(itemX + tp.width / 2, itemY + tp.depth / 2),
-                label: assignedNumber ?? tp.name,
-                chairEdges: defaultEdgeChairs({
-                  width: tp.width, depth: tp.depth,
-                  seatingDensity: tp.seatingDensity ?? null,
-                  maxHeadChairs: (tp as any).maxHeadChairs ?? 1,
-                  capacity: tp.chairCount ?? 0,
-                }),
-              }
-              pushHistory()
-              setSetupItems(prev => [...prev, item])
-              return
+            if (type.startsWith(FURNITURE_DRAG_PREFIX)) {
+              placeFurniture(type.slice(FURNITURE_DRAG_PREFIX.length), x, y)
             }
           }}
         >
@@ -852,17 +1001,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             }}
             rebuildKey={rebuildKey}
             showDimensions={showDimensions}
-            setupItems={activeSetupId ? setupItems.map(i => ({
-              ...i,
-              colour: tableProfiles.find(tp => tp.id === i.tableProfileId)?.colour ?? '#555',
-              chairCount: tableProfiles.find(tp => tp.id === i.tableProfileId)?.chairCount ?? 0,
-              chairEdges: i.chairEdges ?? null,
-            })) : (ghostItems.length > 0 ? ghostItems.map(i => ({
-              ...i,
-              colour: tableProfiles.find(tp => tp.id === i.tableProfileId)?.colour ?? '#555',
-              chairCount: tableProfiles.find(tp => tp.id === i.tableProfileId)?.chairCount ?? 0,
-              chairEdges: i.chairEdges ?? null,
-            })) : undefined)}
+            setupItems={activeSetupId ? setupItems.map(toCanvasItem) : (ghostItems.length > 0 ? ghostItems.map(toCanvasItem) : undefined)}
             setupSelectedIds={activeSetupId ? setupSelectedIds : []}
             ghostMode={!activeSetupId && setups.length > 0}
             wallDrawing={wallDrawing}
@@ -871,6 +1010,11 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             zonePolyMode={zonePolyMode}
             zonePolyPoints={zonePolyPoints}
             onZonePolyAdd={(x, y) => setZonePolyPoints((prev) => [...prev, { x: Math.round(x), y: Math.round(y) }])}
+            armedPlacement={!!armedFurnitureId}
+            onCanvasPlace={(x, y) => {
+              if (!armedFurnitureId) return
+              placeFurniture(armedFurnitureId, x, y)
+            }}
             onSetupItemClick={(id, ctrlKey) => {
               if (!id) { setSetupSelectedIds([]); return }
               setSetupSelectedIds(prev =>
@@ -879,7 +1023,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               )
             }}
             onSetupItemDragEnd={handleSetupItemDragEnd}
-            onSetupChairEdge={handleSetupChairEdge}
+            onSetupChairMove={handleChairMove}
+            onSetupChairAdd={handleChairAdd}
+            onSetupChairRemove={handleChairRemove}
             onSetupItemRotate={handleSetupItemRotate}
             onSetupItemsJoin={handleSetupItemsJoin}
             setupGroups={activeSetupId ? setupGroupRenders : undefined}
@@ -927,6 +1073,16 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               </div>
             </div>
           )}
+          {/* The palette is the way furniture gets onto a layout — keep it at
+              the top of the panel and out of the way of the inspector below. */}
+          <FurniturePalette
+            furniture={furniture}
+            armedId={armedFurnitureId}
+            onArm={setArmedFurnitureId}
+            disabled={!activeSetupId}
+            disabledReason="SWITCH TO A TABLE LAYOUT TO PLACE FURNITURE"
+          />
+
           <SetupInventoryPanel
             activeSetupId={activeSetupId}
             shortages={shortages}
@@ -936,10 +1092,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           {setupSelectedIds.length > 0 ? (() => {
             const sel = setupItems.filter(i => setupSelectedIds.includes(i.id))
             const first = sel[0]
-            const profile = first ? tableProfiles.find(p => p.id === first.tableProfileId) : null
+            const profile = first ? furnitureFor(first) : undefined
             const sectionName = first?.sectionId ? sectionMap.get(first.sectionId)?.name : null
-            const edges = first?.chairEdges ?? { top: 0, bottom: 0, left: 0, right: 0 }
-            const totalChairs = edges.top + edges.bottom + edges.left + edges.right
+            const totalChairs = first ? chairsOf(first).length : 0
             return (
               <>
                 {/* ── TABLE IDENTITY ── */}
@@ -951,7 +1106,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                         {sel.length > 1 ? `${sel.length} TABLES` : (first?.label || profile?.name || 'TABLE')}
                       </p>
                       {profile && (
-                        <p className="font-mono text-[9px] text-grey-light">{profile.name} · {profile.chairCount}S CAP</p>
+                        <p className="font-mono text-[9px] text-grey-light">
+                          {profile.name} · {Math.round(profile.width)}×{Math.round(profile.depth)}
+                        </p>
                       )}
                     </div>
                     <button onClick={deleteSetupSelected}
@@ -985,28 +1142,25 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 {/* ── CHAIRS ── */}
                 {sel.length === 1 && !first?.tableGroupId && (
                   <div className="border border-grey-mid p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">CHAIRS ({totalChairs})</p>
-                      <button onClick={() => handleSetupChairEdge(first.id, 'top', -edges.top)}
-                        className="font-mono text-[9px] text-danger hover:text-white border border-red-800/50 px-1">CLEAR</button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1">
-                      {(['top', 'bottom', 'left', 'right'] as const).map((edge) => (
-                        <div key={edge} className="flex items-center justify-between border border-grey-mid p-1.5">
-                          <span className="font-mono text-[10px] text-grey-light uppercase">{edge}</span>
-                          <div className="flex items-center gap-0.5">
-                            <button onClick={() => handleSetupChairEdge(first.id, edge, -1)}
-                              className="font-mono text-[10px] text-grey-light hover:text-white px-1 py-0.5 border border-grey-mid hover:border-white">
-                              −
-                            </button>
-                            <span className="font-mono text-[11px] text-white w-5 text-center">{edges[edge]}</span>
-                            <button onClick={() => handleSetupChairEdge(first.id, edge, 1)}
-                              className="font-mono text-[10px] text-grey-light hover:text-white px-1 py-0.5 border border-grey-mid hover:border-accent hover:text-accent">
-                              +
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">
+                      CHAIRS ({totalChairs})
+                    </p>
+                    <p className="font-mono text-[9px] text-grey-light leading-snug">
+                      DRAG A CHAIR TO MOVE IT · CLICK THE TABLE EDGE TO ADD · RIGHT-CLICK A CHAIR TO REMOVE
+                    </p>
+                    <div className="grid grid-cols-3 gap-1">
+                      <button onClick={() => handleChairsTidy(first.id)}
+                        className="font-mono text-[9px] uppercase text-grey-light hover:text-white border border-grey-mid hover:border-white px-1 py-1">
+                        TIDY
+                      </button>
+                      <button onClick={() => handleChairsReset(first.id)}
+                        className="font-mono text-[9px] uppercase text-grey-light hover:text-white border border-grey-mid hover:border-white px-1 py-1">
+                        RESET
+                      </button>
+                      <button onClick={() => handleChairsClear(first.id)}
+                        className="font-mono text-[9px] uppercase text-danger hover:text-white border border-red-800/50 hover:border-danger px-1 py-1">
+                        CLEAR
+                      </button>
                     </div>
                   </div>
                 )}
