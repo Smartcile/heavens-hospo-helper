@@ -68,6 +68,15 @@ enum ResourceKind {
   HOWTO
 }
 
+// What a guide or pathway is targeted at. Polymorphic so one "APPLIES TO"
+// control covers all three, and a guide can hit several at once (a food-safety
+// SOP belongs to Kitchen *and* Bar).
+enum AudienceKind {
+  DEPARTMENT
+  SECTION
+  POSITION
+}
+
 enum GuideStatus {
   DRAFT
   PUBLISHED
@@ -156,6 +165,8 @@ model Venue {
   staffVenues         StaffVenue[]
   menuItemVenues      MenuItemVenue[]
   bookings            Booking[]
+  positions           Position[]
+  pathways            Pathway[]
 }
 
 model Department {
@@ -181,6 +192,8 @@ model Department {
   moduleDepartments ModuleDepartment[]
   linkedFrom        DepartmentLink[] @relation("FromDepartment")
   linkedTo          DepartmentLink[] @relation("ToDepartment")
+  positions         Position[]
+  pathways          Pathway[]
 }
 
 model DepartmentLink {
@@ -238,6 +251,7 @@ model Staff {
   payrollEntries       PayrollEntry[]
   staffVenues          StaffVenue[]
   maintenanceLogs      MaintenanceLog[]
+  positions            StaffPosition[]
 }
 
 model Task {
@@ -734,7 +748,8 @@ model ShiftNote {
   shiftDate      DateTime  @db.Date
   category       String    @default("AREA TO WORK ON") // AREA TO WORK ON | PRAISE | INCIDENT | GENERAL
   content        String
-  linkedModuleId String?            // training module assigned to address this
+  linkedModuleId String?            // DEPRECATED — legacy TrainingModule. Use linkedGuideId.
+  linkedGuideId  String?            // guide assigned to address this
   resolvedAt     DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -900,6 +915,7 @@ model Section {
   setupItems        SetupItem[]
   storedItems       InventoryItem[]
   budgetLines       BudgetLine[]
+  pathways          Pathway[]
 
   @@index([venueId])
   @@index([departmentId])
@@ -928,6 +944,44 @@ model StaffVenue {
   venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
 
   @@unique([staffId, venueId])
+}
+
+// A job title — distinct from Section, which is a place. "DUTY MANAGER" spans
+// every section; "BARISTA" doesn't. departmentId is optional because roles like
+// DUTY MANAGER cross departments.
+model Position {
+  id           String    @id @default(uuid())
+  name         String              // ALL CAPS
+  venueId      String
+  departmentId String?
+  colour       String?
+  sortOrder    Int       @default(0)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  venue      Venue           @relation(fields: [venueId], references: [id])
+  department Department?     @relation(fields: [departmentId], references: [id])
+  staff      StaffPosition[]
+  pathways   Pathway[]
+
+  @@index([venueId])
+}
+
+// Staff ⇄ Position (a person can hold many roles — common in small venues where
+// one person covers everything).
+model StaffPosition {
+  id         String   @id @default(uuid())
+  staffId    String
+  positionId String
+  isPrimary  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  staff    Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, positionId])
 }
 
 // Resource ⇄ Section (a resource can be shared across many sections).
@@ -975,7 +1029,8 @@ model FollowUp {
   venueId      String
   staffId      String
   taskId       String?
-  moduleId     String?        // training to do / that was missing
+  moduleId     String?        // DEPRECATED — legacy TrainingModule. Use guideId.
+  guideId      String?        // guide to do / that was missing
   kind         FollowUpKind
   status       FollowUpStatus @default(OPEN)
   detail       String?
@@ -989,6 +1044,7 @@ model FollowUp {
   staff  Staff           @relation(fields: [staffId], references: [id])
   task   Task?           @relation(fields: [taskId], references: [id])
   module TrainingModule? @relation(fields: [moduleId], references: [id])
+  guide  Guide?          @relation(fields: [guideId], references: [id])
 
   @@unique([venueId, staffId, kind, taskId, dueDate])
   @@index([venueId, status])
@@ -1008,6 +1064,7 @@ model Guide {
   isOnboarding    Boolean     @default(false)
   requiresSignOff Boolean     @default(false)
   legacyToolsNote String?
+  version         Int         @default(1) // bumped on a "significant change" (drives re-train)
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   deletedAt       DateTime?
@@ -1018,6 +1075,8 @@ model Guide {
   taskGuides TaskGuide[]
   completions GuideCompletion[]
   assignments GuideAssignment[]
+  followUps   FollowUp[]
+  audiences   GuideAudience[]
 
   @@index([venueId])
   @@index([venueId, status])
@@ -1034,7 +1093,8 @@ model GuideStep {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  guide Guide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  guide Guide           @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  links GuideStepLink[]
 
   @@index([guideId])
 }
@@ -1071,6 +1131,56 @@ model GuideCompletion {
   @@index([staffId])
 }
 
+// What a step points at. Replaces five separate junction tables on the legacy
+// TrainingStep (StepInventoryItem, StepTask, StepModule, linkedTaskId,
+// linkedChecklistId) with one row shape — so the editor has one "+ LINK" control
+// and adding a new link type later is an enum value, not a migration.
+//
+// targetId is polymorphic, so there is no FK. lib/guide-links.ts batch-resolves
+// per kind and marks a vanished target as missing rather than failing.
+enum StepLinkKind {
+  ITEM
+  TASK
+  CHECKLIST
+  GUIDE
+  SECTION
+  RECIPE
+}
+
+model GuideStepLink {
+  id        String       @id @default(uuid())
+  stepId    String
+  kind      StepLinkKind
+  targetId  String
+  qty       Int?         // "2× T20 TORX"
+  note      String?      // "TOP SHELF, ABOVE THE GRINDER"
+  order     Int          @default(0)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  step GuideStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  @@unique([stepId, kind, targetId])
+  @@index([stepId])
+}
+
+// Who a guide auto-applies to. Replaces the single Guide.departmentId, which
+// could only ever name one department and could not reach sections or roles.
+// targetId is polymorphic on `kind` — no FK, so the resolver treats a missing
+// target as "no longer applies" rather than failing.
+model GuideAudience {
+  id        String       @id @default(uuid())
+  guideId   String
+  kind      AudienceKind
+  targetId  String
+  createdAt DateTime     @default(now())
+
+  guide Guide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+
+  @@unique([guideId, kind, targetId])
+  @@index([guideId])
+}
+
 model GuideAssignment {
   id           String    @id @default(uuid())
   guideId      String
@@ -1085,6 +1195,81 @@ model GuideAssignment {
   staff Staff @relation(fields: [staffId], references: [id])
 
   @@unique([guideId, staffId])
+}
+
+// --- PATHWAYS (the authored onboarding / progression tree) ---
+//
+// A pathway stores SHAPE only — which guides/tasks sit where, and what unlocks
+// what. Progress is never stored here: a node reads DONE because a
+// GuideCompletion / TaskCompletion already exists. That keeps one source of
+// truth and stops a progress table growing by staff × node.
+
+enum PathwayNodeKind {
+  GUIDE
+  TASK
+  CHECKLIST
+  MILESTONE // no target — a stage marker / reward the manager signs off
+}
+
+model Pathway {
+  id           String      @id @default(uuid())
+  name         String              // ALL CAPS
+  description  String?
+  venueId      String
+  departmentId String?
+  sectionId    String?
+  positionId   String?
+  status       GuideStatus @default(DRAFT)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
+
+  venue      Venue       @relation(fields: [venueId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+  section    Section?    @relation(fields: [sectionId], references: [id])
+  position   Position?   @relation(fields: [positionId], references: [id])
+  nodes      PathwayNode[]
+  edges      PathwayEdge[]
+
+  @@index([venueId])
+  @@index([venueId, status])
+}
+
+model PathwayNode {
+  id        String          @id @default(uuid())
+  pathwayId String
+  kind      PathwayNodeKind
+  targetId  String?         // null for MILESTONE
+  label     String?         // override / milestone text
+  x         Float           @default(0)
+  y         Float           @default(0)
+  stage     Int             @default(0) // tier — drives the worker tree layout
+  points    Int             @default(10)
+  sortOrder Int             @default(0)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  pathway   Pathway       @relation(fields: [pathwayId], references: [id], onDelete: Cascade)
+  edgesFrom PathwayEdge[] @relation("PathwayEdgeFrom")
+  edgesTo   PathwayEdge[] @relation("PathwayEdgeTo")
+
+  @@index([pathwayId])
+}
+
+// "finish fromNode → unlocks toNode"
+model PathwayEdge {
+  id         String   @id @default(uuid())
+  pathwayId  String
+  fromNodeId String
+  toNodeId   String
+  createdAt  DateTime @default(now())
+
+  pathway  Pathway     @relation(fields: [pathwayId], references: [id], onDelete: Cascade)
+  fromNode PathwayNode @relation("PathwayEdgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode   PathwayNode @relation("PathwayEdgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
+
+  @@unique([pathwayId, fromNodeId, toNodeId])
+  @@index([pathwayId])
 }
 
 // --- FLOOR PLANNER ---

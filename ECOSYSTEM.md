@@ -103,13 +103,18 @@ SOPs, FAQs, how-tos and training are **one kind of thing** — a `Guide` with
 guides (isTracked: false) are pure reference. One table, one editor, one
 worker view.
 
-**Inventory items as tools/equipment:** Individual training/SOP steps can
-reference `InventoryItem` records via `StepInventoryItem` — so a step like
-"Use the T20 Torx to open the grinder" can link the exact tool from inventory.
-Staff then see: the tool photo, its storage location (department → section path),
-storage notes (e.g. "TOP SHELF, ABOVE COFFEE"), and supplier — all inline in the
-training view. Items also track serial numbers, purchase dates, warranties, and
-maintenance schedules per-item for full asset management.
+**Inventory items as tools/equipment:** a guide step can reference an
+`InventoryItem` via `GuideStepLink` — so "Use the T20 Torx to open the grinder"
+links the exact tool. Staff see the photo, its storage location (department →
+section path), storage notes ("TOP SHELF, ABOVE COFFEE") and supplier, inline in
+the reader. The same table links a step to a task, a checklist, another guide, a
+section or a recipe — one row shape, one editor control, one renderer.
+
+**Roles as well as places.** A `Section` is *where* (Coffee, Bar 1); a `Position`
+is *what job* (BARISTA, DUTY MANAGER). A person holds any number of both. A guide
+targets either — or a whole department — through `GuideAudience`, so tagging a
+guide to Coffee **once** means every barista inherits it with nobody assigning
+anything by hand.
 
 ---
 
@@ -226,7 +231,40 @@ edit task/SOP + tick "Require re-training"
           └─► staff tap GOT IT  →  manager sees confirmations
 ```
 
-## 6 · Using it day to day
+## 6 · The pathway (the tree)
+
+Sections and guides say *what* applies to someone. A **pathway** says in *what
+order* — it is the onboarding / progression map for a role.
+
+```
+PATHWAY "New bartender"        targets → POSITION: Bartender
+  │
+  ├─ STAGE 1   Guide: Bar basics ──┐
+  │            Guide: Glassware ───┤
+  │                                ▼
+  ├─ STAGE 2   ★ MILESTONE "Floor ready"   ← awarded automatically
+  │                    │
+  │                    ▼
+  └─ STAGE 3   Guide: Cocktails  (LOCKED until the milestone lands)
+```
+
+Two rules make this safe on a real floor:
+
+- **The tree gates learning, never work.** A locked node cannot be *banked*, but
+  it is still readable, and nothing stops anyone ticking a task on a short-staffed
+  Friday. The untrained-completion follow-up (§3) remains the safety net.
+- **Progress is never stored twice.** A node reads DONE because a guide or task
+  completion already exists. Points and levels are summed on read, so there is no
+  parallel progress table to drift out of sync.
+
+Managers draw the tree at `/admin/pathways` — drag nodes, drag between them to
+set a prerequisite. Staff see it at `/w/guides` under **MY TREE**, with a
+**BIBLE** tab beside it holding everything that applies to them, readable any
+time.
+
+---
+
+## 7 · Using it day to day
 
 - **Managers** set up the structure (departments → sections → tasks + the
   knowledge that backs them), roster shifts, and post notices. They review

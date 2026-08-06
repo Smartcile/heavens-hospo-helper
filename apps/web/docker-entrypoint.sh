@@ -47,6 +47,14 @@ cd /app/packages/db
 npm run db:migrate-furniture || echo "⚠ Furniture migration step failed (see error above) — continuing to start the app."
 
 echo ""
+echo "▸ Recovering guide step links + guide audiences (post-sync)..."
+# Also must run AFTER db push. migrate-step-links reads the deprecated
+# TrainingStep junctions to rebuild links that migrate-to-guides had to drop.
+# Both are idempotent.
+npm run db:migrate-step-links || echo "⚠ Step-link recovery failed (see error above) — continuing to start the app."
+npm run db:backfill-guide-audiences || echo "⚠ Guide audience backfill failed (see error above) — continuing to start the app."
+
+echo ""
 echo "▸ Seeding database (safe to re-run)..."
 cd /app/packages/db
 npm run db:seed || echo "⚠ Seed step failed (see error above) — continuing to start the app."

@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
-type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'training' | 'sops' | 'floorplan' | 'stocktake' | 'timeclock'
+type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock'
 
 interface DashData {
   firstName: string
@@ -54,12 +54,12 @@ export function WorkerDashboardClient() {
     if (loaded.current) return
     loaded.current = true
 
-    const [tasksR, noticesR, calR, guidesR, sopsR, stocktakeR, clockR] = await Promise.all([
+    const [tasksR, noticesR, calR, guidesR, pathwayR, stocktakeR, clockR] = await Promise.all([
       fetch('/api/worker/tasks'),
       fetch('/api/worker/notices'),
       fetch('/api/worker/calendar'),
       fetch('/api/worker/guides'),
-      fetch('/api/worker/sops'),
+      fetch('/api/worker/pathway'),
       fetch('/api/worker/stocktake'),
       fetch('/api/worker/timeclock/status'),
     ])
@@ -70,7 +70,7 @@ export function WorkerDashboardClient() {
     const notices = await noticesR.json()
     const cal = await calR.json()
     const guides = await guidesR.json()
-    const sops = await sopsR.json()
+    const pathway = pathwayR.ok ? await pathwayR.json() : { pathway: null }
     const stocktakes = stocktakeR.ok ? await stocktakeR.json() : []
     const clock = clockR.ok ? await clockR.json() : { isClockedIn: false }
 
@@ -90,7 +90,8 @@ export function WorkerDashboardClient() {
       upcomingShifts: (cal.shifts ?? []).length,
       trainingDone: guideItems.filter((t: { completed: boolean }) => t.completed).length,
       trainingTotal: guideItems.length,
-      sopCount: (sops.items ?? []).length,
+      // Points earned on their pathway — 0 when no pathway targets them.
+      sopCount: pathway.pathway?.progress?.earnedPoints ?? 0,
       newTraining: newGuides,
       pendingStocktakes: (stocktakes ?? []).length,
       isClockedIn: clock.isClockedIn ?? false,
@@ -247,21 +248,21 @@ export function WorkerDashboardClient() {
           `${data?.trainingDone}/${data?.trainingTotal}`,
           'text-grey-light',
           'border-grey-mid',
-          () => setView('training')
+          () => setView('guides')
         )}
 
         {card(
-          'SOPS & GUIDES',
+          'MY POINTS',
           data && data.sopCount > 0
-            ? `${data.sopCount} REFERENCE GUIDE${data.sopCount !== 1 ? 'S' : ''} AVAILABLE`
-            : 'NO GUIDES AVAILABLE YET',
+            ? `${data.sopCount} POINTS EARNED ON YOUR TREE`
+            : 'START YOUR TREE TO EARN POINTS',
           <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="square" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>,
-          `${data?.sopCount} GUIDES`,
+          `${data?.sopCount} PTS`,
           'text-grey-light',
           'border-grey-mid',
-          () => setView('sops')
+          () => setView('guides')
         )}
 
         {card(

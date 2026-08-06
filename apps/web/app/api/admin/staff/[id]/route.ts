@@ -71,6 +71,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
     updates.sections = { deleteMany: {}, create: ids.map((sectionId: string) => ({ sectionId })) }
   }
 
+  // Same for positions — a person can hold several roles.
+  if (body.positionIds !== undefined) {
+    const ids: string[] = Array.isArray(body.positionIds) ? body.positionIds : []
+    updates.positions = {
+      deleteMany: {},
+      create: [...new Set(ids)].map((positionId: string) => ({ positionId })),
+    }
+  }
+
   // PIN: empty/undefined leaves it unchanged; empty string clears it.
   if (pin) {
     if (!/^\d{2,4}$/.test(String(pin))) {

@@ -14,6 +14,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
   }
 
+  const existing = await prisma.guide.findUnique({
+    where: { id: params.id },
+    select: { venueId: true, deletedAt: true },
+  })
+  if (!existing || existing.deletedAt) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  if (session.user.role === 'MANAGER' && existing.venueId !== session.user.venueId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const guide = await prisma.guide.update({
     where: { id: params.id },
     data: { status },

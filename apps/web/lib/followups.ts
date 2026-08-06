@@ -1,8 +1,12 @@
 // Trigger engine (Phase D). Turns gaps into manager follow-ups:
-//   • UNTRAINED — a task completed by someone who lacks its required training
+//   • UNTRAINED — a task completed by someone who lacks its required guide
 //   • MISSED    — an assigned task that was due but not completed (also
-//                 auto-assigns the required training to the person)
+//                 auto-assigns the required guide to the person)
 // Idempotent: FollowUp has @@unique([venueId, staffId, kind, taskId, dueDate]).
+//
+// Competency is read from TaskGuide.isRequiredForCompetency + GuideCompletion.
+// This previously read the legacy TaskRequiredTraining/TrainingCompletion pair,
+// which meant a competency set in the Playbook raised no follow-up at all.
 
 import { prisma } from '@hospo-ops/db'
 import { getTodayDate } from '@/lib/utils'
@@ -11,8 +15,8 @@ import { isTaskDueOnDate, formatDateKey } from '@/lib/scheduling'
 const MISSED_WINDOW_DAYS = 7
 
 /**
- * Called right after a task completion is saved. If the task declares required
- * training the staff member doesn't hold, raise an UNTRAINED follow-up.
+ * Called right after a task completion is saved. If the task declares a required
+ * competency guide the staff member doesn't hold, raise an UNTRAINED follow-up.
  * Best-effort — callers should not let this block the completion.
  */
 export async function checkUntrainedOnCompletion(opts: {
@@ -21,23 +25,27 @@ export async function checkUntrainedOnCompletion(opts: {
   venueId: string
   date: Date
 }): Promise<void> {
-  const required = await prisma.taskRequiredTraining.findMany({
-    where: { taskId: opts.taskId },
-    include: { module: { select: { id: true, title: true } } },
+  const required = await prisma.taskGuide.findMany({
+    where: {
+      taskId: opts.taskId,
+      isRequiredForCompetency: true,
+      guide: { deletedAt: null },
+    },
+    include: { guide: { select: { id: true, title: true } } },
   })
   if (required.length === 0) return
 
-  const moduleIds = required.map((r) => r.moduleId)
-  const held = await prisma.trainingCompletion.findMany({
-    where: { staffId: opts.staffId, moduleId: { in: moduleIds } },
-    select: { moduleId: true },
+  const guideIds = required.map((r) => r.guideId)
+  const held = await prisma.guideCompletion.findMany({
+    where: { staffId: opts.staffId, guideId: { in: guideIds } },
+    select: { guideId: true },
   })
-  const heldSet = new Set(held.map((h) => h.moduleId))
-  const missing = required.filter((r) => !heldSet.has(r.moduleId))
+  const heldSet = new Set(held.map((h) => h.guideId))
+  const missing = required.filter((r) => !heldSet.has(r.guideId))
   if (missing.length === 0) return
 
   const task = await prisma.task.findUnique({ where: { id: opts.taskId }, select: { title: true } })
-  const detail = `Completed "${task?.title ?? 'task'}" without: ${missing.map((m) => m.module.title).join(', ')}`
+  const detail = `Completed "${task?.title ?? 'task'}" without: ${missing.map((m) => m.guide.title).join(', ')}`
 
   await prisma.followUp.upsert({
     where: {
@@ -53,18 +61,18 @@ export async function checkUntrainedOnCompletion(opts: {
       venueId: opts.venueId,
       staffId: opts.staffId,
       taskId: opts.taskId,
-      moduleId: missing[0].moduleId,
+      guideId: missing[0].guideId,
       kind: 'UNTRAINED',
       detail,
       dueDate: opts.date,
     },
-    update: { detail, moduleId: missing[0].moduleId },
+    update: { detail, guideId: missing[0].guideId },
   })
 }
 
 /**
  * Scan an assigned task's recent due dates; for each miss, raise a MISSED
- * follow-up and auto-assign the required training to the responsible person.
+ * follow-up and auto-assign the required guide to the responsible person.
  * Idempotent — safe to run on every Follow-ups page load.
  */
 export async function generateVenueFollowUps(venueId: string): Promise<number> {
@@ -88,7 +96,7 @@ export async function generateVenueFollowUps(venueId: string): Promise<number> {
       deletedAt: null,
       isActive: true,
       assignedToStaffId: { not: null },
-      requiredTraining: { some: {} },
+      taskGuides: { some: { isRequiredForCompetency: true, guide: { deletedAt: null } } },
     },
     select: {
       id: true,
@@ -101,7 +109,10 @@ export async function generateVenueFollowUps(venueId: string): Promise<number> {
       monthlyOption: true,
       monthlyDay: true,
       createdAt: true,
-      requiredTraining: { select: { moduleId: true } },
+      taskGuides: {
+        where: { isRequiredForCompetency: true, guide: { deletedAt: null } },
+        select: { guideId: true },
+      },
     },
   })
   if (tasks.length === 0) return 0
@@ -123,12 +134,14 @@ export async function generateVenueFollowUps(venueId: string): Promise<number> {
       if (!isTaskDueOnDate(task, date)) continue
       if (done.has(`${task.id}|${staffId}|${key}`)) continue
 
-      // Auto-assign the required training (idempotent on @@unique moduleId+staffId).
-      for (const r of task.requiredTraining) {
-        await prisma.trainingAssignment.upsert({
-          where: { moduleId_staffId: { moduleId: r.moduleId, staffId } },
-          create: { moduleId: r.moduleId, staffId, reason: 'FOLLOW-UP: MISSED TASK' },
-          update: {},
+      // Auto-assign the required guide (idempotent on @@unique guideId+staffId).
+      // `deletedAt: null` un-does a previous unassign rather than leaving the
+      // row soft-deleted and the assignment silently inert.
+      for (const r of task.taskGuides) {
+        await prisma.guideAssignment.upsert({
+          where: { guideId_staffId: { guideId: r.guideId, staffId } },
+          create: { guideId: r.guideId, staffId, reason: 'FOLLOW-UP: MISSED TASK' },
+          update: { deletedAt: null },
         })
       }
 
@@ -142,9 +155,9 @@ export async function generateVenueFollowUps(venueId: string): Promise<number> {
           venueId,
           staffId,
           taskId: task.id,
-          moduleId: task.requiredTraining[0]?.moduleId ?? null,
+          guideId: task.taskGuides[0]?.guideId ?? null,
           kind: 'MISSED',
-          detail: `Missed "${task.title}" on ${key} — training assigned`,
+          detail: `Missed "${task.title}" on ${key} — guide assigned`,
           dueDate: date,
         },
         update: {},

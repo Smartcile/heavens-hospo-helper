@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { Modal } from '@/components/ui/Modal'
 import { TaskEditModal } from '@/components/admin/TaskEditModal'
-import { TrainingEditModal } from '@/components/admin/TrainingEditModal'
 import { StaffEditModal } from '@/components/admin/StaffEditModal'
 
 const StructureGraph = dynamic(
@@ -16,7 +15,7 @@ interface StaffNode { id: string; name: string; role: string }
 interface TaskLink { label: string; colour: string; kind: string; targetId: string; targetType: string; targetSub: string }
 interface TaskNode { id: string; title: string; schedule: string; active: boolean; scope: string; assignee: string | null; links?: TaskLink[] }
 interface TrainingNode { id: string; title: string; kind: string; signOff: boolean; linkedToTask: boolean }
-interface SectionNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; floorPlan?: { tables: number; chairs: number; equip: number }; inventoryItems?: { id: string; name: string; unit: string; storageNotes: string | null; totalQty: number; imageUrls: string[] | null }[] }
+interface SectionNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; training?: TrainingNode[]; floorPlan?: { tables: number; chairs: number; equip: number }; inventoryItems?: { id: string; name: string; unit: string; storageNotes: string | null; totalQty: number; imageUrls: string[] | null }[] }
 interface DeptNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; training: TrainingNode[]; sections: SectionNode[]; linkedDepartments?: { id: string; name: string; colour: string | null }[] }
 interface VenueNode {
   id: string
@@ -77,7 +76,7 @@ export function StructureClient({ role }: { role: string }) {
       for (const d of v.departments) {
         keys.push(`d:${d.id}`, `ds:${d.id}`, `dt:${d.id}`, `dr:${d.id}`)
         for (const sec of d.sections) {
-          keys.push(`s:${sec.id}`, `ss:${sec.id}`, `st:${sec.id}`, `sf:${sec.id}`, `si:${sec.id}`)
+          keys.push(`s:${sec.id}`, `ss:${sec.id}`, `st:${sec.id}`, `sr:${sec.id}`, `sf:${sec.id}`, `si:${sec.id}`)
         }
       }
     }
@@ -149,7 +148,7 @@ export function StructureClient({ role }: { role: string }) {
         {items.map((t) => (
           <div
             key={t.id}
-            onClick={editMode ? () => setEditTarget({ type: 'training', id: t.id }) : undefined}
+            onClick={editMode ? () => window.open(`/admin/guides?guide=${t.id}`, '_blank') : undefined}
             className={`font-mono text-xs text-white flex flex-wrap items-center gap-2 py-1 ${editMode ? 'cursor-pointer hover:bg-grey-mid/20 -mx-2 px-2' : ''}`}
           >
             {t.title}
@@ -293,6 +292,12 @@ export function StructureClient({ role }: { role: string }) {
                                         <Group k={`st:${sec.id}`} label="Tasks" count={sec.tasks.length} />
                                         {isOpen(`st:${sec.id}`) && <TaskList items={sec.tasks} />
                                         }
+                                        {(sec.training ?? []).length > 0 && (
+                                          <>
+                                            <Group k={`sr:${sec.id}`} label="Guides" count={sec.training!.length} />
+                                            {isOpen(`sr:${sec.id}`) && <TrainingList items={sec.training!} />}
+                                          </>
+                                        )}
                                         {(sec.inventoryItems ?? []).length > 0 && (
                                           <>
                                             <Group k={`si:${sec.id}`} label="Stored Items" count={sec.inventoryItems!.length} />
@@ -357,9 +362,6 @@ export function StructureClient({ role }: { role: string }) {
       {editTarget?.type === 'task' && (
         <TaskEditModal taskId={editTarget.id} role={role} onClose={() => setEditTarget(null)} onSaved={() => { setEditTarget(null); load() }} />
       )}
-      {editTarget?.type === 'training' && (
-        <TrainingEditModal moduleId={editTarget.id} onClose={() => setEditTarget(null)} onSaved={() => { setEditTarget(null); load() }} />
-      )}
       {editTarget?.type === 'staff' && (
         <StaffEditModal staffId={editTarget.id} role={role} onClose={() => setEditTarget(null)} onSaved={() => { setEditTarget(null); load() }} />
       )}
@@ -368,9 +370,9 @@ export function StructureClient({ role }: { role: string }) {
         {connection && (() => {
           const { task, link } = connection
           const meta = link.kind === 'requires'
-            ? { title: 'REQUIRES TRAINING', desc: 'This task can only be completed by staff who hold this training (competency). Staff without it are flagged for follow-up.', from: task.title, arrow: 'REQUIRES', to: link.label, href: `/admin/training?module=${link.targetId}` }
+            ? { title: 'REQUIRES TRAINING', desc: 'This task can only be completed by staff who hold this training (competency). Staff without it are flagged for follow-up.', from: task.title, arrow: 'REQUIRES', to: link.label, href: `/admin/guides?guide=${link.targetId}` }
             : link.kind === 'how-to'
-            ? { title: 'HOW-TO GUIDE', desc: 'This training/SOP is the how-to guide for the task. It surfaces alongside the task so staff can learn how to do it.', from: link.label, arrow: 'GUIDES', to: task.title, href: `/admin/training?module=${link.targetId}` }
+            ? { title: 'HOW-TO GUIDE', desc: 'This training/SOP is the how-to guide for the task. It surfaces alongside the task so staff can learn how to do it.', from: link.label, arrow: 'GUIDES', to: task.title, href: `/admin/guides?guide=${link.targetId}` }
             : { title: 'IN CHECKLIST', desc: 'This task is part of the checklist. Editing the task updates it everywhere the checklist is used.', from: link.label, arrow: 'INCLUDES', to: task.title, href: `/admin/tasks` }
           return (
             <div className="space-y-4">

@@ -10,11 +10,51 @@ import { Badge } from '@/components/ui/Badge'
 import { Combobox, ComboboxHandle } from '@/components/ui/Combobox'
 import { getActiveVenueId } from '@/lib/active-venue'
 
+type LinkKind = 'ITEM' | 'TASK' | 'CHECKLIST' | 'GUIDE' | 'SECTION' | 'RECIPE'
+type AudienceKind = 'DEPARTMENT' | 'SECTION' | 'POSITION'
+
+const LINK_KINDS: { value: LinkKind; label: string }[] = [
+  { value: 'ITEM', label: 'TOOL / ITEM' },
+  { value: 'TASK', label: 'TASK' },
+  { value: 'CHECKLIST', label: 'CHECKLIST' },
+  { value: 'GUIDE', label: 'GUIDE' },
+  { value: 'SECTION', label: 'SECTION' },
+  { value: 'RECIPE', label: 'RECIPE' },
+]
+
+const AUDIENCE_KINDS: { value: AudienceKind; label: string }[] = [
+  { value: 'DEPARTMENT', label: 'DEPARTMENT' },
+  { value: 'SECTION', label: 'SECTION' },
+  { value: 'POSITION', label: 'POSITION' },
+]
+
+interface StepLink {
+  kind: LinkKind
+  targetId: string
+  qty: number | null
+  note: string | null
+  target?: { label: string; missing: boolean } | null
+}
+
+interface Audience {
+  kind: AudienceKind
+  targetId: string
+}
+
+type Option = { value: string; label: string }
+type LinkTargets = Record<LinkKind, Option[]>
+
+const EMPTY_TARGETS: LinkTargets = {
+  ITEM: [], TASK: [], CHECKLIST: [], GUIDE: [], SECTION: [], RECIPE: [],
+}
+
 interface Step {
+  id: string | null // null = new; sent back on save so step ids stay stable
   heading: string
   content: string
   imageUrl: string | null
   videoUrl: string
+  links: StepLink[]
 }
 
 interface TaskGuide {
@@ -41,23 +81,86 @@ interface Guide {
     content: string
     imageUrl: string | null
     videoUrl: string | null
+    links?: StepLink[]
   }[]
   taskGuides?: TaskGuide[]
+  audiences?: Audience[]
   department: { id: string; name: string } | null
 }
 
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string }
 interface TaskLite { id: string; title: string; venueId: string }
+interface Position { id: string; name: string; venueId: string }
 
 function emptyStep(): Step {
-  return { heading: '', content: '', imageUrl: null, videoUrl: '' }
+  return { id: null, heading: '', content: '', imageUrl: null, videoUrl: '', links: [] }
+}
+
+// Declared at module level so they aren't redefined on every parent render,
+// which would remount the inputs and lose focus mid-typing.
+function AddRow({
+  kinds, options, onAdd, addLabel, withQty,
+}: {
+  kinds: { value: string; label: string }[]
+  options: Record<string, Option[]>
+  onAdd: (kind: string, targetId: string, qty: number | null) => void
+  addLabel: string
+  withQty?: boolean
+}) {
+  const [kind, setKind] = useState(kinds[0].value)
+  const [targetId, setTargetId] = useState('')
+  const [qty, setQty] = useState('')
+
+  const opts = options[kind] ?? []
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <select
+        value={kind}
+        onChange={(e) => { setKind(e.target.value); setTargetId('') }}
+        className="bg-black border border-grey-mid text-white font-mono text-xs uppercase px-2 py-1.5 outline-none focus:border-white"
+      >
+        {kinds.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+      </select>
+      <select
+        value={targetId}
+        onChange={(e) => setTargetId(e.target.value)}
+        className="flex-1 min-w-[10rem] bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
+      >
+        <option value="">{opts.length ? 'SELECT…' : 'NONE AVAILABLE'}</option>
+        {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      {withQty && (
+        <input
+          type="number"
+          min={1}
+          value={qty}
+          onChange={(e) => setQty(e.target.value)}
+          placeholder="QTY"
+          className="w-16 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 text-right outline-none focus:border-white placeholder:text-grey-light"
+        />
+      )}
+      <button
+        type="button"
+        disabled={!targetId}
+        onClick={() => {
+          onAdd(kind, targetId, qty ? Number(qty) : null)
+          setTargetId(''); setQty('')
+        }}
+        className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors disabled:opacity-40"
+      >
+        {addLabel}
+      </button>
+    </div>
+  )
 }
 
 export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [guides, setGuides] = useState<Guide[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
+  const [positions, setPositions] = useState<Position[]>([])
   const [tasks, setTasks] = useState<TaskLite[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -74,6 +177,8 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [linkedTaskIds, setLinkedTaskIds] = useState<string[]>([])
   const [competencyTaskIds, setCompetencyTaskIds] = useState<string[]>([])
   const [steps, setSteps] = useState<Step[]>([emptyStep()])
+  const [audiences, setAudiences] = useState<Audience[]>([])
+  const [linkTargets, setLinkTargets] = useState<LinkTargets>(EMPTY_TARGETS)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null)
@@ -98,6 +203,29 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
 
   useEffect(() => { load() }, [])
 
+  // Everything a step or audience can point at, for the active venue.
+  useEffect(() => {
+    const vid = role === 'ADMIN' ? venueId : sessionVenueId
+    if (!vid) return
+    fetch(`/api/admin/guides/link-targets?venueId=${encodeURIComponent(vid)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      // Merge over the empty shape so every kind key exists — a partial payload
+      // must not leave a picker's option list undefined.
+      .then((d: Partial<LinkTargets> | null) => {
+        if (d && !Array.isArray(d)) setLinkTargets({ ...EMPTY_TARGETS, ...d })
+      })
+      .catch(() => { /* picker just stays empty */ })
+  }, [role, venueId, sessionVenueId])
+
+  useEffect(() => {
+    const vid = role === 'ADMIN' ? venueId : sessionVenueId
+    if (!vid) return
+    fetch(`/api/admin/positions?venueId=${encodeURIComponent(vid)}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((p: Position[]) => setPositions(p))
+      .catch(() => { /* positions are optional */ })
+  }, [role, venueId, sessionVenueId])
+
   useEffect(() => {
     if (role === 'ADMIN') {
       fetch('/api/admin/venues')
@@ -117,7 +245,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setTitle(''); setDescription(''); setCategory('')
     setDepartmentId(''); setIsTracked(true); setIsOnboarding(false); setRequiresSignOff(false)
     setLinkedTaskIds([]); setCompetencyTaskIds([])
-    setSteps([emptyStep()])
+    setSteps([emptyStep()]); setAudiences([])
     setVenueId(getActiveVenueId(role, sessionVenueId, defaultVenueId))
     setError(''); setOpen(true)
   }
@@ -136,13 +264,16 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setSteps(
       g.steps.length
         ? g.steps.map((s) => ({
+            id: s.id,
             heading: s.heading ?? '',
             content: s.content,
             imageUrl: s.imageUrl,
             videoUrl: s.videoUrl ?? '',
+            links: s.links ?? [],
           }))
         : [emptyStep()]
     )
+    setAudiences(g.audiences ?? [])
     setError(''); setOpen(true)
   }
 
@@ -184,12 +315,17 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
       departmentId: departmentId || null,
       isTracked, isOnboarding, requiresSignOff,
       steps: cleanSteps.map((s) => ({
+        id: s.id,
         heading: s.heading || null,
         content: s.content,
         imageUrl: s.imageUrl,
         videoUrl: s.videoUrl || null,
+        links: s.links.map((l) => ({
+          kind: l.kind, targetId: l.targetId, qty: l.qty, note: l.note,
+        })),
       })),
       taskGuides,
+      audiences,
     }
     const url = editing ? `/api/admin/guides/${editing.id}` : '/api/admin/guides'
     const method = editing ? 'PUT' : 'POST'
@@ -218,6 +354,32 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const filteredDepartments = departments.filter((d) => !effectiveVenueId || d.venueId === effectiveVenueId)
   const filteredTasks = tasks.filter((t) => !effectiveVenueId || t.venueId === effectiveVenueId)
   const filteredGuides = guides.filter((g) => !effectiveVenueId || g.venueId === effectiveVenueId)
+
+  const filteredPositions = positions.filter((p) => !effectiveVenueId || p.venueId === effectiveVenueId)
+
+  // Audience targets per kind. Sections come from the link-targets payload so
+  // there is no second fetch for the same list.
+  const audienceOptions: Record<AudienceKind, Option[]> = {
+    DEPARTMENT: filteredDepartments.map((d) => ({ value: d.id, label: d.name })),
+    SECTION: linkTargets.SECTION,
+    POSITION: filteredPositions.map((p) => ({ value: p.id, label: p.name })),
+  }
+
+  const audienceLabel = (a: Audience) =>
+    audienceOptions[a.kind].find((o) => o.value === a.targetId)?.label ?? 'REMOVED'
+
+  function addAudience(kind: AudienceKind, targetId: string) {
+    if (!targetId) return
+    setAudiences((prev) =>
+      prev.some((a) => a.kind === kind && a.targetId === targetId)
+        ? prev
+        : [...prev, { kind, targetId }]
+    )
+  }
+
+  function updateStepLinks(stepIndex: number, next: StepLink[]) {
+    setSteps((prev) => prev.map((s, i) => (i === stepIndex ? { ...s, links: next } : s)))
+  }
 
   const deptOptions = [
     { value: '', label: 'ALL STAFF (NOT DEPT-SPECIFIC)' },
@@ -293,6 +455,41 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
             <Input label="Category (optional)" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="BAR" />
           </div>
 
+          <div className="border border-grey-mid p-3 space-y-2">
+            <div className="flex items-baseline justify-between gap-2">
+              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Applies to</label>
+              <span className="font-mono text-[10px] uppercase text-grey-light">
+                TAG A SECTION OR ROLE — STAFF INHERIT IT AUTOMATICALLY
+              </span>
+            </div>
+            {audiences.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {audiences.map((a) => (
+                  <span
+                    key={`${a.kind}:${a.targetId}`}
+                    className="inline-flex items-center gap-1.5 border border-grey-mid px-2 py-0.5 font-mono text-[10px] uppercase text-white"
+                  >
+                    <span className="text-grey-light">{a.kind}</span>
+                    {audienceLabel(a)}
+                    <button
+                      type="button"
+                      onClick={() => setAudiences((prev) => prev.filter((x) => !(x.kind === a.kind && x.targetId === a.targetId)))}
+                      className="text-grey-light hover:text-danger transition-colors"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <AddRow
+              kinds={AUDIENCE_KINDS}
+              options={audienceOptions}
+              addLabel="+ ADD"
+              onAdd={(kind, targetId) => addAudience(kind as AudienceKind, targetId)}
+            />
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <Combobox
               ref={linkedRef}
@@ -365,6 +562,46 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                       <button type="button" onClick={() => updateStep(i, { imageUrl: null })} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">REMOVE</button>
                     </>
                   )}
+                </div>
+
+                <div className="border-t border-grey-mid pt-2 space-y-2">
+                  <label className="font-mono text-[10px] uppercase text-grey-light tracking-wider">
+                    Links — tools, tasks, lists, guides
+                  </label>
+                  {s.links.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {s.links.map((l) => (
+                        <span
+                          key={`${l.kind}:${l.targetId}`}
+                          className="inline-flex items-center gap-1.5 border border-grey-mid px-2 py-0.5 font-mono text-[10px] uppercase text-white"
+                        >
+                          <span className="text-grey-light">{l.kind}</span>
+                          {l.qty && l.qty > 1 ? `${l.qty}× ` : ''}
+                          {linkTargets[l.kind]?.find((o) => o.value === l.targetId)?.label
+                            ?? l.target?.label
+                            ?? 'REMOVED'}
+                          <button
+                            type="button"
+                            onClick={() => updateStepLinks(i, s.links.filter((x) => !(x.kind === l.kind && x.targetId === l.targetId)))}
+                            className="text-grey-light hover:text-danger transition-colors"
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <AddRow
+                    kinds={LINK_KINDS}
+                    options={linkTargets}
+                    addLabel="+ LINK"
+                    withQty
+                    onAdd={(kind, targetId, qty) => {
+                      const k = kind as LinkKind
+                      if (s.links.some((x) => x.kind === k && x.targetId === targetId)) return
+                      updateStepLinks(i, [...s.links, { kind: k, targetId, qty, note: null }])
+                    }}
+                  />
                 </div>
               </div>
             ))}

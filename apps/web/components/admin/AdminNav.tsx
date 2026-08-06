@@ -36,8 +36,8 @@ const NAV_GROUPS: NavGroup[] = [
   ] },
   { label: 'Work', items: [
     { href: '/admin/guides', label: 'Playbook' },
+    { href: '/admin/pathways', label: 'Pathways' },
     { href: '/admin/tasks', label: 'Tasks & Checklists' },
-    { href: '/admin/training', label: 'Training & SOPs' },
     { href: '/admin/qrcodes', label: 'QR Codes' },
   ] },
   { label: 'Daily ops', items: [

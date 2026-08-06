@@ -3,19 +3,19 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 
-// Create an end-of-day note. If assignModuleId is given, also assign that
-// training module to the person (reason = the note category) and link it.
+// Create an end-of-day note. If assignGuideId is given, also assign that guide
+// to the person (reason = the note category) and link it.
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { staffId, shiftDate, category, content, assignModuleId } = body as {
+  const { staffId, shiftDate, category, content, assignGuideId } = body as {
     staffId: string
     shiftDate: string
     category?: string
     content: string
-    assignModuleId?: string | null
+    assignGuideId?: string | null
   }
 
   if (!staffId || !shiftDate || !content?.trim()) {
@@ -32,15 +32,15 @@ export async function POST(req: NextRequest) {
   }
 
   const noteCategory = (category || 'AREA TO WORK ON').toUpperCase().trim()
-  let linkedModuleId: string | null = null
+  let linkedGuideId: string | null = null
 
-  if (assignModuleId) {
-    await prisma.trainingAssignment.upsert({
-      where: { moduleId_staffId: { moduleId: assignModuleId, staffId } },
+  if (assignGuideId) {
+    await prisma.guideAssignment.upsert({
+      where: { guideId_staffId: { guideId: assignGuideId, staffId } },
       update: { reason: noteCategory, deletedAt: null, assignedById: session.user.id },
-      create: { moduleId: assignModuleId, staffId, reason: noteCategory, assignedById: session.user.id },
+      create: { guideId: assignGuideId, staffId, reason: noteCategory, assignedById: session.user.id },
     })
-    linkedModuleId = assignModuleId
+    linkedGuideId = assignGuideId
   }
 
   const note = await prisma.shiftNote.create({
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
       shiftDate: new Date(shiftDate),
       category: noteCategory,
       content: content.trim(),
-      linkedModuleId,
+      linkedGuideId,
     },
   })
 

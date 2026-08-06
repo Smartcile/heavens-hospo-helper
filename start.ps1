@@ -29,6 +29,8 @@ try {
     if ($?) { Write-Host "Unifying furniture into inventory..."; npm run db:migrate-furniture }
     if ($?) { Write-Host "Pushing DB seed..."; npm run db:seed }
     if ($?) { Write-Host "Migrating to Guide model..."; npm run db:migrate-guides }
+    if ($?) { Write-Host "Recovering guide step links..."; npm run db:migrate-step-links }
+    if ($?) { Write-Host "Backfilling guide audiences..."; npm run db:backfill-guide-audiences }
 } finally {
     Pop-Location
 }

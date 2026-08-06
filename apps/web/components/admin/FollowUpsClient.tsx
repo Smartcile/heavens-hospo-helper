@@ -10,8 +10,8 @@ interface FollowUp {
   dueDate: string | null
   staffName: string
   taskTitle: string | null
-  moduleId: string | null
-  moduleTitle: string | null
+  guideId: string | null
+  guideTitle: string | null
   venueName: string
   createdAt: string
 }
@@ -83,11 +83,11 @@ export function FollowUpsClient({ role }: { role: string }) {
                 {f.detail && <p className="font-mono text-xs text-grey-light">{f.detail}</p>}
                 <div className="font-mono text-[10px] uppercase text-grey-light flex flex-wrap gap-2">
                   {f.taskTitle && <span>TASK: {f.taskTitle}</span>}
-                  {f.moduleTitle && <span className="text-accent">TRAINING: {f.moduleTitle}</span>}
+                  {f.guideTitle && <span className="text-accent">GUIDE: {f.guideTitle}</span>}
                 </div>
               </div>
               <div className="flex gap-3 flex-shrink-0">
-                {f.kind === 'UNTRAINED' && f.moduleId && (
+                {f.kind === 'UNTRAINED' && f.guideId && (
                   <button disabled={busy === f.id} onClick={() => act(f.id, 'signoff')} className="font-mono text-xs uppercase text-success hover:opacity-80 transition-opacity disabled:opacity-40">
                     SIGN OFF
                   </button>

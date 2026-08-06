@@ -128,6 +128,9 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [dropActive, setDropActive] = useState(false)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
 
+  // PDF export popup
+  const [pdfOpen, setPdfOpen] = useState(false)
+
   async function load() {
     const params = new URLSearchParams()
     if (filterVenue) params.set('venueId', filterVenue)
@@ -359,7 +362,10 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <h1 className="font-mono text-xl font-bold uppercase tracking-widest">TASKS &amp; CHECKLISTS</h1>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h1 className="font-mono text-xl font-bold uppercase tracking-widest">TASKS &amp; CHECKLISTS</h1>
+        <Button variant="ghost" size="sm" onClick={() => setPdfOpen(true)}>⬇ PDF</Button>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" style={{ height: 'calc(100vh - 10rem)', overflow: 'hidden' }}>
         {/* LEFT — tasks grouped by department → section */}
@@ -614,6 +620,29 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
             <Button onClick={handleSave} loading={saving}>SAVE</Button>
             <Button variant="ghost" onClick={() => setModalOpen(false)}>CANCEL</Button>
           </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={pdfOpen} onClose={() => setPdfOpen(false)} title="DOWNLOAD CHECKLISTS (PDF)">
+        <div className="space-y-3">
+          <p className="font-mono text-[10px] uppercase text-grey-light">PICK A CHECKLIST TO DOWNLOAD AS A PRINTABLE CHECKBOX PDF.</p>
+          {checklists.length === 0 ? (
+            <p className="font-mono text-xs text-grey-light">NO CHECKLISTS YET.</p>
+          ) : (
+            <div className="space-y-2">
+              {checklists.map((c) => (
+                <div key={c.id} className="bg-black border border-grey-mid p-3 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-mono font-semibold text-sm uppercase text-white truncate">{c.name}</div>
+                    <div className="font-mono text-xs text-grey-light mt-0.5">
+                      {c.section ? c.section.name : c.department ? c.department.name : 'WHOLE VENUE'} · {c.tasks.length} TASK{c.tasks.length !== 1 ? 'S' : ''}
+                    </div>
+                  </div>
+                  <Button size="sm" onClick={() => window.open(`/api/admin/checklists/${c.id}/pdf`, '_blank')}>DOWNLOAD</Button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </Modal>
     </div>

@@ -30,16 +30,20 @@ const TYPE_META: Record<NodeType, { label: string; colour: string }> = {
   venue: { label: 'VENUE', colour: '#FFFFFF' },
   department: { label: 'DEPARTMENT', colour: '#FACC15' },
   section: { label: 'SECTION', colour: '#60A5FA' },
+  position: { label: 'POSITION', colour: '#F472B6' },
   staff: { label: 'STAFF', colour: '#C084FC' },
+  pathway: { label: 'PATHWAY', colour: '#22D3EE' },
   checklist: { label: 'LIST', colour: '#4ADE80' },
   task: { label: 'TASK', colour: '#E8E8E8' },
-  training: { label: 'TRAINING/SOP', colour: '#F97316' },
+  guide: { label: 'GUIDE', colour: '#F97316' },
 }
 
 const EDGE_META: Record<string, { label: string; colour: string; dashed?: boolean }> = {
   contains: { label: 'CONTAINS', colour: '#3A3A3A' },
   member: { label: 'MEMBER OF', colour: '#3A3A3A' },
   works: { label: 'WORKS SECTION', colour: '#6B4A8A', dashed: true },
+  holds: { label: 'HOLDS ROLE', colour: '#F472B6', dashed: true },
+  step: { label: 'PATHWAY STEP', colour: '#22D3EE' },
   scope: { label: 'SCOPED TO', colour: '#2E2E2E', dashed: true },
   assigned: { label: 'ASSIGNED', colour: '#C084FC' },
   'list-task': { label: 'LIST → TASK', colour: '#4ADE80' },

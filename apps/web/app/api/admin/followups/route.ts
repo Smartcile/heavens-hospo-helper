@@ -31,7 +31,8 @@ export async function GET(req: NextRequest) {
     include: {
       staff: { select: { firstName: true, lastName: true } },
       task: { select: { title: true } },
-      module: { select: { title: true } },
+      guide: { select: { title: true } },
+      module: { select: { title: true } }, // legacy rows raised before the guide rewire
       venue: { select: { name: true } },
     },
     orderBy: { createdAt: 'desc' },
@@ -47,8 +48,8 @@ export async function GET(req: NextRequest) {
       staffName: `${f.staff.firstName} ${f.staff.lastName}`,
       staffId: f.staffId,
       taskTitle: f.task?.title ?? null,
-      moduleId: f.moduleId,
-      moduleTitle: f.module?.title ?? null,
+      guideId: f.guideId ?? f.moduleId,
+      guideTitle: f.guide?.title ?? f.module?.title ?? null,
       venueName: f.venue.name,
       createdAt: f.createdAt,
     }))

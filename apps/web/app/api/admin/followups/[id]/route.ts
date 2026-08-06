@@ -8,8 +8,8 @@ interface Params {
 }
 
 // PATCH /api/admin/followups/[id]  { action: 'resolve' | 'signoff' }
-// resolve → mark RESOLVED. signoff (UNTRAINED only) → record a manager training
-// sign-off for the staff + module, then resolve.
+// resolve → mark RESOLVED. signoff (UNTRAINED only) → record a manager sign-off
+// for the staff + guide, then resolve.
 export async function PATCH(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -23,20 +23,34 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const { action } = await req.json()
 
   if (action === 'signoff') {
-    if (!fu.moduleId) {
-      return NextResponse.json({ error: 'No training module on this follow-up' }, { status: 400 })
+    if (fu.guideId) {
+      await prisma.guideCompletion.upsert({
+        where: { guideId_staffId: { guideId: fu.guideId, staffId: fu.staffId } },
+        create: {
+          guideId: fu.guideId,
+          staffId: fu.staffId,
+          selfCompleted: false,
+          signedOffById: session.user.id,
+          note: 'Signed off from follow-up',
+        },
+        update: { selfCompleted: false, signedOffById: session.user.id },
+      })
+    } else if (fu.moduleId) {
+      // Legacy row raised before the guide rewire — keep it actionable.
+      await prisma.trainingCompletion.upsert({
+        where: { moduleId_staffId: { moduleId: fu.moduleId, staffId: fu.staffId } },
+        create: {
+          moduleId: fu.moduleId,
+          staffId: fu.staffId,
+          selfCompleted: false,
+          signedOffById: session.user.id,
+          note: 'Signed off from follow-up',
+        },
+        update: { selfCompleted: false, signedOffById: session.user.id },
+      })
+    } else {
+      return NextResponse.json({ error: 'No guide on this follow-up' }, { status: 400 })
     }
-    await prisma.trainingCompletion.upsert({
-      where: { moduleId_staffId: { moduleId: fu.moduleId, staffId: fu.staffId } },
-      create: {
-        moduleId: fu.moduleId,
-        staffId: fu.staffId,
-        selfCompleted: false,
-        signedOffById: session.user.id,
-        note: 'Signed off from follow-up',
-      },
-      update: { selfCompleted: false, signedOffById: session.user.id },
-    })
   }
 
   const updated = await prisma.followUp.update({

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getWorkerSession } from '@/lib/worker-session'
+import { resolveStaffGuides } from '@/lib/guides'
 import { prisma } from '@hospo-ops/db'
 
 export async function GET(req: NextRequest) {
@@ -19,59 +20,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(guides)
   }
 
-  const staff = await prisma.staff.findUnique({
-    where: { id: session.staffId },
-    select: { departmentId: true, venueId: true },
-  })
-  if (!staff) return NextResponse.json({ error: 'Staff not found' }, { status: 404 })
+  const resolved = await resolveStaffGuides(session.staffId, { includeSteps: true })
+  if (!resolved) return NextResponse.json({ error: 'Staff not found' }, { status: 404 })
 
-  const guides = await prisma.guide.findMany({
-    where: {
-      venueId: staff.venueId,
-      status: 'PUBLISHED',
-      isTracked: true,
-      deletedAt: null,
-      OR: [
-        { isOnboarding: true },
-        ...(staff.departmentId ? [{ departmentId: staff.departmentId }] : []),
-      ],
-    },
-    include: {
-      steps: { orderBy: { order: 'asc' } },
-      department: { select: { id: true, name: true } },
-    },
-    orderBy: [{ isOnboarding: 'desc' }, { title: 'asc' }],
-  })
-
-  // Check completion status per guide
-  const guideIds = guides.map((g) => g.id)
-  const completions = guideIds.length > 0
-    ? await prisma.guideCompletion.findMany({
-        where: { guideId: { in: guideIds }, staffId: session.staffId },
-        select: { guideId: true },
-      })
-    : []
-
-  const completedSet = new Set(completions.map((c) => c.guideId))
-
-  const items = guides.map((g) => ({
+  const items = resolved.items.map((g) => ({
     id: g.id,
     title: g.title,
     description: g.description,
     category: g.category,
     requiresSignOff: g.requiresSignOff,
     isOnboarding: g.isOnboarding,
-    source: g.isOnboarding ? 'ONBOARDING' : 'DEPARTMENT',
-    completed: completedSet.has(g.id),
+    source: g.source,
+    completed: g.completed,
     department: g.department,
-    steps: g.steps.map((s) => ({
-      id: s.id,
-      order: s.order,
-      heading: s.heading,
-      content: s.content,
-      imageUrl: s.imageUrl,
-      videoUrl: s.videoUrl,
-    })),
+    steps: g.steps,
   }))
 
   return NextResponse.json({ firstName: session.firstName, items })

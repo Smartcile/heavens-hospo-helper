@@ -16,8 +16,11 @@ interface StaffData {
   hourlyRate: number | null; employmentType: string | null
   swiftPosId: string | null; myHrId: string | null; loadedReportsId: string | null
   sections: { sectionId: string }[]
+  positions?: { positionId: string }[]
   staffVenues: { venueId: string }[]
 }
+
+interface PositionOption { id: string; name: string; venueId: string }
 
 const ROLE_OPTIONS = [
   { value: 'STAFF', label: 'STAFF' },
@@ -32,6 +35,8 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
   const [departments, setDepartments] = useState<Department[]>([])
   const [sections, setSections] = useState<Section[]>([])
   const [sectionIds, setSectionIds] = useState<string[]>([])
+  const [allPositions, setAllPositions] = useState<PositionOption[]>([])
+  const [positionIds, setPositionIds] = useState<string[]>([])
   const [venueIds, setVenueIds] = useState<string[]>([])
   const [pin, setPin] = useState('')
   const [password, setPassword] = useState('')
@@ -46,10 +51,13 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
       fetch('/api/admin/venues').then((r) => r.json()),
       fetch('/api/admin/departments').then((r) => r.json()),
       fetch('/api/admin/sections').then((r) => r.json()),
-    ]).then(([s, v, d, sec]) => {
+      fetch('/api/admin/positions').then((r) => (r.ok ? r.json() : [])),
+    ]).then(([s, v, d, sec, pos]) => {
       if (!active) return
       setStaff(s)
       setSectionIds((s.sections ?? []).map((x: { sectionId: string }) => x.sectionId))
+      setPositionIds((s.positions ?? []).map((x: { positionId: string }) => x.positionId))
+      setAllPositions(Array.isArray(pos) ? pos : [])
       setVenueIds((s.staffVenues ?? []).map((x: { venueId: string }) => x.venueId))
       setVenues(Array.isArray(v) ? v : [])
       setDepartments(Array.isArray(d) ? d : [])
@@ -64,6 +72,9 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
   }
   function toggleSection(id: string) {
     setSectionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+  function togglePosition(id: string) {
+    setPositionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
   function toggleVenue(id: string) {
     setVenueIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
@@ -84,6 +95,7 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
       hourlyRate: staff.hourlyRate, employmentType: staff.employmentType || null,
       swiftPosId: staff.swiftPosId || null, myHrId: staff.myHrId || null, loadedReportsId: staff.loadedReportsId || null,
       sectionIds,
+      positionIds,
       venueIds,
     }
     if (pin) body.pin = pin
@@ -99,6 +111,7 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
     ? [{ value: '', label: 'NO DEPARTMENT' }, ...departments.filter((d) => d.venueId === staff.venueId).map((d) => ({ value: d.id, label: d.name }))]
     : []
   const formSections = staff ? sections.filter((s) => s.venueId === staff.venueId) : []
+  const formPositions = staff ? allPositions.filter((p) => p.venueId === staff.venueId) : []
 
   return (
     <Modal isOpen onClose={onClose} title="EDIT STAFF" size="md">
@@ -133,6 +146,28 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
               <div className="flex flex-wrap gap-1">
                 {formSections.map((s) => (
                   <button key={s.id} type="button" onClick={() => toggleSection(s.id)} className={`font-mono text-xs px-2 py-1.5 border transition-colors ${sectionIds.includes(s.id) ? 'bg-white text-black border-white' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>{s.name}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {formPositions.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-baseline justify-between gap-2">
+                <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Positions held (optional)</label>
+                <button
+                  type="button"
+                  onClick={() => setPositionIds(
+                    positionIds.length === formPositions.length ? [] : formPositions.map((p) => p.id)
+                  )}
+                  className="font-mono text-[10px] uppercase text-grey-light hover:text-white transition-colors"
+                >
+                  {positionIds.length === formPositions.length ? 'CLEAR ALL' : 'SELECT ALL'}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {formPositions.map((p) => (
+                  <button key={p.id} type="button" onClick={() => togglePosition(p.id)} className={`font-mono text-xs px-2 py-1.5 border transition-colors ${positionIds.includes(p.id) ? 'bg-white text-black border-white' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>{p.name}</button>
                 ))}
               </div>
             </div>

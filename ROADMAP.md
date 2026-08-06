@@ -289,9 +289,40 @@ See [ECOSYSTEM.md](ECOSYSTEM.md) for the full design.
 - Old tables kept for reference; old UI (`/admin/training`, `/w/training`) still available
 
 **Pending:** ☐
-- Pathway builder (drag-and-drop onboarding flows) — Phase 2
-- Tech tree worker view (game-like unlock progression) — Phase 3
 - MyHR onboarding export
+
+---
+
+## Pathways & Positions ✅ (built 2026-08-02)
+
+The onboarding / process tree, plus the spine repair it needed first.
+
+**Spine repair**
+- `lib/guides.ts` — one applicability resolver, replacing three drifted copies.
+  Fixed: individually-assigned guides never reached the worker's phone
+- `lib/followups.ts` now reads `TaskGuide` + `GuideCompletion` — a competency set
+  in the Playbook previously raised **no follow-up at all**
+- `Guide.version` + re-train notices; guide `PUT` diffs steps so ids stay stable
+- Auth added to the publish and delete routes (publish had none)
+- Legacy training UI, routes and `lib/training.ts` removed (models kept — the
+  migration scripts still read them)
+
+**New**
+- `Position` + `StaffPosition` — job roles, many-to-many, managed on `/admin/sections`
+- `GuideAudience` — guides target departments, sections **and** positions, several at once
+- `GuideStepLink` — one polymorphic table replacing the five legacy step junctions
+- `migrate-step-links.ts` recovers the links `migrate-to-guides.ts` dropped
+- `Pathway` / `PathwayNode` / `PathwayEdge` + `lib/pathway-progress.ts` (pure, 28 tests)
+- `/admin/pathways` — BOARD (React Flow, persisted positions) + TREE
+- `/w/guides` — BIBLE + MY TREE (CSS/SVG tech tree, points and levels)
+- Structure TREE + MAP repointed at `Guide`; added `position` and `pathway` nodes;
+  fixed two unscoped full-table queries and the quadratic tree assembly
+
+**Pending:** ☐
+- Radial focus layout on the MAP (click a node, ring its neighbours) — the column
+  stack still gets tall with real task volume
+- Manager override to unlock a locked tree node for one person
+- Badges / rewards on top of the points system
 
 ---
 

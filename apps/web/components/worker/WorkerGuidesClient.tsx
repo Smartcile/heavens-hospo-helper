@@ -2,6 +2,9 @@
 
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { GuideStepLinks } from '@/components/GuideStepLinks'
+import { WorkerPathwayTree, type TreeNode, type TreeEdge } from '@/components/worker/WorkerPathwayTree'
+import type { ResolvedStepLink } from '@/lib/guide-links'
 
 interface Step {
   id: string
@@ -10,6 +13,16 @@ interface Step {
   content: string
   imageUrl: string | null
   videoUrl: string | null
+  links?: ResolvedStepLink[]
+}
+
+interface PathwayView {
+  id: string
+  name: string
+  description: string | null
+  nodes: (TreeNode & { targetId: string | null })[]
+  edges: TreeEdge[]
+  progress: { earnedPoints: number; totalPoints: number; level: number; nextLevelAt: number | null }
 }
 
 interface GuideItem {
@@ -34,21 +47,54 @@ function GuidesInner() {
   const [active, setActive] = useState<GuideItem | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [tab, setTab] = useState<'tree' | 'bible'>('tree')
+  const [pathway, setPathway] = useState<PathwayView | null>(null)
+  const [lockNote, setLockNote] = useState('')
 
   async function load(openId?: string | null) {
-    const r = await fetch('/api/worker/guides')
-    if (r.status === 401) { router.push('/w/login'); return }
-    const data = await r.json()
+    const [gR, pR] = await Promise.all([
+      fetch('/api/worker/guides'),
+      fetch('/api/worker/pathway'),
+    ])
+    if (gR.status === 401) { router.push('/w/login'); return }
+    const data = await gR.json()
     setItems(data.items ?? [])
     setFirstName(data.firstName ?? '')
+
+    if (pR.ok) {
+      const p = await pR.json()
+      setPathway(p.pathway ?? null)
+      // Nothing to progress through — the bible is the more useful landing tab.
+      if (!p.pathway) setTab('bible')
+    } else {
+      setTab('bible')
+    }
+
     setLoading(false)
     if (openId) {
       const found = (data.items ?? []).find((i: GuideItem) => i.id === openId)
-      if (found) setActive(found)
+      if (found) { setActive(found); setTab('bible') }
     }
   }
 
   useEffect(() => { load(searchParams.get('guide')) }, [])
+
+  // Opening a tree node: a locked node is still readable — it just can't be
+  // banked yet. Everything is available in the bible regardless.
+  function openTreeNode(node: TreeNode & { targetId?: string | null }) {
+    setLockNote('')
+    if (node.kind !== 'GUIDE' || !node.targetId) return
+    const guide = items.find((i) => i.id === node.targetId)
+    if (!guide) return
+    if (node.status === 'LOCKED') {
+      const names = node.blockedBy
+        .map((b) => pathway?.nodes.find((n) => n.id === b)?.title)
+        .filter(Boolean)
+        .join(', ')
+      setLockNote(names ? `COMPLETE ${names} FIRST` : 'LOCKED')
+    }
+    setActive(guide)
+  }
 
   async function selfComplete() {
     if (!active) return
@@ -74,7 +120,7 @@ function GuidesInner() {
     return (
       <div className="min-h-screen bg-black flex flex-col">
         <div className="flex items-center justify-between px-4 py-4 border-b border-grey-mid">
-          <button onClick={() => setActive(null)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">← BACK</button>
+          <button onClick={() => { setActive(null); setLockNote('') }} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">← BACK</button>
           <span className="font-mono text-xs text-grey-light">{active.requiresSignOff ? 'MANAGER SIGN-OFF' : 'SELF-COMPLETE'}</span>
         </div>
 
@@ -100,6 +146,7 @@ function GuidesInner() {
                   ▶ WATCH VIDEO
                 </a>
               )}
+              {s.links && s.links.length > 0 && <GuideStepLinks links={s.links} />}
             </div>
           ))}
 
@@ -110,6 +157,10 @@ function GuidesInner() {
           {active.completed ? (
             <div className="status-bar-success pl-3">
               <p className="font-mono text-sm text-success uppercase">COMPLETED</p>
+            </div>
+          ) : lockNote ? (
+            <div className="status-bar-warning pl-3">
+              <p className="font-mono text-xs text-warning uppercase">🔒 {lockNote}</p>
             </div>
           ) : active.requiresSignOff ? (
             <div className="status-bar-warning pl-3">
@@ -131,15 +182,60 @@ function GuidesInner() {
         <div className="flex items-start justify-between">
           <div>
             <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">MY GUIDES</h1>
-            <p className="font-mono text-xs text-grey-light mt-0.5 uppercase">{done} OF {items.length} COMPLETE</p>
+            <p className="font-mono text-xs text-grey-light mt-0.5 uppercase">
+              {pathway && tab === 'tree'
+                ? `LEVEL ${pathway.progress.level} · ${pathway.progress.earnedPoints} / ${pathway.progress.totalPoints} PTS`
+                : `${done} OF ${items.length} COMPLETE`}
+            </p>
           </div>
         </div>
-        <div className="mt-3 bg-grey-mid h-1.5">
-          <div className="h-full bg-success transition-all duration-500" style={{ width: `${items.length ? (done / items.length) * 100 : 0}%` }} />
+
+        {pathway && tab === 'tree' ? (
+          <div className="mt-3 bg-grey-mid h-1.5">
+            <div
+              className="h-full bg-success transition-all duration-500"
+              style={{
+                width: `${pathway.progress.totalPoints ? (pathway.progress.earnedPoints / pathway.progress.totalPoints) * 100 : 0}%`,
+              }}
+            />
+          </div>
+        ) : (
+          <div className="mt-3 bg-grey-mid h-1.5">
+            <div className="h-full bg-success transition-all duration-500" style={{ width: `${items.length ? (done / items.length) * 100 : 0}%` }} />
+          </div>
+        )}
+
+        <div className="flex gap-2 mt-4">
+          {(['tree', 'bible'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              disabled={t === 'tree' && !pathway}
+              className={`font-mono text-xs uppercase tracking-wider border px-3 py-1.5 transition-colors disabled:opacity-30 ${
+                tab === t ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:text-white'
+              }`}
+            >
+              {t === 'tree' ? 'MY TREE' : 'BIBLE'}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="px-4 py-4 space-y-2">
+      {tab === 'tree' && pathway && (
+        <div className="py-2">
+          <div className="px-4 pb-1">
+            <div className="font-mono text-xs uppercase text-white">{pathway.name}</div>
+            {pathway.progress.nextLevelAt !== null && (
+              <div className="font-mono text-[10px] uppercase text-grey-light">
+                {Math.max(0, pathway.progress.nextLevelAt - pathway.progress.earnedPoints)} PTS TO LEVEL {pathway.progress.level + 1}
+              </div>
+            )}
+          </div>
+          <WorkerPathwayTree nodes={pathway.nodes} edges={pathway.edges} onOpen={openTreeNode} />
+        </div>
+      )}
+
+      <div className={`px-4 py-4 space-y-2 ${tab === 'tree' ? 'hidden' : ''}`}>
         {items.length === 0 && (
           <p className="font-mono text-xs text-grey-light">NO GUIDES ASSIGNED YET.</p>
         )}

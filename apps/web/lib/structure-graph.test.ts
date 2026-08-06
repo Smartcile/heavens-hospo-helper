@@ -20,7 +20,7 @@ const data: StructureGraphData = {
     { id: 'checklist:c1', type: 'checklist', label: 'OPEN LIST', venueId: 'v1' },
     { id: 'task:t1', type: 'task', label: 'CLEAN', venueId: 'v1' },
     { id: 'task:t2', type: 'task', label: 'STOCK', venueId: 'v1' },
-    { id: 'training:m1', type: 'training', label: 'BARISTA SOP', venueId: 'v1' },
+    { id: 'training:m1', type: 'guide', label: 'BARISTA SOP', venueId: 'v1' },
     { id: 'venue:v2', type: 'venue', label: 'BETA', venueId: 'v2' },
     { id: 'task:t9', type: 'task', label: 'OTHER VENUE', venueId: 'v2' },
   ],
@@ -78,9 +78,9 @@ describe('buildGraphLayout', () => {
   })
 
   it('hides filtered-out node types and their edges', () => {
-    const hidden = new Set<StructureNodeType>(['training'])
+    const hidden = new Set<StructureNodeType>(['guide'])
     const { nodes, edges } = buildGraphLayout(data, 'v1', hidden, null)
-    expect(nodes.find((n) => n.type === 'training')).toBeUndefined()
+    expect(nodes.find((n) => n.type === 'guide')).toBeUndefined()
     expect(edges.find((e) => e.id === 'e5')).toBeUndefined()
   })
 

@@ -31,9 +31,13 @@ export async function GET() {
       select: { id: true, title: true, venueId: true, departmentId: true, sectionId: true, assignedToStaffId: true, scheduleType: true, isActive: true },
       orderBy: { sortOrder: 'asc' },
     }),
-    prisma.trainingModule.findMany({
+    prisma.guide.findMany({
       where: { deletedAt: null, venueId: { in: venueIds } },
-      select: { id: true, title: true, venueId: true, departmentId: true, isOnboarding: true, requiresSignOff: true, linkedTaskId: true },
+      select: {
+        id: true, title: true, venueId: true, departmentId: true,
+        isOnboarding: true, requiresSignOff: true, status: true,
+        audiences: { select: { kind: true, targetId: true } },
+      },
       orderBy: { title: 'asc' },
     }),
   ])
@@ -44,9 +48,18 @@ export async function GET() {
       select: { id: true, name: true, colour: true, departmentId: true },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     }),
-    prisma.staffSection.findMany({ select: { staffId: true, sectionId: true } }),
+    // Both of these previously had no venue scoping and scanned every row in the
+    // database — staffSection had no `where` at all.
+    prisma.staffSection.findMany({
+      where: { staff: { venueId: { in: venueIds } } },
+      select: { staffId: true, sectionId: true },
+    }),
     prisma.floorPlanElement.findMany({
-      where: { deletedAt: null, sectionId: { not: null }, floorPlan: { deletedAt: null } },
+      where: {
+        deletedAt: null,
+        sectionId: { not: null },
+        floorPlan: { deletedAt: null, venueId: { in: venueIds } },
+      },
       select: { id: true, type: true, sectionId: true, label: true, _count: { select: { inventoryItems: true } } },
     }),
     prisma.departmentLink.findMany({
@@ -75,13 +88,11 @@ export async function GET() {
       where: { deletedAt: null, venueId: { in: venueIds } },
       select: { id: true, name: true, appearFromTime: true, tasks: { select: { taskId: true } } },
     }),
-    prisma.trainingModule.findMany({
+    prisma.guide.findMany({
       where: { deletedAt: null, venueId: { in: venueIds } },
       select: {
-        id: true, title: true, kind: true, linkedTaskId: true,
-        steps: { select: { linkedTaskId: true } },
-        moduleTasks: { select: { taskId: true } },
-        requiredByTasks: { select: { taskId: true } },
+        id: true, title: true, status: true, isTracked: true,
+        taskGuides: { select: { taskId: true, isRequiredForCompetency: true } },
         _count: { select: { steps: true } },
       },
     }),
@@ -97,13 +108,14 @@ export async function GET() {
     const sub = `${c.tasks.length} TASK${c.tasks.length !== 1 ? 'S' : ''}${c.appearFromTime ? ` · FROM ${c.appearFromTime}` : ''}`
     for (const ct of c.tasks) pushLink(ct.taskId, { label: c.name, colour: '#4ADE80', kind: 'list', targetId: c.id, targetType: 'CHECKLIST', targetSub: sub })
   }
-  for (const m of linkTraining) {
-    const sub = `${m.kind} · ${m._count.steps} STEP${m._count.steps !== 1 ? 'S' : ''}`
-    const tType = m.kind === 'TRAINING' ? 'TRAINING MODULE' : m.kind
-    if (m.linkedTaskId) pushLink(m.linkedTaskId, { label: m.title, colour: '#F97316', kind: 'how-to', targetId: m.id, targetType: tType, targetSub: sub })
-    for (const mt of m.moduleTasks) pushLink(mt.taskId, { label: m.title, colour: '#F97316', kind: 'how-to', targetId: m.id, targetType: tType, targetSub: sub })
-    for (const st of m.steps) if (st.linkedTaskId) pushLink(st.linkedTaskId, { label: m.title, colour: '#F97316', kind: 'how-to', targetId: m.id, targetType: tType, targetSub: sub })
-    for (const rt of m.requiredByTasks) pushLink(rt.taskId, { label: m.title, colour: '#F87171', kind: 'requires', targetId: m.id, targetType: tType, targetSub: sub })
+  for (const g of linkTraining) {
+    const sub = `${g.status} · ${g._count.steps} STEP${g._count.steps !== 1 ? 'S' : ''}`
+    const tType = g.isTracked ? 'GUIDE' : 'REFERENCE'
+    for (const tg of g.taskGuides) {
+      pushLink(tg.taskId, tg.isRequiredForCompetency
+        ? { label: g.title, colour: '#F87171', kind: 'requires', targetId: g.id, targetType: tType, targetSub: sub }
+        : { label: g.title, colour: '#F97316', kind: 'how-to', targetId: g.id, targetType: tType, targetSub: sub })
+    }
   }
   const staffIdsBySection = new Map<string, string[]>()
   for (const ss of staffSections) {
@@ -140,30 +152,61 @@ export async function GET() {
     assignee: t.assignedToStaffId ? staffName.get(t.assignedToStaffId) ?? null : null,
     links: linksByTask.get(t.id) ?? [],
   })
+  const guideTaskCount = new Map(linkTraining.map((g) => [g.id, g.taskGuides.length]))
   const fmtTraining = (t: (typeof training)[number]) => ({
     id: t.id,
     title: t.title,
-    kind: t.isOnboarding ? 'ONBOARDING' : 'MODULE',
+    kind: t.isOnboarding ? 'ONBOARDING' : t.status,
     signOff: t.requiresSignOff,
-    linkedToTask: !!t.linkedTaskId,
+    linkedToTask: (guideTaskCount.get(t.id) ?? 0) > 0,
   })
 
+  // Pre-group by venue once. These were previously re-filtered inside the
+  // per-department and per-section callbacks, making the whole assembly
+  // O(venues × departments × tasks).
+  const groupBy = <T,>(rows: T[], key: (row: T) => string) => {
+    const map = new Map<string, T[]>()
+    for (const row of rows) {
+      const k = key(row)
+      const arr = map.get(k)
+      if (arr) arr.push(row)
+      else map.set(k, [row])
+    }
+    return map
+  }
+  const staffByVenue = groupBy(staff, (s) => s.venueId)
+  const tasksByVenue = groupBy(tasks, (t) => t.venueId)
+  const guidesByVenue = groupBy(training, (t) => t.venueId)
+  const sectionsByDept = groupBy(sections, (s) => s.departmentId)
+
+  // A guide reaches a department or section through the legacy column or any
+  // matching audience row.
+  const guideInDept = (g: (typeof training)[number], deptId: string) =>
+    g.departmentId === deptId ||
+    g.audiences.some((a) => a.kind === 'DEPARTMENT' && a.targetId === deptId)
+  const guideInSection = (g: (typeof training)[number], sectionId: string) =>
+    g.audiences.some((a) => a.kind === 'SECTION' && a.targetId === sectionId)
+
   const tree = venues.map((v) => {
-    const vStaff = staff.filter((s) => s.venueId === v.id)
-    const vTasks = tasks.filter((t) => t.venueId === v.id)
-    const vTraining = training.filter((t) => t.venueId === v.id)
+    const vStaff = staffByVenue.get(v.id) ?? []
+    const vTasks = tasksByVenue.get(v.id) ?? []
+    const vTraining = guidesByVenue.get(v.id) ?? []
+
+    const staffByDept = groupBy(vStaff, (s) => s.departmentId ?? '')
+    const tasksByDept = groupBy(vTasks, (t) => t.departmentId ?? '')
+    const tasksBySection = groupBy(vTasks, (t) => t.sectionId ?? '')
 
     const departments = v.departments.map((d) => {
-      const deptSections = sections.filter((s) => s.departmentId === d.id)
+      const deptSections = sectionsByDept.get(d.id) ?? []
       return {
         id: d.id,
         name: d.name,
         colour: d.colour,
         linkedDepartments: deptLinksByDept.get(d.id) ?? [],
         // Department-level lists exclude items pushed down into a section.
-        staff: vStaff.filter((s) => s.departmentId === d.id).map(fmtStaff),
-        tasks: vTasks.filter((t) => t.departmentId === d.id && !t.sectionId).map(fmtTask),
-        training: vTraining.filter((t) => t.departmentId === d.id).map(fmtTraining),
+        staff: (staffByDept.get(d.id) ?? []).map(fmtStaff),
+        tasks: (tasksByDept.get(d.id) ?? []).filter((t) => !t.sectionId).map(fmtTask),
+        training: vTraining.filter((t) => guideInDept(t, d.id)).map(fmtTraining),
           sections: deptSections.map((sec) => {
             const memberIds = new Set(staffIdsBySection.get(sec.id) ?? [])
             const fp = fpBySection.get(sec.id) ?? { tables: 0, chairs: 0, equip: 0 }
@@ -172,7 +215,8 @@ export async function GET() {
               name: sec.name,
               colour: sec.colour,
               staff: vStaff.filter((s) => memberIds.has(s.id)).map(fmtStaff),
-              tasks: vTasks.filter((t) => t.sectionId === sec.id).map(fmtTask),
+              tasks: (tasksBySection.get(sec.id) ?? []).map(fmtTask),
+              training: vTraining.filter((t) => guideInSection(t, sec.id)).map(fmtTraining),
               floorPlan: fp,
               inventoryItems: storedBySection.get(sec.id) ?? [],
             }
@@ -191,9 +235,11 @@ export async function GET() {
       },
       departments,
       venueWide: {
-        staff: vStaff.filter((s) => !s.departmentId).map(fmtStaff),
-        tasks: vTasks.filter((t) => !t.departmentId).map(fmtTask),
-        training: vTraining.filter((t) => !t.departmentId).map(fmtTraining),
+        staff: (staffByDept.get('') ?? []).map(fmtStaff),
+        tasks: (tasksByDept.get('') ?? []).map(fmtTask),
+        training: vTraining
+          .filter((t) => !t.departmentId && t.audiences.length === 0)
+          .map(fmtTraining),
       },
     }
   })

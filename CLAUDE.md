@@ -197,9 +197,18 @@ existing ADMIN/MANAGER (and frees `swiftPosId`), so no one is locked out.
 ### Playbook Guides (Phase 6 — replaces Training)
 
 `Guide` + `GuideStep` replace the old `TrainingModule`/`TrainingStep` system.
-Steps are simplified — just `heading`, `content`, `imageUrl`, and `videoUrl`. All
-step-level junction tables (StepInventoryItem, StepTask, StepModule,
-linkedChecklistId, linkedTaskId on step) have been removed.
+The legacy **UI, API routes and libs are gone** (`/admin/training`, `/w/training`,
+`/w/sops`, `lib/training.ts`, `TrainingClient`, `TrainingEditModal`,
+`StaffTrainingModal`, `WorkerTrainingClient`, `WorkerSopsClient`).
+
+> The legacy **models** are still declared in `schema.prisma` on purpose.
+> `docker-entrypoint.sh` runs `db push` *before* the migration scripts, and
+> `migrate-to-guides.ts` + `migrate-step-links.ts` read those tables. Same
+> reasoning as `TableProfile` — delete only once every deployment has migrated.
+
+Step links were **restored, not re-added as five tables** — see "Guide step
+links" below. `Guide.departmentId` is deprecated in favour of `GuideAudience`
+but still honoured by the resolver until every row is backfilled.
 
 A guide has:
 - `status`: `DRAFT` | `PUBLISHED` — new guides start as DRAFT and must be
@@ -257,6 +266,106 @@ MANAGER SIGN-OFF message when appropriate. Dashboard widget shows % complete.
 | `/api/admin/staff/[id]/guides` | GET | Staff's applicable guides + completions |
 | `/api/worker/guides` | GET | Worker's applicable guides + completion status |
 | `/api/worker/guides/[id]/complete` | POST | Self-complete (rejects sign-off-required) |
+| `/api/admin/guides/link-targets` | GET | Every step-link / audience target for a venue, one round trip |
+| `/api/admin/positions` | GET, POST | List/create job roles |
+| `/api/admin/positions/[id]` | PUT, DELETE | Position CRUD (DELETE drops StaffPosition rows) |
+| `/api/admin/pathways` | GET, POST | List/create pathways |
+| `/api/admin/pathways/[id]` | GET, PUT, DELETE | Pathway CRUD + publish |
+| `/api/admin/pathways/[id]/graph` | PUT | Bulk save nodes + edges + positions; 422 on a cycle |
+| `/api/worker/pathway` | GET | The staff member's own tree, with statuses and points |
+
+### Positions, audiences and step links (built 2026-08-02)
+
+**`Position` + `StaffPosition`** — a *job title*, distinct from `Section` (a
+*place*). "DUTY MANAGER" spans every section; "BARISTA" doesn't, so
+`departmentId` is optional. Many-to-many, because one person routinely covers
+several roles — no "all access" flag is needed, applicability just unions across
+everything they hold. Managed on `/admin/sections` (`PositionsPanel`).
+
+**`GuideAudience`** (`kind: DEPARTMENT | SECTION | POSITION` + `targetId`)
+replaces the single `Guide.departmentId`, which could only name one department
+and could not reach a section or a role. A food-safety SOP can now target Kitchen
+*and* Bar. One "APPLIES TO" control in the guide form covers all three.
+
+**Applicability lives in one place — `lib/guides.ts`.** It had been copy-pasted
+into three routes that drifted: the worker route omitted `GuideAssignment`
+entirely, so individually-assigned guides showed in the admin modal but **never
+reached the worker's phone**. `guideSource()` is pure and returns *why* a guide
+applies (ASSIGNED > ONBOARDING > SECTION > POSITION > DEPARTMENT);
+`guideWhereOr()` is the matching Prisma filter, kept beside it so the SQL and the
+predicate cannot diverge.
+
+**Guide step links — `GuideStepLink`.** One polymorphic row
+(`kind: ITEM | TASK | CHECKLIST | GUIDE | SECTION | RECIPE`, `targetId`, `qty`,
+`note`) replaces the five junctions the legacy `TrainingStep` carried. One table,
+one `+ LINK` control, one renderer (`components/GuideStepLinks.tsx`, shared by
+the admin preview and the worker reader). A new link type is an enum value, not a
+migration.
+
+> **Trade-off:** polymorphic `targetId` means no FK. `lib/guide-links.server.ts`
+> does the two jobs an FK would have: it batch-loads **one query per kind**
+> (a 20-step guide costs ≤6 queries, not ~100) and renders a purged target as
+> "ITEM REMOVED" rather than throwing.
+>
+> **`lib/guide-links.ts` must stay Prisma-free.** The worker reader renders links
+> in the browser; importing the server half from a client component drags the
+> `pg` driver into the client bundle and `next build` fails on
+> `Can't resolve 'fs'`. Types and pure helpers live in `guide-links.ts`, all DB
+> work in `guide-links.server.ts`.
+
+**Guide `PUT` diffs steps by id** rather than `deleteMany` + `create`. Step ids
+used to change on every save, which would orphan anything hanging off a step.
+Links are still replaced wholesale — nothing hangs off a link — and are synced
+*after* the step diff, joined by array index since saved steps come back ordered
+`0..n-1`.
+
+**Migrations** (both idempotent, both wired into `start.ps1` and
+`docker-entrypoint.sh` **after** `db push`):
+- `migrate-step-links.ts` — rebuilds the links `migrate-to-guides.ts` logged as
+  `[DROPPED]`. The legacy rows still exist, and the guide kept the module id
+  verbatim with step `order` preserved, so `(guideId == moduleId, order)` is a
+  reliable join. Clears `legacyToolsNote` once recovered.
+- `backfill-guide-audiences.ts` — copies `Guide.departmentId` into a
+  `GuideAudience` row, skipping deleted departments.
+
+### Pathways — the onboarding / progression tree (built 2026-08-02)
+
+`Pathway` → `PathwayNode` (`kind: GUIDE | TASK | CHECKLIST | MILESTONE`, `x`,
+`y`, `stage`, `points`) → `PathwayEdge` (`from` → `to` = "finish this to unlock
+that"). Targeted by nullable `positionId` / `sectionId` / `departmentId`; the
+worker route picks the **most specific** match.
+
+**A pathway stores shape, not progress.** A node reads DONE because a
+`GuideCompletion` / `TaskCompletion` already exists — there is no progress table
+multiplying by staff × node. Points and levels are summed on read.
+
+`lib/pathway-progress.ts` is pure and Prisma-free (28 tests); it is the single
+brain behind the admin board, the admin tree list, the worker tech tree and the
+staff modal. `lib/pathway-for-staff.ts` is the DB bridge (which nodes are done,
+plus batched node titles).
+
+Three rules worth keeping:
+- **A completed node stays DONE even if its prerequisites aren't.** Work is never
+  gated on the floor, so someone can legitimately finish a guide out of order;
+  recomputing that away would be wrong.
+- **A MILESTONE is awarded, never completed.** It has no completion row — it
+  flips to DONE once every prerequisite is DONE. That gives the "stage cleared"
+  reward with no extra table. An unwired milestone stays AVAILABLE, not DONE.
+- **Cycles resolve to LOCKED rather than hanging**, and `findPathwayCycle`
+  rejects them at save time with a 422.
+
+**Admin** `/admin/pathways` — BOARD (React Flow 12, drag to place, drag
+handle-to-handle to set a prerequisite, **positions persist**) and TREE (the same
+data as an indented outline). Unlike the Structure MAP, this layout is authored,
+so node changes are applied to state instead of being regenerated each render.
+
+**Worker** `/w/guides` has two tabs: **BIBLE** (every guide that applies, read
+anything any time) and **MY TREE** (`WorkerPathwayTree`). The tree is **CSS grid
++ SVG, not React Flow** — it runs on a phone, needs no dragging, and a canvas
+library would be a heavy download for a read-only view; columns come from
+`stage`, and connectors are measured from the laid-out DOM via `ResizeObserver`.
+Locked nodes are **readable but not bankable** ("COMPLETE X FIRST"); ticking a
+task is never blocked by any of this.
 
 **Migration:** `packages/db/prisma/migrate-to-guides.ts` reads old
 `TrainingModule`/`TrainingStep` data, creates `Guide`/`GuideStep`/`TaskGuide`
@@ -640,7 +749,7 @@ zone's bounding box against all other zones on the plan. If the overlap exceeds 
 smaller zone's area, the zone snaps back to its previous position and a toast warns
 "SECTIONS CANNOT OVERLAP." Pure geometry check via polygon intersection — no API round-trip.
 
-**Vitest Coverage:** 595 tests across 62 files. `lib/furniture.test.ts` has 66 tests covering
+**Vitest Coverage:** 688 tests across 67 files. `lib/furniture.test.ts` has 66 tests covering
 the unified outline/chair engine (see "Furniture Unification"). `lib/floorplan-inventory.test.ts` has 49 tests
 covering `calculateSetupInventory`, geometry helpers, `computeGroupChairs`,
 `computeEffectiveChairs`, `computeSetupSectionTotals`, `pointInPolygon`, and BOM integration.
@@ -1685,7 +1794,11 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/retrain.ts` — `postRetrainNotice` | ✅ |
 | `lib/demo-block.ts` — `shouldBlockDemoWrite` | ✅ (14 tests) |
 | `lib/worker-session.ts` — `workerCookieSecure` | ✅ |
-| `lib/followups.ts` — `checkUntrainedOnCompletion` | ✅ |
+| `lib/followups.ts` — `checkUntrainedOnCompletion` (reads `TaskGuide`) | ✅ (5 tests) |
+| `lib/guides.ts` — `guideSource`, `guideAppliesTo`, `guideWhereOr` | ✅ (25 tests) |
+| `lib/guide-links.ts` — `groupTargetIdsByKind`, `attachTargets`, `targetKey` | ✅ (14 tests) |
+| `lib/pathway-progress.ts` — `resolvePathwayProgress`, `findPathwayCycle`, `levelForPoints`, `nextLevelThreshold` | ✅ (28 tests) |
+| `lib/training.ts` — REMOVED with the legacy training UI | — |
 | `lib/external-sync.ts` — `syncVenueCalendar` | ✅ |
 | `lib/floorplan-inventory.ts` — `calculateSetupInventory`, `computeSetupSectionTotals`, `pointInPolygon`, geometry fns | ✅ (49 tests) |
 | `lib/furniture.ts` — `outlineOf`, `logicalEdges`, `pointAtPerimeter`, `projectToPerimeter`, `defaultChairSlots`, `chairWorldPlacements`, `chairTFromWorld`, `validatePolygon`, chair-set editing | ✅ (66 tests) |
@@ -1724,6 +1837,10 @@ pushing, run: `npm run lint && npm run test`.
 | `SetupInventoryPanel.tsx` — button states, shortage list, idle, empty, disabled | ✅ (7 tests) |
 | `FurniturePalette.tsx` — tiles, availability, drag payload, arming, chair exclusion, filters, polygon render | ✅ (13 tests) |
 | `FurnitureShapeEditor.tsx` — preview vs draw mode, live seat/area readout, vertex handles, validation | ✅ (13 tests) |
+| `PathwaysClient.tsx` — list, open, board/tree tabs, blocked-node preview, SAVE gating | ✅ (7 tests) |
+| `WorkerPathwayTree.tsx` — stage columns, locked node names its blocker, locked stays readable | ✅ (9 tests) |
+| `GuideStepLinks.tsx` — kinds, qty prefix, missing target, note vs sub-line | ✅ (8 tests) |
+| `PositionsPanel.tsx` — list, ALL DEPARTMENTS, empty state, blank-name guard, POST body | ✅ (5 tests) |
 
 ## PRE-COMMIT CHECKLIST
 

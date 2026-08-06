@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  taskRequiredTraining: { findMany: vi.fn() },
-  trainingCompletion: { findMany: vi.fn() },
+  taskGuide: { findMany: vi.fn() },
+  guideCompletion: { findMany: vi.fn() },
   task: { findUnique: vi.fn() },
   followUp: { upsert: vi.fn() },
 }))
@@ -17,30 +17,33 @@ describe('followups', () => {
   })
 
   describe('checkUntrainedOnCompletion', () => {
-    it('returns early when no required training exists', async () => {
-      mocks.taskRequiredTraining.findMany.mockResolvedValue([])
+    it('returns early when the task declares no competency guide', async () => {
+      mocks.taskGuide.findMany.mockResolvedValue([])
       await checkUntrainedOnCompletion({
         taskId: 't1', staffId: 's1', venueId: 'v1', date: new Date(),
       })
-      expect(mocks.trainingCompletion.findMany).not.toHaveBeenCalled()
+      expect(mocks.guideCompletion.findMany).not.toHaveBeenCalled()
     })
 
-    it('returns early when staff holds all required training', async () => {
-      mocks.taskRequiredTraining.findMany.mockResolvedValue([
-        { moduleId: 'm1', module: { id: 'm1', title: 'FOOD SAFETY' } },
+    it('returns early when staff holds every required guide', async () => {
+      mocks.taskGuide.findMany.mockResolvedValue([
+        { guideId: 'g1', guide: { id: 'g1', title: 'FOOD SAFETY' } },
       ])
-      mocks.trainingCompletion.findMany.mockResolvedValue([{ moduleId: 'm1' }])
+      mocks.guideCompletion.findMany.mockResolvedValue([{ guideId: 'g1' }])
       await checkUntrainedOnCompletion({
         taskId: 't1', staffId: 's1', venueId: 'v1', date: new Date(),
       })
       expect(mocks.followUp.upsert).not.toHaveBeenCalled()
     })
 
-    it('creates UNTRAINED follow-up when training is missing', async () => {
-      mocks.taskRequiredTraining.findMany.mockResolvedValue([
-        { moduleId: 'm1', module: { id: 'm1', title: 'FOOD SAFETY' } },
+    // Regression: this path read TaskRequiredTraining/TrainingCompletion, so a
+    // competency set in the Playbook (TaskGuide.isRequiredForCompetency) raised
+    // no follow-up at all.
+    it('creates an UNTRAINED follow-up from a TaskGuide competency', async () => {
+      mocks.taskGuide.findMany.mockResolvedValue([
+        { guideId: 'g1', guide: { id: 'g1', title: 'FOOD SAFETY' } },
       ])
-      mocks.trainingCompletion.findMany.mockResolvedValue([])
+      mocks.guideCompletion.findMany.mockResolvedValue([])
       mocks.task.findUnique.mockResolvedValue({ title: 'CLEAN KITCHEN' })
       mocks.followUp.upsert.mockResolvedValue({})
 
@@ -52,6 +55,36 @@ describe('followups', () => {
       const call = mocks.followUp.upsert.mock.calls[0][0]
       expect(call.create.kind).toBe('UNTRAINED')
       expect(call.create.detail).toContain('FOOD SAFETY')
+      expect(call.create.guideId).toBe('g1')
+    })
+
+    it('only flags the guides the staff member is actually missing', async () => {
+      mocks.taskGuide.findMany.mockResolvedValue([
+        { guideId: 'g1', guide: { id: 'g1', title: 'FOOD SAFETY' } },
+        { guideId: 'g2', guide: { id: 'g2', title: 'ALLERGENS' } },
+      ])
+      mocks.guideCompletion.findMany.mockResolvedValue([{ guideId: 'g1' }])
+      mocks.task.findUnique.mockResolvedValue({ title: 'CLEAN KITCHEN' })
+      mocks.followUp.upsert.mockResolvedValue({})
+
+      await checkUntrainedOnCompletion({
+        taskId: 't1', staffId: 's1', venueId: 'v1', date: new Date('2026-07-05'),
+      })
+
+      const call = mocks.followUp.upsert.mock.calls[0][0]
+      expect(call.create.detail).toContain('ALLERGENS')
+      expect(call.create.detail).not.toContain('FOOD SAFETY')
+      expect(call.create.guideId).toBe('g2')
+    })
+
+    it('excludes soft-deleted guides from the competency query', async () => {
+      mocks.taskGuide.findMany.mockResolvedValue([])
+      await checkUntrainedOnCompletion({
+        taskId: 't1', staffId: 's1', venueId: 'v1', date: new Date(),
+      })
+      const where = mocks.taskGuide.findMany.mock.calls[0][0].where
+      expect(where.isRequiredForCompetency).toBe(true)
+      expect(where.guide).toEqual({ deletedAt: null })
     })
   })
 })

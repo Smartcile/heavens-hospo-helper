@@ -22,6 +22,7 @@ const STAFF_SELECT = {
   venue: { select: { id: true, name: true } },
   department: { select: { id: true, name: true } },
   sections: { select: { sectionId: true } },
+  positions: { select: { positionId: true } },
   staffVenues: { select: { venueId: true } },
 } as const
 
@@ -77,6 +78,7 @@ export async function POST(req: NextRequest) {
     myHrId,
     loadedReportsId,
     sectionIds,
+    positionIds,
     venueIds,
   } = body
 
@@ -136,6 +138,9 @@ export async function POST(req: NextRequest) {
       loadedReportsId: loadedReportsId?.trim() || null,
       sections: Array.isArray(sectionIds) && sectionIds.length
         ? { create: sectionIds.map((sectionId: string) => ({ sectionId })) }
+        : undefined,
+      positions: Array.isArray(positionIds) && positionIds.length
+        ? { create: [...new Set(positionIds as string[])].map((positionId) => ({ positionId })) }
         : undefined,
     },
     select: STAFF_SELECT,

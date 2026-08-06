@@ -1,18 +1,52 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { STEP_LINK_KINDS, type StepLinkKind } from '@/lib/guide-links'
 import { prisma } from '@hospo-ops/db'
+
+interface IncomingLink {
+  kind: StepLinkKind
+  targetId: string
+  qty?: number | null
+  note?: string | null
+}
 
 interface IncomingStep {
   heading?: string | null
   content: string
   imageUrl?: string | null
   videoUrl?: string | null
+  links?: IncomingLink[]
 }
 
 interface IncomingTaskGuide {
   taskId: string
   isRequiredForCompetency: boolean
+}
+
+interface IncomingAudience {
+  kind: 'DEPARTMENT' | 'SECTION' | 'POSITION'
+  targetId: string
+}
+
+/** Drop malformed rows and duplicates — the unique key would reject them anyway. */
+function cleanLinks(links: IncomingLink[] | undefined) {
+  const seen = new Set<string>()
+  return (links ?? [])
+    .filter((l) => {
+      if (!l?.targetId || !STEP_LINK_KINDS.includes(l.kind)) return false
+      const key = `${l.kind}:${l.targetId}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .map((l, order) => ({
+      kind: l.kind,
+      targetId: l.targetId,
+      qty: typeof l.qty === 'number' ? l.qty : null,
+      note: l.note?.trim() || null,
+      order,
+    }))
 }
 
 export async function GET(req: NextRequest) {
@@ -31,8 +65,9 @@ export async function GET(req: NextRequest) {
   const guides = await prisma.guide.findMany({
     where,
     include: {
-      steps: { orderBy: { order: 'asc' } },
+      steps: { orderBy: { order: 'asc' }, include: { links: true } },
       taskGuides: { select: { id: true, taskId: true, isRequiredForCompetency: true } },
+      audiences: { select: { kind: true, targetId: true } },
       department: { select: { id: true, name: true } },
     },
     orderBy: [{ isOnboarding: 'desc' }, { category: 'asc' }, { title: 'asc' }],
@@ -57,6 +92,7 @@ export async function POST(req: NextRequest) {
     venueId,
     steps,
     taskGuides,
+    audiences,
   } = body as {
     title: string
     description?: string
@@ -68,6 +104,7 @@ export async function POST(req: NextRequest) {
     venueId?: string
     steps: IncomingStep[]
     taskGuides?: IncomingTaskGuide[]
+    audiences?: IncomingAudience[]
   }
 
   if (!title?.trim()) {
@@ -99,13 +136,25 @@ export async function POST(req: NextRequest) {
           content: s.content?.trim() ?? '',
           imageUrl: s.imageUrl || null,
           videoUrl: s.videoUrl?.trim() || null,
+          links: { create: cleanLinks(s.links) },
         })),
       },
       taskGuides: taskGuides?.length
         ? { create: taskGuides.map((tg) => ({ taskId: tg.taskId, isRequiredForCompetency: tg.isRequiredForCompetency })) }
         : undefined,
+      audiences: audiences?.length
+        ? {
+            create: [
+              ...new Map(
+                audiences
+                  .filter((a) => a?.targetId && ['DEPARTMENT', 'SECTION', 'POSITION'].includes(a.kind))
+                  .map((a) => [`${a.kind}:${a.targetId}`, { kind: a.kind, targetId: a.targetId }]),
+              ).values(),
+            ],
+          }
+        : undefined,
     },
-    include: { steps: { orderBy: { order: 'asc' } }, taskGuides: true },
+    include: { steps: { orderBy: { order: 'asc' }, include: { links: true } }, taskGuides: true, audiences: true },
   })
 
   return NextResponse.json(guide, { status: 201 })
