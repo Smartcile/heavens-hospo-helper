@@ -219,6 +219,12 @@ TASK "Wipe down bar surfaces" (v3)   ← single source of truth
 Tasks and checklists live on **one page** (`/admin/tasks`, TASKS / CHECKLISTS
 tabs). The old `/admin/templates` redirects here.
 
+**Print the floor copy.** The page header's `⬇ PDF` button opens a modal listing
+every checklist; each DOWNLOAD renders a printable A4 checkbox list
+(`GET /api/admin/checklists/[id]/pdf`) — numbered tasks with drawn checkbox
+squares, blank DATE/STAFF fill-in lines, and a page-numbered footer. Because
+checklists reference live tasks, the PDF is always current.
+
 **Significant change → re-train.** When you edit a task or SOP and tick
 **Require re-training**, its `version` bumps and a must-acknowledge **RE-TRAIN
 notice** is posted to the relevant group. Staff confirm with **GOT IT** on their

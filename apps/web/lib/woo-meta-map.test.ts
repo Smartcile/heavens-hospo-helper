@@ -189,7 +189,36 @@ describe('resolveOrderMeta', () => {
       partySize: 8,
       allergens: 'NO NUTS',
       fulfillmentType: null,
+      serviceId: null,
+      bookTable: false,
     })
+  })
+
+  it('reads the HOSPO OPS plugin fields', () => {
+    const meta = [
+      { key: '_hospo_service_date', value: '2026-08-15' },
+      { key: '_hospo_service_time', value: '17:00' },
+      { key: '_hospo_party_size', value: '6' },
+      { key: '_hospo_service_id', value: '3130f7b3-e632-4794-ba41-fc4524b0fe7f' },
+      { key: '_hospo_book_table', value: '1' },
+    ]
+    expect(resolveOrderMeta(meta)).toEqual({
+      serviceDate: new Date('2026-08-15T00:00:00.000Z'),
+      serviceTime: '17:00',
+      partySize: 6,
+      allergens: null,
+      fulfillmentType: null,
+      serviceId: '3130f7b3-e632-4794-ba41-fc4524b0fe7f',
+      bookTable: true,
+    })
+  })
+
+  it('treats book-table values loosely and false-y values as no', () => {
+    expect(resolveOrderMeta([{ key: '_hospo_book_table', value: 'YES' }]).bookTable).toBe(true)
+    expect(resolveOrderMeta([{ key: '_hospo_book_table', value: 'on' }]).bookTable).toBe(true)
+    expect(resolveOrderMeta([{ key: '_hospo_book_table', value: '0' }]).bookTable).toBe(false)
+    expect(resolveOrderMeta([{ key: '_hospo_book_table', value: 'no' }]).bookTable).toBe(false)
+    expect(resolveOrderMeta([]).bookTable).toBe(false)
   })
 
   it('honours a custom mapping for a renamed plugin field', () => {
@@ -208,6 +237,8 @@ describe('resolveOrderMeta', () => {
       partySize: null,
       allergens: null,
       fulfillmentType: null,
+      serviceId: null,
+      bookTable: false,
     })
   })
 })

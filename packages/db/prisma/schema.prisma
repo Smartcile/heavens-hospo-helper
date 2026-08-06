@@ -83,9 +83,9 @@ enum GuideStatus {
 }
 
 enum FollowUpKind {
-  MISSED     // a due task wasn't completed
-  UNTRAINED  // a task was completed by someone without the required training
-  INCORRECT  // a manager flagged work as not done correctly
+  MISSED // a due task wasn't completed
+  UNTRAINED // a task was completed by someone without the required training
+  INCORRECT // a manager flagged work as not done correctly
 }
 
 enum FollowUpStatus {
@@ -102,47 +102,48 @@ enum BudgetLineKind {
 }
 
 model Venue {
-  id         String    @id @default(uuid())
-  name       String
-  address    String?
-  timezone   String    @default("Pacific/Auckland")
-  isActive   Boolean   @default(true)
-  isDemo     Boolean   @default(false) // seeded demo venue — read-only for non-admins, excluded from syncs
-  sharingEnabled       Boolean   @default(false) // venue can share/receive staff, products, and WooCommerce data
-  sharedWooVenueId     String?   // source venue for WooCommerce sync (source-venue model)
-  sharedWooVenue       Venue?    @relation("SharedWooVenue", fields: [sharedWooVenueId], references: [id])
-  wooSourceFor         Venue[]   @relation("SharedWooVenue")
+  id                     String    @id @default(uuid())
+  name                   String
+  address                String?
+  timezone               String    @default("Pacific/Auckland")
+  isActive               Boolean   @default(true)
+  isDemo                 Boolean   @default(false) // seeded demo venue — read-only for non-admins, excluded from syncs
+  sharingEnabled         Boolean   @default(false) // venue can share/receive staff, products, and WooCommerce data
+  sharedWooVenueId       String? // source venue for WooCommerce sync (source-venue model)
+  sharedWooVenue         Venue?    @relation("SharedWooVenue", fields: [sharedWooVenueId], references: [id])
+  wooSourceFor           Venue[]   @relation("SharedWooVenue")
+  autoSeat               Boolean   @default(false) // Woo order auto-seating (off by default — seat manually)
   // External embeds (pasteable links shown live in the app)
   loadedRosterUrl        String?
-  googleCalendarUrl      String?   // also imported into the planner via its derived iCal feed
-  icalFeedUrl            String?   // any .ics subscribe link (e.g. a Loaded/roster calendar feed) — imported
-  externalRefreshMinutes Int     @default(0) // 0 = manual refresh only
+  googleCalendarUrl      String? // also imported into the planner via its derived iCal feed
+  icalFeedUrl            String? // any .ics subscribe link (e.g. a Loaded/roster calendar feed) — imported
+  externalRefreshMinutes Int       @default(0) // 0 = manual refresh only
   lastExternalSyncAt     DateTime? // last successful calendar import
   // Geo-fence for timeclock punches (centre point + allowed radius in metres).
   // Null means geo-fencing is off for this venue.
   geoLat                 Float?
   geoLon                 Float?
   geoRadius              Int?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  deletedAt  DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  deletedAt              DateTime?
 
-  departments Department[]
-  staff       Staff[]
-  tasks       Task[]
-  qrCodes     QRCode[]
-  budgetPeriods BudgetPeriod[]
-  trainingModules TrainingModule[]
-  guides         Guide[]
-  taskTemplates TaskTemplate[]
-  shiftNotes  ShiftNote[]
-  shifts      Shift[]
-  timeOffRequests TimeOffRequest[]
-  notices     Notice[]
-  calendarEvents CalendarEvent[]
-  sections    Section[]
-  followUps   FollowUp[]
-  checklists  Checklist[]
+  departments         Department[]
+  staff               Staff[]
+  tasks               Task[]
+  qrCodes             QRCode[]
+  budgetPeriods       BudgetPeriod[]
+  trainingModules     TrainingModule[]
+  guides              Guide[]
+  taskTemplates       TaskTemplate[]
+  shiftNotes          ShiftNote[]
+  shifts              Shift[]
+  timeOffRequests     TimeOffRequest[]
+  notices             Notice[]
+  calendarEvents      CalendarEvent[]
+  sections            Section[]
+  followUps           FollowUp[]
+  checklists          Checklist[]
   floorPlans          FloorPlan[]
   inventoryCategories InventoryCategory[]
   inventoryItems      InventoryItem[]
@@ -167,6 +168,8 @@ model Venue {
   bookings            Booking[]
   positions           Position[]
   pathways            Pathway[]
+  services            Service[]
+  apiKeys             ApiKey[]
 }
 
 model Department {
@@ -179,31 +182,31 @@ model Department {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  venue  Venue   @relation(fields: [venueId], references: [id])
-  staff  Staff[]
-  tasks  Task[]
-  trainingModules TrainingModule[]
-  guides          Guide[]
-  shifts Shift[]
-  notices Notice[]
-  sections Section[]
-  checklists Checklist[]
-  budgetCategories BudgetCategory[]
+  venue             Venue              @relation(fields: [venueId], references: [id])
+  staff             Staff[]
+  tasks             Task[]
+  trainingModules   TrainingModule[]
+  guides            Guide[]
+  shifts            Shift[]
+  notices           Notice[]
+  sections          Section[]
+  checklists        Checklist[]
+  budgetCategories  BudgetCategory[]
   moduleDepartments ModuleDepartment[]
-  linkedFrom        DepartmentLink[] @relation("FromDepartment")
-  linkedTo          DepartmentLink[] @relation("ToDepartment")
+  linkedFrom        DepartmentLink[]   @relation("FromDepartment")
+  linkedTo          DepartmentLink[]   @relation("ToDepartment")
   positions         Position[]
   pathways          Pathway[]
 }
 
 model DepartmentLink {
-  id                String   @id @default(uuid())
-  fromDepartmentId  String
-  toDepartmentId    String
-  createdAt         DateTime @default(now())
+  id               String   @id @default(uuid())
+  fromDepartmentId String
+  toDepartmentId   String
+  createdAt        DateTime @default(now())
 
-  fromDepartment    Department @relation("FromDepartment", fields: [fromDepartmentId], references: [id], onDelete: Cascade)
-  toDepartment      Department @relation("ToDepartment", fields: [toDepartmentId], references: [id], onDelete: Cascade)
+  fromDepartment Department @relation("FromDepartment", fields: [fromDepartmentId], references: [id], onDelete: Cascade)
+  toDepartment   Department @relation("ToDepartment", fields: [toDepartmentId], references: [id], onDelete: Cascade)
 
   @@unique([fromDepartmentId, toDepartmentId])
 }
@@ -212,9 +215,9 @@ model Staff {
   id              String    @id @default(uuid())
   firstName       String
   lastName        String
-  pin             String?   // worker QR + PIN login (bcrypt). Optional: pure admins may have none.
+  pin             String? // worker QR + PIN login (bcrypt). Optional: pure admins may have none.
   email           String?   @unique // admin/manager web login + cross-system match key
-  password        String?   // admin/manager web login (bcrypt)
+  password        String? // admin/manager web login (bcrypt)
   role            Role      @default(STAFF)
   venueId         String
   departmentId    String?
@@ -222,31 +225,31 @@ model Staff {
   isActive        Boolean   @default(true)
   // --- External system links (one profile, many systems). Sync is "coming soon";
   //     these IDs let an admin link a person across systems now. ---
-  swiftPosId      String?   // SwiftPOS staff id
-  myHrId          String?   // MyHR id
-  loadedReportsId String?   // LoadedReports id
-  hourlyRate      Float?    // pay rate per hour
-  employmentType  String?   // FULL_TIME | PART_TIME | CASUAL
-  defaultVenueId  String?   // admin's preferred default venue across all modules
+  swiftPosId      String? // SwiftPOS staff id
+  myHrId          String? // MyHR id
+  loadedReportsId String? // LoadedReports id
+  hourlyRate      Float? // pay rate per hour
+  employmentType  String? // FULL_TIME | PART_TIME | CASUAL
+  defaultVenueId  String? // admin's preferred default venue across all modules
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
-  venue            Venue            @relation(fields: [venueId], references: [id])
-  department       Department?      @relation(fields: [departmentId], references: [id])
-  taskCompletions  TaskCompletion[]
-  trainingAssignments TrainingAssignment[]
-  trainingCompletions TrainingCompletion[]
+  venue                Venue                @relation(fields: [venueId], references: [id])
+  department           Department?          @relation(fields: [departmentId], references: [id])
+  taskCompletions      TaskCompletion[]
+  trainingAssignments  TrainingAssignment[]
+  trainingCompletions  TrainingCompletion[]
   guideCompletions     GuideCompletion[]
   guideAssignments     GuideAssignment[]
-  shiftNotes       ShiftNote[]
-  shifts           Shift[]
-  timeOffRequests  TimeOffRequest[]
-  noticeAcks       NoticeAck[]
+  shiftNotes           ShiftNote[]
+  shifts               Shift[]
+  timeOffRequests      TimeOffRequest[]
+  noticeAcks           NoticeAck[]
   sections             StaffSection[]
   followUps            FollowUp[]
-  stocktakeCompletions StocktakeRecord[] @relation("stocktakeCompletedBy")
-  stocktakeAssignments StocktakeRecord[] @relation("stocktakeAssignedTo")
+  stocktakeCompletions StocktakeRecord[]    @relation("stocktakeCompletedBy")
+  stocktakeAssignments StocktakeRecord[]    @relation("stocktakeAssignedTo")
   timeClocks           TimeClock[]
   payrollEntries       PayrollEntry[]
   staffVenues          StaffVenue[]
@@ -255,7 +258,7 @@ model Staff {
 }
 
 model Task {
-  id                String       @id @default(uuid())
+  id                String         @id @default(uuid())
   title             String
   description       String?
   venueId           String
@@ -266,28 +269,28 @@ model Task {
   scheduleType      ScheduleType   @default(DAILY)
   scheduleDays      Int[]
   customCron        String?
-  intervalMonths    Int          @default(1)  // MONTHLY: run every N months (anchored on createdAt month)
-  monthlyOption     String?      // MONTHLY: FIRST_DAY | LAST_DAY | FIFTEENTH | FIRST_WEEKDAY | LAST_WEEKDAY | FIRST_MONDAY | LAST_FRIDAY | SPECIFIC_DAY
-  monthlyDay        Int?         // MONTHLY + SPECIFIC_DAY: day of month (1-31, clamped)
-  isActive          Boolean      @default(true)
-  sortOrder         Int          @default(0)
+  intervalMonths    Int            @default(1) // MONTHLY: run every N months (anchored on createdAt month)
+  monthlyOption     String? // MONTHLY: FIRST_DAY | LAST_DAY | FIFTEENTH | FIRST_WEEKDAY | LAST_WEEKDAY | FIRST_MONDAY | LAST_FRIDAY | SPECIFIC_DAY
+  monthlyDay        Int? // MONTHLY + SPECIFIC_DAY: day of month (1-31, clamped)
+  isActive          Boolean        @default(true)
+  sortOrder         Int            @default(0)
   // One-off / side-work task
-  isOneOff          Boolean      @default(false) // ad-hoc task (not recurring)
-  dueDate           DateTime?    @db.Date       // must be completed by this date
-  rolloverEnabled   Boolean      @default(false) // if not done by dueDate, show again next day
-  rolledOverFrom    DateTime?    @db.Date       // if this is a rollover copy, the original date
-  version           Int          @default(1) // bumped on a "significant change" (drives re-train)
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  isOneOff          Boolean        @default(false) // ad-hoc task (not recurring)
+  dueDate           DateTime?      @db.Date // must be completed by this date
+  rolloverEnabled   Boolean        @default(false) // if not done by dueDate, show again next day
+  rolledOverFrom    DateTime?      @db.Date // if this is a rollover copy, the original date
+  version           Int            @default(1) // bumped on a "significant change" (drives re-train)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
   deletedAt         DateTime?
 
-  venue            Venue            @relation(fields: [venueId], references: [id])
-  department       Department?      @relation(fields: [departmentId], references: [id])
-  section          Section?         @relation(fields: [sectionId], references: [id])
+  venue            Venue                  @relation(fields: [venueId], references: [id])
+  department       Department?            @relation(fields: [departmentId], references: [id])
+  section          Section?               @relation(fields: [sectionId], references: [id])
   taskCompletions  TaskCompletion[]
-  trainingSteps    TrainingStep[]   @relation("StepLinkedTask")
+  trainingSteps    TrainingStep[]         @relation("StepLinkedTask")
   stepTasks        StepTask[]
-  trainingModules  TrainingModule[] @relation("ModuleLinkedTask")
+  trainingModules  TrainingModule[]       @relation("ModuleLinkedTask")
   requiredTraining TaskRequiredTraining[]
   taskGuides       TaskGuide[]
   checklistLinks   ChecklistTask[]
@@ -326,11 +329,11 @@ model QRCode {
 
 model TaskTemplate {
   id          String    @id @default(uuid())
-  name        String              // ALL CAPS, e.g. "BAR OPEN"
+  name        String // ALL CAPS, e.g. "BAR OPEN"
   description String?
-  category    String?             // grouping hint, e.g. "BAR", "KITCHEN", "FOH", "GENERAL"
+  category    String? // grouping hint, e.g. "BAR", "KITCHEN", "FOH", "GENERAL"
   isBuiltIn   Boolean   @default(false) // seeded curated templates (not editable/deletable)
-  venueId     String?             // null = global/shared; else scoped to one venue
+  venueId     String? // null = global/shared; else scoped to one venue
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
@@ -342,7 +345,7 @@ model TaskTemplate {
 model TaskTemplateItem {
   id             String         @id @default(uuid())
   templateId     String
-  title          String         // ALL CAPS
+  title          String // ALL CAPS
   description    String?
   completionType CompletionType @default(TICK)
   scheduleType   ScheduleType   @default(DAILY)
@@ -357,35 +360,35 @@ model TaskTemplateItem {
 // --- TRAINING (Phase 3) ---
 
 model TrainingModule {
-  id              String    @id @default(uuid())
-  title           String              // ALL CAPS
+  id              String       @id @default(uuid())
+  title           String // ALL CAPS
   description     String?
-  category        String?             // grouping, e.g. "BAR", "FOOD SAFETY"
+  category        String? // grouping, e.g. "BAR", "FOOD SAFETY"
   venueId         String
-  departmentId    String?             // if set, auto-applies to all staff in this department
-  linkedTaskId    String?             // if set, this guide is the how-to for a task
+  departmentId    String? // if set, auto-applies to all staff in this department
+  linkedTaskId    String? // if set, this guide is the how-to for a task
   kind            ResourceKind @default(TRAINING) // TRAINING (sign-off-able) | SOP | FAQ | HOWTO (reference)
-  version         Int       @default(1) // bumped on a "significant change" (drives re-train)
-  requiresSignOff Boolean   @default(false) // true = a manager must sign off; false = staff self-complete
-  isOnboarding    Boolean   @default(false) // part of the onboarding checklist (applies to all staff)
-  onboardingOrder Int       @default(0)
-  isActive        Boolean   @default(true)
-  sortOrder       Int       @default(0)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  version         Int          @default(1) // bumped on a "significant change" (drives re-train)
+  requiresSignOff Boolean      @default(false) // true = a manager must sign off; false = staff self-complete
+  isOnboarding    Boolean      @default(false) // part of the onboarding checklist (applies to all staff)
+  onboardingOrder Int          @default(0)
+  isActive        Boolean      @default(true)
+  sortOrder       Int          @default(0)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
   deletedAt       DateTime?
 
-  venue       Venue                @relation(fields: [venueId], references: [id])
-  department  Department?          @relation(fields: [departmentId], references: [id])
-  linkedTask  Task?                @relation("ModuleLinkedTask", fields: [linkedTaskId], references: [id])
-  steps       TrainingStep[]
-  assignments TrainingAssignment[]
-  completions TrainingCompletion[]
-  resourceSections ResourceSection[]
-  requiredByTasks  TaskRequiredTraining[]
-  linksFrom   ResourceLink[] @relation("ResourceLinkFrom")
-  linksTo     ResourceLink[] @relation("ResourceLinkTo")
-  followUps   FollowUp[]
+  venue             Venue                  @relation(fields: [venueId], references: [id])
+  department        Department?            @relation(fields: [departmentId], references: [id])
+  linkedTask        Task?                  @relation("ModuleLinkedTask", fields: [linkedTaskId], references: [id])
+  steps             TrainingStep[]
+  assignments       TrainingAssignment[]
+  completions       TrainingCompletion[]
+  resourceSections  ResourceSection[]
+  requiredByTasks   TaskRequiredTraining[]
+  linksFrom         ResourceLink[]         @relation("ResourceLinkFrom")
+  linksTo           ResourceLink[]         @relation("ResourceLinkTo")
+  followUps         FollowUp[]
   moduleDepartments ModuleDepartment[]
   moduleTasks       ModuleTask[]
   stepModules       StepModule[]
@@ -394,8 +397,8 @@ model TrainingModule {
 }
 
 model ModuleDepartment {
-  id         String @id @default(uuid())
-  moduleId   String
+  id           String @id @default(uuid())
+  moduleId     String
   departmentId String
 
   module     TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
@@ -409,28 +412,28 @@ model ModuleTask {
   moduleId String
   taskId   String
 
-  module   TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  task     Task           @relation(fields: [taskId], references: [id])
+  module TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  task   Task           @relation(fields: [taskId], references: [id])
 
   @@unique([moduleId, taskId])
 }
 
 model TrainingStep {
-  id            String    @id @default(uuid())
-  moduleId      String
-  order         Int
-  title         String?
-  content       String
-  imageUrl      String?           // uploaded photo
-  videoUrl      String?           // external video link (YouTube/Vimeo/etc)
-  linkedTaskId  String?
-  linkedChecklistId String?       // embed a whole checklist into this step (tick off in person)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                String   @id @default(uuid())
+  moduleId          String
+  order             Int
+  title             String?
+  content           String
+  imageUrl          String? // uploaded photo
+  videoUrl          String? // external video link (YouTube/Vimeo/etc)
+  linkedTaskId      String?
+  linkedChecklistId String? // embed a whole checklist into this step (tick off in person)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  module          TrainingModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  linkedTask      Task?          @relation("StepLinkedTask", fields: [linkedTaskId], references: [id])
-  linkedChecklist Checklist?     @relation(fields: [linkedChecklistId], references: [id])
+  module          TrainingModule      @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  linkedTask      Task?               @relation("StepLinkedTask", fields: [linkedTaskId], references: [id])
+  linkedChecklist Checklist?          @relation(fields: [linkedChecklistId], references: [id])
   stepTasks       StepTask[]
   stepModules     StepModule[]
   inventoryItems  StepInventoryItem[]
@@ -482,8 +485,8 @@ model TrainingAssignment {
   id           String    @id @default(uuid())
   moduleId     String
   staffId      String
-  assignedById String?            // manager who assigned (Staff id, no relation)
-  reason       String?            // e.g. "UPSKILL", "AREA TO WORK ON"
+  assignedById String? // manager who assigned (Staff id, no relation)
+  reason       String? // e.g. "UPSKILL", "AREA TO WORK ON"
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?
@@ -500,7 +503,7 @@ model TrainingCompletion {
   staffId       String
   completedAt   DateTime @default(now())
   selfCompleted Boolean  @default(false) // true = staff ticked it; false = manager sign-off
-  signedOffById String?            // manager who signed off (Staff id, no relation)
+  signedOffById String? // manager who signed off (Staff id, no relation)
   note          String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -516,14 +519,14 @@ model TrainingCompletion {
 model Notice {
   id           String         @id @default(uuid())
   venueId      String
-  departmentId String?        // null = whole venue
+  departmentId String? // null = whole venue
   title        String
   body         String
   priority     NoticePriority @default(INFO)
   pinned       Boolean        @default(false)
   requiresAck  Boolean        @default(false)
-  startsAt     DateTime?      // active-window start (null = immediately)
-  endsAt       DateTime?      // active-window end (null = no expiry)
+  startsAt     DateTime? // active-window start (null = immediately)
+  endsAt       DateTime? // active-window end (null = no expiry)
   isActive     Boolean        @default(true)
   createdById  String?
   createdAt    DateTime       @default(now())
@@ -557,8 +560,8 @@ model Shift {
   venueId      String
   departmentId String?
   date         DateTime  @db.Date
-  startTime    String    // "09:00"
-  endTime      String    // "17:00"
+  startTime    String // "09:00"
+  endTime      String // "17:00"
   note         String?
   createdById  String?
   createdAt    DateTime  @default(now())
@@ -577,26 +580,26 @@ model Shift {
 // Keyed by (venueId, source, uid) so re-syncing UPDATES the same row instead of
 // duplicating; events that vanish from the feed are soft-deleted on next sync.
 model CalendarEvent {
-  id           String         @id @default(uuid())
-  venueId      String
-  source       CalendarSource @default(ICAL)
-  uid          String         // stable id from the feed (per-occurrence for recurring)
-  title        String
-  description  String?
-  location     String?
-  startsAt     DateTime
-  endsAt       DateTime?
-  allDay         Boolean   @default(false)
-  floorPlanSlug  String?   // links event to a specific floor plan layout
-  floorPlanName  String?   // display name for the banner
-  lastSyncedAt   DateTime  @default(now())
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  deletedAt      DateTime?
+  id            String         @id @default(uuid())
+  venueId       String
+  source        CalendarSource @default(ICAL)
+  uid           String // stable id from the feed (per-occurrence for recurring)
+  title         String
+  description   String?
+  location      String?
+  startsAt      DateTime
+  endsAt        DateTime?
+  allDay        Boolean        @default(false)
+  floorPlanSlug String? // links event to a specific floor plan layout
+  floorPlanName String? // display name for the banner
+  lastSyncedAt  DateTime       @default(now())
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
 
-  venue Venue @relation(fields: [venueId], references: [id])
+  venue     Venue      @relation(fields: [venueId], references: [id])
   wooOrders WooOrder[]
-  bookings Booking[]
+  bookings  Booking[]
 
   @@unique([venueId, source, uid])
   @@index([venueId, startsAt])
@@ -606,8 +609,8 @@ model Booking {
   id              String        @id @default(uuid())
   venueId         String
   date            DateTime      @db.Date // venue-local calendar date
-  startTime       String                 // "HH:mm" venue-local
-  endTime         String                 // "HH:mm" venue-local
+  startTime       String // "HH:mm" venue-local
+  endTime         String // "HH:mm" venue-local
   partySize       Int
   contactName     String
   contactPhone    String?
@@ -615,15 +618,15 @@ model Booking {
   source          BookingSource @default(PHONE)
   status          BookingStatus @default(CONFIRMED)
   notes           String?
-  calendarEventId String?       // links to CalendarEvent for calendar display
-  floorPlanSlug   String?       // which floor plan layout this booking uses
-  seatingSetupId  String?       // FK to FloorPlanSetup for the generated table layout
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  calendarEventId String? // links to CalendarEvent for calendar display
+  floorPlanSlug   String? // which floor plan layout this booking uses
+  seatingSetupId  String? // FK to FloorPlanSetup for the generated table layout
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
   deletedAt       DateTime?
 
-  venue         Venue            @relation(fields: [venueId], references: [id])
-  calendarEvent CalendarEvent?   @relation(fields: [calendarEventId], references: [id])
+  venue         Venue          @relation(fields: [venueId], references: [id])
+  calendarEvent CalendarEvent? @relation(fields: [calendarEventId], references: [id])
   tables        BookingTable[]
   orders        WooOrder[]
 
@@ -632,11 +635,11 @@ model Booking {
 }
 
 model BookingTable {
-  id         String   @id @default(uuid())
-  bookingId  String
-  setupItemId String   // FK to SetupItem (the table placed on the plan)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id          String   @id @default(uuid())
+  bookingId   String
+  setupItemId String // FK to SetupItem (the table placed on the plan)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   setupItem SetupItem @relation(fields: [setupItemId], references: [id])
@@ -679,7 +682,7 @@ model TimeClock {
   staffId     String
   venueId     String
   clockIn     DateTime
-  clockOut    DateTime?  // null until punched out
+  clockOut    DateTime? // null until punched out
   isActive    Boolean   @default(true)
   clockInLat  Float?
   clockInLon  Float?
@@ -701,13 +704,13 @@ model TimeClock {
 
 // A pay cycle for a venue. Entries are calculated when the period is CLOSED.
 model PayPeriod {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   venueId   String
-  startDate DateTime @db.Date
-  endDate   DateTime @db.Date
-  status    String   @default("OPEN") // OPEN | CLOSED
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  startDate DateTime  @db.Date
+  endDate   DateTime  @db.Date
+  status    String    @default("OPEN") // OPEN | CLOSED
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   venue   Venue          @relation(fields: [venueId], references: [id])
@@ -719,15 +722,15 @@ model PayPeriod {
 // Per-staff calculated hours for one pay period. Created by the period-closing
 // engine; re-closing a CLOSED period deletes old entries and recalculates.
 model PayrollEntry {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   payPeriodId String
   staffId     String
   totalHours  Float
   hourlyRate  Float
   totalPay    Float
   note        String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
   payPeriod PayPeriod @relation(fields: [payPeriodId], references: [id])
@@ -744,12 +747,12 @@ model ShiftNote {
   id             String    @id @default(uuid())
   staffId        String
   venueId        String
-  authorId       String?            // manager who wrote it (Staff id, no relation)
+  authorId       String? // manager who wrote it (Staff id, no relation)
   shiftDate      DateTime  @db.Date
   category       String    @default("AREA TO WORK ON") // AREA TO WORK ON | PRAISE | INCIDENT | GENERAL
   content        String
-  linkedModuleId String?            // DEPRECATED — legacy TrainingModule. Use linkedGuideId.
-  linkedGuideId  String?            // guide assigned to address this
+  linkedModuleId String? // DEPRECATED — legacy TrainingModule. Use linkedGuideId.
+  linkedGuideId  String? // guide assigned to address this
   resolvedAt     DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -763,9 +766,9 @@ model BudgetPeriod {
   id           String    @id @default(uuid())
   venueId      String
   year         Int
-  month        Int       // 1-12
+  month        Int // 1-12
   totalBudget  Float
-  dailyWeights Json?     // { mon, tue, wed, thu, fri, sat, sun } — each a number, sums to 100
+  dailyWeights Json? // { mon, tue, wed, thu, fri, sat, sun } — each a number, sums to 100
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?
@@ -782,8 +785,8 @@ model BudgetCategory {
   id             String    @id @default(uuid())
   budgetPeriodId String
   departmentId   String?
-  name           String    // ALL CAPS
-  percentage     Float     // e.g. 30.5
+  name           String // ALL CAPS
+  percentage     Float // e.g. 30.5
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
@@ -794,12 +797,12 @@ model BudgetCategory {
 }
 
 model BudgetDay {
-  id             String    @id @default(uuid())
+  id             String   @id @default(uuid())
   budgetPeriodId String
-  date           DateTime  @db.Date
-  isWorkingDay   Boolean   @default(true)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  date           DateTime @db.Date
+  isWorkingDay   Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   period      BudgetPeriod          @relation(fields: [budgetPeriodId], references: [id], onDelete: Cascade)
   allocations BudgetDayAllocation[]
@@ -808,13 +811,13 @@ model BudgetDay {
 }
 
 model BudgetDayAllocation {
-  id               String    @id @default(uuid())
+  id               String   @id @default(uuid())
   budgetDayId      String
   budgetCategoryId String
   amount           Float
   note             String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   day      BudgetDay      @relation(fields: [budgetDayId], references: [id], onDelete: Cascade)
   category BudgetCategory @relation(fields: [budgetCategoryId], references: [id], onDelete: Cascade)
@@ -827,16 +830,16 @@ model BudgetDayAllocation {
 // linked to a Section for venue-wide rollups. TOTAL lines sum their children;
 // GROUP lines are headers.
 model BudgetLine {
-  id             String    @id @default(uuid())
+  id             String         @id @default(uuid())
   budgetPeriodId String
-  parentId       String?             // self-FK — hierarchy
-  sectionId      String?             // links to Section (venue-wide rollup)
-  name           String              // ALL CAPS
-  kind           BudgetLineKind      @default(LINE)
-  amount         Float?              // LINE rows only; TOTAL = sum of children
-  sortOrder      Int       @default(0)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  parentId       String? // self-FK — hierarchy
+  sectionId      String? // links to Section (venue-wide rollup)
+  name           String // ALL CAPS
+  kind           BudgetLineKind @default(LINE)
+  amount         Float? // LINE rows only; TOTAL = sum of children
+  sortOrder      Int            @default(0)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
   deletedAt      DateTime?
 
   period   BudgetPeriod @relation(fields: [budgetPeriodId], references: [id], onDelete: Cascade)
@@ -853,23 +856,23 @@ model BudgetLine {
 // A named, ordered list of LIVE tasks (not copies). Editing a task updates it
 // everywhere it appears. A task can belong to many checklists.
 model Checklist {
-  id           String    @id @default(uuid())
-  name         String              // ALL CAPS
-  description  String?
-  venueId      String
-  departmentId String?
-  sectionId    String?
-  appearFromTime String?           // "HH:mm" venue-local — list shows from this time; stays until all done
-  sortOrder    Int       @default(0)
-  isActive     Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  deletedAt    DateTime?
+  id             String    @id @default(uuid())
+  name           String // ALL CAPS
+  description    String?
+  venueId        String
+  departmentId   String?
+  sectionId      String?
+  appearFromTime String? // "HH:mm" venue-local — list shows from this time; stays until all done
+  sortOrder      Int       @default(0)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
 
-  venue      Venue       @relation(fields: [venueId], references: [id])
-  department Department? @relation(fields: [departmentId], references: [id])
-  section    Section?    @relation(fields: [sectionId], references: [id])
-  tasks      ChecklistTask[]
+  venue         Venue           @relation(fields: [venueId], references: [id])
+  department    Department?     @relation(fields: [departmentId], references: [id])
+  section       Section?        @relation(fields: [sectionId], references: [id])
+  tasks         ChecklistTask[]
   trainingSteps TrainingStep[]
 
   @@index([venueId])
@@ -894,8 +897,8 @@ model ChecklistTask {
 // Venue → Department → Section. Tasks and resources can attach here.
 model Section {
   id           String    @id @default(uuid())
-  name         String              // ALL CAPS
-  venueId      String              // denormalised from department for scoping
+  name         String // ALL CAPS
+  venueId      String // denormalised from department for scoping
   departmentId String
   colour       String?
   sortOrder    Int       @default(0)
@@ -904,12 +907,12 @@ model Section {
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?
 
-  venue      Venue      @relation(fields: [venueId], references: [id])
-  department Department @relation(fields: [departmentId], references: [id])
-  tasks      Task[]
-  staff      StaffSection[]
-  resources  ResourceSection[]
-  checklists Checklist[]
+  venue             Venue              @relation(fields: [venueId], references: [id])
+  department        Department         @relation(fields: [departmentId], references: [id])
+  tasks             Task[]
+  staff             StaffSection[]
+  resources         ResourceSection[]
+  checklists        Checklist[]
   floorPlanElements FloorPlanElement[]
   boundaries        SectionBoundary[]
   setupItems        SetupItem[]
@@ -951,7 +954,7 @@ model StaffVenue {
 // DUTY MANAGER cross departments.
 model Position {
   id           String    @id @default(uuid())
-  name         String              // ALL CAPS
+  name         String // ALL CAPS
   venueId      String
   departmentId String?
   colour       String?
@@ -1029,8 +1032,8 @@ model FollowUp {
   venueId      String
   staffId      String
   taskId       String?
-  moduleId     String?        // DEPRECATED — legacy TrainingModule. Use guideId.
-  guideId      String?        // guide to do / that was missing
+  moduleId     String? // DEPRECATED — legacy TrainingModule. Use guideId.
+  guideId      String? // guide to do / that was missing
   kind         FollowUpKind
   status       FollowUpStatus @default(OPEN)
   detail       String?
@@ -1069,10 +1072,10 @@ model Guide {
   updatedAt       DateTime    @updatedAt
   deletedAt       DateTime?
 
-  venue      Venue       @relation(fields: [venueId], references: [id])
-  department Department? @relation(fields: [departmentId], references: [id])
-  steps      GuideStep[]
-  taskGuides TaskGuide[]
+  venue       Venue             @relation(fields: [venueId], references: [id])
+  department  Department?       @relation(fields: [departmentId], references: [id])
+  steps       GuideStep[]
+  taskGuides  TaskGuide[]
   completions GuideCompletion[]
   assignments GuideAssignment[]
   followUps   FollowUp[]
@@ -1100,11 +1103,11 @@ model GuideStep {
 }
 
 model TaskGuide {
-  id                     String   @id @default(uuid())
-  taskId                 String
-  guideId                String
+  id                      String   @id @default(uuid())
+  taskId                  String
+  guideId                 String
   isRequiredForCompetency Boolean  @default(false)
-  createdAt              DateTime @default(now())
+  createdAt               DateTime @default(now())
 
   task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
   guide Guide @relation(fields: [guideId], references: [id], onDelete: Cascade)
@@ -1152,8 +1155,8 @@ model GuideStepLink {
   stepId    String
   kind      StepLinkKind
   targetId  String
-  qty       Int?         // "2× T20 TORX"
-  note      String?      // "TOP SHELF, ABOVE THE GRINDER"
+  qty       Int? // "2× T20 TORX"
+  note      String? // "TOP SHELF, ABOVE THE GRINDER"
   order     Int          @default(0)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
@@ -1213,7 +1216,7 @@ enum PathwayNodeKind {
 
 model Pathway {
   id           String      @id @default(uuid())
-  name         String              // ALL CAPS
+  name         String // ALL CAPS
   description  String?
   venueId      String
   departmentId String?
@@ -1224,10 +1227,10 @@ model Pathway {
   updatedAt    DateTime    @updatedAt
   deletedAt    DateTime?
 
-  venue      Venue       @relation(fields: [venueId], references: [id])
-  department Department? @relation(fields: [departmentId], references: [id])
-  section    Section?    @relation(fields: [sectionId], references: [id])
-  position   Position?   @relation(fields: [positionId], references: [id])
+  venue      Venue         @relation(fields: [venueId], references: [id])
+  department Department?   @relation(fields: [departmentId], references: [id])
+  section    Section?      @relation(fields: [sectionId], references: [id])
+  position   Position?     @relation(fields: [positionId], references: [id])
   nodes      PathwayNode[]
   edges      PathwayEdge[]
 
@@ -1239,8 +1242,8 @@ model PathwayNode {
   id        String          @id @default(uuid())
   pathwayId String
   kind      PathwayNodeKind
-  targetId  String?         // null for MILESTONE
-  label     String?         // override / milestone text
+  targetId  String? // null for MILESTONE
+  label     String? // override / milestone text
   x         Float           @default(0)
   y         Float           @default(0)
   stage     Int             @default(0) // tier — drives the worker tree layout
@@ -1306,22 +1309,22 @@ enum BoundaryShape {
 }
 
 model FloorPlan {
-  id         String    @id @default(uuid())
-  venueId    String
-  name       String
-  slug       String
-  isDefault  Boolean   @default(false)
-  roomWidth  Float     @default(2000) // real-world cm
-  roomDepth  Float     @default(1500) // real-world cm
-  gridUnit   Float     @default(50)   // snap grid in cm
-  zones      Json?                     // section zone rectangles [{id,x,y,w,h,sectionId}]
-  isActive   Boolean   @default(true)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  deletedAt  DateTime?
+  id        String    @id @default(uuid())
+  venueId   String
+  name      String
+  slug      String
+  isDefault Boolean   @default(false)
+  roomWidth Float     @default(2000) // real-world cm
+  roomDepth Float     @default(1500) // real-world cm
+  gridUnit  Float     @default(50) // snap grid in cm
+  zones     Json? // section zone rectangles [{id,x,y,w,h,sectionId}]
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
-  venue    Venue              @relation(fields: [venueId], references: [id])
-  elements FloorPlanElement[]
+  venue             Venue              @relation(fields: [venueId], references: [id])
+  elements          FloorPlanElement[]
   setups            FloorPlanSetup[]
   sectionBoundaries SectionBoundary[]
 
@@ -1330,38 +1333,38 @@ model FloorPlan {
 }
 
 model FloorPlanElement {
-  id          String       @id @default(uuid())
-  floorPlanId String
-  type        ElementType
-  shape       ElementShape @default(RECTANGLE)
-  label       String?
-  labelVisible Boolean   @default(true)
-  style       Json?                     // per-element style config (wallType, tableShape, etc.)
+  id           String       @id @default(uuid())
+  floorPlanId  String
+  type         ElementType
+  shape        ElementShape @default(RECTANGLE)
+  label        String?
+  labelVisible Boolean      @default(true)
+  style        Json? // per-element style config (wallType, tableShape, etc.)
   // Position in real-world cm from room top-left
-  x           Float
-  y           Float
-  width       Float        @default(80)  // for RECTANGLE (cm)
-  depth       Float        @default(80)  // for RECTANGLE (cm)
-  radius      Float?                    // for CIRCLE (cm)
-  vertices    Json?                     // for POLYGON: [{x,y},...] relative to anchor
-  rotation    Float        @default(0)
+  x            Float
+  y            Float
+  width        Float        @default(80) // for RECTANGLE (cm)
+  depth        Float        @default(80) // for RECTANGLE (cm)
+  radius       Float? // for CIRCLE (cm)
+  vertices     Json? // for POLYGON: [{x,y},...] relative to anchor
+  rotation     Float        @default(0)
   // Appearance
-  colour      String?
-  fillColour  String?
-  opacity     Float        @default(1)
-  zIndex      Int          @default(0)
+  colour       String?
+  fillColour   String?
+  opacity      Float        @default(1)
+  zIndex       Int          @default(0)
   // Business links
-  sectionId   String?
-  capacity    Int?
-  chairCount  Int          @default(0)
-  sortOrder   Int          @default(0)
-  isActive    Boolean      @default(true)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  deletedAt   DateTime?
+  sectionId    String?
+  capacity     Int?
+  chairCount   Int          @default(0)
+  sortOrder    Int          @default(0)
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  deletedAt    DateTime?
 
-  floorPlan       FloorPlan             @relation(fields: [floorPlanId], references: [id], onDelete: Cascade)
-  section         Section?              @relation(fields: [sectionId], references: [id])
+  floorPlan      FloorPlan              @relation(fields: [floorPlanId], references: [id], onDelete: Cascade)
+  section        Section?               @relation(fields: [sectionId], references: [id])
   inventoryItems ElementInventoryItem[]
 
   @@index([floorPlanId])
@@ -1393,28 +1396,28 @@ model FloorPlanSetup {
 }
 
 model SetupItem {
-  id             String    @id @default(uuid())
-  setupId        String
+  id              String    @id @default(uuid())
+  setupId         String
   /// Deprecated — superseded by furnitureItemId. Kept nullable so the furniture
   /// migration can read it after `db push`; drop once every deploy has migrated.
-  tableProfileId String?
-  furnitureItemId String?  // the InventoryItem this placement is an instance of
-  x              Float
-  y              Float
-  rotation       Float     @default(0)
-  sectionId      String?
-  tableGroupId   String?
-  assignedNumber String?
-  label          String?
+  tableProfileId  String?
+  furnitureItemId String? // the InventoryItem this placement is an instance of
+  x               Float
+  y               Float
+  rotation        Float     @default(0)
+  sectionId       String?
+  tableGroupId    String?
+  assignedNumber  String?
+  label           String?
   /// Deprecated — superseded by `chairs`. Per-edge counts can't express a chair
   /// sitting anywhere along a curved or polygonal outline.
-  chairEdges     Json?
-  chairs         Json?     // ChairSlot[]: { id, t (0..1 around perimeter), offset, rotation }
-  sortOrder      Int       @default(0)
-  isActive       Boolean   @default(true)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  deletedAt      DateTime?
+  chairEdges      Json?
+  chairs          Json? // ChairSlot[]: { id, t (0..1 around perimeter), offset, rotation }
+  sortOrder       Int       @default(0)
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
 
   setup         FloorPlanSetup @relation(fields: [setupId], references: [id], onDelete: Cascade)
   tableProfile  TableProfile?  @relation(fields: [tableProfileId], references: [id])
@@ -1470,7 +1473,7 @@ model TableProfile {
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
 
-  venue    Venue               @relation(fields: [venueId], references: [id])
+  venue    Venue              @relation(fields: [venueId], references: [id])
   bomItems TableProfileItem[]
   setups   SetupItem[]
 
@@ -1602,93 +1605,93 @@ enum KitchenStatus {
 }
 
 model InventoryCategory {
-  id                  String   @id @default(uuid())
+  id                  String    @id @default(uuid())
   venueId             String?
   name                String
   tab                 String?
-  isBuiltIn           Boolean  @default(false)
-  isActive            Boolean  @default(true)
-  showDeepFields      Boolean  @default(false) // controls visibility of counting/ordering/cost/expiry/allergen fields
-  showEquipmentFields Boolean  @default(false) // controls visibility of equipment/tool tracking section
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  isBuiltIn           Boolean   @default(false)
+  isActive            Boolean   @default(true)
+  showDeepFields      Boolean   @default(false) // controls visibility of counting/ordering/cost/expiry/allergen fields
+  showEquipmentFields Boolean   @default(false) // controls visibility of equipment/tool tracking section
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
   deletedAt           DateTime?
 
-  venue Venue?         @relation(fields: [venueId], references: [id])
-  items InventoryItem[]
+  venue         Venue?          @relation(fields: [venueId], references: [id])
+  items         InventoryItem[]
   fallbackItems InventoryItem[] @relation("FallbackCategory")
 
   @@unique([venueId, name])
 }
 
 model InventoryItem {
-  id              String   @id @default(uuid())
-  venueId         String
-  categoryId      String
-  name            String
-  unit            String   @default("EA")
-  defaultParLevel Int      @default(0)
+  id                String    @id @default(uuid())
+  venueId           String
+  categoryId        String
+  name              String
+  unit              String    @default("EA")
+  defaultParLevel   Int       @default(0)
   // --- Furniture fields (TABLES / furniture category items) ---
   // A furniture item is the SINGLE source of truth for a physical piece: what it
   // is, how many you own, its real footprint, and how it seats people. It
   // replaces the old TableProfile, which duplicated all of this and was joined
   // to inventory only by matching name strings.
-  totalQty        Int      @default(0)  // physical items owned, drives availableQty
-  furnitureType   String?  // "TABLE" | "CHAIR" | "BOOTH" | "SOFA" | "BAR" | "OTHER" | null
-  elementWidth    Float?   // cm — bounding box width
-  elementDepth    Float?   // cm — bounding box depth
-  elementShape    String?  // "RECTANGLE" | "CIRCLE" | "POLYGON"
-  elementVertices Json?    // POLYGON outline [{x,y}] in cm, relative to the bounding box top-left
-  defaultColour   String?  // hex colour
-  defaultChairCount Int    @default(0)  // chairs this piece seats by default
-  seatingDensity  Float?   // cm of edge consumed per chair
-  maxHeadChairs   Int      @default(1)  // cap on chairs along a short (head) edge
-  tableNumbers    Json?    // string[] — physical table numbers this furniture can be assigned
-  chairItemId     String?  // which CHAIR furniture item seats this piece
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  deletedAt       DateTime?
+  totalQty          Int       @default(0) // physical items owned, drives availableQty
+  furnitureType     String? // "TABLE" | "CHAIR" | "BOOTH" | "SOFA" | "BAR" | "OTHER" | null
+  elementWidth      Float? // cm — bounding box width
+  elementDepth      Float? // cm — bounding box depth
+  elementShape      String? // "RECTANGLE" | "CIRCLE" | "POLYGON"
+  elementVertices   Json? // POLYGON outline [{x,y}] in cm, relative to the bounding box top-left
+  defaultColour     String? // hex colour
+  defaultChairCount Int       @default(0) // chairs this piece seats by default
+  seatingDensity    Float? // cm of edge consumed per chair
+  maxHeadChairs     Int       @default(1) // cap on chairs along a short (head) edge
+  tableNumbers      Json? // string[] — physical table numbers this furniture can be assigned
+  chairItemId       String? // which CHAIR furniture item seats this piece
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
 
   // --- Deep inventory fields ---
-  supplierId         String?
-  countingUnitId     String?
-  countingUnitQty    Float?
-  orderingUnitId     String?
-  orderingUnitQty    Float?
-  parLevelUnitId     String?
-  yieldPercentage    Float?
-  costPrice          Float?
-  expiryDate         DateTime?
-  fallbackCategoryId String?
+  supplierId           String?
+  countingUnitId       String?
+  countingUnitQty      Float?
+  orderingUnitId       String?
+  orderingUnitQty      Float?
+  parLevelUnitId       String?
+  yieldPercentage      Float?
+  costPrice            Float?
+  expiryDate           DateTime?
+  fallbackCategoryId   String?
   // --- Food-specific shelf life ---
-  shelfLifeDays         Int?
-  canFreeze             Boolean  @default(false)
-  freezerShelfLifeDays  Int?
+  shelfLifeDays        Int?
+  canFreeze            Boolean   @default(false)
+  freezerShelfLifeDays Int?
 
-  allergyInfo   String? // e.g. "GLUTEN, DAIRY, NUTS" for display on recipe ingredients
+  allergyInfo String? // e.g. "GLUTEN, DAIRY, NUTS" for display on recipe ingredients
 
   // --- Equipment / tool tracking ---
-  imageUrls         Json?    // array of photo URLs
-  storageSectionId  String? // FK to Section — where this item lives
-  storageNotes      String? // e.g. "TOP SHELF, ABOVE THE COFFEE STATION"
-  serialNumber      String?
-  purchaseDate      DateTime?
-  warrantyExpiry    DateTime?
-  serviceIntervalDays Int?  // e.g. 180 = every 6 months; drives calendar bookings
-  lastServicedAt    DateTime?
-  nextServiceAt     DateTime?
+  imageUrls              Json? // array of photo URLs
+  storageSectionId       String? // FK to Section — where this item lives
+  storageNotes           String? // e.g. "TOP SHELF, ABOVE THE COFFEE STATION"
+  serialNumber           String?
+  purchaseDate           DateTime?
+  warrantyExpiry         DateTime?
+  serviceIntervalDays    Int? // e.g. 180 = every 6 months; drives calendar bookings
+  lastServicedAt         DateTime?
+  nextServiceAt          DateTime?
   maintenanceNotes       String?
-  alternativeSupplierIds Json?    // array of supplier UUIDs
+  alternativeSupplierIds Json? // array of supplier UUIDs
 
-  venue     Venue                @relation(fields: [venueId], references: [id])
-  category          InventoryCategory    @relation(fields: [categoryId], references: [id])
-  supplier          Supplier?            @relation(fields: [supplierId], references: [id])
-  countingUnit      UnitOfMeasure?       @relation("CountingUOM", fields: [countingUnitId], references: [id])
-  orderingUnit      UnitOfMeasure?       @relation("OrderingUOM", fields: [orderingUnitId], references: [id])
-  parLevelUnit      UnitOfMeasure?       @relation("ParLevelUOM", fields: [parLevelUnitId], references: [id])
-  fallbackCategory  InventoryCategory?   @relation("FallbackCategory", fields: [fallbackCategoryId], references: [id])
-  storageSection    Section?             @relation(fields: [storageSectionId], references: [id])
+  venue             Venue                  @relation(fields: [venueId], references: [id])
+  category          InventoryCategory      @relation(fields: [categoryId], references: [id])
+  supplier          Supplier?              @relation(fields: [supplierId], references: [id])
+  countingUnit      UnitOfMeasure?         @relation("CountingUOM", fields: [countingUnitId], references: [id])
+  orderingUnit      UnitOfMeasure?         @relation("OrderingUOM", fields: [orderingUnitId], references: [id])
+  parLevelUnit      UnitOfMeasure?         @relation("ParLevelUOM", fields: [parLevelUnitId], references: [id])
+  fallbackCategory  InventoryCategory?     @relation("FallbackCategory", fields: [fallbackCategoryId], references: [id])
+  storageSection    Section?               @relation(fields: [storageSectionId], references: [id])
   elements          ElementInventoryItem[]
   tableProfileItems TableProfileItem[]
   stocktake         StocktakeLineItem[]
@@ -1714,8 +1717,8 @@ model InventoryItem {
 // InventoryItem — replaces TableProfileItem now that furniture lives in inventory.
 model FurnitureBomItem {
   id              String   @id @default(uuid())
-  furnitureItemId String   // the table / booth / sofa
-  inventoryItemId String   // what goes on it
+  furnitureItemId String // the table / booth / sofa
+  inventoryItemId String // what goes on it
   quantity        Int      @default(1)
   perChair        Boolean  @default(false) // scales with seat count rather than per piece
   createdAt       DateTime @default(now())
@@ -1758,24 +1761,24 @@ model ElementInventoryItem {
 }
 
 model StocktakeRecord {
-  id              String        @id @default(uuid())
+  id              String          @id @default(uuid())
   venueId         String
-  date            DateTime      @db.Date
+  date            DateTime        @db.Date
   status          StocktakeStatus @default(PENDING)
   assignedRoleId  String?
   assignedStaffId String?
   notes           String?
   completedById   String?
   completedAt     DateTime?
-  isActive        Boolean       @default(true)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
   deletedAt       DateTime?
 
-  venue         Venue              @relation(fields: [venueId], references: [id])
-  completedBy   Staff?             @relation("stocktakeCompletedBy", fields: [completedById], references: [id])
+  venue         Venue               @relation(fields: [venueId], references: [id])
+  completedBy   Staff?              @relation("stocktakeCompletedBy", fields: [completedById], references: [id])
   lineItems     StocktakeLineItem[]
-  assignedStaff Staff?             @relation("stocktakeAssignedTo", fields: [assignedStaffId], references: [id])
+  assignedStaff Staff?              @relation("stocktakeAssignedTo", fields: [assignedStaffId], references: [id])
 
   @@index([venueId])
   @@index([status])
@@ -1800,13 +1803,13 @@ model StocktakeLineItem {
 }
 
 model PaletteDefault {
-  id      String @id @default(uuid())
-  venueId String
-  type    String
-  width   Float
-  depth   Float
-  colour  String? @default("#555")
-  chairCount Int @default(0)
+  id         String  @id @default(uuid())
+  venueId    String
+  type       String
+  width      Float
+  depth      Float
+  colour     String? @default("#555")
+  chairCount Int     @default(0)
 
   venue Venue @relation(fields: [venueId], references: [id])
 
@@ -1829,7 +1832,7 @@ model Supplier {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  venue    Venue              @relation(fields: [venueId], references: [id])
+  venue     Venue              @relation(fields: [venueId], references: [id])
   itemCodes SupplierItemCode[]
   items     InventoryItem[]
 
@@ -1837,24 +1840,24 @@ model Supplier {
 }
 
 model UnitOfMeasure {
-  id               String  @id @default(uuid())
-  name             String
-  baseUnit         String
-  conversionRatio  Float
-  venueId          String?
-  isBuiltIn        Boolean @default(false)
-  isActive         Boolean @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  deletedAt        DateTime?
+  id              String    @id @default(uuid())
+  name            String
+  baseUnit        String
+  conversionRatio Float
+  venueId         String?
+  isBuiltIn       Boolean   @default(false)
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
 
-  venue              Venue?           @relation(fields: [venueId], references: [id])
-  countingItems      InventoryItem[]  @relation("CountingUOM")
-  orderingItems      InventoryItem[]  @relation("OrderingUOM")
-  parLevelItems      InventoryItem[]  @relation("ParLevelUOM")
-  recipeYields       Recipe[]         @relation("RecipeYield")
-  recipeLineItems    RecipeLineItem[]
-  supplierItemCodes  SupplierItemCode[]
+  venue             Venue?             @relation(fields: [venueId], references: [id])
+  countingItems     InventoryItem[]    @relation("CountingUOM")
+  orderingItems     InventoryItem[]    @relation("OrderingUOM")
+  parLevelItems     InventoryItem[]    @relation("ParLevelUOM")
+  recipeYields      Recipe[]           @relation("RecipeYield")
+  recipeLineItems   RecipeLineItem[]
+  supplierItemCodes SupplierItemCode[]
 
   @@unique([venueId, name])
   @@index([venueId])
@@ -1868,8 +1871,8 @@ model SupplierItemCode {
   purchasePrice   Float?
   orderingUnitId  String?
   isPreferred     Boolean  @default(false)
-  notes         String?
-  createdAt     DateTime  @default(now())
+  notes           String?
+  createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   supplier      Supplier       @relation(fields: [supplierId], references: [id])
@@ -1884,44 +1887,44 @@ model SupplierItemCode {
 // --- RECIPE ENGINE (RECURSIVE BOM) ---
 
 model Recipe {
-  id          String    @id @default(uuid())
-  venueId     String
-  name        String
-  yieldQty    Float
-  yieldUnitId String
+  id           String    @id @default(uuid())
+  venueId      String
+  name         String
+  yieldQty     Float
+  yieldUnitId  String
   instructions String?
-  prepTime    Int?
-  isActive    Boolean   @default(true)
-  version     Int       @default(1)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
+  prepTime     Int?
+  isActive     Boolean   @default(true)
+  version      Int       @default(1)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
 
-  venue       Venue            @relation(fields: [venueId], references: [id])
-  yieldUnit   UnitOfMeasure    @relation("RecipeYield", fields: [yieldUnitId], references: [id])
-  lineItems   RecipeLineItem[] @relation("ParentRecipe")
-  parentOf    RecipeLineItem[] @relation("ChildRecipe")
-  menuItems   MenuItem[]
+  venue     Venue            @relation(fields: [venueId], references: [id])
+  yieldUnit UnitOfMeasure    @relation("RecipeYield", fields: [yieldUnitId], references: [id])
+  lineItems RecipeLineItem[] @relation("ParentRecipe")
+  parentOf  RecipeLineItem[] @relation("ChildRecipe")
+  menuItems MenuItem[]
 
   @@index([venueId])
 }
 
 model RecipeLineItem {
-  id               String   @id @default(uuid())
-  recipeId         String
-  qty              Float
-  uomId            String
-  sortOrder        Int      @default(0)
-  inventoryItemId  String?
-  childRecipeId    String?
-  notes            String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id              String   @id @default(uuid())
+  recipeId        String
+  qty             Float
+  uomId           String
+  sortOrder       Int      @default(0)
+  inventoryItemId String?
+  childRecipeId   String?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  recipe         Recipe          @relation("ParentRecipe", fields: [recipeId], references: [id])
-  uom            UnitOfMeasure   @relation(fields: [uomId], references: [id])
-  inventoryItem  InventoryItem?  @relation(fields: [inventoryItemId], references: [id])
-  childRecipe    Recipe?         @relation("ChildRecipe", fields: [childRecipeId], references: [id])
+  recipe        Recipe         @relation("ParentRecipe", fields: [recipeId], references: [id])
+  uom           UnitOfMeasure  @relation(fields: [uomId], references: [id])
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id])
+  childRecipe   Recipe?        @relation("ChildRecipe", fields: [childRecipeId], references: [id])
 
   @@index([recipeId])
   @@index([inventoryItemId])
@@ -1931,23 +1934,23 @@ model RecipeLineItem {
 // --- WOOCOMMERCE & MENU MAPPING ---
 
 model WooIntegration {
-  id              String    @id @default(uuid())
-  venueId         String
-  storeUrl        String
-  consumerKey     String
-  consumerSecret  String
-  webhookSecret   String?
+  id             String    @id @default(uuid())
+  venueId        String
+  storeUrl       String
+  consumerKey    String
+  consumerSecret String
+  webhookSecret  String?
   // Maps WooCommerce `meta_data` keys onto our order fields. Necessary because
   // date/party-size plugins expose their value under a key derived from the
   // field label configured inside the plugin — a hardcoded key breaks the
   // moment someone renames a field. Shape: `{ serviceDate: string[], ... }`,
   // each an ordered list of candidate keys. Null = use DEFAULT_META_MAP.
-  metaFieldMap    Json?
-  lastSyncAt      DateTime?
-  isActive        Boolean   @default(true)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  deletedAt       DateTime?
+  metaFieldMap   Json?
+  lastSyncAt     DateTime?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
 
   venue Venue @relation(fields: [venueId], references: [id])
 
@@ -1955,26 +1958,26 @@ model WooIntegration {
 }
 
 model MenuItem {
-  id              String    @id @default(uuid())
-  venueId         String
-  name            String
-  recipeId        String?
-  price           Float     @default(0)
-  wooProductId    String?   @unique
-  wooCategoryId   String?
-  imageUrl        String?
-  description     String?
+  id               String    @id @default(uuid())
+  venueId          String
+  name             String
+  recipeId         String?
+  price            Float     @default(0)
+  wooProductId     String?   @unique
+  wooCategoryId    String?
+  imageUrl         String?
+  description      String?
   shortDescription String?
-  isVariable      Boolean   @default(false)
-  variations      Json?
-  dietaryInfo     String?
-  isActive        Boolean   @default(true)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  deletedAt       DateTime?
+  isVariable       Boolean   @default(false)
+  variations       Json?
+  dietaryInfo      String?
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
 
-  venue       Venue          @relation(fields: [venueId], references: [id])
-  recipe      Recipe?        @relation(fields: [recipeId], references: [id])
+  venue       Venue           @relation(fields: [venueId], references: [id])
+  recipe      Recipe?         @relation(fields: [recipeId], references: [id])
   orderItems  WooOrderItem[]
   venueShares MenuItemVenue[]
   menuLinks   MenuMenuItem[]
@@ -1984,12 +1987,12 @@ model MenuItem {
 }
 
 model MenuItemVenue {
-  id           String   @id @default(uuid())
-  menuItemId   String
-  venueId      String
-  priceOverride Float?  // venue-specific price (null = use menuItem.price)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
+  id            String   @id @default(uuid())
+  menuItemId    String
+  venueId       String
+  priceOverride Float? // venue-specific price (null = use menuItem.price)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
 
   menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   venue    Venue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
@@ -2051,17 +2054,99 @@ model MenuMenuItem {
 // (`viewType`); everything the user can bend — filters, grouping, visible
 // columns — lives in `config` so adding a control needs no migration.
 model OrderView {
-  id        String    @id @default(uuid())
-  venueId   String
-  name      String
-  viewType  String    // SERVICE | KITCHEN | FOH | PRODUCTION
-  config    Json
-  isShared  Boolean   @default(true) // false = only the creator sees it
+  id          String    @id @default(uuid())
+  venueId     String
+  name        String
+  viewType    String // SERVICE | KITCHEN | FOH | PRODUCTION
+  config      Json
+  isShared    Boolean   @default(true) // false = only the creator sees it
   createdById String?
-  sortOrder Int       @default(0)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@index([venueId])
+}
+
+// --- SERVICES (dated ordering) ---
+
+// A dated ordering service — "FRIDAY MENU". Declares which Woo category its
+// menu comes from and when orders are taken (weekly `ServiceSlot` rules plus
+// one-off `ServiceException` dates). The WooCommerce plugin renders these as
+// the checkout options; the app is the single source of truth for the schedule.
+model Service {
+  id              String    @id @default(uuid())
+  venueId         String
+  name            String // "FRIDAY MENU"
+  description     String?
+  wooCategoryId   String? // numeric Woo category id — the menu for this service
+  wooCategoryName String? // denormalised for display in the plugin
+  requiresBooking Boolean   @default(false) // book-a-table mandatory for this service
+  isActive        Boolean   @default(true)
+  sortOrder       Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  venue      Venue              @relation(fields: [venueId], references: [id])
+  slots      ServiceSlot[]
+  exceptions ServiceException[]
+  orders     WooOrder[]
+
+  @@index([venueId])
+}
+
+// One weekly time window for a service. dayOfWeek 0=Sun..6=Sat (same convention
+// as scheduleDays). `maxCovers` caps how many people (covers) a slot accepts,
+// counting the party sizes of orders + bookings in the slot.
+model ServiceSlot {
+  id        String @id @default(uuid())
+  serviceId String
+  dayOfWeek Int // 0=Sun .. 6=Sat
+  startTime String // "HH:mm" venue-local
+  endTime   String // "HH:mm" venue-local
+  maxCovers Int    @default(10)
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, dayOfWeek, startTime])
+  @@index([serviceId])
+}
+
+// One-off schedule override for a service — a specific date either closed
+// (no orders taken) or running with its own slots instead of the weekly rule.
+model ServiceException {
+  id        String   @id @default(uuid())
+  serviceId String
+  date      DateTime @db.Date
+  closed    Boolean  @default(false)
+  // When open with overrides: custom slot window for this date (else the
+  // weekly rule applies). "HH:mm" venue-local.
+  startTime String?
+  endTime   String?
+  maxCovers Int?
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, date])
+  @@index([serviceId])
+}
+
+// Venue-scoped API keys for the public API (WooCommerce plugin + booking-only
+// widgets). The raw key is shown once at creation; only the hash is stored.
+model ApiKey {
+  id         String    @id @default(uuid())
+  venueId    String
+  name       String // label, e.g. "WEBSITE PLUGIN"
+  keyHash    String // sha256 of the raw key
+  lastUsedAt DateTime?
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
 
   venue Venue @relation(fields: [venueId], references: [id])
 
@@ -2102,51 +2187,54 @@ model Customer {
 // --- ORDERS & AUTO-SEATING ---
 
 model WooOrder {
-  id                String      @id @default(uuid())
-  venueId           String
+  id              String          @id @default(uuid())
+  venueId         String
   // Null for MANUAL/PHONE orders — only WooCommerce-sourced orders carry one.
-  wooOrderId        String?     @unique
-  source            OrderSource @default(WOO)
-  orderNumber       String?     // local reference for orders raised in-app
+  wooOrderId      String?         @unique
+  source          OrderSource     @default(WOO)
+  orderNumber     String? // local reference for orders raised in-app
   // Denormalised contact details as they arrived on the order. `customerId` is
   // the deduped link; these stay as the point-in-time record.
-  customerId        String?
-  menuId            String?     // which menu this order was placed against
+  customerId      String?
+  menuId          String? // which menu this order was placed against
+  serviceId       String? // which dated Service this order was placed for
+  bookTable       Boolean         @default(false) // customer chose "book a table too"
   // Set when a pre-order is matched to a table reservation, so the order shows
   // against the booked table rather than an auto-seated one of its own.
-  bookingId         String?
-  customerName      String?
-  customerEmail     String?
-  customerPhone     String?
-  partySize         Int?
-  fulfillmentDate   DateTime?   // legacy — superseded by serviceDate/serviceTime
-  serviceDate       DateTime?   @db.Date // the date the order is FOR (venue-local)
-  serviceTime       String?     // "HH:mm" venue-local
-  fulfillmentType   FulfillmentType @default(DINE_IN)
-  status            OrderStatus @default(PENDING) // mirrors WooCommerce
-  opStatus          OrderOpStatus   @default(NEW) // our operational lifecycle
-  paymentStatus     PaymentStatus   @default(UNPAID)
-  paymentMethod     String?     // e.g. Woo's payment_method_title
-  paidAt            DateTime?
-  arrivedAt         DateTime?
-  deliveredAt       DateTime?
-  finalisedAt       DateTime?
-  totalAmount       Float?
-  notes             String?
-  allergenNote      String?     // order-level allergy note from the Woo checkout
-  calendarEventId   String?
-  syncedAt          DateTime?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
-  deletedAt         DateTime?
+  bookingId       String?
+  customerName    String?
+  customerEmail   String?
+  customerPhone   String?
+  partySize       Int?
+  fulfillmentDate DateTime? // legacy — superseded by serviceDate/serviceTime
+  serviceDate     DateTime?       @db.Date // the date the order is FOR (venue-local)
+  serviceTime     String? // "HH:mm" venue-local
+  fulfillmentType FulfillmentType @default(DINE_IN)
+  status          OrderStatus     @default(PENDING) // mirrors WooCommerce
+  opStatus        OrderOpStatus   @default(NEW) // our operational lifecycle
+  paymentStatus   PaymentStatus   @default(UNPAID)
+  paymentMethod   String? // e.g. Woo's payment_method_title
+  paidAt          DateTime?
+  arrivedAt       DateTime?
+  deliveredAt     DateTime?
+  finalisedAt     DateTime?
+  totalAmount     Float?
+  notes           String?
+  allergenNote    String? // order-level allergy note from the Woo checkout
+  calendarEventId String?
+  syncedAt        DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  deletedAt       DateTime?
 
-  venue          Venue           @relation(fields: [venueId], references: [id])
-  customer       Customer?       @relation(fields: [customerId], references: [id])
-  menu           Menu?           @relation(fields: [menuId], references: [id])
-  booking        Booking?        @relation(fields: [bookingId], references: [id])
-  calendarEvent  CalendarEvent?  @relation(fields: [calendarEventId], references: [id])
-  items          WooOrderItem[]
-  giftCards      GiftCard[]
+  venue         Venue          @relation(fields: [venueId], references: [id])
+  customer      Customer?      @relation(fields: [customerId], references: [id])
+  menu          Menu?          @relation(fields: [menuId], references: [id])
+  service       Service?       @relation(fields: [serviceId], references: [id])
+  booking       Booking?       @relation(fields: [bookingId], references: [id])
+  calendarEvent CalendarEvent? @relation(fields: [calendarEventId], references: [id])
+  items         WooOrderItem[]
+  giftCards     GiftCard[]
 
   @@unique([venueId, orderNumber])
   @@index([venueId])
@@ -2158,22 +2246,22 @@ model WooOrder {
 }
 
 model WooOrderItem {
-  id         String   @id @default(uuid())
-  orderId    String
-  menuItemId String
-  qty        Int      @default(1)
-  unitPrice  Float?
+  id                  String        @id @default(uuid())
+  orderId             String
+  menuItemId          String
+  qty                 Int           @default(1)
+  unitPrice           Float?
   // `notes` historically held BOTH the Woo line-item name and the exploded-recipe
   // JSON blob. Those are now split out into productName/explodedIngredients so
   // notes is free for genuine operator notes.
   notes               String?
-  productName         String?  // line-item name exactly as it was ordered
-  explodedIngredients Json?    // recursive recipe BOM result for this line
-  customerNote        String?  // customer request against this line
-  allergenNote        String?  // allergy requirement for this line — kitchen alert
-  kitchenStatus KitchenStatus @default(PENDING)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  productName         String? // line-item name exactly as it was ordered
+  explodedIngredients Json? // recursive recipe BOM result for this line
+  customerNote        String? // customer request against this line
+  allergenNote        String? // allergy requirement for this line — kitchen alert
+  kitchenStatus       KitchenStatus @default(PENDING)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
 
   order    WooOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   menuItem MenuItem @relation(fields: [menuItemId], references: [id])

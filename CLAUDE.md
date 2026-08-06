@@ -916,6 +916,15 @@ fixed mobile bar.
   its tasks are done (no expiry) — then falls back to dept → section for tasks in
   no list, with an "opens later" note for not-yet-open lists. Time compared
   against the device clock (staff are on-site).
+- **Printable PDF export.** A `⬇ PDF` button in the Tasks page header opens a
+  modal listing every checklist; each row's DOWNLOAD hits
+  `GET /api/admin/checklists/[id]/pdf` (session auth, MANAGER scoped to own
+  venue) which renders a printable A4 checkbox list via
+  `lib/checklist-pdf.ts` (pure, jspdf — same pattern as `gift-card-pdf.ts`):
+  venue + checklist name header, description, "FROM HH:mm" line, blank
+  DATE/STAFF fill-in lines, then numbered tasks with drawn checkbox squares
+  (helvetica can't render `☐`, so boxes are rects), multi-page aware with
+  page-numbered footer. Live task data, so a task edit is current in the PDF.
 - **Checklist embedded in training.** `TrainingStep.linkedChecklistId` lets a
   training/SOP step embed a whole checklist; `getStaffTraining` returns the
   step's `linkedChecklist` (live task titles) and the worker reader shows them as
@@ -1787,6 +1796,7 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/budget-math.ts` — `generateDailyBudgetsNormalized`, `computeBreakdowns` | ✅ |
 | `lib/budget-lines-import.ts` — `parsePnlRows`, `findMonthRow`, `assignParentIndexes`, `monthYearForName`, `buildLineTree`, `treeTotal` | ✅ (18 tests) |
 | `lib/calendar.ts` — `monthDays`, `isValidTime`, `dateKeysBetween` | ✅ |
+| `lib/checklist-pdf.ts` — `generateChecklistPdf` (A4 printable checkbox list), `checklistPdfToBuffer` | ✅ (4 tests) |
 | `lib/ical.ts` — `feedsForVenue`, `googleEmbedToIcal` | ✅ |
 | `lib/scheduling.ts` — `isTaskDueOnDate`, `describeSchedule`, `formatDateKey` | ✅ |
 | `lib/utils.ts` — all 8 exports | ✅ |

@@ -1,0 +1,145 @@
+/* HOSPO OPS — booking widget + checkout styles. Deliberately neutral so it
+   inherits the theme; these are just structural rules. */
+
+.hospo-ops-widget,
+.hospo-ops-checkout {
+	max-width: 480px;
+}
+
+.hospo-ops-widget .hospo-ops-row,
+.hospo-ops-checkout .hospo-ops-row {
+	display: flex;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.hospo-ops-widget .hospo-ops-field,
+.hospo-ops-checkout .hospo-ops-field {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-bottom: 12px;
+	flex: 1 1 160px;
+}
+
+.hospo-ops-widget label,
+.hospo-ops-checkout label {
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+.hospo-ops-widget input,
+.hospo-ops-widget select,
+.hospo-ops-checkout input,
+.hospo-ops-checkout select {
+	width: 100%;
+	padding: 8px 10px;
+	border: 1px solid rgba(0, 0, 0, 0.2);
+	border-radius: 4px;
+	background: #fff;
+	font-size: 14px;
+}
+
+.hospo-ops-slots {
+	margin: 8px 0 16px;
+}
+
+.hospo-ops-service {
+	margin-bottom: 16px;
+}
+
+.hospo-ops-service-name {
+	font-weight: 700;
+	margin-bottom: 8px;
+}
+
+.hospo-ops-menu {
+	font-weight: 400;
+	opacity: 0.7;
+}
+
+.hospo-ops-req {
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	border: 1px solid currentColor;
+	padding: 1px 6px;
+	border-radius: 3px;
+	margin-left: 6px;
+}
+
+.hospo-ops-slots-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+	gap: 8px;
+}
+
+.hospo-ops-slot {
+	padding: 8px 6px;
+	border: 1px solid rgba(0, 0, 0, 0.25);
+	border-radius: 4px;
+	background: #fff;
+	cursor: pointer;
+	text-align: center;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.hospo-ops-slot:hover {
+	border-color: #000;
+}
+
+.hospo-ops-slot.is-selected {
+	background: #000;
+	color: #fff;
+	border-color: #000;
+}
+
+.hospo-ops-slot.is-full {
+	opacity: 0.4;
+	text-decoration: line-through;
+}
+
+.hospo-ops-left {
+	display: block;
+	font-size: 11px;
+	font-weight: 400;
+	opacity: 0.7;
+}
+
+.hospo-ops-note {
+	font-size: 13px;
+	opacity: 0.8;
+}
+
+.hospo-ops-message.is-error {
+	color: #b32d2e;
+}
+
+.hospo-ops-book-row {
+	margin: 12px 0;
+}
+
+.hospo-ops-submit {
+	padding: 10px 22px;
+	background: #000;
+	color: #fff;
+	border: none;
+	border-radius: 4px;
+	font-weight: 700;
+	cursor: pointer;
+}
+
+.hospo-ops-submit:disabled {
+	opacity: 0.5;
+	cursor: wait;
+}
+
+.hospo-ops-block-placeholder {
+	padding: 24px;
+	border: 1px dashed #ccc;
+	text-align: center;
+	background: #fafafa;
+}

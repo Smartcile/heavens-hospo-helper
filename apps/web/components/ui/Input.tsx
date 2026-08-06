@@ -18,7 +18,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         <input
           ref={ref}
           className={cn(
-            'bg-grey-dark border border-grey-mid text-white font-sans text-sm px-3 py-2 w-full outline-none focus:border-white transition-colors placeholder:text-grey-light',
+            'bg-grey-dark border border-grey-mid text-white font-mono text-xs px-3 py-1.5 w-full outline-none focus:border-white transition-colors placeholder:text-grey-light',
             error ? 'border-danger' : '',
             className
           )}

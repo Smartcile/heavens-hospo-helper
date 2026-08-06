@@ -4,9 +4,11 @@ import { wooAuthHeader } from '@/lib/woo-sync'
 import { oauthSignedUrl } from '@/lib/woo-oauth'
 import { explodeRecipe } from '@/lib/inventory-engine'
 import { getNextNumber } from '@/lib/gift-cards'
-import { resolveOrderMeta } from '@/lib/woo-meta-map'
+import { resolveOrderMeta, type ResolvedOrderMeta } from '@/lib/woo-meta-map'
 import { resolveCustomer } from '@/lib/customer-match'
 import { autoLinkBooking } from '@/lib/order-booking-link'
+import { formatDateKey } from '@/lib/scheduling'
+import { addMinutesHHMM, slotEndForTime, type ServiceScheduleInput } from '@/lib/service-schedule'
 import type { PrismaClient, OrderStatus, OrderOpStatus, PaymentStatus } from '@prisma/client'
 
 // ── Shared WooCommerce Order Processing ────────────────────────────────
@@ -35,6 +37,22 @@ export async function processWooOrder(
   const meta = resolveOrderMeta(metaData, metaFieldMap)
   const partySize = meta.partySize
   const notes = body.customer_note?.trim() || null
+
+  // Auto-seating is opt-in per venue (default OFF — seats are assigned by
+  // hand). bookTable comes from the HOSPO OPS plugin's checkout.
+  const venue = await prisma.venue.findUnique({
+    where: { id: venueId },
+    select: { autoSeat: true },
+  })
+
+  // The service this order was placed against, resolved from the plugin's
+  // `_hospo_service_id` meta. An unknown id clears the link (explicitly).
+  const service = meta.serviceId
+    ? await prisma.service.findFirst({
+        where: { id: meta.serviceId, venueId, deletedAt: null },
+        select: { id: true },
+      })
+    : null
 
   // Payment is WooCommerce's job — we only mirror what it reports.
   // Prefer `date_paid_gmt`: `date_paid` is in the store's local timezone with no
@@ -78,6 +96,8 @@ export async function processWooOrder(
         paidAt,
         notes,
         allergenNote: meta.allergens,
+        serviceId: meta.serviceId ? (service?.id ?? null) : undefined,
+        bookTable: meta.bookTable,
         syncedAt: new Date(),
         // `opStatus` and `fulfillmentType` are deliberately NOT updated — they
         // are our operational state. A staff member marking an order IN_PREP
@@ -104,6 +124,8 @@ export async function processWooOrder(
         paidAt,
         notes,
         allergenNote: meta.allergens,
+        serviceId: service?.id ?? null,
+        bookTable: meta.bookTable,
         syncedAt: new Date(),
       },
     })
@@ -216,7 +238,8 @@ export async function processWooOrder(
     }
   }
 
-  if (partySize && partySize > 0 && fulfillmentDate) {
+  // Auto-seating is off unless the venue explicitly opts in (Venue.autoSeat).
+  if (venue?.autoSeat && partySize && partySize > 0 && fulfillmentDate) {
     try {
       // `wooOrderId` is nullable on the model (manual orders), but this path is
       // only ever reached for a Woo-sourced order — pass the known-good local.
@@ -230,6 +253,32 @@ export async function processWooOrder(
         status: 'ERROR',
         externalId: wooOrderId,
         message: `AUTO-SEATING FAILED FOR ORDER #${wooOrderId} (ORDER STILL SYNCED)`,
+        detail: { error: String(e) },
+      })
+    }
+  }
+
+  // The customer chose "book a table too" at checkout — that booking must
+  // exist. No tables are auto-assigned; the venue seats manually.
+  if (
+    meta.bookTable &&
+    !order.bookingId &&
+    meta.serviceDate &&
+    meta.serviceTime &&
+    partySize &&
+    mapWooStatus(wooStatus) !== 'CANCELLED'
+  ) {
+    try {
+      await bookTableForOrder(order, venueId, meta, service, partySize)
+    } catch (e) {
+      console.error('Book-a-table failed (non-blocking):', e)
+      await logSync({
+        venueId,
+        direction: 'WEBHOOK',
+        entity: 'ORDER',
+        status: 'ERROR',
+        externalId: wooOrderId,
+        message: `BOOK-A-TABLE FAILED FOR ORDER #${wooOrderId} (ORDER STILL SYNCED)`,
         detail: { error: String(e) },
       })
     }
@@ -415,6 +464,69 @@ export async function runOrderPull(venueId?: string): Promise<OrderPullResult[]>
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
+
+/*
+ * Creates the reservation the customer asked for at checkout ("book a table
+ * too"). The slot's own end time is used when the service has one for that
+ * time; otherwise the booking is 90 minutes. Never assigns tables — seating
+ * stays manual.
+ */
+async function bookTableForOrder(
+  order: { id: string; customerName: string | null; customerEmail: string | null; customerPhone: string | null },
+  venueId: string,
+  meta: ResolvedOrderMeta,
+  service: { id: string } | null,
+  partySize: number,
+) {
+  const serviceDate = meta.serviceDate as Date
+  const serviceTime = meta.serviceTime as string
+
+  let endTime = addMinutesHHMM(serviceTime, 90)
+  if (service) {
+    const svc = await prisma.service.findUnique({
+      where: { id: service.id },
+      include: { slots: true, exceptions: true },
+    })
+    if (svc) {
+      const input: ServiceScheduleInput = {
+        slots: svc.slots.map((s) => ({
+          dayOfWeek: s.dayOfWeek,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          maxCovers: s.maxCovers,
+        })),
+        exceptions: svc.exceptions.map((e) => ({
+          date: e.date.toISOString().slice(0, 10),
+          closed: e.closed,
+          startTime: e.startTime,
+          endTime: e.endTime,
+          maxCovers: e.maxCovers,
+        })),
+      }
+      endTime = slotEndForTime(input, formatDateKey(serviceDate), serviceTime) ?? endTime
+    }
+  }
+
+  const booking = await prisma.booking.create({
+    data: {
+      venueId,
+      date: serviceDate,
+      startTime: serviceTime,
+      endTime,
+      partySize,
+      contactName: order.customerName ?? 'WOO ORDER',
+      contactPhone: order.customerPhone,
+      contactEmail: order.customerEmail,
+      source: 'WOOCOMMERCE',
+      status: 'CONFIRMED',
+    },
+  })
+
+  await prisma.wooOrder.update({
+    where: { id: order.id },
+    data: { bookingId: booking.id },
+  })
+}
 
 function mapWooStatus(status: string): string {
   const s = status.toLowerCase()

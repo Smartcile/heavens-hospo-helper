@@ -31,6 +31,8 @@ const META_FIELDS: { key: string; label: string; hint: string }[] = [
   { key: 'partySize', label: 'PARTY SIZE', hint: 'NUMBER OF GUESTS' },
   { key: 'allergens', label: 'ALLERGY NOTE', hint: 'CUSTOMER ALLERGY / DIETARY FIELD' },
   { key: 'fulfillmentType', label: 'FULFILLMENT TYPE', hint: 'DINE IN / PICKUP / DELIVERY' },
+  { key: 'serviceId', label: 'SERVICE ID', hint: 'THE HOSPO OPS SERVICE UUID (PLUGIN FIELD)' },
+  { key: 'bookTable', label: 'BOOK A TABLE', hint: '"1" = CUSTOMER WANTS A TABLE BOOKED TOO (PLUGIN FIELD)' },
 ]
 
 /** Server sends `{ field: string[] }`; the inputs edit comma-separated text. */

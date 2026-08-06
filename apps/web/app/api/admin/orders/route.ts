@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
     where: { venueId, serviceDate, deletedAt: null },
     include: {
       menu: { select: { name: true } },
+      service: { select: { name: true } },
       // A linked reservation is the authoritative seating — its tables win over
       // any layout auto-generated for the order itself.
       booking: {
@@ -147,6 +148,8 @@ export async function GET(req: NextRequest) {
       allergenNote: o.allergenNote,
       notes: o.notes,
       menuName: o.menu?.name ?? null,
+      serviceName: o.service?.name ?? null,
+      bookTable: o.bookTable,
       bookingId: o.bookingId,
       tables: bookingTables(o) ?? (o.calendarEventId ? tablesByEvent.get(o.calendarEventId) ?? [] : []),
       items,

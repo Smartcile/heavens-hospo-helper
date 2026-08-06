@@ -177,6 +177,7 @@ See [ECOSYSTEM.md](ECOSYSTEM.md) for the full design.
 - **Shared floor task list** — Whole department sees the list; completion is global per task+date
 - **Monthly scheduling** — MONTHLY tasks with 8 option types + every-N-months interval
 - **Timed lists** — Checklists surface from a time (`appearFromTime`) and stay until all done
+- **Printable PDF export** — `⬇ PDF` button on the Tasks page → modal → per-checklist A4 checkbox list (`GET /api/admin/checklists/[id]/pdf`, jspdf, multi-page)
 
 ---
 
@@ -566,6 +567,42 @@ workspace. Payments remain WooCommerce's job throughout — the app never handle
 
 ---
 
+## Services — dated ordering (built 2026-08-06, pipeline continues) ⊞
+
+The app defines *when* a venue takes dated orders and *for which menu*. A
+`Service` ("FRIDAY MENU") maps to a Woo category (the menu), runs on weekly
+`ServiceSlot` rules (day × start/end × `maxCovers`), and supports one-off
+`ServiceException` dates (closed, or open with custom hours). The
+`resources/WooPlugin` WordPress plugin renders these as checkout options; the
+app is the single source of truth for the schedule.
+
+**Built:**
+- Schema: `Service`, `ServiceSlot`, `ServiceException`, `ApiKey` (venue-scoped,
+  hashed), `Venue.autoSeat` (default off — Woo orders no longer auto-seat),
+  `WooOrder.serviceId` + `bookTable`
+- `/admin/services` — per-venue authoring (venue must be selected from the main
+  selection bar): ADD A DAY → time slots per day with START/END/MAX COVERS,
+  date exceptions, Woo category = the menu
+- MAX COVERS = **people** per slot (sum of party sizes of orders + bookings),
+  not the number of orders
+
+**Pipeline:**
+- **Bookings page top bar** — each service shows its label + live available
+  covers for the selected day (the same availability math the plugin uses)
+- **Event override** — when a `CalendarEvent`/event layout is active on a date,
+  it overrides that service's times and **blocks bookings for that date**
+- **Built:** public API (ApiKey auth) — `GET /api/public/config`,
+  `GET /api/public/availability`, `POST /api/public/bookings`
+- **Built:** WooCommerce plugin `resources/WooPlugin` — settings (app URL +
+  API key + TEST CONNECTION), checkout dining details (service/date/slot/party
+  + optional book-a-table, `_hospo_*` meta), booking-only widget (shortcode
+  `[hospo_booking]` + Gutenberg block + sidebar widget, Divi-friendly)
+- **Built:** order sync — `_hospo_*` meta mapping (default map + Settings rows),
+  auto-seat gated behind `Venue.autoSeat` (default off), booking creation when
+  book-a-table is chosen, service name on order cards + admin order column
+
+---
+
 ## WooCommerce Sync Consolidation ☐
 
 - **All WooCommerce settings in one place** — remove partial settings from the main Settings page
@@ -619,6 +656,7 @@ workspace. Payments remain WooCommerce's job throughout — the app never handle
 | 3 | Date pickers / date selection areas inconsistent | Unify date selection pattern (match Loaded style with DOS-MODERN elements) |
 | 4 | Bookings page — full-width bleed, needs contained layout | Add proper max-width centering and padding |
 | 5 | Button border visibility — some action buttons lack visible borders | Ensure all buttons have visible borders using department/status colours |
+| 6 | Dropdowns + inputs use `font-sans text-sm` while buttons are `font-mono` uppercase | ✅ done 2026-08-06 — shared `Select` + `Input` + `Textarea` now match button style (`font-mono text-xs`, `px-3 py-1.5`) |
 
 ---
 

@@ -18,6 +18,8 @@ export interface WooMetaMap {
   partySize: string[]
   allergens: string[]
   fulfillmentType: string[]
+  serviceId: string[]
+  bookTable: string[]
 }
 
 export const DEFAULT_META_MAP: WooMetaMap = {
@@ -28,6 +30,7 @@ export const DEFAULT_META_MAP: WooMetaMap = {
     'pickup_date',
     'fulfillment_date',
     'event_date',
+    '_hospo_service_date',
   ],
   serviceTime: [
     'orddd_time_slot',
@@ -35,10 +38,15 @@ export const DEFAULT_META_MAP: WooMetaMap = {
     'delivery_time',
     'pickup_time',
     'time_slot',
+    '_hospo_service_time',
   ],
-  partySize: ['party_size', 'guests', 'number_of_guests', 'pax'],
+  partySize: ['party_size', 'guests', 'number_of_guests', 'pax', '_hospo_party_size'],
   allergens: ['allergies', 'allergens', 'dietary_requirements', 'dietary'],
   fulfillmentType: ['fulfillment_type', 'order_type', 'service_type'],
+  // The HOSPO OPS plugin's own keys — serviceId is the UUID of the Service row,
+  // bookTable marks the "book a table too" choice.
+  serviceId: ['_hospo_service_id', 'hospo_service_id', 'service_id'],
+  bookTable: ['_hospo_book_table', 'hospo_book_table', 'book_table', 'booktable'],
 }
 
 export const META_MAP_FIELDS: (keyof WooMetaMap)[] = [
@@ -47,6 +55,8 @@ export const META_MAP_FIELDS: (keyof WooMetaMap)[] = [
   'partySize',
   'allergens',
   'fulfillmentType',
+  'serviceId',
+  'bookTable',
 ]
 
 export interface WooMetaEntry {
@@ -165,6 +175,12 @@ export function parsePartySize(raw: string | null): number | null {
   return isNaN(n) || n <= 0 ? null : n
 }
 
+/** "1", "yes", "true", "on" all mean yes — anything else is no. */
+export function parseBookTable(raw: string | null): boolean {
+  if (!raw) return false
+  return ['1', 'yes', 'true', 'on', 'y'].includes(raw.toLowerCase())
+}
+
 export type FulfillmentType = 'DINE_IN' | 'PICKUP' | 'DELIVERY'
 
 export function parseFulfillmentType(raw: string | null): FulfillmentType | null {
@@ -182,6 +198,8 @@ export interface ResolvedOrderMeta {
   partySize: number | null
   allergens: string | null
   fulfillmentType: FulfillmentType | null
+  serviceId: string | null
+  bookTable: boolean
 }
 
 /** Pull every mapped field off a Woo order's meta_data in one pass. */
@@ -197,5 +215,7 @@ export function resolveOrderMeta(
     partySize: parsePartySize(readMeta(meta, map.partySize)),
     allergens: readMeta(meta, map.allergens),
     fulfillmentType: parseFulfillmentType(readMeta(meta, map.fulfillmentType)),
+    serviceId: readMeta(meta, map.serviceId),
+    bookTable: parseBookTable(readMeta(meta, map.bookTable)),
   }
 }
