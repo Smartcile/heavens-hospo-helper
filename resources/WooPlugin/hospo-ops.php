@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'HOSPO_OPS_VERSION', '0.2.4' );
+define( 'HOSPO_OPS_VERSION', '0.2.9' );
 define( 'HOSPO_OPS_FILE', __FILE__ );
 define( 'HOSPO_OPS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'HOSPO_OPS_URL', plugin_dir_url( __FILE__ ) );

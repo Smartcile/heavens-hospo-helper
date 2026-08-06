@@ -13,6 +13,8 @@ class Hospo_Ops_Checkout {
 		add_action( 'woocommerce_checkout_process', array( __CLASS__, 'validate_fields' ) );
 		add_action( 'woocommerce_checkout_create_order', array( __CLASS__, 'save_order_meta' ), 10, 2 );
 		add_action( 'woocommerce_email_after_order_table', array( __CLASS__, 'email_dining_details' ), 10, 3 );
+		add_action( 'woocommerce_admin_order_data_after_order_details', array( __CLASS__, 'admin_order_details' ), 10, 1 );
+		add_action( 'woocommerce_process_shop_order_meta', array( __CLASS__, 'admin_save_order_details' ), 10, 2 );
 
 		// Admin: a column on the orders list.
 		add_filter( 'manage_edit-shop_order_columns', array( __CLASS__, 'order_column' ) );
@@ -154,6 +156,105 @@ class Hospo_Ops_Checkout {
 				$order->update_meta_data( $key, call_user_func( $sanitizer, wp_unslash( $_POST[ $key ] ) ) );
 			}
 		}
+
+		// Diagnostic: dining fields missing from the POST — the section is
+		// either not inside the checkout form, or the script never ran.
+		if ( ! isset( $_POST['_hospo_service_date'] ) && function_exists( 'wc_get_logger' ) ) {
+			wc_get_logger()->warning(
+				'HOSPO OPS: no _hospo_* fields in checkout POST (order ' . $order->get_id() . '). Check the checkout is classic shortcode, not Blocks, and the frontend script loaded.',
+				array( 'source' => 'hospo-ops' )
+			);
+		}
+	}
+
+	/**
+	 * Editable dining details on the admin order edit screen — same service
+	 * boxes + date buttons + time pills as the frontend, no calendar. Always
+	 * shown so undated orders can be given a service date by hand.
+	 */
+	public static function admin_order_details( $order ) {
+		if ( ! $order || ! method_exists( $order, 'get_meta' ) ) {
+			return;
+		}
+		$config  = Hospo_Ops_Booking_Widget::cached_config();
+		$date    = $order->get_meta( '_hospo_service_date' );
+		$time    = $order->get_meta( '_hospo_service_time' );
+		$party   = $order->get_meta( '_hospo_party_size' );
+		$book    = in_array( strtolower( (string) $order->get_meta( '_hospo_book_table' ) ), array( '1', 'yes', 'true', 'on' ), true );
+		$no_cfg  = is_wp_error( $config ) || empty( $config['services'] );
+		?>
+		<div class="hospo-ops-checkout hospo-admin-dining" data-hospo-admin-panel style="margin-top:14px;padding-top:12px;border-top:1px dashed #d0d0d0;max-width:none;box-shadow:none;">
+			<h3 style="font-size:13px;font-weight:600;margin:0 0 10px;">DINING DETAILS</h3>
+
+			<?php if ( $no_cfg ) : ?>
+				<p style="font-size:12px;color:#757575;margin:0;">
+					No services available from the app right now. You can still set a date and time by hand:
+				</p>
+				<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+					<input type="date" name="hospo_service_date" value="<?php echo esc_attr( $date ); ?>" style="width:100%;padding:4px 8px;border:1px solid #ddd;" />
+					<input type="time" name="hospo_service_time" value="<?php echo esc_attr( $time ); ?>" style="width:100%;padding:4px 8px;border:1px solid #ddd;" />
+				</div>
+			<?php else : ?>
+				<p style="font-size:12px;color:#757575;margin:0 0 8px;">Pick a service and a date — the times appear below.</p>
+				<div data-hospo-services>
+					<?php echo Hospo_Ops_Booking_Widget::render_service_list( $config['services'], array(), '' ); // phpcs:ignore ?>
+				</div>
+				<div data-hospo-slots></div>
+				<input type="hidden" name="hospo_service_id" value="" />
+				<input type="hidden" name="hospo_service_date" value="<?php echo esc_attr( $date ); ?>" />
+				<input type="hidden" name="hospo_service_time" value="<?php echo esc_attr( $time ); ?>" />
+				<input type="hidden" name="hospo_service_name" value="" />
+			<?php endif; ?>
+
+			<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;margin-top:10px;">
+				<p class="form-field" style="margin:0;">
+					<label style="display:block;font-size:12px;color:#757575;margin-bottom:2px;">Party size</label>
+					<input type="number" name="hospo_party_size" min="1" max="500" value="<?php echo esc_attr( $party ); ?>" data-hospo-party style="width:100%;padding:4px 8px;border:1px solid #ddd;" />
+				</p>
+				<label style="font-size:12px;color:#757575;padding-bottom:5px;white-space:nowrap;">
+					<input type="checkbox" name="hospo_book_table" value="1" <?php checked( $book ); ?> /> Book a table
+				</label>
+			</div>
+			<p style="font-size:11px;color:#757575;margin:8px 0 0;">
+				Saved with the order — the app picks the change up on its next sync.
+			</p>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Saves the admin-edited dining details. Runs inside WooCommerce's own
+	 * order save flow (nonce already verified).
+	 */
+	public static function admin_save_order_details( $order_id, $order ) {
+		if ( ! isset( $_POST['hospo_service_date'] ) && ! isset( $_POST['hospo_party_size'] ) ) {
+			return; // Panel not part of this form.
+		}
+		$order = wc_get_order( $order_id );
+		if ( ! $order ) {
+			return;
+		}
+
+		if ( isset( $_POST['hospo_service_id'] ) && '' !== $_POST['hospo_service_id'] ) {
+			$order->update_meta_data( '_hospo_service_id', sanitize_text_field( wp_unslash( $_POST['hospo_service_id'] ) ) );
+		}
+		if ( isset( $_POST['hospo_service_date'] ) ) {
+			$order->update_meta_data( '_hospo_service_date', sanitize_text_field( wp_unslash( $_POST['hospo_service_date'] ) ) );
+		}
+		if ( isset( $_POST['hospo_service_time'] ) ) {
+			$order->update_meta_data( '_hospo_service_time', sanitize_text_field( wp_unslash( $_POST['hospo_service_time'] ) ) );
+		}
+		if ( isset( $_POST['hospo_service_name'] ) && '' !== $_POST['hospo_service_name'] ) {
+			$order->update_meta_data( '_hospo_service_name', sanitize_text_field( wp_unslash( $_POST['hospo_service_name'] ) ) );
+		}
+		if ( isset( $_POST['hospo_party_size'] ) ) {
+			$party = absint( $_POST['hospo_party_size'] );
+			if ( $party > 0 ) {
+				$order->update_meta_data( '_hospo_party_size', $party );
+			}
+		}
+		$order->update_meta_data( '_hospo_book_table', empty( $_POST['hospo_book_table'] ) ? '' : '1' );
+		$order->save();
 	}
 
 	/**

@@ -13,6 +13,7 @@ class Hospo_Ops_Booking_Widget {
 		add_action( 'widgets_init', array( __CLASS__, 'register_widget' ) );
 		add_action( 'init', array( __CLASS__, 'register_block' ) );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_assets' ) );
+		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_assets' ) );
 
 		// Public AJAX handlers (customers are not logged in).
 		add_action( 'wp_ajax_hospo_ops_config', array( __CLASS__, 'ajax_config' ) );
@@ -76,10 +77,17 @@ class Hospo_Ops_Booking_Widget {
 	// ── Assets ───────────────────────────────────────────────────────────
 
 	public static function enqueue_assets() {
-		// Always load on the frontend: Divi stores its modules in formats the
-		// content scan can miss, and the files are small. Sites that want to
-		// disable them can filter 'hospo_ops_enqueue_assets' to false.
-		if ( is_admin() ) {
+		// Frontend: always load (Divi stores its modules in formats a content
+		// scan can miss, and the files are small).
+		$should_load = ! is_admin();
+
+		// Admin: only on the order edit screens (classic + HPOS).
+		if ( is_admin() && function_exists( 'get_current_screen' ) ) {
+			$screen = get_current_screen();
+			$should_load = $screen && in_array( $screen->id, array( 'shop_order', 'woocommerce_page_wc-orders' ), true );
+		}
+
+		if ( ! $should_load ) {
 			return;
 		}
 		if ( ! apply_filters( 'hospo_ops_enqueue_assets', true ) ) {
@@ -287,7 +295,7 @@ class Hospo_Ops_Booking_Widget {
 
 	// ── Config cache (5 min) ─────────────────────────────────────────────
 
-	private static function cached_config() {
+	public static function cached_config() {
 		$key = 'hospo_ops_config_' . md5( hospo_ops_app_url() . '|' . hospo_ops_api_key() );
 		$config = get_transient( $key );
 		if ( false !== $config ) {

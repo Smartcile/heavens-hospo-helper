@@ -106,7 +106,7 @@
 		var messageEl = root.querySelector('[data-hospo-message]');
 		if (!STATE.selected.date || !STATE.selected.party) return;
 
-		messageEl.hidden = true;
+		if (messageEl) messageEl.hidden = true;
 		slotsEl.innerHTML = '<p class="hospo-ops-note">Loading times…</p>';
 
 		loadAvailability(STATE.selected.date, STATE.selected.party)
@@ -115,9 +115,11 @@
 			})
 			.catch(function (err) {
 				slotsEl.innerHTML = '';
-				messageEl.textContent = err.message;
-				messageEl.classList.add('is-error');
-				messageEl.hidden = false;
+				if (messageEl) {
+					messageEl.textContent = err.message;
+					messageEl.classList.add('is-error');
+					messageEl.hidden = false;
+				}
 			});
 	}
 
@@ -308,8 +310,48 @@
 		});
 	}
 
+	// ── Admin order edit screen ──────────────────────────────────────────
+
+	function wireAdminPanel(root) {
+		var servicesEl = root.querySelector('[data-hospo-services]');
+		var slotsEl = root.querySelector('[data-hospo-slots]');
+		var dateInput = root.querySelector('input[name="hospo_service_date"]');
+		var timeInput = root.querySelector('input[name="hospo_service_time"]');
+		var nameInput = root.querySelector('input[name="hospo_service_name"]');
+		var partyInput = root.querySelector('[data-hospo-party]');
+		if (!servicesEl || !dateInput || !timeInput) return;
+
+		function onPickTime() {
+			var svc = (STATE.config.services || []).filter(function (s) { return s.id === STATE.selected.serviceId; })[0];
+			dateInput.value = STATE.selected.date;
+			timeInput.value = STATE.selected.time;
+			var idInput = root.querySelector('input[name="hospo_service_id"]');
+			if (idInput && svc) idInput.value = svc.id;
+			if (nameInput && svc) nameInput.value = svc.name;
+		}
+
+		function onPick(serviceId, date) {
+			STATE.selected.serviceId = serviceId;
+			STATE.selected.date = date;
+			STATE.selected.time = '';
+			STATE.selected.party = partyInput ? partyInput.value || '2' : '2';
+			refreshAvailability(root, onPickTime);
+		}
+
+		loadConfig().then(function (cfg) {
+			if (!cfg.services || cfg.services.length === 0) return;
+			wireServiceList(servicesEl, onPick);
+			if (dateInput.value) {
+				servicesEl.querySelectorAll('.hospo-ops-date-btn[data-date="' + dateInput.value + '"]').forEach(function (b) {
+					b.classList.add('is-selected');
+				});
+			}
+		}).catch(function () {});
+	}
+
 	document.addEventListener('DOMContentLoaded', function () {
 		document.querySelectorAll('[data-hospo-widget]').forEach(wireWidget);
 		document.querySelectorAll('[data-hospo-checkout]').forEach(wireCheckout);
+		document.querySelectorAll('[data-hospo-admin-panel]').forEach(wireAdminPanel);
 	});
 })();
