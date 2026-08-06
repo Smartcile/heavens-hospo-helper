@@ -1,10 +1,11 @@
-/* HOSPO OPS — shared frontend for the booking widget and checkout. */
+/* HOSPO OPS — shared frontend for the booking widget and checkout.
+   Both render the same flow: party size (number box) → service boxes with
+   date buttons → time slot pills → book. */
 (function () {
 	'use strict';
 
 	var STATE = {
 		config: null,
-		availability: null,
 		selected: { serviceId: '', date: '', party: '2', time: '' }
 	};
 
@@ -13,6 +14,10 @@
 		div.textContent = String(str == null ? '' : str);
 		return div.innerHTML;
 	}
+
+	function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+	function dateKey(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 
 	function api(action, params) {
 		var url = new URL(window.HospoOps.ajaxUrl);
@@ -38,10 +43,6 @@
 		});
 	}
 
-	function loadAvailability(date, party, serviceId) {
-		return api('hospo_ops_availability', { date: date, party: party, serviceId: serviceId });
-	}
-
 	function fmtTime(hhmm) {
 		var parts = hhmm.split(':');
 		var h = parseInt(parts[0], 10);
@@ -51,27 +52,41 @@
 		return hr + ':' + m + ' ' + ampm;
 	}
 
+	// ── Service boxes with date buttons ──────────────────────────────────
+
+	/**
+	 * Wires the server-rendered service boxes: clicking a date button calls
+	 * onPick(serviceId, date). The list itself is rendered in PHP so it is
+	 * visible even before this script loads.
+	 */
+	function wireServiceList(servicesEl, onPick) {
+		servicesEl.querySelectorAll('.hospo-ops-date-btn').forEach(function (btn) {
+			btn.addEventListener('click', function () {
+				servicesEl.querySelectorAll('.hospo-ops-date-btn').forEach(function (b) { b.classList.remove('is-selected'); });
+				btn.classList.add('is-selected');
+				onPick(
+					btn.closest('.hospo-ops-service').getAttribute('data-service'),
+					btn.getAttribute('data-date')
+				);
+			});
+		});
+	}
+
+	// ── Time slot pills ──────────────────────────────────────────────────
+
 	function renderSlots(container, services, selectedServiceId, onChange) {
 		var html = '';
 		services.forEach(function (svc) {
-			var open = svc.slots && svc.slots.length > 0;
-			if (!open) return;
-			html += '<div class="hospo-ops-service" data-service="' + esc(svc.serviceId) + '">';
-			html += '<div class="hospo-ops-service-name">' + esc(svc.serviceName) +
-				(svc.menuName ? ' <span class="hospo-ops-menu">' + esc(svc.menuName) + '</span>' : '') +
-				(svc.requiresBooking ? ' <span class="hospo-ops-req">table booking required</span>' : '') +
-				'</div>';
-			html += '<div class="hospo-ops-slots-grid">';
+			if (!svc.slots || svc.slots.length === 0) return;
 			svc.slots.forEach(function (slot) {
 				var selected = selectedServiceId === svc.serviceId && STATE.selected.time === slot.startTime;
 				html += '<button type="button" class="hospo-ops-slot' + (selected ? ' is-selected' : '') +
 					(slot.available ? '' : ' is-full') + '" data-slot-time="' + esc(slot.startTime) + '"' +
+					' data-service="' + esc(svc.serviceId) + '"' +
 					(slot.available ? '' : ' disabled') + '>' +
 					esc(fmtTime(slot.startTime)) +
-					'<span class="hospo-ops-left">' + slot.remaining + ' left</span>' +
 					'</button>';
 			});
-			html += '</div></div>';
 		});
 		container.innerHTML = html || '<p class="hospo-ops-note">No times available for this date — please choose another day or call us.</p>';
 
@@ -80,137 +95,44 @@
 				container.querySelectorAll('.hospo-ops-slot').forEach(function (b) { b.classList.remove('is-selected'); });
 				btn.classList.add('is-selected');
 				STATE.selected.time = btn.getAttribute('data-slot-time');
-				STATE.selected.serviceId = btn.closest('.hospo-ops-service').getAttribute('data-service');
+				STATE.selected.serviceId = btn.getAttribute('data-service');
 				onChange();
 			});
 		});
 	}
 
-	function refreshAvailability(scope, onChange) {
-		var root = scope.root;
+	function refreshAvailability(root, onChange) {
 		var slotsEl = root.querySelector('[data-hospo-slots]');
 		var messageEl = root.querySelector('[data-hospo-message]');
 		if (!STATE.selected.date || !STATE.selected.party) return;
 
 		messageEl.hidden = true;
-		slotsEl.hidden = false;
 		slotsEl.innerHTML = '<p class="hospo-ops-note">Loading times…</p>';
 
 		loadAvailability(STATE.selected.date, STATE.selected.party)
 			.then(function (data) {
-				var serviceId = STATE.selected.serviceId;
-				renderSlots(slotsEl, data.services, serviceId, onChange);
+				renderSlots(slotsEl, data.services, STATE.selected.serviceId, onChange);
 			})
 			.catch(function (err) {
-				slotsEl.hidden = true;
+				slotsEl.innerHTML = '';
 				messageEl.textContent = err.message;
 				messageEl.classList.add('is-error');
 				messageEl.hidden = false;
 			});
 	}
 
-	function wireCheckout(root) {
-		var slotsEl = root.querySelector('[data-hospo-slots]');
-		var messageEl = root.querySelector('[data-hospo-message]');
-		var serviceSel = root.querySelector('[data-hospo-service]');
-		var dateInput = root.querySelector('[data-hospo-date]');
-		var partySel = root.querySelector('[data-hospo-party]');
-		var bookRow = document.createElement('div');
-		bookRow.className = 'hospo-ops-book-row';
-		bookRow.hidden = true;
-		bookRow.innerHTML =
-			'<label class="hospo-ops-book-label"><input type="checkbox" data-hospo-book-table /> Book a table too</label>' +
-			'<p class="hospo-ops-note" data-hospo-book-note hidden></p>';
-		slotsEl.parentNode.insertBefore(bookRow, slotsEl.nextSibling);
-
-		function syncHidden() {
-			var s = STATE.selected;
-			var hidden = {
-				'_hospo_service_id': s.serviceId,
-				'_hospo_service_date': s.date,
-				'_hospo_service_time': s.time,
-				'_hospo_party_size': s.party
-			};
-			Object.keys(hidden).forEach(function (name) {
-				var input = root.querySelector('input[name="' + name + '"]');
-				if (input) input.value = hidden[name];
-			});
-			var bookInput = root.querySelector('input[name="_hospo_book_table"]');
-			var checkbox = bookRow.querySelector('[data-hospo-book-table]');
-			if (bookInput && checkbox) {
-				bookInput.value = checkbox.checked ? '1' : '';
-			}
-		}
-
-		function afterSelection() {
-			var svc = (STATE.config.services || []).filter(function (s) { return s.id === STATE.selected.serviceId; })[0];
-			if (svc && svc.requiresBooking) {
-				bookRow.hidden = false;
-				var cb = bookRow.querySelector('[data-hospo-book-table]');
-				var note = bookRow.querySelector('[data-hospo-book-note]');
-				cb.checked = true;
-				cb.disabled = true;
-				note.hidden = false;
-				note.textContent = 'This service includes a table booking.';
-			} else if (svc) {
-				bookRow.hidden = false;
-				var cb2 = bookRow.querySelector('[data-hospo-book-table]');
-				cb2.checked = false;
-				cb2.disabled = false;
-				bookRow.querySelector('[data-hospo-book-note]').hidden = true;
-			}
-			syncHidden();
-		}
-
-		function onAvailability() {
-			afterSelection();
-			syncHidden();
-		}
-
-		serviceSel.addEventListener('change', function () {
-			STATE.selected.serviceId = serviceSel.value;
-			STATE.selected.time = '';
-			syncHidden();
-			if (STATE.selected.date) refreshAvailability(root, onAvailability);
-		});
-		dateInput.addEventListener('change', function () {
-			STATE.selected.date = dateInput.value;
-			STATE.selected.time = '';
-			syncHidden();
-			if (STATE.selected.serviceId || serviceSel.options.length === 2) refreshAvailability(root, onAvailability);
-		});
-		partySel.addEventListener('change', function () {
-			STATE.selected.party = partySel.value;
-			STATE.selected.time = '';
-			syncHidden();
-			if (STATE.selected.date) refreshAvailability(root, onAvailability);
-		});
-		bookRow.querySelector('[data-hospo-book-table]').addEventListener('change', syncHidden);
-
-		if (serviceSel.options.length === 2) {
-			STATE.selected.serviceId = serviceSel.value = serviceSel.options[1].value;
-		}
-		loadConfig().then(function (cfg) {
-			if (!cfg.services || cfg.services.length === 0) return;
-			dateInput.disabled = false;
-			if (STATE.selected.serviceId) {
-				serviceSel.value = STATE.selected.serviceId;
-				if (dateInput.value) refreshAvailability(root, onAvailability);
-			}
-		}).catch(function (err) {
-			messageEl.textContent = err.message;
-			messageEl.classList.add('is-error');
-			messageEl.hidden = false;
-		});
+	function loadAvailability(date, party) {
+		return api('hospo_ops_availability', { date: date, party: party });
 	}
 
+	// ── Booking-only widget ──────────────────────────────────────────────
+
 	function wireWidget(root) {
+		var servicesEl = root.querySelector('[data-hospo-services]');
 		var slotsEl = root.querySelector('[data-hospo-slots]');
 		var messageEl = root.querySelector('[data-hospo-message]');
 		var fieldsEl = root.querySelector('[data-hospo-fields]');
-		var dateInput = root.querySelector('[data-hospo-date]');
-		var partySel = root.querySelector('[data-hospo-party]');
-		var serviceSel = root.querySelector('[data-hospo-service]');
+		var partyInput = root.querySelector('[data-hospo-party]');
 		var serviceInput = root.querySelector('[data-hospo-service-input]');
 		var submitBtn = root.querySelector('[data-hospo-submit]');
 
@@ -222,25 +144,21 @@
 
 		function onAvailability() {
 			afterSelection();
-			if (serviceSel) serviceSel.value = STATE.selected.serviceId;
-			serviceInput.value = STATE.selected.serviceId;
 		}
 
-		if (serviceSel) {
-			serviceSel.addEventListener('change', function () {
-				STATE.selected.serviceId = serviceSel.value;
-				STATE.selected.time = '';
-				if (STATE.selected.date) refreshAvailability(root, onAvailability);
-			});
-		}
-		dateInput.addEventListener('change', function () {
-			STATE.selected.date = dateInput.value;
+		function onPick(serviceId, date) {
+			STATE.selected.serviceId = serviceId;
+			STATE.selected.date = date;
 			STATE.selected.time = '';
+			STATE.selected.party = partyInput.value || '2';
 			fieldsEl.hidden = true;
 			refreshAvailability(root, onAvailability);
-		});
-		partySel.addEventListener('change', function () {
-			STATE.selected.party = partySel.value;
+		}
+
+		partyInput.addEventListener('change', function () {
+			var n = Math.max(1, Math.min(30, parseInt(partyInput.value, 10) || 1));
+			partyInput.value = String(n);
+			STATE.selected.party = partyInput.value;
 			STATE.selected.time = '';
 			fieldsEl.hidden = true;
 			if (STATE.selected.date) refreshAvailability(root, onAvailability);
@@ -280,13 +198,109 @@
 
 		loadConfig().then(function (cfg) {
 			if (!cfg.services || cfg.services.length === 0) return;
-			if (serviceSel && serviceSel.options.length === 2) {
-				STATE.selected.serviceId = serviceSel.value = serviceSel.options[1].value;
+			wireServiceList(servicesEl, onPick);
+		}).catch(function (err) {
+			messageEl.textContent = err.message;
+			messageEl.classList.add('is-error');
+			messageEl.hidden = false;
+		});
+	}
+
+	// ── Checkout ─────────────────────────────────────────────────────────
+
+	function wireCheckout(root) {
+		// Divi module placement: move the section inside the checkout form so
+		// the hidden inputs submit with the order, just above payment.
+		if (root.hasAttribute('data-hospo-relocate')) {
+			var form = document.querySelector('form.checkout');
+			var payment = document.getElementById('payment');
+			if (form && payment && form.contains(payment)) {
+				form.insertBefore(root, payment);
 			}
-			if (serviceInput && serviceInput.value) {
-				STATE.selected.serviceId = serviceInput.value;
-				if (serviceSel) serviceSel.value = serviceInput.value;
+		}
+
+		var servicesEl = root.querySelector('[data-hospo-services]');
+		var slotsEl = root.querySelector('[data-hospo-slots]');
+		var messageEl = root.querySelector('[data-hospo-message]');
+		var partyInput = root.querySelector('[data-hospo-party]');
+		var menuIds = [];
+		try { menuIds = JSON.parse(root.getAttribute('data-hospo-menu-ids') || '[]'); } catch (e) { menuIds = []; }
+
+		var bookRow = document.createElement('div');
+		bookRow.className = 'hospo-ops-book-row';
+		bookRow.hidden = true;
+		bookRow.innerHTML =
+			'<label class="hospo-ops-book-label"><input type="checkbox" data-hospo-book-table /> Book a table too</label>' +
+			'<p class="hospo-ops-note" data-hospo-book-note hidden></p>';
+		slotsEl.parentNode.insertBefore(bookRow, slotsEl.nextSibling);
+
+		function syncHidden() {
+			var s = STATE.selected;
+			var svc = (STATE.config.services || []).filter(function (x) { return x.id === s.serviceId; })[0];
+			var hidden = {
+				'_hospo_service_id': s.serviceId,
+				'_hospo_service_name': svc ? svc.name : '',
+				'_hospo_service_date': s.date,
+				'_hospo_service_time': s.time,
+				'_hospo_party_size': s.party
+			};
+			Object.keys(hidden).forEach(function (name) {
+				var input = root.querySelector('input[name="' + name + '"]');
+				if (input) input.value = hidden[name];
+			});
+			var bookInput = root.querySelector('input[name="_hospo_book_table"]');
+			var checkbox = bookRow.querySelector('[data-hospo-book-table]');
+			if (bookInput && checkbox) {
+				bookInput.value = checkbox.checked ? '1' : '';
 			}
+		}
+
+		function afterSelection() {
+			var svc = (STATE.config.services || []).filter(function (s) { return s.id === STATE.selected.serviceId; })[0];
+			var bookInput = root.querySelector('input[name="_hospo_book_table"]');
+			if (!bookInput) return;
+			if (svc && svc.requiresBooking) {
+				// Booking is implied for this service — no checkbox row, the
+				// order always books a table.
+				bookRow.hidden = true;
+				bookInput.value = '1';
+			} else {
+				bookRow.hidden = false;
+				var cb = bookRow.querySelector('[data-hospo-book-table]');
+				cb.checked = false;
+				cb.disabled = false;
+				bookInput.value = '';
+			}
+			syncHidden();
+		}
+
+		function onAvailability() {
+			afterSelection();
+			syncHidden();
+		}
+
+		function onPick(serviceId, date) {
+			STATE.selected.serviceId = serviceId;
+			STATE.selected.date = date;
+			STATE.selected.time = '';
+			STATE.selected.party = partyInput.value || '2';
+			syncHidden();
+			refreshAvailability(root, onAvailability);
+		}
+
+		partyInput.addEventListener('change', function () {
+			var n = Math.max(1, Math.min(30, parseInt(partyInput.value, 10) || 1));
+			partyInput.value = String(n);
+			STATE.selected.party = partyInput.value;
+			STATE.selected.time = '';
+			syncHidden();
+			if (STATE.selected.date) refreshAvailability(root, onAvailability);
+		});
+		bookRow.querySelector('[data-hospo-book-table]').addEventListener('change', syncHidden);
+
+		loadConfig().then(function (cfg) {
+			if (!cfg.services || cfg.services.length === 0) return;
+			wireServiceList(servicesEl, onPick);
 		}).catch(function (err) {
 			messageEl.textContent = err.message;
 			messageEl.classList.add('is-error');

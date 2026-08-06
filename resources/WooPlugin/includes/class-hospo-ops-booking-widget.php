@@ -25,7 +25,7 @@ class Hospo_Ops_Booking_Widget {
 
 	// ── Shortcode ────────────────────────────────────────────────────────
 
-	public static function render_shortcode( $atts ) {
+	public static function render_shortcode( $atts = array() ) {
 		$atts = shortcode_atts(
 			array(
 				'service' => '', // optional service UUID to preselect
@@ -68,7 +68,7 @@ class Hospo_Ops_Booking_Widget {
 		);
 	}
 
-	public static function render_block( $attributes ) {
+	public static function render_block( $attributes = array() ) {
 		$service = isset( $attributes['service'] ) ? $attributes['service'] : '';
 		return self::render( $service );
 	}
@@ -76,18 +76,13 @@ class Hospo_Ops_Booking_Widget {
 	// ── Assets ───────────────────────────────────────────────────────────
 
 	public static function enqueue_assets() {
-		$should_load = function_exists( 'is_checkout' ) && is_checkout();
-
-		if ( ! $should_load && ! is_admin() ) {
-			$post_id = get_the_ID();
-			if ( $post_id ) {
-				$content = (string) get_post_field( 'post_content', $post_id );
-				$should_load = has_shortcode( $content, 'hospo_booking' ) || has_block( 'hospo-ops/booking', $post_id );
-			}
-			$should_load = apply_filters( 'hospo_ops_enqueue_assets', $should_load );
+		// Always load on the frontend: Divi stores its modules in formats the
+		// content scan can miss, and the files are small. Sites that want to
+		// disable them can filter 'hospo_ops_enqueue_assets' to false.
+		if ( is_admin() ) {
+			return;
 		}
-
-		if ( ! $should_load ) {
+		if ( ! apply_filters( 'hospo_ops_enqueue_assets', true ) ) {
 			return;
 		}
 
@@ -114,61 +109,39 @@ class Hospo_Ops_Booking_Widget {
 		$services = wp_list_pluck( $config['services'], 'id' );
 		$selected = in_array( $preselected_service, $services, true ) ? $preselected_service : '';
 
-		// Party sizes 1-30.
-		$party_options = '';
-		for ( $i = 1; $i <= 30; $i++ ) {
-			$party_options .= sprintf( '<option value="%d">%d %s</option>', $i, $i, 1 === $i ? 'guest' : 'guests' );
-		}
-
-		$service_options = '';
-		foreach ( $config['services'] as $service ) {
-			$service_options .= sprintf(
-				'<option value="%s">%s%s</option>',
-				esc_attr( $service['id'] ),
-				esc_html( $service['name'] ),
-				! empty( $service['wooCategoryName'] ) ? ' — ' . esc_html( $service['wooCategoryName'] ) : ''
-			);
-		}
-
 		// A fresh nonce per render keeps the public form usable.
 		ob_start();
 		?>
 		<div class="hospo-ops-widget" data-hospo-widget>
-			<div class="hospo-ops-field">
-				<label for="hospo_booking_date">Date</label>
-				<input type="date" id="hospo_booking_date" data-hospo-date min="<?php echo esc_attr( gmdate( 'Y-m-d', time() + get_option( 'gmt_offset' ) * HOUR_IN_SECONDS ) ); ?>" required />
+			<div class="hospo-ops-section">
+				<label class="hospo-ops-label">Party size</label>
+				<input type="number" data-hospo-party min="1" max="30" step="1" value="2" />
 			</div>
-			<div class="hospo-ops-field">
-				<label for="hospo_booking_party">Party size</label>
-				<select id="hospo_booking_party" data-hospo-party><?php echo $party_options; // phpcs:ignore ?></select>
-			</div>
-			<?php if ( count( $config['services'] ) > 1 ) : ?>
-				<div class="hospo-ops-field">
-					<label for="hospo_booking_service">Service</label>
-					<select id="hospo_booking_service" data-hospo-service>
-						<option value="">Choose a service…</option>
-						<?php echo $service_options; // phpcs:ignore ?>
-					</select>
+
+			<div class="hospo-ops-section">
+				<label class="hospo-ops-label">Service</label>
+				<div class="hospo-ops-services" data-hospo-services>
+					<?php echo self::render_service_list( $config['services'], array(), $selected ); // phpcs:ignore ?>
 				</div>
-			<?php endif; ?>
+			</div>
 			<input type="hidden" data-hospo-service-input value="<?php echo esc_attr( $selected ); ?>" />
 
-			<div class="hospo-ops-slots" data-hospo-slots hidden></div>
+			<div class="hospo-ops-section">
+				<label class="hospo-ops-label">Time</label>
+				<div class="hospo-ops-slots" data-hospo-slots></div>
+			</div>
 
 			<div class="hospo-ops-fields" data-hospo-fields hidden>
-				<div class="hospo-ops-field">
-					<label for="hospo_booking_name">Name</label>
-					<input type="text" id="hospo_booking_name" data-hospo-name required />
-				</div>
 				<div class="hospo-ops-row">
 					<div class="hospo-ops-field">
-						<label for="hospo_booking_phone">Phone</label>
-						<input type="tel" id="hospo_booking_phone" data-hospo-phone />
+						<input type="text" data-hospo-name placeholder="Full name" required />
 					</div>
 					<div class="hospo-ops-field">
-						<label for="hospo_booking_email">Email</label>
-						<input type="email" id="hospo_booking_email" data-hospo-email />
+						<input type="tel" data-hospo-phone placeholder="Phone" />
 					</div>
+				</div>
+				<div class="hospo-ops-field">
+					<input type="email" data-hospo-email placeholder="Email (optional)" />
 				</div>
 				<button type="button" class="hospo-ops-submit" data-hospo-submit>Book table</button>
 				<p class="hospo-ops-message" data-hospo-message hidden></p>
@@ -176,6 +149,92 @@ class Hospo_Ops_Booking_Widget {
 		</div>
 		<?php
 		return ob_get_clean();
+	}
+
+	/**
+	 * Server-rendered service boxes with date buttons (the same list the JS
+	 * wires up). Mirrors the JS date logic so the module shows its services
+	 * even before (or without) the frontend script.
+	 *
+	 * @param array  $services       Config services.
+	 * @param array  $menu_ids       Service ids whose menu is in the cart ("your menu" tag).
+	 * @param string $only_service   Show just this service id ('' = all).
+	 */
+	public static function render_service_list( $services, $menu_ids = array(), $only_service = '' ) {
+		$html = '';
+
+		foreach ( $services as $service ) {
+			if ( '' !== $only_service && $service['id'] !== $only_service ) {
+				continue;
+			}
+			$dates = self::next_dates( $service );
+			if ( empty( $dates ) ) {
+				continue;
+			}
+
+			$html .= '<div class="hospo-ops-service" data-service="' . esc_attr( $service['id'] ) . '">';
+			$html .= '<div class="hospo-ops-service-name">' . esc_html( $service['name'] ) . '</div>';
+
+			$html .= '<div class="hospo-ops-dates">';
+			foreach ( $dates as $key ) {
+				$html .= '<button type="button" class="hospo-ops-date-btn" data-date="' . esc_attr( $key ) . '">' . esc_html( self::format_date_btn( $key ) ) . '</button>';
+			}
+			$html .= '</div></div>';
+		}
+
+		if ( '' === $html ) {
+			return '<p class="hospo-ops-note">No services available in the next 30 days.</p>';
+		}
+		return $html;
+	}
+
+	/** The next up-to-6 dates a service runs within 30 days (UTC day keys). */
+	private static function next_dates( $service, $limit = 6 ) {
+		$out    = array();
+		$now    = new DateTimeImmutable( 'now', new DateTimeZone( 'UTC' ) );
+		$exceptions = isset( $service['exceptions'] ) ? $service['exceptions'] : array();
+		$slots      = isset( $service['slots'] ) ? $service['slots'] : array();
+
+		for ( $i = 1; $i <= 30 && count( $out ) < $limit; $i++ ) {
+			$d   = $now->modify( "+{$i} days" );
+			$key = $d->format( 'Y-m-d' );
+
+			$closed   = false;
+			$override = false;
+			foreach ( $exceptions as $ex ) {
+				if ( $ex['date'] === $key ) {
+					if ( ! empty( $ex['closed'] ) ) {
+						$closed = true;
+					}
+					if ( ! empty( $ex['startTime'] ) ) {
+						$override = true;
+					}
+					break;
+				}
+			}
+			if ( $closed ) {
+				continue;
+			}
+			if ( $override ) {
+				$out[] = $key;
+				continue;
+			}
+
+			$dow = (int) $d->format( 'w' ); // 0=Sun .. 6=Sat
+			foreach ( $slots as $slot ) {
+				if ( (int) $slot['dayOfWeek'] === $dow ) {
+					$out[] = $key;
+					break;
+				}
+			}
+		}
+
+		return $out;
+	}
+
+	/** "2026-08-14" → "FRI 14". */
+	private static function format_date_btn( $key ) {
+		return strtoupper( gmdate( 'D j', strtotime( $key . 'T00:00:00Z' ) ) );
 	}
 
 	// ── AJAX ─────────────────────────────────────────────────────────────

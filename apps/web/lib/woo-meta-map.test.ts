@@ -176,18 +176,36 @@ describe('parseFulfillmentType', () => {
 })
 
 describe('resolveOrderMeta', () => {
-  it('reads a full Tyche-style order with defaults', () => {
+  it('reads a full HOSPO OPS plugin order with defaults', () => {
+    const meta = [
+      { key: '_hospo_service_date', value: '2026-08-15' },
+      { key: '_hospo_service_time', value: '17:00' },
+      { key: '_hospo_party_size', value: '8' },
+      { key: '_hospo_service_id', value: '3130f7b3-e632-4794-ba41-fc4524b0fe7f' },
+      { key: '_hospo_book_table', value: '1' },
+    ]
+    expect(resolveOrderMeta(meta)).toEqual({
+      serviceDate: new Date('2026-08-15T00:00:00.000Z'),
+      serviceTime: '17:00',
+      partySize: 8,
+      allergens: null,
+      fulfillmentType: null,
+      serviceId: '3130f7b3-e632-4794-ba41-fc4524b0fe7f',
+      bookTable: true,
+    })
+  })
+
+  it('no longer reads third-party plugin keys by default', () => {
     const meta = [
       { key: '_orddd_lite_timestamp', value: '1786752000' },
       { key: 'orddd_time_slot', value: '6:00 PM - 6:30 PM' },
       { key: 'party_size', value: '8' },
-      { key: 'allergies', value: 'NO NUTS' },
     ]
     expect(resolveOrderMeta(meta)).toEqual({
-      serviceDate: new Date('2026-08-15T00:00:00.000Z'),
-      serviceTime: '18:00',
-      partySize: 8,
-      allergens: 'NO NUTS',
+      serviceDate: null,
+      serviceTime: null,
+      partySize: null,
+      allergens: null,
       fulfillmentType: null,
       serviceId: null,
       bookTable: false,

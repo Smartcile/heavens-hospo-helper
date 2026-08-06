@@ -23,26 +23,14 @@ export interface WooMetaMap {
 }
 
 export const DEFAULT_META_MAP: WooMetaMap = {
-  serviceDate: [
-    '_orddd_lite_timestamp', // Order Delivery Date for WooCommerce – Lite
-    '_orddd_timestamp', // Order Delivery Date Pro
-    'delivery_date',
-    'pickup_date',
-    'fulfillment_date',
-    'event_date',
-    '_hospo_service_date',
-  ],
-  serviceTime: [
-    'orddd_time_slot',
-    '_orddd_timeslot',
-    'delivery_time',
-    'pickup_time',
-    'time_slot',
-    '_hospo_service_time',
-  ],
-  partySize: ['party_size', 'guests', 'number_of_guests', 'pax', '_hospo_party_size'],
-  allergens: ['allergies', 'allergens', 'dietary_requirements', 'dietary'],
-  fulfillmentType: ['fulfillment_type', 'order_type', 'service_type'],
+  // The HOSPO OPS WordPress plugin writes these keys — the only source for
+  // dated orders. Third-party delivery-date plugins are no longer included.
+  serviceDate: ['_hospo_service_date'],
+  serviceTime: ['_hospo_service_time'],
+  partySize: ['_hospo_party_size'],
+  // Our plugin does not collect these — empty means "never look this up".
+  allergens: [],
+  fulfillmentType: [],
   // The HOSPO OPS plugin's own keys — serviceId is the UUID of the Service row,
   // bookTable marks the "book a table too" choice.
   serviceId: ['_hospo_service_id', 'hospo_service_id', 'service_id'],

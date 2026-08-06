@@ -333,9 +333,15 @@ export function BookingClient() {
 
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center border border-grey-mid">
-          <button onClick={prevDay} className="px-2 py-1.5 font-mono text-xs text-grey-light hover:text-white border-r border-grey-mid">◂</button>
+          <button onClick={prevDay} title="PREVIOUS DAY" className="px-2 py-1.5 font-mono text-xs text-grey-light hover:text-white border-r border-grey-mid">◂</button>
           <span className="px-3 py-1.5 font-mono text-xs text-white font-bold">{formatDate(date)}</span>
-          <button onClick={() => { const d = new Date(date + 'T00:00:00'); d.setDate(d.getDate() + 1); setDate(d.toISOString().slice(0, 10)) }} className="px-2 py-1.5 font-mono text-xs text-grey-light hover:text-white">{`${new Date(date + 'T00:00:00').toLocaleDateString('en-NZ', { weekday: 'short' }).toUpperCase()} ${new Date(date + 'T00:00:00').getDate() + 1}`}</button>
+          <button onClick={nextDay} title="NEXT DAY" className="px-2 py-1.5 font-mono text-xs text-grey-light hover:text-white border-l border-grey-mid">▸</button>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => { if (e.target.value) setDate(e.target.value) }}
+            className="bg-black border-l border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
+          />
           <button onClick={() => setDate(todayStr())} className="px-2 py-1.5 font-mono text-xs text-grey-light hover:text-white border-l border-grey-mid">TODAY</button>
         </div>
         {venues.length > 1 && (

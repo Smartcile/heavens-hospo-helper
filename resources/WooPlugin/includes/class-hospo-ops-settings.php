@@ -71,6 +71,18 @@ class Hospo_Ops_Settings {
 							</p>
 						</td>
 					</tr>
+					<tr>
+						<th scope="row">Checkout dining details</th>
+						<td>
+							<label>
+								<input type="checkbox" name="show_checkout" value="1" <?php checked( ! empty( $settings['show_checkout'] ) ); ?> />
+								Show the dining details (service / date / time) automatically on the checkout page.
+							</label>
+							<p class="description">
+								Turn this off to place the <strong>HOSPO OPS Checkout</strong> Divi module yourself instead.
+							</p>
+						</td>
+					</tr>
 				</table>
 
 				<?php submit_button( 'SAVE' ); ?>
@@ -121,8 +133,9 @@ class Hospo_Ops_Settings {
 		update_option(
 			'hospo_ops_settings',
 			array(
-				'app_url' => esc_url_raw( isset( $_POST['app_url'] ) ? wp_unslash( $_POST['app_url'] ) : '' ),
-				'api_key' => sanitize_text_field( isset( $_POST['api_key'] ) ? wp_unslash( $_POST['api_key'] ) : '' ),
+				'app_url'       => esc_url_raw( isset( $_POST['app_url'] ) ? wp_unslash( $_POST['app_url'] ) : '' ),
+				'api_key'       => sanitize_text_field( isset( $_POST['api_key'] ) ? wp_unslash( $_POST['api_key'] ) : '' ),
+				'show_checkout' => empty( $_POST['show_checkout'] ) ? 0 : 1,
 			)
 		);
 

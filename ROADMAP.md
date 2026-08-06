@@ -547,6 +547,10 @@ workspace. Payments remain WooCommerce's job throughout — the app never handle
   Bistro vs Event Catering, both menu-level pax range and per-item quantity caps
 - `minQty` is a floor once ordered, not a "must order"; duplicate lines summed first
 - Pure `lib/menu-rules.ts` (19 tests), admin UI at `/admin/menus`
+- **WOO CATEGORIES tab (built 2026-08-06)** — read-only whole-menu view: every
+  synced product grouped automatically by its WooCommerce category, with search,
+  thumbnails, prices and ON/OFF states. Purely derived from menu items — nothing
+  to maintain.
 
 ### Phase 4 — The orders page ✅
 - One date-driven page, four renderers over one payload: SERVICE (time slots),
@@ -600,6 +604,15 @@ app is the single source of truth for the schedule.
 - **Built:** order sync — `_hospo_*` meta mapping (default map + Settings rows),
   auto-seat gated behind `Venue.autoSeat` (default off), booking creation when
   book-a-table is chosen, service name on order cards + admin order column
+- **Built:** confirmation emails carry the dining details (service, date, time,
+  party size, table booking) via `woocommerce_email_after_order_table`
+- **Customer self-service (pipeline):** the confirmation email links to a
+  WordPress page where customers review and adjust their pre-order / booking —
+  change service, date, time slot or party size, subject to venue controls:
+  a **cut-off window** (no changes within X hours of the service time), and
+  per-field lockdown (which fields can be edited, whether a date change may
+  exceed slot covers). Updates push to the app via the public API (PATCH
+  order meta + booking time) and log to the SyncLog feed.
 
 ---
 

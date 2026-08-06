@@ -12,6 +12,8 @@ interface MenuItemRef {
   price: number
   dietaryInfo: string | null
   isActive: boolean
+  wooCategoryId: string | null
+  imageUrl: string | null
 }
 
 interface MenuLink {
@@ -55,15 +57,23 @@ export function MenusClient() {
   const [isActive, setIsActive] = useState(true)
   const [lines, setLines] = useState<DraftLine[]>([])
   const [itemSearch, setItemSearch] = useState('')
+  const [tab, setTab] = useState<'menus' | 'categories'>('menus')
+  const [wooCategories, setWooCategories] = useState<{ id: string; name: string }[]>([])
+  const [categorySearch, setCategorySearch] = useState('')
 
   async function load() {
     setLoading(true)
-    const [mRes, iRes] = await Promise.all([
+    const [mRes, iRes, cRes] = await Promise.all([
       fetch('/api/admin/menus'),
       fetch('/api/admin/menu-items'),
+      fetch('/api/admin/woocommerce/categories'),
     ])
     if (mRes.ok) setMenus(await mRes.json())
     if (iRes.ok) setAllItems(await iRes.json())
+    if (cRes.ok) {
+      const data = await cRes.json()
+      setWooCategories((data.categories ?? []).map((c: { id: number; name: string }) => ({ id: String(c.id), name: c.name })))
+    }
     setLoading(false)
   }
 
@@ -194,10 +204,40 @@ export function MenusClient() {
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">MENUS</h1>
         <div className="flex items-center gap-3">
           <span className="font-mono text-xs text-grey-light">{menus.length} MENUS</span>
-          <Button size="sm" variant="ghost" onClick={newMenu}>+ NEW MENU</Button>
+          {tab === 'menus' && (
+            <Button size="sm" variant="ghost" onClick={newMenu}>+ NEW MENU</Button>
+          )}
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setTab('menus')}
+          className={`font-mono text-xs uppercase px-3 py-1.5 border ${
+            tab === 'menus' ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:text-white'
+          }`}
+        >
+          ORDERING RULES
+        </button>
+        <button
+          onClick={() => setTab('categories')}
+          className={`font-mono text-xs uppercase px-3 py-1.5 border ${
+            tab === 'categories' ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:text-white'
+          }`}
+        >
+          WOO CATEGORIES ({allItems.length} ITEMS)
+        </button>
+      </div>
+
+      {tab === 'categories' ? (
+        <CategoryMenuView
+          items={allItems}
+          categories={wooCategories}
+          search={categorySearch}
+          onSearch={setCategorySearch}
+        />
+      ) : (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* List */}
         <div className="space-y-2">
@@ -363,6 +403,95 @@ export function MenusClient() {
           </div>
         )}
       </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Read-only view of the whole menu: every WooCommerce product grouped by its
+ * Woo category. Built automatically from the synced menu items — nothing to
+ * maintain here.
+ */
+function CategoryMenuView({
+  items,
+  categories,
+  search,
+  onSearch,
+}: {
+  items: MenuItemRef[]
+  categories: { id: string; name: string }[]
+  search: string
+  onSearch: (v: string) => void
+}) {
+  const catName = (id: string | null) => {
+    if (!id) return 'UNCATEGORISED'
+    return categories.find((c) => c.id === id)?.name.toUpperCase() ?? `CATEGORY ${id}`
+  }
+
+  const filtered = items.filter(
+    (i) => !search || i.name.toLowerCase().includes(search.toLowerCase()),
+  )
+
+  const groups = new Map<string, MenuItemRef[]>()
+  for (const item of filtered) {
+    const key = item.wooCategoryId ?? ''
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(item)
+  }
+
+  const ordered = [...groups.entries()].sort((a, b) => {
+    const aName = catName(a[0] || null)
+    const bName = catName(b[0] || null)
+    if (aName === 'UNCATEGORISED') return 1
+    if (bName === 'UNCATEGORISED') return -1
+    return aName.localeCompare(bName)
+  })
+
+  return (
+    <div className="space-y-4">
+      <Input label="SEARCH ITEMS" value={search} onChange={(e) => onSearch(e.target.value)} placeholder="FIND A DISH..." />
+
+      {ordered.length === 0 ? (
+        <div className="border border-grey-mid p-8 text-center">
+          <p className="font-mono text-xs text-grey-light uppercase">
+            {filtered.length === 0 && items.length > 0 ? 'NO MATCHES' : 'NO ITEMS YET'}
+          </p>
+          <p className="font-mono text-[10px] text-grey-light mt-1">
+            {items.length === 0 ? 'PULL PRODUCTS FROM WOOCOMMERCE — THE MENU BUILDS ITSELF FROM THE CATEGORIES.' : ''}
+          </p>
+        </div>
+      ) : (
+        ordered.map(([key, groupItems]) => (
+          <div key={key || 'none'} className="border border-grey-mid">
+            <div className="px-3 py-2 bg-grey-mid/20 border-b border-grey-mid flex items-center justify-between">
+              <span className="font-mono text-xs font-bold text-white uppercase tracking-wider">{catName(key || null)}</span>
+              <span className="font-mono text-[10px] text-grey-light">{groupItems.length} ITEM{groupItems.length === 1 ? '' : 'S'}</span>
+            </div>
+            <div className="divide-y divide-grey-mid">
+              {groupItems.map((i) => (
+                <div key={i.id} className="flex items-center gap-3 px-3 py-2">
+                  {i.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={i.imageUrl} alt="" className="w-8 h-8 object-cover border border-grey-mid shrink-0" />
+                  ) : (
+                    <div className="w-8 h-8 border border-grey-mid shrink-0 flex items-center justify-center font-mono text-[9px] text-grey-light">—</div>
+                  )}
+                  <span className="font-mono text-xs text-white uppercase truncate flex-1 min-w-0">{i.name}</span>
+                  <span className="font-mono text-xs text-grey-light shrink-0">${i.price.toFixed(2)}</span>
+                  <span
+                    className={`font-mono text-[9px] uppercase border px-1 shrink-0 ${
+                      i.isActive ? 'text-success border-success' : 'text-grey-light border-grey-mid'
+                    }`}
+                  >
+                    {i.isActive ? 'ON' : 'OFF'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))
+      )}
     </div>
   )
 }

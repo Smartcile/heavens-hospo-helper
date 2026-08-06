@@ -4,7 +4,7 @@ Tags: woocommerce, booking, reservations, restaurant
 Requires at least: 6.0
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 0.1.0
+Stable tag: 0.2.0
 License: GPL-2.0-or-later
 
 Dated ordering + table bookings for WooCommerce, driven by your HOSPO OPS venue.
@@ -59,6 +59,14 @@ details to the order, and the booking-only widget creates free
 reservations in the app.
 
 == Changelog ==
+
+= 0.2.0 =
+* Service boxes + date buttons rendered server-side (visible without JS)
+* Assets always load on the frontend; version bumped to bust stale caches
+* Google-style restyle: party number box, date button pills, service boxes
+* Divi modules load on et_builder_ready (fixes fatal on Divi 5)
+* Divi module for checkout dining details + settings toggle
+* Cart menu detection: "your menu" tag on matching services
 
 = 0.1.0 =
 * First release: settings + connection test, checkout dining details,

@@ -48,10 +48,13 @@ function metaMapToText(map: unknown): Record<string, string> {
 function metaTextToMap(text: Record<string, string>): Record<string, string[]> {
   const out: Record<string, string[]> = {}
   for (const { key } of META_FIELDS) {
-    out[key] = (text[key] ?? '')
+    const keys = (text[key] ?? '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean)
+    // Blank rows are left out entirely — the server then falls back to the
+    // defaults ("LEAVE BLANK TO USE THE DEFAULTS").
+    if (keys.length > 0) out[key] = keys
   }
   return out
 }
@@ -126,6 +129,11 @@ export function SettingsClient({
   const [wcMetaMap, setWcMetaMap] = useState<Record<string, string>>({})
   const [wcMetaDefaults, setWcMetaDefaults] = useState<Record<string, string[]>>({})
   const [wcShowMeta, setWcShowMeta] = useState(false)
+  // External API keys (public API used by the WordPress plugin)
+  const [extKeys, setExtKeys] = useState<{ id: string; name: string; masked: string; lastUsedAt: string | null }[]>([])
+  const [extKeyName, setExtKeyName] = useState('')
+  const [extNewKey, setExtNewKey] = useState<string | null>(null)
+  const [extKeyBusy, setExtKeyBusy] = useState(false)
 
   // Demo venue
   const [demoVenue, setDemoVenue] = useState<{ id: string; name: string; isActive: boolean } | null>(null)
@@ -180,6 +188,14 @@ export function SettingsClient({
   }, [wcVenueId, role])
 
   useEffect(() => {
+    const params = role === 'ADMIN' && wcVenueId ? `?venueId=${encodeURIComponent(wcVenueId)}` : ''
+    fetch(`/api/admin/api-keys${params}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setExtKeys)
+      .catch(() => {})
+  }, [wcVenueId, role])
+
+  useEffect(() => {
     if (role !== 'ADMIN') return
     fetch('/api/admin/settings/demo-venue')
       .then((r) => r.ok ? r.json() : null)
@@ -212,6 +228,47 @@ export function SettingsClient({
   function onPickVenue(id: string) {
     const v = venues.find((x) => x.id === id)
     if (v) applyVenue(v)
+  }
+
+  async function generateExtKey() {
+    setExtKeyBusy(true)
+    const res = await fetch('/api/admin/api-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: extKeyName || 'WEBSITE', venueId: role === 'ADMIN' ? wcVenueId : sessionVenueId }),
+    })
+    setExtKeyBusy(false)
+    if (res.ok) {
+      const data = await res.json()
+      setExtNewKey(data.key)
+      setExtKeyName('')
+      const params = role === 'ADMIN' && wcVenueId ? `?venueId=${encodeURIComponent(wcVenueId)}` : ''
+      fetch(`/api/admin/api-keys${params}`).then((r) => (r.ok ? r.json() : [])).then(setExtKeys).catch(() => {})
+    } else {
+      const err = await res.json().catch(() => ({}))
+      setWcMessage((err.error ?? 'GENERATE FAILED').toUpperCase())
+    }
+  }
+
+  async function revokeExtKey(id: string) {
+    if (!confirm('REVOKE THIS API KEY? THE WEBSITE PLUGIN WILL STOP WORKING.')) return
+    const res = await fetch(`/api/admin/api-keys/${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setExtKeys((prev) => prev.filter((k) => k.id !== id))
+      setWcMessage('KEY REVOKED')
+    } else {
+      setWcMessage('REVOKE FAILED')
+    }
+  }
+
+  async function copyExtKey() {
+    if (!extNewKey) return
+    try {
+      await navigator.clipboard.writeText(extNewKey)
+      setWcMessage('KEY COPIED')
+    } catch {
+      setWcMessage('COPY FAILED')
+    }
   }
 
   async function handleChangePassword() {
@@ -443,6 +500,41 @@ export function SettingsClient({
                 ))}
               </div>
             )}
+          </div>
+          {/* External API keys */}
+          <div className="border border-grey-mid p-3 space-y-2">
+            <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">EXTERNAL API</h3>
+            <p className="font-mono text-[9px] text-grey-light">
+              KEYS FOR EXTERNAL SYSTEMS (E.G. THE WORDPRESS BOOKING PLUGIN) TO READ THIS VENUE&apos;S SERVICES + AVAILABILITY AND CREATE BOOKINGS. THE KEY IS SHOWN ONCE — COPY IT NOW.
+            </p>
+            {extNewKey && (
+              <div className="border border-[#60A5FA] p-3 space-y-2">
+                <div className="font-mono text-[10px] text-white break-all">{extNewKey}</div>
+                <Button size="sm" onClick={copyExtKey}>COPY KEY</Button>
+              </div>
+            )}
+            {extKeys.length > 0 && (
+              <div className="divide-y divide-grey-mid border border-grey-mid">
+                {extKeys.map((k) => (
+                  <div key={k.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                    <div>
+                      <div className="font-mono text-xs text-white uppercase">{k.name}</div>
+                      <div className="font-mono text-[9px] text-grey-light">
+                        {k.masked}
+                        {k.lastUsedAt ? ` · LAST USED ${k.lastUsedAt.slice(0, 10)}` : ' · NEVER USED'}
+                      </div>
+                    </div>
+                    <Button size="sm" variant="danger" onClick={() => revokeExtKey(k.id)}>REVOKE</Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <Input label="KEY NAME" value={extKeyName} onChange={(e) => setExtKeyName(e.target.value)} placeholder="WEBSITE PLUGIN" />
+              </div>
+              <Button size="sm" variant="ghost" onClick={generateExtKey} loading={extKeyBusy}>+ GENERATE</Button>
+            </div>
           </div>
           {wcMessage && <p className={`font-mono text-xs ${wcMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{wcMessage}</p>}
           <Button onClick={saveWooCommerce} loading={wcSaving} size="sm">SAVE WOOCOMMERCE</Button>

@@ -45,5 +45,9 @@ rebuild.ps1
 # Mock data (never publish)
 mock_data/
 
+# Local theme/licensed copies (never publish)
+*.zip
+resources/divi_*.zip
+
 # Database backups (never publish — full data dumps)
 *.dump

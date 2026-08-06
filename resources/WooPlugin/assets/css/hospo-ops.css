@@ -1,73 +1,161 @@
-/* HOSPO OPS — booking widget + checkout styles. Deliberately neutral so it
-   inherits the theme; these are just structural rules. */
+/* HOSPO OPS — Google-style booking card + checkout dining details.
+   Party size (number box) → service boxes with date buttons → time pills. */
 
 .hospo-ops-widget,
 .hospo-ops-checkout {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+	color: #202124;
+	background: #fff;
+	border: 1px solid #e0e0e0;
+	border-radius: 16px;
+	box-shadow: 0 1px 4px rgba(60, 64, 67, 0.12);
+	padding: 20px;
 	max-width: 480px;
 }
 
-.hospo-ops-widget .hospo-ops-row,
-.hospo-ops-checkout .hospo-ops-row {
+.hospo-ops-widget *,
+.hospo-ops-checkout * {
+	box-sizing: border-box;
+}
+
+.hospo-ops-label {
+	display: block;
+	font-size: 11px;
+	font-weight: 500;
+	letter-spacing: 0.02em;
+	color: #5f6368;
+	margin: 0 0 8px;
+}
+
+.hospo-ops-section {
+	margin-bottom: 18px;
+}
+
+.hospo-ops-row {
 	display: flex;
 	gap: 12px;
 	flex-wrap: wrap;
 }
 
-.hospo-ops-widget .hospo-ops-field,
-.hospo-ops-checkout .hospo-ops-field {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	margin-bottom: 12px;
-	flex: 1 1 160px;
+.hospo-ops-row > .hospo-ops-section,
+.hospo-ops-row > .hospo-ops-field {
+	flex: 1 1 180px;
 }
 
-.hospo-ops-widget label,
-.hospo-ops-checkout label {
-	font-size: 12px;
-	font-weight: 600;
-	letter-spacing: 0.06em;
-	text-transform: uppercase;
-}
+/* ── Party size number box (with up/down arrows) ── */
 
-.hospo-ops-widget input,
-.hospo-ops-widget select,
-.hospo-ops-checkout input,
-.hospo-ops-checkout select {
+.hospo-ops-widget input[type="number"],
+.hospo-ops-checkout input[type="number"] {
 	width: 100%;
-	padding: 8px 10px;
-	border: 1px solid rgba(0, 0, 0, 0.2);
-	border-radius: 4px;
+	max-width: 120px;
+	padding: 10px 12px;
+	border: 1px solid #dadce0;
+	border-radius: 8px;
 	background: #fff;
+	font-family: inherit;
 	font-size: 14px;
+	color: #202124;
+	outline: none;
 }
 
-.hospo-ops-slots {
-	margin: 8px 0 16px;
+.hospo-ops-widget input[type="number"]:focus,
+.hospo-ops-checkout input[type="number"]:focus {
+	border-color: #1a73e8;
+	box-shadow: 0 0 0 1px #1a73e8;
+}
+
+/* ── Service boxes ── */
+
+.hospo-ops-services {
+	margin-bottom: 4px;
 }
 
 .hospo-ops-service {
-	margin-bottom: 16px;
+	background: #fafafa;
+	border: 1px solid #e8eaed;
+	border-radius: 12px;
+	padding: 12px;
+	margin-bottom: 10px;
+	transition: border-color 0.15s;
+}
+
+.hospo-ops-service.has-selection {
+	border-color: #202124;
 }
 
 .hospo-ops-service-name {
-	font-weight: 700;
-	margin-bottom: 8px;
+	font-size: 14px;
+	font-weight: 600;
+	color: #202124;
+	margin-bottom: 10px;
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px;
 }
 
 .hospo-ops-menu {
 	font-weight: 400;
-	opacity: 0.7;
+	color: #5f6368;
+	font-size: 13px;
 }
 
 .hospo-ops-req {
 	font-size: 11px;
-	text-transform: uppercase;
-	letter-spacing: 0.05em;
-	border: 1px solid currentColor;
-	padding: 1px 6px;
-	border-radius: 3px;
-	margin-left: 6px;
+	font-weight: 500;
+	letter-spacing: 0.02em;
+	color: #5f6368;
+	border: 1px solid #dadce0;
+	padding: 2px 8px;
+	border-radius: 999px;
+}
+
+.hospo-ops-tag-menu {
+	font-size: 11px;
+	font-weight: 500;
+	color: #1a73e8;
+	background: #e8f0fe;
+	border-radius: 999px;
+	padding: 2px 8px;
+}
+
+/* ── Date buttons ── */
+
+.hospo-ops-dates {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.hospo-ops-date-btn {
+	min-width: 72px;
+	padding: 9px 10px;
+	border: 1px solid #dadce0;
+	border-radius: 999px;
+	background: #fff;
+	color: #202124;
+	cursor: pointer;
+	text-align: center;
+	font-size: 13px;
+	font-weight: 500;
+	font-family: inherit;
+	transition: border-color 0.15s, background 0.15s;
+}
+
+.hospo-ops-date-btn:hover {
+	border-color: #202124;
+}
+
+.hospo-ops-date-btn.is-selected {
+	background: #202124;
+	color: #fff;
+	border-color: #202124;
+}
+
+/* ── Time slots (pills) ── */
+
+.hospo-ops-slots {
+	margin-top: 4px;
 }
 
 .hospo-ops-slots-grid {
@@ -77,59 +165,99 @@
 }
 
 .hospo-ops-slot {
-	padding: 8px 6px;
-	border: 1px solid rgba(0, 0, 0, 0.25);
-	border-radius: 4px;
+	padding: 9px 8px;
+	border: 1px solid #dadce0;
+	border-radius: 999px;
 	background: #fff;
+	color: #202124;
 	cursor: pointer;
 	text-align: center;
 	font-size: 13px;
-	font-weight: 600;
+	font-weight: 500;
+	font-family: inherit;
+	transition: border-color 0.15s, background 0.15s;
 }
 
-.hospo-ops-slot:hover {
-	border-color: #000;
+.hospo-ops-slot:hover:not(:disabled) {
+	border-color: #202124;
 }
 
 .hospo-ops-slot.is-selected {
-	background: #000;
+	background: #202124;
 	color: #fff;
-	border-color: #000;
+	border-color: #202124;
+}
+
+.hospo-ops-slot.is-selected .hospo-ops-left {
+	color: rgba(255, 255, 255, 0.7);
 }
 
 .hospo-ops-slot.is-full {
-	opacity: 0.4;
+	color: #bdc1c6;
+	border-color: #f1f3f4;
 	text-decoration: line-through;
+	cursor: default;
 }
 
 .hospo-ops-left {
 	display: block;
 	font-size: 11px;
 	font-weight: 400;
-	opacity: 0.7;
+	color: #5f6368;
+	margin-top: 1px;
 }
 
-.hospo-ops-note {
-	font-size: 13px;
-	opacity: 0.8;
+/* ── Fields ── */
+
+.hospo-ops-field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-bottom: 12px;
+	flex: 1 1 160px;
 }
 
-.hospo-ops-message.is-error {
-	color: #b32d2e;
+.hospo-ops-widget input[type="text"],
+.hospo-ops-widget input[type="tel"],
+.hospo-ops-widget input[type="email"],
+.hospo-ops-checkout input[type="text"],
+.hospo-ops-checkout input[type="date"] {
+	width: 100%;
+	padding: 10px 12px;
+	border: 1px solid #dadce0;
+	border-radius: 8px;
+	background: #fff;
+	font-family: inherit;
+	font-size: 14px;
+	color: #202124;
+	outline: none;
+	transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.hospo-ops-book-row {
-	margin: 12px 0;
+.hospo-ops-widget input:focus,
+.hospo-ops-checkout input:focus {
+	border-color: #1a73e8;
+	box-shadow: 0 0 0 1px #1a73e8;
 }
+
+/* ── Submit + messages ── */
 
 .hospo-ops-submit {
-	padding: 10px 22px;
-	background: #000;
+	width: 100%;
+	padding: 12px;
+	background: #202124;
 	color: #fff;
 	border: none;
-	border-radius: 4px;
-	font-weight: 700;
+	border-radius: 999px;
+	font-family: inherit;
+	font-size: 15px;
+	font-weight: 500;
 	cursor: pointer;
+	transition: background 0.15s;
+}
+
+.hospo-ops-submit:hover {
+	background: #3c4043;
 }
 
 .hospo-ops-submit:disabled {
@@ -137,9 +265,62 @@
 	cursor: wait;
 }
 
+.hospo-ops-message {
+	font-size: 13px;
+	color: #188038;
+	margin-top: 10px;
+}
+
+.hospo-ops-message.is-error {
+	color: #d93025;
+}
+
+.hospo-ops-note {
+	font-size: 13px;
+	color: #5f6368;
+	margin: 4px 0;
+}
+
+/* ── Book-a-table row (checkout) ── */
+
+.hospo-ops-book-row {
+	margin: 12px 0;
+}
+
+.hospo-ops-book-label {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 14px;
+	font-weight: 500;
+	color: #202124;
+	cursor: pointer;
+}
+
+.hospo-ops-book-label input[type="checkbox"] {
+	width: 16px;
+	height: 16px;
+	accent-color: #1a73e8;
+}
+
+/* ── Checkout heading ── */
+
+.hospo-ops-checkout h3 {
+	font-family: inherit;
+	font-size: 16px;
+	font-weight: 500;
+	color: #202124;
+	margin: 0 0 16px;
+}
+
+/* ── Editor placeholder ── */
+
 .hospo-ops-block-placeholder {
 	padding: 24px;
-	border: 1px dashed #ccc;
+	border: 1px dashed #dadce0;
+	border-radius: 12px;
 	text-align: center;
 	background: #fafafa;
+	color: #5f6368;
+	font-size: 13px;
 }

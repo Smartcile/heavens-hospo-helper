@@ -77,22 +77,14 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
   const [wooCategories, setWooCategories] = useState<{ value: string; label: string }[]>([])
   const wooLoaded = useRef(false)
   const [newDay, setNewDay] = useState('')
-  const [apiKeys, setApiKeys] = useState<{ id: string; name: string; masked: string; lastUsedAt: string | null }[]>([])
-  const [keyName, setKeyName] = useState('')
-  const [newKey, setNewKey] = useState<string | null>(null)
-  const [keyBusy, setKeyBusy] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     // The sidebar venue selection drives this page: a specific venue loads
     // just that venue; "ALL VENUES" (empty) loads every venue's services.
     const qs = venueId ? `?venueId=${encodeURIComponent(venueId)}` : ''
-    const [res, keyRes] = await Promise.all([
-      fetch(`/api/admin/services${qs}`),
-      fetch(`/api/admin/api-keys${qs}`),
-    ])
+    const res = await fetch(`/api/admin/services${qs}`)
     if (res.ok) setServices(await res.json())
-    if (keyRes.ok) setApiKeys(await keyRes.json())
     setLoading(false)
   }, [venueId])
 
@@ -251,42 +243,6 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
     else pushToast('DELETE FAILED', 'error')
   }
 
-  async function generateKey() {
-    setKeyBusy(true)
-    const res = await fetch('/api/admin/api-keys', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: keyName || 'WEBSITE', venueId }),
-    })
-    setKeyBusy(false)
-    if (res.ok) {
-      const data = await res.json()
-      setNewKey(data.key)
-      setKeyName('')
-      load()
-    } else {
-      const err = await res.json().catch(() => ({}))
-      pushToast((err.error ?? 'GENERATE FAILED').toUpperCase(), 'error')
-    }
-  }
-
-  async function revokeKey(id: string) {
-    if (!confirm('REVOKE THIS API KEY? THE WEBSITE PLUGIN WILL STOP WORKING.')) return
-    const res = await fetch(`/api/admin/api-keys/${id}`, { method: 'DELETE' })
-    if (res.ok) { pushToast('KEY REVOKED', 'success'); load() }
-    else pushToast('REVOKE FAILED', 'error')
-  }
-
-  async function copyKey() {
-    if (!newKey) return
-    try {
-      await navigator.clipboard.writeText(newKey)
-      pushToast('KEY COPIED', 'success')
-    } catch {
-      pushToast('COPY FAILED', 'error')
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -343,43 +299,6 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
               </button>
             ))}
         </div>
-        )}
-
-        {venueId && (
-          <div className="border border-grey-mid p-4 space-y-3">
-            <h2 className="font-mono text-xs uppercase text-grey-light tracking-wider">API KEYS</h2>
-            <p className="font-mono text-[9px] text-grey-light">
-              KEYS THE WORDPRESS PLUGIN USES TO READ THIS VENUE&apos;S SERVICES + AVAILABILITY AND CREATE BOOKINGS. THE KEY IS SHOWN ONCE — COPY IT NOW.
-            </p>
-            {newKey && (
-              <div className="border border-[#60A5FA] p-3 space-y-2">
-                <div className="font-mono text-[10px] text-white break-all">{newKey}</div>
-                <Button size="sm" onClick={copyKey}>COPY KEY</Button>
-              </div>
-            )}
-            {apiKeys.length > 0 && (
-              <div className="divide-y divide-grey-mid border border-grey-mid">
-                {apiKeys.map((k) => (
-                  <div key={k.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                    <div>
-                      <div className="font-mono text-xs text-white uppercase">{k.name}</div>
-                      <div className="font-mono text-[9px] text-grey-light">
-                        {k.masked}
-                        {k.lastUsedAt ? ` · LAST USED ${k.lastUsedAt.slice(0, 10)}` : ' · NEVER USED'}
-                      </div>
-                    </div>
-                    <Button size="sm" variant="danger" onClick={() => revokeKey(k.id)}>REVOKE</Button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="flex items-end gap-2">
-              <div className="flex-1">
-                <Input label="KEY NAME" value={keyName} onChange={(e) => setKeyName(e.target.value)} placeholder="WEBSITE PLUGIN" />
-              </div>
-              <Button size="sm" variant="ghost" onClick={generateKey} loading={keyBusy}>+ GENERATE</Button>
-            </div>
-          </div>
         )}
       </div>
 
