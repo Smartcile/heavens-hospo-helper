@@ -324,3 +324,9 @@
 	color: #5f6368;
 	font-size: 13px;
 }
+
+/* ── Blocks checkout: the service id carrier is hidden ── */
+
+.hospo-ops-hidden-field {
+	display: none !important;
+}

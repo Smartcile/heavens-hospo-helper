@@ -613,6 +613,19 @@ app is the single source of truth for the schedule.
   per-field lockdown (which fields can be edited, whether a date change may
   exceed slot covers). Updates push to the app via the public API (PATCH
   order meta + booking time) and log to the SyncLog feed.
+- **WooCommerce Blocks checkout support (pipeline):** the classic
+  `[woocommerce_checkout]` shortcode carries the dining fields natively; the
+  Blocks checkout has no `form.checkout`, so a Blocks integration
+  (`IntegrationInterface` + checkout data extension) is needed for stores
+  that don't use the shortcode.
+- **Built (2026-08-06):** Blocks checkout integration — the official
+  `register_checkout_field` API (service/date/time/party/book fields,
+  auto-rendered + validated + saved by the Store API), a no-build script that
+  keeps the service→date→time options live from the app (MutationObserver
+  survives React re-renders), and a Store API hook that copies the fields
+  into `_hospo_*` order meta. Gated by the "Show dining details on checkout"
+  setting. Known small gap: required-booking services don't auto-tick the
+  book-a-table checkbox on Blocks yet.
 
 ---
 

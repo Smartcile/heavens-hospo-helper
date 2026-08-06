@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'HOSPO_OPS_VERSION', '0.2.9' );
+define( 'HOSPO_OPS_VERSION', '0.3.0' );
 define( 'HOSPO_OPS_FILE', __FILE__ );
 define( 'HOSPO_OPS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'HOSPO_OPS_URL', plugin_dir_url( __FILE__ ) );
@@ -24,7 +24,10 @@ require_once HOSPO_OPS_DIR . 'includes/class-hospo-ops-api.php';
 require_once HOSPO_OPS_DIR . 'includes/class-hospo-ops-settings.php';
 require_once HOSPO_OPS_DIR . 'includes/class-hospo-ops-booking-widget.php';
 require_once HOSPO_OPS_DIR . 'includes/class-hospo-ops-checkout.php';
+require_once HOSPO_OPS_DIR . 'includes/class-hospo-ops-blocks.php';
 require_once HOSPO_OPS_DIR . 'divi/hospo-ops-divi.php';
+
+Hospo_Ops_Blocks::init();
 
 /**
  * The single source of truth for plugin settings.

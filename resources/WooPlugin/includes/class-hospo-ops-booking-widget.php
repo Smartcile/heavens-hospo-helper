@@ -96,6 +96,7 @@ class Hospo_Ops_Booking_Widget {
 
 		wp_enqueue_style( 'hospo-ops', HOSPO_OPS_URL . 'assets/css/hospo-ops.css', array(), HOSPO_OPS_VERSION );
 		wp_enqueue_script( 'hospo-ops', HOSPO_OPS_URL . 'assets/js/hospo-ops-frontend.js', array(), HOSPO_OPS_VERSION, true );
+		wp_enqueue_script( 'hospo-ops-blocks', HOSPO_OPS_URL . 'assets/js/hospo-ops-blocks.js', array(), HOSPO_OPS_VERSION, true );
 		wp_localize_script(
 			'hospo-ops',
 			'HospoOps',

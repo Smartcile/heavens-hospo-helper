@@ -452,10 +452,10 @@ export function SettingsClient({
           {wcReadOnly && <p className="font-mono text-xs text-[#FACC15]">READ-ONLY — WOOCOMMERCE IS MANAGED BY {wcSharedFrom ? venues.find((v) => v.id === wcSharedFrom)?.name ?? 'THE SOURCE VENUE' : 'ANOTHER VENUE'}</p>}
           <Input label="STORE URL" value={wcStoreUrl} onChange={(e) => setWcStoreUrl(e.target.value)} placeholder="https://yourshop.co.nz" disabled={wcReadOnly} />
           <div className="grid grid-cols-2 gap-3">
-            <Input label="CONSUMER KEY" type="password" value={wcConsumerKey} onChange={(e) => setWcConsumerKey(e.target.value)} placeholder={wcConsumerKey ? '••••••••' : 'ck_...'} autoComplete="off" />
-            <Input label="CONSUMER SECRET" type="password" value={wcConsumerSecret} onChange={(e) => setWcConsumerSecret(e.target.value)} placeholder={wcConsumerSecret ? '••••••••' : 'cs_...'} autoComplete="off" />
+            <Input label="CONSUMER KEY" type="password" value={wcConsumerKey} onChange={(e) => setWcConsumerKey(e.target.value)} placeholder={wcConsumerKey ? '•••••••• — TYPE TO REPLACE' : 'ck_...'} autoComplete="off" />
+            <Input label="CONSUMER SECRET" type="password" value={wcConsumerSecret} onChange={(e) => setWcConsumerSecret(e.target.value)} placeholder={wcConsumerSecret ? '•••••••• — TYPE TO REPLACE' : 'cs_...'} autoComplete="off" />
           </div>
-          <Input label="WEBHOOK SECRET" type="password" value={wcWebhookSecret} onChange={(e) => setWcWebhookSecret(e.target.value)} placeholder={wcWebhookSecret ? '••••••••' : 'whsec_...'} autoComplete="off" />
+          <Input label="WEBHOOK SECRET" type="password" value={wcWebhookSecret} onChange={(e) => setWcWebhookSecret(e.target.value)} placeholder={wcWebhookSecret ? '•••••••• — TYPE TO REPLACE' : 'whsec_...'} autoComplete="off" />
           <div className="flex items-center gap-3">
             <button
               onClick={() => setWcActive(!wcActive)}

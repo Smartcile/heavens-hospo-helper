@@ -81,30 +81,35 @@ export async function PUT(req: NextRequest) {
 
   const data: Record<string, unknown> = {}
   if (wcStoreUrl !== undefined) data.storeUrl = String(wcStoreUrl).trim()
+  // Masked values (returned by GET) must never be written back over the real
+  // secrets — a real key never contains '•'. Only an edited value lands here.
   if (wcConsumerKey !== undefined) {
     const val = String(wcConsumerKey).trim()
-    if (val && val !== '•'.repeat(val.length)) data.consumerKey = val
+    if (val && !val.includes('•')) data.consumerKey = val
   }
   if (wcConsumerSecret !== undefined) {
     const val = String(wcConsumerSecret).trim()
-    if (val && val !== '•'.repeat(val.length)) data.consumerSecret = val
+    if (val && !val.includes('•')) data.consumerSecret = val
   }
   if (wcWebhookSecret !== undefined) {
     const val = String(wcWebhookSecret).trim()
-    if (val && val !== '•'.repeat(val.length)) data.webhookSecret = val
+    if (val && !val.includes('•')) data.webhookSecret = val
   }
   if (wcActive !== undefined) data.isActive = wcActive
 
   // Accept only known fields, each a clean list of non-empty string keys.
+  // Blank rows are omitted entirely — the server then falls back to the
+  // defaults instead of treating them as "never look this up".
   if (metaFieldMap !== undefined && metaFieldMap !== null) {
     const clean: Record<string, string[]> = {}
     for (const field of META_MAP_FIELDS) {
       const raw = (metaFieldMap as Record<string, unknown>)[field]
       const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : []
-      clean[field] = list
+      const keys = list
         .filter((k): k is string => typeof k === 'string')
         .map((k) => k.trim())
         .filter((k) => k !== '')
+      if (keys.length > 0) clean[field] = keys
     }
     data.metaFieldMap = clean
   }
