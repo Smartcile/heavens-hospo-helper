@@ -24,38 +24,196 @@ export async function GET(req: NextRequest) {
       ? session.user.venueId
       : req.nextUrl.searchParams.get('venueId') || session.user.venueId
 
+  // ── scope=all — every synced order, newest first (debug view) ──
+  // The date-driven views below cannot show orders with no service date, so
+  // this scope exists for operators to see everything that came through —
+  // undated and unbooked included — and open each in the detail drawer.
+  if (req.nextUrl.searchParams.get('scope') === 'all') {
+    const rows = await prisma.wooOrder.findMany({
+      where: { venueId, deletedAt: null, status: { not: 'CANCELLED' } },
+      include: ORDER_INCLUDE,
+      orderBy: [{ syncedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
+      take: 100,
+    })
+
+    const tablesByEvent = await loadTablesByEvent(rows)
+    const categoryByMenuItem = await loadCategoryPairs(rows)
+    const orders = projectOrders(rows, tablesByEvent, categoryByMenuItem)
+    const undatedCount = await countUndated(venueId)
+
+    return NextResponse.json({ scope: 'all', orders, categoryByMenuItem, undatedCount })
+  }
+
   const dateStr = req.nextUrl.searchParams.get('date')
   if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     return NextResponse.json({ error: 'date query parameter required (YYYY-MM-DD)' }, { status: 400 })
   }
   const serviceDate = new Date(`${dateStr}T00:00:00.000Z`)
 
-  // ── 1. Orders for the service date ──
+  /*
+   * Optional range end — a multi-day selection (e.g. a week) fetches every day
+   * in [date, endDate] in one payload. The views show per-order dates so the
+   * days stay distinguishable. Invalid or backwards ranges degrade to the
+   * single-day query.
+   */
+  const endDateStr = req.nextUrl.searchParams.get('endDate')
+  const endDate =
+    endDateStr && /^\d{4}-\d{2}-\d{2}$/.test(endDateStr) && endDateStr >= dateStr
+      ? new Date(`${endDateStr}T00:00:00.000Z`)
+      : null
+
+  // ── 1. Orders for the service date (or date range) ──
+  // Cancelled orders are dead — the day views skip them (same rule as
+  // scope=all above); the delete/cancel history stays in the DB.
   const rows = await prisma.wooOrder.findMany({
-    where: { venueId, serviceDate, deletedAt: null },
-    include: {
-      menu: { select: { name: true } },
-      service: { select: { name: true } },
-      // A linked reservation is the authoritative seating — its tables win over
-      // any layout auto-generated for the order itself.
-      booking: {
-        select: {
-          id: true,
-          startTime: true,
-          contactName: true,
-          tables: { select: { setupItem: { select: { assignedNumber: true } } } },
-        },
-      },
-      items: {
-        include: {
-          menuItem: { select: { id: true, name: true, dietaryInfo: true, recipeId: true } },
-        },
-      },
+    where: {
+      venueId,
+      deletedAt: null,
+      status: { not: 'CANCELLED' },
+      serviceDate: endDate ? { gte: serviceDate, lte: endDate } : serviceDate,
     },
+    include: ORDER_INCLUDE,
     orderBy: [{ serviceTime: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
   })
 
   // ── 2. Table assignments via the CalendarEvent → FloorPlanSetup chain ──
+  const tablesByEvent = await loadTablesByEvent(rows)
+
+  // ── 3. Inventory categories per menu item, in ONE query ──
+  const categoryByMenuItem = await loadCategoryPairs(rows)
+
+  const orders = projectOrders(rows, tablesByEvent, categoryByMenuItem)
+
+  /*
+   * Orders that arrived without a usable service date would otherwise be
+   * invisible on a date-driven page. Surface the count so the operator can act
+   * on it (usually a WooCommerce field-mapping problem) instead of silently
+   * losing work.
+   */
+  const undatedCount = await countUndated(venueId)
+
+  return NextResponse.json({
+    date: dateStr,
+    endDate: endDate ? endDateStr : null,
+    orders,
+    categoryByMenuItem,
+    undatedCount,
+  })
+}
+
+// ── Shared projections ─────────────────────────────────────────────────
+
+const ORDER_INCLUDE = {
+  menu: { select: { name: true } },
+  service: { select: { name: true } },
+  // A linked reservation is the authoritative seating — its tables win over
+  // any layout auto-generated for the order itself.
+  booking: {
+    select: {
+      id: true,
+      startTime: true,
+      contactName: true,
+      tables: { select: { setupItem: { select: { assignedNumber: true } } } },
+    },
+  },
+  items: {
+    include: {
+      menuItem: { select: { id: true, name: true, dietaryInfo: true, recipeId: true } },
+    },
+  },
+} as const
+
+/** The fields projectOrders reads off a WooOrder row. */
+type OrderRow = {
+  id: string
+  wooOrderId: string | null
+  orderNumber: string | null
+  source: string
+  customerName: string | null
+  customerPhone: string | null
+  customerEmail: string | null
+  serviceDate: Date | null
+  serviceTime: string | null
+  syncedAt: Date | null
+  partySize: number | null
+  fulfillmentType: string
+  opStatus: string
+  status: string
+  paymentStatus: string
+  paymentMethod: string | null
+  totalAmount: number | null
+  allergenNote: string | null
+  notes: string | null
+  bookTable: boolean
+  bookingId: string | null
+  calendarEventId: string | null
+  menu: { name: string } | null
+  service: { name: string } | null
+  booking: {
+    tables: { setupItem: { assignedNumber: string | null } | null }[]
+  } | null
+  items: {
+    id: string
+    qty: number
+    unitPrice: number | null
+    productName: string | null
+    customerNote: string | null
+    allergenNote: string | null
+    kitchenStatus: string
+    menuItem: { id: string; name: string; dietaryInfo: string | null; recipeId: string | null } | null
+  }[]
+}
+
+function projectOrders(
+  rows: OrderRow[],
+  tablesByEvent: Map<string, string[]>,
+  categoryByMenuItem: [string, string[]][],
+): OrderView[] {
+  const orders: OrderView[] = rows.map((o) => {
+    const items: OrderLineView[] = o.items.map((i) => ({
+      id: i.id,
+      menuItemId: i.menuItem?.id ?? null,
+      name: i.menuItem?.name ?? i.productName ?? 'UNKNOWN',
+      qty: i.qty,
+      unitPrice: i.unitPrice,
+      dietaryInfo: i.menuItem?.dietaryInfo ?? null,
+      customerNote: i.customerNote,
+      allergenNote: i.allergenNote,
+      kitchenStatus: i.kitchenStatus,
+    }))
+
+    return {
+      id: o.id,
+      ref: o.wooOrderId ? `#${o.wooOrderId}` : o.orderNumber ?? o.id.slice(0, 8).toUpperCase(),
+      source: o.source,
+      customerName: o.customerName,
+      customerPhone: o.customerPhone,
+      customerEmail: o.customerEmail,
+      serviceDate: o.serviceDate ? o.serviceDate.toISOString().slice(0, 10) : null,
+      serviceTime: o.serviceTime,
+      syncedAt: o.syncedAt ? o.syncedAt.toISOString() : null,
+      partySize: o.partySize,
+      fulfillmentType: o.fulfillmentType,
+      opStatus: o.opStatus,
+      status: o.status,
+      paymentStatus: o.paymentStatus,
+      paymentMethod: o.paymentMethod,
+      totalAmount: o.totalAmount,
+      allergenNote: o.allergenNote,
+      notes: o.notes,
+      menuName: o.menu?.name ?? null,
+      serviceName: o.service?.name ?? null,
+      bookTable: o.bookTable,
+      bookingId: o.bookingId,
+      tables: bookingTables(o) ?? (o.calendarEventId ? tablesByEvent.get(o.calendarEventId) ?? [] : []),
+      items,
+    }
+  })
+
+  return orders
+}
+
+async function loadTablesByEvent(rows: OrderRow[]): Promise<Map<string, string[]>> {
   const eventIds = [...new Set(rows.map((o) => o.calendarEventId).filter(Boolean))] as string[]
   const setups = eventIds.length
     ? await prisma.floorPlanSetup.findMany({
@@ -78,8 +236,11 @@ export async function GET(req: NextRequest) {
     for (const i of s.items) if (i.assignedNumber) list.push(i.assignedNumber)
     tablesByEvent.set(s.calendarEventId, list)
   }
+  return tablesByEvent
+}
 
-  // ── 3. Inventory categories per menu item, in ONE query ──
+/** Recipe → inventory-category names per menu item, in one query. */
+async function loadCategoryPairs(rows: OrderRow[]): Promise<[string, string[]][]> {
   const recipeIds = [
     ...new Set(rows.flatMap((o) => o.items.map((i) => i.menuItem?.recipeId).filter(Boolean))),
   ] as string[]
@@ -116,57 +277,13 @@ export async function GET(req: NextRequest) {
       categoryByMenuItem.push([mi.id, mi.recipeId ? categoriesByRecipe.get(mi.recipeId) ?? [] : []])
     }
   }
+  return categoryByMenuItem
+}
 
-  const orders: OrderView[] = rows.map((o) => {
-    const items: OrderLineView[] = o.items.map((i) => ({
-      id: i.id,
-      menuItemId: i.menuItem?.id ?? null,
-      name: i.menuItem?.name ?? i.productName ?? 'UNKNOWN',
-      qty: i.qty,
-      unitPrice: i.unitPrice,
-      dietaryInfo: i.menuItem?.dietaryInfo ?? null,
-      customerNote: i.customerNote,
-      allergenNote: i.allergenNote,
-      kitchenStatus: i.kitchenStatus,
-    }))
-
-    return {
-      id: o.id,
-      ref: o.wooOrderId ? `#${o.wooOrderId}` : o.orderNumber ?? o.id.slice(0, 8).toUpperCase(),
-      source: o.source,
-      customerName: o.customerName,
-      customerPhone: o.customerPhone,
-      customerEmail: o.customerEmail,
-      serviceTime: o.serviceTime,
-      partySize: o.partySize,
-      fulfillmentType: o.fulfillmentType,
-      opStatus: o.opStatus,
-      status: o.status,
-      paymentStatus: o.paymentStatus,
-      paymentMethod: o.paymentMethod,
-      totalAmount: o.totalAmount,
-      allergenNote: o.allergenNote,
-      notes: o.notes,
-      menuName: o.menu?.name ?? null,
-      serviceName: o.service?.name ?? null,
-      bookTable: o.bookTable,
-      bookingId: o.bookingId,
-      tables: bookingTables(o) ?? (o.calendarEventId ? tablesByEvent.get(o.calendarEventId) ?? [] : []),
-      items,
-    }
-  })
-
-  /*
-   * Orders that arrived without a usable service date would otherwise be
-   * invisible on a date-driven page. Surface the count so the operator can act
-   * on it (usually a WooCommerce field-mapping problem) instead of silently
-   * losing work.
-   */
-  const undatedCount = await prisma.wooOrder.count({
+async function countUndated(venueId: string): Promise<number> {
+  return prisma.wooOrder.count({
     where: { venueId, serviceDate: null, deletedAt: null, status: { not: 'CANCELLED' } },
   })
-
-  return NextResponse.json({ date: dateStr, orders, categoryByMenuItem, undatedCount })
 }
 
 // ── Manual order creation ──────────────────────────────────────────────
@@ -280,7 +397,7 @@ export async function POST(req: NextRequest) {
 
 /** Tables from a linked reservation, or null when there is no usable link. */
 function bookingTables(order: {
-  booking?: { tables: { setupItem: { assignedNumber: string | null } }[] } | null
+  booking?: { tables: { setupItem: { assignedNumber: string | null } | null }[] } | null
 }): string[] | null {
   if (!order.booking) return null
   const nums = order.booking.tables

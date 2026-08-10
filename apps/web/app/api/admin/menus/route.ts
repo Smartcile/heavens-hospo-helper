@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { ensureWooCategory } from '@/lib/woo-categories'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -15,6 +16,7 @@ export async function GET(req: NextRequest) {
     where: { venueId, deletedAt: null },
     include: {
       items: {
+        where: { menuItem: { deletedAt: null } },
         include: {
           menuItem: {
             select: { id: true, name: true, price: true, dietaryInfo: true, isActive: true },
@@ -46,6 +48,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'minPax cannot exceed maxPax' }, { status: 400 })
   }
 
+  // Category resolution for a menu save:
+  //   '__new__'  → match/create a store category named after the menu
+  //   '' / null  → local-only, NEVER touches the store
+  //   <id>       → link to that category verbatim
+  //   undefined  → legacy: match/create by name (the original sync behaviour)
+  const resolveCategory = () =>
+    body.wooCategoryId === '__new__'
+      ? ensureWooCategory(venueId, name)
+      : Promise.resolve(String(body.wooCategoryId || null))
+
   // A soft-deleted menu still holds the [venueId, name] unique slot — revive it
   // rather than failing on a constraint the user cannot see.
   const existing = await prisma.menu.findFirst({ where: { venueId, name } })
@@ -53,6 +65,7 @@ export async function POST(req: NextRequest) {
     if (!existing.deletedAt) {
       return NextResponse.json({ error: 'A menu with that name already exists' }, { status: 409 })
     }
+    const wooCategoryId = body.wooCategoryId === undefined ? await ensureWooCategory(venueId, name) : await resolveCategory()
     const revived = await prisma.menu.update({
       where: { id: existing.id },
       data: {
@@ -61,10 +74,13 @@ export async function POST(req: NextRequest) {
         minPax,
         maxPax,
         isActive: body.isActive ?? true,
+        wooCategoryId,
       },
     })
     return NextResponse.json(revived, { status: 201 })
   }
+
+  const wooCategoryId = body.wooCategoryId === undefined ? await ensureWooCategory(venueId, name) : await resolveCategory()
 
   const menu = await prisma.menu.create({
     data: {
@@ -75,6 +91,7 @@ export async function POST(req: NextRequest) {
       maxPax,
       isActive: body.isActive ?? true,
       sortOrder: toIntOrNull(body.sortOrder) ?? 0,
+      wooCategoryId,
     },
   })
 

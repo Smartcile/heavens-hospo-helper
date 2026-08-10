@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   mapStatusToWoo,
+  opStatusToWooStatus,
   buildProductPushPayload,
   buildOrderStatusPayload,
   isSelfEcho,
@@ -36,9 +37,29 @@ describe('mapStatusToWoo', () => {
   })
 })
 
+describe('opStatusToWooStatus', () => {
+  it('maps FINALISED to COMPLETED', () => {
+    expect(opStatusToWooStatus('FINALISED')).toBe('COMPLETED')
+  })
+
+  it('maps CANCELLED to CANCELLED', () => {
+    expect(opStatusToWooStatus('CANCELLED')).toBe('CANCELLED')
+  })
+
+  it('returns null for internal-only statuses — nothing pushes to Woo', () => {
+    expect(opStatusToWooStatus('NEW')).toBeNull()
+    expect(opStatusToWooStatus('CONFIRMED')).toBeNull()
+    expect(opStatusToWooStatus('IN_PREP')).toBeNull()
+    expect(opStatusToWooStatus('READY')).toBeNull()
+    expect(opStatusToWooStatus('ARRIVED')).toBeNull()
+    expect(opStatusToWooStatus('OUT_FOR_DELIVERY')).toBeNull()
+    expect(opStatusToWooStatus('HANDED_OVER')).toBeNull()
+  })
+})
+
 describe('buildProductPushPayload', () => {
   it('includes name, price string, and the self-update meta stamps', () => {
-    const payload = buildProductPushPayload({ name: 'FISH & CHIPS', price: 24.5, wooCategoryId: null, imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW)
+    const payload = buildProductPushPayload({ name: 'FISH & CHIPS', price: 24.5, wooCategoryId: null, wooProductId: null, imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW)
     expect(payload.name).toBe('FISH & CHIPS')
     expect(payload.regular_price).toBe('24.5')
     expect(payload.meta_data).toEqual([
@@ -50,23 +71,48 @@ describe('buildProductPushPayload', () => {
   })
 
   it('includes categories when wooCategoryId is numeric', () => {
-    const payload = buildProductPushPayload({ name: 'PIE', price: 8, wooCategoryId: '17', imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW)
+    const payload = buildProductPushPayload({ name: 'PIE', price: 8, wooCategoryId: '17', wooProductId: '104', imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW)
     expect(payload.categories).toEqual([{ id: 17 }])
   })
 
-  it('omits categories when wooCategoryId is not numeric', () => {
-    const payload = buildProductPushPayload({ name: 'PIE', price: 8, wooCategoryId: 'mains', imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW)
+  it('omits categories for a new product (no wooProductId) with no category', () => {
+    const payload = buildProductPushPayload({ name: 'PIE', price: 8, wooCategoryId: null, wooProductId: null, imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW)
     expect(payload.categories).toBeUndefined()
   })
 
+  it('moves a previously-linked product to uncategorized when saved without a category', () => {
+    const payload = buildProductPushPayload({ name: 'PIE', price: 8, wooCategoryId: null, wooProductId: '104', imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW)
+    expect(payload.categories).toEqual([])
+  })
+
+  it('moves a previously-linked product to uncategorized when wooCategoryId is not numeric', () => {
+    const payload = buildProductPushPayload({ name: 'PIE', price: 8, wooCategoryId: 'mains', wooProductId: '104', imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW)
+    expect(payload.categories).toEqual([])
+  })
+
   it('includes images when imageUrl is set', () => {
-    const payload = buildProductPushPayload({ name: 'BURGER', price: 12, wooCategoryId: null, imageUrl: '/api/upload/abc.jpg', shortDescription: null, isVariable: false, variations: null }, NOW)
+    const payload = buildProductPushPayload({ name: 'BURGER', price: 12, wooCategoryId: null, wooProductId: null, imageUrl: '/api/upload/abc.jpg', shortDescription: null, isVariable: false, variations: null }, NOW)
     expect(payload.images).toEqual([{ src: '/api/upload/abc.jpg' }])
   })
 
   it('defaults price to "0" when null-ish', () => {
-    const payload = buildProductPushPayload({ name: 'X', price: null as unknown as number, wooCategoryId: null, imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW)
+    const payload = buildProductPushPayload({ name: 'X', price: null as unknown as number, wooCategoryId: null, wooProductId: null, imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW)
     expect(payload.regular_price).toBe('0')
+  })
+
+  it('includes status when passed via opts', () => {
+    const payload = buildProductPushPayload({ name: 'PIE', price: 8, wooCategoryId: null, wooProductId: '104', imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW, { status: 'publish' })
+    expect(payload.status).toBe('publish')
+  })
+
+  it('omits status by default so manual store status is not clobbered', () => {
+    const payload = buildProductPushPayload({ name: 'PIE', price: 8, wooCategoryId: null, wooProductId: '104', imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW)
+    expect(payload.status).toBeUndefined()
+  })
+
+  it('a linked product with no category and draft status pushes uncategorised + hidden', () => {
+    const payload = buildProductPushPayload({ name: 'PIE', price: 8, wooCategoryId: null, wooProductId: '104', imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW, { status: 'draft' })
+    expect(payload).toMatchObject({ status: 'draft', categories: [] })
   })
 })
 

@@ -13,12 +13,81 @@ class Hospo_Ops_Checkout {
 		add_action( 'woocommerce_checkout_process', array( __CLASS__, 'validate_fields' ) );
 		add_action( 'woocommerce_checkout_create_order', array( __CLASS__, 'save_order_meta' ), 10, 2 );
 		add_action( 'woocommerce_email_after_order_table', array( __CLASS__, 'email_dining_details' ), 10, 3 );
+		add_action( 'woocommerce_order_details_after_order_table', array( __CLASS__, 'thankyou_dining_details' ), 10, 1 );
 		add_action( 'woocommerce_admin_order_data_after_order_details', array( __CLASS__, 'admin_order_details' ), 10, 1 );
 		add_action( 'woocommerce_process_shop_order_meta', array( __CLASS__, 'admin_save_order_details' ), 10, 2 );
+
+		// Billing is just name, email and phone for a dated order — the street
+		// address fields stay visible (both classic and Blocks checkout) but
+		// are never required.
+		add_filter( 'woocommerce_default_address_fields', array( __CLASS__, 'optional_address_fields' ) );
+
+		// Classic checkout: drop the street address fields from billing
+		// entirely — the venue only ever needs name, email and phone.
+		add_filter( 'woocommerce_checkout_fields', array( __CLASS__, 'classic_billing_fields' ) );
+
+		// Pickup-only stores never need a shipping address. Without this,
+		// WC's address validation fails every order because the removed
+		// billing_country can no longer vouch for the empty shipping one.
+		add_filter( 'woocommerce_cart_needs_shipping', array( __CLASS__, 'pickup_needs_no_shipping' ), 20, 2 );
 
 		// Admin: a column on the orders list.
 		add_filter( 'manage_edit-shop_order_columns', array( __CLASS__, 'order_column' ) );
 		add_action( 'manage_shop_order_posts_custom_column', array( __CLASS__, 'order_column_content' ), 10, 2 );
+	}
+
+	/**
+	 * Street address, city, state, postcode and country become optional —
+	 * only name, email and phone stay required.
+	 *
+	 * @param array $fields Default address field definitions.
+	 * @return array
+	 */
+	public static function optional_address_fields( $fields ) {
+		foreach ( array( 'address_1', 'address_2', 'city', 'state', 'postcode', 'country' ) as $key ) {
+			if ( isset( $fields[ $key ] ) ) {
+				$fields[ $key ]['required'] = false;
+			}
+		}
+		return $fields;
+	}
+
+	/**
+	 * Classic shortcode checkout: remove the street address fields from the
+	 * billing section completely. Name, email and phone remain.
+	 *
+	 * @param array $fields Checkout field definitions.
+	 * @return array
+	 */
+	public static function classic_billing_fields( $fields ) {
+		foreach ( array( 'billing_address_1', 'billing_address_2', 'billing_city', 'billing_state', 'billing_postcode', 'billing_country' ) as $key ) {
+			unset( $fields['billing'][ $key ] );
+		}
+		return $fields;
+	}
+
+	/**
+	 * When every available shipping method is local pickup, the order needs no
+	 * shipping address at all — the venue doesn't ship.
+	 *
+	 * @param bool $needs_shipping Whether the cart needs shipping.
+	 * @return bool
+	 */
+	public static function pickup_needs_no_shipping( $needs_shipping ) {
+		if ( ! $needs_shipping ) {
+			return false;
+		}
+
+		$rates = array();
+		foreach ( WC()->shipping()->get_packages() as $package ) {
+			foreach ( $package['rates'] as $rate ) {
+				$rates[] = $rate->get_method_id();
+			}
+		}
+
+		// No rates at all is already handled by WC core; pickup-only is ours.
+		$only_pickup = ! empty( $rates ) && 0 === count( array_diff( $rates, array( 'local_pickup' ) ) );
+		return $only_pickup ? false : $needs_shipping;
 	}
 
 	// ── Checkout fields ──────────────────────────────────────────────────
@@ -180,7 +249,6 @@ class Hospo_Ops_Checkout {
 		$date    = $order->get_meta( '_hospo_service_date' );
 		$time    = $order->get_meta( '_hospo_service_time' );
 		$party   = $order->get_meta( '_hospo_party_size' );
-		$book    = in_array( strtolower( (string) $order->get_meta( '_hospo_book_table' ) ), array( '1', 'yes', 'true', 'on' ), true );
 		$no_cfg  = is_wp_error( $config ) || empty( $config['services'] );
 		?>
 		<div class="hospo-ops-checkout hospo-admin-dining" data-hospo-admin-panel style="margin-top:14px;padding-top:12px;border-top:1px dashed #d0d0d0;max-width:none;box-shadow:none;">
@@ -211,12 +279,9 @@ class Hospo_Ops_Checkout {
 					<label style="display:block;font-size:12px;color:#757575;margin-bottom:2px;">Party size</label>
 					<input type="number" name="hospo_party_size" min="1" max="500" value="<?php echo esc_attr( $party ); ?>" data-hospo-party style="width:100%;padding:4px 8px;border:1px solid #ddd;" />
 				</p>
-				<label style="font-size:12px;color:#757575;padding-bottom:5px;white-space:nowrap;">
-					<input type="checkbox" name="hospo_book_table" value="1" <?php checked( $book ); ?> /> Book a table
-				</label>
 			</div>
 			<p style="font-size:11px;color:#757575;margin:8px 0 0;">
-				Saved with the order — the app picks the change up on its next sync.
+				Dine-in only — picking a date and time books the table. Saved with the order — the app picks the change up on its next sync.
 			</p>
 		</div>
 		<?php
@@ -253,7 +318,8 @@ class Hospo_Ops_Checkout {
 				$order->update_meta_data( '_hospo_party_size', $party );
 			}
 		}
-		$order->update_meta_data( '_hospo_book_table', empty( $_POST['hospo_book_table'] ) ? '' : '1' );
+		// Dine-in only — a dated order always books a table.
+		$order->update_meta_data( '_hospo_book_table', '1' );
 		$order->save();
 	}
 
@@ -320,6 +386,44 @@ class Hospo_Ops_Checkout {
 				</tr>
 			</table>
 		</div>
+		<?php
+	}
+
+	/**
+	 * Dining details on the order-received (confirmation) page and the
+	 * my-account order view. Dated orders show the booking; an undated order
+	 * (takeaway, once supported) shows a pickup note instead.
+	 */
+	public static function thankyou_dining_details( $order ) {
+		if ( ! $order || ! method_exists( $order, 'get_meta' ) ) {
+			return;
+		}
+		$date    = $order->get_meta( '_hospo_service_date' );
+		$time    = $order->get_meta( '_hospo_service_time' );
+		$service = $order->get_meta( '_hospo_service_name' );
+		$party   = $order->get_meta( '_hospo_party_size' );
+		$book    = in_array( strtolower( (string) $order->get_meta( '_hospo_book_table' ) ), array( '1', 'yes', 'true', 'on' ), true );
+
+		$pickup_only = ! $date && ! $time;
+		?>
+		<section class="woocommerce-customer-details">
+			<h2 class="woocommerce-column__title"><?php echo $pickup_only ? esc_html__( 'PICKUP ORDER', 'hospo-ops' ) : esc_html__( 'DINING DETAILS', 'hospo-ops' ); ?></h2>
+			<address>
+				<?php if ( $pickup_only ) : ?>
+					<p><?php esc_html_e( 'Your order will be ready for pickup at the venue. No table reservation is required.', 'hospo-ops' ); ?></p>
+				<?php else : ?>
+					<?php if ( $service ) : ?>
+						<p><?php esc_html_e( 'Service:', 'hospo-ops' ); ?> <strong><?php echo esc_html( $service ); ?></strong></p>
+					<?php endif; ?>
+					<p><?php esc_html_e( 'Date:', 'hospo-ops' ); ?> <strong><?php echo esc_html( date_i18n( get_option( 'date_format' ), strtotime( $date ) ) ); ?></strong></p>
+					<p><?php esc_html_e( 'Time:', 'hospo-ops' ); ?> <strong><?php echo esc_html( date_i18n( get_option( 'time_format' ), strtotime( $time ) ) ); ?></strong></p>
+					<?php if ( $party ) : ?>
+						<p><?php esc_html_e( 'Party size:', 'hospo-ops' ); ?> <strong><?php echo esc_html( $party ); ?></strong></p>
+					<?php endif; ?>
+					<p><?php esc_html_e( 'Table:', 'hospo-ops' ); ?> <strong><?php echo $book ? esc_html__( 'Booked for you', 'hospo-ops' ) : esc_html__( 'Not required', 'hospo-ops' ); ?></strong></p>
+				<?php endif; ?>
+			</address>
+		</section>
 		<?php
 	}
 

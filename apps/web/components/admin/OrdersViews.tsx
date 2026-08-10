@@ -7,6 +7,7 @@ import {
   groupByTable,
   groupByTimeSlot,
   parseAllergens,
+  spansMultipleDays,
   type OrderView,
 } from '@/lib/order-views'
 
@@ -34,7 +35,9 @@ function Tag({ label, className }: { label: string; className: string }) {
 }
 
 /** Compact order row shared by the SERVICE and FOH views. */
-function OrderCard({ order, onOpen }: { order: OrderView; onOpen: (id: string) => void }) {
+function OrderCard({
+  order, onOpen, showDate = false,
+}: { order: OrderView; onOpen: (id: string) => void; showDate?: boolean }) {
   const hasAllergy = !!order.allergenNote?.trim() || order.items.some((i) => !!i.allergenNote?.trim())
 
   return (
@@ -58,6 +61,7 @@ function OrderCard({ order, onOpen }: { order: OrderView; onOpen: (id: string) =
       </div>
 
       <div className="flex items-center gap-3 font-mono text-[10px] text-grey-light flex-wrap">
+        {showDate && order.serviceDate && <span className="text-accent shrink-0">{order.serviceDate}</span>}
         {order.serviceTime && <span className="text-white">{order.serviceTime}</span>}
         <span>{order.partySize != null ? `${order.partySize} PAX` : '— PAX'}</span>
         <span>{order.fulfillmentType.replace(/_/g, ' ')}</span>
@@ -92,6 +96,7 @@ export function ServiceView({
   if (orders.length === 0) return <EmptyState message="NO ORDERS FOR THIS DATE" />
 
   const slots = groupByTimeSlot(orders, slotMinutes)
+  const multiDay = spansMultipleDays(orders)
 
   return (
     <div className="space-y-3">
@@ -104,7 +109,9 @@ export function ServiceView({
             </span>
           </div>
           <div className="p-2 space-y-2">
-            {slot.orders.map((o) => <OrderCard key={o.id} order={o} onOpen={onOpen} />)}
+            {slot.orders.map((o) => (
+              <OrderCard key={o.id} order={o} onOpen={onOpen} showDate={multiDay} />
+            ))}
           </div>
         </div>
       ))}
@@ -122,6 +129,7 @@ export function KitchenView({
   const dishes = aggregateDishTotals(orders)
   const categories = aggregateCategoryTotals(orders, categoryByMenuItem)
   const alerts = collectAllergenAlerts(orders)
+  const multiDay = spansMultipleDays(orders)
 
   return (
     <div className="space-y-4">
@@ -137,6 +145,9 @@ export function KitchenView({
             {alerts.map((a) => (
               <div key={a.orderId} className="px-3 py-2 flex items-start gap-3 flex-wrap">
                 <span className="font-mono text-xs text-white font-bold">{a.ref}</span>
+                {multiDay && a.serviceDate && (
+                  <span className="font-mono text-[10px] text-accent">{a.serviceDate}</span>
+                )}
                 {a.serviceTime && <span className="font-mono text-[10px] text-grey-light">{a.serviceTime}</span>}
                 {a.tables.length > 0 && (
                   <span className="font-mono text-[10px] text-success">T{a.tables.join(', ')}</span>
@@ -205,6 +216,7 @@ export function FohView({ orders, onOpen }: { orders: OrderView[]; onOpen: (id: 
   if (orders.length === 0) return <EmptyState message="NO ORDERS FOR THIS DATE" />
 
   const groups = groupByTable(orders)
+  const multiDay = spansMultipleDays(orders)
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -219,7 +231,9 @@ export function FohView({ orders, onOpen }: { orders: OrderView[]; onOpen: (id: 
             </span>
           </div>
           <div className="p-2 space-y-2">
-            {g.orders.map((o) => <OrderCard key={`${g.table}-${o.id}`} order={o} onOpen={onOpen} />)}
+            {g.orders.map((o) => (
+              <OrderCard key={`${g.table}-${o.id}`} order={o} onOpen={onOpen} showDate={multiDay} />
+            ))}
           </div>
         </div>
       ))}
@@ -259,6 +273,71 @@ export function ProductionView({ orders }: { orders: OrderView[] }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+// ── ALL (debug) ────────────────────────────────────────────────────────
+
+/*
+ * Every synced order, newest first — dated, undated and unbooked included.
+ * The date-driven views can't show orders with no service date; this is the
+ * surface for checking what actually came through (usually the field-mapping
+ * troubleshooting loop).
+ */
+export function AllOrdersView({ orders, onOpen }: { orders: OrderView[]; onOpen: (id: string) => void }) {
+  if (orders.length === 0) return <EmptyState message="NO SYNCED ORDERS YET — PULL ORDERS ON /ADMIN/SYNC" />
+
+  return (
+    <div className="border border-grey-mid divide-y divide-grey-mid">
+      {orders.map((o) => {
+        const hasAllergy = !!o.allergenNote?.trim() || o.items.some((i) => !!i.allergenNote?.trim())
+        return (
+          <button
+            key={o.id}
+            onClick={() => onOpen(o.id)}
+            className="w-full text-left px-3 py-2 hover:bg-grey-mid/10 space-y-1"
+          >
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2 min-w-0">
+                {o.serviceDate ? (
+                  <span className="font-mono text-[10px] text-grey-light shrink-0">{o.serviceDate}</span>
+                ) : (
+                  <Tag label="NO DATE" className="text-[#FACC15] border-[#FACC15]" />
+                )}
+                {o.serviceTime && (
+                  <span className="font-mono text-[10px] text-white shrink-0">{o.serviceTime}</span>
+                )}
+                <span className="font-mono text-xs text-white font-bold shrink-0">{o.ref}</span>
+                <span className="font-mono text-xs text-grey-light uppercase truncate">
+                  {o.customerName ?? '—'}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {hasAllergy && <Tag label="⚠ ALLERGY" className="text-danger border-danger" />}
+                <Tag label={o.opStatus.replace(/_/g, ' ')} className={OP_STATUS_STYLES[o.opStatus] ?? ''} />
+                <Tag label={o.paymentStatus} className={PAYMENT_STYLES[o.paymentStatus] ?? ''} />
+              </div>
+            </div>
+            <div className="flex items-center gap-3 font-mono text-[10px] text-grey-light flex-wrap">
+              <span>{o.partySize != null ? `${o.partySize} PAX` : '— PAX'}</span>
+              {o.bookingId ? (
+                <span className="text-accent">◆ BOOKED</span>
+              ) : (
+                <span className="text-[#FACC15]">NO BOOKING</span>
+              )}
+              {o.source !== 'WOO' && <span>{o.source}</span>}
+              {o.tables.length > 0 && <span className="text-success">T{o.tables.join(', ')}</span>}
+              {o.syncedAt && (
+                <span className="text-grey-light">
+                  SYNCED {o.syncedAt.slice(0, 19).replace('T', ' ')} UTC
+                </span>
+              )}
+              <span className="ml-auto text-white">${(o.totalAmount ?? 0).toFixed(2)}</span>
+            </div>
+          </button>
+        )
+      })}
     </div>
   )
 }

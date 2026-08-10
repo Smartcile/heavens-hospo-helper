@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { venueFromApiKey } from '@/lib/public-api'
 import { availabilityForDate } from '@/lib/service-availability'
+import { seatPartyOnServicePlan, seatFailureMessage } from '@/lib/service-seating.server'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -9,7 +10,9 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 /**
  * Booking-only reservations (no payment, no products): validates the slot
  * has enough remaining covers, then creates a Booking on the venue's default
- * setup. No tables are auto-assigned — the venue seats manually.
+ * setup. When the service has a table plan, the party is seated on the plan's
+ * physical tables (and rejected if the plan cannot seat them); otherwise the
+ * venue seats manually.
  */
 export async function POST(req: NextRequest) {
   const venue = await venueFromApiKey(req)
@@ -64,20 +67,56 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Slot full — not enough covers left' }, { status: 422 })
   }
 
+  const bookingData: any = {
+    venueId: venue.id,
+    date: new Date(date + 'T00:00:00.000Z'),
+    startTime: time,
+    endTime: slot.endTime,
+    partySize: party,
+    contactName: name.trim(),
+    contactPhone: phone?.trim() || null,
+    contactEmail: email?.trim() || null,
+    notes: notes?.trim() || null,
+    source: 'ONLINE',
+    status: 'CONFIRMED',
+    serviceId: service.id,
+  }
+
+  // Service table plan — seat against the plan's physical tables. A plan that
+  // cannot seat the party rejects the booking: the venue configured the plan,
+  // so its capacity is a real constraint, not a silent squeeze.
+  const seat = await seatPartyOnServicePlan({
+    serviceId: service.id,
+    venueId: venue.id,
+    date: bookingData.date,
+    startTime: time,
+    endTime: slot.endTime,
+    partySize: party,
+  })
+
+  if (seat.ok) {
+    const calEvent = await prisma.calendarEvent.create({
+      data: {
+        venueId: venue.id,
+        source: 'MANUAL',
+        uid: `booking-${crypto.randomUUID()}`,
+        title: `${name.trim().toUpperCase()} — ${party} PAX`,
+        startsAt: new Date(`${date}T${time}:00`),
+        endsAt: new Date(`${date}T${slot.endTime}:00`),
+        floorPlanSlug: seat.floorPlanSlug || undefined,
+        floorPlanName: seat.setupName,
+      },
+    })
+    bookingData.calendarEventId = calEvent.id
+    bookingData.seatingSetupId = seat.setupId
+    bookingData.tables = { create: seat.itemIds.map((id) => ({ setupItemId: id })) }
+  } else if (seat.reason !== 'NO_PLAN') {
+    return NextResponse.json({ error: seatFailureMessage(seat.reason, party) }, { status: 422 })
+  }
+
   const booking = await prisma.booking.create({
-    data: {
-      venueId: venue.id,
-      date: new Date(date + 'T00:00:00.000Z'),
-      startTime: time,
-      endTime: slot.endTime,
-      partySize: party,
-      contactName: name.trim(),
-      contactPhone: phone?.trim() || null,
-      contactEmail: email?.trim() || null,
-      notes: notes?.trim() || null,
-      source: 'ONLINE',
-      status: 'CONFIRMED',
-    },
+    data: bookingData,
+    include: { tables: true },
   })
 
   return NextResponse.json(

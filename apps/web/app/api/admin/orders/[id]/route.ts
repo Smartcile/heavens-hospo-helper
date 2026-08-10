@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
-import { pushOrderStatus } from '@/lib/woo-push'
+import { pushOrderStatus, pushOrderItems, opStatusToWooStatus } from '@/lib/woo-push'
 import { resolveCustomer } from '@/lib/customer-match'
 import type { OrderStatus, OrderOpStatus, PaymentStatus, FulfillmentType } from '@prisma/client'
 
@@ -64,6 +64,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (stampField && !order[stampField]) {
       data[stampField] = new Date()
     }
+
+    // Terminal operational states sync back to the store's status (finalised →
+    // completed, cancelled → cancelled); everything else stays internal. The
+    // shared `data.status` push below then writes it to WooCommerce.
+    const wooStatus = opStatusToWooStatus(body.opStatus)
+    if (wooStatus) data.status = wooStatus
   }
 
   if (body.paymentStatus !== undefined) {
@@ -178,6 +184,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     where: { id: params.id },
     include: { items: { include: { menuItem: { select: { id: true, name: true } } } } },
   })
+
+  // Sync the edited line items back to the WooCommerce order (best-effort —
+  // logs to SyncLog; skipped when any line can't map to the store).
+  await pushOrderItems(params.id)
 
   return NextResponse.json(updated)
 }

@@ -43,11 +43,16 @@ interface Service {
   wooCategoryName: string | null
   requiresBooking: boolean
   isActive: boolean
+  bookingIntervalMinutes: number
+  bookableTimes: string[] | null
   slots: ServiceSlot[]
   exceptions: ServiceException[]
+  tablePlanSetup: { id: string; name: string; floorPlan: { id: string; name: string } } | null
   venue: { id: string; name: string }
   _count: { orders: number }
 }
+
+interface SetupLite { id: string; name: string; floorPlan: { id: string; name: string; slug: string } }
 
 /** Local editing shapes — numbers stay strings so a cleared box isn't 0. */
 interface DraftSlot { dayOfWeek: number; startTime: string; endTime: string; maxCovers: string }
@@ -71,11 +76,16 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
   const [wooCategoryName, setWooCategoryName] = useState('')
   const [requiresBooking, setRequiresBooking] = useState(false)
   const [isActive, setIsActive] = useState(true)
+  const [tablePlanSetupId, setTablePlanSetupId] = useState('')
+  const [bookingIntervalMinutes, setBookingIntervalMinutes] = useState('15')
+  const [bookableTimes, setBookableTimes] = useState<string[]>([])
+  const [bookableTimeInput, setBookableTimeInput] = useState('')
   const [slots, setSlots] = useState<DraftSlot[]>([])
   const [exceptions, setExceptions] = useState<DraftException[]>([])
 
   const [wooCategories, setWooCategories] = useState<{ value: string; label: string }[]>([])
   const wooLoaded = useRef(false)
+  const [setups, setSetups] = useState<SetupLite[]>([])
   const [newDay, setNewDay] = useState('')
 
   const load = useCallback(async () => {
@@ -89,6 +99,15 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
   }, [venueId])
 
   useEffect(() => { load() }, [load])
+
+  // The table-plan picker needs the venue's floor plan setups. When the venue
+  // is scoped ("ALL VENUES" has no single plan list), clear the list.
+  useEffect(() => {
+    if (!venueId) { setSetups([]); return }
+    fetch(`/api/admin/floorplan-setups?venueId=${encodeURIComponent(venueId)}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: SetupLite[]) => setSetups(Array.isArray(data) ? data : []))
+  }, [venueId])
 
   async function loadWooCategories() {
     if (wooLoaded.current) return
@@ -109,6 +128,10 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
     setWooCategoryName(s.wooCategoryName ?? '')
     setRequiresBooking(s.requiresBooking)
     setIsActive(s.isActive)
+    setTablePlanSetupId(s.tablePlanSetup?.id ?? '')
+    setBookingIntervalMinutes(String(s.bookingIntervalMinutes ?? 15))
+    setBookableTimes(Array.isArray(s.bookableTimes) ? s.bookableTimes : [])
+    setBookableTimeInput('')
     setSlots(s.slots.map((x) => ({ dayOfWeek: x.dayOfWeek, startTime: x.startTime, endTime: x.endTime, maxCovers: String(x.maxCovers) })))
     setExceptions(s.exceptions.map((x) => ({
       date: x.date.slice(0, 10),
@@ -123,7 +146,8 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
   function newService() {
     setSelectedId('new')
     setName(''); setDescription(''); setWooCategoryId(''); setWooCategoryName('')
-    setRequiresBooking(false); setIsActive(true)
+    setRequiresBooking(false); setIsActive(true); setTablePlanSetupId('')
+    setBookingIntervalMinutes('15'); setBookableTimes([]); setBookableTimeInput('')
     setSlots([]); setExceptions([])
     loadWooCategories()
   }
@@ -171,6 +195,10 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
     if (seen.size !== slots.length) return 'DUPLICATE SLOT TIMES ON THE SAME DAY'
     const badEx = exceptions.find((e) => !e.date)
     if (badEx) return 'EVERY EXCEPTION NEEDS A DATE'
+    const interval = parseInt(bookingIntervalMinutes, 10)
+    if (!Number.isInteger(interval) || interval < 5 || interval > 120) return 'BOOKING INTERVAL MUST BE 5-120 MINUTES'
+    const badTime = bookableTimes.find((t) => !HHMM.test(t))
+    if (badTime) return 'BOOKABLE TIMES MUST BE HH:MM'
     return null
   }
 
@@ -185,6 +213,9 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
       wooCategoryName: wooCategoryName || null,
       requiresBooking,
       isActive,
+      tablePlanSetupId: tablePlanSetupId || null,
+      bookingIntervalMinutes: parseInt(bookingIntervalMinutes, 10) || 15,
+      bookableTimes: bookableTimes.length > 0 ? bookableTimes : null,
       slots: slots.map((s) => ({
         dayOfWeek: s.dayOfWeek,
         startTime: s.startTime,
@@ -294,6 +325,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
                   {!venueId && <span>{s.venue.name.toUpperCase()} · </span>}
                   {s.slots.length} SLOT{s.slots.length === 1 ? '' : 'S'}
                   {s.wooCategoryName ? ` · MENU: ${s.wooCategoryName.toUpperCase()}` : ''}
+                  {s.tablePlanSetup ? ` · PLAN: ${s.tablePlanSetup.floorPlan.name.toUpperCase()} / ${s.tablePlanSetup.name.toUpperCase()}` : ''}
                   {s.requiresBooking ? ' · BOOKING REQUIRED' : ''}
                 </p>
               </button>
@@ -317,6 +349,85 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
           <p className="font-mono text-[9px] text-grey-light -mt-2">
             THE CATEGORY IS THE MENU AVAILABLE FOR ORDERING ON THIS SERVICE.
           </p>
+
+          <Select
+            label="TABLE PLAN"
+            value={tablePlanSetupId}
+            onChange={(e) => setTablePlanSetupId(e.target.value)}
+            options={setups.map((s) => ({
+              value: s.id,
+              label: `${s.floorPlan.name.toUpperCase()} — ${s.name.toUpperCase()}`,
+            }))}
+            placeholder={setups.length === 0 ? 'NO FLOOR PLANS WITH SETUPS — CREATE ONE FIRST' : '— NO TABLE PLAN —'}
+          />
+          <p className="font-mono text-[9px] text-grey-light -mt-2">
+            THE LAYOUT WHOSE TABLES SEAT BOOKINGS AND ORDERS FOR THIS SERVICE. BOOKINGS THAT
+            CANNOT BE SEATED ON THIS PLAN ARE REJECTED.
+          </p>
+
+          {/* Booking settings: the window is the full service length (walk-ins
+              → last calls → clock-out); these control which start times are
+              actually bookable. */}
+          <div className="border-t border-grey-mid pt-3 space-y-2">
+            <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">BOOKING TIMES</h3>
+            <div className="flex items-end gap-2">
+              <div className="w-32">
+                <Input
+                  label="BOOKING INTERVAL (MIN)"
+                  type="number"
+                  min={5}
+                  max={120}
+                  value={bookingIntervalMinutes}
+                  onChange={(e) => setBookingIntervalMinutes(e.target.value)}
+                />
+              </div>
+              <div className="flex-1">
+                <Input
+                  label="BOOKABLE TIMES (HH:MM — EMPTY = EVERY INTERVAL)"
+                  value={bookableTimeInput}
+                  onChange={(e) => setBookableTimeInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && HHMM.test(bookableTimeInput)) {
+                      e.preventDefault()
+                      if (!bookableTimes.includes(bookableTimeInput)) setBookableTimes([...bookableTimes, bookableTimeInput])
+                      setBookableTimeInput('')
+                    }
+                  }}
+                  placeholder="17:00"
+                />
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={!HHMM.test(bookableTimeInput)}
+                onClick={() => {
+                  if (!bookableTimes.includes(bookableTimeInput)) setBookableTimes([...bookableTimes, bookableTimeInput])
+                  setBookableTimeInput('')
+                }}
+              >
+                + ADD
+              </Button>
+            </div>
+            {bookableTimes.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {bookableTimes.map((t) => (
+                  <span key={t} className="inline-flex items-center gap-1 border border-grey-mid px-2 py-0.5 font-mono text-[10px] text-white bg-grey-dark">
+                    {t}
+                    <button
+                      onClick={() => setBookableTimes(bookableTimes.filter((x) => x !== t))}
+                      className="text-grey-light hover:text-danger ml-1 leading-none"
+                    >
+                      &times;
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <p className="font-mono text-[9px] text-grey-light">
+              THE SERVICE WINDOW ABOVE IS THE FULL SERVICE LENGTH (WALK-INS, LAST CALLS, CUSTOMERS GONE, CLOCK-OUT).
+              BOOKINGS ARE ONLY TAKEN AT THE START TIMES HERE — EVERY 15 MIN BY DEFAULT, OR EXACTLY THE TIMES LISTED.
+            </p>
+          </div>
 
           <div className="flex items-center gap-2 flex-wrap">
             <button

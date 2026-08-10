@@ -9,6 +9,7 @@ import {
   groupByTimeSlot,
   summarise,
   applyFilters,
+  spansMultipleDays,
   type OrderView,
   type OrderLineView,
 } from '@/lib/order-views'
@@ -57,11 +58,32 @@ describe('parseAllergens', () => {
   it('splits, trims and uppercases', () => {
     expect(parseAllergens('gluten, Milk ,peanut')).toEqual(['GLUTEN', 'MILK', 'PEANUT'])
   })
-
   it('returns empty for blank input', () => {
     expect(parseAllergens(null)).toEqual([])
     expect(parseAllergens('')).toEqual([])
     expect(parseAllergens(' , , ')).toEqual([])
+  })
+})
+
+describe('spansMultipleDays', () => {
+  it('is false for empty or single-day orders', () => {
+    expect(spansMultipleDays([])).toBe(false)
+    expect(
+      spansMultipleDays([
+        order({ serviceDate: '2026-08-14' }),
+        order({ serviceDate: '2026-08-14' }),
+      ]),
+    ).toBe(false)
+    expect(spansMultipleDays([order({ serviceDate: null })])).toBe(false)
+  })
+
+  it('is true when orders cover more than one day', () => {
+    expect(
+      spansMultipleDays([
+        order({ serviceDate: '2026-08-10' }),
+        order({ serviceDate: '2026-08-14' }),
+      ]),
+    ).toBe(true)
   })
 })
 
@@ -134,10 +156,11 @@ describe('aggregateCategoryTotals', () => {
 
 describe('collectAllergenAlerts', () => {
   it('surfaces an order-level allergy note', () => {
-    const orders = [order({ allergenNote: 'SEVERE NUT ALLERGY' })]
+    const orders = [order({ serviceDate: '2026-08-14', allergenNote: 'SEVERE NUT ALLERGY' })]
     const alerts = collectAllergenAlerts(orders)
     expect(alerts).toHaveLength(1)
     expect(alerts[0].note).toBe('SEVERE NUT ALLERGY')
+    expect(alerts[0].serviceDate).toBe('2026-08-14')
   })
 
   it('surfaces a line-level allergy note with the dish name', () => {

@@ -30,6 +30,13 @@ export async function GET(req: NextRequest) {
       deletedAt: null,
     },
     include: {
+      booking: {
+        select: {
+          tables: {
+            include: { setupItem: { select: { assignedNumber: true } } },
+          },
+        },
+      },
       items: {
         include: {
           menuItem: { select: { id: true, name: true, dietaryInfo: true } },
@@ -67,7 +74,15 @@ export async function GET(req: NextRequest) {
   for (const order of orders) {
     const tables: string[] = []
 
-    if (order.calendarEventId) {
+    // A linked reservation is the authoritative seating — its tables win
+    // over any layout auto-generated for the order itself.
+    if (order.booking) {
+      for (const t of order.booking.tables) {
+        if (t.setupItem.assignedNumber) tables.push(t.setupItem.assignedNumber)
+      }
+    }
+
+    if (order.calendarEventId && tables.length === 0) {
       const eventSetups = setupsByEvent.get(order.calendarEventId) ?? []
       for (const setup of eventSetups) {
         for (const si of setup.items) {

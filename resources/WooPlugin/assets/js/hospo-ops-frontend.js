@@ -228,14 +228,6 @@
 		var menuIds = [];
 		try { menuIds = JSON.parse(root.getAttribute('data-hospo-menu-ids') || '[]'); } catch (e) { menuIds = []; }
 
-		var bookRow = document.createElement('div');
-		bookRow.className = 'hospo-ops-book-row';
-		bookRow.hidden = true;
-		bookRow.innerHTML =
-			'<label class="hospo-ops-book-label"><input type="checkbox" data-hospo-book-table /> Book a table too</label>' +
-			'<p class="hospo-ops-note" data-hospo-book-note hidden></p>';
-		slotsEl.parentNode.insertBefore(bookRow, slotsEl.nextSibling);
-
 		function syncHidden() {
 			var s = STATE.selected;
 			var svc = (STATE.config.services || []).filter(function (x) { return x.id === s.serviceId; })[0];
@@ -244,35 +236,19 @@
 				'_hospo_service_name': svc ? svc.name : '',
 				'_hospo_service_date': s.date,
 				'_hospo_service_time': s.time,
-				'_hospo_party_size': s.party
+				'_hospo_party_size': s.party,
+				// Dine-in only: picking a time IS the booking.
+				'_hospo_book_table': '1'
 			};
 			Object.keys(hidden).forEach(function (name) {
 				var input = root.querySelector('input[name="' + name + '"]');
 				if (input) input.value = hidden[name];
 			});
-			var bookInput = root.querySelector('input[name="_hospo_book_table"]');
-			var checkbox = bookRow.querySelector('[data-hospo-book-table]');
-			if (bookInput && checkbox) {
-				bookInput.value = checkbox.checked ? '1' : '';
-			}
 		}
 
 		function afterSelection() {
-			var svc = (STATE.config.services || []).filter(function (s) { return s.id === STATE.selected.serviceId; })[0];
 			var bookInput = root.querySelector('input[name="_hospo_book_table"]');
-			if (!bookInput) return;
-			if (svc && svc.requiresBooking) {
-				// Booking is implied for this service — no checkbox row, the
-				// order always books a table.
-				bookRow.hidden = true;
-				bookInput.value = '1';
-			} else {
-				bookRow.hidden = false;
-				var cb = bookRow.querySelector('[data-hospo-book-table]');
-				cb.checked = false;
-				cb.disabled = false;
-				bookInput.value = '';
-			}
+			if (bookInput) bookInput.value = '1';
 			syncHidden();
 		}
 
@@ -298,7 +274,6 @@
 			syncHidden();
 			if (STATE.selected.date) refreshAvailability(root, onAvailability);
 		});
-		bookRow.querySelector('[data-hospo-book-table]').addEventListener('change', syncHidden);
 
 		loadConfig().then(function (cfg) {
 			if (!cfg.services || cfg.services.length === 0) return;

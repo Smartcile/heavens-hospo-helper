@@ -92,15 +92,7 @@ class Hospo_Ops_Blocks {
 						),
 					)
 				);
-				$fields->register_checkout_field(
-					array(
-						'id'       => 'hospo-ops/book',
-						'label'    => __( 'Book a table too', 'hospo-ops' ),
-						'location' => 'other',
-						'type'     => 'checkbox',
-						'required' => false,
-					)
-				);
+				// Dine-in only — no book-a-table field; every dated order books.
 			}
 		);
 	}
@@ -160,7 +152,6 @@ class Hospo_Ops_Blocks {
 			'hospo-ops/date'       => '_hospo_service_date',
 			'hospo-ops/time'       => '_hospo_service_time',
 			'hospo-ops/party'      => '_hospo_party_size',
-			'hospo-ops/book'       => '_hospo_book_table',
 		);
 		foreach ( $map as $field_id => $meta_key ) {
 			// The meta fallback key may be the full id or the name after the slash.
@@ -168,14 +159,10 @@ class Hospo_Ops_Blocks {
 			if ( null === $value || '' === $value ) {
 				continue;
 			}
-			if ( 'hospo-ops/book' === $field_id ) {
-				$value = in_array( strtolower( $value ), array( '1', 'true', 'yes', 'on' ), true ) ? '1' : '';
-				if ( '' === $value ) {
-					continue;
-				}
-			}
 			$order->update_meta_data( $meta_key, $value );
 		}
+		// Dine-in only — a dated order always books a table.
+		$order->update_meta_data( '_hospo_book_table', '1' );
 		$order->save();
 	}
 }

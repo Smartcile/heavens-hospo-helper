@@ -27,7 +27,7 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/admin/stocktake', label: 'Stocktake' },
     { href: '/admin/inventory', label: 'Inventory' },
     { href: '/admin/recipes', label: 'Recipes & Menu Items' },
-    { href: '/admin/menus', label: 'Menus' },
+    { href: '/admin/menus', label: 'Menus/Categories' },
     { href: '/admin/services', label: 'Services' },
     { href: '/admin/orders', label: 'Orders' },
     { href: '/admin/bookings', label: 'Bookings' },

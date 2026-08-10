@@ -3,14 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { pushToast } from '@/components/ui/Toast'
-import { ServiceView, KitchenView, FohView, ProductionView } from '@/components/admin/OrdersViews'
+import { DateNav } from '@/components/admin/DateNav'
+import { ServiceView, KitchenView, FohView, ProductionView, AllOrdersView } from '@/components/admin/OrdersViews'
 import { OrderDetailDrawer } from '@/components/admin/OrderDetailDrawer'
 import { NewOrderModal } from '@/components/admin/NewOrderModal'
 import { applyFilters, summarise, type OrderView, type OrderFilters } from '@/lib/order-views'
+import type { DateRange } from '@/lib/date-nav'
 
-type ViewType = 'SERVICE' | 'KITCHEN' | 'FOH' | 'PRODUCTION'
+type ViewType = 'SERVICE' | 'KITCHEN' | 'FOH' | 'PRODUCTION' | 'ALL'
 
 const VIEWS: { key: ViewType; label: string; hint: string }[] = [
+  { key: 'ALL', label: 'ALL', hint: 'EVERY SYNCED ORDER — DEBUG' },
   { key: 'SERVICE', label: 'SERVICE', hint: 'BY TIME SLOT' },
   { key: 'KITCHEN', label: 'KITCHEN', hint: 'PREP TOTALS + ALLERGENS' },
   { key: 'FOH', label: 'FOH', hint: 'BY TABLE' },
@@ -35,14 +38,9 @@ function today(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function shiftDate(date: string, days: number): string {
-  const d = new Date(`${date}T00:00:00.000Z`)
-  d.setUTCDate(d.getUTCDate() + days)
-  return d.toISOString().slice(0, 10)
-}
-
 export function OrdersClient() {
   const [date, setDate] = useState(today)
+  const [dateRange, setDateRange] = useState<DateRange | null>(null)
   const [view, setView] = useState<ViewType>('SERVICE')
   const [orders, setOrders] = useState<OrderView[]>([])
   const [categoryPairs, setCategoryPairs] = useState<[string, string[]][]>([])
@@ -59,7 +57,14 @@ export function OrdersClient() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const res = await fetch(`/api/admin/orders?date=${date}`)
+    // The ALL view ignores the date — every synced order, newest first, so
+    // undated/unbooked orders that no day view can show are still inspectable.
+    const isRange = dateRange !== null && dateRange.start !== dateRange.end
+    const url =
+      view === 'ALL'
+        ? '/api/admin/orders?scope=all'
+        : `/api/admin/orders?date=${date}${isRange ? `&endDate=${dateRange.end}` : ''}`
+    const res = await fetch(url)
     if (res.ok) {
       const d = await res.json()
       setOrders(d.orders ?? [])
@@ -69,7 +74,7 @@ export function OrdersClient() {
       pushToast('FAILED TO LOAD ORDERS', 'error')
     }
     setLoading(false)
-  }, [date])
+  }, [date, view, dateRange])
 
   useEffect(() => { load() }, [load])
 
@@ -140,34 +145,8 @@ export function OrdersClient() {
       </div>
 
       {/* Date bar */}
-      <div className="border border-grey-mid p-3 flex items-center gap-3 flex-wrap">
-        <button
-          onClick={() => setDate(shiftDate(date, -1))}
-          className="font-mono text-xs text-grey-light hover:text-white border border-grey-mid px-2 py-1.5"
-        >
-          ←
-        </button>
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
-          style={{ colorScheme: 'dark' }}
-        />
-        <button
-          onClick={() => setDate(shiftDate(date, 1))}
-          className="font-mono text-xs text-grey-light hover:text-white border border-grey-mid px-2 py-1.5"
-        >
-          →
-        </button>
-        <button
-          onClick={() => setDate(today())}
-          className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid px-2 py-1.5"
-        >
-          TODAY
-        </button>
-
-        <div className="flex items-center gap-4 ml-auto font-mono text-xs">
+      <div className="border border-grey-mid p-3 flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-4 font-mono text-xs pt-2">
           <span className="text-grey-light">ORDERS <span className="text-white">{stats.orders}</span></span>
           <span className="text-grey-light">COVERS <span className="text-white">{stats.covers}</span></span>
           <span className="text-grey-light">REVENUE <span className="text-white">${stats.revenue.toFixed(2)}</span></span>
@@ -177,14 +156,28 @@ export function OrdersClient() {
             </span>
           )}
         </div>
+        <DateNav
+          date={date}
+          range={dateRange ?? undefined}
+          onChange={(d, r) => {
+            setDate(d)
+            setDateRange(r)
+          }}
+        />
       </div>
 
       {undatedCount > 0 && (
-        <div className="border border-[#FACC15] p-2.5">
+        <div className="border border-[#FACC15] p-2.5 flex items-center justify-between gap-3 flex-wrap">
           <p className="font-mono text-[10px] text-[#FACC15] uppercase">
             {undatedCount} ORDER{undatedCount === 1 ? '' : 'S'} HAVE NO SERVICE DATE AND CANNOT BE SHOWN ON A DAY.
             CHECK THE ORDER FIELD MAPPING IN SETTINGS → WOOCOMMERCE.
           </p>
+          <button
+            onClick={() => setView('ALL')}
+            className="font-mono text-[10px] uppercase border border-[#FACC15] text-[#FACC15] hover:bg-[#FACC15] hover:text-black px-2 py-1"
+          >
+            VIEW THEM
+          </button>
         </div>
       )}
 
@@ -313,6 +306,8 @@ export function OrdersClient() {
         <KitchenView orders={visible} categoryByMenuItem={categoryByMenuItem} />
       ) : view === 'FOH' ? (
         <FohView orders={visible} onOpen={setOpenOrderId} />
+      ) : view === 'ALL' ? (
+        <AllOrdersView orders={visible} onOpen={setOpenOrderId} />
       ) : (
         <ProductionView orders={visible} />
       )}

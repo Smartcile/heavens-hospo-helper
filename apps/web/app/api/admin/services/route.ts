@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
       venue: { select: { id: true, name: true } },
       slots: { orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }] },
       exceptions: { orderBy: { date: 'asc' } },
+      tablePlanSetup: { select: { id: true, name: true, floorPlan: { select: { id: true, name: true } } } },
       _count: { select: { orders: true } },
     },
     orderBy: [{ venueId: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],

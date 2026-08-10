@@ -14,8 +14,9 @@ Dated ordering + table bookings for WooCommerce, driven by your HOSPO OPS venue.
 Connects your WooCommerce store to a HOSPO OPS venue. Customers pick a
 **service** (e.g. FRIDAY MENU), a **date**, a **time slot** and a **party
 size** at checkout. The order lands in the app on its service date with the
-service attached — and if the customer chooses "book a table too", a real
-reservation is created in the app.
+service attached — and because dining is dine-in only, picking the date and
+time **is** the booking: a real reservation is created in the app, seated on
+the service's table plan.
 
 Also includes a **booking-only widget** (table reservations with no food
 order and no payment) that works as a shortcode, a sidebar widget, and a

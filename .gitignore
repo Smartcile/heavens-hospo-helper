@@ -41,6 +41,28 @@ npm-debug.log*
 .test-checklist.md
 build-and-push.ps1
 rebuild.ps1
+rebuild.bat
+scripts/pre-push.sh
+
+# AI coding context + planning docs (dev-only, never shipped)
+CLAUDE.md
+ECOSYSTEM.md
+DEV-SETUP.md
+ROADMAP.md
+
+# Local dev launcher
+start.ps1
+
+# Local WordPress/WooCommerce dev stack (docker-compose.wordpress.yml)
+docker-compose.wordpress.yml
+wp-dev.ps1
+wp-dev-setup.sh
+wp-cron.ps1
+wp-dev-mu-plugin.php
+
+# Legacy mock-data importers (dev only)
+packages/db/scripts/import-mock-data.ts
+packages/db/scripts/mock-data.json
 
 # Mock data (never publish)
 mock_data/

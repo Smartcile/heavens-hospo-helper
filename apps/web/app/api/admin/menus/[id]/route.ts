@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { ensureWooCategory, renameWooCategory } from '@/lib/woo-categories'
+import { diffItemIds, syncMenuItemCategory } from '@/lib/menu-sync'
 
 async function loadScoped(id: string, session: { user: { role: string; venueId: string } }) {
   const menu = await prisma.menu.findFirst({ where: { id, deletedAt: null } })
@@ -23,8 +25,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     where: { id: params.id },
     include: {
       items: {
+        where: { menuItem: { deletedAt: null } },
         include: {
-          menuItem: { select: { id: true, name: true, price: true, dietaryInfo: true, isActive: true } },
+          menuItem: {
+            select: { id: true, name: true, price: true, dietaryInfo: true, isActive: true },
+          },
         },
         orderBy: { sortOrder: 'asc' },
       },
@@ -51,6 +56,18 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (body.isActive !== undefined) data.isActive = !!body.isActive
   if (body.sortOrder !== undefined) data.sortOrder = toIntOrNull(body.sortOrder) ?? 0
 
+  // Category resolution — same contract as POST:
+  // '__new__' → match/create a store category named after the menu,
+  // '' / null → local-only (never touches the store), <id> → verbatim.
+  let resolvedCategory: string | null | undefined
+  if (body.wooCategoryId !== undefined) {
+    resolvedCategory =
+      body.wooCategoryId === '__new__'
+        ? await ensureWooCategory(scoped.menu!.venueId, String(data.name ?? scoped.menu!.name))
+        : String(body.wooCategoryId || null)
+    data.wooCategoryId = resolvedCategory
+  }
+
   const minPax = (data.minPax as number | null) ?? scoped.menu!.minPax
   const maxPax = (data.maxPax as number | null) ?? scoped.menu!.maxPax
   if (minPax != null && maxPax != null && minPax > maxPax) {
@@ -60,8 +77,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   /*
    * `items` is a full replacement set when supplied — diffed rather than
    * deleted-and-recreated so the junction ids (and any future references to
-   * them) survive an edit that only changes a limit.
+   * them) survive an edit that only changes a limit. Items added to or
+   * removed from the menu get their WooCommerce category re-synced afterwards.
    */
+  const changedItemIds: string[] = []
   if (Array.isArray(body.items)) {
     const incoming = body.items as {
       menuItemId: string
@@ -69,6 +88,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       maxQty?: unknown
       sortOrder?: unknown
     }[]
+
+    const prevIds = (await prisma.menuMenuItem.findMany({
+      where: { menuId: params.id },
+      select: { menuItemId: true },
+    })).map((e) => e.menuItemId)
 
     await prisma.$transaction(async (tx) => {
       if (Object.keys(data).length > 0) {
@@ -114,16 +138,55 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         await tx.menuMenuItem.deleteMany({ where: { id: { in: remove } } })
       }
     })
+
+    // Sync categories for membership changes, outside the transaction.
+    const { added, removed } = diffItemIds(prevIds, incoming.map((r) => r.menuItemId).filter(Boolean))
+    changedItemIds.push(...added, ...removed)
   } else if (Object.keys(data).length > 0) {
     await prisma.menu.update({ where: { id: params.id }, data })
+  }
+
+  // Menus and categories are the same thing — keep the store category in step.
+  // A rename renames the linked category, but only when the link itself wasn't
+  // also changed in this save (a relink supersedes the old category).
+  const categoryChanged =
+    resolvedCategory !== undefined && resolvedCategory !== scoped.menu!.wooCategoryId
+  if (data.name !== undefined && data.name !== scoped.menu!.name && !categoryChanged) {
+    const renamed = String(data.name)
+    if (scoped.menu!.wooCategoryId) {
+      await renameWooCategory(scoped.menu!.venueId, scoped.menu!.wooCategoryId, renamed)
+    } else {
+      const wooCategoryId = await ensureWooCategory(scoped.menu!.venueId, renamed)
+      if (wooCategoryId) {
+        await prisma.menu.update({ where: { id: params.id }, data: { wooCategoryId } })
+      }
+    }
+  }
+
+  // A relink moves the menu's items to the new category on the store.
+  if (categoryChanged) {
+    const itemIds = (await prisma.menuMenuItem.findMany({
+      where: { menuId: params.id },
+      select: { menuItemId: true },
+    })).map((e) => e.menuItemId)
+    for (const itemId of itemIds) {
+      await syncMenuItemCategory(itemId)
+    }
+  }
+
+  for (const itemId of changedItemIds) {
+    await syncMenuItemCategory(itemId)
   }
 
   const updated = await prisma.menu.findUnique({
     where: { id: params.id },
     include: {
       items: {
+        where: { menuItem: { deletedAt: null } },
         include: {
-          menuItem: { select: { id: true, name: true, price: true, dietaryInfo: true, isActive: true } },
+          menuItem: {
+            select: { id: true, name: true, price: true, dietaryInfo: true, isActive: true },
+          },
         },
         orderBy: { sortOrder: 'asc' },
       },
@@ -140,10 +203,20 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const scoped = await loadScoped(params.id, session)
   if (scoped.error) return scoped.error
 
+  const itemIds = (await prisma.menuMenuItem.findMany({
+    where: { menuId: params.id },
+    select: { menuItemId: true },
+  })).map((e) => e.menuItemId)
+
   await prisma.menu.update({
     where: { id: params.id },
     data: { deletedAt: new Date() },
   })
+
+  // Items that only lived in this menu lose their category on the store.
+  for (const itemId of itemIds) {
+    await syncMenuItemCategory(itemId)
+  }
 
   return NextResponse.json({ ok: true })
 }

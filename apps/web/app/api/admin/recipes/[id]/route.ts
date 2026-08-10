@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
-import { pushProduct } from '@/lib/woo-push'
+import { pushProduct, pushProductDisconnect } from '@/lib/woo-push'
+import { syncMenuItemCategory } from '@/lib/menu-sync'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -25,7 +26,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (instructions !== undefined) data.instructions = instructions || null
   if (prepTime !== undefined) data.prepTime = prepTime ? parseInt(String(prepTime)) : null
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const txResult = await prisma.$transaction(async (tx) => {
     const r = await tx.recipe.update({ where: { id: params.id }, data })
 
     if (lineItems !== undefined) {
@@ -47,24 +48,33 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       }
     }
 
-    // Sync menu item link
+    // Sync menu item link. `existing` is found with no deletedAt filter so
+    // unchecking LINK TO WOO and re-checking it reconnects the SAME local row
+    // (and its WooCommerce product id) instead of creating a duplicate.
+    let revived = false
+    let disconnectedId: string | null = null
     if (linkToMenu !== undefined) {
       const existing = await tx.menuItem.findFirst({
-        where: { recipeId: params.id, deletedAt: null },
+        where: { recipeId: params.id },
       })
+      const wasDeleted = existing?.deletedAt != null
       if (linkToMenu) {
         const menuData: any = {
           price: parseFloat(String(price)) || 0,
-          wooProductId: wooProductId || null,
+          // On reconnect the form has no product id — keep the old one so the
+          // product is re-enabled rather than duplicated on the store.
+          wooProductId: wooProductId || existing?.wooProductId || null,
           wooCategoryId: wooCategoryId || null,
           imageUrl: imageUrl || null,
           shortDescription: shortDescription || null,
           isVariable: isVariable || false,
           variations: variations || null,
+          deletedAt: wasDeleted ? null : undefined,
         }
         if (dietaryInfo !== undefined) menuData.dietaryInfo = dietaryInfo || null
         if (existing) {
           await tx.menuItem.update({ where: { id: existing.id }, data: menuData })
+          revived = wasDeleted
         } else {
           await tx.menuItem.create({
             data: {
@@ -75,12 +85,18 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
             },
           })
         }
-      } else if (existing) {
-        await tx.menuItem.update({ where: { id: existing.id }, data: { deletedAt: new Date() } })
+      } else if (existing && !wasDeleted) {
+        // Unticked: remove from menus, drop the category, and hide the store
+        // product (draft + uncategorised) until it is reconnected.
+        await tx.menuItem.update({
+          where: { id: existing.id },
+          data: { deletedAt: new Date(), wooCategoryId: null },
+        })
+        disconnectedId = existing.id
       }
     }
 
-    return tx.recipe.findUnique({
+    const updated = await tx.recipe.findUnique({
       where: { id: params.id },
       include: {
         yieldUnit: { select: { id: true, name: true } },
@@ -92,17 +108,31 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
           },
           orderBy: { sortOrder: 'asc' },
         },
-        menuItems: { select: { id: true, price: true, wooProductId: true, wooCategoryId: true, imageUrl: true, shortDescription: true, isVariable: true, variations: true, dietaryInfo: true } },
+        menuItems: {
+          select: { id: true, price: true, wooProductId: true, wooCategoryId: true, imageUrl: true, shortDescription: true, isVariable: true, variations: true, dietaryInfo: true },
+          where: { deletedAt: null },
+        },
       },
     })
+    return { updated, revived, disconnectedId }
   })
 
-  const result = { ...(updated as any), menuItem: (updated as any)?.menuItems?.[0] ?? null }
+  const result = { ...(txResult.updated as any), menuItem: (txResult.updated as any)?.menuItems?.[0] ?? null }
 
   // Push linked menu item changes to WooCommerce (best-effort — logs to SyncLog)
-  const linkedMenuItem = (updated as any)?.menuItems?.[0]
-  if (linkedMenuItem) {
-    await pushProduct(linkedMenuItem.id)
+  const linkedMenuItem = (txResult.updated as any)?.menuItems?.[0]
+  if (txResult.disconnectedId) {
+    // Unticked — the local row is soft-deleted but still holds the product id.
+    await pushProductDisconnect(txResult.disconnectedId)
+  } else if (linkedMenuItem) {
+    if (txResult.revived) {
+      // Reconnected — restore the category from its menu memberships and
+      // re-publish the store product (it was set to draft on disconnect).
+      await syncMenuItemCategory(linkedMenuItem.id)
+      await pushProduct(linkedMenuItem.id, { status: 'publish' })
+    } else {
+      await pushProduct(linkedMenuItem.id)
+    }
   }
 
   return NextResponse.json(result)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -57,9 +57,6 @@ export function RecipesClient() {
   const [formPrice, setFormPrice] = useState('0')
   const [formWooProductId, setFormWooProductId] = useState('')
   const [formWooCategories, setFormWooCategories] = useState<string[]>([])
-  const [wooCatInput, setWooCatInput] = useState('')
-  const [wooCatSuggestions, setWooCatSuggestions] = useState<string[]>([])
-  const [wooCatShowDropdown, setWooCatShowDropdown] = useState(false)
   const [formExistingMenuItemId, setFormExistingMenuItemId] = useState<string | null>(null)
   const [formDietaryInfo, setFormDietaryInfo] = useState<string[]>([])
   const [allergenPopout, setAllergenPopout] = useState<{ allergen: string; source: string } | null>(null)
@@ -96,6 +93,7 @@ export function RecipesClient() {
   const [inventoryItems, setInventoryItems] = useState<InvItem[]>([])
   const [allRecipes, setAllRecipes] = useState<RecipeBrief[]>([])
   const [wooCategories, setWooCategories] = useState<{ id: string; name: string }[]>([])
+  const [menus, setMenus] = useState<{ id: string; name: string; wooCategoryId: string | null }[]>([])
   const [categories, setCategories] = useState<{ id: string; name: string; tab: string | null }[]>([])
 
   const [lineItems, setLineItems] = useState<LineItem[]>([])
@@ -157,17 +155,11 @@ export function RecipesClient() {
   }
   function removeVariation(i: number) { setFormVariations(prev => prev.filter((_, j) => j !== i)) }
 
-  const filteredWooCats = useMemo(() => {
-    if (!wooCatInput.trim()) return []
-    const q = wooCatInput.toUpperCase()
-    return wooCategories.filter((c) => c.name.includes(q) && !formWooCategories.includes(c.id)).slice(0, 8)
-  }, [wooCatInput, wooCategories, formWooCategories])
-
   function resetForm() {
     setFormName(''); setFormYieldQty('1'); setFormYieldUnitId('')
     setFormInstructions(''); setFormPrepTime(''); setLineItems([])
     setNewItemId(''); setNewItemQty('1'); setNewItemUomId('')
-    setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([]); setWooCatInput('')
+    setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([])
     setFormDietaryInfo([]); setFormImageUrl(null); setFormShortDescription('')
     setFormIsVariable(false); setFormVariations([])
     setFormExistingMenuItemId(null)
@@ -195,7 +187,7 @@ export function RecipesClient() {
       setFormIsVariable(r.menuItem.isVariable ?? false)
       setFormVariations(r.menuItem.variations ?? [])
     } else {
-    setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([]); setWooCatInput('')
+    setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([])
     setFormDietaryInfo([]); setFormImageUrl(null); setFormShortDescription('')
     setFormIsVariable(false); setFormVariations([])
     }
@@ -217,12 +209,13 @@ export function RecipesClient() {
 
   async function load() {
     setLoading(true)
-    const [rRes, uRes, iRes, mRes, cRes] = await Promise.all([
+    const [rRes, uRes, iRes, mRes, cRes, menuRes] = await Promise.all([
       fetch('/api/admin/recipes'),
       fetch('/api/admin/uoms'),
       fetch('/api/admin/inventory'),
       fetch('/api/admin/menu-items'),
       fetch('/api/admin/inventory/categories'),
+      fetch('/api/admin/menus'),
     ])
     if (rRes.ok) {
       const prs = await rRes.json()
@@ -247,6 +240,10 @@ export function RecipesClient() {
     if (cRes.ok) {
       const data = await cRes.json()
       setCategories(Array.isArray(data) ? data : [])
+    }
+    if (menuRes.ok) {
+      const data = await menuRes.json()
+      setMenus(Array.isArray(data) ? data.map((m: any) => ({ id: m.id, name: m.name, wooCategoryId: m.wooCategoryId ?? null })) : [])
     }
     // Load WooCommerce categories for the category picker
     try {
@@ -378,6 +375,19 @@ export function RecipesClient() {
   const filteredRecipes = recipes.filter(r => !recipeSearch || r.name.includes(recipeSearch))
   const filteredOrphans = orphanItems.filter(o => !recipeSearch || o.name.includes(recipeSearch))
 
+  // A menu's category id resolves to its name — the local, always-available
+  // source. Store categories are a fallback; a raw id means the id doesn't
+  // exist on the store or in any menu yet.
+  const categoryName = (id: string) =>
+    menus.find((m) => m.wooCategoryId === id)?.name ??
+    wooCategories.find((w) => w.id === id)?.name ??
+    id
+
+  // The menu whose category the linked item currently carries.
+  const selectedMenuId =
+    menus.find((m) => m.wooCategoryId && formWooCategories.includes(m.wooCategoryId))?.id ??
+    (formWooCategories.length === 0 ? '__none__' : '')
+
   if (loading) {
     return <div className="flex items-center justify-center h-64"><p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p></div>
   }
@@ -402,17 +412,23 @@ export function RecipesClient() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1">
                       <span className="block truncate flex-1 font-mono text-xs uppercase text-white">{r.name}</span>
-                      {r.menuItem && <span className="font-mono text-[8px] text-success border border-success px-1 shrink-0">MENU</span>}
+                      {r.menuItem && (() => {
+                        const cats = (r.menuItem.wooCategoryId ?? '').split(',').map((c: string) => c.trim()).filter(Boolean)
+                        const names = cats.length > 0 ? cats : ['UNCATEGORISED']
+                        return names.map((c) => {
+                          const resolved = c === 'UNCATEGORISED' ? 'UNCATEGORISED' : categoryName(c)
+                          const uncat = c === 'UNCATEGORISED'
+                          return (
+                            <span key={c} className={`font-mono text-[8px] border px-1 shrink-0 ${uncat ? 'text-grey-light border-grey-mid' : 'text-[#c4a530] border-[#c4a530]'}`}>
+                              {resolved}
+                            </span>
+                          )
+                        })
+                      })()}
                     </div>
                     <span className="block text-[10px] text-grey-light">
                       v{r.version} · {r.yieldQty} {r.yieldUnit?.name ?? ''}{r.menuItem ? ` · $${r.menuItem.price.toFixed(2)}` : ''}
                     </span>
-                    {r.menuItem?.wooCategoryId && (() => {
-                      const cats = r.menuItem.wooCategoryId.split(',').map((c: string) => c.trim()).filter(Boolean)
-                      return cats.map((cat: string) => (
-                        <span key={cat} className="inline-block mt-0.5 mr-1 font-mono text-[8px] text-[#c4a530] border border-[#c4a530] px-1">{cat}</span>
-                      ))
-                    })()}
                   </div>
                 </ListRow>
               ))}
@@ -465,6 +481,40 @@ export function RecipesClient() {
                     <Input type="number" value={formPrepTime} onChange={(e) => setFormPrepTime(e.target.value)} />
                   </div>
                 </div>
+
+                {linkToMenu && (
+                  <div>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">MENU (WOO CATEGORY)</label>
+                    <Select
+                      value={selectedMenuId}
+                      onChange={(e) => {
+                        const menu = menus.find((m) => m.id === e.target.value)
+                        if (e.target.value === '__none__') setFormWooCategories([])
+                        else if (menu) setFormWooCategories(menu.wooCategoryId ? [menu.wooCategoryId] : [])
+                      }}
+                      options={[
+                        { value: '__none__', label: 'NO MENU — UNCATEGORISED' },
+                        ...menus.map((m) => ({
+                          value: m.id,
+                          label: m.wooCategoryId ? `${m.name} — ${categoryName(m.wooCategoryId)}` : `${m.name} — NO CATEGORY`,
+                        })),
+                      ]}
+                      placeholder="SELECT MENU..."
+                    />
+                    <p className="font-mono text-[9px] text-grey-light mt-1">
+                      THE MENU AND ITS WOO CATEGORY ARE THE SAME THING — SELECTING ONE SETS THE PRODUCT&apos;S CATEGORY.
+                    </p>
+                    {formWooCategories.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {formWooCategories.map((c) => (
+                          <span key={c} className="font-mono text-[9px] text-[#c4a530] border border-[#c4a530] px-1">
+                            {categoryName(c)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div>
                   <label className="font-mono text-xs uppercase text-grey-light block mb-1">INSTRUCTIONS</label>
@@ -589,48 +639,6 @@ export function RecipesClient() {
                       <div>
                         <label className="font-mono text-xs uppercase text-grey-light block mb-1">WOO PRODUCT ID</label>
                         <Input value={formWooProductId} onChange={(e) => setFormWooProductId(e.target.value)} placeholder="AUTO-GENERATED ON SAVE" disabled={true} />
-                      </div>
-                      <div className="relative">
-                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">WOO CATEGORY</label>
-                        <div className={`flex flex-wrap items-center gap-1 bg-black border px-3 py-2 min-h-[38px] ${wooCatShowDropdown && filteredWooCats.length > 0 ? 'border-white' : 'border-grey-mid focus-within:border-white'}`}>
-                          {formWooCategories.map((c, i) => (
-                            <span key={i} className="inline-flex items-center gap-1 bg-grey-mid border border-grey-light px-1.5 py-0.5 font-mono text-[10px] text-white leading-none">
-                              {wooCategories.find(cat => cat.id === c)?.name ?? c}
-                              <button onClick={() => setFormWooCategories(prev => prev.filter((_, j) => j !== i))}
-                                className="text-grey-light hover:text-danger text-xs leading-none">&times;</button>
-                            </span>
-                          ))}
-                          <input value={wooCatInput}
-                            onFocus={() => { if (wooCatInput.trim() && filteredWooCats.length > 0) setWooCatShowDropdown(true) }}
-                            onBlur={() => setTimeout(() => setWooCatShowDropdown(false), 150)}
-                            onChange={(e) => {
-                              const v = e.target.value
-                              if (v.endsWith(',')) {
-                                const tag = v.replace(/,/g, '').trim().toUpperCase()
-                                if (tag && !formWooCategories.includes(tag)) setFormWooCategories(prev => [...prev, tag])
-                                setWooCatInput(''); setWooCatShowDropdown(false)
-                              } else { setWooCatInput(v); if (v.trim()) setWooCatShowDropdown(true) }
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') { e.preventDefault(); const tag = wooCatInput.trim().toUpperCase(); if (tag && !formWooCategories.includes(tag)) setFormWooCategories(prev => [...prev, tag]); setWooCatInput(''); setWooCatShowDropdown(false) }
-                              else if (e.key === 'Backspace' && !wooCatInput && formWooCategories.length > 0) { setFormWooCategories(prev => prev.slice(0, -1)) }
-                              else if (e.key === 'Escape') { setWooCatShowDropdown(false) }
-                            }}
-                            placeholder={formWooCategories.length === 0 ? 'SEARCH OR TYPE CATEGORY...' : ''}
-                            className="flex-1 min-w-[120px] bg-transparent border-none outline-hidden text-white font-mono text-xs placeholder:text-grey-light"
-                          />
-                        </div>
-                        {wooCatShowDropdown && filteredWooCats.length > 0 && (
-                          <div className="absolute top-full left-0 right-0 z-50 mt-1 border border-grey-mid bg-black max-h-48 overflow-y-auto shadow-lg">
-                            {filteredWooCats.map((c) => (
-                              <button key={c.id}
-                                onMouseDown={(e) => { e.preventDefault(); if (!formWooCategories.includes(c.id)) setFormWooCategories(prev => [...prev, c.id]); setWooCatInput(''); setWooCatShowDropdown(false) }}
-                                className="w-full text-left px-3 py-1.5 font-mono text-xs text-white hover:bg-grey-dark border-b border-grey-mid last:border-b-0 uppercase">
-                                {c.name}
-                              </button>
-                            ))}
-                          </div>
-                        )}
                       </div>
 
                       <div className="md:col-span-3">

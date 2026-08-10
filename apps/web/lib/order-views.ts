@@ -27,6 +27,10 @@ export interface OrderView {
   customerPhone: string | null
   customerEmail: string | null
   serviceTime: string | null
+  /** YYYY-MM-DD venue-local service date, or null when the order is undated. */
+  serviceDate?: string | null
+  /** ISO timestamp of the last successful sync from WooCommerce. */
+  syncedAt?: string | null
   partySize: number | null
   fulfillmentType: string
   opStatus: string
@@ -124,6 +128,7 @@ export interface AllergenAlert {
   ref: string
   customerName: string | null
   tables: string[]
+  serviceDate: string | null
   serviceTime: string | null
   /** Free-text requirement the customer gave us — the thing that can hurt someone. */
   note: string
@@ -160,6 +165,7 @@ export function collectAllergenAlerts(orders: OrderView[]): AllergenAlert[] {
       ref: order.ref,
       customerName: order.customerName,
       tables: order.tables,
+      serviceDate: order.serviceDate ?? null,
       serviceTime: order.serviceTime,
       note: notes.join(' · '),
       dishes,
@@ -167,6 +173,13 @@ export function collectAllergenAlerts(orders: OrderView[]): AllergenAlert[] {
   }
 
   return alerts
+}
+
+/** True when the orders span more than one distinct service date. */
+export function spansMultipleDays(orders: OrderView[]): boolean {
+  const days = new Set<string>()
+  for (const o of orders) if (o.serviceDate) days.add(o.serviceDate)
+  return days.size > 1
 }
 
 // ── FOH ────────────────────────────────────────────────────────────────

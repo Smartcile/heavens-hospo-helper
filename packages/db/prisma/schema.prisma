@@ -621,12 +621,14 @@ model Booking {
   calendarEventId String? // links to CalendarEvent for calendar display
   floorPlanSlug   String? // which floor plan layout this booking uses
   seatingSetupId  String? // FK to FloorPlanSetup for the generated table layout
+  serviceId       String? // which dated Service this booking was made for
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   deletedAt       DateTime?
 
   venue         Venue          @relation(fields: [venueId], references: [id])
   calendarEvent CalendarEvent? @relation(fields: [calendarEventId], references: [id])
+  service       Service?       @relation(fields: [serviceId], references: [id])
   tables        BookingTable[]
   orders        WooOrder[]
 
@@ -1391,6 +1393,7 @@ model FloorPlanSetup {
   floorPlan FloorPlan    @relation(fields: [floorPlanId], references: [id])
   items     SetupItem[]
   groups    TableGroup[]
+  services  Service[] // a dated Service can use this layout as its table plan
 
   @@index([floorPlanId])
 }
@@ -1589,6 +1592,7 @@ enum SyncDirection {
 enum SyncEntity {
   PRODUCT
   ORDER
+  CATEGORY
 }
 
 enum SyncStatus {
@@ -2017,6 +2021,11 @@ model Menu {
   maxPax      Int?
   isActive    Boolean   @default(true)
   sortOrder   Int       @default(0)
+  // The WooCommerce category this menu is synced to. Menus and categories are
+  // the same thing: creating a menu creates/links the store category, and an
+  // item's wooCategoryId mirrors the categories of the menus it is on. Null
+  // when the venue has no active WooCommerce integration.
+  wooCategoryId String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
@@ -2078,23 +2087,37 @@ model OrderView {
 // one-off `ServiceException` dates). The WooCommerce plugin renders these as
 // the checkout options; the app is the single source of truth for the schedule.
 model Service {
-  id              String    @id @default(uuid())
-  venueId         String
-  name            String // "FRIDAY MENU"
-  description     String?
-  wooCategoryId   String? // numeric Woo category id — the menu for this service
-  wooCategoryName String? // denormalised for display in the plugin
-  requiresBooking Boolean   @default(false) // book-a-table mandatory for this service
-  isActive        Boolean   @default(true)
-  sortOrder       Int       @default(0)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  deletedAt       DateTime?
+  id               String    @id @default(uuid())
+  venueId          String
+  name             String // "FRIDAY MENU"
+  description      String?
+  wooCategoryId    String? // numeric Woo category id — the menu for this service
+  wooCategoryName  String? // denormalised for display in the plugin
+  requiresBooking  Boolean   @default(false) // book-a-table mandatory for this service
+  /// The FloorPlanSetup whose tables seat bookings/orders for this service.
+  /// When set, seating resolves against these physical tables instead of the
+  /// default layout or a per-order generated one.
+  tablePlanSetupId String?
+  /// Step (minutes) between bookable start times. The service window stays
+  /// the full service length (walk-ins → last calls → clock-out); this only
+  /// controls which start times accept bookings. 15 is the default.
+  bookingIntervalMinutes Int       @default(15)
+  /// Optional explicit list of bookable start times ("HH:mm") — overrides the
+  /// interval-generated grid when set. e.g. ["17:00","18:00"] books only the
+  /// 5pm and 6pm starts of a 17:00–21:00 service.
+  bookableTimes          Json?
+  isActive         Boolean   @default(true)
+  sortOrder        Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
 
-  venue      Venue              @relation(fields: [venueId], references: [id])
-  slots      ServiceSlot[]
-  exceptions ServiceException[]
-  orders     WooOrder[]
+  venue          Venue              @relation(fields: [venueId], references: [id])
+  slots          ServiceSlot[]
+  exceptions     ServiceException[]
+  orders         WooOrder[]
+  bookings       Booking[]
+  tablePlanSetup FloorPlanSetup?    @relation(fields: [tablePlanSetupId], references: [id])
 
   @@index([venueId])
 }
@@ -2251,6 +2274,9 @@ model WooOrderItem {
   menuItemId          String
   qty                 Int           @default(1)
   unitPrice           Float?
+  // The line-item id WooCommerce assigned on the store — required to update a
+  // line in place when an operator edits a pre-order (order PUT line_items).
+  wooLineItemId       String?
   // `notes` historically held BOTH the Woo line-item name and the exploded-recipe
   // JSON blob. Those are now split out into productName/explodedIngredients so
   // notes is free for genuine operator notes.

@@ -45,12 +45,22 @@ export function mapStatusToWoo(status: OrderStatus): string {
   return map[status] ?? 'pending'
 }
 
-export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 'wooCategoryId' | 'imageUrl' | 'shortDescription' | 'isVariable' | 'variations'>, now: Date = new Date()) {
+// Operational terminal states sync back to the store's status — a floor
+// marking an order FINALISED means completed, CANCELLED means cancelled.
+// Every other opStatus is internal-only (nothing pushes to Woo for it).
+export function opStatusToWooStatus(opStatus: string): OrderStatus | null {
+  if (opStatus === 'FINALISED') return 'COMPLETED'
+  if (opStatus === 'CANCELLED') return 'CANCELLED'
+  return null
+}
+
+export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 'wooCategoryId' | 'imageUrl' | 'shortDescription' | 'isVariable' | 'variations' | 'wooProductId'>, now: Date = new Date(), opts: { status?: string } = {}) {
   const payload: Record<string, unknown> = {
     name: item.name,
     regular_price: String(item.price ?? 0),
     meta_data: selfUpdateMeta(now),
   }
+  if (opts.status) payload.status = opts.status
   if (item.isVariable) {
     payload.type = 'variable'
     const variations = item.variations as any[] | undefined
@@ -63,7 +73,17 @@ export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 
     const id = parseInt(item.wooCategoryId, 10)
     if (!isNaN(id) && id > 0) {
       payload.categories = [{ id }]
+    } else if (item.wooProductId) {
+      // Stored category is not a valid WooCommerce id — treat as no category.
+      payload.categories = []
     }
+  } else if (item.wooProductId) {
+    // A previously-linked product saved with no category moves to the store's
+    // default "uncategorized" term. WooCommerce's product data store assigns
+    // `default_product_cat` on any save with no category ids, so an explicit
+    // empty array is the reliable way to clear a stale category. (A brand-new
+    // product with no wooProductId gets uncategorized automatically on POST.)
+    payload.categories = []
   }
   if (item.imageUrl) {
     const src = item.imageUrl.startsWith('http')
@@ -92,7 +112,7 @@ async function resolveWooVenueId(venueId: string): Promise<string> {
   return venue?.sharedWooVenueId ?? venueId
 }
 
-async function getIntegration(venueId: string): Promise<WooIntegration | null> {
+export async function getIntegration(venueId: string): Promise<WooIntegration | null> {
   const wcVenueId = await resolveWooVenueId(venueId)
   return prisma.wooIntegration.findFirst({
     where: { venueId: wcVenueId, isActive: true, deletedAt: null },
@@ -179,8 +199,9 @@ async function wooPost(
 // Push a menu item's name / price / category / image to its linked WooCommerce product.
 // If no wooProductId exists, creates the product on WooCommerce via POST and
 // stores the returned ID. If a PUT fails because the product doesn't exist,
-// falls back to POST creation.
-export async function pushProduct(menuItemId: string): Promise<void> {
+// falls back to POST creation. `opts.status` (e.g. "publish") is sent verbatim —
+// omitted on a normal save so an operator's manual store status is not clobbered.
+export async function pushProduct(menuItemId: string, opts: { status?: string } = {}): Promise<void> {
   try {
     const item = await prisma.menuItem.findFirst({
       where: { id: menuItemId, deletedAt: null },
@@ -199,7 +220,7 @@ export async function pushProduct(menuItemId: string): Promise<void> {
       return
     }
 
-    const payload = buildProductPushPayload(item)
+    const payload = buildProductPushPayload(item, undefined, opts)
 
     // If we have a wooProductId, try PUT first.
     if (item.wooProductId) {
@@ -305,6 +326,156 @@ async function pushVariationPrices(item: NonNullable<Awaited<ReturnType<typeof p
         message: `VARIATION #${v.wooVariationId} (${v.name ?? ''}) PUSH FAILED — HTTP ${res.status}`,
       })
     }
+  }
+}
+
+// Disconnect a menu item from its WooCommerce product: hides the product
+// (status → draft) and moves it to the store's default "uncategorized" term.
+// Called when LINK TO WOO is unticked — the product stays draft and
+// uncategorised until the item is reconnected (which pushes status → publish).
+// Reads the row including soft-deleted ones, because the item is deleted from
+// the menu before this runs.
+export async function pushProductDisconnect(menuItemId: string): Promise<void> {
+  try {
+    const item = await prisma.menuItem.findFirst({ where: { id: menuItemId } })
+    if (!item) return
+
+    if (!item.wooProductId) {
+      await logSync({
+        venueId: item.venueId,
+        direction: 'PUSH',
+        entity: 'PRODUCT',
+        status: 'SKIPPED',
+        message: `DISCONNECT SKIPPED FOR ${item.name} — NO WOOCOMMERCE PRODUCT TO HIDE`,
+      })
+      return
+    }
+
+    const integration = await getIntegration(item.venueId)
+    if (!integration) {
+      await logSync({
+        venueId: item.venueId,
+        direction: 'PUSH',
+        entity: 'PRODUCT',
+        status: 'SKIPPED',
+        message: `DISCONNECT SKIPPED FOR ${item.name} — NO ACTIVE WOOCOMMERCE INTEGRATION`,
+      })
+      return
+    }
+
+    const payload = { ...buildProductPushPayload(item), status: 'draft', categories: [] }
+    const res = await wooPut(integration, `products/${item.wooProductId}`, payload)
+
+    await logSync({
+      venueId: item.venueId,
+      direction: 'PUSH',
+      entity: 'PRODUCT',
+      status: res.ok ? 'SUCCESS' : 'ERROR',
+      externalId: item.wooProductId,
+      message: res.ok
+        ? `DISCONNECTED ${item.name} — PRODUCT #${item.wooProductId} SET TO DRAFT + UNCATEGORISED`
+        : `DISCONNECT PUSH FAILED FOR ${item.name} — HTTP ${res.status}`,
+      detail: { payload, response: res.ok ? undefined : res.body.slice(0, 1000) },
+    })
+  } catch (e) {
+    console.error('pushProductDisconnect failed (non-blocking):', e)
+    await logSync({
+      direction: 'PUSH',
+      entity: 'PRODUCT',
+      status: 'ERROR',
+      message: `DISCONNECT PUSH FAILED — ${String(e)}`,
+    })
+  }
+}
+
+// Push an edited pre-order's line items back to the WooCommerce order. The
+// store replaces the full line set when `line_items` is passed, so this only
+// runs when EVERY line maps to a Woo line id + product id — otherwise a
+// partial push would silently drop the unmappable lines.
+export async function pushOrderItems(orderId: string): Promise<void> {
+  try {
+    const order = await prisma.wooOrder.findFirst({
+      where: { id: orderId, deletedAt: null },
+      include: {
+        items: {
+          include: { menuItem: { select: { wooProductId: true } } },
+        },
+      },
+    })
+    if (!order) return
+
+    if (order.source !== 'WOO' || !order.wooOrderId) {
+      await logSync({
+        venueId: order.venueId,
+        direction: 'PUSH',
+        entity: 'ORDER',
+        status: 'SKIPPED',
+        externalId: order.wooOrderId ?? undefined,
+        message: `LINE ITEM PUSH SKIPPED — ${order.source} ORDER ${order.orderNumber ?? order.id} IS LOCAL-ONLY`,
+      })
+      return
+    }
+
+    const lines = order.items.map((i) => ({
+      lineItemId: i.wooLineItemId,
+      productId: i.menuItem?.wooProductId ?? null,
+      quantity: i.qty,
+    }))
+    if (lines.length === 0) return
+    if (lines.some((l) => !l.lineItemId || !l.productId)) {
+      await logSync({
+        venueId: order.venueId,
+        direction: 'PUSH',
+        entity: 'ORDER',
+        status: 'SKIPPED',
+        externalId: order.wooOrderId,
+        message: `LINE ITEM PUSH SKIPPED FOR ORDER #${order.wooOrderId} — NOT EVERY LINE MAPS TO A WOO PRODUCT (LOCAL-ONLY LINES CANNOT BE REPLACED SAFELY)`,
+      })
+      return
+    }
+
+    const integration = await getIntegration(order.venueId)
+    if (!integration) {
+      await logSync({
+        venueId: order.venueId,
+        direction: 'PUSH',
+        entity: 'ORDER',
+        status: 'SKIPPED',
+        externalId: order.wooOrderId,
+        message: `LINE ITEM PUSH SKIPPED — NO ACTIVE WOOCOMMERCE INTEGRATION FOR VENUE`,
+      })
+      return
+    }
+
+    const payload = {
+      line_items: lines.map((l) => ({
+        id: Number(l.lineItemId),
+        product_id: Number(l.productId),
+        quantity: l.quantity,
+      })),
+      meta_data: selfUpdateMeta(),
+    }
+
+    const res = await wooPut(integration, `orders/${order.wooOrderId}`, payload)
+    await logSync({
+      venueId: order.venueId,
+      direction: 'PUSH',
+      entity: 'ORDER',
+      status: res.ok ? 'SUCCESS' : 'ERROR',
+      externalId: order.wooOrderId,
+      message: res.ok
+        ? `PUSHED LINE ITEMS FOR ORDER #${order.wooOrderId} (${lines.length} LINES)`
+        : `LINE ITEM PUSH FAILED FOR ORDER #${order.wooOrderId} — HTTP ${res.status}`,
+      detail: { payload, response: res.ok ? undefined : res.body.slice(0, 1000) },
+    })
+  } catch (e) {
+    console.error('pushOrderItems failed (non-blocking):', e)
+    await logSync({
+      direction: 'PUSH',
+      entity: 'ORDER',
+      status: 'ERROR',
+      message: `LINE ITEM PUSH FAILED — ${String(e)}`,
+    })
   }
 }
 

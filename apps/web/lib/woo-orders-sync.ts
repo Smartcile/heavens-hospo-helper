@@ -9,6 +9,7 @@ import { resolveCustomer } from '@/lib/customer-match'
 import { autoLinkBooking } from '@/lib/order-booking-link'
 import { formatDateKey } from '@/lib/scheduling'
 import { addMinutesHHMM, slotEndForTime, type ServiceScheduleInput } from '@/lib/service-schedule'
+import { seatPartyOnServicePlan } from '@/lib/service-seating.server'
 import type { PrismaClient, OrderStatus, OrderOpStatus, PaymentStatus } from '@prisma/client'
 
 // ── Shared WooCommerce Order Processing ────────────────────────────────
@@ -161,7 +162,7 @@ export async function processWooOrder(
         if (existing) {
           await tx.wooOrderItem.update({
             where: { id: existing.id },
-            data: { qty, unitPrice, productName: li.name ?? null },
+            data: { qty, unitPrice, productName: li.name ?? null, wooLineItemId: li.id != null ? String(li.id) : undefined },
           })
           keptIds.add(existing.id)
         } else {
@@ -172,6 +173,7 @@ export async function processWooOrder(
               qty,
               unitPrice,
               productName: li.name ?? null,
+              wooLineItemId: li.id != null ? String(li.id) : null,
             },
           })
           keptIds.add(created.id)
@@ -225,6 +227,7 @@ export async function processWooOrder(
             where: { id: orderItem.id },
             data: {
               productName: li.name ?? null,
+              wooLineItemId: li.id != null ? String(li.id) : undefined,
               explodedIngredients: {
                 recipeId: menuItem.recipeId,
                 recipeName: menuItem.recipe?.name,
@@ -243,8 +246,7 @@ export async function processWooOrder(
     try {
       // `wooOrderId` is nullable on the model (manual orders), but this path is
       // only ever reached for a Woo-sourced order — pass the known-good local.
-      await tryAutoSeat({ ...order, wooOrderId }, venueId, partySize, fulfillmentDate)
-    } catch (e) {
+      await tryAutoSeat({ ...order, wooOrderId }, venueId, partySize, fulfillmentDate)    } catch (e) {
       console.error('Auto-seating failed (non-blocking):', e)
       await logSync({
         venueId,
@@ -258,10 +260,11 @@ export async function processWooOrder(
     }
   }
 
-  // The customer chose "book a table too" at checkout — that booking must
-  // exist. No tables are auto-assigned; the venue seats manually.
+  // Dine-in only for now: picking a service date/time at checkout IS the
+  // booking, so every dated non-cancelled order books a table on the service's
+  // plan. Takeaway (order without a booking) comes later — the plugin no longer
+  // offers a "book a table too" choice.
   if (
-    meta.bookTable &&
     !order.bookingId &&
     meta.serviceDate &&
     meta.serviceTime &&
@@ -507,24 +510,64 @@ async function bookTableForOrder(
     }
   }
 
+  const bookingData: any = {
+    venueId,
+    date: serviceDate,
+    startTime: serviceTime,
+    endTime,
+    partySize,
+    contactName: order.customerName ?? 'WOO ORDER',
+    contactPhone: order.customerPhone,
+    contactEmail: order.customerEmail,
+    source: 'WOOCOMMERCE',
+    status: 'CONFIRMED',
+    serviceId: service?.id ?? null,
+  }
+
+  // The service's table plan seats this reservation against the layout's
+  // physical tables — same rules as a phone booking for that service. No plan
+  // (or a plan that can't seat the party) leaves the booking unseated; the
+  // venue seats manually, and the caller's catch logs it as non-blocking.
+  const seat = service
+    ? await seatPartyOnServicePlan({
+        serviceId: service.id,
+        venueId,
+        date: serviceDate,
+        startTime: serviceTime,
+        endTime,
+        partySize,
+      })
+    : null
+
+  if (seat?.ok) {
+    const calEvent = await prisma.calendarEvent.create({
+      data: {
+        venueId,
+        source: 'MANUAL',
+        uid: `booking-${crypto.randomUUID()}`,
+        title: `${(order.customerName ?? 'ORDER').toUpperCase()} — ${partySize} PAX`,
+        startsAt: combineDateTime(serviceDate, serviceTime) ?? serviceDate,
+        endsAt: combineDateTime(serviceDate, endTime) ?? serviceDate,
+        floorPlanSlug: seat.floorPlanSlug || undefined,
+        floorPlanName: seat.setupName,
+      },
+    })
+    bookingData.calendarEventId = calEvent.id
+    bookingData.seatingSetupId = seat.setupId
+    bookingData.tables = { create: seat.itemIds.map((id) => ({ setupItemId: id })) }
+  }
+
   const booking = await prisma.booking.create({
-    data: {
-      venueId,
-      date: serviceDate,
-      startTime: serviceTime,
-      endTime,
-      partySize,
-      contactName: order.customerName ?? 'WOO ORDER',
-      contactPhone: order.customerPhone,
-      contactEmail: order.customerEmail,
-      source: 'WOOCOMMERCE',
-      status: 'CONFIRMED',
-    },
+    data: bookingData,
+    include: { tables: true },
   })
 
   await prisma.wooOrder.update({
     where: { id: order.id },
-    data: { bookingId: booking.id },
+    data: {
+      bookingId: booking.id,
+      ...(bookingData.calendarEventId ? { calendarEventId: bookingData.calendarEventId } : {}),
+    },
   })
 }
 
@@ -649,11 +692,22 @@ async function assignTableNumber(
 }
 
 async function tryAutoSeat(
-  order: { id: string; wooOrderId: string; customerName: string | null; venueId: string },
+  order: { id: string; wooOrderId: string; customerName: string | null; venueId: string; bookTable: boolean; serviceId: string | null },
   venueId: string,
   partySize: number,
   fulfillmentDate: Date,
 ) {
+  // A dated dine-in order seats via its reservation on the service's table plan
+  // (see bookTableForOrder). Building a throwaway layout here too would double
+  // up — skip when the service has a plan; the booking path owns the seating.
+  if (order.serviceId) {
+    const svc = await prisma.service.findUnique({
+      where: { id: order.serviceId },
+      select: { tablePlanSetupId: true },
+    })
+    if (svc?.tablePlanSetupId) return
+  }
+
   const defaultPlan = await prisma.floorPlan.findFirst({
     where: { venueId, isDefault: true, deletedAt: null, isActive: true },
   })

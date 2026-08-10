@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
 import { pushToast } from '@/components/ui/Toast'
 import { OP_STATUS_STYLES } from '@/components/admin/OrdersViews'
 import type { OrderView } from '@/lib/order-views'
@@ -50,22 +51,22 @@ export function OrderDetailDrawer({
   const isWoo = order.source === 'WOO'
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <div className="relative w-full max-w-lg bg-black border-l border-grey-mid overflow-y-auto">
-        <div className="sticky top-0 bg-black border-b border-grey-mid px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="font-mono text-sm text-white font-bold">{order.ref}</span>
-            <span className="font-mono text-[9px] uppercase border border-accent text-accent px-1">
-              {order.source}
-            </span>
-          </div>
-          <button onClick={onClose} className="font-mono text-sm text-grey-light hover:text-white px-2">✕</button>
-        </div>
-
-        <div className="p-4 space-y-4">
-          {/* Allergy first — the safety-critical information */}
-          {(order.allergenNote || order.items.some((i) => i.allergenNote)) && (
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="md"
+      title={
+        <span className="flex items-center gap-2 min-w-0">
+          <span className="font-mono text-sm text-white font-bold">{order.ref}</span>
+          <span className="font-mono text-[9px] uppercase border border-accent text-accent px-1">
+            {order.source}
+          </span>
+        </span>
+      }
+    >
+      <div className="space-y-4">
+        {/* Allergy first — the safety-critical information */}
+        {(order.allergenNote || order.items.some((i) => i.allergenNote)) && (
             <div className="border border-danger p-3 space-y-1">
               <h3 className="font-mono text-xs uppercase text-danger tracking-wider">⚠ ALLERGY REQUIREMENTS</h3>
               {order.allergenNote && (
@@ -238,8 +239,7 @@ export function OrderDetailDrawer({
           <div className="border-t border-grey-mid pt-3">
             <Button size="sm" variant="danger" onClick={remove} disabled={busy}>DELETE ORDER</Button>
           </div>
-        </div>
       </div>
-    </div>
+    </Modal>
   )
 }

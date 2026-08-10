@@ -28,6 +28,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (body.status !== undefined) data.status = body.status
   if (body.notes !== undefined) data.notes = body.notes || null
   if (body.source !== undefined) data.source = body.source
+  if (body.serviceId !== undefined) data.serviceId = body.serviceId || null
 
   if (body.tableIds !== undefined) {
     const ids = Array.isArray(body.tableIds) ? body.tableIds : []

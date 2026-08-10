@@ -20,7 +20,10 @@ export async function GET(req: NextRequest) {
         },
         orderBy: { sortOrder: 'asc' },
       },
-      menuItems: { select: { id: true, price: true, wooProductId: true, wooCategoryId: true, imageUrl: true, shortDescription: true, isVariable: true, variations: true, dietaryInfo: true } },
+      menuItems: {
+        select: { id: true, price: true, wooProductId: true, wooCategoryId: true, imageUrl: true, shortDescription: true, isVariable: true, variations: true, dietaryInfo: true },
+        where: { deletedAt: null },
+      },
     },
     orderBy: { name: 'asc' },
   })

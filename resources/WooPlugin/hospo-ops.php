@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       HOSPO OPS
  * Plugin URI:        https://github.com/Smartcile/heavens-hospo-helper
- * Description:       Dated ordering + table bookings for WooCommerce, driven by your HOSPO OPS venue. Customers pick a service, date, time slot and party size at checkout; "book a table too" creates the reservation in the app. Includes a booking-only widget for pages.
+ * Description:       Dated ordering + table bookings for WooCommerce, driven by your HOSPO OPS venue. Customers pick a service, date, time slot and party size at checkout; picking the date and time IS the booking (dine-in only) and creates the reservation in the app. Includes a booking-only widget for pages.
  * Version:           0.1.0
  * Requires at least: 6.0
  * Requires PHP:      7.4

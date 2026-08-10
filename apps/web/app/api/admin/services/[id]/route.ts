@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { jsonOrNull } from '@/lib/furniture-server'
 
 interface Params { params: { id: string } }
 
@@ -57,6 +58,13 @@ function isValidSlots(slots: SlotInput[]): string | null {
   return null
 }
 
+/** Bookable-times list: every entry must be a valid HH:mm string. */
+function isValidBookableTimes(times: unknown): times is string[] | null | undefined {
+  if (times === null || times === undefined) return true
+  if (!Array.isArray(times)) return false
+  return times.every((t) => typeof t === 'string' && HHMM.test(t))
+}
+
 export async function PUT(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -79,6 +87,27 @@ export async function PUT(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Duplicate exception dates' }, { status: 400 })
   }
 
+  const interval = body.bookingIntervalMinutes !== undefined ? Number(body.bookingIntervalMinutes) : undefined
+  if (interval !== undefined && (!Number.isInteger(interval) || interval < 5 || interval > 120)) {
+    return NextResponse.json({ error: 'Booking interval must be 5-120 minutes' }, { status: 400 })
+  }
+  const bookableTimes = body.bookableTimes !== undefined ? body.bookableTimes : undefined
+  if (!isValidBookableTimes(bookableTimes)) {
+    return NextResponse.json({ error: 'Bookable times must be HH:mm strings' }, { status: 400 })
+  }
+
+  // The table plan must be a layout of the service's own venue — seating
+  // against a foreign venue's tables would silently book someone else's.
+  if (body.tablePlanSetupId) {
+    const setup = await prisma.floorPlanSetup.findFirst({
+      where: { id: body.tablePlanSetupId, deletedAt: null },
+      select: { floorPlan: { select: { venueId: true } } },
+    })
+    if (!setup || setup.floorPlan.venueId !== scoped.service.venueId) {
+      return NextResponse.json({ error: "Table plan must belong to the service's venue" }, { status: 400 })
+    }
+  }
+
   // Slots and exceptions are replaced wholesale — nothing hangs off them.
   const service = await prisma.$transaction(async (tx) => {
     const updated = await tx.service.update({
@@ -91,6 +120,11 @@ export async function PUT(req: NextRequest, { params }: Params) {
         requiresBooking: body.requiresBooking !== undefined ? !!body.requiresBooking : undefined,
         isActive: body.isActive !== undefined ? !!body.isActive : undefined,
         sortOrder: body.sortOrder !== undefined ? Number(body.sortOrder) || 0 : undefined,
+        tablePlanSetupId: body.tablePlanSetupId !== undefined ? body.tablePlanSetupId || null : undefined,
+        bookingIntervalMinutes: interval !== undefined ? interval : undefined,
+        bookableTimes: bookableTimes !== undefined
+          ? jsonOrNull(Array.isArray(bookableTimes) && bookableTimes.length > 0 ? bookableTimes : null)
+          : undefined,
       },
     })
 
