@@ -82,6 +82,31 @@ enum GuideStatus {
   PUBLISHED
 }
 
+// A rostered shift is DRAFT until the manager publishes the week's roster.
+enum ShiftStatus {
+  DRAFT
+  PUBLISHED
+}
+
+// Time clock session approval — only APPROVED sessions count for payroll.
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Who created the clock entry.
+enum ClockSource {
+  WORKER // staff clocked in/out from the worker app
+  ADMIN // manager entered/edited it manually
+}
+
+enum PayFrequency {
+  WEEKLY
+  FORTNIGHTLY
+  MONTHLY
+}
+
 enum FollowUpKind {
   MISSED // a due task wasn't completed
   UNTRAINED // a task was completed by someone without the required training
@@ -152,6 +177,7 @@ model Venue {
   stocktakeRecords    StocktakeRecord[]
   suppliers           Supplier[]
   unitsOfMeasure      UnitOfMeasure[]
+  ingredientReferences IngredientReference[]
   recipes             Recipe[]
   wooIntegrations     WooIntegration[]
   menuItems           MenuItem[]
@@ -162,6 +188,9 @@ model Venue {
   giftCards           GiftCard[]
   timeClocks          TimeClock[]
   payPeriods          PayPeriod[]
+  payrollSettings     PayrollSettings?
+  publicHolidays      PublicHoliday[]
+  alternativeDays     AlternativeDay[]
   syncLogs            SyncLog[]
   staffVenues         StaffVenue[]
   menuItemVenues      MenuItemVenue[]
@@ -231,6 +260,10 @@ model Staff {
   hourlyRate      Float? // pay rate per hour
   employmentType  String? // FULL_TIME | PART_TIME | CASUAL
   defaultVenueId  String? // admin's preferred default venue across all modules
+  // --- NZ payroll (PAYE) fields ---
+  taxCode         String? // M | S | SB | SH | ST | CAE (+ SL variants). Null = venue default.
+  kiwiSaverRate   Float? // 3 | 4 | 6 | 8 | 10 — null = not enrolled
+  studentLoan     Boolean   @default(false) // student loan repayment withheld
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
@@ -252,6 +285,7 @@ model Staff {
   stocktakeAssignments StocktakeRecord[]    @relation("stocktakeAssignedTo")
   timeClocks           TimeClock[]
   payrollEntries       PayrollEntry[]
+  alternativeDays      AlternativeDay[]
   staffVenues          StaffVenue[]
   maintenanceLogs      MaintenanceLog[]
   positions            StaffPosition[]
@@ -555,22 +589,28 @@ model NoticeAck {
 // A rostered shift for a person on a date. Times are local "HH:mm" strings —
 // a shift is "this calendar day, from start to end in venue-local time".
 model Shift {
-  id           String    @id @default(uuid())
+  id           String      @id @default(uuid())
   staffId      String
   venueId      String
   departmentId String?
-  date         DateTime  @db.Date
+  positionId   String? // the job role this shift covers (drives block colour/label)
+  date         DateTime    @db.Date
   startTime    String // "09:00"
   endTime      String // "17:00"
+  breakMinutes Int         @default(0) // rostered unpaid break (minutes)
+  colour       String? // block colour (defaults to the position's colour)
+  tag          String? // free label under the time — e.g. "EVENT", "ALTERNATIVE LEAVE"
+  status       ShiftStatus @default(DRAFT) // DRAFT until the roster week is published
   note         String?
   createdById  String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
   deletedAt    DateTime?
 
   staff      Staff       @relation(fields: [staffId], references: [id])
   venue      Venue       @relation(fields: [venueId], references: [id])
   department Department? @relation(fields: [departmentId], references: [id])
+  position   Position?   @relation(fields: [positionId], references: [id])
 
   @@index([venueId, date])
   @@index([staffId, date])
@@ -680,65 +720,194 @@ model TimeOffRequest {
 // the API layer — not a DB constraint because Prisma doesn't support partial
 // unique indexes).
 model TimeClock {
-  id          String    @id @default(uuid())
-  staffId     String
-  venueId     String
-  clockIn     DateTime
-  clockOut    DateTime? // null until punched out
-  isActive    Boolean   @default(true)
-  clockInLat  Float?
-  clockInLon  Float?
-  clockOutLat Float?
-  clockOutLon Float?
-  geoValid    Boolean   @default(true)
-  note        String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
+  id             String         @id @default(uuid())
+  staffId        String
+  venueId        String
+  clockIn        DateTime
+  clockOut       DateTime? // null until punched out
+  isActive       Boolean        @default(true)
+  clockInLat     Float?
+  clockInLon     Float?
+  clockOutLat    Float?
+  clockOutLon    Float?
+  geoValid       Boolean        @default(true)
+  note           String?
+  source         ClockSource    @default(WORKER)
+  // --- Approval (only APPROVED sessions feed payroll) ---
+  approvalStatus ApprovalStatus @default(PENDING)
+  approvedById   String? // Staff id (no relation — mirrors ShiftNote.authorId)
+  approvedAt     DateTime?
+  rejectedReason String?
+  // --- Breaks: worker-clocked, cached total here so list queries stay cheap ---
+  breaksMinutes  Int            @default(0) // total clocked break minutes (editable by admin)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  deletedAt      DateTime?
 
-  staff Staff @relation(fields: [staffId], references: [id])
-  venue Venue @relation(fields: [venueId], references: [id])
+  staff          Staff            @relation(fields: [staffId], references: [id])
+  venue          Venue            @relation(fields: [venueId], references: [id])
+  breaks         TimeClockBreak[]
+  timeClockEdits TimeClockEdit[]
 
   @@index([staffId, clockIn])
   @@index([venueId, clockIn])
   @@index([isActive])
+  @@index([venueId, approvalStatus])
 }
 
-// A pay cycle for a venue. Entries are calculated when the period is CLOSED.
-model PayPeriod {
-  id        String    @id @default(uuid())
-  venueId   String
-  startDate DateTime  @db.Date
-  endDate   DateTime  @db.Date
-  status    String    @default("OPEN") // OPEN | CLOSED
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+// A worker-clocked break inside a TimeClock session. endAt null = break active.
+// The payroll engine classifies minutes as PAID rest (10-min entitlement) or
+// UNPAID meal (30-min entitlement) against lib/breaks.ts rules.
+model TimeClockBreak {
+  id          String    @id @default(uuid())
+  timeClockId String
+  startAt     DateTime
+  endAt       DateTime? // null until the worker taps BACK
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
 
-  venue   Venue          @relation(fields: [venueId], references: [id])
-  entries PayrollEntry[]
+  timeClock TimeClock @relation(fields: [timeClockId], references: [id], onDelete: Cascade)
+
+  @@index([timeClockId])
+}
+
+// Audit trail for edits to clock entries (the VIEW EDITS modal). Rows are
+// written by the admin API whenever an existing session's times/breaks/note
+// change. editedById is Staff id with no relation (ShiftNote.authorId pattern).
+model TimeClockEdit {
+  id          String   @id @default(uuid())
+  timeClockId String
+  editedById  String?
+  field       String // e.g. "clockIn", "clockOut", "breaksMinutes", "note"
+  oldValue    String?
+  newValue    String?
+  editedAt    DateTime @default(now())
+
+  timeClock TimeClock @relation(fields: [timeClockId], references: [id], onDelete: Cascade)
+
+  @@index([timeClockId])
+}
+
+// A pay cycle for a venue. Entries are calculated when the period is CLOSED
+// (the engine runs over APPROVED clock sessions only; re-closing a CLOSED
+// period deletes old entries and recalculates).
+model PayPeriod {
+  id         String    @id @default(uuid())
+  venueId    String
+  startDate  DateTime  @db.Date
+  endDate    DateTime  @db.Date
+  status     String    @default("OPEN") // OPEN | CLOSED
+  closedById String? // Staff id (no relation)
+  paidAt     DateTime? // when the period was marked PAID
+  note       String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  venue           Venue            @relation(fields: [venueId], references: [id])
+  entries         PayrollEntry[]
+  alternativeDays AlternativeDay[]
 
   @@index([venueId, startDate])
 }
 
 // Per-staff calculated hours for one pay period. Created by the period-closing
 // engine; re-closing a CLOSED period deletes old entries and recalculates.
+// The legacy totalHours/hourlyRate/totalPay columns remain; the NZ breakdown
+// lives in the fields below (grossPay etc.). totalPay mirrors grossPay.
 model PayrollEntry {
-  id          String    @id @default(uuid())
-  payPeriodId String
-  staffId     String
-  totalHours  Float
-  hourlyRate  Float
-  totalPay    Float
-  note        String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
+  id                      String    @id @default(uuid())
+  payPeriodId             String
+  staffId                 String
+  totalHours              Float
+  hourlyRate              Float
+  totalPay                Float
+  // --- NZ statutory breakdown ---
+  ordinaryHours           Float     @default(0) // straight-time hours (incl. paid rest breaks)
+  overtimeHours           Float     @default(0) // contractual overtime hours
+  publicHolidayHours      Float     @default(0) // hours worked on a statutory public holiday
+  grossPay                Float     @default(0) // ordinary + OT + PH (PH at 1.5x)
+  holidayPay              Float     @default(0) // 8% of gross for CASUAL workers (paid out)
+  annualLeaveAccruedHours Float     @default(0) // 4 weeks/yr accrual for permanents (recorded, not paid)
+  alternativeDaysOwed     Int       @default(0) // days in lieu earned this period
+  paye                    Float     @default(0) // PAYE income tax (tax-code aware)
+  accLevy                 Float     @default(0) // ACC earner levy (employee share)
+  kiwiSaverEmployee       Float     @default(0)
+  kiwiSaverEmployer       Float     @default(0) // employer contribution (a cost, not a deduction)
+  studentLoan             Float     @default(0)
+  netPay                  Float     @default(0) // gross + holidayPay - paye - acc - kiwi - sl
+  employerCost            Float     @default(0) // gross + holidayPay + kiwiSaverEmployer + ACC employer (not levied here)
+  breakdown               Json? // per-session detail: [{ date, clockIn, clockOut, hours, type: ORDINARY|OVERTIME|PUBLIC_HOLIDAY, breaksMinutes }]
+  note                    String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  deletedAt               DateTime?
 
   payPeriod PayPeriod @relation(fields: [payPeriodId], references: [id])
   staff     Staff     @relation(fields: [staffId], references: [id])
 
   @@unique([payPeriodId, staffId])
+}
+
+// Per-venue payroll configuration. All statutory rates change annually —
+// the defaults below are current as at 2026 and editable in Settings → Payroll.
+model PayrollSettings {
+  id                    String       @id @default(uuid())
+  venueId               String       @unique
+  payFrequency          PayFrequency @default(WEEKLY)
+  minimumWage           Float        @default(23.50) // NZ adult minimum wage ($/hr)
+  accRate               Float        @default(1.47) // ACC earner levy % (2025/26)
+  kiwiSaverEmployerRate Float        @default(3) // employer KiwiSaver % (min 3)
+  studentLoanRate       Float        @default(12) // student loan repayment %
+  holidayPayPct         Float        @default(8) // casual holiday pay % of gross
+  defaultTaxCode        String       @default("M")
+  overtimeEnabled       Boolean      @default(false) // NZ has no statutory OT — opt-in contract rule
+  overtimeHoursPerWeek  Float        @default(40) // weekly threshold before OT applies
+  overtimeRate          Float        @default(1.5) // OT multiplier
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  venue Venue @relation(fields: [venueId], references: [id])
+}
+
+// A statutory NZ public holiday. venueId null = national default (seeded);
+// venues may add regional anniversary days or one-offs.
+model PublicHoliday {
+  id         String    @id @default(uuid())
+  venueId    String? // null = national
+  date       DateTime  @db.Date
+  name       String
+  isRegional Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  venue Venue? @relation(fields: [venueId], references: [id])
+
+  @@unique([venueId, date])
+  @@index([date])
+}
+
+// A day in lieu (alternative holiday) earned by working a public holiday.
+// owed until takenOn is set.
+model AlternativeDay {
+  id          String    @id @default(uuid())
+  staffId     String
+  venueId     String
+  payPeriodId String? // the period that earned it
+  accruedOn   DateTime  @db.Date // the public holiday date worked
+  takenOn     DateTime? @db.Date // set when the day is taken off
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  staff     Staff      @relation(fields: [staffId], references: [id])
+  venue     Venue      @relation(fields: [venueId], references: [id])
+  payPeriod PayPeriod? @relation(fields: [payPeriodId], references: [id])
+
+  @@index([staffId, takenOn])
+  @@index([venueId])
 }
 
 // ── SHIFT NOTES ──
@@ -970,6 +1139,7 @@ model Position {
   department Department?     @relation(fields: [departmentId], references: [id])
   staff      StaffPosition[]
   pathways   Pathway[]
+  shifts     Shift[]
 
   @@index([venueId])
 }
@@ -1672,6 +1842,12 @@ model InventoryItem {
   shelfLifeDays        Int?
   canFreeze            Boolean   @default(false)
   freezerShelfLifeDays Int?
+  // --- Density (volume ↔ mass ↔ count conversion) ---
+  // densityGramsPerMl: "1 mL of this item weighs X g" — lets recipes convert
+  // CUP/TBSP etc. to GRAMS. weightPerUnitGrams: "1 EA weighs X g" (eggs,
+  // tomatoes, lemons...). Both nullable — absent means no conversion possible.
+  densityGramsPerMl  Float?
+  weightPerUnitGrams Float?
 
   allergyInfo String? // e.g. "GLUTEN, DAIRY, NUTS" for display on recipe ingredients
 
@@ -1823,6 +1999,12 @@ model PaletteDefault {
 
 // --- DEEP INVENTORY: SUPPLIERS & UOM ---
 
+enum UomKind {
+  VOLUME // base unit: mL — "1 CUP = 250 ML"
+  MASS // base unit: g — "1 KILOGRAM = 1000 G"
+  COUNT // base unit: ea — "1 CASE 12 = 12 EA"
+}
+
 model Supplier {
   id        String    @id @default(uuid())
   venueId   String
@@ -1848,6 +2030,7 @@ model UnitOfMeasure {
   name            String
   baseUnit        String
   conversionRatio Float
+  kind            UomKind   @default(COUNT)
   venueId         String?
   isBuiltIn       Boolean   @default(false)
   isActive        Boolean   @default(true)
@@ -1862,6 +2045,29 @@ model UnitOfMeasure {
   recipeYields      Recipe[]           @relation("RecipeYield")
   recipeLineItems   RecipeLineItem[]
   supplierItemCodes SupplierItemCode[]
+
+  @@unique([venueId, name])
+  @@index([venueId])
+}
+
+// A known ingredient with a density — the reference that answers "how many
+// grams is 1 cup of FLOUR - 00?". `densityGramsPerMl` converts volume ↔ mass;
+// `weightPerUnitGrams` converts count → mass (1 EA = 50 G). Built-ins are
+// global (venueId null); venues can add their own.
+model IngredientReference {
+  id                 String   @id @default(uuid())
+  name               String // UPPERCASE — "FLOUR - 00"
+  densityGramsPerMl  Float? // grams per millilitre (1 metric cup = 250 mL)
+  weightPerUnitGrams Float? // grams per single unit (egg, tomato...)
+  notes              String? // "1 CUP ≈ 132G" human summary
+  isBuiltIn          Boolean  @default(false)
+  venueId            String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  deletedAt          DateTime?
+
+  venue Venue? @relation(fields: [venueId], references: [id])
+  recipeLineItems RecipeLineItem[]
 
   @@unique([venueId, name])
   @@index([venueId])
@@ -1914,25 +2120,28 @@ model Recipe {
 }
 
 model RecipeLineItem {
-  id              String   @id @default(uuid())
-  recipeId        String
-  qty             Float
-  uomId           String
-  sortOrder       Int      @default(0)
-  inventoryItemId String?
-  childRecipeId   String?
-  notes           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                    String   @id @default(uuid())
+  recipeId              String
+  qty                   Float
+  uomId                 String
+  sortOrder             Int      @default(0)
+  inventoryItemId       String?
+  childRecipeId         String?
+  ingredientReferenceId String?
+  notes                 String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
-  recipe        Recipe         @relation("ParentRecipe", fields: [recipeId], references: [id])
-  uom           UnitOfMeasure  @relation(fields: [uomId], references: [id])
-  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id])
-  childRecipe   Recipe?        @relation("ChildRecipe", fields: [childRecipeId], references: [id])
+  recipe               Recipe               @relation("ParentRecipe", fields: [recipeId], references: [id])
+  uom                  UnitOfMeasure        @relation(fields: [uomId], references: [id])
+  inventoryItem        InventoryItem?       @relation(fields: [inventoryItemId], references: [id])
+  childRecipe          Recipe?              @relation("ChildRecipe", fields: [childRecipeId], references: [id])
+  ingredientReference  IngredientReference? @relation(fields: [ingredientReferenceId], references: [id])
 
   @@index([recipeId])
   @@index([inventoryItemId])
   @@index([childRecipeId])
+  @@index([ingredientReferenceId])
 }
 
 // --- WOOCOMMERCE & MENU MAPPING ---
@@ -2011,24 +2220,24 @@ model MenuItemVenue {
 // existing MenuItems and carries the ordering rules for them. A MenuItem can
 // appear on several menus with different limits on each.
 model Menu {
-  id          String    @id @default(uuid())
-  venueId     String
-  name        String
-  description String?
+  id            String    @id @default(uuid())
+  venueId       String
+  name          String
+  description   String?
   // Headcount range the menu is offered for (e.g. catering from 20 to 150).
   // Null on either side means unbounded in that direction.
-  minPax      Int?
-  maxPax      Int?
-  isActive    Boolean   @default(true)
-  sortOrder   Int       @default(0)
+  minPax        Int?
+  maxPax        Int?
+  isActive      Boolean   @default(true)
+  sortOrder     Int       @default(0)
   // The WooCommerce category this menu is synced to. Menus and categories are
   // the same thing: creating a menu creates/links the store category, and an
   // item's wooCategoryId mirrors the categories of the menus it is on. Null
   // when the venue has no active WooCommerce integration.
   wooCategoryId String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
 
   venue  Venue          @relation(fields: [venueId], references: [id])
   items  MenuMenuItem[]
@@ -2087,17 +2296,17 @@ model OrderView {
 // one-off `ServiceException` dates). The WooCommerce plugin renders these as
 // the checkout options; the app is the single source of truth for the schedule.
 model Service {
-  id               String    @id @default(uuid())
-  venueId          String
-  name             String // "FRIDAY MENU"
-  description      String?
-  wooCategoryId    String? // numeric Woo category id — the menu for this service
-  wooCategoryName  String? // denormalised for display in the plugin
-  requiresBooking  Boolean   @default(false) // book-a-table mandatory for this service
+  id                     String    @id @default(uuid())
+  venueId                String
+  name                   String // "FRIDAY MENU"
+  description            String?
+  wooCategoryId          String? // numeric Woo category id — the menu for this service
+  wooCategoryName        String? // denormalised for display in the plugin
+  requiresBooking        Boolean   @default(false) // book-a-table mandatory for this service
   /// The FloorPlanSetup whose tables seat bookings/orders for this service.
   /// When set, seating resolves against these physical tables instead of the
   /// default layout or a per-order generated one.
-  tablePlanSetupId String?
+  tablePlanSetupId       String?
   /// Step (minutes) between bookable start times. The service window stays
   /// the full service length (walk-ins → last calls → clock-out); this only
   /// controls which start times accept bookings. 15 is the default.
@@ -2106,11 +2315,11 @@ model Service {
   /// interval-generated grid when set. e.g. ["17:00","18:00"] books only the
   /// 5pm and 6pm starts of a 17:00–21:00 service.
   bookableTimes          Json?
-  isActive         Boolean   @default(true)
-  sortOrder        Int       @default(0)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  deletedAt        DateTime?
+  isActive               Boolean   @default(true)
+  sortOrder              Int       @default(0)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  deletedAt              DateTime?
 
   venue          Venue              @relation(fields: [venueId], references: [id])
   slots          ServiceSlot[]

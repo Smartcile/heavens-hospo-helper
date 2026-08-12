@@ -1,0 +1,19 @@
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
+import { cookies } from 'next/headers'
+import { TeamClient } from '@/components/admin/TeamClient'
+
+export default async function TeamPage() {
+  const session = await getServerSession(authOptions)
+  if (!session) return null
+
+  const activeVenueId = cookies().get('admin-active-venue')?.value ?? session.user.defaultVenueId ?? undefined
+
+  return (
+    <TeamClient
+      role={session.user.role}
+      sessionVenueId={session.user.venueId}
+      defaultVenueId={activeVenueId}
+    />
+  )
+}

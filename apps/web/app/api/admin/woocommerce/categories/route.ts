@@ -5,16 +5,20 @@ import { prisma } from '@hospo-ops/db'
 import { fetchWooCategories } from '@/lib/woo-sync'
 import { ensureWooCategory } from '@/lib/woo-categories'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const baseVenueId = session.user.role === 'MANAGER'
+    ? session.user.venueId
+    : (req.nextUrl.searchParams.get('venueId') || session.user.venueId)
+
   // Resolve shared Woo venue
   const venue = await prisma.venue.findUnique({
-    where: { id: session.user.venueId, deletedAt: null },
+    where: { id: baseVenueId, deletedAt: null },
     select: { sharedWooVenueId: true },
   })
-  const wcVenueId = venue?.sharedWooVenueId ?? session.user.venueId
+  const wcVenueId = venue?.sharedWooVenueId ?? baseVenueId
 
   const integration = await prisma.wooIntegration.findFirst({
     where: { venueId: wcVenueId, isActive: true, deletedAt: null },
@@ -39,11 +43,13 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name } = await req.json()
+  const { name, venueId: bodyVenueId } = await req.json()
   const trimmed = String(name ?? '').toUpperCase().trim()
   if (!trimmed) return NextResponse.json({ error: 'name is required' }, { status: 400 })
 
-  const id = await ensureWooCategory(session.user.venueId, trimmed)
+  const baseVenueId = session.user.role === 'MANAGER' ? session.user.venueId : (bodyVenueId || session.user.venueId)
+
+  const id = await ensureWooCategory(baseVenueId, trimmed)
   if (!id) {
     return NextResponse.json(
       { error: 'Category not created — check the WooCommerce integration' },

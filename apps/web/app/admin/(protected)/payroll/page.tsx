@@ -1,14 +1,5 @@
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
-import { PayrollClient } from '@/components/admin/PayrollClient'
+import { hubRedirect } from '@/lib/ops-redirect'
 
-export default async function PayrollPage() {
-  const session = await getServerSession(authOptions)
-  return (
-    <PayrollClient
-      role={session?.user?.role ?? ''}
-      sessionVenueId={session?.user?.venueId ?? ''}
-      defaultVenueId={session?.user?.defaultVenueId ?? undefined}
-    />
-  )
+export default function PayrollPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
+  hubRedirect('/admin/team', 'payroll', null, searchParams)
 }

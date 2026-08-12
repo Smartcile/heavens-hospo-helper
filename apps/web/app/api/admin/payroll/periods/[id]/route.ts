@@ -8,16 +8,31 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const period = await prisma.payPeriod.findUnique({ where: { id: params.id } })
+  const period = await prisma.payPeriod.findUnique({
+    where: { id: params.id },
+    include: { alternativeDays: { select: { id: true, staffId: true, accruedOn: true, takenOn: true } } },
+  })
   if (!period || period.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const entries = await prisma.payrollEntry.findMany({
     where: { payPeriodId: params.id, deletedAt: null },
-    include: { staff: { select: { firstName: true, lastName: true, employmentType: true } } },
+    include: {
+      staff: {
+        select: {
+          firstName: true,
+          lastName: true,
+          employmentType: true,
+          taxCode: true,
+          kiwiSaverRate: true,
+          studentLoan: true,
+          hourlyRate: true,
+        },
+      },
+    },
     orderBy: { totalPay: 'desc' },
   })
 
-  return NextResponse.json(entries)
+  return NextResponse.json({ period, entries })
 }
 
 export async function PUT(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -31,9 +46,27 @@ export async function PUT(_req: NextRequest, { params }: { params: { id: string 
 
   const startDate = new Date(period.startDate)
   const endDate = new Date(period.endDate)
-  endDate.setHours(23, 59, 59, 999)
 
-  const count = await generatePayPeriod(params.id, period.venueId, startDate, endDate)
+  const count = await generatePayPeriod(params.id, period.venueId, startDate, endDate, session.user.id)
 
   return NextResponse.json({ success: true, entryCount: count })
+}
+
+// Mark a CLOSED period as PAID (the final stamp in the workflow).
+export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER')
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const period = await prisma.payPeriod.findUnique({ where: { id: params.id } })
+  if (!period || period.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (period.status !== 'CLOSED') return NextResponse.json({ error: 'CLOSE THE PERIOD FIRST' }, { status: 409 })
+
+  const updated = await prisma.payPeriod.update({
+    where: { id: params.id },
+    data: { paidAt: new Date() },
+  })
+
+  return NextResponse.json(updated)
 }

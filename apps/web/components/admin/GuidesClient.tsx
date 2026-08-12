@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
-import { Modal } from '@/components/ui/Modal'
+import { Drawer } from '@/components/ui/Drawer'
 import { Badge } from '@/components/ui/Badge'
 import { Combobox, ComboboxHandle } from '@/components/ui/Combobox'
 import { getActiveVenueId } from '@/lib/active-venue'
@@ -443,7 +443,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
         </div>
       )}
 
-      <Modal isOpen={open} onClose={() => setOpen(false)} title={editing ? 'EDIT GUIDE' : 'NEW GUIDE'} size="lg">
+      <Drawer isOpen={open} onClose={() => setOpen(false)} title={editing ? 'EDIT GUIDE' : 'NEW GUIDE'} width="lg">
         <div className="space-y-4">
           <Input label="Title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="HOW TO CLEAN THE COFFEE MACHINE" />
           <Textarea label="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} />
@@ -613,7 +613,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
             <Button variant="ghost" onClick={() => setOpen(false)}>CANCEL</Button>
           </div>
         </div>
-      </Modal>
+      </Drawer>
     </div>
   )
 }

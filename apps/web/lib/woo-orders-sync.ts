@@ -10,6 +10,7 @@ import { autoLinkBooking } from '@/lib/order-booking-link'
 import { formatDateKey } from '@/lib/scheduling'
 import { addMinutesHHMM, slotEndForTime, type ServiceScheduleInput } from '@/lib/service-schedule'
 import { seatPartyOnServicePlan } from '@/lib/service-seating.server'
+import { withSeatLock } from '@/lib/seat-lock'
 import type { PrismaClient, OrderStatus, OrderOpStatus, PaymentStatus } from '@prisma/client'
 
 // ── Shared WooCommerce Order Processing ────────────────────────────────
@@ -473,6 +474,9 @@ export async function runOrderPull(venueId?: string): Promise<OrderPullResult[]>
  * too"). The slot's own end time is used when the service has one for that
  * time; otherwise the booking is 90 minutes. Never assigns tables — seating
  * stays manual.
+ *
+ * Runs under a per venue+service+date lock: two webhooks arriving at once
+ * must not both read an empty occupancy set and seat the same table.
  */
 async function bookTableForOrder(
   order: { id: string; customerName: string | null; customerEmail: string | null; customerPhone: string | null },
@@ -484,90 +488,100 @@ async function bookTableForOrder(
   const serviceDate = meta.serviceDate as Date
   const serviceTime = meta.serviceTime as string
 
-  let endTime = addMinutesHHMM(serviceTime, 90)
-  if (service) {
-    const svc = await prisma.service.findUnique({
-      where: { id: service.id },
-      include: { slots: true, exceptions: true },
+  return withSeatLock(`seat:${venueId}:${service?.id ?? 'none'}:${formatDateKey(serviceDate)}`, async () => {
+    // A re-delivered webhook or an order.updated racing us may have already
+    // booked this order while we waited — never create a second booking.
+    const fresh = await prisma.wooOrder.findUnique({
+      where: { id: order.id },
+      select: { bookingId: true },
     })
-    if (svc) {
-      const input: ServiceScheduleInput = {
-        slots: svc.slots.map((s) => ({
-          dayOfWeek: s.dayOfWeek,
-          startTime: s.startTime,
-          endTime: s.endTime,
-          maxCovers: s.maxCovers,
-        })),
-        exceptions: svc.exceptions.map((e) => ({
-          date: e.date.toISOString().slice(0, 10),
-          closed: e.closed,
-          startTime: e.startTime,
-          endTime: e.endTime,
-          maxCovers: e.maxCovers,
-        })),
-      }
-      endTime = slotEndForTime(input, formatDateKey(serviceDate), serviceTime) ?? endTime
-    }
-  }
+    if (fresh?.bookingId) return
 
-  const bookingData: any = {
-    venueId,
-    date: serviceDate,
-    startTime: serviceTime,
-    endTime,
-    partySize,
-    contactName: order.customerName ?? 'WOO ORDER',
-    contactPhone: order.customerPhone,
-    contactEmail: order.customerEmail,
-    source: 'WOOCOMMERCE',
-    status: 'CONFIRMED',
-    serviceId: service?.id ?? null,
-  }
-
-  // The service's table plan seats this reservation against the layout's
-  // physical tables — same rules as a phone booking for that service. No plan
-  // (or a plan that can't seat the party) leaves the booking unseated; the
-  // venue seats manually, and the caller's catch logs it as non-blocking.
-  const seat = service
-    ? await seatPartyOnServicePlan({
-        serviceId: service.id,
-        venueId,
-        date: serviceDate,
-        startTime: serviceTime,
-        endTime,
-        partySize,
+    let endTime = addMinutesHHMM(serviceTime, 90)
+    if (service) {
+      const svc = await prisma.service.findUnique({
+        where: { id: service.id },
+        include: { slots: true, exceptions: true },
       })
-    : null
+      if (svc) {
+        const input: ServiceScheduleInput = {
+          slots: svc.slots.map((s) => ({
+            dayOfWeek: s.dayOfWeek,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            maxCovers: s.maxCovers,
+          })),
+          exceptions: svc.exceptions.map((e) => ({
+            date: e.date.toISOString().slice(0, 10),
+            closed: e.closed,
+            startTime: e.startTime,
+            endTime: e.endTime,
+            maxCovers: e.maxCovers,
+          })),
+        }
+        endTime = slotEndForTime(input, formatDateKey(serviceDate), serviceTime) ?? endTime
+      }
+    }
 
-  if (seat?.ok) {
-    const calEvent = await prisma.calendarEvent.create({
+    const bookingData: any = {
+      venueId,
+      date: serviceDate,
+      startTime: serviceTime,
+      endTime,
+      partySize,
+      contactName: order.customerName ?? 'WOO ORDER',
+      contactPhone: order.customerPhone,
+      contactEmail: order.customerEmail,
+      source: 'WOOCOMMERCE',
+      status: 'CONFIRMED',
+      serviceId: service?.id ?? null,
+    }
+
+    // The service's table plan seats this reservation against the layout's
+    // physical tables — same rules as a phone booking for that service. No
+    // plan (or a plan that can't seat the party) leaves the booking unseated;
+    // the venue seats manually, and the caller's catch logs it as non-blocking.
+    const seat = service
+      ? await seatPartyOnServicePlan({
+          serviceId: service.id,
+          venueId,
+          date: serviceDate,
+          startTime: serviceTime,
+          endTime,
+          partySize,
+        })
+      : null
+
+    if (seat?.ok) {
+      const calEvent = await prisma.calendarEvent.create({
+        data: {
+          venueId,
+          source: 'MANUAL',
+          uid: `booking-${crypto.randomUUID()}`,
+          title: `${(order.customerName ?? 'ORDER').toUpperCase()} — ${partySize} PAX`,
+          startsAt: combineDateTime(serviceDate, serviceTime) ?? serviceDate,
+          endsAt: combineDateTime(serviceDate, endTime) ?? serviceDate,
+          floorPlanSlug: seat.floorPlanSlug || undefined,
+          floorPlanName: seat.setupName,
+        },
+      })
+      bookingData.calendarEventId = calEvent.id
+      bookingData.seatingSetupId = seat.setupId
+      bookingData.tables = { create: seat.itemIds.map((id) => ({ setupItemId: id })) }
+    }
+
+    const booking = await prisma.booking.create({
+      data: bookingData,
+      include: { tables: true },
+    })
+
+    await prisma.wooOrder.update({
+      where: { id: order.id },
       data: {
-        venueId,
-        source: 'MANUAL',
-        uid: `booking-${crypto.randomUUID()}`,
-        title: `${(order.customerName ?? 'ORDER').toUpperCase()} — ${partySize} PAX`,
-        startsAt: combineDateTime(serviceDate, serviceTime) ?? serviceDate,
-        endsAt: combineDateTime(serviceDate, endTime) ?? serviceDate,
-        floorPlanSlug: seat.floorPlanSlug || undefined,
-        floorPlanName: seat.setupName,
+        bookingId: booking.id,
+        ...(bookingData.calendarEventId ? { calendarEventId: bookingData.calendarEventId } : {}),
       },
     })
-    bookingData.calendarEventId = calEvent.id
-    bookingData.seatingSetupId = seat.setupId
-    bookingData.tables = { create: seat.itemIds.map((id) => ({ setupItemId: id })) }
-  }
-
-  const booking = await prisma.booking.create({
-    data: bookingData,
-    include: { tables: true },
-  })
-
-  await prisma.wooOrder.update({
-    where: { id: order.id },
-    data: {
-      bookingId: booking.id,
-      ...(bookingData.calendarEventId ? { calendarEventId: bookingData.calendarEventId } : {}),
-    },
   })
 }
 

@@ -1004,6 +1004,39 @@ async function main() {
     ],
   })
 
+  // ─── Phase 10: NZ statutory public holidays (national defaults) ─────
+  // venueId null = national default. Regional anniversary days are left to
+  // each venue to add (Settings-less: Payroll → PUBLIC HOLIDAYS).
+  const nationalHolidays: { date: string; name: string }[] = [
+    { date: '2026-01-01', name: 'NEW YEAR\'S DAY' },
+    { date: '2026-01-02', name: 'DAY AFTER NEW YEAR\'S DAY' },
+    { date: '2026-02-06', name: 'WAITANGI DAY' },
+    { date: '2026-04-03', name: 'GOOD FRIDAY' },
+    { date: '2026-04-06', name: 'EASTER MONDAY' },
+    { date: '2026-04-25', name: 'ANZAC DAY' },
+    { date: '2026-06-01', name: 'QUEEN\'S BIRTHDAY' },
+    { date: '2026-10-26', name: 'LABOUR DAY' },
+    { date: '2026-12-25', name: 'CHRISTMAS DAY' },
+    { date: '2026-12-28', name: 'BOXING DAY (OBSERVED)' },
+    { date: '2027-01-01', name: 'NEW YEAR\'S DAY' },
+    { date: '2027-01-04', name: 'DAY AFTER NEW YEAR\'S DAY (OBSERVED)' },
+    { date: '2027-02-08', name: 'WAITANGI DAY (OBSERVED)' },
+    { date: '2027-03-26', name: 'GOOD FRIDAY' },
+    { date: '2027-03-29', name: 'EASTER MONDAY' },
+    { date: '2027-04-25', name: 'ANZAC DAY' },
+    { date: '2027-06-07', name: 'KING\'S BIRTHDAY' },
+    { date: '2027-10-25', name: 'LABOUR DAY' },
+    { date: '2027-12-25', name: 'CHRISTMAS DAY' },
+    { date: '2027-12-27', name: 'BOXING DAY (OBSERVED)' },
+  ]
+  for (const h of nationalHolidays) {
+    await prisma.publicHoliday.upsert({
+      where: { venueId_date: { venueId: null, date: new Date(`${h.date}T00:00:00Z`) } },
+      update: { name: h.name },
+      create: { venueId: null, date: new Date(`${h.date}T00:00:00Z`), name: h.name },
+    })
+  }
+
   console.log('Seed complete.')
   console.log(`Demo venue: ${demoVenue.name} [isDemo=${demoVenue.isDemo}, isActive=${demoVenue.isActive}]`)
   console.log('')

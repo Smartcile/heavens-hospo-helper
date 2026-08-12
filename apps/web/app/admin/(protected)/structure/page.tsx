@@ -1,8 +1,5 @@
-import { StructureClient } from '@/components/admin/StructureClient'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { hubRedirect } from '@/lib/ops-redirect'
 
-export default async function StructurePage() {
-  const session = await getServerSession(authOptions)
-  return <StructureClient role={session!.user.role} />
+export default function StructurePage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
+  hubRedirect('/admin/settings', 'structure', null, searchParams)
 }

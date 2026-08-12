@@ -1,5 +1,5 @@
-import { MenusClient } from '@/components/admin/MenusClient'
+import { hubRedirect } from '@/lib/ops-redirect'
 
-export default function MenusPage() {
-  return <MenusClient />
+export default function MenusPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
+  hubRedirect('/admin/ops', 'menu', 'menus', searchParams)
 }

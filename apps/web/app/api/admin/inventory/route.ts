@@ -37,10 +37,12 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrls, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId, shelfLifeDays, canFreeze, freezerShelfLifeDays } = await req.json()
+  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrls, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId, shelfLifeDays, canFreeze, freezerShelfLifeDays, densityGramsPerMl, weightPerUnitGrams, venueId: bodyVenueId } = await req.json()
   if (!name || !categoryId) {
     return NextResponse.json({ error: 'name and categoryId are required' }, { status: 400 })
   }
+
+  const venueId = session.user.role === 'MANAGER' ? session.user.venueId : (bodyVenueId || session.user.venueId)
 
   function computeNextService() {
     if (nextServiceAt) return new Date(nextServiceAt)
@@ -54,7 +56,7 @@ export async function POST(req: NextRequest) {
 
   const item = await prisma.inventoryItem.create({
     data: {
-      venueId: session.user.venueId,
+      venueId,
       name: name.toUpperCase().trim(),
       categoryId,
       unit: unit ?? 'EA',
@@ -87,6 +89,8 @@ export async function POST(req: NextRequest) {
       shelfLifeDays: shelfLifeDays ? parseInt(String(shelfLifeDays)) || null : null,
       canFreeze: !!canFreeze,
       freezerShelfLifeDays: freezerShelfLifeDays ? parseInt(String(freezerShelfLifeDays)) || null : null,
+      densityGramsPerMl: densityGramsPerMl != null && densityGramsPerMl !== '' ? parseFloat(String(densityGramsPerMl)) : null,
+      weightPerUnitGrams: weightPerUnitGrams != null && weightPerUnitGrams !== '' ? parseFloat(String(weightPerUnitGrams)) : null,
     },
   })
   return NextResponse.json(item, { status: 201 })

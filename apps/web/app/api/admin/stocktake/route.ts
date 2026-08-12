@@ -7,8 +7,12 @@ export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const where: any = { deletedAt: null, venueId: session.user.venueId }
-  if (session.user.role === 'ADMIN') delete where.venueId
+  const venueId = session.user.role === 'MANAGER'
+    ? session.user.venueId
+    : (new URL(req.url).searchParams.get('venueId') || undefined)
+
+  const where: any = { deletedAt: null }
+  if (venueId) where.venueId = venueId
 
   const records = await prisma.stocktakeRecord.findMany({
     where,
@@ -26,12 +30,14 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { date, assignedRoleId, assignedStaffId, notes } = await req.json()
+  const { date, assignedRoleId, assignedStaffId, notes, venueId: bodyVenueId } = await req.json()
   if (!date) return NextResponse.json({ error: 'date is required' }, { status: 400 })
+
+  const venueId = session.user.role === 'MANAGER' ? session.user.venueId : (bodyVenueId || session.user.venueId)
 
   const record = await prisma.stocktakeRecord.create({
     data: {
-      venueId: session.user.venueId,
+      venueId,
       date: new Date(date),
       assignedRoleId: assignedRoleId ?? null,
       assignedStaffId: assignedStaffId ?? null,
@@ -41,7 +47,7 @@ export async function POST(req: NextRequest) {
   })
 
   const items = await prisma.inventoryItem.findMany({
-    where: { venueId: session.user.venueId, deletedAt: null },
+    where: { venueId, deletedAt: null },
     include: {
       elements: { where: { element: { deletedAt: null } }, select: { quantity: true } },
     },

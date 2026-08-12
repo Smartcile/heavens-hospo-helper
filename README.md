@@ -183,12 +183,13 @@ Venue → Department → Section → tasks + training/SOPs/FAQs → completion �
 - **Sections** (bar / coffee / cabinet / floor under a department) and **follow-up
   triggers** are built: a missed or incorrectly-done task auto-assigns its training,
   and a task done by an untrained person prompts a manager to upskill
-  (`/admin/followups`).
+  (`/admin/execution?tab=followups`).
 
-**See it live:** open **Admin → Structure** (`/admin/structure`). The **TREE** tab
-shows a collapsible tree of how your venues, departments, staff, tasks and training
-are linked; the **MAP** tab is an interactive link graph for mapping out workflows —
-click any node to trace how lists talk to tasks and training/SOP.
+**See it live:** open **Admin → Setup & Config → Settings → STRUCTURE**
+(`/admin/settings?tab=structure`). The **TREE** tab shows a collapsible tree of how
+your venues, departments, staff, tasks and training are linked; the **MAP** tab is an
+interactive link graph for mapping out workflows — click any node to trace how lists
+talk to tasks and training/SOP.
 
 The full model and the build plan are documented in
 [`ECOSYSTEM.md`](./ECOSYSTEM.md).
@@ -204,7 +205,7 @@ per-corner rounding, bracket chairs, section assignment, capacities, undo/redo, 
 furniture layouts (e.g. "WEDDING RECEPTION", "CONFERENCE"). Each setup can have its own table
 arrangement, saved independently from the base plan. Switch between setups in the toolbar.
 
-**Table Profiles & BOM:** Define table types at **Admin → Inventory → TABLES**. Each profile has
+**Table Profiles & BOM:** Define table types at **Admin → OPS HUB → INVENTORY & STOCKTAKE → INVENTORY → TABLES**. Each profile has
 dimensions, colour, seat count, seating density (cm per chair), head chair caps, and a Bill of
 Materials (BOM) — linking to inventory items with per-chair or per-table quantities. Physical
 table numbers (e.g. "20", "21") are managed via tag input and auto-assigned on placement.
@@ -215,7 +216,7 @@ locks** so you only move furniture. Deselect the setup to edit the base plan aga
 Rubber-band lasso selection works across the canvas.
 
 **Direct-manipulation tables:** Tables are created and managed from the **inventory module**
-(`/admin/inventory` → TABLES category). Select a table on the canvas to **rotate via a drag
+(`/admin/ops?tab=inventory&sub=inventory` → TABLES category). Select a table on the canvas to **rotate via a drag
 handle** (or the preset angle buttons) and set chairs by **clicking the table's edges** —
 left-click adds a chair to that side, right-click removes one, up to the profile's capacity
 and head-of-table caps. Delete key or the panel button removes tables.
@@ -242,8 +243,7 @@ management, SectionBoundary CRUD, and worker setup views.
 
 ### BUDGET SPLITTER
 
-The app includes a weighted, multi-category monthly budget tool. Go to **Admin → Budget**
-(or **Finance → Budget** in the sidebar) to set up monthly budgets per venue.
+The app includes a weighted, multi-category monthly budget tool. Go to **Admin → Performance → Budget**
 
 **Landing page** (`/admin/budget`) shows a 12-month grid — click any month to open its
 full editor at `/admin/budget/[year]/[month]`.
@@ -271,21 +271,80 @@ against actual working days and applies post-rounding correction so the total ne
 below budget.
 
 
-The app includes a full inventory management system. Go to **Admin → Inventory** to create
+The app includes a full inventory management system. Go to **Admin → OPS HUB → INVENTORY & STOCKTAKE** to create
 categories (7 built-in + custom per venue) and items with par levels. Furniture items are
 linked to Table Profiles via BOM (Bill of Materials) — each table type defines which
-inventory items it requires and in what quantities. **Admin → Table Profiles** manages
-the profile definitions. **Admin → Stocktake** creates stock counts, assigns them to a
-role or staff member, and tracks variance on sign-off. Staff complete stocktakes on their
-phone at **Menu → Stocktake** with a scrollable count list. The dashboard shows par level
-alerts for items below threshold. The **STOCK** tab in the inventory page shows a
-hierarchy tree (Section → Table → Inventory Items).
+inventory items it requires and in what quantities (defined in the INVENTORY tab's TABLES
+category). **Admin → OPS HUB → INVENTORY & STOCKTAKE → STOCKTAKE** creates stock counts,
+assigns them to a role or staff member, and tracks variance on sign-off. Staff complete
+stocktakes on their phone at **Menu → Stocktake** with a scrollable count list. The dashboard
+shows par level alerts for items below threshold. The **STOCK** tab in the inventory page
+shows a hierarchy tree (Section → Table → Inventory Items).
+
+### UNITS OF MEASURE — VOLUME ↔ WEIGHT ↔ COUNT
+
+Every unit of measure knows its dimension (**VOLUME** / **MASS** / **COUNT**) and converts
+to a canonical base (mL / g / ea) — CUP = 250 mL, TABLESPOON = 20 mL, TEASPOON = 5 mL,
+OUNCE = 28.35 g, POUND = 453.6 g and so on. An ingredient can carry a **density**
+(grams per mL) and a **per-unit weight** (1 egg ≈ 50 g), so the software can answer
+*"how many grams is 1 cup of flour?"* — per ingredient, not per unit (1 cup flour ≈ 132 g,
+1 cup sugar ≈ 211 g).
+
+**Setting it up is easy:**
+- **Admin → OPS HUB → INVENTORY & STOCKTAKE → edit an item → DENSITY** box: type a density (G/ML), or the friendlier
+  **"1 CUP = ___ G"** (e.g. 132) and the g/mL is computed for you, or **1 UNIT = ___ G**.
+- Typing a name auto-suggests the built-in library (86 known ingredients — FLOUR - 00,
+  FLOUR - SELF RAISING, sugars, dairy, oils, produce...): click **APPLY DENSITY?** and it
+  fills itself. **FROM LIBRARY** opens the searchable list; venues can save their own
+  items as references.
+- **HELP ME FIND OUT** opens a copy-paste prompt customised for the item — paste it into
+  any LLM, paste the answer back, and the density is filled in automatically.
+
+**On the Recipes page** (**Admin → OPS HUB → MENU & SERVICES → RECIPES**) the INGREDIENTS list has a **VOLUME / WEIGHT** switch — flip to
+WEIGHT and every line shows its gram equivalent (e.g. "×2 CUP · ≈ 264 G"). Changing a
+line's unit auto-converts the quantity, so the recipe stays the same physically. Recipe
+explosions (inventory deduction) now sum in grams whenever the item has density data,
+so a recipe using both 1 CUP and 500 G of the same item adds correctly.
+
+### STAFF CLOCKS, ROSTER & NZ PAYROLL
+
+Three **Roster & Pay** pages (**Admin → Team & Execution → Roster & Pay**) cover the
+staff-cost workflow end to end:
+
+**Staff Clocks** (`/admin/team?tab=clocks`) — a per-day table of every clock-in/out session:
+TEAM MEMBER, ROLE, WHEN IN/OUT, BREAKS, TIME WORKED and RATE. Sessions arrive as
+**PENDING** and are **APPROVED / REJECTED** by a manager; only APPROVED, closed
+sessions count toward payroll. SHOW DELETED CLOCKS, VIEW EDITS (audit trail of every
+change), + ADD CLOCK for manual entries, and the same date navigation as Orders.
+
+**Roster Editor** (`/admin/team?tab=roster`) — a staff × 7-day grid of coloured shift blocks
+(time range + role/tag). DAY/WEEK view, filter by role, search, `< TODAY >` navigation,
+PRINT (A4 PDF), fullscreen, and a PUBLISH/DRAFT status — workers only see **PUBLISHED**
+shifts on their phone. The footer shows TOTAL COST, BUDGETED SALES (from the Budget
+module's daily REVENUE allocations), STAFFING RATIO and TOTAL PAID HOURS; ANALYZE and
+VISUALIZE open per-role and per-day breakdowns. Approved time-off requests visibly
+block day cells so nobody gets rostered onto their day off.
+
+**Payroll** (`/admin/team?tab=payroll`) — create pay periods (weekly / fortnightly / monthly),
+then **CLOSE PERIOD** runs the built-in NZ statutory engine over approved clocks:
+PAYE income tax (progressive brackets, tax-code aware M/S/SB/SH/ST/CAE + student loan
+variants), ACC earner levy, KiwiSaver (employee 3–10% + employer contribution), student
+loan repayments, **8% holiday pay for casuals** (paid out each period) vs **annual leave
+accrual** for permanent staff, **public holidays at 1.5× with an alternative day
+(day-in-lieu) ledger**, a minimum-wage floor, and optional contractual overtime.
+Per-staff PAYSLIP breakdowns, CSV export, a seeded national public-holiday list
+(editable per venue), and a SETTINGS tab — all statutory rates are configurable because
+they change annually.
+
+**Workers** clock in/out and take BREAK/BACK breaks from their phone; clocked break
+minutes deduct from paid time, and the payroll engine splits them into paid rest
+(10-min) vs unpaid meal (30-min) breaks per NZ entitlement.
 
 ---
 
 ## HOW TO GENERATE AND PRINT A QR CODE
 
-1. Go to **Admin → QR Codes**
+1. Go to **Admin → Setup & Config → Settings → QR CODES**
 2. Click **+ GENERATE QR CODE**
 3. Select the venue and optionally a department
 4. Enter a label (e.g. "BAR MORNING ENTRY")
@@ -299,13 +358,20 @@ Workers scan the QR code with their phone camera — it opens the PIN login dire
 
 ## HOW TO ADD STAFF AND ASSIGN PINs
 
-1. Go to **Admin → Staff**
+1. Go to **Admin → Team & Execution → Roster & Pay → STAFF**
 2. Click **+ NEW STAFF**
 3. Fill in first name, last name, select a role, venue, and department
 4. Enter a 2–4 digit PIN for the staff member
-5. Click **SAVE**
+5. Set the **hourly rate** and **employment type** (FULL TIME / PART TIME / CASUAL —
+   casuals get 8% holiday pay paid out per payroll period)
+6. Under **NZ PAYROLL** set the tax code (M by default — S/SB/SH/ST/CAE for second
+   jobs, add "SL" for student loan), KiwiSaver rate (3–10%, or leave unenrolled),
+   and tick STUDENT LOAN if repayments should be withheld
+7. Click **SAVE**
 
 The PIN is immediately usable at any QR code login point for that venue/department.
+Set the venue's payroll defaults (minimum wage, ACC, tax code, overtime…) at
+**Admin → Team & Execution → Roster & Pay → PAYROLL → SETTINGS**.
 
 ---
 
@@ -346,7 +412,7 @@ or OS access is needed**, so this works the same on Portainer, plain compose,
 or any managed container platform.
 
 - Setup guide: [`SOP-WOOCOMMERCE.md`](SOP-WOOCOMMERCE.md)
-- Live sync monitor: **Admin → Woo Sync** (`/admin/sync`) — every pull, push,
+- Live sync monitor: **Admin → Setup & Config → Settings → SYNC** (`/admin/settings?tab=sync`) — every pull, push,
   and webhook is logged there with errors in red, plus manual PULL PRODUCTS / PULL ORDERS / PUSH buttons.
 - Order field mapping: **Admin → Settings → WooCommerce → ORDER FIELD MAPPING** —
   tells HOSPO OPS which WooCommerce custom fields hold the service date, time slot,
@@ -356,7 +422,7 @@ or any managed container platform.
 
 ### Orders
 
-**Admin → Orders** is a day view with four ways of reading the same data,
+**Admin → OPS HUB → ORDERS** is a day view with four ways of reading the same data,
 switchable on the fly:
 
 | View | Shows |
@@ -373,7 +439,7 @@ these stay local and are never pushed to WooCommerce.
 **Payments are always taken in WooCommerce.** HOSPO OPS records what was paid,
 how, and when, but never handles money itself.
 
-**Admin → Menus** defines what can be ordered — e.g. a Friday Night Bistro menu
+**Admin → OPS HUB → MENU & SERVICES → MENUS & CATEGORIES** defines what can be ordered — e.g. a Friday Night Bistro menu
 and an Event Catering menu, each with a guest-count range and per-item minimum
 and maximum quantities.
 

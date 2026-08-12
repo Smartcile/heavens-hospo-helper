@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 
 interface Uom {
-  id: string; name: string; baseUnit: string; conversionRatio: number
+  id: string; name: string; baseUnit: string; conversionRatio: number; kind?: string | null
   isBuiltIn: boolean; venueId: string | null
 }
 
@@ -18,13 +18,15 @@ export function UomsClient() {
   const [formName, setFormName] = useState('')
   const [formBaseUnit, setFormBaseUnit] = useState('')
   const [formRatio, setFormRatio] = useState('1')
+  const [formKind, setFormKind] = useState('COUNT')
 
   function resetForm() {
-    setFormName(''); setFormBaseUnit(''); setFormRatio('1')
+    setFormName(''); setFormBaseUnit(''); setFormRatio('1'); setFormKind('COUNT')
   }
 
   function populateForm(u: Uom) {
     setFormName(u.name); setFormBaseUnit(u.baseUnit); setFormRatio(u.conversionRatio.toString())
+    setFormKind(u.kind || 'COUNT')
   }
 
   async function load() {
@@ -49,6 +51,7 @@ export function UomsClient() {
       name: formName.trim().toUpperCase(),
       baseUnit: formBaseUnit.trim().toLowerCase(),
       conversionRatio: parseFloat(formRatio) || 1,
+      kind: formKind,
     }
     if (isCreating) {
       const r = await fetch('/api/admin/uoms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -88,7 +91,7 @@ export function UomsClient() {
                 <button key={u.id} onClick={() => { setIsCreating(false); setSelectedId(u.id) }}
                   className={`w-full text-left px-2 py-1.5 font-mono text-xs uppercase border ${selectedId === u.id && !isCreating ? 'border-white text-white' : 'border-transparent text-grey-light hover:border-grey-mid hover:text-white'}`}>
                   <span className="block truncate">{u.name}</span>
-                  <span className="block text-[10px] text-grey-light normal-case">1 = {u.conversionRatio} {u.baseUnit}</span>
+                  <span className="block text-[10px] text-grey-light normal-case">1 = {u.conversionRatio} {u.baseUnit} · {u.kind ?? 'COUNT'}</span>
                 </button>
               ))}
               {uoms.length === 0 && <p className="font-mono text-xs text-grey-light px-2 py-1">No units yet.</p>}
@@ -105,10 +108,19 @@ export function UomsClient() {
                 <h2 className="font-mono text-xs uppercase text-grey-light tracking-wider">
                   {isCreating ? 'NEW UNIT' : 'PROPERTIES'}
                 </h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                   <div>
                     <label className="font-mono text-xs uppercase text-grey-light block mb-1">NAME</label>
                     <Input value={formName} onChange={(e) => setFormName(e.target.value.toUpperCase())} placeholder="e.g. 6 PACK 1L" />
+                  </div>
+                  <div>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">KIND</label>
+                    <select value={formKind} onChange={(e) => setFormKind(e.target.value)}
+                      className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white">
+                      <option value="VOLUME">VOLUME (ML)</option>
+                      <option value="MASS">MASS (G)</option>
+                      <option value="COUNT">COUNT (EA)</option>
+                    </select>
                   </div>
                   <div>
                     <label className="font-mono text-xs uppercase text-grey-light block mb-1">BASE UNIT</label>

@@ -17,6 +17,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
     select: {
       id: true, firstName: true, lastName: true, email: true, role: true, venueId: true,
       departmentId: true, isActive: true, hourlyRate: true, employmentType: true,
+      taxCode: true, kiwiSaverRate: true, studentLoan: true,
       swiftPosId: true, myHrId: true, loadedReportsId: true,
       sections: { select: { sectionId: true } },
       staffVenues: { select: { venueId: true } },
@@ -60,6 +61,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (isActive !== undefined) updates.isActive = isActive
   if (hourlyRate !== undefined) updates.hourlyRate = hourlyRate != null ? Number(hourlyRate) : null
   if (employmentType !== undefined) updates.employmentType = employmentType || null
+  if (body.taxCode !== undefined) updates.taxCode = body.taxCode?.trim() || null
+  if (body.kiwiSaverRate !== undefined) updates.kiwiSaverRate = body.kiwiSaverRate != null ? Number(body.kiwiSaverRate) : null
+  if (body.studentLoan !== undefined) updates.studentLoan = !!body.studentLoan
   if (defaultVenueId !== undefined) updates.defaultVenueId = defaultVenueId || null
   if (swiftPosId !== undefined) updates.swiftPosId = swiftPosId?.trim() || null
   if (myHrId !== undefined) updates.myHrId = myHrId?.trim() || null

@@ -81,6 +81,22 @@ export function WorkerTimeclockClient() {
     await load()
   }
 
+  async function takeBreak() {
+    setClocking(true); setError('')
+    const r = await fetch('/api/worker/timeclock/break', { method: 'POST' })
+    setClocking(false)
+    if (!r.ok) { const d = await r.json(); setError(d.error ?? 'FAILED'); return }
+    await load()
+  }
+
+  async function backToWork() {
+    setClocking(true); setError('')
+    const r = await fetch('/api/worker/timeclock/break', { method: 'PATCH' })
+    setClocking(false)
+    if (!r.ok) { const d = await r.json(); setError(d.error ?? 'FAILED'); return }
+    await load()
+  }
+
   function formatDuration(minutes: number): string {
     const h = Math.floor(minutes / 60)
     const m = Math.floor(minutes % 60)
@@ -93,6 +109,12 @@ export function WorkerTimeclockClient() {
     const start = new Date(status.activeSession.clockIn).getTime()
     const diff = (Date.now() - start) / 60000
     return formatDuration(diff)
+  }
+
+  function getBreakDuration(): string {
+    if (!status?.activeBreak) return ''
+    const start = new Date(status.activeBreak.startAt).getTime()
+    return formatDuration((Date.now() - start) / 60000)
   }
 
   if (loading) {
@@ -122,12 +144,18 @@ export function WorkerTimeclockClient() {
             <>
               <div className="border border-grey-mid p-4 bg-grey-dark">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="inline-block w-2 h-2 bg-warning animate-pulse" />
-                  <span className="font-mono text-xs uppercase text-grey-light tracking-wider">CLOCKED IN</span>
+                  <span className={`inline-block w-2 h-2 ${status?.activeBreak ? 'bg-warning' : 'bg-success'} animate-pulse`} />
+                  <span className="font-mono text-xs uppercase text-grey-light tracking-wider">
+                    {status?.activeBreak ? 'ON BREAK' : 'CLOCKED IN'}
+                  </span>
                 </div>
-                <div className="font-mono text-2xl font-bold text-white">{getActiveDuration()}</div>
+                <div className="font-mono text-2xl font-bold text-white">
+                  {status?.activeBreak ? getBreakDuration() : getActiveDuration()}
+                </div>
                 <p className="font-mono text-xs text-grey-light mt-1">
-                  SINCE {status?.activeSession ? new Date(status.activeSession.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                  {status?.activeBreak
+                    ? `BREAK SINCE ${new Date(status.activeBreak.startAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                    : `SINCE ${status?.activeSession ? new Date(status.activeSession.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}`}
                 </p>
                 {status?.activeSession && !status.activeSession.geoValid && (
                   <p className="font-mono text-xs text-danger mt-1">OUTSIDE VENUE GEO-FENCE</p>
@@ -136,6 +164,23 @@ export function WorkerTimeclockClient() {
                   <p className="font-mono text-xs text-grey-light mt-1">GPS NOT AVAILABLE — PUNCH LOGGED WITHOUT LOCATION</p>
                 )}
               </div>
+              {status?.activeBreak ? (
+                <button
+                  onClick={backToWork}
+                  disabled={clocking}
+                  className="w-full h-16 bg-success text-black font-mono font-bold text-lg uppercase tracking-widest hover:opacity-90 disabled:opacity-40"
+                >
+                  {clocking ? 'BACK IN_' : 'BACK TO WORK'}
+                </button>
+              ) : (
+                <button
+                  onClick={takeBreak}
+                  disabled={clocking}
+                  className="w-full h-16 bg-warning text-black font-mono font-bold text-lg uppercase tracking-widest hover:opacity-90 disabled:opacity-40"
+                >
+                  {clocking ? 'STARTING_' : 'TAKE BREAK'}
+                </button>
+              )}
               <button
                 onClick={clockOut}
                 disabled={clocking}

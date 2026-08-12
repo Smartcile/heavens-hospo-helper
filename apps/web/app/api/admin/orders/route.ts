@@ -107,11 +107,15 @@ const ORDER_INCLUDE = {
   menu: { select: { name: true } },
   service: { select: { name: true } },
   // A linked reservation is the authoritative seating — its tables win over
-  // any layout auto-generated for the order itself.
+  // any layout auto-generated for the order itself. The full booking is
+  // exposed so the order detail popout can edit or create one in place.
   booking: {
     select: {
       id: true,
+      date: true,
       startTime: true,
+      endTime: true,
+      partySize: true,
       contactName: true,
       tables: { select: { setupItem: { select: { assignedNumber: true } } } },
     },
@@ -150,6 +154,12 @@ type OrderRow = {
   menu: { name: string } | null
   service: { name: string } | null
   booking: {
+    id: string
+    date: Date
+    startTime: string
+    endTime: string
+    partySize: number
+    contactName: string
     tables: { setupItem: { assignedNumber: string | null } | null }[]
   } | null
   items: {
@@ -206,6 +216,19 @@ function projectOrders(
       bookTable: o.bookTable,
       bookingId: o.bookingId,
       tables: bookingTables(o) ?? (o.calendarEventId ? tablesByEvent.get(o.calendarEventId) ?? [] : []),
+      booking: o.booking
+        ? {
+            id: o.booking.id,
+            date: o.booking.date.toISOString().slice(0, 10),
+            startTime: o.booking.startTime,
+            endTime: o.booking.endTime,
+            partySize: o.booking.partySize,
+            contactName: o.booking.contactName,
+            tables: o.booking.tables
+              .map((t) => t.setupItem?.assignedNumber)
+              .filter((n): n is string => !!n),
+          }
+        : null,
       items,
     }
   })

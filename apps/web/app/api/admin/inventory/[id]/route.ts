@@ -16,7 +16,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, countingUnitQty, orderingUnitQty, parLevelUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrls, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId, shelfLifeDays, canFreeze, freezerShelfLifeDays } = await req.json()
+  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, countingUnitQty, orderingUnitQty, parLevelUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrls, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId, shelfLifeDays, canFreeze, freezerShelfLifeDays, densityGramsPerMl, weightPerUnitGrams } = await req.json()
 
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = name.toUpperCase().trim()
@@ -67,6 +67,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (shelfLifeDays !== undefined) data.shelfLifeDays = shelfLifeDays ? parseInt(String(shelfLifeDays)) || null : null
   if (canFreeze !== undefined) data.canFreeze = !!canFreeze
   if (freezerShelfLifeDays !== undefined) data.freezerShelfLifeDays = freezerShelfLifeDays ? parseInt(String(freezerShelfLifeDays)) || null : null
+
+  // Density (volume ↔ mass ↔ count conversion)
+  if (densityGramsPerMl !== undefined) data.densityGramsPerMl = densityGramsPerMl != null && densityGramsPerMl !== '' ? parseFloat(String(densityGramsPerMl)) : null
+  if (weightPerUnitGrams !== undefined) data.weightPerUnitGrams = weightPerUnitGrams != null && weightPerUnitGrams !== '' ? parseFloat(String(weightPerUnitGrams)) : null
 
   const updated = await prisma.inventoryItem.update({
     where: { id: params.id },

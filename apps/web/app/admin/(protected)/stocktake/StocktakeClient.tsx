@@ -4,13 +4,15 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { getActiveVenueId } from '@/lib/active-venue'
 
 interface LineItem { id: string; itemId: string; countedQuantity: number; expectedQuantity: number; variance: number; item: { id: string; name: string; unit: string; category: { id: string; name: string } } }
 interface Staff { id: string; firstName: string; lastName: string }
 interface Record { id: string; date: string; status: string; notes: string | null; assignedRoleId: string | null; assignedStaffId: string | null; completedAt: string | null; completedBy: { id: string; firstName: string; lastName: string } | null; assignedStaff: Staff | null; _count: { lineItems: number } }
 interface FullRecord extends Record { lineItems: LineItem[] }
 
-export function StocktakeClient() {
+export function StocktakeClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
+  const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
   const [records, setRecords] = useState<Record[]>([])
   const [staff, setStaff] = useState<Staff[]>([])
   const [loading, setLoading] = useState(true)
@@ -23,9 +25,10 @@ export function StocktakeClient() {
 
   async function load() {
     setLoading(true)
+    const venueParam = venueId ? `?venueId=${venueId}` : ''
     const [rRes, sRes] = await Promise.all([
-      fetch('/api/admin/stocktake'),
-      fetch('/api/admin/staff?role=STAFF'),
+      fetch(`/api/admin/stocktake${venueParam}`),
+      fetch(`/api/admin/staff?role=STAFF${venueParam.replace('?', '&')}`),
     ])
     if (rRes.ok) setRecords(await rRes.json())
     if (sRes.ok) setStaff(await sRes.json())
@@ -39,7 +42,7 @@ export function StocktakeClient() {
     const r = await fetch('/api/admin/stocktake', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date: newDate, assignedStaffId: newAssignedStaff || null, notes: newNotes || null }),
+      body: JSON.stringify({ date: newDate, assignedStaffId: newAssignedStaff || null, notes: newNotes || null, ...(venueId ? { venueId } : {}) }),
     })
     if (r.ok) { setShowCreate(false); setNewAssignedStaff(''); setNewNotes(''); load() }
     setCreating(false)

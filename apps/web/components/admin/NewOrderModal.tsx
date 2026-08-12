@@ -24,8 +24,8 @@ interface DraftLine {
 const FULFILLMENT_TYPES = ['DINE_IN', 'PICKUP', 'DELIVERY']
 
 export function NewOrderModal({
-  date, onClose, onCreated,
-}: { date: string; onClose: () => void; onCreated: () => void }) {
+  date, venueId, onClose, onCreated,
+}: { date: string; venueId?: string; onClose: () => void; onCreated: () => void }) {
   const [menus, setMenus] = useState<Menu[]>([])
   const [allItems, setAllItems] = useState<MenuItemRef[]>([])
   const [saving, setSaving] = useState(false)
@@ -44,11 +44,12 @@ export function NewOrderModal({
   const [itemSearch, setItemSearch] = useState('')
 
   useEffect(() => {
-    Promise.all([fetch('/api/admin/menus'), fetch('/api/admin/menu-items')]).then(async ([m, i]) => {
+    const venueParam = venueId ? `?venueId=${venueId}` : ''
+    Promise.all([fetch(`/api/admin/menus${venueParam}`), fetch(`/api/admin/menu-items${venueParam}`)]).then(async ([m, i]) => {
       if (m.ok) setMenus(await m.json())
       if (i.ok) setAllItems(await i.json())
     })
-  }, [])
+  }, [venueId])
 
   const selectedMenu = menus.find((m) => m.id === menuId) ?? null
 
@@ -109,6 +110,7 @@ export function NewOrderModal({
         menuId: menuId || null,
         notes: notes || null,
         allergenNote: allergenNote || null,
+        ...(venueId ? { venueId } : {}),
         items: lines.map((l) => ({
           menuItemId: l.menuItemId,
           qty: parseInt(l.qty, 10) || 1,

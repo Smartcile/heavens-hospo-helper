@@ -21,6 +21,9 @@ interface StaffMember {
   profilePhotoUrl: string | null
   hourlyRate: number | null
   employmentType: string | null
+  taxCode: string | null
+  kiwiSaverRate: number | null
+  studentLoan: boolean
   swiftPosId: string | null
   myHrId: string | null
   loadedReportsId: string | null
@@ -44,6 +47,9 @@ interface FormState {
   departmentId: string
   hourlyRate: string
   employmentType: string
+  taxCode: string
+  kiwiSaverRate: string
+  studentLoan: boolean
   swiftPosId: string
   myHrId: string
   loadedReportsId: string
@@ -61,11 +67,25 @@ const EMPTY_FORM: FormState = {
   departmentId: '',
   hourlyRate: '',
   employmentType: '',
+  taxCode: '',
+  kiwiSaverRate: '',
+  studentLoan: false,
   swiftPosId: '',
   myHrId: '',
   loadedReportsId: '',
   sectionIds: [],
 }
+
+const TAX_CODE_OPTIONS = ['M', 'M SL', 'S', 'S SL', 'SB', 'SB SL', 'SH', 'SH SL', 'ST', 'ST SL', 'CAE', 'CAE SL'].map((c) => ({ value: c, label: c }))
+
+const KIWISAVER_OPTIONS = [
+  { value: '', label: 'NOT ENROLLED' },
+  { value: '3', label: '3%' },
+  { value: '4', label: '4%' },
+  { value: '6', label: '6%' },
+  { value: '8', label: '8%' },
+  { value: '10', label: '10%' },
+]
 
 const ROLE_OPTIONS = [
   { value: 'STAFF', label: 'STAFF' },
@@ -130,6 +150,9 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
       loadedReportsId: s.loadedReportsId ?? '',
       hourlyRate: s.hourlyRate != null ? String(s.hourlyRate) : '',
       employmentType: s.employmentType ?? '',
+      taxCode: s.taxCode ?? '',
+      kiwiSaverRate: s.kiwiSaverRate != null ? String(s.kiwiSaverRate) : '',
+      studentLoan: s.studentLoan ?? false,
       sectionIds: (s.sections ?? []).map((x) => x.sectionId),
     })
     setError('')
@@ -181,6 +204,9 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
       loadedReportsId: form.loadedReportsId || null,
       hourlyRate: form.hourlyRate ? Number(form.hourlyRate) : null,
       employmentType: form.employmentType || null,
+      taxCode: form.taxCode || null,
+      kiwiSaverRate: form.kiwiSaverRate ? Number(form.kiwiSaverRate) : null,
+      studentLoan: form.studentLoan,
       sectionIds: form.sectionIds,
     }
     if (form.pin) body.pin = form.pin
@@ -370,6 +396,28 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 { value: 'CASUAL', label: 'CASUAL' },
               ]}
             />
+          </div>
+
+          <div className="border-l-4 border-l-grey-mid pl-3 space-y-3">
+            <p className="font-mono text-xs uppercase tracking-wider text-grey-light">NZ PAYROLL</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Select
+                label="Tax Code"
+                value={form.taxCode}
+                onChange={(e) => setForm({ ...form, taxCode: e.target.value })}
+                options={[{ value: '', label: 'VENUE DEFAULT' }, ...TAX_CODE_OPTIONS]}
+              />
+              <Select
+                label="KiwiSaver"
+                value={form.kiwiSaverRate}
+                onChange={(e) => setForm({ ...form, kiwiSaverRate: e.target.value })}
+                options={KIWISAVER_OPTIONS}
+              />
+            </div>
+            <label className="flex items-center gap-2 font-mono text-xs uppercase text-grey-light cursor-pointer">
+              <input type="checkbox" checked={form.studentLoan} onChange={(e) => setForm({ ...form, studentLoan: e.target.checked })} className="accent-white" />
+              STUDENT LOAN (12% WITHHELD)
+            </label>
           </div>
 
           {formSections.length > 0 && (

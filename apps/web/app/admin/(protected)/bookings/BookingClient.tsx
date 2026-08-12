@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/Modal'
 import { SearchSelect } from '@/components/ui/SearchSelect'
 import { pushToast } from '@/components/ui/Toast'
 import { DateNav } from '@/components/admin/DateNav'
+import { CustomerDrawer } from '@/components/admin/CustomerDrawer'
 import { planAutoSeat } from '@/lib/auto-seat'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { serviceWindowsForDate, bookableSlotsForService, type ServiceWindow } from '@/lib/service-windows'
@@ -145,6 +146,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId }: { role: 
   const [movePreviewTableId, setMovePreviewTableId] = useState<string | null>(null)
   const [movePreviewStartMins, setMovePreviewStartMins] = useState<number | null>(null)
   const [timeChangeConfirm, setTimeChangeConfirm] = useState<{ bookingId: string; targetTableId?: string; originalStart: string; originalEnd: string; newStart: string; newEnd: string } | null>(null)
+  const [customerDrawer, setCustomerDrawer] = useState<{ name: string; phone: string | null; email: string | null } | null>(null)
   const [selectedSetupId, setSelectedSetupId] = useState('')
   const tableWrapperRef = useRef<HTMLDivElement>(null)
 
@@ -613,7 +615,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId }: { role: 
   }, [bookings])
 
   return (
-    <div className="space-y-4 pb-12 p-4 md:p-6">
+    <div className="space-y-4 pb-12">
       <div className="flex items-center justify-between">
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">BOOKINGS</h1>
         <div className="flex items-center gap-2">
@@ -693,6 +695,11 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId }: { role: 
                       <span className="font-mono text-[10px] uppercase shrink-0" style={{ color: STATUS_COLORS[b.status] || '#6B6B6B' }}>{b.status}</span>
                     </div>
                     <div className="flex items-center gap-2 mt-0.5 font-mono text-[10px] text-grey-light">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setCustomerDrawer({ name: b.contactName, phone: b.contactPhone, email: b.contactEmail }) }}
+                        className="font-mono text-[9px] uppercase text-grey-light hover:text-white border border-grey-mid px-1 py-0.5 shrink-0"
+                        title="VIEW CUSTOMER"
+                      >CUSTOMER</button>
                       <span>{b.startTime}–{b.endTime} ({durationH}h)</span>
                       <span>· {b.partySize} PAX</span>
                       {b.tables.length > 0 && (
@@ -1545,6 +1552,15 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId }: { role: 
           </div>
         )}
       </Modal>
+
+      <CustomerDrawer
+        isOpen={customerDrawer != null}
+        onClose={() => setCustomerDrawer(null)}
+        name={customerDrawer?.name ?? ''}
+        phone={customerDrawer?.phone}
+        email={customerDrawer?.email}
+        venueId={venueId}
+      />
     </div>
   )
 }

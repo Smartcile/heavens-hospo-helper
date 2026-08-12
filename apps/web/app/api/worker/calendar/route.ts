@@ -16,7 +16,7 @@ export async function GET() {
 
   const [shifts, timeOff] = await Promise.all([
     prisma.shift.findMany({
-      where: { staffId: session.staffId, deletedAt: null, date: { gte: today } },
+      where: { staffId: session.staffId, deletedAt: null, status: 'PUBLISHED', date: { gte: today } },
       include: { department: { select: { name: true } } },
       orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
       take: 60,

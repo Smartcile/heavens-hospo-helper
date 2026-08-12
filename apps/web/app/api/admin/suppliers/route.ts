@@ -7,8 +7,12 @@ export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const venueId = session.user.role === 'MANAGER'
+    ? session.user.venueId
+    : req.nextUrl.searchParams.get('venueId') || session.user.venueId
+
   const suppliers = await prisma.supplier.findMany({
-    where: { venueId: session.user.venueId, deletedAt: null },
+    where: { venueId, deletedAt: null },
     orderBy: { name: 'asc' },
   })
   return NextResponse.json(suppliers)
@@ -18,12 +22,14 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name, contact, email, phone, notes } = await req.json()
+  const { name, contact, email, phone, notes, venueId: bodyVenueId } = await req.json()
   if (!name?.trim()) return NextResponse.json({ error: 'name is required' }, { status: 400 })
+
+  const venueId = session.user.role === 'MANAGER' ? session.user.venueId : (bodyVenueId || session.user.venueId)
 
   const supplier = await prisma.supplier.create({
     data: {
-      venueId: session.user.venueId,
+      venueId,
       name: name.toUpperCase().trim(),
       contact: contact || null,
       email: email || null,

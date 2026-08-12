@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { pushToast } from '@/components/ui/Toast'
 import { describePaxRange } from '@/lib/menu-rules'
+import { getActiveVenueId } from '@/lib/active-venue'
 
 interface MenuItemRef {
   id: string
@@ -46,7 +47,8 @@ interface DraftLine {
   maxQty: string
 }
 
-export function MenusClient() {
+export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
+  const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
   const [menus, setMenus] = useState<Menu[]>([])
   const [allItems, setAllItems] = useState<MenuItemRef[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,10 +71,11 @@ export function MenusClient() {
 
   async function load() {
     setLoading(true)
+    const venueParam = venueId ? `?venueId=${venueId}` : ''
     const [mRes, iRes, cRes] = await Promise.all([
-      fetch('/api/admin/menus'),
-      fetch('/api/admin/menu-items'),
-      fetch('/api/admin/woocommerce/categories'),
+      fetch(`/api/admin/menus${venueParam}`),
+      fetch(`/api/admin/menu-items${venueParam}`),
+      fetch(`/api/admin/woocommerce/categories${venueParam}`),
     ])
     if (mRes.ok) setMenus(await mRes.json())
     if (iRes.ok) setAllItems(await iRes.json())
@@ -123,6 +126,7 @@ export function MenusClient() {
         maxPax: null,
         isActive: true,
         wooCategoryId: cat.id,
+        ...(venueId ? { venueId } : {}),
       }),
     })
     if (!createRes.ok) {
@@ -191,6 +195,7 @@ export function MenusClient() {
       maxPax: max,
       isActive,
       wooCategoryId: formCategoryId || null,
+      ...(venueId ? { venueId } : {}),
       items: lines.map((l, i) => ({
         menuItemId: l.menuItemId,
         minQty: l.minQty === '' ? null : parseInt(l.minQty, 10),
@@ -243,7 +248,7 @@ export function MenusClient() {
     const res = await fetch('/api/admin/woocommerce/categories', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: trimmed }),
+      body: JSON.stringify({ name: trimmed, ...(venueId ? { venueId } : {}) }),
     })
     setCreatingCategory(false)
     if (res.ok) {

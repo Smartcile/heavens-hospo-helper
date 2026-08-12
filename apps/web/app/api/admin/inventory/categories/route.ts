@@ -45,11 +45,10 @@ export async function GET(req: NextRequest) {
   }
 
   const where: any = { deletedAt: null }
-  if (session.user.role === 'ADMIN') {
-    where.OR = [{ venueId: null, isBuiltIn: true }, { venueId: session.user.venueId }]
-  } else {
-    where.OR = [{ venueId: null, isBuiltIn: true }, { venueId: session.user.venueId }]
-  }
+  const venueId = session.user.role === 'MANAGER'
+    ? session.user.venueId
+    : (req.nextUrl.searchParams.get('venueId') || session.user.venueId)
+  where.OR = [{ venueId: null, isBuiltIn: true }, { venueId }]
 
   const categories = await prisma.inventoryCategory.findMany({
     where,
@@ -62,8 +61,10 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { name, tab, showDeepFields, showEquipmentFields } = await req.json()
+  const { name, tab, showDeepFields, showEquipmentFields, venueId: bodyVenueId } = await req.json()
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
+
+  const venueId = session.user.role === 'MANAGER' ? session.user.venueId : (bodyVenueId || session.user.venueId)
 
   const upper = name.toUpperCase().trim()
   if (BUILT_IN_NAMES.includes(upper)) {
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
   }
 
   const existing = await prisma.inventoryCategory.findFirst({
-    where: { venueId: session.user.venueId, name: upper, deletedAt: null },
+    where: { venueId, name: upper, deletedAt: null },
   })
   if (existing) {
     return NextResponse.json({ error: 'CATEGORY ALREADY EXISTS' }, { status: 409 })
@@ -79,7 +80,7 @@ export async function POST(req: NextRequest) {
 
   const cat = await prisma.inventoryCategory.create({
     data: {
-      venueId: session.user.venueId,
+      venueId,
       name: upper,
       tab: tab || null,
       showDeepFields: !!showDeepFields,

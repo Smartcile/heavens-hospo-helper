@@ -38,7 +38,7 @@
 - **HTML entities decoded** on pull (`&amp;` → `&`) so names like "SALT & PEPPER" don't double-encode on push-back.
 
 Every sync event (in both directions) is recorded on the **SYNC dashboard**
-(**HOSPO OPS → Woo Sync**), including errors — use it to watch the integration
+(**HOSPO OPS → Setup & Config → Settings → SYNC**), including errors — use it to watch the integration
 live while testing.
 
 The scheduler is **built into the app container** — there is nothing to
@@ -120,7 +120,7 @@ Matching ignores case, spaces, underscores and dashes — `Delivery Date`,
 
 ### Finding the real key
 
-Place a test order on the store, then pull orders on `/admin/sync`. If the
+Place a test order on the store, then pull orders on `/admin/settings?tab=sync`. If the
 Orders page banners **"N ORDERS HAVE NO SERVICE DATE"**, the mapping is wrong.
 To find the actual key, open the order in WooCommerce REST
 (`/wp-json/wc/v3/orders/<id>`) and look at the `meta_data` array — or check the
@@ -189,7 +189,7 @@ EventBridge, etc.):
 
 ## Phase 5: Verify Setup (use the SYNC dashboard)
 
-Open **HOSPO OPS → Woo Sync** (`/admin/sync`). The activity feed auto-refreshes
+Open **HOSPO OPS → Setup & Config → Settings → SYNC** (`/admin/settings?tab=sync`). The activity feed auto-refreshes
 every 10 seconds and shows every pull, push, and webhook — errors in red.
 
 1. Click **↓ PULL PRODUCTS NOW** — you should see a `PULLED N PRODUCTS...`
@@ -273,7 +273,7 @@ instantly instead of overnight.
 
 ### 5. Verify
 
-Open **HOSPO OPS → Woo Sync** (new sidebar entry under Operations) and run
+Open **HOSPO OPS → Setup & Config → Settings → SYNC** and run
 through Phase 5. Container logs should show `[internal-cron] started` on boot,
 and a product pull appears in the feed within ~15 seconds of startup.
 
@@ -283,16 +283,16 @@ and a product pull appears in the feed within ~15 seconds of startup.
 
 | Issue | Check |
 |-------|-------|
-| `Delivery URL returned response code: 401` when SAVING a webhook in wp-admin | Update HOSPO OPS — older versions rejected WooCommerce's unsigned activation ping. Current versions acknowledge it (a `WEBHOOK ACTIVATION PING ACKNOWLEDGED` row appears on `/admin/sync`). After updating, re-save the webhook and set its Status back to Active. |
+| `Delivery URL returned response code: 401` when SAVING a webhook in wp-admin | Update HOSPO OPS — older versions rejected WooCommerce's unsigned activation ping. Current versions acknowledge it (a `WEBHOOK ACTIVATION PING ACKNOWLEDGED` row appears on `/admin/settings?tab=sync`). After updating, re-save the webhook and set its Status back to Active. |
 | Nothing on the SYNC dashboard | Verify the integration is ACTIVE in Settings and credentials are saved. Check container logs for `[internal-cron] started`. |
 | Orders sync but the Orders page is empty / banner says "N ORDERS HAVE NO SERVICE DATE" | The sync is fine — the **order field mapping** is wrong, so we cannot tell what day the order is for. Go to **Settings → WooCommerce → ORDER FIELD MAPPING** and set the SERVICE DATE key to whatever your date plugin actually writes (see Phase 2b for how to find it). Re-pull orders afterwards. |
 | Order date is a day out, or 15/08 imported as 8 March | Day-first formats are handled, but check the plugin isn't emitting a timezone-shifted local time. Prefer a plugin that writes a unix timestamp (e.g. `_orddd_lite_timestamp`). |
 | Same customer appearing twice in Admin → Customers | Matching is by email first, then phone. Two records mean neither matched — usually one order had no email and a phone typo. Merge by correcting the contact details on the order (this re-runs the match). Note customers are **per venue** by design, so the same person at two venues is intentionally two records. |
 | Kitchen marked an order IN PREP and it reset | Should not happen — sync never touches internal progress. If it does, check nobody is editing the order through the old `/api/admin/orders/foh` endpoint or a script. |
-| Orders not appearing | Click **↓ PULL ORDERS NOW** on `/admin/sync` to fetch historical orders via the REST API. For webhook issues, look for red `WEBHOOK REJECTED` rows on `/admin/sync`. `SIGNATURE DID NOT MATCH` means the webhook Secret in WordPress doesn't exactly match the Webhook Secret in Settings. No rows at all → verify the Delivery URL is reachable from WordPress (WooCommerce → Settings → Advanced → Webhooks → Logs). |
+| Orders not appearing | Click **↓ PULL ORDERS NOW** on `/admin/settings?tab=sync` to fetch historical orders via the REST API. For webhook issues, look for red `WEBHOOK REJECTED` rows on `/admin/settings?tab=sync`. `SIGNATURE DID NOT MATCH` means the webhook Secret in WordPress doesn't exactly match the Webhook Secret in Settings. No rows at all → verify the Delivery URL is reachable from WordPress (WooCommerce → Settings → Advanced → Webhooks → Logs). |
 | Webhooks blocked behind Cloudflare Access | Add a **Bypass** policy for `/api/webhooks/*` — WordPress can't pass a Cloudflare login. The endpoint is HMAC-verified by the app itself. |
 | Products not syncing instantly | Verify the three product webhooks from Phase 3 exist and are Active. The 15-minute pull will still catch changes. |
-| Product pull empty / PULL FAILED | Click the event row on `/admin/sync` — the dark detail box shows the exact response. `HTTP 401`: many hosts strip the Authorization header; the app automatically retries with query-string auth, so a persistent 401 means the Consumer Key/Secret are wrong (re-paste BOTH in Settings — masked dots keep the old value) or lack Read/Write permission. Also check STORE URL has no trailing slash. |
+| Product pull empty / PULL FAILED | Click the event row on `/admin/settings?tab=sync` — the dark detail box shows the exact response. `HTTP 401`: many hosts strip the Authorization header; the app automatically retries with query-string auth, so a persistent 401 means the Consumer Key/Secret are wrong (re-paste BOTH in Settings — masked dots keep the old value) or lack Read/Write permission. Also check STORE URL has no trailing slash. |
 | `woocommerce_rest_cannot_view` (WordPress behind Cloudflare Tunnel / proxy) | WordPress can't detect HTTPS (`is_ssl()` is false), so WooCommerce rejects plain credentials. The app automatically falls back to OAuth 1.0a signed requests, which work regardless. You can also fix WordPress itself — add to `wp-config.php` above `/* That's all */`: `if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') { $_SERVER['HTTPS'] = 'on'; }` |
 | `PRODUCT UPSERT FAILED ... MenuItem_recipeId_fkey` | Fixed in current versions (imported products no longer require a recipe). Update the app — the schema change applies automatically on redeploy. |
 | Pushes failing (`PUSH FAILED — HTTP 401`) | Consumer Key permissions must be `Read/Write`, not `Read`. |

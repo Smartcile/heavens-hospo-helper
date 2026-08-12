@@ -79,7 +79,9 @@
 		services.forEach(function (svc) {
 			if (!svc.slots || svc.slots.length === 0) return;
 			svc.slots.forEach(function (slot) {
-				var selected = selectedServiceId === svc.serviceId && STATE.selected.time === slot.startTime;
+				// No service selected yet (admin panel preloaded with a saved
+				// booking): the saved time pill still highlights by time alone.
+				var selected = ('' === selectedServiceId || selectedServiceId === svc.serviceId) && STATE.selected.time === slot.startTime;
 				html += '<button type="button" class="hospo-ops-slot' + (selected ? ' is-selected' : '') +
 					(slot.available ? '' : ' is-full') + '" data-slot-time="' + esc(slot.startTime) + '"' +
 					' data-service="' + esc(svc.serviceId) + '"' +
@@ -210,23 +212,69 @@
 
 	// ── Checkout ─────────────────────────────────────────────────────────
 
-	function wireCheckout(root) {
-		// Divi module placement: move the section inside the checkout form so
-		// the hidden inputs submit with the order, just above payment.
-		if (root.hasAttribute('data-hospo-relocate')) {
-			var form = document.querySelector('form.checkout');
-			var payment = document.getElementById('payment');
-			if (form && payment && form.contains(payment)) {
-				form.insertBefore(root, payment);
-			}
+	/**
+	 * Divi module placement: move the section inside the checkout form so the
+	 * hidden inputs submit with the order, just above payment. Returns false
+	 * when the form is not on the page yet (Divi 5 can render layouts late).
+	 *
+	 * Divi's WooCommerce checkout modules render one `form.checkout` per
+	 * section (billing, order details, payment info). The form that actually
+	 * submits is the one holding #payment and the place-order button — the
+	 * fields must live in THAT form, or they never reach the order.
+	 */
+	function relocateIntoForm(root) {
+		if (!root.hasAttribute('data-hospo-relocate')) return true;
+		var payment = document.getElementById('payment');
+		var form = (payment && payment.closest('form.checkout')) ||
+			root.closest('form.checkout') ||
+			document.querySelector('form.checkout');
+		if (!form) return false;
+		// Insert as a direct child of the form, above the review section.
+		// #payment is nested inside #order_review, and that container is
+		// replaced by WooCommerce's AJAX refresh — a section inside it would
+		// be wiped from the submitted form.
+		var orderReview = form.querySelector('#order_review');
+		if (orderReview) {
+			form.insertBefore(root, orderReview);
+		} else if (payment && payment.parentNode && form.contains(payment)) {
+			payment.parentNode.insertBefore(root, payment);
+		} else {
+			form.appendChild(root);
 		}
+		return true;
+	}
 
+	function wireCheckout(root) {
 		var servicesEl = root.querySelector('[data-hospo-services]');
 		var slotsEl = root.querySelector('[data-hospo-slots]');
 		var messageEl = root.querySelector('[data-hospo-message]');
 		var partyInput = root.querySelector('[data-hospo-party]');
 		var menuIds = [];
 		try { menuIds = JSON.parse(root.getAttribute('data-hospo-menu-ids') || '[]'); } catch (e) { menuIds = []; }
+
+		// The visible fields have no `name` — their values only reach the
+		// order through the hidden inputs synced below. Re-sync at submit and
+		// after every WooCommerce AJAX refresh so a missed change event can
+		// never post the defaults (e.g. party size stuck at 2). Bind to the
+		// submitting form — the one holding #payment — not the first
+		// form.checkout on the page (a Divi checkout renders several).
+		var paymentEl = document.getElementById('payment');
+		var checkoutForm = (paymentEl && paymentEl.closest('form.checkout')) || document.querySelector('form.checkout');
+		if (checkoutForm) {
+			checkoutForm.addEventListener('checkout_place_order', function () { syncHidden(); });
+		}
+		if (window.jQuery) {
+			window.jQuery(document.body).on('updated_checkout', function () { syncHidden(); });
+		}
+
+		// Relocate now, and keep trying — the form may render after us (Divi 5
+		// async/lazy layouts, or the module placed before the checkout module).
+		if (!relocateIntoForm(root)) {
+			var tries = 0;
+			var timer = setInterval(function () {
+				if (relocateIntoForm(root) || ++tries > 20) clearInterval(timer);
+			}, 250);
+		}
 
 		function syncHidden() {
 			var s = STATE.selected;
@@ -320,6 +368,12 @@
 				servicesEl.querySelectorAll('.hospo-ops-date-btn[data-date="' + dateInput.value + '"]').forEach(function (b) {
 					b.classList.add('is-selected');
 				});
+				// Preload the saved date's slots so the saved booking time is
+				// visible as a highlighted pill, not just a hidden input.
+				STATE.selected.date = dateInput.value;
+				STATE.selected.time = timeInput.value || '';
+				STATE.selected.party = partyInput ? partyInput.value || '2' : '2';
+				refreshAvailability(root, onPickTime);
 			}
 		}).catch(function () {});
 	}

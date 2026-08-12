@@ -105,9 +105,12 @@ class Hospo_Ops_Checkout {
 	 * must live in the form to submit with the order.
 	 */
 	public static function render_section( $relocate = false ) {
-		// Only ever on the checkout form itself — never on the order-received
-		// (thank you) page, and never outside the checkout page.
-		if ( ! function_exists( 'is_checkout' ) || ! is_checkout() ) {
+		// The auto-render hook only fires on the real checkout, so it can keep
+		// the is_checkout() gate. The Divi module CANNOT: WooCommerce's
+		// is_checkout() is page-ID based (a Divi-stored layout doesn't set the
+		// post content shortcode scan), so on a Divi-built checkout page the
+		// gate returned '' and the module rendered nothing at all.
+		if ( ! $relocate && ( ! function_exists( 'is_checkout' ) || ! is_checkout() ) ) {
 			return '';
 		}
 		if ( function_exists( 'is_order_received_page' ) && is_order_received_page() ) {
@@ -253,6 +256,12 @@ class Hospo_Ops_Checkout {
 		?>
 		<div class="hospo-ops-checkout hospo-admin-dining" data-hospo-admin-panel style="margin-top:14px;padding-top:12px;border-top:1px dashed #d0d0d0;max-width:none;box-shadow:none;">
 			<h3 style="font-size:13px;font-weight:600;margin:0 0 10px;">DINING DETAILS</h3>
+
+			<?php if ( $date || $time ) : ?>
+				<p style="font-size:12px;color:#1d2327;margin:0 0 8px;">
+					<strong>BOOKED FOR:</strong> <?php echo esc_html( implode( ' @ ', array_filter( array( $date, $time ) ) ) ); ?>
+				</p>
+			<?php endif; ?>
 
 			<?php if ( $no_cfg ) : ?>
 				<p style="font-size:12px;color:#757575;margin:0;">

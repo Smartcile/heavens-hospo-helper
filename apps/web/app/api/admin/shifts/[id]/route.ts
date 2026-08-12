@@ -11,6 +11,8 @@ interface Params {
 export async function PUT(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER')
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const existing = await prisma.shift.findUnique({ where: { id: params.id } })
   if (!existing || existing.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -30,6 +32,11 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
   if (body.date !== undefined) updates.date = new Date(body.date)
   if (body.departmentId !== undefined) updates.departmentId = body.departmentId || null
+  if (body.positionId !== undefined) updates.positionId = body.positionId || null
+  if (body.colour !== undefined) updates.colour = body.colour || null
+  if (body.tag !== undefined) updates.tag = body.tag?.trim() || null
+  if (body.breakMinutes !== undefined) updates.breakMinutes = Math.max(0, Math.round(Number(body.breakMinutes) || 0))
+  if (body.status !== undefined) updates.status = body.status === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT'
   if (body.note !== undefined) updates.note = body.note?.trim() || null
 
   const shift = await prisma.shift.update({ where: { id: params.id }, data: updates })
@@ -39,6 +46,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const existing = await prisma.shift.findUnique({ where: { id: params.id } })
+  if (!existing || existing.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   await prisma.shift.update({ where: { id: params.id }, data: { deletedAt: new Date() } })
   return NextResponse.json({ success: true })

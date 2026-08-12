@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { pushToast } from '@/components/ui/Toast'
+import { CustomerDrawer } from '@/components/admin/CustomerDrawer'
 import { OP_STATUS_STYLES } from '@/components/admin/OrdersViews'
 import type { OrderView } from '@/lib/order-views'
 
@@ -23,6 +24,11 @@ export function OrderDetailDrawer({
   onChanged: () => void
 }) {
   const [busy, setBusy] = useState(false)
+  const [editingBooking, setEditingBooking] = useState(false)
+  const [editStart, setEditStart] = useState('')
+  const [editEnd, setEditEnd] = useState('')
+  const [editParty, setEditParty] = useState('')
+  const [showCustomer, setShowCustomer] = useState(false)
 
   async function patch(body: Record<string, unknown>, successMsg: string) {
     setBusy(true)
@@ -36,6 +42,35 @@ export function OrderDetailDrawer({
     else {
       const err = await res.json().catch(() => ({}))
       pushToast((err.error ?? 'UPDATE FAILED').toUpperCase(), 'error')
+    }
+  }
+
+  /** Create the table reservation for a dine-in order that has none yet. */
+  async function createBooking() {
+    setBusy(true)
+    const res = await fetch(`/api/admin/orders/${order.id}/booking`, { method: 'POST' })
+    setBusy(false)
+    if (res.ok) { pushToast('BOOKING CREATED', 'success'); onChanged() }
+    else {
+      const err = await res.json().catch(() => ({}))
+      pushToast((err.error ?? 'BOOKING FAILED').toUpperCase(), 'error')
+    }
+  }
+
+  /** Save the linked booking's time/party edits in place. */
+  async function saveBookingEdit() {
+    if (!order.booking) return
+    setBusy(true)
+    const res = await fetch(`/api/admin/bookings/${order.booking.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startTime: editStart, endTime: editEnd, partySize: parseInt(editParty) || 1 }),
+    })
+    setBusy(false)
+    if (res.ok) { pushToast('BOOKING UPDATED', 'success'); setEditingBooking(false); onChanged() }
+    else {
+      const err = await res.json().catch(() => ({}))
+      pushToast((err.error ?? 'SAVE FAILED').toUpperCase(), 'error')
     }
   }
 
@@ -99,26 +134,17 @@ export function OrderDetailDrawer({
                   : '—'}
               </span>
             </div>
+            {order.customerName && (
+              <Button size="sm" variant="ghost" onClick={() => setShowCustomer(true)}>VIEW CUSTOMER</Button>
+            )}
           </div>
 
-          {/* Service */}
+          {/* Service — the fields adapt to fulfillment type: dine-in carries
+              the table booking (create/edit in place), pickup and delivery
+              carry only their time (no pax, no reservation). */}
           <div className="border border-grey-mid p-3 space-y-2">
             <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">SERVICE</h3>
             <div className="grid grid-cols-3 gap-2 font-mono text-xs items-center">
-              <span className="text-grey-light uppercase">TIME</span>
-              <span className="col-span-2 text-white">{order.serviceTime ?? '—'}</span>
-              <span className="text-grey-light uppercase">PARTY</span>
-              <span className="col-span-2 text-white">{order.partySize ?? '—'}</span>
-              <span className="text-grey-light uppercase">TABLES</span>
-              <span className="col-span-2 text-success">
-                {order.tables.length > 0 ? order.tables.join(', ') : '—'}
-              </span>
-              {order.menuName && (
-                <>
-                  <span className="text-grey-light uppercase">MENU</span>
-                  <span className="col-span-2 text-accent uppercase">{order.menuName}</span>
-                </>
-              )}
               <span className="text-grey-light uppercase">TYPE</span>
               <select
                 value={order.fulfillmentType}
@@ -128,7 +154,123 @@ export function OrderDetailDrawer({
               >
                 {FULFILLMENT_TYPES.map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
               </select>
+              <span className="text-grey-light uppercase">DATE</span>
+              <input
+                type="date"
+                value={order.serviceDate ?? ''}
+                disabled={busy}
+                onChange={(e) => patch({ serviceDate: e.target.value }, 'DATE UPDATED')}
+                className="col-span-2 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white disabled:opacity-40"
+              />
+              <span className="text-grey-light uppercase">
+                {order.fulfillmentType === 'DINE_IN' ? 'TIME' : order.fulfillmentType === 'PICKUP' ? 'PICKUP TIME' : 'DELIVERY TIME'}
+              </span>
+              <input
+                type="time"
+                value={order.serviceTime ?? ''}
+                disabled={busy}
+                onChange={(e) => patch({ serviceTime: e.target.value }, 'TIME UPDATED')}
+                className="col-span-2 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white disabled:opacity-40"
+              />
+              {order.fulfillmentType === 'DINE_IN' && (<>
+                <span className="text-grey-light uppercase">PARTY</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={order.partySize ?? ''}
+                  disabled={busy}
+                  onChange={(e) => patch({ partySize: e.target.value === '' ? null : e.target.value }, 'PARTY SIZE UPDATED')}
+                  className="col-span-2 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white disabled:opacity-40 text-right"
+                />
+                <span className="text-grey-light uppercase">TABLES</span>
+                <span className="col-span-2 text-success">
+                  {order.tables.length > 0 ? order.tables.join(', ') : '—'}
+                </span>
+              </>)}
+              {order.menuName && (
+                <>
+                  <span className="text-grey-light uppercase">MENU</span>
+                  <span className="col-span-2 text-accent uppercase">{order.menuName}</span>
+                </>
+              )}
             </div>
+
+            {order.fulfillmentType === 'DINE_IN' && (
+              <div className="border border-grey-mid p-2 space-y-2">
+                <h4 className="font-mono text-[10px] uppercase text-grey-light tracking-wider">BOOKING</h4>
+                {order.booking ? (
+                  <>
+                    <div className="grid grid-cols-3 gap-2 font-mono text-[11px] items-center">
+                      <span className="text-grey-light uppercase">TIME</span>
+                      <span className="col-span-2 text-white">{order.booking.startTime}–{order.booking.endTime}</span>
+                      <span className="text-grey-light uppercase">PAX</span>
+                      <span className="col-span-2 text-white">{order.booking.partySize}</span>
+                      <span className="text-grey-light uppercase">TABLES</span>
+                      <span className="col-span-2 text-success">
+                        {order.booking.tables.length > 0 ? order.booking.tables.join(', ') : '—'}
+                      </span>
+                    </div>
+                    {editingBooking ? (
+                      <>
+                        <div className="grid grid-cols-3 gap-2 font-mono text-[11px] items-center">
+                          <span className="text-grey-light uppercase">START</span>
+                          <input
+                            type="time"
+                            value={editStart}
+                            disabled={busy}
+                            onChange={(e) => setEditStart(e.target.value)}
+                            className="col-span-2 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white disabled:opacity-40"
+                          />
+                          <span className="text-grey-light uppercase">END</span>
+                          <input
+                            type="time"
+                            value={editEnd}
+                            disabled={busy}
+                            onChange={(e) => setEditEnd(e.target.value)}
+                            className="col-span-2 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white disabled:opacity-40"
+                          />
+                          <span className="text-grey-light uppercase">PAX</span>
+                          <input
+                            type="number"
+                            min="1"
+                            value={editParty}
+                            disabled={busy}
+                            onChange={(e) => setEditParty(e.target.value)}
+                            className="col-span-2 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white disabled:opacity-40 text-right"
+                          />
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <Button size="sm" onClick={saveBookingEdit} loading={busy}>SAVE BOOKING</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditingBooking(false)}>CANCEL</Button>
+                        </div>
+                      </>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          if (order.booking) {
+                            setEditStart(order.booking.startTime)
+                            setEditEnd(order.booking.endTime)
+                            setEditParty(String(order.booking.partySize))
+                          }
+                          setEditingBooking(true)
+                        }}
+                      >
+                        EDIT BOOKING
+                      </Button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <p className="font-mono text-[9px] text-grey-light uppercase">
+                      NO BOOKING YET — THIS ORDER HAS A SERVICE TIME BUT NO TABLE RESERVATION
+                    </p>
+                    <Button size="sm" onClick={createBooking} loading={busy}>CREATE BOOKING</Button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Progress */}
@@ -240,6 +382,13 @@ export function OrderDetailDrawer({
             <Button size="sm" variant="danger" onClick={remove} disabled={busy}>DELETE ORDER</Button>
           </div>
       </div>
+      <CustomerDrawer
+        isOpen={showCustomer}
+        onClose={() => setShowCustomer(false)}
+        name={order.customerName ?? ''}
+        phone={order.customerPhone}
+        email={order.customerEmail}
+      />
     </Modal>
   )
 }

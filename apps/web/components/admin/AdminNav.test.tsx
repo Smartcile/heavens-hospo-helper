@@ -35,7 +35,8 @@ describe('AdminNav', () => {
   it('renders navigation group labels', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const { getByText } = render(<AdminNav role="ADMIN" venueId="v1" defaultVenueId={undefined} availableVenueIds={[]} />)
-    expect(getByText('Venue')).toBeTruthy()
-    expect(getByText('Overview')).toBeTruthy()
+    expect(getByText('Dashboard')).toBeTruthy()
+    expect(getByText('Team & execution')).toBeTruthy()
+    expect(getByText('Setup & config')).toBeTruthy()
   })
 })

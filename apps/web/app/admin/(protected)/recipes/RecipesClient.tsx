@@ -8,6 +8,8 @@ import { SearchSelect } from '@/components/ui/SearchSelect'
 import { ListBox, ListRow } from '@/components/ui/ListBox'
 import { Modal } from '@/components/ui/Modal'
 import { computeRecipeAllergens, type AllergenSource } from '@/lib/allergens'
+import { getActiveVenueId } from '@/lib/active-venue'
+import { convertLine, convertQty } from '@/lib/unit-convert'
 
 interface Recipe {
   id: string; name: string; yieldQty: number; yieldUnitId: string; instructions: string | null
@@ -21,14 +23,18 @@ interface LineItem {
   id?: string; _clientId?: string
   qty: number; uomId: string
   inventoryItemId?: string | null; childRecipeId?: string | null
+  ingredientReferenceId?: string | null
   inventoryItemName?: string; inventoryItemUnit?: string
+  inventoryItemDensity?: number | null; inventoryItemWeightPerUnit?: number | null
   childRecipeName?: string
+  ingredientReferenceName?: string; ingredientReferenceNotes?: string | null
   allergyInfo?: string | null
 }
 
-interface Uom { id: string; name: string; baseUnit: string; conversionRatio: number }
-interface InvItem { id: string; name: string; unit: string; allergyInfo?: string | null; category?: { id: string; name: string; tab: string | null } }
+interface Uom { id: string; name: string; baseUnit: string; conversionRatio: number; kind?: string | null }
+interface InvItem { id: string; name: string; unit: string; allergyInfo?: string | null; densityGramsPerMl?: number | null; weightPerUnitGrams?: number | null; category?: { id: string; name: string; tab: string | null } }
 interface RecipeBrief { id: string; name: string }
+interface PantryRef { id: string; name: string; densityGramsPerMl: number | null; weightPerUnitGrams: number | null; notes: string | null }
 interface Variation { name: string; price: number; wooVariationId?: number }
 
 interface OrphanMenuItem {
@@ -37,7 +43,8 @@ interface OrphanMenuItem {
 
   function generateId() { return crypto.randomUUID() }
 
-export function RecipesClient() {
+export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
+  const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [orphanItems, setOrphanItems] = useState<OrphanMenuItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -92,12 +99,13 @@ export function RecipesClient() {
   const [uoms, setUoms] = useState<Uom[]>([])
   const [inventoryItems, setInventoryItems] = useState<InvItem[]>([])
   const [allRecipes, setAllRecipes] = useState<RecipeBrief[]>([])
+  const [pantryRefs, setPantryRefs] = useState<PantryRef[]>([])
   const [wooCategories, setWooCategories] = useState<{ id: string; name: string }[]>([])
   const [menus, setMenus] = useState<{ id: string; name: string; wooCategoryId: string | null }[]>([])
   const [categories, setCategories] = useState<{ id: string; name: string; tab: string | null }[]>([])
 
   const [lineItems, setLineItems] = useState<LineItem[]>([])
-  const [newItemType, setNewItemType] = useState<'inventory' | 'recipe'>('inventory')
+  const [newItemType, setNewItemType] = useState<'inventory' | 'recipe' | 'pantry'>('inventory')
   const [newItemId, setNewItemId] = useState('')
   const [newItemQty, setNewItemQty] = useState('1')
   const [newItemUomId, setNewItemUomId] = useState('')
@@ -106,6 +114,10 @@ export function RecipesClient() {
   const [editingLineId, setEditingLineId] = useState<string | null>(null)
   const [editLineQty, setEditLineQty] = useState('1')
   const [editLineUomId, setEditLineUomId] = useState('')
+
+  // Display mode: VOLUME (native units) or WEIGHT (grams) — display only,
+  // stored qty + uomId stays authoritative.
+  const [displayMode, setDisplayMode] = useState<'VOLUME' | 'WEIGHT'>('VOLUME')
 
   async function uploadImage(file: File) {
     setImageUploading(true)
@@ -130,6 +142,7 @@ export function RecipesClient() {
         uomId: newIngredientUomId,
         categoryId: newIngredientCatId,
         totalQty: 0,
+        ...(venueId ? { venueId } : {}),
       }),
     })
     if (r.ok) {
@@ -137,7 +150,7 @@ export function RecipesClient() {
       setShowAddIngredient(false)
       setNewIngredientName(''); setNewIngredientUomId(''); setNewIngredientCatId('')
       // Refresh inventory items and select the new one
-      const iRes = await fetch('/api/admin/inventory')
+      const iRes = await fetch(`/api/admin/inventory${venueId ? `?venueId=${venueId}` : ''}`)
       if (iRes.ok) { const data = await iRes.json(); setInventoryItems(Array.isArray(data) ? data : []) }
       setNewItemId(created.id)
       setNewItemType('inventory')
@@ -172,8 +185,13 @@ export function RecipesClient() {
       id: li.id,
       qty: li.qty, uomId: li.uomId,
       inventoryItemId: li.inventoryItemId, childRecipeId: li.childRecipeId,
+      ingredientReferenceId: li.ingredientReferenceId,
       inventoryItemName: li.inventoryItem?.name, inventoryItemUnit: li.inventoryItem?.unit,
+      inventoryItemDensity: li.inventoryItem?.densityGramsPerMl ?? null,
+      inventoryItemWeightPerUnit: li.inventoryItem?.weightPerUnitGrams ?? null,
       childRecipeName: li.childRecipe?.name,
+      ingredientReferenceName: li.ingredientReference?.name,
+      ingredientReferenceNotes: li.ingredientReference?.notes ?? null,
       allergyInfo: li.inventoryItem?.allergyInfo ?? null,
     })))
     if (r.menuItem) {
@@ -209,13 +227,15 @@ export function RecipesClient() {
 
   async function load() {
     setLoading(true)
-    const [rRes, uRes, iRes, mRes, cRes, menuRes] = await Promise.all([
-      fetch('/api/admin/recipes'),
-      fetch('/api/admin/uoms'),
-      fetch('/api/admin/inventory'),
-      fetch('/api/admin/menu-items'),
-      fetch('/api/admin/inventory/categories'),
-      fetch('/api/admin/menus'),
+    const venueParam = venueId ? `?venueId=${venueId}` : ''
+    const [rRes, uRes, iRes, mRes, cRes, menuRes, pRes] = await Promise.all([
+      fetch(`/api/admin/recipes${venueParam}`),
+      fetch(`/api/admin/uoms${venueParam}`),
+      fetch(`/api/admin/inventory${venueParam}`),
+      fetch(`/api/admin/menu-items${venueParam}`),
+      fetch(`/api/admin/inventory/categories${venueParam}`),
+      fetch(`/api/admin/menus${venueParam}`),
+      fetch(`/api/admin/ingredient-references${venueParam}`),
     ])
     if (rRes.ok) {
       const prs = await rRes.json()
@@ -245,9 +265,13 @@ export function RecipesClient() {
       const data = await menuRes.json()
       setMenus(Array.isArray(data) ? data.map((m: any) => ({ id: m.id, name: m.name, wooCategoryId: m.wooCategoryId ?? null })) : [])
     }
+    if (pRes.ok) {
+      const data = await pRes.json()
+      setPantryRefs(Array.isArray(data) ? data : [])
+    }
     // Load WooCommerce categories for the category picker
     try {
-      const wcRes = await fetch('/api/admin/woocommerce/categories')
+      const wcRes = await fetch(`/api/admin/woocommerce/categories${venueParam}`)
       if (wcRes.ok) {
         const data = await wcRes.json()
         setWooCategories((data.categories ?? []).map((c: { id: number; name: string }) => ({ id: String(c.id), name: c.name })))
@@ -278,7 +302,14 @@ export function RecipesClient() {
       li.inventoryItemId = newItemId
       li.inventoryItemName = inv?.name
       li.inventoryItemUnit = uom?.name
+      li.inventoryItemDensity = inv?.densityGramsPerMl ?? null
+      li.inventoryItemWeightPerUnit = inv?.weightPerUnitGrams ?? null
       li.allergyInfo = inv?.allergyInfo ?? null
+    } else if (newItemType === 'pantry') {
+      const ref = pantryRefs.find((r) => r.id === newItemId)
+      li.ingredientReferenceId = newItemId
+      li.ingredientReferenceName = ref?.name
+      li.ingredientReferenceNotes = ref?.notes ?? null
     } else {
       const rec = allRecipes.find((i) => i.id === newItemId)
       li.childRecipeId = newItemId
@@ -322,6 +353,7 @@ export function RecipesClient() {
         qty: li.qty, uomId: li.uomId,
         inventoryItemId: li.inventoryItemId ?? null,
         childRecipeId: li.childRecipeId ?? null,
+        ingredientReferenceId: li.ingredientReferenceId ?? null,
       })),
       linkToMenu,
       price: linkToMenu ? parseFloat(formPrice) || 0 : undefined,
@@ -333,6 +365,7 @@ export function RecipesClient() {
       variations: linkToMenu ? (formVariations.length > 0 ? formVariations : null) : undefined,
       existingMenuItemId: formExistingMenuItemId || undefined,
       dietaryInfo: formDietaryInfo.length > 0 ? formDietaryInfo.join(',') : null,
+      ...(venueId ? { venueId } : {}),
     }
     if (isCreating) {
       const r = await fetch('/api/admin/recipes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -368,6 +401,7 @@ export function RecipesClient() {
     for (const [cat, items] of byCat) {
       groups.push({ label: cat, options: items })
     }
+    if (pantryRefs.length > 0) groups.push({ label: 'PANTRY BIBLE', options: pantryRefs.map((r) => ({ value: r.id, label: r.name })) })
     if (otherRecipes.length > 0) groups.push({ label: 'SUB-RECIPES', options: otherRecipes.map((r) => ({ value: r.id, label: r.name })) })
     return groups
   })()
@@ -525,20 +559,43 @@ export function RecipesClient() {
 
                 {/* Line Items */}
                 <div className="space-y-3">
-                  <ListBox title="INGREDIENTS & SUB-RECIPES" count={lineItems.length}>
+                  <ListBox
+                    title="INGREDIENTS & SUB-RECIPES"
+                    count={lineItems.length}
+                    action={
+                      <div className="flex border border-grey-mid">
+                        {(['VOLUME', 'WEIGHT'] as const).map((m) => (
+                          <button key={m} onClick={() => setDisplayMode(m)}
+                            className={`font-mono text-[9px] uppercase px-2 py-0.5 transition-colors ${displayMode === m ? 'bg-white text-black' : 'text-grey-light hover:text-white'}`}>
+                            {m}
+                          </button>
+                        ))}
+                      </div>
+                    }
+                  >
                     {lineItems.length === 0 ? (
                       <p className="font-mono text-xs text-grey-light px-3 py-2">NO INGREDIENTS YET.</p>
                     ) : (
                       lineItems.map((li) => {
                         const cid = li._clientId ?? li.id ?? ''
                         const uom = uoms.find((u) => u.id === li.uomId)
+                        const liItem = li.inventoryItemId
+                          ? { densityGramsPerMl: li.inventoryItemDensity ?? null, weightPerUnitGrams: li.inventoryItemWeightPerUnit ?? null }
+                          : null
+                        const converted = uom && li.inventoryItemId ? convertLine(li.qty, uom, liItem, displayMode === 'WEIGHT' ? 'MASS' : 'VOLUME') : null
+                        const weightReadout = displayMode === 'WEIGHT' && li.inventoryItemId
+                          ? (converted ? ` · ≈ ${converted.qty} ${converted.label}` : ' · NO DENSITY')
+                          : ''
                         return (
                           <ListRow key={cid}>
-                            <span className="text-white flex-1 min-w-0 truncate font-mono text-xs uppercase">{li.inventoryItemName ?? li.childRecipeName ?? '—'}</span>
+                            <span className="text-white flex-1 min-w-0 truncate font-mono text-xs uppercase">{li.inventoryItemName ?? li.childRecipeName ?? li.ingredientReferenceName ?? '—'}</span>
+                            {li.ingredientReferenceId && <span className="font-mono text-[10px] text-[#c4a530] border border-[#c4a530] px-1 shrink-0">PANTRY BIBLE</span>}
                             {li.allergyInfo && li.allergyInfo.split(',').map((a: string) => a.trim()).filter(Boolean).map((allergen: string) => (
                               <span key={allergen} className="font-mono text-[8px] text-[#c4a530] border border-[#c4a530] px-1">{allergen}</span>
                             ))}
-                            <span className="font-mono text-xs text-grey-light shrink-0">×{li.qty} {uom?.name ?? ''}</span>
+                            <span className={`font-mono text-xs shrink-0 ${displayMode === 'WEIGHT' && li.inventoryItemId && !converted ? 'text-danger' : 'text-grey-light'}`}>
+                              ×{li.qty} {uom?.name ?? ''}{weightReadout}
+                            </span>
                             {li.childRecipeId && <span className="font-mono text-[10px] text-warning shrink-0">SUB-RECIPE</span>}
                             <button onClick={() => openLineEdit(li)}
                               className="font-mono text-[10px] text-[#c4a530] border border-[#c4a530] px-1.5 py-0.5 hover:text-white hover:border-white uppercase shrink-0"
@@ -555,8 +612,9 @@ export function RecipesClient() {
                       setNewItemId(v)
                       if (v) {
                         const isRecipe = otherRecipes.some((r) => r.id === v)
-                        setNewItemType(isRecipe ? 'recipe' : 'inventory')
-                        if (!isRecipe && uoms.length > 0) {
+                        const isPantry = pantryRefs.some((r) => r.id === v)
+                        setNewItemType(isRecipe ? 'recipe' : isPantry ? 'pantry' : 'inventory')
+                        if (!isRecipe && !isPantry && uoms.length > 0) {
                           const inv = inventoryItems.find((i) => i.id === v)
                           if (inv?.unit) {
                             const u = inv.unit.toUpperCase().trim()
@@ -575,6 +633,18 @@ export function RecipesClient() {
                       options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="UOM" className="w-28" />
                     <Button size="sm" onClick={addLineItem} disabled={!newItemId || !newItemUomId}>+ ADD</Button>
                   </div>
+                  {newItemId && newItemUomId && newItemType === 'inventory' && (() => {
+                    const inv = inventoryItems.find((i) => i.id === newItemId)
+                    const uom = uoms.find((u) => u.id === newItemUomId)
+                    if (!inv || !uom) return null
+                    const converted = convertLine(parseFloat(newItemQty) || 0, uom,
+                      { densityGramsPerMl: inv.densityGramsPerMl ?? null, weightPerUnitGrams: inv.weightPerUnitGrams ?? null }, 'MASS')
+                    return (
+                      <p className={`font-mono text-[9px] ${converted ? 'text-grey-light' : 'text-danger'}`}>
+                        {converted ? `≈ ${converted.qty} ${converted.label}${inv.densityGramsPerMl != null ? ` · ${inv.densityGramsPerMl} G/ML` : inv.weightPerUnitGrams != null ? ` · ${inv.weightPerUnitGrams} G/EA` : ''}` : 'NO DENSITY — ADD ONE IN INVENTORY'}
+                      </p>
+                    )
+                  })()}
                 </div>
 
                 {/* Allergens */}
@@ -753,7 +823,22 @@ export function RecipesClient() {
                 </div>
                 <div>
                   <label className="font-mono text-xs uppercase text-grey-light block mb-1">UNIT</label>
-                  <Select value={editLineUomId} onChange={(e) => setEditLineUomId(e.target.value)}
+                  <Select value={editLineUomId} onChange={(e) => {
+                    const next = e.target.value
+                    const li = lineItems.find((x) => (x._clientId ?? x.id ?? '') === editingLineId)
+                    const oldUom = uoms.find((u) => u.id === editLineUomId)
+                    const newUom = uoms.find((u) => u.id === next)
+                    // Changing the unit converts the qty so the physical amount
+                    // is preserved (1 CUP of flour → 132 G, not 1 G).
+                    if (li && oldUom && newUom && oldUom.id !== newUom.id && li.inventoryItemId) {
+                      const converted = convertQty(parseFloat(editLineQty) || 0, oldUom, newUom, {
+                        densityGramsPerMl: li.inventoryItemDensity ?? null,
+                        weightPerUnitGrams: li.inventoryItemWeightPerUnit ?? null,
+                      })
+                      if (converted != null) setEditLineQty(String(Math.round(converted * 100) / 100))
+                    }
+                    setEditLineUomId(next)
+                  }}
                     options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="UOM" />
                 </div>
               </div>

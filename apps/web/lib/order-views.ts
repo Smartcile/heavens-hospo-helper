@@ -43,6 +43,16 @@ export interface OrderView {
   menuName: string | null
   /** Set when the order is attached to a table reservation. */
   bookingId?: string | null
+  /** The linked reservation's details (for the order detail popout). */
+  booking?: {
+    id: string
+    date: string
+    startTime: string
+    endTime: string
+    partySize: number
+    contactName: string
+    tables: string[]
+  } | null
   tables: string[]
   items: OrderLineView[]
 }

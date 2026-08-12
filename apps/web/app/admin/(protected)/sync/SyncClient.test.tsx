@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { SyncClient } from '@/app/admin/(protected)/sync/SyncClient'
 
+const props = { role: 'ADMIN', sessionVenueId: 'v1' }
+
 describe('SyncClient', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -17,36 +19,36 @@ describe('SyncClient', () => {
   })
 
   it('renders loading state on mount', () => {
-    render(<SyncClient />)
+    render(<SyncClient {...props} />)
     expect(screen.getByText('LOADING')).toBeTruthy()
   })
 
   it('renders without crashing (hooks ordered correctly)', () => {
-    const { container } = render(<SyncClient />)
+    const { container } = render(<SyncClient {...props} />)
     expect(container).toBeTruthy()
   })
 
   it('calls the sync log API on mount', () => {
-    render(<SyncClient />)
+    render(<SyncClient {...props} />)
     expect(fetch).toHaveBeenCalledWith('/api/admin/sync/log?')
   })
 
   it('renders the WOOCOMMERCE SYNC heading after load', async () => {
-    render(<SyncClient />)
+    render(<SyncClient {...props} />)
     await waitFor(() => {
       expect(screen.getByText('WOOCOMMERCE SYNC')).toBeTruthy()
     })
   })
 
   it('shows the empty state when there is no activity', async () => {
-    render(<SyncClient />)
+    render(<SyncClient {...props} />)
     await waitFor(() => {
       expect(screen.getByText('NO SYNC ACTIVITY YET')).toBeTruthy()
     })
   })
 
   it('renders PULL and PUSH buttons', async () => {
-    render(<SyncClient />)
+    render(<SyncClient {...props} />)
     await waitFor(() => {
       expect(screen.getByText('↓ PULL PRODUCTS NOW')).toBeTruthy()
       expect(screen.getByText('↑ PUSH PRODUCTS NOW')).toBeTruthy()
@@ -77,7 +79,7 @@ describe('SyncClient', () => {
         },
       ],
     })
-    render(<SyncClient />)
+    render(<SyncClient {...props} />)
     await waitFor(() => {
       expect(screen.getByText('PULLED 10 PRODUCTS')).toBeTruthy()
       expect(screen.getByText('ORDER STATUS PUSH FAILED FOR #9 — HTTP 500')).toBeTruthy()
@@ -86,7 +88,7 @@ describe('SyncClient', () => {
   })
 
   it('renders direction and status filter selects', async () => {
-    render(<SyncClient />)
+    render(<SyncClient {...props} />)
     await waitFor(() => {
       expect(screen.getByText('ALL DIRECTIONS')).toBeTruthy()
       expect(screen.getByText('ALL STATUSES')).toBeTruthy()
@@ -109,7 +111,7 @@ describe('SyncClient', () => {
         },
       ],
     })
-    render(<SyncClient />)
+    render(<SyncClient {...props} />)
     await waitFor(() => {
       expect(screen.getByText('PRODUCT PULL FAILED FOR https://example.com')).toBeTruthy()
     })
@@ -134,7 +136,7 @@ describe('SyncClient', () => {
         },
       ],
     })
-    render(<SyncClient />)
+    render(<SyncClient {...props} />)
     await waitFor(() => {
       expect(screen.getByText('ORDER #55 SYNCED')).toBeTruthy()
     })

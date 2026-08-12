@@ -8,6 +8,7 @@ import { ServiceView, KitchenView, FohView, ProductionView, AllOrdersView } from
 import { OrderDetailDrawer } from '@/components/admin/OrderDetailDrawer'
 import { NewOrderModal } from '@/components/admin/NewOrderModal'
 import { applyFilters, summarise, type OrderView, type OrderFilters } from '@/lib/order-views'
+import { getActiveVenueId } from '@/lib/active-venue'
 import type { DateRange } from '@/lib/date-nav'
 
 type ViewType = 'SERVICE' | 'KITCHEN' | 'FOH' | 'PRODUCTION' | 'ALL'
@@ -38,7 +39,7 @@ function today(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export function OrdersClient() {
+export function OrdersClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
   const [date, setDate] = useState(today)
   const [dateRange, setDateRange] = useState<DateRange | null>(null)
   const [view, setView] = useState<ViewType>('SERVICE')
@@ -55,15 +56,18 @@ export function OrdersClient() {
   const [showNew, setShowNew] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
 
+  const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
+
   const load = useCallback(async () => {
     setLoading(true)
     // The ALL view ignores the date — every synced order, newest first, so
     // undated/unbooked orders that no day view can show are still inspectable.
     const isRange = dateRange !== null && dateRange.start !== dateRange.end
+    const venueParam = venueId ? `&venueId=${venueId}` : ''
     const url =
       view === 'ALL'
-        ? '/api/admin/orders?scope=all'
-        : `/api/admin/orders?date=${date}${isRange ? `&endDate=${dateRange.end}` : ''}`
+        ? `/api/admin/orders?scope=all${venueParam}`
+        : `/api/admin/orders?date=${date}${isRange ? `&endDate=${dateRange.end}` : ''}${venueParam}`
     const res = await fetch(url)
     if (res.ok) {
       const d = await res.json()
@@ -74,7 +78,7 @@ export function OrdersClient() {
       pushToast('FAILED TO LOAD ORDERS', 'error')
     }
     setLoading(false)
-  }, [date, view, dateRange])
+  }, [date, view, dateRange, venueId])
 
   useEffect(() => { load() }, [load])
 
@@ -321,7 +325,7 @@ export function OrdersClient() {
       )}
 
       {showNew && (
-        <NewOrderModal date={date} onClose={() => setShowNew(false)} onCreated={load} />
+        <NewOrderModal date={date} venueId={venueId} onClose={() => setShowNew(false)} onCreated={load} />
       )}
     </div>
   )

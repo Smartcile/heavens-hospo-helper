@@ -8,7 +8,10 @@ import { Modal } from '@/components/ui/Modal'
 import { Combobox } from '@/components/ui/Combobox'
 import { AllergenPicker } from '@/components/ui/AllergenPicker'
 import { ALLERGENS } from '@/lib/allergens'
+import { cupToDensity, findKnownIngredient } from '@/lib/unit-convert'
+import { buildDensityPrompt, parseDensityFromAnswer } from '@/lib/llm-prompt'
 import { FurnitureForm } from '@/components/admin/FurnitureForm'
+import { getActiveVenueId } from '@/lib/active-venue'
 import type { FurnitureView } from '@hospo-ops/types'
 
 interface Category { id: string; name: string; isBuiltIn: boolean; venueId: string | null; tab: string | null; showDeepFields: boolean; showEquipmentFields: boolean }
@@ -18,6 +21,7 @@ interface Item {
   elementShape?: string | null; defaultColour?: string | null; defaultChairCount?: number
   countingUnitId?: string | null; orderingUnitId?: string | null; yieldPercentage?: number | null; costPrice?: number | null; expiryDate?: string | null; fallbackCategoryId?: string | null; allergyInfo?: string | null
   shelfLifeDays?: number | null; canFreeze?: boolean; freezerShelfLifeDays?: number | null
+  densityGramsPerMl?: number | null; weightPerUnitGrams?: number | null
   // Equipment / tool tracking
   imageUrls?: string[] | null; storageSectionId?: string | null; storageNotes?: string | null
   serialNumber?: string | null; purchaseDate?: string | null; warrantyExpiry?: string | null
@@ -25,6 +29,7 @@ interface Item {
   maintenanceNotes?: string | null; supplierId?: string | null
 }
 interface Uom { id: string; name: string; baseUnit: string }
+interface IngredientRef { id: string; name: string; densityGramsPerMl: number | null; weightPerUnitGrams: number | null; notes: string | null; isBuiltIn: boolean }
 interface SectionLite { id: string; name: string; department: { id: string; name: string } }
 interface SupplierLite { id: string; name: string }
 
@@ -32,7 +37,13 @@ interface StockItem { id: string; name: string; quantity: number; unit: string }
 interface StockTable { id: string; label: string; width: number; depth: number; planName: string; planId: string; inventoryItems: StockItem[] }
 interface StockSection { id: string; name: string; tables: StockTable[] }
 
-export function InventoryClient() {
+interface PantryRef {
+  id: string; name: string; densityGramsPerMl: number | null
+  weightPerUnitGrams: number | null; notes: string | null
+}
+
+export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
+  const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<Item[]>([])
   const [loading, setLoading] = useState(true)
@@ -84,6 +95,17 @@ export function InventoryClient() {
   const [formOrderingUnitQty, setFormOrderingUnitQty] = useState('')
   const [formParLevelUnitId, setFormParLevelUnitId] = useState('')
 
+  // Density (volume ↔ mass ↔ count conversion)
+  const [formDensity, setFormDensity] = useState('')
+  const [formCupWeight, setFormCupWeight] = useState('')
+  const [formWeightPerUnit, setFormWeightPerUnit] = useState('')
+  const [ingredientRefs, setIngredientRefs] = useState<IngredientRef[]>([])
+  const [knownSuggestion, setKnownSuggestion] = useState<IngredientRef | null>(null)
+  const [showRefPicker, setShowRefPicker] = useState(false)
+  const [refSearch, setRefSearch] = useState('')
+  const [showLlmModal, setShowLlmModal] = useState(false)
+  const [llmAnswer, setLlmAnswer] = useState('')
+
   // Equipment / tool tracking
   const [formImageUrls, setFormImageUrls] = useState<string[]>([])
   const [formStorageSectionId, setFormStorageSectionId] = useState('')
@@ -104,6 +126,7 @@ export function InventoryClient() {
   const [formUploadingImg, setFormUploadingImg] = useState(false)
   const [sections, setSections] = useState<SectionLite[]>([])
   const [suppliers, setSuppliers] = useState<SupplierLite[]>([])
+  const [pantryRefs, setPantryRefs] = useState<PantryRef[]>([])
 
   // Furniture editor. Furniture is an InventoryItem with geometry set, so the
   // id here is just the item's id — there is no separate profile record.
@@ -116,6 +139,7 @@ export function InventoryClient() {
     setFormCountingUnitId(''); setFormOrderingUnitId(''); setFormYield(''); setFormCostPrice('')
     setFormExpiryDate(''); setFormFallbackCatId(''); setFormAllergyInfo(''); setShowDeepFields(true)
     setFormShelfLifeDays(''); setFormCanFreeze(false); setFormFreezerShelfLifeDays('')
+    setFormDensity(''); setFormCupWeight(''); setFormWeightPerUnit(''); setKnownSuggestion(null); setLlmAnswer('')
     setFormImageUrls([]); setFormStorageSectionId(''); setFormStorageNotes('')
     setFormSerialNumber(''); setFormPurchaseDate(''); setFormWarrantyExpiry('')
     setFormServiceIntervalDays(''); setFormLastServicedAt(''); setFormNextServiceAt('')
@@ -133,6 +157,10 @@ export function InventoryClient() {
     setFormShelfLifeDays(item.shelfLifeDays != null ? String(item.shelfLifeDays) : '')
     setFormCanFreeze(!!item.canFreeze)
     setFormFreezerShelfLifeDays(item.freezerShelfLifeDays != null ? String(item.freezerShelfLifeDays) : '')
+    setFormDensity(item.densityGramsPerMl != null ? String(item.densityGramsPerMl) : '')
+    setFormCupWeight('')
+    setFormWeightPerUnit(item.weightPerUnitGrams != null ? String(item.weightPerUnitGrams) : '')
+    setKnownSuggestion(null); setLlmAnswer('')
     setFormImageUrls(Array.isArray(item.imageUrls) ? item.imageUrls : item.imageUrls ? [item.imageUrls as any] : [])
     setFormStorageSectionId(item.storageSectionId ?? '')
     setFormStorageNotes(item.storageNotes ?? '')
@@ -157,13 +185,15 @@ export function InventoryClient() {
 
   async function load() {
     setLoading(true)
-    const [catRes, itemRes, prRes, uomRes, secRes, supRes] = await Promise.all([
-      fetch('/api/admin/inventory/categories'),
-      fetch('/api/admin/inventory'),
-      fetch('/api/admin/furniture'),
-      fetch('/api/admin/uoms'),
-      fetch('/api/admin/sections'),
-      fetch('/api/admin/suppliers'),
+    const venueParam = venueId ? `?venueId=${venueId}` : ''
+    const [catRes, itemRes, prRes, uomRes, secRes, supRes, refRes] = await Promise.all([
+      fetch(`/api/admin/inventory/categories${venueParam}`),
+      fetch(`/api/admin/inventory${venueParam}`),
+      fetch(`/api/admin/furniture${venueParam}`),
+      fetch(`/api/admin/uoms${venueParam}`),
+      fetch(`/api/admin/sections${venueParam}`),
+      fetch(`/api/admin/suppliers${venueParam}`),
+      fetch(`/api/admin/ingredient-references${venueParam}`),
     ])
     if (catRes.ok) setCategories(await catRes.json())
     if (itemRes.ok) setItems(await itemRes.json())
@@ -183,18 +213,22 @@ export function InventoryClient() {
       const data = await supRes.json()
       setSuppliers(Array.isArray(data) ? data : [])
     }
+    if (refRes.ok) {
+      const data = await refRes.json()
+      setIngredientRefs(Array.isArray(data) ? data : [])
+    }
     setLoading(false)
   }
 
   async function loadStock() {
     setStockLoading(true)
-    const r = await fetch('/api/admin/stock/hierarchy')
+    const r = await fetch(`/api/admin/stock/hierarchy${venueId ? `?venueId=${venueId}` : ''}`)
     if (r.ok) setStock((await r.json()).sections)
     setStockLoading(false)
   }
 
   async function loadDeleted() {
-    const r = await fetch('/api/admin/inventory?deleted=true')
+    const r = await fetch(`/api/admin/inventory?deleted=true${venueId ? `&venueId=${venueId}` : ''}`)
     if (r.ok) setDeletedItems(await r.json())
   }
 
@@ -210,6 +244,13 @@ export function InventoryClient() {
   }
 
   useEffect(() => { load(); loadStock() }, [])
+
+  // Auto-suggest a known ingredient's density when the name matches the library
+  useEffect(() => {
+    const name = formName.toUpperCase().trim()
+    if (!name || formDensity || formCupWeight) { setKnownSuggestion(null); return }
+    setKnownSuggestion(findKnownIngredient(name, ingredientRefs))
+  }, [formName, ingredientRefs, formDensity, formCupWeight])
 
   useEffect(() => {
     if (loading) return
@@ -231,6 +272,45 @@ export function InventoryClient() {
     const r = await fetch('/api/admin/upload', { method: 'POST', body: form })
     setFormUploadingImg(false)
     if (r.ok) { const data = await r.json(); setFormImageUrls((prev) => [...prev, data.url]) }
+  }
+
+  function cupWeightToDensity(v: string) {
+    const g = parseFloat(v)
+    return g > 0 ? cupToDensity(g) : null
+  }
+
+  function applyRef(ref: IngredientRef) {
+    setFormDensity(ref.densityGramsPerMl != null ? String(ref.densityGramsPerMl) : '')
+    setFormCupWeight('')
+    setFormWeightPerUnit(ref.weightPerUnitGrams != null ? String(ref.weightPerUnitGrams) : '')
+    setKnownSuggestion(null)
+    setShowRefPicker(false)
+  }
+
+  async function saveAsReference() {
+    const d = formDensity !== '' ? parseFloat(formDensity) : formCupWeight !== '' ? cupWeightToDensity(formCupWeight) : null
+    if (!formName.trim() || (d == null && formWeightPerUnit === '')) return
+    const r = await fetch('/api/admin/ingredient-references', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: formName.trim().toUpperCase(),
+        densityGramsPerMl: d != null && isFinite(d) && d > 0 ? d : null,
+        weightPerUnitGrams: formWeightPerUnit !== '' ? parseFloat(formWeightPerUnit) : null,
+        notes: formCupWeight !== '' ? `1 CUP ≈ ${formCupWeight}G` : null,
+        ...(venueId ? { venueId } : {}),
+      }),
+    })
+    if (r.ok) {
+      const refRes = await fetch(`/api/admin/ingredient-references${venueId ? `?venueId=${venueId}` : ''}`)
+      if (refRes.ok) setIngredientRefs(await refRes.json())
+    }
+  }
+
+  async function deleteReference(id: string) {
+    await fetch(`/api/admin/ingredient-references?id=${id}`, { method: 'DELETE' })
+    const refRes = await fetch(`/api/admin/ingredient-references${venueId ? `?venueId=${venueId}` : ''}`)
+    if (refRes.ok) setIngredientRefs(await refRes.json())
   }
 
   async function handleSave() {
@@ -261,6 +341,10 @@ export function InventoryClient() {
       shelfLifeDays: formShelfLifeDays ? parseInt(formShelfLifeDays) : null,
       canFreeze: formCanFreeze,
       freezerShelfLifeDays: formFreezerShelfLifeDays ? parseInt(formFreezerShelfLifeDays) : null,
+      // Density: the cup-weight helper ("1 CUP = X G") is converted to g/mL on save
+      densityGramsPerMl: formDensity != null && formDensity !== '' ? parseFloat(formDensity) : (formCupWeight != null && formCupWeight !== '' ? cupWeightToDensity(formCupWeight) : null),
+      weightPerUnitGrams: formWeightPerUnit != null && formWeightPerUnit !== '' ? parseFloat(formWeightPerUnit) : null,
+      ...(venueId ? { venueId } : {}),
     }
     if (isCreating) {
       if (!body.name || !body.categoryId) return
@@ -274,7 +358,7 @@ export function InventoryClient() {
   }
 
   async function addCategory() {
-    const r = await fetch('/api/admin/inventory/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName, tab: activeTab === 'OTHER' ? null : activeTab }) })
+    const r = await fetch('/api/admin/inventory/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName, tab: activeTab === 'OTHER' ? null : activeTab, ...(venueId ? { venueId } : {}) }) })
     if (!r.ok) { const d = await r.json(); alert(d.error); return }
     setNewCatName(''); setShowNewCat(false); load()
   }
@@ -431,6 +515,7 @@ export function InventoryClient() {
                             <div className="flex-1 min-w-0">
                               <span className="font-mono text-xs text-white block truncate">
                                 {item.name}
+                                <span className="inline-block ml-1 font-mono text-[8px] text-grey-light border border-grey-mid px-1 align-middle">CUSTOM</span>
                                 {item.allergyInfo && item.allergyInfo.split(',').map((a: string) => a.trim()).filter(Boolean).map((allergen: string) => (
                                   <span key={allergen} className="inline-block ml-1 font-mono text-[8px] text-[#c4a530] border border-[#c4a530] px-1 align-middle">{allergen}</span>
                                 ))}
@@ -488,6 +573,49 @@ export function InventoryClient() {
               </div>
             )
           })}
+
+          {/* Pantry Bible — the known-ingredient density library. These are
+              references for recipes (density / unit weight), not stock. */}
+          <div className="border border-grey-mid">
+            <div className="flex items-center">
+              <button onClick={() => toggleCollapse('PANTRY BIBLE')}
+                className="flex-1 flex items-center justify-between px-3 py-2 hover:bg-grey-mid/20 text-left">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs text-grey-light">{collapsed.has('PANTRY BIBLE') ? '▸' : '▾'}</span>
+                  <span className="font-mono text-xs font-bold text-white uppercase">PANTRY BIBLE</span>
+                  <span className="font-mono text-[10px] text-grey-light">({ingredientRefs.length})</span>
+                </div>
+              </button>
+              <button onClick={() => setShowRefPicker(true)}
+                className="font-mono text-[10px] uppercase text-grey-light hover:text-white px-3 py-2 border-l border-grey-mid">
+                LIBRARY
+              </button>
+            </div>
+            {!collapsed.has('PANTRY BIBLE') && (
+              <div className="border-t border-grey-mid">
+                <p className="font-mono text-[9px] text-grey-light px-3 pt-2">
+                  KNOWN INGREDIENTS WITH DENSITY / UNIT-WEIGHT — REFERENCE VALUES FOR RECIPES, NOT STOCK.
+                </p>
+                {ingredientRefs.length === 0 && <p className="font-mono text-xs text-grey-light px-3 py-3">No known ingredients.</p>}
+                <div className="divide-y divide-grey-mid/50 pb-1">
+                  {ingredientRefs.map((r) => (
+                    <div key={r.id} className="flex items-center gap-2 px-3 py-2">
+                      <div className="flex-1 min-w-0">
+                        <span className="font-mono text-xs text-white block truncate uppercase">
+                          {r.name}
+                          <span className="inline-block ml-1 font-mono text-[8px] text-[#c4a530] border border-[#c4a530] px-1 align-middle">PANTRY BIBLE</span>
+                        </span>
+                        <span className="block font-mono text-[9px] text-grey-light">
+                          {r.notes ?? (r.densityGramsPerMl != null ? `1 CUP ≈ ${Math.round(r.densityGramsPerMl * 250)}G` : r.weightPerUnitGrams != null ? `1 EA ≈ ${r.weightPerUnitGrams}G` : '')}
+                        </span>
+                      </div>
+                      <span className="font-mono text-[9px] text-grey-light shrink-0 uppercase">REFERENCE</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Restore deleted items */}
@@ -607,7 +735,7 @@ export function InventoryClient() {
               if (editingCat) {
                 await fetch(`/api/admin/inventory/categories/${editingCat.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName, tab: newCatTab === 'OTHER' ? null : newCatTab, showDeepFields: !showDeepFields, showEquipmentFields }) })
               } else {
-                await fetch('/api/admin/inventory/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName, tab: newCatTab === 'OTHER' ? null : newCatTab, showDeepFields: !showDeepFields, showEquipmentFields }) })
+                await fetch('/api/admin/inventory/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName, tab: newCatTab === 'OTHER' ? null : newCatTab, showDeepFields: !showDeepFields, showEquipmentFields, ...(venueId ? { venueId } : {}) }) })
               }
               setShowCatModal(false); load()
             }} disabled={!newCatName}>{editingCat ? 'SAVE' : 'CREATE'}</Button>
@@ -697,6 +825,57 @@ export function InventoryClient() {
                   <Input label="FREEZER SHELF LIFE (DAYS)" type="number" value={formFreezerShelfLifeDays} onChange={(e) => setFormFreezerShelfLifeDays(e.target.value)} placeholder="e.g. 90" />
                 </div>
               )}
+              <div className="col-span-6 border border-grey-mid p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h3 className="font-mono text-[10px] uppercase text-grey-light tracking-wider">DENSITY — CONVERTS VOLUME ↔ WEIGHT</h3>
+                  <div className="flex gap-1">
+                    <button onClick={() => { setRefSearch(''); setShowRefPicker(true) }}
+                      className="font-mono text-[9px] uppercase border border-grey-mid px-1.5 py-0.5 text-grey-light hover:border-white hover:text-white">
+                      FROM LIBRARY
+                    </button>
+                    <button onClick={() => { setLlmAnswer(''); setShowLlmModal(true) }}
+                      className="font-mono text-[9px] uppercase border border-[#60A5FA]/50 px-1.5 py-0.5 text-[#60A5FA] hover:border-[#60A5FA] hover:text-white">
+                      HELP ME FIND OUT
+                    </button>
+                  </div>
+                </div>
+                {knownSuggestion && (
+                  <div className="flex items-center gap-2 border border-[#c4a530]/50 bg-[#c4a530]/10 px-2 py-1.5">
+                    <span className="font-mono text-[10px] text-[#c4a530] flex-1 truncate">
+                      KNOWN: {knownSuggestion.name} · {knownSuggestion.notes ?? (knownSuggestion.densityGramsPerMl != null ? `1 CUP ≈ ${Math.round(knownSuggestion.densityGramsPerMl * 250)}G` : knownSuggestion.weightPerUnitGrams != null ? `1 EA ≈ ${knownSuggestion.weightPerUnitGrams}G` : '')}
+                    </span>
+                    <button onClick={() => applyRef(knownSuggestion)}
+                      className="font-mono text-[9px] uppercase text-white border border-[#c4a530] px-1.5 py-0.5 hover:bg-[#c4a530] hover:text-black shrink-0">
+                      APPLY DENSITY?
+                    </button>
+                  </div>
+                )}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="col-span-1">
+                    <Input label="DENSITY (G/ML)" type="number" step="0.001" value={formDensity}
+                      onChange={(e) => { setFormDensity(e.target.value); if (e.target.value) setFormCupWeight('') }} placeholder="e.g. 0.528" />
+                  </div>
+                  <div className="col-span-1">
+                    <Input label="1 CUP = ___ G" type="number" step="1" value={formCupWeight}
+                      onChange={(e) => { setFormCupWeight(e.target.value); if (e.target.value) setFormDensity('') }} placeholder="e.g. 132" />
+                  </div>
+                  <div className="col-span-1">
+                    <Input label="1 UNIT = ___ G" type="number" step="1" value={formWeightPerUnit}
+                      onChange={(e) => setFormWeightPerUnit(e.target.value)} placeholder="e.g. 50 (EGG)" />
+                  </div>
+                </div>
+                <p className="font-mono text-[9px] text-grey-light">
+                  {(() => {
+                    const d = formDensity !== '' ? parseFloat(formDensity) : formCupWeight !== '' ? cupWeightToDensity(formCupWeight) : null
+                    if (d == null || !isFinite(d) || d <= 0) {
+                      return formWeightPerUnit !== '' ? `1 EA ≈ ${parseFloat(formWeightPerUnit) || 0}G — COUNT → WEIGHT ONLY` : 'ENTER G/ML OR A CUP WEIGHT — "1 CUP FLOUR ≈ 132 G", "1 CUP SUGAR ≈ 211 G"'
+                    }
+                    const cupG = Math.round(d * 250)
+                    const unit = formWeightPerUnit !== '' ? ` · 1 EA ≈ ${parseFloat(formWeightPerUnit) || 0}G` : ''
+                    return `1 CUP ≈ ${cupG}G · 1 TBSP ≈ ${Math.round(d * 20)}G · 1 TSP ≈ ${Math.round(d * 5)}G${unit}`
+                  })()}
+                </p>
+              </div>
               <div className="col-span-6">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider block mb-1">ALLERGENS</label>
                 <div className="space-y-1.5">
@@ -866,6 +1045,69 @@ export function InventoryClient() {
             <div className="flex gap-2 pt-2">
               <Button onClick={handleSave} disabled={!formName || !formCat}>{isCreating ? 'CREATE' : 'SAVE'}</Button>
               <Button variant="ghost" onClick={() => { setSelectedItem(null); setIsCreating(false); resetForm() }}>CANCEL</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Known-ingredient library picker */}
+      <Modal isOpen={showRefPicker} onClose={() => setShowRefPicker(false)} title="KNOWN INGREDIENTS" size="md">
+        <div className="space-y-3">
+          <Input value={refSearch} onChange={(e) => setRefSearch(e.target.value.toUpperCase())} placeholder="SEARCH LIBRARY..." />
+          <div className="max-h-[40vh] overflow-y-auto divide-y divide-grey-mid/50 border border-grey-mid">
+            {ingredientRefs.filter((r) => !refSearch || r.name.includes(refSearch)).map((r) => (
+              <div key={r.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-grey-dark/40">
+                <button onClick={() => applyRef(r)} className="flex-1 min-w-0 text-left">
+                  <span className="block font-mono text-xs uppercase text-white truncate">{r.name}</span>
+                  <span className="block font-mono text-[9px] text-grey-light">{r.notes ?? (r.densityGramsPerMl != null ? `1 CUP ≈ ${Math.round(r.densityGramsPerMl * 250)}G` : r.weightPerUnitGrams != null ? `1 EA ≈ ${r.weightPerUnitGrams}G` : '')}</span>
+                </button>
+                {!r.isBuiltIn && (
+                  <button onClick={() => deleteReference(r.id)} className="font-mono text-xs text-grey-light hover:text-danger shrink-0">✕</button>
+                )}
+              </div>
+            ))}
+            {ingredientRefs.length === 0 && <p className="font-mono text-xs text-grey-light px-2 py-2">LIBRARY EMPTY.</p>}
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-mono text-[9px] text-grey-light flex-1">CLICK A ROW TO APPLY ITS DENSITY TO THIS ITEM.</p>
+            <Button size="sm" onClick={saveAsReference} disabled={!formName.trim() || (formDensity === '' && formCupWeight === '' && formWeightPerUnit === '')}>
+              + SAVE CURRENT AS REFERENCE
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* LLM density helper */}
+      <Modal isOpen={showLlmModal} onClose={() => setShowLlmModal(false)} title="FIND THE DENSITY" size="lg">
+        <div className="space-y-3">
+          <p className="font-mono text-[10px] text-grey-light leading-relaxed">
+            COPY THE PROMPT BELOW INTO ANY LLM (CHATGPT, CLAUDE, GEMINI...). IT ASKS
+            FOR THE DENSITY OF &quot;{formName.toUpperCase().trim() || 'THIS ITEM'}&quot; — PASTE THE ANSWER BACK
+            AND WE WILL FILL IN THE DENSITY FIELD.
+          </p>
+          <textarea readOnly value={buildDensityPrompt({ itemName: formName.toUpperCase().trim() || 'THIS ITEM' })}
+            onFocus={(e) => e.target.select()}
+            rows={10}
+            className="w-full bg-black border border-grey-mid text-white font-mono text-[10px] px-3 py-2 outline-none focus:border-white resize-y" />
+          <Button size="sm" onClick={async () => {
+            try { await navigator.clipboard.writeText(buildDensityPrompt({ itemName: formName.toUpperCase().trim() || 'THIS ITEM' })) } catch { /* clipboard unavailable */ }
+          }}>COPY PROMPT</Button>
+          <div>
+            <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">PASTE THE LLM&apos;S ANSWER HERE</label>
+            <textarea value={llmAnswer} onChange={(e) => setLlmAnswer(e.target.value)}
+              rows={6}
+              placeholder={'DENSITY: 0.528 g/mL (ESTIMATE)\n1 CUP: 132 g\n...'}
+              className="w-full bg-black border border-grey-mid text-white font-mono text-[10px] px-3 py-2 outline-none focus:border-white placeholder:text-grey-light resize-y" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => {
+              const d = parseDensityFromAnswer(llmAnswer)
+              if (d != null) {
+                setFormDensity(String(d)); setFormCupWeight(''); setLlmAnswer(''); setShowLlmModal(false)
+              } else {
+                alert('COULD NOT FIND A DENSITY (G/ML) IN THE ANSWER — TRY AGAIN OR ENTER IT MANUALLY.')
+              }
+            }}>APPLY DENSITY</Button>
+            <Button variant="ghost" size="sm" onClick={() => setShowLlmModal(false)}>CLOSE</Button>
           </div>
         </div>
       </Modal>

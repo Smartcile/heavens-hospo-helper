@@ -7,14 +7,21 @@ import { isValidTime } from '@/lib/calendar'
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER')
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { staffId, date, startTime, endTime, departmentId, note } = body as {
+  const { staffId, date, startTime, endTime, departmentId, positionId, colour, tag, breakMinutes, status, note } = body as {
     staffId: string
     date: string
     startTime: string
     endTime: string
     departmentId?: string | null
+    positionId?: string | null
+    colour?: string | null
+    tag?: string | null
+    breakMinutes?: number
+    status?: string
     note?: string
   }
 
@@ -36,6 +43,11 @@ export async function POST(req: NextRequest) {
       staffId,
       venueId: staff.venueId,
       departmentId: departmentId ?? staff.departmentId ?? null,
+      positionId: positionId || null,
+      colour: colour || null,
+      tag: tag?.trim() || null,
+      breakMinutes: Math.max(0, Math.round(Number(breakMinutes) || 0)),
+      status: status === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT',
       date: new Date(date),
       startTime,
       endTime,

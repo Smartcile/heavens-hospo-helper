@@ -14,6 +14,7 @@ interface StaffData {
   id: string; firstName: string; lastName: string; email: string | null; role: string
   venueId: string; departmentId: string | null
   hourlyRate: number | null; employmentType: string | null
+  taxCode: string | null; kiwiSaverRate: number | null; studentLoan: boolean
   swiftPosId: string | null; myHrId: string | null; loadedReportsId: string | null
   sections: { sectionId: string }[]
   positions?: { positionId: string }[]
@@ -26,6 +27,17 @@ const ROLE_OPTIONS = [
   { value: 'STAFF', label: 'STAFF' },
   { value: 'MANAGER', label: 'MANAGER' },
   { value: 'ADMIN', label: 'ADMIN' },
+]
+
+const TAX_CODE_OPTIONS = ['M', 'M SL', 'S', 'S SL', 'SB', 'SB SL', 'SH', 'SH SL', 'ST', 'ST SL', 'CAE', 'CAE SL'].map((c) => ({ value: c, label: c }))
+
+const KIWISAVER_OPTIONS = [
+  { value: '', label: 'NOT ENROLLED' },
+  { value: '3', label: '3%' },
+  { value: '4', label: '4%' },
+  { value: '6', label: '6%' },
+  { value: '8', label: '8%' },
+  { value: '10', label: '10%' },
 ]
 
 export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: string; role: string; onClose: () => void; onSaved: () => void }) {
@@ -93,6 +105,7 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
       firstName: staff.firstName, lastName: staff.lastName,
       email: staff.email || null, departmentId: staff.departmentId || null,
       hourlyRate: staff.hourlyRate, employmentType: staff.employmentType || null,
+      taxCode: staff.taxCode || null, kiwiSaverRate: staff.kiwiSaverRate, studentLoan: staff.studentLoan,
       swiftPosId: staff.swiftPosId || null, myHrId: staff.myHrId || null, loadedReportsId: staff.loadedReportsId || null,
       sectionIds,
       positionIds,
@@ -138,6 +151,18 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
               { value: 'PART_TIME', label: 'PART TIME' },
               { value: 'CASUAL', label: 'CASUAL' },
             ]} />
+          </div>
+
+          <div className="border-l-4 border-l-grey-mid pl-3 space-y-3">
+            <p className="font-mono text-xs uppercase tracking-wider text-grey-light">NZ PAYROLL</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Select label="Tax Code" value={staff.taxCode ?? ''} onChange={(e) => patch({ taxCode: e.target.value || null })} options={[{ value: '', label: 'VENUE DEFAULT' }, ...TAX_CODE_OPTIONS]} />
+              <Select label="KiwiSaver" value={staff.kiwiSaverRate != null ? String(staff.kiwiSaverRate) : ''} onChange={(e) => patch({ kiwiSaverRate: e.target.value ? Number(e.target.value) : null })} options={KIWISAVER_OPTIONS} />
+            </div>
+            <label className="flex items-center gap-2 font-mono text-xs uppercase text-grey-light cursor-pointer">
+              <input type="checkbox" checked={staff.studentLoan} onChange={(e) => patch({ studentLoan: e.target.checked })} className="accent-white" />
+              STUDENT LOAN (12% WITHHELD)
+            </label>
           </div>
 
           {formSections.length > 0 && (

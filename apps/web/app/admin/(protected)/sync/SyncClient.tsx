@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { pushToast } from '@/components/ui/Toast'
+import { getActiveVenueId } from '@/lib/active-venue'
 
 interface SyncLogRow {
   id: string
@@ -29,7 +30,8 @@ const DIRECTION_LABELS: Record<string, string> = {
 
 const REFRESH_MS = 10_000
 
-export function SyncClient() {
+export function SyncClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
+  const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
   const [logs, setLogs] = useState<SyncLogRow[]>([])
   const [loading, setLoading] = useState(true)
   const [pulling, setPulling] = useState(false)
@@ -41,6 +43,7 @@ export function SyncClient() {
 
   const load = useCallback(async () => {
     const params = new URLSearchParams()
+    if (venueId) params.set('venueId', venueId)
     if (directionFilter) params.set('direction', directionFilter)
     if (statusFilter) params.set('status', statusFilter)
     const r = await fetch(`/api/admin/sync/log?${params.toString()}`)
@@ -49,7 +52,7 @@ export function SyncClient() {
       setLogs(Array.isArray(data) ? data : [])
     }
     setLoading(false)
-  }, [directionFilter, statusFilter])
+  }, [venueId, directionFilter, statusFilter])
 
   useEffect(() => {
     setLoading(true)
@@ -61,7 +64,11 @@ export function SyncClient() {
   async function handlePull() {
     setPulling(true)
     try {
-      const r = await fetch('/api/admin/sync/pull', { method: 'POST' })
+      const r = await fetch('/api/admin/sync/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(venueId ? { venueId } : {}),
+      })
       const d = await r.json()
       if (r.ok) {
         pushToast(String(d.message ?? 'PULL COMPLETE').toUpperCase(), 'success')
@@ -78,7 +85,11 @@ export function SyncClient() {
   async function handlePullOrders() {
     setPullingOrders(true)
     try {
-      const r = await fetch('/api/admin/sync/pull-orders', { method: 'POST' })
+      const r = await fetch('/api/admin/sync/pull-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(venueId ? { venueId } : {}),
+      })
       const d = await r.json()
       if (r.ok) {
         pushToast(String(d.message ?? 'ORDER PULL COMPLETE').toUpperCase(), 'success')
@@ -95,7 +106,11 @@ export function SyncClient() {
   async function handlePush() {
     setPushing(true)
     try {
-      const r = await fetch('/api/admin/sync/push', { method: 'POST' })
+      const r = await fetch('/api/admin/sync/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(venueId ? { venueId } : {}),
+      })
       const d = await r.json()
       if (r.ok) {
         pushToast(String(d.message ?? 'PUSH COMPLETE').toUpperCase(), 'success')

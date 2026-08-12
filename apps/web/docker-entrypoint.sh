@@ -47,6 +47,12 @@ cd /app/packages/db
 npm run db:migrate-furniture || echo "⚠ Furniture migration step failed (see error above) — continuing to start the app."
 
 echo ""
+echo "▸ Backfilling UOM kinds + ingredient densities (post-sync)..."
+# Kind on UnitOfMeasure (VOLUME/MASS/COUNT) + the known-ingredient density
+# library. Reads only the new columns/tables created by db push. Idempotent.
+npm run db:migrate-uom || echo "⚠ UOM migration step failed (see error above) — continuing to start the app."
+
+echo ""
 echo "▸ Recovering guide step links + guide audiences (post-sync)..."
 # Also must run AFTER db push. migrate-step-links reads the deprecated
 # TrainingStep junctions to rebuild links that migrate-to-guides had to drop.

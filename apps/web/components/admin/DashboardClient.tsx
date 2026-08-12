@@ -66,13 +66,13 @@ export function DashboardClient({ role }: { role: string }) {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link href="/admin/tasks" className="btn-ghost text-xs px-3 py-1.5 font-mono uppercase border border-grey-mid text-white hover:border-white transition-colors">
+          <Link href="/admin/execution?tab=tasks" className="btn-ghost text-xs px-3 py-1.5 font-mono uppercase border border-grey-mid text-white hover:border-white transition-colors">
             + TASK
           </Link>
-          <Link href="/admin/staff" className="btn-ghost text-xs px-3 py-1.5 font-mono uppercase border border-grey-mid text-white hover:border-white transition-colors">
+          <Link href="/admin/team?tab=staff" className="btn-ghost text-xs px-3 py-1.5 font-mono uppercase border border-grey-mid text-white hover:border-white transition-colors">
             + STAFF
           </Link>
-          <Link href="/admin/qrcodes" className="btn-ghost text-xs px-3 py-1.5 font-mono uppercase border border-grey-mid text-white hover:border-white transition-colors">
+          <Link href="/admin/settings?tab=qrcodes" className="btn-ghost text-xs px-3 py-1.5 font-mono uppercase border border-grey-mid text-white hover:border-white transition-colors">
             + QR CODE
           </Link>
         </div>

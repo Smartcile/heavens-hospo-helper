@@ -17,11 +17,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, baseUnit, conversionRatio } = await req.json()
+  const { name, baseUnit, conversionRatio, kind } = await req.json()
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = String(name).toUpperCase().trim()
   if (baseUnit !== undefined) data.baseUnit = String(baseUnit).toLowerCase().trim()
   if (conversionRatio !== undefined) data.conversionRatio = parseFloat(String(conversionRatio)) || 1
+  if (kind !== undefined && ['VOLUME', 'MASS', 'COUNT'].includes(kind)) data.kind = kind
 
   const updated = await prisma.unitOfMeasure.update({ where: { id: params.id }, data })
   return NextResponse.json(updated)

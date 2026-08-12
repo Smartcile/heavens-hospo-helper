@@ -1,8 +1,5 @@
-import { GuidesClient } from '@/components/admin/GuidesClient'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { hubRedirect } from '@/lib/ops-redirect'
 
-export default async function GuidesPage() {
-  const session = await getServerSession(authOptions)
-  return <GuidesClient role={session!.user.role} sessionVenueId={session!.user.venueId} />
+export default function GuidesPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
+  hubRedirect('/admin/training', 'playbook', null, searchParams)
 }

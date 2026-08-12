@@ -12,49 +12,30 @@ interface NavItem { href: string; label: string; exact?: boolean }
 interface NavGroup { label: string; items: NavItem[]; href?: string }
 
 const NAV_GROUPS: NavGroup[] = [
-  { label: 'Overview', href: '/admin', items: [
-    { href: '/admin', label: 'Dashboard', exact: true },
-    { href: '/admin/structure', label: 'Structure' },
+  { label: 'Dashboard', href: '/admin', items: [
+    { href: '/admin', label: 'Overview', exact: true },
     { href: '/admin/calendar', label: 'Calendar' },
-  ] },
-  { label: 'Venue', href: '/admin/venues', items: [
-    { href: '/admin/staff', label: 'Staff' },
-    { href: '/admin/floorplan', label: 'Floor Plans' },
-    { href: '/admin/suppliers', label: 'Suppliers' },
-    { href: '/admin/uoms', label: 'Units of Measure' },
-  ] },
-  { label: 'Operations', items: [
-    { href: '/admin/stocktake', label: 'Stocktake' },
-    { href: '/admin/inventory', label: 'Inventory' },
-    { href: '/admin/recipes', label: 'Recipes & Menu Items' },
-    { href: '/admin/menus', label: 'Menus/Categories' },
-    { href: '/admin/services', label: 'Services' },
-    { href: '/admin/orders', label: 'Orders' },
-    { href: '/admin/bookings', label: 'Bookings' },
-    { href: '/admin/customers', label: 'Customers' },
-    { href: '/admin/sync', label: 'Woo Sync' },
     { href: '/w/kitchen', label: 'Kitchen' },
   ] },
-  { label: 'Work', items: [
-    { href: '/admin/guides', label: 'Playbook' },
-    { href: '/admin/pathways', label: 'Pathways' },
-    { href: '/admin/tasks', label: 'Tasks & Checklists' },
-    { href: '/admin/qrcodes', label: 'QR Codes' },
+  { label: 'OPS HUB', href: '/admin/ops', items: [
+    { href: '/admin/ops', label: 'OPS HUB' },
   ] },
-  { label: 'Daily ops', items: [
+  { label: 'Team & execution', items: [
+    { href: '/admin/team', label: 'Roster & Pay' },
+    { href: '/admin/execution', label: 'Daily Tasks' },
+    { href: '/admin/training', label: 'Training' },
     { href: '/admin/notices', label: 'Notices' },
-    { href: '/admin/review', label: 'Review' },
-    { href: '/admin/followups', label: 'Follow-ups' },
   ] },
-  { label: 'Finance', items: [
-    { href: '/admin/budget', label: 'Budget' },
-    { href: '/admin/payroll', label: 'Payroll' },
+  { label: 'Performance', items: [
     { href: '/admin/reports', label: 'Reports' },
+    { href: '/admin/budget', label: 'Budget' },
     { href: '/admin/gift-cards', label: 'Gift Cards' },
   ] },
+  { label: 'Setup & config', items: [
+    { href: '/admin/floorplan', label: 'Floor Plans' },
+    { href: '/admin/settings', label: 'Settings' },
+  ] },
 ]
-
-const SETTINGS_ITEM: NavItem = { href: '/admin/settings', label: 'Settings' }
 
 function isItemActive(item: NavItem, pathname: string) {
   return item.exact ? pathname === item.href : pathname.startsWith(item.href)
@@ -144,9 +125,6 @@ function NavGroups({
           </div>
         )
       })}
-      <div className="mt-1 border-t border-grey-mid pt-1">
-        <ItemLink item={SETTINGS_ITEM} pathname={pathname} onNavigate={onNavigate} />
-      </div>
     </nav>
   )
 }

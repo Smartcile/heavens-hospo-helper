@@ -46,13 +46,19 @@ export async function POST(_req: NextRequest) {
   for (const [itemId, { requiredBaseQty }] of tally) {
     const item = await prisma.inventoryItem.findUnique({
       where: { id: itemId },
-      select: { id: true, name: true, totalQty: true },
+      select: { id: true, name: true, totalQty: true, densityGramsPerMl: true, weightPerUnitGrams: true },
     })
+    // Canonical unit label: items with density data are exploded in grams by
+    // explodeRecipe; everything else keeps base-unit quantities (ea, mL, ...).
+    const unit = item?.densityGramsPerMl != null || item?.weightPerUnitGrams != null
+      ? (requiredBaseQty >= 1000 ? 'KG' : 'G')
+      : 'BASE'
     details.push({
       inventoryItemId: itemId,
       name: item?.name ?? 'Unknown',
       currentQty: item?.totalQty ?? 0,
       requiredBaseQty,
+      unit,
     })
   }
 

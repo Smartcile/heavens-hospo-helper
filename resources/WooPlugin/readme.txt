@@ -4,7 +4,7 @@ Tags: woocommerce, booking, reservations, restaurant
 Requires at least: 6.0
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 0.2.0
+Stable tag: 0.3.3
 License: GPL-2.0-or-later
 
 Dated ordering + table bookings for WooCommerce, driven by your HOSPO OPS venue.
@@ -60,6 +60,23 @@ details to the order, and the booking-only widget creates free
 reservations in the app.
 
 == Changelog ==
+
+= 0.3.3 =
+* Fix: the admin order edit screen preloads the saved date's time slots and
+  highlights the saved booking time as a selected pill (previously the time
+  only existed as a hidden input until a date was clicked).
+
+= 0.3.2 =
+* Fix: the admin order edit screen now shows the saved booking time — a
+  "BOOKED FOR: <date> @ <time>" line at the top of the DINING DETAILS panel
+  (the time used to exist only as a hidden input until a date was clicked).
+
+= 0.3.1 =
+* Fix: dining details lost on Divi checkout pages built from the separate
+  WooCommerce modules (billing / order details / payment info) — each
+  renders its own form.checkout, and the section was relocated into the
+  billing form while the order submits from the payment form. The section
+  now moves into the form holding #payment, above the review section.
 
 = 0.2.0 =
 * Service boxes + date buttons rendered server-side (visible without JS)

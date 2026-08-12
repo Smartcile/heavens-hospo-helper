@@ -14,12 +14,15 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const direction = searchParams.get('direction')
   const status = searchParams.get('status')
+  const venueId = session.user.role === 'MANAGER'
+    ? session.user.venueId
+    : (searchParams.get('venueId') || undefined)
 
   const logs = await prisma.syncLog.findMany({
     where: {
       deletedAt: null,
       // Venue-scoped rows + global rows (e.g. rejected webhooks with no venue match)
-      OR: [{ venueId: session.user.venueId }, { venueId: null }],
+      ...(venueId ? { OR: [{ venueId }, { venueId: null }] } : {}),
       ...(direction && DIRECTIONS.includes(direction) ? { direction: direction as SyncDirection } : {}),
       ...(status && STATUSES.includes(status) ? { status: status as SyncStatus } : {}),
     },

@@ -223,13 +223,13 @@ const MENU_ITEMS: MenuSpec[] = [
 
 // ── Lookups (find built-ins, create missing ones — same semantics as the API) ──
 
-const BASE_UNIT: Record<string, [string, number]> = {
-  EACH: ['ea', 1],
-  GRAM: ['g', 1],
-  KILOGRAM: ['g', 1000],
-  ML: ['mL', 1],
-  LITRE: ['mL', 1000],
-  'CASE 12': ['ea', 12],
+const BASE_UNIT: Record<string, [string, number, string]> = {
+  EACH: ['ea', 1, 'COUNT'],
+  GRAM: ['g', 1, 'MASS'],
+  KILOGRAM: ['g', 1000, 'MASS'],
+  ML: ['mL', 1, 'VOLUME'],
+  LITRE: ['mL', 1000, 'VOLUME'],
+  'CASE 12': ['ea', 12, 'COUNT'],
 }
 
 async function uomFor(venueId: string, name: string): Promise<string> {
@@ -238,9 +238,9 @@ async function uomFor(venueId: string, name: string): Promise<string> {
     orderBy: { venueId: 'desc' },
   })
   if (found) return found.id
-  const [baseUnit, conversionRatio] = BASE_UNIT[name] ?? [name.toLowerCase(), 1]
+  const [baseUnit, conversionRatio, kind] = BASE_UNIT[name] ?? [name.toLowerCase(), 1, 'COUNT']
   const made = await prisma.unitOfMeasure.create({
-    data: { name, baseUnit, conversionRatio, isBuiltIn: true, venueId: null },
+    data: { name, baseUnit, conversionRatio, kind: kind as any, isBuiltIn: true, venueId: null },
   })
   return made.id
 }

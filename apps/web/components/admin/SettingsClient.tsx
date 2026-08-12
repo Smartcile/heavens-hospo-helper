@@ -1,10 +1,18 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
+import { SETTINGS_TABS, resolveTab, hubUrl } from '@/lib/hub-tabs'
+import { LineTabs } from '@/components/admin/LineTabs'
+import { StructureClient } from '@/components/admin/StructureClient'
+import { UomsClient } from '@/app/admin/(protected)/uoms/UomsClient'
+import { SuppliersClient } from '@/app/admin/(protected)/suppliers/SuppliersClient'
+import { QRCodesClient } from '@/components/admin/QRCodesClient'
+import { SyncClient } from '@/app/admin/(protected)/sync/SyncClient'
 
 interface Venue {
   id: string
@@ -416,9 +424,21 @@ export function SettingsClient({
     }
   }
 
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const { tab } = resolveTab(SETTINGS_TABS, searchParams.get('tab'), null)
+
+  function go(nextTab: string) {
+    router.push(hubUrl('/admin/settings', nextTab), { scroll: false })
+  }
+
   return (
-    <div className="p-6 space-y-8">
-      <h1 className="font-mono text-xl font-bold uppercase tracking-widest">SETTINGS</h1>
+    <div className="min-h-screen bg-black flex flex-col">
+      <LineTabs tabs={SETTINGS_TABS} tab={tab} onNavigate={go} />
+      <div className="flex-1 p-4 md:p-6">
+        {tab === 'general' && (
+          <div className="space-y-8">
+            <h1 className="font-mono text-xl font-bold uppercase tracking-widest">SETTINGS</h1>
 
       {/* Integrations */}
       <div className="max-w-2xl border-l-4 border-l-white pl-4">
@@ -743,6 +763,14 @@ export function SettingsClient({
             <Button onClick={handleChangePin} loading={pinSaving} size="sm" variant="ghost">UPDATE PIN</Button>
           </div>
         </div>
+      </div>
+        </div>
+        )}
+        {tab === 'structure' && <StructureClient role={role} />}
+        {tab === 'uoms' && <UomsClient />}
+        {tab === 'suppliers' && <SuppliersClient />}
+        {tab === 'qrcodes' && <QRCodesClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId ?? undefined} />}
+        {tab === 'sync' && <SyncClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId ?? undefined} />}
       </div>
     </div>
   )

@@ -129,6 +129,7 @@ export interface TimeClockView {
 export interface TimeClockStatus {
   isClockedIn: boolean
   activeSession: TimeClockView | null
+  activeBreak: { id: string; startAt: Date } | null
   todayMinutes: number
   recentSessions: TimeClockView[]
 }

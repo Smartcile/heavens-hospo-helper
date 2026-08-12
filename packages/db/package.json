@@ -14,6 +14,7 @@
     "db:backfill-guide-audiences": "tsx prisma/backfill-guide-audiences.ts",
     "db:backfill-orders": "tsx prisma/backfill-orders-phase1.ts",
     "db:migrate-furniture": "tsx prisma/migrate-furniture.ts",
+    "db:migrate-uom": "tsx prisma/migrate-uom-kind.ts",
     "db:mock-furniture": "tsx prisma/mock-furniture-demo.ts",
     "db:mock-menu": "tsx prisma/mock-menu-demo.ts",
     "db:verify-furniture": "tsx prisma/verify-furniture.ts",

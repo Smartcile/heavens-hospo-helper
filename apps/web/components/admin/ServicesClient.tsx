@@ -283,8 +283,8 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
   }
 
   return (
-    <div className="p-6">
-      <div className="max-w-5xl mx-auto space-y-4">
+    <>
+    <div className="max-w-5xl mx-auto space-y-4">
         <div className="flex items-center justify-between gap-3">
           <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">SERVICES</h1>
           <div className="flex items-center gap-3">
@@ -631,6 +631,6 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
           </div>
         </div>
       </Modal>
-    </div>
+    </>
   )
 }

@@ -41,6 +41,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
               uomId: li.uomId,
               inventoryItemId: li.inventoryItemId || null,
               childRecipeId: li.childRecipeId || null,
+              ingredientReferenceId: li.ingredientReferenceId || null,
               sortOrder: idx,
             },
           })
@@ -104,6 +105,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
           include: {
             inventoryItem: { select: { id: true, name: true, unit: true } },
             childRecipe: { select: { id: true, name: true } },
+            ingredientReference: { select: { id: true, name: true, densityGramsPerMl: true, weightPerUnitGrams: true, notes: true } },
             uom: { select: { id: true, name: true } },
           },
           orderBy: { sortOrder: 'asc' },
