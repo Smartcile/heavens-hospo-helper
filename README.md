@@ -306,6 +306,14 @@ line's unit auto-converts the quantity, so the recipe stays the same physically.
 explosions (inventory deduction) now sum in grams whenever the item has density data,
 so a recipe using both 1 CUP and 500 G of the same item adds correctly.
 
+**PANTRY BIBLE.** The known-ingredient library also lives in the inventory list as a
+**PANTRY BIBLE** section (OPS HUB → INVENTORY & STOCKTAKE → INVENTORY, bottom of the
+list) — every reference tagged `PANTRY BIBLE`, every regular stock item tagged
+`CUSTOM`. Pantry references are **usable as recipe ingredients**: the recipe editor's
+ingredient search has a PANTRY BIBLE group, and pantry lines show a gold badge in the
+recipe. They carry density/unit-weight knowledge but no stock, so they never count
+toward inventory deduction.
+
 ### STAFF CLOCKS, ROSTER & NZ PAYROLL
 
 Three **Roster & Pay** pages (**Admin → Team & Execution → Roster & Pay**) cover the
@@ -339,6 +347,36 @@ they change annually.
 **Workers** clock in/out and take BREAK/BACK breaks from their phone; clocked break
 minutes deduct from paid time, and the payroll engine splits them into paid rest
 (10-min) vs unpaid meal (30-min) breaks per NZ entitlement.
+
+### FOOD HEALTH & SAFETY (COMPLIANCE HUB)
+
+A Chomp-style H&S area (**Admin → Compliance → Food Safety**, `/admin/compliance`)
+built around the shared task system — fridge/freezer temperatures, cooking/cooling
+checks, probe calibration, cleaning and pest control are all **Tasks**, so they
+appear on the same worker floor list as everything else. NZ GFMP defaults are
+seeded (fridge ≤ 5°C, freezer ≤ −18°C, hot hold ≥ 60°C, cook ≥ 75°C…), with each
+check having a **PASS band** and a wider **critical danger band**.
+
+- **TASKS** — the Task Manager: a health widget (TASKS PROVED / TASKS WITH ALERTS),
+  ACTIVE · DRAFT · ARCHIVED tabs, TABLE/GRID views, tasks grouped into
+  **FOOD / EQUIPMENT / TEAM / FACILITY** categories, `PASS: 3/3` badges from the
+  last 7 days, and a form with one-click GFMP presets plus a product/equipment
+  search that pre-fills the right temperature band from how the item is stored
+  (chilled / frozen / ambient).
+- **DELIVERIES** — record supplier receipts: vehicle temperature plus a per-product
+  temperature check on every line. Chilled goods must arrive ≤ 5°C, frozen ≤ −18°C
+  (set per product under **Inventory**); failing lines can be rejected and
+  automatically raise an alert. Workers record deliveries from their phone at
+  `/w/deliveries`.
+- **ALERTS** — every out-of-range reading or failed delivery line becomes an alert
+  (WARNING or CRITICAL). CRITICAL readings also post an URGENT notice to the floor.
+  Managers resolve alerts with a note.
+- **LOGGERS** — reserved for the upcoming sensor phase (ESP32 fridge/freezer
+  loggers with automatic min/max per day).
+
+Out-of-range readings are raised automatically when a worker logs the number on
+their phone — the verdict is computed on the server, so nothing can be silently
+recorded as a pass.
 
 ---
 

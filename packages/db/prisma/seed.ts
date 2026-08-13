@@ -1,5 +1,5 @@
 import { prisma } from '../index'
-import { Role, CompletionType, ScheduleType } from '@prisma/client'
+import { Role, CompletionType, ScheduleType, HsCategory, StorageType } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
 // ── UUID helpers ──
@@ -552,6 +552,142 @@ async function main() {
         isActive: true,
       },
     })
+  }
+
+  // ─── Food Health & Safety READING tasks (Compliance hub) ─────────────
+  // Reading checks with NZ GFMP pass bands + critical danger bands. Linked to
+  // inventory equipment items when they exist (the FRIDGE/FREEZER units are
+  // equipment items — link by name match, best-effort).
+  const hsEquipmentItems = await prisma.inventoryItem.findMany({
+    where: { venueId: demoVenue.id, deletedAt: null },
+    select: { id: true, name: true, storageType: true },
+  })
+  const eq = (name: string) => {
+    const hit = hsEquipmentItems.find((i) => i.name.toUpperCase().includes(name))
+    return hit ? hit.id : null
+  }
+  const fridge1Id = eq('FRIDGE') ?? null
+  const freezer1Id = eq('FREEZER') ?? null
+  const probeId = eq('THERMOMETER') ?? eq('PROBE') ?? null
+
+  const hsReadingTasks = [
+    {
+      title: 'FRIDGE 1 — WALK-IN TEMP', description: 'Record the walk-in fridge temperature. Alert the manager if outside 0–5°C.',
+      category: HsCategory.EQUIPMENT, linkedItemId: fridge1Id,
+      readingUnit: '°C', readingMin: 0, readingMax: 5, criticalMax: 10,
+      schedule: { scheduleType: ScheduleType.DAILY, scheduleDays: [] },
+    },
+    {
+      title: 'FREEZER 1 — WALK-IN TEMP', description: 'Record the walk-in freezer temperature. Alert the manager if above -18°C.',
+      category: HsCategory.EQUIPMENT, linkedItemId: freezer1Id,
+      readingUnit: '°C', readingMin: -25, readingMax: -18, criticalMin: -30, criticalMax: -12,
+      schedule: { scheduleType: ScheduleType.DAILY, scheduleDays: [] },
+    },
+    {
+      title: 'PROBE THERMOMETER CALIBRATION', description: 'Test the probe against the ice-water method — must read 0°C ± 1°C.',
+      category: HsCategory.EQUIPMENT, linkedItemId: probeId,
+      readingUnit: '°C', readingMin: -1, readingMax: 1, criticalMin: -2, criticalMax: 2,
+      schedule: { scheduleType: ScheduleType.WEEKLY, scheduleDays: [3] },
+    },
+    {
+      title: 'HOT HOLD — BAIN MARIE', description: 'Record the bain-marie temperature — hot food must hold at 60°C or above.',
+      category: HsCategory.FOOD, linkedItemId: null,
+      readingUnit: '°C', readingMin: 60,
+      schedule: { scheduleType: ScheduleType.DAILY, scheduleDays: [] },
+    },
+    {
+      title: 'COOLING — STOCK POT', description: 'Cooling must move 60°C → 20°C within 2 hours. Record the temperature after the first hour.',
+      category: HsCategory.FOOD, linkedItemId: null,
+      readingUnit: '°C', readingMax: 40, criticalMax: 50,
+      schedule: { scheduleType: ScheduleType.WEEKLY, scheduleDays: [0] },
+    },
+    {
+      title: 'PEST TRAP INSPECTION', description: 'Check every pest trap — record bait state and any activity. Any sightings are a CRITICAL alert.',
+      category: HsCategory.FACILITY, linkedItemId: null,
+      type: CompletionType.TICK,
+      schedule: { scheduleType: ScheduleType.MONTHLY, scheduleDays: [], monthlyOption: 'FIRST_DAY', intervalMonths: 1 },
+    },
+  ]
+
+  for (let i = 0; i < hsReadingTasks.length; i++) {
+    const { category, linkedItemId, schedule, type, ...task } = hsReadingTasks[i]
+    await prisma.task.upsert({
+      where: { id: d(`000a${String(i).padStart(8, '0')}`) },
+      update: {},
+      create: {
+        id: d(`000a${String(i).padStart(8, '0')}`),
+        ...task,
+        venueId: demoVenue.id,
+        departmentId: deptBOH.id,
+        hsCategory: category,
+        linkedItemId,
+        completionType: type ?? CompletionType.READING,
+        ...schedule,
+        intervalMonths: schedule.intervalMonths ?? 1,
+        monthlyOption: schedule.monthlyOption ?? null,
+        sortOrder: i,
+        isActive: true,
+      },
+    })
+  }
+
+  // ─── Demo delivery (Compliance hub DELIVERIES tab) ───────────────────
+  // Tag any existing demo food items with storage rules (harmless no-op when
+  // no items exist — the demo venue's inventory is built by other scripts).
+  await prisma.inventoryItem.updateMany({
+    where: { venueId: demoVenue.id, deletedAt: null, OR: [{ name: { contains: 'MILK' } }, { name: { contains: 'CREAM' } }, { name: { contains: 'YOGHURT' } }, { name: { contains: 'BUTTER' } }] },
+    data: { storageType: StorageType.CHILLED },
+  })
+  await prisma.inventoryItem.updateMany({
+    where: { venueId: demoVenue.id, deletedAt: null, OR: [{ name: { contains: 'FRIES' } }, { name: { contains: 'ICE CREAM' } }, { name: { contains: 'CHICKEN' } }] },
+    data: { storageType: StorageType.FROZEN },
+  })
+
+  const demoSupplier = await prisma.supplier.findFirst({
+    where: { venueId: demoVenue.id, deletedAt: null },
+    select: { id: true, name: true },
+  })
+  if (demoSupplier) {
+    const anyItems = await prisma.inventoryItem.findMany({
+      where: { venueId: demoVenue.id, deletedAt: null },
+      select: { id: true, name: true, unit: true, storageType: true },
+      take: 3,
+    })
+    if (anyItems.length > 0) {
+      await prisma.delivery.upsert({
+        where: { id: d('000b00000001') },
+        update: {},
+        create: {
+          id: d('000b00000001'),
+          venueId: demoVenue.id,
+          supplierId: demoSupplier.id,
+          supplierName: demoSupplier.name,
+          deliveredAt: new Date(),
+          vehicleTemp: 4.5,
+          vehicleVerdict: 'PASS',
+          invoiceRef: 'DEMO-1001',
+          notes: 'SEEDED DEMO DELIVERY — RECORDED BY THE SEED SCRIPT.',
+          receivedById: d('000000000030'),
+          items: {
+            create: anyItems.map((item, idx) => {
+              const storageType = item.storageType === StorageType.CHILLED || item.storageType === StorageType.FROZEN
+                ? item.storageType
+                : StorageType.CHILLED
+              return {
+                inventoryItemId: item.id,
+                itemName: item.name,
+                storageType,
+                qty: 5,
+                unit: item.unit,
+                temp: idx === 0 ? 4.2 : 6.1, // first line passes, second fails (6.1 > 5)
+                verdict: idx === 0 ? 'PASS' : 'FAIL',
+                disposition: idx === 0 ? 'ACCEPTED' : 'REJECTED',
+              }
+            }),
+          },
+        },
+      })
+    }
   }
 
   // ONE-OFF / SIDE-WORK TASKS (4 tasks — test rollover)

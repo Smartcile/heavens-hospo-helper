@@ -175,6 +175,13 @@ export interface WorkerTaskView {
   dueDate: string | null
   rolloverEnabled: boolean
   rolledOverFrom: string | null
+  // Food Health & Safety READING tasks — capture fields for the worker modal
+  readingUnit: string | null
+  readingMin: number | null
+  readingMax: number | null
+  criticalMin: number | null
+  criticalMax: number | null
+  linkedItemName: string | null
 }
 
 // ── FLOOR PLAN SPATIAL ENGINE ──

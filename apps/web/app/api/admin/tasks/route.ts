@@ -66,6 +66,14 @@ export async function POST(req: NextRequest) {
     monthlyDay,
     requiredTrainingIds,
     competencyGuideIds,
+    status,
+    hsCategory,
+    linkedItemId,
+    readingUnit,
+    readingMin,
+    readingMax,
+    criticalMin,
+    criticalMax,
   } = body
 
   if (!title?.trim() || !venueId) {
@@ -103,6 +111,14 @@ export async function POST(req: NextRequest) {
       monthlyOption: scheduleType === 'MONTHLY' ? (monthlyOption ?? 'FIRST_DAY') : null,
       monthlyDay: scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? (Number(monthlyDay) || 1) : null,
       sortOrder: (maxSort?.sortOrder ?? -1) + 1,
+      status: status ?? 'ACTIVE',
+      hsCategory: hsCategory ?? null,
+      linkedItemId: linkedItemId || null,
+      readingUnit: readingUnit ?? null,
+      readingMin: readingMin != null && Number.isFinite(readingMin) ? Number(readingMin) : null,
+      readingMax: readingMax != null && Number.isFinite(readingMax) ? Number(readingMax) : null,
+      criticalMin: criticalMin != null && Number.isFinite(criticalMin) ? Number(criticalMin) : null,
+      criticalMax: criticalMax != null && Number.isFinite(criticalMax) ? Number(criticalMax) : null,
       requiredTraining: { create: reqIds.map((moduleId) => ({ moduleId })) },
       taskGuides: Array.isArray(competencyGuideIds) && competencyGuideIds.length
         ? { create: competencyGuideIds.map((guideId: string) => ({ guideId, isRequiredForCompetency: true })) }

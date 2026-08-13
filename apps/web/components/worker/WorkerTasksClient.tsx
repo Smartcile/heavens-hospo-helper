@@ -8,6 +8,7 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Combobox } from '@/components/ui/Combobox'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
+import { readingVerdict, criticalVerdict, describeBand } from '@/lib/food-safety'
 import { moveItem } from '@/lib/array'
 
 type TaskState = WorkerTaskView
@@ -75,6 +76,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   const [activeTask, setActiveTask] = useState<ModalTask>(null)
   const [note, setNote] = useState('')
   const [photo, setPhoto] = useState<File | null>(null)
+  const [readingValue, setReadingValue] = useState('')
   const [completing, setCompleting] = useState(false)
   const [completionError, setCompletionError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
@@ -203,6 +205,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     setActiveTask(t)
     setNote('')
     setPhoto(null)
+    setReadingValue('')
     setCompletionError('')
   }
 
@@ -217,6 +220,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
       const form = new FormData()
       form.append('note', note)
       form.append('photo', photo)
+      if (readingValue !== '') form.append('value', readingValue)
       r = await fetch(`/api/worker/tasks/${activeTask.id}/complete`, {
         method: 'POST',
         body: form,
@@ -225,7 +229,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
       r = await fetch(`/api/worker/tasks/${activeTask.id}/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note: note || null }),
+        body: JSON.stringify({ note: note || null, value: readingValue !== '' ? Number(readingValue) : null }),
       })
     }
 
@@ -777,6 +781,53 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                 </button>
               )}
             </div>
+
+            {activeTask.completionType === 'READING' && (
+              <div className="space-y-2">
+                <label className="font-mono text-xs uppercase text-grey-light tracking-wider">
+                  READING — {describeBand(activeTask, activeTask.readingUnit)}
+                </label>
+                {activeTask.linkedItemName && (
+                  <p className="font-mono text-[10px] text-grey-light uppercase">{activeTask.linkedItemName}</p>
+                )}
+                <div className="flex items-stretch gap-2">
+                  <input
+                    type="number"
+                    step="0.1"
+                    inputMode="decimal"
+                    value={readingValue}
+                    onChange={(e) => setReadingValue(e.target.value)}
+                    placeholder={`TEMPERATURE ${activeTask.readingUnit ?? '°C'}`}
+                    className="flex-1 bg-grey-dark border border-grey-mid text-white font-mono text-2xl px-3 py-3 outline-none focus:border-white placeholder:text-grey-light"
+                  />
+                  <div
+                    className={`flex flex-col justify-center items-center px-4 border ${
+                      readingValue === ''
+                        ? 'border-grey-mid'
+                        : readingVerdict(Number(readingValue), activeTask) === 'PASS'
+                          ? 'border-success text-success'
+                          : 'border-danger text-danger'
+                    }`}
+                  >
+                    <span className="font-mono text-xs uppercase tracking-wider">
+                      {readingValue === ''
+                        ? '—'
+                        : readingVerdict(Number(readingValue), activeTask) === 'PASS'
+                          ? 'PASS'
+                          : 'FAIL'}
+                    </span>
+                  </div>
+                </div>
+                {readingValue !== '' && criticalVerdict(Number(readingValue), activeTask) && (
+                  <p className="font-mono text-xs text-danger uppercase">
+                    ⚠ CRITICAL — OUTSIDE THE DANGER BAND. AN URGENT NOTICE GOES TO THE FLOOR.
+                  </p>
+                )}
+                <p className="font-mono text-[10px] text-grey-light">
+                  PASS = {describeBand(activeTask, activeTask.readingUnit)} · THE READING IS SHARED BY THE WHOLE FLOOR
+                </p>
+              </div>
+            )}
 
             {(activeTask.completionType === 'TICK_NOTE' || activeTask.completionType === 'TICK_PHOTO') && (
               <div className="space-y-2">

@@ -26,6 +26,9 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/admin/training', label: 'Training' },
     { href: '/admin/notices', label: 'Notices' },
   ] },
+  { label: 'Compliance', href: '/admin/compliance', items: [
+    { href: '/admin/compliance', label: 'Food Safety' },
+  ] },
   { label: 'Performance', items: [
     { href: '/admin/reports', label: 'Reports' },
     { href: '/admin/budget', label: 'Budget' },

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  OPS_TABS, TEAM_TABS, EXECUTION_TABS, TRAINING_TABS, SETTINGS_TABS,
+  OPS_TABS, TEAM_TABS, EXECUTION_TABS, TRAINING_TABS, SETTINGS_TABS, COMPLIANCE_TABS,
   resolveTab, forwardSearch, hubUrl,
 } from './hub-tabs'
 
@@ -19,6 +19,15 @@ describe('hub-tabs', () => {
     expect(EXECUTION_TABS.map((t) => t.id)).toEqual(['tasks', 'review', 'followups'])
     expect(TRAINING_TABS.map((t) => t.id)).toEqual(['playbook', 'pathways'])
     expect(SETTINGS_TABS.map((t) => t.id)).toEqual(['general', 'structure', 'uoms', 'suppliers', 'qrcodes', 'sync'])
+  })
+
+  it('COMPLIANCE has the Chomp-style tab set', () => {
+    expect(COMPLIANCE_TABS.map((t) => t.id)).toEqual(['tasks', 'deliveries', 'alerts', 'loggers'])
+    expect(COMPLIANCE_TABS.map((t) => t.label)).toEqual(['TASKS', 'DELIVERIES', 'ALERTS', 'LOGGERS'])
+    expect(resolveTab(COMPLIANCE_TABS, null, null)).toEqual({ tab: 'tasks' })
+    expect(resolveTab(COMPLIANCE_TABS, 'alerts', null)).toEqual({ tab: 'alerts' })
+    expect(resolveTab(COMPLIANCE_TABS, 'bogus', null)).toEqual({ tab: 'tasks' })
+    expect(hubUrl('/admin/compliance', 'deliveries')).toBe('/admin/compliance?tab=deliveries')
   })
 
   it('resolveTab falls back to the first tab and default sub-tabs', () => {

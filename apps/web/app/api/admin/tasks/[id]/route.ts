@@ -19,6 +19,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
       assignedToStaffId: true,
       completionType: true, scheduleType: true, scheduleDays: true, customCron: true,
       intervalMonths: true, monthlyOption: true, monthlyDay: true, isActive: true,
+      status: true, hsCategory: true, linkedItemId: true,
+      readingUnit: true, readingMin: true, readingMax: true, criticalMin: true, criticalMax: true,
       requiredTraining: { select: { moduleId: true } },
       taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
     },
@@ -47,6 +49,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.monthlyDay !== undefined) updates.monthlyDay = body.monthlyDay != null ? (Number(body.monthlyDay) || 1) : null
   if (body.isActive !== undefined) updates.isActive = body.isActive
   if (body.sortOrder !== undefined) updates.sortOrder = body.sortOrder
+  // --- Food Health & Safety fields ---
+  if (body.status !== undefined) updates.status = body.status
+  if (body.hsCategory !== undefined) updates.hsCategory = body.hsCategory ?? null
+  if (body.linkedItemId !== undefined) updates.linkedItemId = body.linkedItemId || null
+  if (body.readingUnit !== undefined) updates.readingUnit = body.readingUnit ?? null
+  if (body.readingMin !== undefined) updates.readingMin = body.readingMin != null && Number.isFinite(body.readingMin) ? Number(body.readingMin) : null
+  if (body.readingMax !== undefined) updates.readingMax = body.readingMax != null && Number.isFinite(body.readingMax) ? Number(body.readingMax) : null
+  if (body.criticalMin !== undefined) updates.criticalMin = body.criticalMin != null && Number.isFinite(body.criticalMin) ? Number(body.criticalMin) : null
+  if (body.criticalMax !== undefined) updates.criticalMax = body.criticalMax != null && Number.isFinite(body.criticalMax) ? Number(body.criticalMax) : null
 
   // Section implies its department.
   if (body.sectionId !== undefined) {

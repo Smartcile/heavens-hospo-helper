@@ -24,6 +24,9 @@ Two render modes: static sidebar on desktop, burger-drawer on mobile.
 │     DAILY TASKS       /admin/execution — TASKS·REVIEW·FOLLOW-UP│
 │     TRAINING          /admin/training — PLAYBOOK·PATHWAYS    │
 │     NOTICES           /admin/notices                         │
+│ ▾ COMPLIANCE (the "Safe")                                      │
+│     FOOD SAFETY       /admin/compliance — TASKS·DELIVERIES·   │
+│                       ALERTS·LOGGERS                          │
 │ ▾ PERFORMANCE (the "Results")                                 │
 │     REPORTS · BUDGET · GIFT CARDS                             │
 │ ▾ SETUP & CONFIG (the "Plumbing" — bottom)                    │
@@ -55,6 +58,12 @@ Two render modes: static sidebar on desktop, burger-drawer on mobile.
 | **Daily Tasks** | `/admin/execution` | TASKS: live tasks (Department → Section) + checklists (ordered live-task references) with PDF export. REVIEW: end-of-day review per staff with notes + guide assignment. FOLLOW-UPS: competency/missed-task queue with RE-SCAN, sign-off/resolve |
 | **Training** | `/admin/training` | PLAYBOOK: SOP/guide library with DRAFT/PUBLISHED workflow, audiences (dept/section/position), steps + links, competency flags. Editor is a full-height drawer. PATHWAYS: onboarding/progression trees (BOARD drag-editor + TREE outline), prerequisites, points |
 | **Notices** | `/admin/notices` | Announcements to floor staff: priority levels, department targeting, acknowledgement tracking (GOT IT). Re-train notices auto-post here |
+
+### COMPLIANCE group (Food Health & Safety)
+
+| Item | URL | What it does |
+|---|---|---|
+| **Food Safety** | `/admin/compliance` | Chomp-style H&S hub, NZ GFMP. TASKS: the Task Manager — health widget (TASKS PROVED / WITH ALERTS), ACTIVE·DRAFT·ARCHIVED tabs, TABLE/GRID views, tasks grouped FOOD/EQUIPMENT/TEAM/FACILITY with per-category + ADD, READING tasks with pass bands + critical danger bands (GFMP presets), PASS badges from the last 7 days, linked products/equipment, per-row EDIT/DUPE/ARCHIVE/DEL. DELIVERIES: supplier receipts with vehicle + per-line temperature checks (CHILLED ≤5°C, FROZEN ≤-18°C), PASS/FAIL verdicts, ACCEPT/REJECT, failed lines auto-raise alerts. ALERTS: open/resolved feed (WARNING/CRITICAL, OUT_OF_RANGE/DELIVERY_TEMP), resolve with note, manual raise. LOGGERS: placeholder until the sensor fleet ships (Phase 3) |
 
 ### PERFORMANCE group
 
@@ -89,11 +98,11 @@ Flow order: **Sell → Seat → Serve → Stock**.
 
 | Tab | URL | What it does |
 |---|---|---|
-| **MENU & SERVICES** | `/admin/ops?tab=menu` | RECIPES: master-detail recipe editor — ingredient BOM, yield, allergens (inherited resolution), LINK TO MENU (price, Woo product/category/image/variations). MENUS & CATEGORIES: pax-range menus, Woo category linking, unlinked-category rescue. SERVICES: dated ordering services (weekly slots, date exceptions, table plan, booking interval, BOOKING REQUIRED) |
+| **MENU & SERVICES** | `/admin/ops?tab=menu` | RECIPES: master-detail recipe editor — ingredient BOM (inventory + PANTRY BIBLE references + sub-recipes), yield, allergens (inherited resolution), LINK TO MENU (price, Woo product/category/image/variations). MENUS & CATEGORIES: pax-range menus, Woo category linking, unlinked-category rescue. SERVICES: dated ordering services (weekly slots, date exceptions, table plan, booking interval, BOOKING REQUIRED) |
 | **BOOKINGS** | `/admin/ops?tab=bookings` | Table reservations. DIARY (timeline), TABLE (tables × time grid with service windows, click-to-create, drag-resize), DELETED (recover with reseat + clash guard). Booking cards have a CUSTOMER button → slide-out customer drawer. Creates calendar events |
 | **ORDERS** | `/admin/ops?tab=orders` | Date-driven orders. Views: ALL / SERVICE / KITCHEN / FOH / PRODUCTION. Filters, saved views, + NEW ORDER. Detail popout: contact (VIEW CUSTOMER → drawer), booking controls, progress buttons, payment, items, Woo status push |
 | **CUSTOMERS** | `/admin/ops?tab=customers` | Customer search by phone/name; detail opens the slide-out customer drawer (contact + booking history) |
-| **INVENTORY & STOCKTAKE** | `/admin/ops?tab=inventory` | INVENTORY: master-detail stock system (FOOD/BEVERAGE/OTHER categories, AVAIL = total − placed, deep fields, equipment tracking, furniture form, SHOW DELETED). STOCKTAKE: create/count/variance/sign-off |
+| **INVENTORY & STOCKTAKE** | `/admin/ops?tab=inventory` | INVENTORY: master-detail stock system (FOOD/BEVERAGE/OTHER categories, AVAIL = total − placed, deep fields, equipment tracking, furniture form, SHOW DELETED) + a read-only **PANTRY BIBLE** section listing the known-ingredient density library (gold `PANTRY BIBLE` tags; regular items are tagged `CUSTOM`). STOCKTAKE: create/count/variance/sign-off |
 
 All 5 tabs follow the sidebar's active venue; old URLs redirect here keeping other query params.
 
@@ -136,7 +145,8 @@ All 5 tabs follow the sidebar's active venue; old URLs redirect here keeping oth
 |---|---|---|
 | **Login** | `/w/login?token=…` | Public. Venue picker → QR code → staff PIN → JWT session cookie (15 min inactivity auto-logout) |
 | **Dashboard** | `/w/dashboard` | Today's due tasks per department, guides % complete, pending stocktake, notices, clock state |
-| **Tasks** | `/w/tasks` | Whole-floor due tasks grouped by Checklist → Department → Section; shared completion ("BY NAME") |
+| **Tasks** | `/w/tasks` | Whole-floor due tasks grouped by Checklist → Department → Section; shared completion ("BY NAME"). READING tasks (fridge/freezer temps, probe calibration) show a big numeric input with a live PASS/FAIL verdict as you type; an out-of-range reading raises an alert (CRITICAL also posts an URGENT notice) |
+| **Deliveries** | `/w/deliveries` | Receive stock on the floor: supplier picker, vehicle temp, search products, per-line qty/temp/disposition with live verdicts, RECORD DELIVERY. Failed lines raise alerts the manager resolves in the Compliance hub |
 | **Guides** | `/w/guides` | BIBLE (every applicable guide, step reader, MARK COMPLETE) + MY TREE (pathway progress, locked nodes readable but not bankable) |
 | **Kitchen** | `/w/kitchen` | Today's order items by table, allergy badges, prep totals. Auto-refresh 15s |
 | **Stocktake** | `/w/stocktake` | Assigned stocktakes: count list, submit IN_PROGRESS / COMPLETED |

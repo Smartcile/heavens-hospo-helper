@@ -16,6 +16,60 @@ enum CompletionType {
   TICK
   TICK_NOTE
   TICK_PHOTO
+  READING // a numeric measurement (temp, pH...) with pass/fail thresholds
+}
+
+// A reading task's pass verdict, denormalised onto the completion at write time
+// so it survives later threshold edits.
+enum ReadingVerdict {
+  PASS
+  FAIL
+  NA // no thresholds configured on the task
+}
+
+// Chomp-style task lifecycle — DRAFT tasks are staged, ARCHIVED keeps history.
+enum TaskStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+// Food Health & Safety category grouping (Chomp's Task Manager categories).
+enum HsCategory {
+  FOOD // temperatures of food, cooling, cooked products
+  EQUIPMENT // fridge/freezer/probe maintenance and calibration
+  TEAM // hygiene and training checks
+  FACILITY // pest control and cleaning
+}
+
+enum HsSeverity {
+  WARNING
+  CRITICAL
+}
+
+enum HsAlertKind {
+  OUT_OF_RANGE // a manual reading outside the task's threshold band
+  DELIVERY_TEMP // received goods outside the storage temperature rule
+  MAINTENANCE_DUE // equipment service interval reached (future)
+  SENSOR_OFFLINE // a logger stopped reporting (future)
+}
+
+enum HsAlertStatus {
+  OPEN
+  RESOLVED
+}
+
+// How received goods are stored — drives the delivery temperature rule
+// (CHILLED ≤ 5°C, FROZEN ≤ -18°C per NZ GFMP).
+enum StorageType {
+  AMBIENT
+  CHILLED
+  FROZEN
+}
+
+enum DeliveryDisposition {
+  ACCEPTED
+  REJECTED
 }
 
 enum ScheduleType {
@@ -199,6 +253,8 @@ model Venue {
   pathways            Pathway[]
   services            Service[]
   apiKeys             ApiKey[]
+  hsAlerts            HsAlert[]
+  deliveries          Delivery[]
 }
 
 model Department {
@@ -289,6 +345,8 @@ model Staff {
   staffVenues          StaffVenue[]
   maintenanceLogs      MaintenanceLog[]
   positions            StaffPosition[]
+  resolvedAlerts       HsAlert[]
+  receivedDeliveries   Delivery[]
 }
 
 model Task {
@@ -314,6 +372,17 @@ model Task {
   rolloverEnabled   Boolean        @default(false) // if not done by dueDate, show again next day
   rolledOverFrom    DateTime?      @db.Date // if this is a rollover copy, the original date
   version           Int            @default(1) // bumped on a "significant change" (drives re-train)
+  // --- Food Health & Safety (Compliance hub) ---
+  status            TaskStatus     @default(ACTIVE) // DRAFT tasks never reach the floor
+  hsCategory        HsCategory? // Chomp-style grouping: FOOD / EQUIPMENT / TEAM / FACILITY
+  linkedItemId      String? // the InventoryItem this check is about (fridge, probe, product)
+  // READING tasks: pass = value inside [readingMin, readingMax]; outside
+  // [criticalMin, criticalMax] = CRITICAL alert + auto Notice.
+  readingUnit       String? // e.g. "°C"
+  readingMin        Float?
+  readingMax        Float?
+  criticalMin       Float?
+  criticalMax       Float?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
   deletedAt         DateTime?
@@ -321,7 +390,9 @@ model Task {
   venue            Venue                  @relation(fields: [venueId], references: [id])
   department       Department?            @relation(fields: [departmentId], references: [id])
   section          Section?               @relation(fields: [sectionId], references: [id])
+  linkedItem       InventoryItem?         @relation("TaskLinkedItem", fields: [linkedItemId], references: [id])
   taskCompletions  TaskCompletion[]
+  hsAlerts         HsAlert[]
   trainingSteps    TrainingStep[]         @relation("StepLinkedTask")
   stepTasks        StepTask[]
   trainingModules  TrainingModule[]       @relation("ModuleLinkedTask")
@@ -333,18 +404,103 @@ model Task {
 }
 
 model TaskCompletion {
-  id            String   @id @default(uuid())
+  id            String        @id @default(uuid())
   taskId        String
   staffId       String
-  completedAt   DateTime @default(now())
+  completedAt   DateTime      @default(now())
   note          String?
   photoUrl      String?
-  scheduledDate DateTime @db.Date
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  scheduledDate DateTime      @db.Date
+  // READING completions: the recorded measurement + pass verdict (denormalised).
+  value         Float?
+  valueStatus   ReadingVerdict @default(NA)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   task  Task  @relation(fields: [taskId], references: [id])
   staff Staff @relation(fields: [staffId], references: [id])
+}
+
+// A Food Health & Safety alert — raised automatically when a reading is
+// outside its band or a delivery line fails its temperature rule. CRITICAL
+// alerts also post a venue Notice. Feeds the Compliance hub's ALERTS tab and
+// the TASKS health widget ("TASKS WITH ALERTS").
+model HsAlert {
+  id              String        @id @default(uuid())
+  venueId         String
+  taskId          String? // the reading task that raised it (null for delivery-only alerts)
+  deliveryItemId  String? // the failed delivery line (when kind = DELIVERY_TEMP)
+  severity        HsSeverity    @default(WARNING)
+  kind            HsAlertKind   @default(OUT_OF_RANGE)
+  message         String
+  value           Float? // the offending reading
+  status          HsAlertStatus @default(OPEN)
+  resolvedById    String?
+  resolvedAt      DateTime?
+  resolutionNote  String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+
+  venue          Venue           @relation(fields: [venueId], references: [id])
+  task           Task?           @relation(fields: [taskId], references: [id])
+  deliveryItem   DeliveryItem?   @relation(fields: [deliveryItemId], references: [id])
+  resolvedBy     Staff?          @relation(fields: [resolvedById], references: [id])
+
+  @@index([venueId])
+  @@index([taskId])
+  @@index([status])
+}
+
+// An incoming supplier delivery — the H&S receipt record. Products arrive with
+// a vehicle temperature and per-line readings; each line's verdict derives from
+// the product's StorageType (CHILLED ≤ 5°C, FROZEN ≤ -18°C).
+model Delivery {
+  id            String   @id @default(uuid())
+  venueId       String
+  supplierId    String?
+  supplierName  String // snapshot of the supplier name at receipt time
+  deliveredAt   DateTime @default(now())
+  receivedById  String? // the staff member who received it
+  vehicleTemp   Float?
+  vehicleVerdict ReadingVerdict @default(NA)
+  invoiceRef    String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  venue       Venue           @relation(fields: [venueId], references: [id])
+  supplier    Supplier?       @relation(fields: [supplierId], references: [id])
+  receivedBy  Staff?          @relation(fields: [receivedById], references: [id])
+  items       DeliveryItem[]
+
+  @@index([venueId])
+  @@index([supplierId])
+}
+
+model DeliveryItem {
+  id                String              @id @default(uuid())
+  deliveryId        String
+  inventoryItemId   String
+  itemName          String // snapshot of the product name at receipt time
+  storageType       StorageType         @default(AMBIENT) // snapshot — rule used for the verdict
+  qty               Float?
+  unit              String?
+  temp              Float?
+  verdict           ReadingVerdict      @default(NA)
+  disposition       DeliveryDisposition @default(ACCEPTED)
+  note              String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  deletedAt         DateTime?
+
+  delivery      Delivery       @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem  @relation(fields: [inventoryItemId], references: [id])
+  alerts        HsAlert[]
+
+  @@index([deliveryId])
+  @@index([inventoryItemId])
 }
 
 model QRCode {
@@ -1842,6 +1998,9 @@ model InventoryItem {
   shelfLifeDays        Int?
   canFreeze            Boolean   @default(false)
   freezerShelfLifeDays Int?
+  // How received goods must be stored — drives delivery temp checks
+  // (CHILLED ≤ 5°C, FROZEN ≤ -18°C per NZ GFMP).
+  storageType          StorageType @default(AMBIENT)
   // --- Density (volume ↔ mass ↔ count conversion) ---
   // densityGramsPerMl: "1 mL of this item weighs X g" — lets recipes convert
   // CUP/TBSP etc. to GRAMS. weightPerUnitGrams: "1 EA weighs X g" (eggs,
@@ -1879,6 +2038,8 @@ model InventoryItem {
   recipeLineItems   RecipeLineItem[]
   stepLinks         StepInventoryItem[]
   maintenanceLogs   MaintenanceLog[]
+  hsTasks           Task[]       @relation("TaskLinkedItem")
+  deliveryItems     DeliveryItem[]
 
   // --- Furniture relations ---
   chairItem       InventoryItem?     @relation("FurnitureChair", fields: [chairItemId], references: [id])
@@ -2021,6 +2182,7 @@ model Supplier {
   venue     Venue              @relation(fields: [venueId], references: [id])
   itemCodes SupplierItemCode[]
   items     InventoryItem[]
+  deliveries Delivery[]
 
   @@index([venueId])
 }

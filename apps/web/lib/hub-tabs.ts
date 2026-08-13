@@ -57,6 +57,15 @@ export const SETTINGS_TABS: TabDef[] = [
   { id: 'sync', label: 'SYNC' },
 ]
 
+// Food Health & Safety (NZ GFMP) — Chomp-style hub. LOGGERS arrives with the
+// sensor phase (Phase 3 of the ROADMAP); the tab exists so the bar is stable.
+export const COMPLIANCE_TABS: TabDef[] = [
+  { id: 'tasks', label: 'TASKS' },
+  { id: 'deliveries', label: 'DELIVERIES' },
+  { id: 'alerts', label: 'ALERTS' },
+  { id: 'loggers', label: 'LOGGERS' },
+]
+
 /** The active tab + sub-tab for a URL's ?tab=/&sub= params, with fallbacks. */
 export function resolveTab(
   tabs: TabDef[],

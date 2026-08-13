@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
       where: {
         venueId: session.venueId,
         isActive: true,
+        status: 'ACTIVE' as const,
         deletedAt: null,
         ...(departmentIds ? { departmentId: { in: departmentIds } } : {}),
       },
@@ -51,9 +52,11 @@ export async function GET(req: NextRequest) {
 
   // Show the WHOLE department's lists for the day — everyone on the floor sees
   // every list; completion is shared (global per task+date), so no double-ups.
+  // DRAFT/ARCHIVED tasks never reach the floor.
   const where = {
     venueId: session.venueId,
     isActive: true,
+    status: 'ACTIVE' as const,
     deletedAt: null,
     ...(departmentIds ? { departmentId: { in: departmentIds } } : {}),
   }
@@ -63,6 +66,7 @@ export async function GET(req: NextRequest) {
     include: {
       department: { select: { id: true, name: true, colour: true } },
       section: { select: { id: true, name: true } },
+      linkedItem: { select: { id: true, name: true } },
       taskCompletions: {
         where: { scheduledDate: today },
         include: { staff: { select: { firstName: true, lastName: true } } },
@@ -159,6 +163,13 @@ export async function GET(req: NextRequest) {
       dueDate: t.dueDate,
       rolloverEnabled: t.rolloverEnabled,
       rolledOverFrom: t.rolledOverFrom,
+      // Reading-task fields for the worker capture modal
+      readingUnit: t.readingUnit,
+      readingMin: t.readingMin,
+      readingMax: t.readingMax,
+      criticalMin: t.criticalMin,
+      criticalMax: t.criticalMax,
+      linkedItemName: t.linkedItem?.name ?? null,
     }
   })
 
