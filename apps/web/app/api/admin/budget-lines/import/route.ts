@@ -4,12 +4,15 @@ import { authOptions } from '@/lib/auth'
 import { Readable } from 'stream'
 import readXlsxFile from 'read-excel-file/node'
 import { parsePnlRows } from '@/lib/budget-lines-import'
+import { guardAccess } from '@/lib/permissions'
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'performance.budget.edit')
+  if (denied) return denied
 
   const body = await req.json()
   const { venueId, year, fileBase64 } = body as { venueId?: string; year: number; fileBase64: string }

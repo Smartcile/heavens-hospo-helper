@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { dateKeysBetween } from '@/lib/calendar'
 import { formatDateKey } from '@/lib/scheduling'
 import { rosterWeekSummary, type RosterShift } from '@/lib/roster-math'
+import { guardAccess } from '@/lib/permissions'
 
 // The week grid payload for the Roster Editor: staff (with rates, positions,
 // departments), their shifts (with position colours), approved time-off that
@@ -13,6 +14,8 @@ import { rosterWeekSummary, type RosterShift } from '@/lib/roster-math'
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'team.roster.view')
+  if (denied) return denied
 
   const url = req.nextUrl
   const venueId = url.searchParams.get('venueId') || session.user.venueId

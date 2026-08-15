@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 interface Params {
   params: { id: string }
@@ -11,6 +12,8 @@ interface Params {
 export async function PATCH(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'compliance.alerts.resolve')
+  if (denied) return denied
 
   const body = await req.json()
   if (body.action !== 'resolve') {
@@ -33,6 +36,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'compliance.alerts.resolve')
+  if (denied) return denied
 
   await prisma.hsAlert.update({
     where: { id: params.id },

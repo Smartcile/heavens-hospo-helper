@@ -4,10 +4,13 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { pushProduct, pushProductDisconnect } from '@/lib/woo-push'
 import { syncMenuItemCategory } from '@/lib/menu-sync'
+import { guardAccess } from '@/lib/permissions'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.recipes.edit')
+  if (denied) return denied
 
   const recipe = await prisma.recipe.findFirst({
     where: { id: params.id, deletedAt: null },
@@ -143,6 +146,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'ops.recipes.delete')
+  if (denied) return denied
 
   const recipe = await prisma.recipe.findFirst({
     where: { id: params.id, deletedAt: null },

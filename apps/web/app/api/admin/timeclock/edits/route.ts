@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 // All clock-edit audit rows in a date range (the VIEW EDITS modal).
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'team.clocks.view')
+  if (denied) return denied
 
   const venueId = req.nextUrl.searchParams.get('venueId') || session.user.venueId
   const from = req.nextUrl.searchParams.get('from')

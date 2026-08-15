@@ -6,6 +6,7 @@ import { resolveCustomer } from '@/lib/customer-match'
 import { validateOrderAgainstMenu } from '@/lib/menu-rules'
 import { autoLinkBooking } from '@/lib/order-booking-link'
 import type { OrderView, OrderLineView } from '@/lib/order-views'
+import { guardAccess } from '@/lib/permissions'
 
 /*
  * One payload, four views.
@@ -18,6 +19,8 @@ import type { OrderView, OrderLineView } from '@/lib/order-views'
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'orders.orders.view')
+  if (denied) return denied
 
   const venueId =
     session.user.role === 'MANAGER'
@@ -314,6 +317,8 @@ async function countUndated(venueId: string): Promise<number> {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'orders.orders.create')
+  if (denied) return denied
 
   const body = await req.json()
   const venueId =

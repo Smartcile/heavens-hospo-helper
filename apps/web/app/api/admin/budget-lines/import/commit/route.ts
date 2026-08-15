@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { assignParentIndexes, monthYearForName } from '@/lib/budget-lines-import'
 import type { PnlImportRow } from '@/lib/budget-lines-import'
+import { guardAccess } from '@/lib/permissions'
 
 const LINE_KINDS = ['GROUP', 'LINE', 'TOTAL'] as const
 
@@ -19,6 +20,8 @@ interface IncomingRow {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'performance.budget.edit')
+  if (denied) return denied
 
   const body = await req.json()
   const { venueId, year, months, rows } = body as {

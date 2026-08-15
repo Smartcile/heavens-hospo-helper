@@ -3,10 +3,13 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { isValidTime } from '@/lib/calendar'
+import { guardAccess } from '@/lib/permissions'
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'calendar.calendar.edit')
+  if (denied) return denied
   if (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER')
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 

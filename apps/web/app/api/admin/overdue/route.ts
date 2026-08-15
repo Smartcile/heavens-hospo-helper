@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { getTodayDate, clamp } from '@/lib/utils'
 import { isTaskDueOnDate, formatDateKey } from '@/lib/scheduling'
+import { guardAccess } from '@/lib/permissions'
 
 // Missed tasks: for each active task and each day in the window (yesterday back
 // N days, in the task's venue timezone), if the task was due that day but has no
@@ -12,6 +13,8 @@ import { isTaskDueOnDate, formatDateKey } from '@/lib/scheduling'
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.tasks.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const days = clamp(Number(searchParams.get('days') ?? 7), 1, 30)

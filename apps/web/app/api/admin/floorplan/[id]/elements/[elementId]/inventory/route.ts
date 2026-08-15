@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 interface Params { params: { id: string; elementId: string } }
 
 export async function GET(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'floorplans.plans.view')
+  if (denied) return denied
 
   const items = await prisma.elementInventoryItem.findMany({
     where: { elementId: params.elementId, item: { deletedAt: null } },
@@ -20,6 +23,8 @@ export async function GET(req: NextRequest, { params }: Params) {
 export async function PUT(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'floorplans.plans.edit')
+  if (denied) return denied
 
   const { assignments } = await req.json()
   if (!Array.isArray(assignments)) {

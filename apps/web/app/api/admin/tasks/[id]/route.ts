@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { postRetrainNotice } from '@/lib/retrain'
+import { guardAccess } from '@/lib/permissions'
 
 interface Params {
   params: { id: string }
@@ -11,6 +12,8 @@ interface Params {
 export async function GET(_req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'execution.tasks.view')
+  if (denied) return denied
 
   const task = await prisma.task.findUnique({
     where: { id: params.id },
@@ -32,6 +35,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
 export async function PUT(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.tasks.edit')
+  if (denied) return denied
 
   const body = await req.json()
   const updates: Record<string, unknown> = {}
@@ -123,6 +128,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'execution.tasks.delete')
+  if (denied) return denied
 
   await prisma.task.update({
     where: { id: params.id },

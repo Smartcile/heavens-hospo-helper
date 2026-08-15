@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { canAccess } from '@/lib/permissions'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ok =
+    (await canAccess(session, req, 'performance.reports.view')) ||
+    (await canAccess(session, req, 'performance.reports.export'))
+  if (!ok) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { searchParams } = new URL(req.url)
   const venueId = searchParams.get('venueId')

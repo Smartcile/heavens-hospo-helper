@@ -3,10 +3,13 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import fs from 'fs'
+import { guardAccess } from '@/lib/permissions'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'performance.giftcards.issue')
+  if (denied) return denied
 
   const card = await prisma.giftCard.findFirst({
     where: { id: params.id, venueId: session.user.venueId, deletedAt: null },

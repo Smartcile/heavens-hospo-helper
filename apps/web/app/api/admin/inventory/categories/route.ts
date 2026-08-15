@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 const BUILT_IN: { name: string; tab: string | null; showDeepFields: boolean; showEquipmentFields: boolean }[] = [
   // FOOD
@@ -34,6 +35,8 @@ const BUILT_IN_NAMES = BUILT_IN.map((b) => b.name)
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.inventory.view')
+  if (denied) return denied
 
   // Auto-seed any missing built-in categories
   const current = await prisma.inventoryCategory.findMany({ where: { name: { in: BUILT_IN_NAMES }, deletedAt: null } })
@@ -60,6 +63,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.inventory.edit')
+  if (denied) return denied
 
   const { name, tab, showDeepFields, showEquipmentFields, venueId: bodyVenueId } = await req.json()
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })

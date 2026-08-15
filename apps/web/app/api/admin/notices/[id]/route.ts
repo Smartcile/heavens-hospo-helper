@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 interface Params {
   params: { id: string }
@@ -10,6 +11,8 @@ interface Params {
 export async function PUT(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'notices.notices.post')
+  if (denied) return denied
 
   const existing = await prisma.notice.findUnique({ where: { id: params.id } })
   if (!existing || existing.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -36,6 +39,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'notices.notices.delete')
+  if (denied) return denied
 
   await prisma.notice.update({ where: { id: params.id }, data: { deletedAt: new Date(), isActive: false } })
   return NextResponse.json({ success: true })

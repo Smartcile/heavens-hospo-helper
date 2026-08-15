@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { pushOrderStatus, pushOrderItems, opStatusToWooStatus } from '@/lib/woo-push'
 import { resolveCustomer } from '@/lib/customer-match'
 import type { OrderStatus, OrderOpStatus, PaymentStatus, FulfillmentType } from '@prisma/client'
+import { guardAccess } from '@/lib/permissions'
 
 const VALID_STATUSES: OrderStatus[] = ['PENDING', 'PROCESSING', 'COMPLETED', 'CANCELLED']
 const VALID_OP_STATUSES: OrderOpStatus[] = [
@@ -39,6 +40,8 @@ async function loadScoped(id: string, session: { user: { role: string; venueId: 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'orders.orders.status')
+  if (denied) return denied
 
   const scoped = await loadScoped(params.id, session)
   if (scoped.error) return scoped.error
@@ -132,6 +135,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'orders.orders.preorder')
+  if (denied) return denied
 
   const scoped = await loadScoped(params.id, session)
   if (scoped.error) return scoped.error
@@ -195,6 +200,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'orders.orders.delete')
+  if (denied) return denied
 
   const scoped = await loadScoped(params.id, session)
   if (scoped.error) return scoped.error

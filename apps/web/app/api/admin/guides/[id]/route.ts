@@ -5,6 +5,7 @@ import { postRetrainNotice } from '@/lib/retrain'
 import { STEP_LINK_KINDS, type StepLinkKind } from '@/lib/guide-links'
 import { resolveStepLinks } from '@/lib/guide-links.server'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 interface Params {
   params: { id: string }
@@ -39,6 +40,8 @@ interface IncomingAudience {
 export async function GET(_req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'training.playbook.view')
+  if (denied) return denied
 
   const guide = await prisma.guide.findUnique({
     where: { id: params.id },
@@ -70,6 +73,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
 export async function PUT(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'training.playbook.edit')
+  if (denied) return denied
 
   const existing = await prisma.guide.findUnique({ where: { id: params.id } })
   if (!existing || existing.deletedAt) {
@@ -210,6 +215,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'training.playbook.delete')
+  if (denied) return denied
 
   const existing = await prisma.guide.findUnique({
     where: { id: params.id },

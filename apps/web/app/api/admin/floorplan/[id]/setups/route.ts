@@ -3,12 +3,15 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { ensureDefaultSetup } from '@/lib/furniture-server'
+import { guardAccess } from '@/lib/permissions'
 
 interface Params { params: { id: string } }
 
 export async function GET(_req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'floorplans.plans.view')
+  if (denied) return denied
 
   const plan = await prisma.floorPlan.findFirst({
     where: { id: params.id, deletedAt: null },
@@ -35,6 +38,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
 export async function POST(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'floorplans.plans.edit')
+  if (denied) return denied
 
   const plan = await prisma.floorPlan.findFirst({
     where: { id: params.id, deletedAt: null },

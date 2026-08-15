@@ -39,4 +39,30 @@ describe('AdminNav', () => {
     expect(getByText('Team & execution')).toBeTruthy()
     expect(getByText('Setup & config')).toBeTruthy()
   })
+
+  it('hides groups whose areas are not granted when grantedAreas is provided', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { queryByText, getByText } = render(
+      <AdminNav
+        role="MANAGER"
+        venueId="v1"
+        defaultVenueId={undefined}
+        availableVenueIds={[]}
+        grantedAreas={['compliance', 'bookings']}
+      />,
+    )
+    expect(getByText('Compliance')).toBeTruthy()
+    expect(queryByText('OPS HUB')).toBeNull() // mapped to `ops` — not granted
+    expect(queryByText('Performance')).toBeNull()
+    expect(getByText('Setup & config')).toBeTruthy() // Settings stays ungated (venue settings)
+    expect(getByText('Dashboard')).toBeTruthy() // Overview stays ungated
+  })
+
+  it('shows everything when grantedAreas is omitted (legacy behaviour)', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { getByText } = render(<AdminNav role="MANAGER" venueId="v1" defaultVenueId={undefined} availableVenueIds={[]} />)
+    expect(getByText('OPS HUB')).toBeTruthy()
+    expect(getByText('Performance')).toBeTruthy()
+    expect(getByText('Setup & config')).toBeTruthy()
+  })
 })

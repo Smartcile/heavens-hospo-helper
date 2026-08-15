@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 async function loadScoped(id: string, session: { user: { role: string; venueId: string } }) {
   const view = await prisma.orderView.findFirst({ where: { id, deletedAt: null } })
@@ -15,6 +16,8 @@ async function loadScoped(id: string, session: { user: { role: string; venueId: 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'orders.orders.edit')
+  if (denied) return denied
 
   const scoped = await loadScoped(params.id, session)
   if (scoped.error) return scoped.error
@@ -33,6 +36,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'orders.orders.edit')
+  if (denied) return denied
 
   const scoped = await loadScoped(params.id, session)
   if (scoped.error) return scoped.error

@@ -1,15 +1,18 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 // GET /api/admin/structure
 // Returns the LIVE entity tree (venue → department → staff / tasks / training,
 // plus venue-wide items) so the admin Structure page can render how everything
 // is currently linked. Manager sees their own venue; admin sees all.
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.tasks.view')
+  if (denied) return denied
 
   const scope = session.user.role === 'MANAGER' ? { id: session.user.venueId } : {}
 

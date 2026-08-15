@@ -3,10 +3,13 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { generateApiKey, hashApiKey } from '@/lib/public-api'
+import { guardAccess } from '@/lib/permissions'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'dashboard.overview.view')
+  if (denied) return denied
 
   const venueId = new URL(req.url).searchParams.get('venueId')
   const scopedVenueId = session.user.role === 'MANAGER' ? session.user.venueId : venueId || session.user.venueId
@@ -32,6 +35,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'dashboard.overview.view')
+  if (denied) return denied
 
   const body = await req.json()
   const { name, venueId } = body as { name?: string; venueId?: string }

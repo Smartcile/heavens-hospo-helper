@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import bcrypt from 'bcryptjs'
+import { guardAccess } from '@/lib/permissions'
 
 interface Params {
   params: { id: string }
@@ -11,6 +12,8 @@ interface Params {
 export async function GET(_req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'team.staff.view')
+  if (denied) return denied
 
   const staff = await prisma.staff.findUnique({
     where: { id: params.id },
@@ -30,6 +33,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
 export async function PUT(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'team.staff.edit')
+  if (denied) return denied
 
   const body = await req.json()
   const {
@@ -157,6 +162,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'team.staff.delete')
+  if (denied) return denied
 
   await prisma.staff.update({
     where: { id: params.id },

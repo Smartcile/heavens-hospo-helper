@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 // A checklist is an ordered set of references to LIVE tasks. Reads return the
 // current task data, so edits to a task show up here automatically.
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.tasks.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const venueId = searchParams.get('venueId')
@@ -70,6 +73,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.tasks.edit')
+  if (denied) return denied
 
   const body = await req.json()
   const { name, description, departmentId, sectionId, appearFromTime, taskIds } = body

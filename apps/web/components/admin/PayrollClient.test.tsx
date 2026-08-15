@@ -23,7 +23,7 @@ describe('PayrollClient', () => {
   afterEach(() => { vi.restoreAllMocks() })
 
   it('renders heading, tabs and period list', async () => {
-    mockFetch([[], [period], {}, [], []]) // venues, periods, settings, holidays, alt days
+    mockFetch([[period], {}, [], []]) // periods, settings, holidays, alt days
 
     render(<PayrollClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 
@@ -32,6 +32,8 @@ describe('PayrollClient', () => {
     expect(screen.getByText('PUBLIC HOLIDAYS')).toBeDefined()
     expect(screen.getByText('ALT DAYS')).toBeDefined()
     expect(screen.getByText('SETTINGS')).toBeDefined()
+    // Venue switching lives in the sidebar switcher — no in-page venue select.
+    expect(screen.queryByText('Venue')).toBeNull()
     await waitFor(() => {
       expect(screen.getByText(/2026-08-03 → 2026-08-09/)).toBeDefined()
       expect(screen.getByText('CLOSE PERIOD')).toBeDefined()
@@ -39,7 +41,7 @@ describe('PayrollClient', () => {
   })
 
   it('shows an empty state when there are no periods', async () => {
-    mockFetch([[], [], {}, [], []])
+    mockFetch([[], {}, [], []])
 
     render(<PayrollClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 
@@ -49,7 +51,7 @@ describe('PayrollClient', () => {
   })
 
   it('renders the settings tab with wage and ACC fields', async () => {
-    mockFetch([[], [], { minimumWage: 23.5, accRate: 1.47, payFrequency: 'WEEKLY', kiwiSaverEmployerRate: 3, studentLoanRate: 12, holidayPayPct: 8, defaultTaxCode: 'M', overtimeEnabled: false, overtimeHoursPerWeek: 40, overtimeRate: 1.5 }, [], []])
+    mockFetch([[], {}, { minimumWage: 23.5, accRate: 1.47, payFrequency: 'WEEKLY', kiwiSaverEmployerRate: 3, studentLoanRate: 12, holidayPayPct: 8, defaultTaxCode: 'M', overtimeEnabled: false, overtimeHoursPerWeek: 40, overtimeRate: 1.5 }, []])
 
     render(<PayrollClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 

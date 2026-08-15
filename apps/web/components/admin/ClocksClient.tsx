@@ -40,7 +40,6 @@ interface EditRow {
 }
 
 interface StaffLite { id: string; firstName: string; lastName: string; hourlyRate: number | null }
-interface Venue { id: string; name: string }
 
 const STATUS_COLOUR: Record<string, string> = {
   APPROVED: 'bg-success/15 text-success border-success',
@@ -59,7 +58,6 @@ export function ClocksClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const router = useRouter()
   const [sessions, setSessions] = useState<ClockRow[]>([])
   const [staff, setStaff] = useState<StaffLite[]>([])
-  const [venues, setVenues] = useState<Venue[]>([])
   const [venueId, setVenueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [date, setDate] = useState(keyOfDay(new Date()))
   const [showDeleted, setShowDeleted] = useState(false)
@@ -78,10 +76,8 @@ export function ClocksClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [editsLoading, setEditsLoading] = useState(false)
 
   async function loadMeta() {
-    const [vR, sR] = await Promise.all([fetch('/api/admin/venues'), fetch('/api/admin/staff')])
-    const [vData, sData] = await Promise.all([vR.json(), sR.json()])
-    setVenues(vData)
-    setStaff(sData)
+    const sR = await fetch('/api/admin/staff')
+    setStaff(await sR.json())
   }
 
   const load = useCallback(async () => {
@@ -221,13 +217,6 @@ export function ClocksClient({ role, sessionVenueId, defaultVenueId }: { role: s
           <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} className="accent-white" />
           SHOW DELETED CLOCKS
         </label>
-        {role === 'ADMIN' && (
-          <div className="w-40">
-            <Select label="Venue" value={venueId}
-              onChange={(e) => setVenueId(e.target.value)}
-              options={[{ value: '', label: 'SELECT' }, ...venues.map(v => ({ value: v.id, label: v.name }))]} />
-          </div>
-        )}
         <Button size="sm" variant="ghost" onClick={openViewEdits}>VIEW EDITS</Button>
         <Button size="sm" onClick={openCreate}>+ ADD CLOCK</Button>
       </div>

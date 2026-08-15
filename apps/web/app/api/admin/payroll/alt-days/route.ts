@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 // The day-in-lieu ledger: days earned from public holidays worked, and
 // whether they've been taken. GET lists (optional ?taken=1 filter for owed),
@@ -9,6 +10,8 @@ import { prisma } from '@hospo-ops/db'
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'team.payroll.view')
+  if (denied) return denied
 
   const venueId = req.nextUrl.searchParams.get('venueId') || session.user.venueId
   const taken = req.nextUrl.searchParams.get('taken')
@@ -37,8 +40,8 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER')
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const denied = await guardAccess(session, req, 'team.payroll.view')
+  if (denied) return denied
 
   const body = await req.json()
   const { id, takenOn } = body

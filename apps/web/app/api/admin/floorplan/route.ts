@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const denied = await guardAccess(session, req, 'floorplans.plans.view')
+    if (denied) return denied
 
     const { searchParams } = new URL(req.url)
     const venueId = searchParams.get('venueId')
@@ -48,6 +51,8 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const denied = await guardAccess(session, req, 'floorplans.plans.edit')
+    if (denied) return denied
 
     let body: any
     try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid request body' }, { status: 400 }) }

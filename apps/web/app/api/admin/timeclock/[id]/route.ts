@@ -2,17 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
-async function requireManager() {
+async function requireManager(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return null
-  if (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER') return null
+  const denied = await guardAccess(session, req, 'team.clocks.manual')
+  if (denied) return null
   return session
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const session = await requireManager()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const session = await requireManager(req)
+  if (!session) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const existing = await prisma.timeClock.findUnique({ where: { id: params.id } })
   if (!existing || existing.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -82,8 +84,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  const session = await requireManager()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const session = await requireManager(_req)
+  if (!session) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const existing = await prisma.timeClock.findUnique({ where: { id: params.id } })
   if (!existing || existing.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })

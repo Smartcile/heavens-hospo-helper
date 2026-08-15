@@ -255,6 +255,7 @@ model Venue {
   apiKeys             ApiKey[]
   hsAlerts            HsAlert[]
   deliveries          Delivery[]
+  staffPermissions    StaffPermission[]
 }
 
 model Department {
@@ -308,6 +309,9 @@ model Staff {
   departmentId    String?
   profilePhotoUrl String?
   isActive        Boolean   @default(true)
+  // Granular access controls: when true, this admin/manager's access is the
+  // granted StaffPermission set only (per venue). False = legacy full access.
+  restricted      Boolean   @default(false)
   // --- External system links (one profile, many systems). Sync is "coming soon";
   //     these IDs let an admin link a person across systems now. ---
   swiftPosId      String? // SwiftPOS staff id
@@ -347,6 +351,26 @@ model Staff {
   positions            StaffPosition[]
   resolvedAlerts       HsAlert[]
   receivedDeliveries   Delivery[]
+  permissions          StaffPermission[]
+}
+
+// A single granted function within the permission tree (area → sub-area →
+// function). Keys live in `apps/web/lib/permissions/registry.ts` — the DB
+// stores the leaf key verbatim. Only meaningful when Staff.restricted = true;
+// ADMIN role bypasses all grants.
+model StaffPermission {
+  id            String   @id @default(uuid())
+  staffId       String
+  venueId       String
+  permissionKey String // e.g. "bookings.create" — must exist in the registry
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  staff Staff @relation(fields: [staffId], references: [id])
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@unique([staffId, venueId, permissionKey])
 }
 
 model Task {

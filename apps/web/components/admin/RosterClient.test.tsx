@@ -60,6 +60,8 @@ describe('RosterClient', () => {
     expect(screen.getByText('ANALYZE')).toBeDefined()
     expect(screen.getByText('VISUALIZE')).toBeDefined()
     expect(screen.getByText(/PUBLISH/)).toBeDefined()
+    // Venue switching lives in the sidebar switcher — no in-page venue select.
+    expect(screen.queryByText('Venue')).toBeNull()
   })
 
   it('opens the analyze modal with per-role totals', async () => {

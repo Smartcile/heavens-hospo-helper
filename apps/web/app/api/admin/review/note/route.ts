@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 // Create an end-of-day note. If assignGuideId is given, also assign that guide
 // to the person (reason = the note category) and link it.
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.review.signoff')
+  if (denied) return denied
 
   const body = await req.json()
   const { staffId, shiftDate, category, content, assignGuideId } = body as {

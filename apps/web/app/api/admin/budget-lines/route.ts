@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'performance.budget.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const year = Number(searchParams.get('year'))
@@ -61,6 +64,8 @@ function isLineKind(value: unknown): value is LineKind {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'performance.budget.edit')
+  if (denied) return denied
 
   const body = await req.json()
   const { venueId, year, month, name, kind, parentId, sectionId, amount } = body as {

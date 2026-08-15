@@ -15,6 +15,7 @@ import {
   isFurnitureType,
   writeBom,
 } from '@/lib/furniture-server'
+import { guardAccess } from '@/lib/permissions'
 
 /**
  * Furniture is an InventoryItem with geometry set. This route is the planner's
@@ -23,6 +24,8 @@ import {
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.inventory.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const managerVenueId = getManagerVenueId(session, req)
@@ -47,6 +50,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.inventory.create')
+  if (denied) return denied
 
   const body = await req.json()
   const name = typeof body.name === 'string' ? body.name.trim().toUpperCase() : ''

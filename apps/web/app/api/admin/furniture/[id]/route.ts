@@ -14,6 +14,7 @@ import {
   isFurnitureType,
   writeBom,
 } from '@/lib/furniture-server'
+import { guardAccess } from '@/lib/permissions'
 
 interface Params { params: { id: string } }
 
@@ -28,6 +29,8 @@ async function loadScoped(id: string, managerVenueId: string | null) {
 export async function GET(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.inventory.view')
+  if (denied) return denied
 
   const row = await loadScoped(params.id, getManagerVenueId(session, req))
   if (!row) return NextResponse.json({ error: 'Furniture not found' }, { status: 404 })
@@ -39,6 +42,8 @@ export async function GET(req: NextRequest, { params }: Params) {
 export async function PUT(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.inventory.edit')
+  if (denied) return denied
 
   const existing = await loadScoped(params.id, getManagerVenueId(session, req))
   if (!existing) return NextResponse.json({ error: 'Furniture not found' }, { status: 404 })
@@ -93,6 +98,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
 export async function DELETE(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.inventory.delete')
+  if (denied) return denied
 
   const existing = await loadScoped(params.id, getManagerVenueId(session, req))
   if (!existing) return NextResponse.json({ error: 'Furniture not found' }, { status: 404 })

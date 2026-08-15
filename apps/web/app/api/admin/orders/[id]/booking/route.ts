@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { seatPartyOnServicePlan } from '@/lib/service-seating.server'
 import { slotEndForTime, addMinutesHHMM, type ServiceScheduleInput } from '@/lib/service-schedule'
 import { serviceWindowsForDate } from '@/lib/service-windows'
+import { guardAccess } from '@/lib/permissions'
 
 /*
  * Create the table reservation for a dine-in order from the order detail
@@ -17,6 +18,8 @@ import { serviceWindowsForDate } from '@/lib/service-windows'
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'orders.orders.create')
+  if (denied) return denied
 
   const order = await prisma.wooOrder.findFirst({ where: { id: params.id, deletedAt: null } })
   if (!order) return NextResponse.json({ error: 'Not found' }, { status: 404 })

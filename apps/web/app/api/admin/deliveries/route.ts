@@ -8,6 +8,7 @@ import {
   deliveryAlertSeverity,
   type Verdict,
 } from '@/lib/food-safety'
+import { guardAccess } from '@/lib/permissions'
 
 interface DeliveryLineInput {
   inventoryItemId: string
@@ -27,6 +28,8 @@ interface DeliveryLineInput {
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'compliance.deliveries.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const date = searchParams.get('date')
@@ -68,6 +71,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'compliance.deliveries.create')
+  if (denied) return denied
 
   const body = await req.json()
   const venueId = session.user.role === 'MANAGER' ? session.user.venueId : body.venueId

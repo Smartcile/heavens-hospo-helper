@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { monthDays, formatDateKey, dateKeysBetween } from '@/lib/calendar'
 import { isTaskDueOnDate } from '@/lib/scheduling'
+import { guardAccess } from '@/lib/permissions'
 
 interface DayData {
   shifts: { id: string; staffId: string; staffName: string; departmentName: string | null; startTime: string; endTime: string }[]
@@ -19,6 +20,8 @@ function utcTime(d: Date): string {
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'calendar.calendar.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const now = new Date()

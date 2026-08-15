@@ -232,30 +232,23 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       <div className="flex flex-wrap items-start justify-between gap-3">
         <h1 className="font-mono text-xl font-bold uppercase tracking-widest">ROSTER EDITOR</h1>
         <div className="flex flex-wrap items-center gap-2">
-          {role === 'ADMIN' && (
-            <div className="w-36">
-              <Select label="Venue" value={venueId}
-                onChange={(e) => setVenueId(e.target.value)}
-                options={[{ value: '', label: 'SELECT' }, ...venues.map(v => ({ value: v.id, label: v.name }))]} />
-            </div>
-          )}
           <div className="flex gap-1">
             {(['day', 'week'] as const).map((v) => (
               <button key={v} onClick={() => setView(v)}
-                className={`font-mono text-xs uppercase px-3 py-2 border transition-colors ${view === v ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>
+                className={`font-mono text-xs uppercase px-3 py-1.5 border transition-colors ${view === v ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>
                 {v === 'day' ? 'DAY' : 'WEEK'}
               </button>
             ))}
           </div>
           <div className="w-40">
-            <Select label="Filter Role" value={roleFilter}
+            <Select value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
               options={[{ value: '', label: 'ALL ROLES' }, ...positions.map(p => ({ value: p.id, label: p.name }))]} />
           </div>
-          <Input label="Search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="NAME..." className="w-40" />
-          <button onClick={() => setWeekStart((w) => shiftDay(w, -7))} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-2 py-2 hover:border-white">&lt;</button>
-          <button onClick={() => setWeekStart(mondayOf(todayKey))} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-2 py-2 hover:border-white">TODAY</button>
-          <button onClick={() => setWeekStart((w) => shiftDay(w, 7))} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-2 py-2 hover:border-white">&gt;</button>
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="NAME..." className="w-40" />
+          <button onClick={() => setWeekStart((w) => shiftDay(w, -7))} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white">&lt;</button>
+          <button onClick={() => setWeekStart(mondayOf(todayKey))} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white">TODAY</button>
+          <button onClick={() => setWeekStart((w) => shiftDay(w, 7))} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white">&gt;</button>
           <span className="font-mono text-xs uppercase text-white whitespace-nowrap">
             {view === 'week' ? `${formatDateLong(weekStart)} — ${formatDateLong(shiftDay(weekStart, 6))}` : formatDateLong(weekStart)}
           </span>

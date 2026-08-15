@@ -9,12 +9,15 @@ import {
 } from '@/lib/service-seating'
 import { seatPartyOnServicePlan, seatFailureMessage } from '@/lib/service-seating.server'
 import { bookableSlotsForService } from '@/lib/service-windows'
+import { guardAccess } from '@/lib/permissions'
 
 function timeToMins(t: string) { const [h, m] = t.split(':').map(Number); return h * 60 + m }
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'bookings.bookings.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const date = searchParams.get('date')
@@ -62,6 +65,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'bookings.bookings.create')
+  if (denied) return denied
 
   const body = await req.json()
   const {

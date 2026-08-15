@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'training.playbook.assign')
+  if (denied) return denied
 
   const body = await req.json()
   const { guideId, staffId, reason } = body as { guideId: string; staffId: string; reason?: string | null }
@@ -39,6 +42,8 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'training.playbook.assign')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const guideId = searchParams.get('guideId')

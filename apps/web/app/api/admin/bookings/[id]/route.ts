@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { canAccess, guardAccess } from '@/lib/permissions'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // PUT covers both editing a booking and changing its status — either grant suffices.
+  const editOk = await canAccess(session, req, 'bookings.bookings.edit')
+  const statusOk = await canAccess(session, req, 'bookings.bookings.status')
+  if (!editOk && !statusOk) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const booking = await prisma.booking.findFirst({
     where: { id: params.id, deletedAt: null },
@@ -52,6 +58,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'bookings.bookings.delete')
+  if (denied) return denied
 
   const booking = await prisma.booking.findFirst({
     where: { id: params.id, deletedAt: null },

@@ -3,10 +3,13 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { generatePayPeriod } from '@/lib/payroll'
+import { guardAccess } from '@/lib/permissions'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'team.payroll.view')
+  if (denied) return denied
 
   const period = await prisma.payPeriod.findUnique({
     where: { id: params.id },
@@ -38,8 +41,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function PUT(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER')
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const denied = await guardAccess(session, _req, 'team.payroll.close')
+  if (denied) return denied
 
   const period = await prisma.payPeriod.findUnique({ where: { id: params.id } })
   if (!period || period.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -56,8 +59,8 @@ export async function PUT(_req: NextRequest, { params }: { params: { id: string 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER')
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const denied = await guardAccess(session, _req, 'team.payroll.markpaid')
+  if (denied) return denied
 
   const period = await prisma.payPeriod.findUnique({ where: { id: params.id } })
   if (!period || period.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })

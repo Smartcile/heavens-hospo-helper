@@ -6,10 +6,7 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { getActiveVenueId } from '@/lib/active-venue'
 
-interface Venue { id: string; name: string }
-
-interface Period {
-  id: string
+interface Period {  id: string
   startDate: string
   endDate: string
   status: string
@@ -77,7 +74,6 @@ const money = (n: number | null | undefined) => (n == null ? '—' : `$${n.toFix
 
 export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [venueId, setVenueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
-  const [venues, setVenues] = useState<Venue[]>([])
   const [tab, setTab] = useState<'periods' | 'holidays' | 'altdays' | 'settings'>('periods')
   const [periods, setPeriods] = useState<Period[]>([])
   const [settings, setSettings] = useState<PayrollSettings | null>(null)
@@ -102,11 +98,6 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
 
   // Holiday form
   const [holidayForm, setHolidayForm] = useState({ date: '', name: '', isRegional: false })
-
-  async function loadMeta() {
-    const r = await fetch('/api/admin/venues')
-    setVenues(await r.json())
-  }
 
   const loadPeriods = useCallback(async () => {
     if (!venueId) return
@@ -142,7 +133,6 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
     setLoading(false)
   }, [loadPeriods, loadSettings, loadHolidays, loadAltDays])
 
-  useEffect(() => { loadMeta() }, [])
   useEffect(() => { if (venueId) loadAll() }, [venueId, loadAll])
   useEffect(() => { if (venueId && tab === 'altdays') loadAltDays() }, [venueId, tab, loadAltDays])
 
@@ -246,16 +236,7 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-mono text-xl font-bold uppercase tracking-widest">PAYROLL</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          {role === 'ADMIN' && (
-            <div className="w-36">
-              <Select label="Venue" value={venueId}
-                onChange={(e) => setVenueId(e.target.value)}
-                options={[{ value: '', label: 'SELECT' }, ...venues.map(v => ({ value: v.id, label: v.name }))]} />
-            </div>
-          )}
-          <Button size="sm" variant="ghost" onClick={() => { setShowCreate(true); setError('') }}>+ NEW PERIOD</Button>
-        </div>
+        <Button size="sm" variant="ghost" onClick={() => { setShowCreate(true); setError('') }}>+ NEW PERIOD</Button>
       </div>
 
       {/* Tabs */}

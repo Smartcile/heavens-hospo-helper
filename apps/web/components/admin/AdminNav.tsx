@@ -3,13 +3,29 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { VenueSwitcher } from '@/components/admin/VenueSwitcher'
 import version from '@/version.json'
 
 interface NavItem { href: string; label: string; exact?: boolean }
 interface NavGroup { label: string; items: NavItem[]; href?: string }
+
+// Nav item → permission area. Items without a mapping are always visible.
+const NAV_ITEM_AREAS: Record<string, string> = {
+  '/admin/calendar': 'calendar',
+  '/w/kitchen': 'orders',
+  '/admin/ops': 'ops',
+  '/admin/team': 'team',
+  '/admin/execution': 'execution',
+  '/admin/training': 'training',
+  '/admin/notices': 'notices',
+  '/admin/compliance': 'compliance',
+  '/admin/reports': 'performance',
+  '/admin/budget': 'performance',
+  '/admin/gift-cards': 'performance',
+  '/admin/floorplan': 'floorplans',
+}
 
 const NAV_GROUPS: NavGroup[] = [
   { label: 'Dashboard', href: '/admin', items: [
@@ -73,11 +89,13 @@ function ItemLink({ item, pathname, onNavigate }: { item: NavItem; pathname: str
 }
 
 function NavGroups({
+  groups,
   pathname,
   openGroups,
   toggleGroup,
   onNavigate,
 }: {
+  groups: NavGroup[]
   pathname: string
   openGroups: Set<string>
   toggleGroup: (label: string) => void
@@ -85,7 +103,7 @@ function NavGroups({
 }) {
   return (
     <nav className="flex-1 py-2 overflow-y-auto">
-      {NAV_GROUPS.map((group) => {
+      {groups.map((group) => {
         const open = openGroups.has(group.label)
         const hasActive = group.items.some((it) => isItemActive(it, pathname))
           || (group.href ? pathname === group.href : false)
@@ -157,7 +175,7 @@ function SignOutButton() {
   )
 }
 
-export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds }: { role: string; venueId: string; defaultVenueId: string | null | undefined; availableVenueIds: string[] }) {
+export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds, grantedAreas }: { role: string; venueId: string; defaultVenueId: string | null | undefined; availableVenueIds: string[]; grantedAreas?: string[] }) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
@@ -165,6 +183,20 @@ export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds }: {
     return new Set(active ? [active] : [NAV_GROUPS[0].label])
   })
   const appName = process.env.NEXT_PUBLIC_APP_NAME ?? 'HOSPO OPS'
+
+  // Restricted managers only see nav items whose area is granted.
+  const visibleGroups = useMemo(
+    () =>
+      grantedAreas
+        ? NAV_GROUPS.map((group) => ({
+            ...group,
+            items: group.items.filter(
+              (item) => !NAV_ITEM_AREAS[item.href] || grantedAreas.includes(NAV_ITEM_AREAS[item.href]),
+            ),
+          })).filter((group) => group.items.length > 0)
+        : NAV_GROUPS,
+    [grantedAreas],
+  )
 
   // Close the mobile drawer on route change, and ensure the active group is open.
   useEffect(() => {
@@ -185,7 +217,7 @@ export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds }: {
       {/* Desktop sidebar */}
       <aside className="hidden md:flex w-56 sticky top-0 h-screen bg-grey-dark border-r border-grey-mid flex-col">
         <Brand appName={appName} role={role} venueId={venueId} defaultVenueId={defaultVenueId} availableVenueIds={availableVenueIds} />
-        <NavGroups pathname={pathname} openGroups={openGroups} toggleGroup={toggleGroup} />
+        <NavGroups groups={visibleGroups} pathname={pathname} openGroups={openGroups} toggleGroup={toggleGroup} />
         <SignOutButton />
       </aside>
 
@@ -210,7 +242,7 @@ export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds }: {
           <div className="absolute inset-0 bg-black/70" onClick={() => setOpen(false)} aria-hidden />
           <aside className="absolute left-0 top-0 h-full w-64 bg-grey-dark border-r border-grey-mid flex flex-col shadow-2xl">
             <Brand appName={appName} role={role} venueId={venueId} defaultVenueId={defaultVenueId} availableVenueIds={availableVenueIds} />
-            <NavGroups pathname={pathname} openGroups={openGroups} toggleGroup={toggleGroup} onNavigate={() => setOpen(false)} />
+            <NavGroups groups={visibleGroups} pathname={pathname} openGroups={openGroups} toggleGroup={toggleGroup} onNavigate={() => setOpen(false)} />
             <SignOutButton />
           </aside>
         </div>

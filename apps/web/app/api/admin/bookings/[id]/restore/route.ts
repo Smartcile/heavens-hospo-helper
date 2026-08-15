@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 function timeToMins(t: string) { const [h, m] = t.split(':').map(Number); return h * 60 + m }
 
@@ -17,6 +18,8 @@ function timeToMins(t: string) { const [h, m] = t.split(':').map(Number); return
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'bookings.bookings.restore')
+  if (denied) return denied
 
   const booking = await prisma.booking.findFirst({
     where: { id: params.id },

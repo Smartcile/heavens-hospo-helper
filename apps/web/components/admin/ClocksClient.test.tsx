@@ -39,7 +39,6 @@ describe('ClocksClient', () => {
   afterEach(() => { vi.restoreAllMocks() })
 
   it('renders the STAFF CLOCKS table with row data', async () => {
-    mockFetch([]) // venues
     mockFetch([]) // staff
     mockFetch([row]) // clocks
 
@@ -57,7 +56,6 @@ describe('ClocksClient', () => {
 
   it('shows APPROVED badge and hides approve/reject for approved rows', async () => {
     mockFetch([])
-    mockFetch([])
     mockFetch([{ ...row, approvalStatus: 'APPROVED' }])
 
     render(<ClocksClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
@@ -71,17 +69,17 @@ describe('ClocksClient', () => {
   it('has ADD CLOCK, VIEW EDITS and SHOW DELETED controls', async () => {
     mockFetch([])
     mockFetch([])
-    mockFetch([])
 
     render(<ClocksClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 
     expect(await screen.findByText('+ ADD CLOCK')).toBeDefined()
     expect(screen.getByText('VIEW EDITS')).toBeDefined()
     expect(screen.getByText('SHOW DELETED CLOCKS')).toBeDefined()
+    // Venue switching lives in the sidebar switcher — no in-page venue select.
+    expect(screen.queryByText('Venue')).toBeNull()
   })
 
   it('renders TOTAL ROWS footer', async () => {
-    mockFetch([])
     mockFetch([])
     mockFetch([row, { ...row, id: 'tc2' }])
 

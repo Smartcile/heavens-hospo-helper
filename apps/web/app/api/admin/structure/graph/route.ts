@@ -1,7 +1,8 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 // GET /api/admin/structure/graph
 // Returns a flat node + edge list describing how every entity links together
@@ -9,9 +10,11 @@ import { prisma } from '@hospo-ops/db'
 // tasks → training/SOP, required-training, how-to guides, resource links).
 // Consumed by the MAP view on the Structure page (React Flow). Manager sees
 // their own venue; admin sees all.
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.tasks.view')
+  if (denied) return denied
 
   const scope = session.user.role === 'MANAGER' ? { id: session.user.venueId } : {}
 

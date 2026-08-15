@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { STEP_LINK_KINDS, type StepLinkKind } from '@/lib/guide-links'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 interface IncomingLink {
   kind: StepLinkKind
@@ -52,6 +53,8 @@ function cleanLinks(links: IncomingLink[] | undefined) {
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'training.playbook.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const venueId = searchParams.get('venueId')
@@ -79,6 +82,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'training.playbook.create')
+  if (denied) return denied
 
   const body = await req.json()
   const {

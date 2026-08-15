@@ -261,6 +261,50 @@ async function main() {
     },
   })
 
+  // A restricted demo manager — granular access controls in action. Unlike the
+  // managers above (unrestricted = legacy full access), H&S OFFICER's access is
+  // EXACTLY the StaffPermission grants below (the H&S OFFICER preset).
+  const pwHs = await bcrypt.hash('hs1234', 10)
+  const hsManager = await prisma.staff.upsert({
+    where: { id: d('000000000023') },
+    update: { email: 'hs@demo.com', restricted: true },
+    create: {
+      id: d('000000000023'),
+      firstName: 'H&S',
+      lastName: 'OFFICER',
+      pin: pinManager,
+      email: 'hs@demo.com',
+      password: pwHs,
+      role: Role.MANAGER,
+      venueId: demoVenue.id,
+      departmentId: deptBOH.id,
+      hourlyRate: 26,
+      employmentType: 'PART_TIME',
+      isActive: true,
+      restricted: true,
+    },
+  })
+  await prisma.staffPermission.deleteMany({ where: { staffId: hsManager.id } })
+  await prisma.staffPermission.createMany({
+    data: [
+      ['compliance', 'tasks', 'view'],
+      ['compliance', 'tasks', 'create'],
+      ['compliance', 'tasks', 'edit'],
+      ['compliance', 'deliveries', 'view'],
+      ['compliance', 'deliveries', 'create'],
+      ['compliance', 'deliveries', 'edit'],
+      ['compliance', 'alerts', 'view'],
+      ['compliance', 'alerts', 'raise'],
+      ['compliance', 'alerts', 'resolve'],
+      ['ops', 'inventory', 'view'],
+      ['notices', 'notices', 'view'],
+    ].map(([area, sub, fn]) => ({
+      staffId: hsManager.id,
+      venueId: demoVenue.id,
+      permissionKey: `${area}.${sub}.${fn}`,
+    })),
+  })
+
   const staffBoh1 = await prisma.staff.upsert({
     where: { id: d('000000000030') },
     update: {},
@@ -1166,11 +1210,20 @@ async function main() {
     { date: '2027-12-27', name: 'BOXING DAY (OBSERVED)' },
   ]
   for (const h of nationalHolidays) {
-    await prisma.publicHoliday.upsert({
-      where: { venueId_date: { venueId: null, date: new Date(`${h.date}T00:00:00Z`) } },
-      update: { name: h.name },
-      create: { venueId: null, date: new Date(`${h.date}T00:00:00Z`), name: h.name },
+    const date = new Date(`${h.date}T00:00:00Z`)
+    // No upsert here: the @@unique([venueId, date]) compound key can't be
+    // matched with venueId = null in Prisma 7 ("Argument venueId must not be
+    // null"), so match by row instead. Soft-deleted rows match the unique
+    // key, so re-seeding refreshes them in place — same as upsert.
+    const existing = await prisma.publicHoliday.findFirst({
+      where: { venueId: null, date },
+      select: { id: true },
     })
+    if (existing) {
+      await prisma.publicHoliday.update({ where: { id: existing.id }, data: { name: h.name } })
+    } else {
+      await prisma.publicHoliday.create({ data: { venueId: null, date, name: h.name } })
+    }
   }
 
   console.log('Seed complete.')
@@ -1180,6 +1233,7 @@ async function main() {
   console.log('  admin@demo.com / admin1234    (ADMIN)')
   console.log('  boh@demo.com   / boh1234      (BOH MANAGER — demo venue)')
   console.log('  foh@demo.com   / foh1234      (FOH MANAGER — demo venue)')
+  console.log('  hs@demo.com    / hs1234       (H&S OFFICER — RESTRICTED manager, compliance-only)')
   console.log('')
   console.log('Staff PIN logins (demo venue):')
   console.log('  1234 (Alex Chen - BOH FULL_TIME)')

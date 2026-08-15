@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { StaffGuidesModal } from '@/components/admin/StaffGuidesModal'
+import { StaffAccessDrawer } from '@/components/admin/StaffAccessDrawer'
 import { getActiveVenueId } from '@/lib/active-venue'
 
 interface StaffMember {
@@ -18,6 +19,7 @@ interface StaffMember {
   venueId: string
   departmentId: string | null
   isActive: boolean
+  restricted: boolean
   profilePhotoUrl: string | null
   hourlyRate: number | null
   employmentType: string | null
@@ -101,6 +103,7 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [guidesFor, setGuidesFor] = useState<StaffMember | null>(null)
+  const [accessFor, setAccessFor] = useState<StaffMember | null>(null)
   const [editing, setEditing] = useState<StaffMember | null>(null)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
@@ -312,6 +315,11 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex gap-3">
+                        {isAdmin && (
+                          <button onClick={() => setAccessFor(s)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">
+                            {s.restricted ? 'ACCESS ●' : 'ACCESS'}
+                          </button>
+                        )}
                         <button onClick={() => setGuidesFor(s)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">
                           GUIDES
                         </button>
@@ -525,6 +533,16 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
           staffId={guidesFor.id}
           staffName={`${guidesFor.firstName} ${guidesFor.lastName}`}
           onClose={() => setGuidesFor(null)}
+        />
+      )}
+
+      {accessFor && (
+        <StaffAccessDrawer
+          staffId={accessFor.id}
+          staffName={`${accessFor.firstName} ${accessFor.lastName}`}
+          staffRole={accessFor.role}
+          venues={venues}
+          onClose={() => setAccessFor(null)}
         />
       )}
     </div>

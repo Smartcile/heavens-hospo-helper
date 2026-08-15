@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.stocktake.view')
+  if (denied) return denied
 
   const venueId = session.user.role === 'MANAGER'
     ? session.user.venueId
@@ -29,6 +32,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.stocktake.create')
+  if (denied) return denied
 
   const { date, assignedRoleId, assignedStaffId, notes, venueId: bodyVenueId } = await req.json()
   if (!date) return NextResponse.json({ error: 'date is required' }, { status: 400 })

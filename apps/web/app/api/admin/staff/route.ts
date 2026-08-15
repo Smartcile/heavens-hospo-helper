@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import bcrypt from 'bcryptjs'
 import { getAccessibleVenueIds } from '@/lib/venue-scope'
+import { guardAccess } from '@/lib/permissions'
 
 const STAFF_SELECT = {
   id: true,
@@ -15,6 +16,7 @@ const STAFF_SELECT = {
   departmentId: true,
   profilePhotoUrl: true,
   isActive: true,
+  restricted: true,
   swiftPosId: true,
   myHrId: true,
   loadedReportsId: true,
@@ -29,6 +31,8 @@ const STAFF_SELECT = {
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'team.staff.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const venueId = searchParams.get('venueId')
@@ -63,6 +67,8 @@ async function syncStaffVenues(staffId: string, venueIds: string[]) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'team.staff.create')
+  if (denied) return denied
 
   const body = await req.json()
   const {

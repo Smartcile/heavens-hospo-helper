@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 // List alerts (venue-scoped, filters) / manually raise an alert (e.g. a pest
 // sighting or a delivery problem spotted after the fact).
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'compliance.alerts.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const venueId = searchParams.get('venueId') ?? (session.user.role === 'MANAGER' ? session.user.venueId : undefined)
@@ -40,6 +43,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'compliance.alerts.raise')
+  if (denied) return denied
 
   const body = await req.json()
   const venueId = session.user.role === 'MANAGER' ? session.user.venueId : body.venueId

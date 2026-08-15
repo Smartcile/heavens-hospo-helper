@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { getTodayDate } from '@/lib/utils'
 import { formatDateKey } from '@/lib/scheduling'
 import { healthWidgetMetrics } from '@/lib/food-safety'
+import { guardAccess } from '@/lib/permissions'
 
 // One round trip for the Compliance hub's TASKS tab: the health widget, the
 // ACTIVE/DRAFT/ARCHIVED counts, every H&S task with its last-7-day completions
@@ -12,6 +13,8 @@ import { healthWidgetMetrics } from '@/lib/food-safety'
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'compliance.tasks.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const venueId = searchParams.get('venueId') ?? (session.user.role === 'MANAGER' ? session.user.venueId : undefined)
