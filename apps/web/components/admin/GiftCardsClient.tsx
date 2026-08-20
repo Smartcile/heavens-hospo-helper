@@ -22,6 +22,34 @@ interface GiftCard {
   createdAt: string
 }
 
+interface GiftCardMapping {
+  pdfField: string
+  dataKey: string
+  format?: string
+}
+
+interface GiftCardTemplate {
+  id: string
+  name: string
+  filePath: string
+  fieldMapping: GiftCardMapping[]
+  isActive: boolean
+  fields: { name: string; type: string }[]
+}
+
+const DATA_KEY_OPTIONS = [
+  { key: 'number', label: 'VOUCHER NUMBER' },
+  { key: 'amount', label: 'VALUE / AMOUNT' },
+  { key: 'customerName', label: 'CUSTOMER NAME' },
+  { key: 'issueDate', label: 'DATE OF ISSUE' },
+  { key: 'message', label: 'MESSAGE' },
+]
+
+const AMOUNT_FORMAT_OPTIONS = [
+  { value: '2dp', label: '$50.00' },
+  { value: '0dp', label: '$50' },
+]
+
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'text-grey-light',
   ISSUED: 'text-[#60A5FA]',
@@ -33,8 +61,10 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function GiftCardsClient() {
   const [cards, setCards] = useState<GiftCard[]>([])
+  const [templates, setTemplates] = useState<GiftCardTemplate[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showBulk, setShowBulk] = useState(false)
   const [showSend, setShowSend] = useState(false)
 
@@ -65,6 +95,14 @@ export function GiftCardsClient() {
   const [smtpUser, setSmtpUser] = useState('')
   const [smtpPass, setSmtpPass] = useState('')
   const [smtpFrom, setSmtpFrom] = useState('')
+
+  const [templateFile, setTemplateFile] = useState<File | null>(null)
+  const [templateName, setTemplateName] = useState('')
+  const [templateError, setTemplateError] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [mappingTemplate, setMappingTemplate] = useState<GiftCardTemplate | null>(null)
+  const [mappingError, setMappingError] = useState('')
+  const [bulkError, setBulkError] = useState('')
 
   function resetIssueForm() {
     setIssueCustomerName('')
@@ -98,8 +136,12 @@ export function GiftCardsClient() {
     if (statusFilter) params.set('status', statusFilter)
     if (search) params.set('search', search)
     if (yearFilter) params.set('year', yearFilter)
-    const r = await fetch(`/api/admin/gift-cards?${params}`)
-    if (r.ok) setCards(await r.json())
+    const [cardsRes, templatesRes] = await Promise.all([
+      fetch(`/api/admin/gift-cards?${params}`),
+      fetch('/api/admin/gift-card-templates'),
+    ])
+    if (cardsRes.ok) setCards(await cardsRes.json())
+    if (templatesRes.ok) setTemplates(await templatesRes.json())
     setLoading(false)
   }, [search, statusFilter, yearFilter])
 
@@ -114,6 +156,7 @@ export function GiftCardsClient() {
 
   const selected = cards.find((c) => c.id === selectedId) ?? null
   const nextDraft = cards.filter((c) => c.status === 'DRAFT').sort((a, b) => a.number.localeCompare(b.number))[0] ?? null
+  const activeTemplate = templates.find((t) => t.isActive) ?? null
 
   async function handleCreateBlank() {
     setSaving(true)
@@ -207,6 +250,107 @@ export function GiftCardsClient() {
     load()
   }
 
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function handleBulkPrint() {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    setBulkError('')
+    setSaving(true)
+    const r = await fetch('/api/admin/gift-cards/bulk-pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cardIds: ids }),
+    })
+    if (r.ok) {
+      const blob = await r.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Gift Cards - ${ids.length} cards.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+      setSelectedIds(new Set())
+    } else {
+      const err = await r.json().catch(() => null)
+      setBulkError(err?.error ?? 'Print failed')
+    }
+    setSaving(false)
+  }
+
+  async function handleUpload() {
+    if (!templateFile) return
+    setTemplateError('')
+    setUploading(true)
+    const fd = new FormData()
+    fd.append('file', templateFile)
+    fd.append('name', templateName)
+    const r = await fetch('/api/admin/gift-card-templates', { method: 'POST', body: fd })
+    if (r.ok) {
+      const created = await r.json()
+      setTemplateFile(null)
+      setTemplateName('')
+      load()
+      setMappingTemplate(created)
+    } else {
+      const err = await r.json().catch(() => null)
+      setTemplateError(err?.error ?? 'Upload failed')
+    }
+    setUploading(false)
+  }
+
+  function openMapping(t: GiftCardTemplate) {
+    const fieldNames = new Set(t.fields.map((f) => f.name))
+    const mapping = t.fieldMapping.filter((m) => fieldNames.has(m.pdfField))
+    setMappingError('')
+    setMappingTemplate({ ...t, fieldMapping: mapping })
+  }
+
+  function updateMappingRow(index: number, patch: Partial<GiftCardMapping>) {
+    if (!mappingTemplate) return
+    const rows = mappingTemplate.fieldMapping.map((m, i) => (i === index ? { ...m, ...patch } : m))
+    setMappingTemplate({ ...mappingTemplate, fieldMapping: rows })
+  }
+
+  async function saveMapping() {
+    if (!mappingTemplate) return
+    setMappingError('')
+    const r = await fetch(`/api/admin/gift-card-templates/${mappingTemplate.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fieldMapping: mappingTemplate.fieldMapping }),
+    })
+    if (r.ok) {
+      setMappingTemplate(null)
+      load()
+    } else {
+      const err = await r.json().catch(() => null)
+      setMappingError(err?.error ?? 'Save failed')
+    }
+  }
+
+  async function setActive(t: GiftCardTemplate) {
+    await fetch(`/api/admin/gift-card-templates/${t.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isActive: true }),
+    })
+    load()
+  }
+
+  async function handleDeleteTemplate(t: GiftCardTemplate) {
+    if (!window.confirm(`DELETE TEMPLATE "${t.name}"?`)) return
+    await fetch(`/api/admin/gift-card-templates/${t.id}`, { method: 'DELETE' })
+    load()
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -223,7 +367,7 @@ export function GiftCardsClient() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column — Issue / Details */}
-        <div className="lg:col-span-4">
+        <div className="lg:col-span-4 space-y-4">
 
           {/* Combined Issue / Details Box */}
           <div className="border border-grey-mid p-4 space-y-4" onClick={(e) => e.stopPropagation()}>
@@ -241,6 +385,11 @@ export function GiftCardsClient() {
                   <>
                     <div className="flex items-center gap-3">
                       <span className="font-mono text-sm text-white">{nextDraft.number}</span>
+                      {activeTemplate && (
+                        <span className="font-mono text-[10px] uppercase border border-[#60A5FA] text-[#60A5FA] px-1.5 py-0.5">
+                          TEMPLATE: {activeTemplate.name}
+                        </span>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -340,6 +489,64 @@ export function GiftCardsClient() {
               </>
             )}
           </div>
+
+          {/* Template Box */}
+          <div className="border border-grey-mid p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="font-mono text-xs uppercase text-grey-light tracking-wider">
+                GIFT CARD TEMPLATE
+              </h2>
+              {activeTemplate && (
+                <span className="font-mono text-[10px] uppercase text-[#60A5FA]">
+                  ACTIVE: {activeTemplate.name}
+                </span>
+              )}
+            </div>
+
+            {templates.map((t) => (
+              <div key={t.id} className="border border-grey-mid p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs text-white truncate">{t.name}</span>
+                  {t.isActive && (
+                    <span className="font-mono text-[10px] uppercase border border-[#60A5FA] text-[#60A5FA] px-1.5 py-0.5 shrink-0">ACTIVE</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 flex-wrap">
+                  <Button size="sm" variant="ghost" onClick={() => openMapping(t)}>MAPPING</Button>
+                  <Button size="sm" variant="ghost" onClick={() => window.open(`/api/admin/gift-card-templates/${t.id}/preview`, '_blank')}>PREVIEW</Button>
+                  {!t.isActive && (
+                    <Button size="sm" variant="ghost" onClick={() => setActive(t)}>SET ACTIVE</Button>
+                  )}
+                  <Button size="sm" variant="danger" onClick={() => handleDeleteTemplate(t)}>DELETE</Button>
+                </div>
+              </div>
+            ))}
+
+            <div className="border-t border-grey-mid pt-3 space-y-2">
+              <h3 className="font-mono text-[10px] uppercase text-grey-light tracking-wider">UPLOAD PDF TEMPLATE</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <Input value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="TEMPLATE NAME" />
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  onChange={(e) => setTemplateFile(e.target.files?.[0] ?? null)}
+                  className="font-mono text-[10px] text-grey-light file:mr-2 file:px-2 file:py-1 file:bg-grey-dark file:border file:border-grey-mid file:text-white file:font-mono file:text-[10px] file:uppercase file:cursor-pointer"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Button size="sm" onClick={handleUpload} disabled={uploading || !templateFile}>
+                  {uploading ? 'UPLOADING' : 'UPLOAD TEMPLATE'}
+                </Button>
+                {templateFile && (
+                  <span className="font-mono text-[10px] text-grey-light truncate">{templateFile.name}</span>
+                )}
+              </div>
+              {templateError && <p className="font-mono text-xs text-danger">{templateError}</p>}
+              <p className="font-mono text-[10px] text-grey-light leading-relaxed">
+                PDF MUST CONTAIN FILLABLE FORM FIELDS. AFTER UPLOAD, MAP EACH FIELD TO A GIFT CARD VALUE.
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Right Column — Cards List */}
@@ -356,8 +563,19 @@ export function GiftCardsClient() {
                 <Button variant="ghost" size="sm" onClick={() => setShowBulk(true)}>
                   BULK
                 </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleBulkPrint}
+                  disabled={saving || selectedIds.size === 0}
+                  title="PRINT SELECTED CARDS AS ONE PDF"
+                >
+                  BULK PRINT ({selectedIds.size})
+                </Button>
               </div>
             </div>
+
+            {bulkError && <p className="font-mono text-xs text-danger mb-2">{bulkError}</p>}
 
             <div className="space-y-2 mb-3">
               <Input
@@ -397,26 +615,35 @@ export function GiftCardsClient() {
                 <button
                   key={c.id}
                   onClick={(e) => { e.stopPropagation(); setSelectedId(c.id) }}
-                  className={`w-full text-left px-2 py-1.5 border ${
+                  className={`w-full text-left px-2 py-1.5 border flex items-center gap-2 ${
                     selectedId === c.id
                       ? 'border-white'
                       : 'border-success hover:border-white'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs text-white">{c.number}</span>
-                    <span className={`font-mono text-xs border px-1.5 py-0.5 ${c.amount === 0 ? 'border-[#FACC15] text-[#FACC15]' : 'border-danger text-danger'}`}>
-                      ${c.amount.toFixed(2)}
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(c.id)}
+                    onChange={(e) => { e.stopPropagation(); toggleSelected(c.id) }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-grey-dark border border-grey-mid accent-white shrink-0"
+                  />
+                  <span className="flex-1 min-w-0">
+                    <span className="flex items-center justify-between">
+                      <span className="font-mono text-xs text-white">{c.number}</span>
+                      <span className={`font-mono text-xs border px-1.5 py-0.5 ${c.amount === 0 ? 'border-[#FACC15] text-[#FACC15]' : 'border-danger text-danger'}`}>
+                        ${c.amount.toFixed(2)}
+                      </span>
                     </span>
-                  </div>
-                  <div className="flex items-center justify-between mt-0.5">
-                    <span className={`font-mono text-[10px] uppercase ${STATUS_COLORS[c.status] || 'text-grey-light'}`}>
-                      {c.status}
+                    <span className="flex items-center justify-between mt-0.5">
+                      <span className={`font-mono text-[10px] uppercase ${STATUS_COLORS[c.status] || 'text-grey-light'}`}>
+                        {c.status}
+                      </span>
+                      <span className="font-sans text-[10px] text-grey-light truncate max-w-[200px]">
+                        {c.customerName || (c.isInternal ? 'INTERNAL' : '')}
+                      </span>
                     </span>
-                    <span className="font-sans text-[10px] text-grey-light truncate max-w-[200px]">
-                      {c.customerName || (c.isInternal ? 'INTERNAL' : '')}
-                    </span>
-                  </div>
+                  </span>
                 </button>
               ))}
               {cards.length === 0 && (
@@ -447,6 +674,63 @@ export function GiftCardsClient() {
                 {saving ? 'CREATING' : 'CREATE'}
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setShowBulk(false)}>CANCEL</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Field Mapping Modal */}
+      {mappingTemplate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setMappingTemplate(null)}>
+          <div className="border border-grey-mid bg-grey-dark p-6 w-full max-w-lg space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="font-mono text-sm uppercase tracking-widest text-white">FIELD MAPPING</h2>
+              <span className="font-mono text-xs text-grey-light truncate">{mappingTemplate.name}</span>
+            </div>
+
+            <div className="space-y-2">
+              {mappingTemplate.fieldMapping.map((m, i) => (
+                <div key={m.pdfField} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center border border-grey-mid p-2">
+                  <div className="md:col-span-4">
+                    <div className="font-mono text-xs text-white truncate">{m.pdfField}</div>
+                    <div className="font-mono text-[10px] uppercase text-grey-light">{mappingTemplate.fields.find((f) => f.name === m.pdfField)?.type ?? ''}</div>
+                  </div>
+                  <div className="md:col-span-5">
+                    <select
+                      value={m.dataKey}
+                      onChange={(e) => updateMappingRow(i, { dataKey: e.target.value, ...(e.target.value === 'amount' ? {} : { format: undefined }) })}
+                      className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white w-full"
+                    >
+                      <option value="">— BLANK —</option>
+                      {DATA_KEY_OPTIONS.map((k) => (
+                        <option key={k.key} value={k.key}>{k.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="md:col-span-3">
+                    {m.dataKey === 'amount' ? (
+                      <select
+                        value={m.format ?? '2dp'}
+                        onChange={(e) => updateMappingRow(i, { format: e.target.value })}
+                        className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white w-full"
+                      >
+                        {AMOUNT_FORMAT_OPTIONS.map((f) => (
+                          <option key={f.value} value={f.value}>{f.label}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="font-mono text-[10px] uppercase text-grey-light">FORMAT: AUTO</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {mappingError && <p className="font-mono text-xs text-danger">{mappingError}</p>}
+
+            <div className="border-t border-grey-mid pt-3 flex items-center gap-2">
+              <Button size="sm" onClick={saveMapping}>SAVE MAPPING</Button>
+              <Button variant="ghost" size="sm" onClick={() => setMappingTemplate(null)}>CLOSE</Button>
             </div>
           </div>
         </div>

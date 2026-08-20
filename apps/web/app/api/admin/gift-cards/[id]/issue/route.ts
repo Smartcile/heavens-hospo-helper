@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { generateGiftCardPdf, giftCardPdfToBuffer } from '@/lib/gift-card-pdf'
+import { fillGiftCardTemplate, GiftCardFieldMapping } from '@/lib/gift-card-template'
 import { formatDate } from '@/lib/utils'
 import fs from 'fs'
 import path from 'path'
@@ -39,15 +40,36 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const pdfPath = path.join(pdfDir, `Gift Card - ${card.number}.pdf`)
 
-  const doc = generateGiftCardPdf({
-    number: card.number,
-    amount,
-    customerName: customerName || '',
-    issueDate: formatDate(new Date()),
-    message: message || undefined,
+  const issueDate = formatDate(new Date())
+  const template = await prisma.giftCardTemplate.findFirst({
+    where: { venueId: card.venueId, isActive: true, deletedAt: null },
   })
 
-  const buffer = giftCardPdfToBuffer(doc)
+  let buffer: Buffer
+  if (template && fs.existsSync(template.filePath)) {
+    buffer = await fillGiftCardTemplate(
+      fs.readFileSync(template.filePath),
+      (template.fieldMapping as unknown as GiftCardFieldMapping[]) ?? [],
+      {
+        number: card.number,
+        amount,
+        customerName: customerName || '',
+        issueDate,
+        message: message || undefined,
+      },
+    )
+  } else {
+    buffer = giftCardPdfToBuffer(
+      generateGiftCardPdf({
+        number: card.number,
+        amount,
+        customerName: customerName || '',
+        issueDate,
+        message: message || undefined,
+      }),
+    )
+  }
+
   fs.writeFileSync(pdfPath, buffer)
 
   const updated = await prisma.giftCard.update({

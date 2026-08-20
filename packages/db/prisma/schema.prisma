@@ -240,6 +240,7 @@ model Venue {
   customers           Customer[]
   wooOrders           WooOrder[]
   giftCards           GiftCard[]
+  giftCardTemplates   GiftCardTemplate[]
   timeClocks          TimeClock[]
   payPeriods          PayPeriod[]
   payrollSettings     PayrollSettings?
@@ -2694,7 +2695,7 @@ model WooOrderItem {
 model GiftCard {
   id            String         @id @default(uuid())
   venueId       String
-  number        String         @unique
+  number        String
   amount        Float
   customerName  String?
   customerEmail String?
@@ -2715,8 +2716,28 @@ model GiftCard {
   wooOrder WooOrder? @relation(fields: [wooOrderId], references: [id])
 
   @@index([venueId])
-  @@index([number])
+  @@unique([venueId, number])
   @@index([status])
+}
+
+// Uploaded fillable PDF template used to print gift cards. `fieldMapping`
+// maps each AcroForm field name to a gift card data key (number / amount /
+// customerName / issueDate / message) plus an optional format.
+model GiftCardTemplate {
+  id           String   @id @default(uuid())
+  venueId      String
+  name         String
+  filePath     String
+  fieldMapping Json     @default("[]") // [{ pdfField, dataKey, format? }]
+  isActive     Boolean  @default(false) // one active template per venue
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@index([venueId])
+  @@index([isActive])
 }
 
 // --- WOOCOMMERCE SYNC LOG ---

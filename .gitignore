@@ -71,5 +71,8 @@ mock_data/
 *.zip
 resources/divi_*.zip
 
+# Client-supplied PDF templates (never publish)
+resources/*.pdf
+
 # Database backups (never publish — full data dumps)
 *.dump
