@@ -4,16 +4,21 @@ import { render, screen, waitFor } from '@testing-library/react'
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
 import { RosterClient } from '@/components/admin/RosterClient'
+import { keyOfDay, mondayOf } from '@/lib/date-nav'
+
+// The roster grid renders the CURRENT week, so the mocked shift must land on
+// this week's Monday or the block never appears (date-dependent test break).
+const monday = mondayOf(keyOfDay(new Date()))
 
 const data = {
   staff: [
     { id: 'st1', firstName: 'LIAM', lastName: 'HEAVEN', hourlyRate: 25, employmentType: 'FULL_TIME', departmentName: 'BAR', positions: [{ id: 'p1', name: 'BARISTA', colour: '#60A5FA' }] },
   ],
   shifts: [
-    { id: 'sh1', staffId: 'st1', date: '2026-08-10', startTime: '07:00', endTime: '16:00', breakMinutes: 30, colour: null, tag: null, status: 'PUBLISHED', positionName: 'BARISTA', positionColour: '#60A5FA' },
+    { id: 'sh1', staffId: 'st1', date: monday, startTime: '07:00', endTime: '16:00', breakMinutes: 30, colour: null, tag: null, status: 'PUBLISHED', positionName: 'BARISTA', positionColour: '#60A5FA' },
   ],
   blockedDays: {},
-  budgetedSalesByDate: { '2026-08-10': 1000 },
+  budgetedSalesByDate: { [monday]: 1000 },
   summary: { totalCost: 212.5, budgetedSales: 1000, staffingRatio: 21.25, totalPaidHours: 8.5 },
 }
 
