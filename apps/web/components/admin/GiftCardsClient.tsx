@@ -14,6 +14,7 @@ interface GiftCard {
   status: string
   isInternal: boolean
   wooOrderId: string | null
+  wooOrderNumber: string | null
   issuedAt: string | null
   sentAt: string | null
   expiresAt: string | null
@@ -104,6 +105,14 @@ export function GiftCardsClient() {
   const [mappingError, setMappingError] = useState('')
   const [bulkError, setBulkError] = useState('')
 
+  const [categoryId, setCategoryId] = useState<string | null>(null)
+  const [categoryName, setCategoryName] = useState<string | null>(null)
+  const [hasIntegration, setHasIntegration] = useState(false)
+  const [storeCategories, setStoreCategories] = useState<{ id: number; name: string }[]>([])
+  const [categoryChoice, setCategoryChoice] = useState('')
+  const [savingCategory, setSavingCategory] = useState(false)
+  const [categoryError, setCategoryError] = useState('')
+
   function resetIssueForm() {
     setIssueCustomerName('')
     setIssueCustomerEmail('')
@@ -136,12 +145,25 @@ export function GiftCardsClient() {
     if (statusFilter) params.set('status', statusFilter)
     if (search) params.set('search', search)
     if (yearFilter) params.set('year', yearFilter)
-    const [cardsRes, templatesRes] = await Promise.all([
+    const [cardsRes, templatesRes, settingsRes, catsRes] = await Promise.all([
       fetch(`/api/admin/gift-cards?${params}`),
       fetch('/api/admin/gift-card-templates'),
+      fetch('/api/admin/gift-cards/settings'),
+      fetch('/api/admin/woocommerce/categories'),
     ])
     if (cardsRes.ok) setCards(await cardsRes.json())
     if (templatesRes.ok) setTemplates(await templatesRes.json())
+    if (settingsRes.ok) {
+      const s = await settingsRes.json()
+      setCategoryId(s.giftCardCategoryId ?? null)
+      setCategoryName(s.giftCardCategoryName ?? null)
+      setHasIntegration(!!s.hasIntegration)
+      setCategoryChoice(s.giftCardCategoryId ? String(s.giftCardCategoryId) : '')
+    }
+    if (catsRes.ok) {
+      const c = await catsRes.json()
+      setStoreCategories(c.categories ?? [])
+    }
     setLoading(false)
   }, [search, statusFilter, yearFilter])
 
@@ -283,6 +305,27 @@ export function GiftCardsClient() {
       setBulkError(err?.error ?? 'Print failed')
     }
     setSaving(false)
+  }
+
+  async function handleSaveCategory() {
+    setCategoryError('')
+    setSavingCategory(true)
+    const r = await fetch('/api/admin/gift-cards/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: categoryChoice }),
+    })
+    if (r.ok) {
+      const s = await r.json()
+      setCategoryId(s.giftCardCategoryId ?? null)
+      setCategoryName(s.giftCardCategoryName ?? null)
+      setCategoryChoice(s.giftCardCategoryId ? String(s.giftCardCategoryId) : '')
+      load()
+    } else {
+      const err = await r.json().catch(() => null)
+      setCategoryError(err?.error ?? 'Save failed')
+    }
+    setSavingCategory(false)
   }
 
   async function handleUpload() {
@@ -547,6 +590,55 @@ export function GiftCardsClient() {
               </p>
             </div>
           </div>
+
+          {/* WooCommerce Sync Box */}
+          <div className="border border-grey-mid p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="font-mono text-xs uppercase text-grey-light tracking-wider">
+                WOOCOMMERCE SYNC
+              </h2>
+              {categoryId ? (
+                <span className="font-mono text-[10px] uppercase border border-[#60A5FA] text-[#60A5FA] px-1.5 py-0.5">
+                  CAT: {categoryName || categoryId}
+                </span>
+              ) : (
+                <span className="font-mono text-[10px] uppercase text-grey-light">UNLINKED</span>
+              )}
+            </div>
+
+            {!hasIntegration && (
+              <p className="font-mono text-[10px] text-[#FACC15] uppercase leading-relaxed">
+                NO ACTIVE WOOCOMMERCE INTEGRATION — LINK A CATEGORY IN SETTINGS → WOOCOMMERCE FIRST
+              </p>
+            )}
+
+            <div>
+              <label htmlFor="gift-card-category" className="font-mono text-xs uppercase text-grey-light block mb-1">GIFT CARD CATEGORY</label>
+              <select
+                id="gift-card-category"
+                value={categoryChoice}
+                onChange={(e) => setCategoryChoice(e.target.value)}
+                disabled={!hasIntegration}
+                className="bg-grey-dark border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white w-full disabled:opacity-40"
+              >
+                <option value="">NO CATEGORY — LOCAL ONLY</option>
+                <option value="__new__">CREATE NEW CATEGORY (GIFT CARDS)</option>
+                {storeCategories.map((c) => (
+                  <option key={c.id} value={String(c.id)}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={handleSaveCategory} disabled={savingCategory || !hasIntegration}>
+                {savingCategory ? 'SAVING' : 'SAVE LINK'}
+              </Button>
+            </div>
+            {categoryError && <p className="font-mono text-xs text-danger">{categoryError}</p>}
+            <p className="font-mono text-[10px] text-grey-light leading-relaxed">
+              PRODUCTS IN THIS CATEGORY AUTO-CREATE + ISSUE GIFT CARDS ON ORDER SYNC, AND THE STORE ORDER EMAILS CARRY THE PDF AUTOMATICALLY.
+            </p>
+          </div>
         </div>
 
         {/* Right Column — Cards List */}
@@ -631,8 +723,13 @@ export function GiftCardsClient() {
                   <span className="flex-1 min-w-0">
                     <span className="flex items-center justify-between">
                       <span className="font-mono text-xs text-white">{c.number}</span>
-                      <span className={`font-mono text-xs border px-1.5 py-0.5 ${c.amount === 0 ? 'border-[#FACC15] text-[#FACC15]' : 'border-danger text-danger'}`}>
-                        ${c.amount.toFixed(2)}
+                      <span className="flex items-center gap-2">
+                        {c.wooOrderNumber && (
+                          <span className="font-mono text-[10px] uppercase text-[#60A5FA]">WOO #{c.wooOrderNumber}</span>
+                        )}
+                        <span className={`font-mono text-xs border px-1.5 py-0.5 ${c.amount === 0 ? 'border-[#FACC15] text-[#FACC15]' : 'border-danger text-danger'}`}>
+                          ${c.amount.toFixed(2)}
+                        </span>
                       </span>
                     </span>
                     <span className="flex items-center justify-between mt-0.5">

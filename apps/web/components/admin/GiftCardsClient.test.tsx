@@ -17,6 +17,7 @@ const card = {
   status: 'DRAFT',
   isInternal: false,
   wooOrderId: null,
+  wooOrderNumber: null,
   issuedAt: null,
   sentAt: null,
   expiresAt: null,
@@ -48,7 +49,7 @@ function mockFetch(handlers: Record<string, unknown>) {
   return vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     const key = Object.keys(handlers).find((k) => url.includes(k))
-    return mockResponse(handlers[key ?? ''])
+    return mockResponse(handlers[key ?? ''] ?? {})
   })
 }
 
@@ -131,6 +132,91 @@ describe('GiftCardsClient', () => {
       const body = JSON.parse((put.mock.calls[0][0].body as string) ?? '{}')
       expect(body.fieldMapping).toEqual(template.fieldMapping)
     })
+  })
+
+  it('shows the linked WooCommerce category on the sync box', async () => {
+    mockFetch({
+      '/api/admin/gift-cards?': [card],
+      '/api/admin/gift-card-templates': [],
+      '/api/admin/gift-cards/settings': {
+        giftCardCategoryId: '42',
+        giftCardCategoryName: 'GIFT CARDS',
+        hasIntegration: true,
+      },
+      '/api/admin/woocommerce/categories': { categories: [{ id: 42, name: 'GIFT CARDS' }] },
+    })
+
+    render(<GiftCardsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('WOOCOMMERCE SYNC')).toBeDefined()
+      expect(screen.getByText('CAT: GIFT CARDS')).toBeDefined()
+    })
+  })
+
+  it('shows UNLINKED + the no-integration warning when nothing is linked', async () => {
+    mockFetch({
+      '/api/admin/gift-cards?': [card],
+      '/api/admin/gift-card-templates': [],
+      '/api/admin/gift-cards/settings': {
+        giftCardCategoryId: null,
+        giftCardCategoryName: null,
+        hasIntegration: false,
+      },
+      '/api/admin/woocommerce/categories': { categories: [] },
+    })
+
+    render(<GiftCardsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('UNLINKED')).toBeDefined()
+      expect(screen.getByText(/NO ACTIVE WOOCOMMERCE INTEGRATION/)).toBeDefined()
+    })
+  })
+
+  it('saves the WooCommerce category link via PUT', async () => {
+    const put = vi.fn()
+    vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/admin/gift-cards/settings') && (init?.method ?? 'GET') === 'PUT') {
+        put(init)
+        return mockResponse({ giftCardCategoryId: '42', giftCardCategoryName: 'GIFT CARDS' })
+      }
+      if (url.includes('/api/admin/gift-cards?')) return mockResponse([card])
+      if (url.includes('/api/admin/gift-cards/settings')) {
+        return mockResponse({ giftCardCategoryId: null, giftCardCategoryName: null, hasIntegration: true })
+      }
+      if (url.includes('/api/admin/woocommerce/categories')) {
+        return mockResponse({ categories: [{ id: 42, name: 'GIFT CARDS' }] })
+      }
+      return mockResponse([])
+    })
+
+    render(<GiftCardsClient />)
+    await screen.findByRole('heading', { name: 'GIFT CARDS' })
+
+    const select = screen.getByLabelText('GIFT CARD CATEGORY') as HTMLSelectElement
+    fireEvent.change(select, { target: { value: '42' } })
+    fireEvent.click(screen.getByText('SAVE LINK'))
+
+    await waitFor(() => {
+      expect(put).toHaveBeenCalledTimes(1)
+      const body = JSON.parse((put.mock.calls[0][0].body as string) ?? '{}')
+      expect(body.categoryId).toBe('42')
+    })
+  })
+
+  it('shows the WOO order number badge on synced cards', async () => {
+    mockFetch({
+      '/api/admin/gift-cards?': [{ ...card, wooOrderId: '987', wooOrderNumber: '1234' }],
+      '/api/admin/gift-card-templates': [],
+      '/api/admin/gift-cards/settings': { giftCardCategoryId: null, giftCardCategoryName: null, hasIntegration: false },
+      '/api/admin/woocommerce/categories': { categories: [] },
+    })
+
+    render(<GiftCardsClient />)
+
+    expect(await screen.findByText('WOO #1234')).toBeDefined()
   })
 
   it('bulk prints the selected cards into one PDF', async () => {

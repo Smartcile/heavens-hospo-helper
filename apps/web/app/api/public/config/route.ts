@@ -11,14 +11,24 @@ export async function GET(req: NextRequest) {
   const venue = await venueFromApiKey(req)
   if (!venue) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const services = await prisma.service.findMany({
-    where: { venueId: venue.id, isActive: true, deletedAt: null },
-    include: { slots: true, exceptions: true },
-    orderBy: { sortOrder: 'asc' },
-  })
+  const [services, giftCardVenue] = await Promise.all([
+    prisma.service.findMany({
+      where: { venueId: venue.id, isActive: true, deletedAt: null },
+      include: { slots: true, exceptions: true },
+      orderBy: { sortOrder: 'asc' },
+    }),
+    prisma.venue.findUnique({
+      where: { id: venue.id },
+      select: { giftCardWooCategoryId: true, giftCardWooCategoryName: true },
+    }),
+  ])
 
   return NextResponse.json({
     venue: { id: venue.id, name: venue.name, timezone: venue.timezone },
+    // The store category whose products are gift cards — the plugin uses it
+    // to detect gift card orders and attach their PDFs to the order emails.
+    giftCardCategoryId: giftCardVenue?.giftCardWooCategoryId ?? null,
+    giftCardCategoryName: giftCardVenue?.giftCardWooCategoryName ?? null,
     services: services.map((s) => ({
       id: s.id,
       name: s.name,

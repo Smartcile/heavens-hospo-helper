@@ -122,7 +122,8 @@ class Hospo_Ops_Checkout {
 			return ''; // Not configured, or no active services — nothing to show.
 		}
 
-		$menu_ids = self::cart_menu_ids( $config );
+		$menu_ids  = self::cart_menu_ids( $config );
+		$gift_card = self::cart_has_gift_card( $config );
 
 		ob_start();
 		?>
@@ -144,6 +145,14 @@ class Hospo_Ops_Checkout {
 			</div>
 
 			<div class="hospo-ops-slots" data-hospo-slots></div>
+
+			<?php if ( $gift_card ) : ?>
+				<div class="hospo-ops-field">
+					<label for="hospo_gift_card_message">Gift card message (optional)</label>
+					<textarea id="hospo_gift_card_message" name="_hospo_gift_card_message" rows="2" maxlength="500" placeholder="A message for the gift card recipient..."></textarea>
+					<p class="hospo-ops-hint">Printed on the gift card PDF that comes with your order email.</p>
+				</div>
+			<?php endif; ?>
 
 			<p class="hospo-ops-message" data-hospo-message hidden></p>
 
@@ -189,6 +198,38 @@ class Hospo_Ops_Checkout {
 		return $ids;
 	}
 
+	/**
+	 * True when the cart holds a product from the venue's GIFT CARDS category
+	 * (the category id is served by the app's /api/public/config) — the buyer
+	 * then gets the optional gift card message field.
+	 */
+	private static function cart_has_gift_card( $config ) {
+		$cat = ! empty( $config['giftCardCategoryId'] ) ? (string) $config['giftCardCategoryId'] : '';
+		if ( ! $cat ) {
+			return false;
+		}
+		return self::cart_has_category( $cat );
+	}
+
+	/** True when any cart line's product carries the given category id. */
+	private static function cart_has_category( $category_id ) {
+		if ( ! function_exists( 'WC' ) || ! WC()->cart || WC()->cart->is_empty() ) {
+			return false;
+		}
+		foreach ( WC()->cart->get_cart() as $item ) {
+			$product = isset( $item['data'] ) && $item['data'] instanceof WC_Product ? $item['data'] : null;
+			if ( ! $product ) {
+				continue;
+			}
+			foreach ( $product->get_category_ids() as $cid ) {
+				if ( (string) $cid === (string) $category_id ) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
 	public static function validate_fields() {
 		// Only when the dining section is actually on the page do we require it.
 		if ( ! isset( $_POST['_hospo_service_id'] ) ) {
@@ -215,12 +256,13 @@ class Hospo_Ops_Checkout {
 
 	public static function save_order_meta( $order, $data ) {
 		$fields = array(
-			'_hospo_service_id'   => 'sanitize_text_field',
-			'_hospo_service_name' => 'sanitize_text_field',
-			'_hospo_service_date' => 'sanitize_text_field',
-			'_hospo_service_time' => 'sanitize_text_field',
-			'_hospo_party_size'   => 'absint',
-			'_hospo_book_table'   => 'sanitize_text_field',
+			'_hospo_service_id'           => 'sanitize_text_field',
+			'_hospo_service_name'         => 'sanitize_text_field',
+			'_hospo_service_date'         => 'sanitize_text_field',
+			'_hospo_service_time'         => 'sanitize_text_field',
+			'_hospo_party_size'           => 'absint',
+			'_hospo_book_table'           => 'sanitize_text_field',
+			'_hospo_gift_card_message'    => 'sanitize_textarea_field',
 		);
 
 		foreach ( $fields as $key => $sanitizer ) {

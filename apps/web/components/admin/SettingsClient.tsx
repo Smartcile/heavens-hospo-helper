@@ -41,6 +41,7 @@ const META_FIELDS: { key: string; label: string; hint: string }[] = [
   { key: 'fulfillmentType', label: 'FULFILLMENT TYPE', hint: 'DINE IN / PICKUP / DELIVERY' },
   { key: 'serviceId', label: 'SERVICE ID', hint: 'THE HOSPO OPS SERVICE UUID (PLUGIN FIELD)' },
   { key: 'bookTable', label: 'BOOK A TABLE', hint: '"1" = CUSTOMER WANTS A TABLE BOOKED TOO (PLUGIN FIELD)' },
+  { key: 'giftCardMessage', label: 'GIFT CARD MESSAGE', hint: 'OPTIONAL MESSAGE ON THE GIFT CARD PDF (PLUGIN FIELD)' },
 ]
 
 /** Server sends `{ field: string[] }`; the inputs edit comma-separated text. */

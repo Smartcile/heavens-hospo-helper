@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       HOSPO OPS
  * Plugin URI:        https://github.com/Smartcile/heavens-hospo-helper
- * Description:       Dated ordering + table bookings for WooCommerce, driven by your HOSPO OPS venue. Customers pick a service, date, time slot and party size at checkout; picking the date and time IS the booking (dine-in only) and creates the reservation in the app. Includes a booking-only widget for pages.
- * Version:           0.3.3
+ * Description:       Dated ordering + table bookings for WooCommerce, driven by your HOSPO OPS venue. Customers pick a service, date, time slot and party size at checkout; picking the date and time IS the booking (dine-in only) and creates the reservation in the app. Includes a booking-only widget for pages, and gift card PDFs auto-attached to order emails.
+ * Version:           0.4.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            HOSPO OPS
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'HOSPO_OPS_VERSION', '0.3.3' );
+define( 'HOSPO_OPS_VERSION', '0.4.0' );
 define( 'HOSPO_OPS_FILE', __FILE__ );
 define( 'HOSPO_OPS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'HOSPO_OPS_URL', plugin_dir_url( __FILE__ ) );
@@ -25,6 +25,7 @@ require_once HOSPO_OPS_DIR . 'includes/class-hospo-ops-settings.php';
 require_once HOSPO_OPS_DIR . 'includes/class-hospo-ops-booking-widget.php';
 require_once HOSPO_OPS_DIR . 'includes/class-hospo-ops-checkout.php';
 require_once HOSPO_OPS_DIR . 'includes/class-hospo-ops-blocks.php';
+require_once HOSPO_OPS_DIR . 'includes/class-hospo-ops-gift-cards.php';
 require_once HOSPO_OPS_DIR . 'divi/hospo-ops-divi.php';
 
 Hospo_Ops_Blocks::init();

@@ -192,6 +192,12 @@ model Venue {
   sharedWooVenue         Venue?    @relation("SharedWooVenue", fields: [sharedWooVenueId], references: [id])
   wooSourceFor           Venue[]   @relation("SharedWooVenue")
   autoSeat               Boolean   @default(false) // Woo order auto-seating (off by default — seat manually)
+  // The WooCommerce category that holds this venue's gift card products.
+  // Purchases in this category auto-create + auto-issue gift cards, and the
+  // WooCommerce plugin attaches their PDFs to the order emails. Null = local
+  // gift cards only (legacy SKU "GIFT" detection still applies).
+  giftCardWooCategoryId   String?
+  giftCardWooCategoryName String? // denormalised for display in the plugin + admin UI
   // External embeds (pasteable links shown live in the app)
   loadedRosterUrl        String?
   googleCalendarUrl      String? // also imported into the planner via its derived iCal feed

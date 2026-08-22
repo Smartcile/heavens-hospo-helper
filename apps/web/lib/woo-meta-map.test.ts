@@ -192,6 +192,7 @@ describe('resolveOrderMeta', () => {
       fulfillmentType: null,
       serviceId: '3130f7b3-e632-4794-ba41-fc4524b0fe7f',
       bookTable: true,
+      giftCardMessage: null,
     })
   })
 
@@ -209,6 +210,7 @@ describe('resolveOrderMeta', () => {
       fulfillmentType: null,
       serviceId: null,
       bookTable: false,
+      giftCardMessage: null,
     })
   })
 
@@ -228,6 +230,7 @@ describe('resolveOrderMeta', () => {
       fulfillmentType: null,
       serviceId: '3130f7b3-e632-4794-ba41-fc4524b0fe7f',
       bookTable: true,
+      giftCardMessage: null,
     })
   })
 
@@ -257,6 +260,13 @@ describe('resolveOrderMeta', () => {
       fulfillmentType: null,
       serviceId: null,
       bookTable: false,
+      giftCardMessage: null,
     })
+  })
+
+  it('reads the gift card message from the HOSPO OPS plugin field', () => {
+    expect(resolveOrderMeta([{ key: '_hospo_gift_card_message', value: 'Happy birthday!' }]).giftCardMessage).toBe('Happy birthday!')
+    expect(resolveOrderMeta([{ key: 'gift_card_message', value: '  Thanks  ' }]).giftCardMessage).toBe('Thanks')
+    expect(resolveOrderMeta([]).giftCardMessage).toBeNull()
   })
 })

@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
     where: where as any,
     orderBy: { number: 'desc' },
     take: 200,
+    include: { wooOrder: { select: { orderNumber: true } } },
   })
 
   return NextResponse.json(cards)

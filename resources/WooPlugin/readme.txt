@@ -4,7 +4,7 @@ Tags: woocommerce, booking, reservations, restaurant
 Requires at least: 6.0
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 0.3.3
+Stable tag: 0.4.0
 License: GPL-2.0-or-later
 
 Dated ordering + table bookings for WooCommerce, driven by your HOSPO OPS venue.
@@ -60,6 +60,14 @@ details to the order, and the booking-only widget creates free
 reservations in the app.
 
 == Changelog ==
+
+= 0.4.0 =
+* Gift cards: PDFs for orders containing the venue's GIFT CARDS category
+  product are attached to the customer emails (processing / completed /
+  on-hold / invoice) and the admin new-order email automatically.
+* Checkout: optional gift card message field shown when the cart contains a
+  gift card product — printed on the gift card PDF.
+* The app serves the linked category id via /api/public/config.
 
 = 0.3.3 =
 * Fix: the admin order edit screen preloads the saved date's time slots and

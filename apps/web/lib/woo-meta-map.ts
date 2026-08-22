@@ -20,6 +20,7 @@ export interface WooMetaMap {
   fulfillmentType: string[]
   serviceId: string[]
   bookTable: string[]
+  giftCardMessage: string[]
 }
 
 export const DEFAULT_META_MAP: WooMetaMap = {
@@ -35,6 +36,8 @@ export const DEFAULT_META_MAP: WooMetaMap = {
   // bookTable marks the "book a table too" choice.
   serviceId: ['_hospo_service_id', 'hospo_service_id', 'service_id'],
   bookTable: ['_hospo_book_table', 'hospo_book_table', 'book_table', 'booktable'],
+  // Optional message the buyer leaves on a gift card at checkout.
+  giftCardMessage: ['_hospo_gift_card_message', 'hospo_gift_card_message', 'gift_card_message'],
 }
 
 export const META_MAP_FIELDS: (keyof WooMetaMap)[] = [
@@ -45,6 +48,7 @@ export const META_MAP_FIELDS: (keyof WooMetaMap)[] = [
   'fulfillmentType',
   'serviceId',
   'bookTable',
+  'giftCardMessage',
 ]
 
 export interface WooMetaEntry {
@@ -188,6 +192,7 @@ export interface ResolvedOrderMeta {
   fulfillmentType: FulfillmentType | null
   serviceId: string | null
   bookTable: boolean
+  giftCardMessage: string | null
 }
 
 /** Pull every mapped field off a Woo order's meta_data in one pass. */
@@ -205,5 +210,6 @@ export function resolveOrderMeta(
     fulfillmentType: parseFulfillmentType(readMeta(meta, map.fulfillmentType)),
     serviceId: readMeta(meta, map.serviceId),
     bookTable: parseBookTable(readMeta(meta, map.bookTable)),
+    giftCardMessage: readMeta(meta, map.giftCardMessage),
   }
 }

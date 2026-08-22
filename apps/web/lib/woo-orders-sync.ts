@@ -4,6 +4,8 @@ import { wooAuthHeader } from '@/lib/woo-sync'
 import { oauthSignedUrl } from '@/lib/woo-oauth'
 import { explodeRecipe } from '@/lib/inventory-engine'
 import { getNextNumber } from '@/lib/gift-cards'
+import { isGiftCardLine, categoryIdsFromString } from '@/lib/gift-cards-woo'
+import { issueGiftCardPdf } from '@/lib/gift-card-issue'
 import { resolveOrderMeta, type ResolvedOrderMeta } from '@/lib/woo-meta-map'
 import { resolveCustomer } from '@/lib/customer-match'
 import { autoLinkBooking } from '@/lib/order-booking-link'
@@ -304,7 +306,7 @@ export async function processWooOrder(
   }
 
   try {
-    await detectGiftCards(lineItems, venueId, { ...order, wooOrderId }, customerName, customerEmail)
+    await detectGiftCards(lineItems, venueId, { ...order, wooOrderId }, customerName, customerEmail, meta.giftCardMessage)
   } catch (e) {
     console.error('Gift card detection failed (non-blocking):', e)
   }
@@ -599,36 +601,93 @@ function mapWooStatus(status: string): string {
   return map[s] ?? 'PENDING'
 }
 
+/**
+ * Creates gift card rows for gift card line items on a WooCommerce order.
+ *
+ * Detection is category-based when the venue has a configured GIFT CARDS
+ * category (Venue.giftCardWooCategoryId — the product's MenuItem.wooCategoryId
+ * must contain it, variation-aware); legacy SKU "GIFT" heuristic otherwise.
+ * Each card is auto-issued: the PDF is generated immediately so the store's
+ * order email (which fetches it from the public endpoint) always finds it.
+ *
+ * Idempotent: a re-delivered webhook or re-pull for the same order never
+ * mints duplicate cards.
+ */
 async function detectGiftCards(
   lineItems: any[],
   venueId: string,
   order: { id: string; wooOrderId: string },
   customerName: string,
   customerEmail: string | null,
+  giftCardMessage: string | null,
 ) {
+  const venue = await prisma.venue.findUnique({
+    where: { id: venueId },
+    select: { giftCardWooCategoryId: true },
+  })
+  const categoryId = venue?.giftCardWooCategoryId ?? null
+
+  const existing = await prisma.giftCard.findFirst({
+    where: { venueId, wooOrderId: order.wooOrderId, deletedAt: null },
+    select: { id: true },
+  })
+  if (existing) return
+
+  const amounts: number[] = []
   for (const li of lineItems) {
-    const sku = String(li.sku ?? li.product_id ?? '').toUpperCase()
-    if (!sku.includes('GIFT')) continue
+    const productId = String(li.product_id ?? li.id ?? '')
+    const variationId = li.variation_id ? String(li.variation_id) : null
+    const wooLookupId = variationId ?? productId
+
+    // Resolve the product's store categories from its local MenuItem row.
+    // An unresolved product is NOT a gift card for a category-configured
+    // venue — the category is the signal, never a guess.
+    let productCategories: string[] | null = null
+    if (wooLookupId) {
+      const menuItem = await prisma.menuItem.findFirst({
+        where: { venueId, wooProductId: wooLookupId, deletedAt: null },
+        select: { wooCategoryId: true },
+      })
+      productCategories = menuItem ? categoryIdsFromString(menuItem.wooCategoryId) : null
+    }
+
+    if (!isGiftCardLine({ sku: li.sku }, categoryId, productCategories)) continue
 
     const amount = parseFloat(li.total ?? li.price ?? '0')
     if (amount <= 0) continue
+    amounts.push(amount / (li.quantity ?? 1))
+  }
 
-    const qty = li.quantity ?? 1
-    for (let i = 0; i < qty; i++) {
-      const year = new Date().getFullYear()
-      const number = await getNextNumber(venueId, year)
+  if (amounts.length === 0) return
 
-      await prisma.giftCard.create({
-        data: {
-          venueId,
-          number,
-          amount: amount / qty,
-          customerName: customerName || null,
-          customerEmail,
-          wooOrderId: order.wooOrderId,
-          notes: `Auto-created from WooCommerce order #${order.wooOrderId} (SKU: ${sku})`,
-        },
+  const year = new Date().getFullYear()
+  for (const amount of amounts) {
+    const number = await getNextNumber(venueId, year)
+    const card = await prisma.giftCard.create({
+      data: {
+        venueId,
+        number,
+        amount,
+        customerName: customerName || null,
+        customerEmail,
+        message: giftCardMessage || null,
+        wooOrderId: order.wooOrderId,
+        notes: categoryId
+          ? `Auto-created from WooCommerce order #${order.wooOrderId} (CATEGORY #${categoryId})`
+          : `Auto-created from WooCommerce order #${order.wooOrderId} (SKU)`,
+      },
+    })
+
+    // Auto-issue. A failure leaves the card DRAFT — the public endpoint
+    // lazily generates on demand and the admin can issue by hand.
+    try {
+      const pdfPath = await issueGiftCardPdf(card)
+      await prisma.giftCard.update({
+        where: { id: card.id },
+        data: { pdfPath, status: 'ISSUED', issuedAt: new Date() },
       })
+    } catch (e) {
+      console.error('Gift card auto-issue failed (non-blocking):', e)
     }
   }
 }

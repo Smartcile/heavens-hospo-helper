@@ -57,6 +57,47 @@ class Hospo_Ops_API {
 	}
 
 	/**
+	 * GET /api/public/orders/{id}/gift-card-pdf — the venue's gift card
+	 * PDF(s) for a WooCommerce order, saved to a local file.
+	 *
+	 * 404 means the order has no gift cards (or the app hasn't synced it
+	 * yet) — the caller retries briefly, then sends the email un-attached.
+	 *
+	 * @param int|string $order_id
+	 * @return string|WP_Error Local file path on success.
+	 */
+	public static function get_order_gift_card_pdf( $order_id ) {
+		$url  = hospo_ops_app_url() . '/api/public/orders/' . rawurlencode( (string) $order_id ) . '/gift-card-pdf';
+		$resp = wp_remote_get( $url, array( 'headers' => self::headers(), 'timeout' => 25 ) );
+
+		if ( is_wp_error( $resp ) ) {
+			return $resp;
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $resp );
+		$body = wp_remote_retrieve_body( $resp );
+
+		// Sanity-check the magic bytes so a misrouted app URL can never
+		// produce a bogus "attachment".
+		if ( $code >= 400 || '' === $body || 0 !== strpos( $body, '%PDF' ) ) {
+			return new WP_Error(
+				'hospo_ops_http_' . $code,
+				sprintf( 'Gift card PDF fetch for order %s: HTTP %d', $order_id, $code )
+			);
+		}
+
+		$uploads = wp_upload_dir();
+		$dir     = trailingslashit( $uploads['basedir'] ) . 'hospo-ops/gift-cards';
+		if ( ! wp_mkdir_p( $dir ) ) {
+			return new WP_Error( 'hospo_ops_mkdir', 'Could not create ' . $dir );
+		}
+
+		$file = $dir . '/order-' . $order_id . '.pdf';
+		file_put_contents( $file, $body ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		return $file;
+	}
+
+	/**
 	 * Auth headers for every request.
 	 */
 	private static function headers() {

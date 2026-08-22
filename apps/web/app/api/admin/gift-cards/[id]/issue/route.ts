@@ -2,11 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
-import { generateGiftCardPdf, giftCardPdfToBuffer } from '@/lib/gift-card-pdf'
-import { fillGiftCardTemplate, GiftCardFieldMapping } from '@/lib/gift-card-template'
-import { formatDate } from '@/lib/utils'
-import fs from 'fs'
-import path from 'path'
+import { issueGiftCardPdf } from '@/lib/gift-card-issue'
 import { guardAccess } from '@/lib/permissions'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -35,42 +31,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     },
   })
 
-  const pdfDir = path.join(process.cwd(), 'public', 'uploads', 'gift-cards')
-  if (!fs.existsSync(pdfDir)) fs.mkdirSync(pdfDir, { recursive: true })
-
-  const pdfPath = path.join(pdfDir, `Gift Card - ${card.number}.pdf`)
-
-  const issueDate = formatDate(new Date())
-  const template = await prisma.giftCardTemplate.findFirst({
-    where: { venueId: card.venueId, isActive: true, deletedAt: null },
+  const pdfPath = await issueGiftCardPdf({
+    venueId: card.venueId,
+    number: card.number,
+    amount,
+    customerName: customerName || null,
+    message: message || null,
   })
-
-  let buffer: Buffer
-  if (template && fs.existsSync(template.filePath)) {
-    buffer = await fillGiftCardTemplate(
-      fs.readFileSync(template.filePath),
-      (template.fieldMapping as unknown as GiftCardFieldMapping[]) ?? [],
-      {
-        number: card.number,
-        amount,
-        customerName: customerName || '',
-        issueDate,
-        message: message || undefined,
-      },
-    )
-  } else {
-    buffer = giftCardPdfToBuffer(
-      generateGiftCardPdf({
-        number: card.number,
-        amount,
-        customerName: customerName || '',
-        issueDate,
-        message: message || undefined,
-      }),
-    )
-  }
-
-  fs.writeFileSync(pdfPath, buffer)
 
   const updated = await prisma.giftCard.update({
     where: { id: params.id },
