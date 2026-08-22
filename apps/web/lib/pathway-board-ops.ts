@@ -8,6 +8,9 @@
 // - "stage" = the tier. `addNode` places stage N at x = 60 + N * 260, so a
 //   stage shift snaps x back to that column (y is untouched — the card stays
 //   at the same vertical spot, just in a different tier).
+//
+// The helpers are generic over `T extends BoardOpsNode` so callers get their
+// own node type back (e.g. `BoardNode[]`), not a reduced structural subset.
 
 export interface BoardOpsNode {
   id: string
@@ -18,13 +21,13 @@ export interface BoardOpsNode {
 
 export const STAGE_X = 260 // px per stage column (matches addNode)
 
-export function reorderWithinStage(
-  nodes: readonly BoardOpsNode[],
+export function reorderWithinStage<T extends BoardOpsNode>(
+  nodes: readonly T[],
   id: string,
   dir: -1 | 1,
-): BoardOpsNode[] {
+): T[] {
   const idx = nodes.findIndex((n) => n.id === id)
-  if (idx < 0) return nodes as BoardOpsNode[]
+  if (idx < 0) return nodes as T[]
   const stage = nodes[idx].stage
 
   const group = nodes
@@ -32,7 +35,7 @@ export function reorderWithinStage(
     .filter((x) => x.n.stage === stage)
   const pos = group.findIndex((x) => x.n.id === id)
   const other = group[pos + dir]
-  if (!other) return nodes as BoardOpsNode[]
+  if (!other) return nodes as T[]
 
   const next = [...nodes]
   next[idx] = { ...nodes[other.i], y: nodes[idx].y }
@@ -40,7 +43,11 @@ export function reorderWithinStage(
   return next
 }
 
-export function shiftStage(nodes: readonly BoardOpsNode[], id: string, dir: -1 | 1): BoardOpsNode[] {
+export function shiftStage<T extends BoardOpsNode>(
+  nodes: readonly T[],
+  id: string,
+  dir: -1 | 1,
+): T[] {
   return nodes.map((n) => {
     if (n.id !== id) return n
     const stage = Math.max(0, n.stage + dir)
@@ -48,11 +55,10 @@ export function shiftStage(nodes: readonly BoardOpsNode[], id: string, dir: -1 |
   })
 }
 
-export function deleteNodeAndEdges(
-  nodes: readonly BoardOpsNode[],
-  edges: readonly { fromNodeId: string; toNodeId: string }[],
-  id: string,
-) {
+export function deleteNodeAndEdges<
+  T extends BoardOpsNode,
+  E extends { fromNodeId: string; toNodeId: string },
+>(nodes: readonly T[], edges: readonly E[], id: string) {
   return {
     nodes: nodes.filter((n) => n.id !== id),
     edges: edges.filter((e) => e.fromNodeId !== id && e.toNodeId !== id),
