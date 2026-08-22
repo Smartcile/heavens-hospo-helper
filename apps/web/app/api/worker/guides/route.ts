@@ -23,18 +23,28 @@ export async function GET(req: NextRequest) {
   const resolved = await resolveStaffGuides(session.staffId, { includeSteps: true })
   if (!resolved) return NextResponse.json({ error: 'Staff not found' }, { status: 404 })
 
-  const items = resolved.items.map((g) => ({
+  const shape = (g: (typeof resolved.items)[number]) => ({
     id: g.id,
     title: g.title,
     description: g.description,
     category: g.category,
     requiresSignOff: g.requiresSignOff,
     isOnboarding: g.isOnboarding,
+    isTracked: true,
     source: g.source,
     completed: g.completed,
     department: g.department,
     steps: g.steps,
-  }))
+  })
 
-  return NextResponse.json({ firstName: session.firstName, items })
+  return NextResponse.json({
+    firstName: session.firstName,
+    items: resolved.items.map(shape),
+    // Untracked published guides — read-only reference documents in the BIBLE.
+    reference: resolved.reference.map((g) => ({
+      ...shape(g),
+      isTracked: false,
+      completed: false,
+    })),
+  })
 }

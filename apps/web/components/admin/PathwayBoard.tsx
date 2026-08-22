@@ -4,7 +4,7 @@
 // its layout), every position here is deliberate and saved — so node changes are
 // applied to state rather than regenerated from scratch on each render.
 
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import {
   ReactFlow,
   Background,
@@ -52,9 +52,14 @@ const STATUS_BORDER: Record<BoardStatus, string> = {
   LOCKED: '#2E2E2E',
 }
 
-function PathwayNodeCard({ data, selected }: NodeProps) {
-  const d = data as unknown as { node: BoardNode }
-  const n = d.node
+const CARD_BUTTON =
+  'nodrag nopan font-mono text-[9px] uppercase leading-none border border-grey-mid px-1 py-0.5 text-grey-light hover:text-white hover:border-white transition-colors'
+
+function PathwayNodeCard({
+  data,
+  selected,
+}: NodeProps & { data: { node: BoardNode; onMoveStage: (id: string, dir: -1 | 1) => void; onDelete: (id: string) => void } }) {
+  const n = data.node
   const accent = KIND_COLOUR[n.kind]
   const border = n.status ? STATUS_BORDER[n.status] : '#2E2E2E'
 
@@ -83,6 +88,16 @@ function PathwayNodeCard({ data, selected }: NodeProps) {
           {n.status}
         </div>
       )}
+      <div className="mt-1.5 pt-1.5 border-t border-grey-mid flex items-center justify-between">
+        <div className="flex items-center gap-1">
+          {/* onMouseDown, not onClick: a click also selects the node, and the
+              select change would re-apply stale nodes over the action. State
+              from the mousedown flushes first, so the action sticks. */}
+          <button type="button" className={CARD_BUTTON} title="STAGE UP" onMouseDown={() => data.onMoveStage(n.id, -1)}>↑</button>
+          <button type="button" className={CARD_BUTTON} title="STAGE DOWN" onMouseDown={() => data.onMoveStage(n.id, 1)}>↓</button>
+        </div>
+        <button type="button" className={CARD_BUTTON} title="DELETE NODE" onMouseDown={() => data.onDelete(n.id)}>✕</button>
+      </div>
       <Handle type="source" position={Position.Right} style={{ background: '#2E2E2E', width: 7, height: 7 }} />
     </div>
   )
@@ -93,25 +108,43 @@ const nodeTypes = { pathway: PathwayNodeCard }
 export function PathwayBoard({
   nodes,
   edges,
+  selectedId,
   onNodesChange,
   onEdgesChange,
   onSelect,
+  onMoveStage,
+  onDelete,
 }: {
   nodes: BoardNode[]
   edges: { fromNodeId: string; toNodeId: string }[]
+  selectedId: string | null
   onNodesChange: (next: BoardNode[]) => void
   onEdgesChange: (next: { fromNodeId: string; toNodeId: string }[]) => void
   onSelect: (id: string | null) => void
+  onMoveStage: (id: string, dir: -1 | 1) => void
+  onDelete: (id: string) => void
 }) {
+  // React Flow measures node sizes internally and reports them as
+  // `dimensions` changes. Those must be echoed back onto the user nodes, or
+  // every round trip wipes `measured` and every node renders
+  // `visibility: hidden` forever (the classic empty-board bug). Capture the
+  // measured sizes here and attach them to the nodes we hand back.
+  const measuredRef = useRef<Map<string, { width: number; height: number }>>(new Map())
+
   const rfNodes: Node[] = useMemo(
     () =>
       nodes.map((n) => ({
         id: n.id,
         type: 'pathway',
         position: { x: n.x, y: n.y },
-        data: { node: n },
+        data: { node: n, onMoveStage, onDelete },
+        measured: measuredRef.current.get(n.id),
+        // Selection is parent-owned: the inspector reads `selectedId`, so the
+        // card's highlight is driven from there rather than React Flow's
+        // internal select state.
+        selected: n.id === selectedId,
       })),
-    [nodes],
+    [nodes, selectedId, onMoveStage, onDelete],
   )
 
   const rfEdges: Edge[] = useMemo(
@@ -130,6 +163,11 @@ export function PathwayBoard({
   // the caller's state instead of being recomputed away.
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      for (const c of changes) {
+        if (c.type === 'dimensions' && 'dimensions' in c && c.dimensions) {
+          measuredRef.current.set(c.id, { width: c.dimensions.width, height: c.dimensions.height })
+        }
+      }
       const applied = applyNodeChanges(changes, rfNodes)
       const byId = new Map(applied.map((a) => [a.id, a.position]))
       onNodesChange(

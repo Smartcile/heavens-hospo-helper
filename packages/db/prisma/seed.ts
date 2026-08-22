@@ -1172,6 +1172,387 @@ async function main() {
     })
   }
 
+  // ── Phase 8b: Demo playbook guides ──────────────────────────────────────
+  // Guides are the current training system (the legacy TrainingModule rows
+  // above no longer surface anywhere — the migration that converts them skips
+  // once any guide exists). These rows ARE the demo venue's playbook: rich
+  // step-by-step guides, all PUBLISHED, with step links and audiences so every
+  // playbook feature has a live example.
+  //
+  // On old installs the migrate-to-guides script minted DRAFT guides from the
+  // demo's own legacy modules (reusing the 00b0 ids). They duplicate this
+  // content, so they are cleaned up here — demo-origin rows only, never a real
+  // venue's guides.
+  await prisma.guide.updateMany({
+    where: { venueId: demoVenue.id, id: { startsWith: '00000000-0000-0000-00d0-00b0' } },
+    data: { deletedAt: new Date() },
+  })
+
+  const GUIDE_IDS = {
+    welcome: d('00d100000001'),
+    foodSafety: d('00d100000002'),
+    fryer: d('00d100000003'),
+    chemicals: d('00d100000004'),
+    fohService: d('00d100000005'),
+    allergens: d('00d100000006'),
+    bohOpen: d('00d100000007'),
+    tempLog: d('00d100000008'),
+    fohClose: d('00d100000009'),
+  }
+
+  interface DemoStep {
+    heading: string
+    content: string
+    imageUrl?: string
+    videoUrl?: string
+    links?: { kind: 'TASK' | 'CHECKLIST' | 'GUIDE'; targetId: string; note?: string }[]
+  }
+
+  interface DemoGuide {
+    id: string
+    title: string
+    description: string
+    category: string
+    departmentId: string | null
+    requiresSignOff: boolean
+    isOnboarding: boolean
+    steps: DemoStep[]
+  }
+
+  const demoGuides: DemoGuide[] = [
+    {
+      id: GUIDE_IDS.welcome,
+      title: 'WELCOME & VENUE INDUCTION',
+      description: 'Everything a new hire needs on day one — the venue, the team, the house rules, and the first shift. [TRAINING · SIGN-OFF REQUIRED · ONBOARDING · WHOLE VENUE]',
+      category: 'INDUCTION',
+      departmentId: null,
+      requiresSignOff: true,
+      isOnboarding: true,
+      steps: [
+        {
+          heading: 'WELCOME TO THE TEAM',
+          content: "Welcome aboard! This induction covers the venue basics — who's who, how the floor runs, and the house rules everyone works by. Read every step, then ask a manager to sign you off at the end.",
+          imageUrl: 'https://placehold.co/600x400/F97316/0A0A0A?text=Welcome+To+The+Team',
+        },
+        { heading: "WHO'S WHO", content: 'The venue manager runs the site. Department managers run their own areas — ask the kitchen manager anything food-related, the floor manager anything guest-related. Duty managers are the shift authority: they sign off cash-ups, incidents, and this induction.' },
+        { heading: 'THE FIRST SHIFT', content: "Arrive 10 minutes early, clock in, and read the day's task list. If a task is due you'll see it on your phone — tick it when it's done. Anything marked with a camera icon needs a photo as proof.", links: [{ kind: 'CHECKLIST', targetId: d('00c0000000000008'), note: 'THE WHOLE VENUE LIST IS THE FIRST THING EVERYONE TICKS' }] },
+        { heading: 'SIGN-OFF', content: 'When you have read all four steps, tell the duty manager. They will walk you through the venue and sign off this guide from the Staff page — until then it stays pending on your record.' },
+      ],
+    },
+    {
+      id: GUIDE_IDS.foodSafety,
+      title: 'FOOD SAFETY BASICS',
+      description: 'The non-negotiables: personal hygiene, the danger zone, and cross-contamination. Required before any kitchen task. [TRAINING · SIGN-OFF REQUIRED · ONBOARDING · BOH ONLY]',
+      category: 'FOOD SAFETY',
+      departmentId: deptBOH.id,
+      requiresSignOff: true,
+      isOnboarding: false,
+      steps: [
+        { heading: 'PERSONAL HYGIENE', content: 'Wash hands for 20 seconds before starting and after handling raw food, bins, or money. No jewellery on hands, hair tied back, clean uniform every shift. Any cuts covered with a blue plaster.' },
+        { heading: 'THE DANGER ZONE', content: 'Food between 5°C and 60°C is in the danger zone — bacteria double every 20 minutes. Hot food stays above 60°C, cold food below 5°C. Never leave food out; if it has sat for 2 hours, it goes in the bin.' },
+        { heading: 'CROSS-CONTAMINATION', content: 'Raw meat and ready-to-eat food never share a board, knife, or pair of tongs. Use the colour-coded boards — red for raw meat, white for ready-to-eat. Sanitise between tasks and after every spill.', links: [{ kind: 'TASK', targetId: bohDailyIds[0], note: 'THE FRIDGE TEMP CHECK IS THE FIRST JOB EVERY MORNING' }] },
+        { heading: 'SIGN-OFF', content: 'The kitchen manager signs this guide off once you can name the danger zone temperatures and the four cross-contamination rules from memory.' },
+      ],
+    },
+    {
+      id: GUIDE_IDS.fryer,
+      title: 'FRYER SAFETY & OIL MANAGEMENT',
+      description: 'Safe operation of the deep fryers and the oil care routine that keeps them running. [TRAINING · SELF-COMPLETE · BOH ONLY]',
+      category: 'EQUIPMENT',
+      departmentId: deptBOH.id,
+      requiresSignOff: false,
+      isOnboarding: false,
+      steps: [
+        { heading: 'LIGHTING THE FRYER', content: 'Check the oil level is between the MIN and MAX lines before lighting. Never leave a lit fryer unattended — if oil is smoking, turn it off and let it cool, do not add water.' },
+        { heading: 'OIL LEVEL CHECKS', content: 'Check oil quality at the start of every shift: dark or foaming oil is past its best. Top up with fresh oil, and log the check in the daily task.', links: [{ kind: 'TASK', targetId: bohDailyIds[2], note: 'DAILY OIL CHECK — TICK ONCE DONE' }] },
+        { heading: 'FILTERING & CHANGING OIL', content: 'Filter the oil at the end of each service. A full change is due weekly or when the oil smokes below 180°C. Cool completely, drain into the sealed waste container, and never pour oil down the sink.' },
+      ],
+    },
+    {
+      id: GUIDE_IDS.chemicals,
+      title: 'CHEMICAL HANDLING & SAFETY',
+      description: 'Reading labels, diluting correctly, and what to do when a chemical spills. [TRAINING · SELF-COMPLETE · BOH ONLY]',
+      category: 'SAFETY',
+      departmentId: deptBOH.id,
+      requiresSignOff: false,
+      isOnboarding: false,
+      steps: [
+        { heading: 'DILUTION & LABELS', content: 'Every chemical has a dilution rate on the label — never guess. Always add chemical to water, never water to chemical. Undiluted chemicals live in the locked cupboard, never on a shelf above food.' },
+        { heading: 'PERSONAL PROTECTION', content: 'Gloves and eye protection are beside the chemical cupboard. Wear them for anything labelled corrosive or irritant. Wash splashes off skin immediately with cold water.' },
+        { heading: 'SPILL RESPONSE', content: 'Cordon off the spill, grab the spill kit, and follow the label instructions. Report any spill to the manager on duty — the monthly chemical audit keeps the stock log accurate.', links: [{ kind: 'TASK', targetId: bohMonthlyIds[1], note: 'MONTHLY CHEMICAL AUDIT' }] },
+      ],
+    },
+    {
+      id: GUIDE_IDS.fohService,
+      title: 'FOH SERVICE STANDARDS',
+      description: 'Table setting, greeting, order-taking, and allergen awareness — the floor service standard. [TRAINING · SELF-COMPLETE · ONBOARDING · FOH ONLY]',
+      category: 'SERVICE',
+      departmentId: deptFOH.id,
+      requiresSignOff: false,
+      isOnboarding: false,
+      steps: [
+        { heading: 'TABLE SETTINGS', content: "Cutlery 2cm from the table edge. Wine glass at 1 o'clock, water at 11 o'clock. Napkin folded centre. Walk the floor before service and fix any table that is out of standard.", imageUrl: 'https://placehold.co/600x400/FACC15/0A0A0A?text=Place+Setting+Diagram' },
+        { heading: 'GREETING GUESTS', content: 'Welcome guests within 30 seconds of seating. Offer water immediately, introduce yourself by name, and mention today\'s specials — the floor brief covers them every shift.', links: [{ kind: 'TASK', targetId: fohDailyIds[4], note: 'DAILY FLOOR BRIEF — ATTEND BEFORE SERVICE' }] },
+        { heading: 'ALLERGEN AWARENESS', content: 'Always ask about allergies when taking orders. Mark dockets clearly and confirm with the kitchen before serving. If you are unsure, say so — never guess.' },
+      ],
+    },
+    {
+      id: GUIDE_IDS.allergens,
+      title: 'COMMON ALLERGEN QUESTIONS',
+      description: 'Quick reference for the most common dietary and allergen questions from guests. [FAQ · SELF-COMPLETE · ONBOARDING · WHOLE VENUE]',
+      category: 'ALLERGENS',
+      departmentId: null,
+      requiresSignOff: false,
+      isOnboarding: true,
+      steps: [
+        { heading: 'GLUTEN-FREE OPTIONS', content: 'All grilled proteins are GF. Any dish with the GF symbol can be made coeliac-safe. Always confirm with the kitchen and mark the docket CLEARLY.' },
+        { heading: 'DAIRY-FREE', content: 'We use a plant-based butter alternative for dairy-free requests. Most sauces can be modified. The vegan dessert is always dairy-free.' },
+        { heading: 'NUT ALLERGY', content: 'We use almond meal in two desserts and peanut oil in one fryer. All other fryers use canola. Check the allergen matrix above the pass before answering any nut question.' },
+      ],
+    },
+    {
+      id: GUIDE_IDS.bohOpen,
+      title: 'BOH MORNING OPENING PROCEDURE',
+      description: 'Standard operating procedure for kitchen open — follow the BOH OPEN checklist. [SOP · SELF-COMPLETE · BOH ONLY]',
+      category: 'BOH',
+      departmentId: deptBOH.id,
+      requiresSignOff: false,
+      isOnboarding: false,
+      steps: [
+        { heading: 'ARRIVE AND CHECK IN', content: "Scan the BOH QR code at the kitchen entrance. Clock in and review today's task list." },
+        { heading: 'TEMPERATURE CHECKS FIRST', content: 'Before anything else, record all fridge and freezer temperatures. Any unit outside 0-5°C (fridge) or below -18°C (freezer) must be reported immediately.', links: [{ kind: 'TASK', targetId: bohDailyIds[0], note: 'RECORD EVERY UNIT' }, { kind: 'CHECKLIST', targetId: d('00c0000000000001'), note: 'THEN WORK THE BOH OPEN LIST' }] },
+        { heading: 'MISE EN PLACE', content: 'Set up your station with everything you need for service. Check prep levels against the par sheet.', imageUrl: 'https://placehold.co/600x400/4ADE80/0A0A0A?text=Mise+En+Place+Setup' },
+      ],
+    },
+    {
+      id: GUIDE_IDS.tempLog,
+      title: 'HOW TO READ THE FRIDGE TEMP LOG',
+      description: 'Step-by-step guide to the daily temperature recording sheet. Linked to the fridge temp task. [HOWTO · SELF-COMPLETE · BOH ONLY]',
+      category: 'BOH',
+      departmentId: deptBOH.id,
+      requiresSignOff: false,
+      isOnboarding: false,
+      steps: [
+        { heading: 'FIND THE LOG SHEET', content: 'The temperature log clipboard hangs on the cool-room door. Each fridge and freezer has its own column.' },
+        { heading: 'RECORDING', content: "Write the actual temperature reading from the unit's display. Do NOT write the target temperature. If the reading is outside range, circle it in RED.", links: [{ kind: 'TASK', targetId: bohDailyIds[0], note: 'LOG THE READING IN THE APP TOO' }] },
+        { heading: 'SIGN AND DATE', content: 'Write your initials and the time in the STAFF column. If you circled any readings, notify the manager on duty immediately — do not wait until end of shift.' },
+      ],
+    },
+    {
+      id: GUIDE_IDS.fohClose,
+      title: 'FOH END-OF-NIGHT CLOSE',
+      description: 'Standard operating procedure for closing the floor. Linked to the FOH CLOSE checklist. [SOP · SELF-COMPLETE · FOH ONLY]',
+      category: 'FOH',
+      departmentId: deptFOH.id,
+      requiresSignOff: false,
+      isOnboarding: false,
+      steps: [
+        { heading: 'LAST GUEST LEAVES', content: 'Once the last guest has left, begin closing duties. Do not rush guests — let them finish naturally.' },
+        { heading: 'CLEAR AND RESET', content: "Clear all tables, wipe down, and reset to the standard layout for tomorrow's service. Stack chairs on tables in the area being mopped.", links: [{ kind: 'CHECKLIST', targetId: d('00c0000000000005'), note: 'WORK THE FOH CLOSE LIST' }] },
+        { heading: 'EFTPOS AND TILL', content: 'Close out all terminals. Print the end-of-day report. Count the float and lock it in the safe. Both a manager and the closing staff member must sign the cash-up sheet.' },
+      ],
+    },
+  ]
+
+  for (const g of demoGuides) {
+    await prisma.guide.upsert({
+      where: { id: g.id },
+      update: {
+        title: g.title,
+        description: g.description,
+        category: g.category,
+        departmentId: g.departmentId ?? null,
+        status: 'PUBLISHED',
+        isTracked: true,
+        isOnboarding: g.isOnboarding,
+        requiresSignOff: g.requiresSignOff,
+      },
+      create: {
+        id: g.id,
+        title: g.title,
+        description: g.description,
+        category: g.category,
+        venueId: demoVenue.id,
+        departmentId: g.departmentId ?? null,
+        status: 'PUBLISHED',
+        isTracked: true,
+        isOnboarding: g.isOnboarding,
+        requiresSignOff: g.requiresSignOff,
+      },
+    })
+
+    await prisma.guideStep.deleteMany({ where: { guideId: g.id } })
+    await prisma.guideStep.createMany({
+      data: g.steps.map((s, i) => ({
+        guideId: g.id,
+        order: i,
+        heading: s.heading,
+        content: s.content,
+        imageUrl: s.imageUrl ?? null,
+        videoUrl: s.videoUrl ?? null,
+      })),
+    })
+
+    const createdSteps = await prisma.guideStep.findMany({
+      where: { guideId: g.id },
+      orderBy: { order: 'asc' },
+      select: { id: true },
+    })
+    const linkRows = g.steps.flatMap((s, si) =>
+      (s.links ?? []).map((l, li) => ({
+        stepId: createdSteps[si].id,
+        kind: l.kind,
+        targetId: l.targetId,
+        note: l.note ?? null,
+        order: li,
+      })),
+    )
+    if (linkRows.length) await prisma.guideStepLink.createMany({ data: linkRows })
+
+    await prisma.guideAudience.deleteMany({ where: { guideId: g.id } })
+    if (g.departmentId) {
+      await prisma.guideAudience.create({
+        data: { guideId: g.id, kind: 'DEPARTMENT', targetId: g.departmentId },
+      })
+    }
+  }
+
+  // Competency links: completing FOOD SAFETY BASICS is required before the
+  // fridge-temperature task counts.
+  await prisma.taskGuide.upsert({
+    where: { taskId_guideId: { taskId: bohDailyIds[0], guideId: GUIDE_IDS.foodSafety } },
+    update: { isRequiredForCompetency: true },
+    create: { taskId: bohDailyIds[0], guideId: GUIDE_IDS.foodSafety, isRequiredForCompetency: true },
+  })
+
+  // ── Phase 8c: Demo pathways ────────────────────────────────────────────
+  // Two authored onboarding trees — one per department — with stages,
+  // unlock chains and a milestone each. Published, so workers see them.
+
+  interface DemoNode {
+    id: string
+    kind: 'GUIDE' | 'TASK' | 'CHECKLIST' | 'MILESTONE'
+    targetId: string | null
+    label: string | null
+    x: number
+    y: number
+    stage: number
+    points: number
+  }
+
+  const PW_FOH: { id: string; name: string; nodes: DemoNode[]; edges: { fromNodeId: string; toNodeId: string }[] } = {
+    id: d('00d200000001'),
+    name: 'FOH ONBOARDING',
+    nodes: [
+      { id: d('00d300000001'), kind: 'GUIDE', targetId: GUIDE_IDS.welcome, label: null, x: 60, y: 60, stage: 0, points: 10 },
+      { id: d('00d300000002'), kind: 'GUIDE', targetId: GUIDE_IDS.fohService, label: null, x: 60, y: 170, stage: 0, points: 15 },
+      { id: d('00d300000003'), kind: 'GUIDE', targetId: GUIDE_IDS.allergens, label: null, x: 60, y: 280, stage: 0, points: 10 },
+      { id: d('00d300000004'), kind: 'TASK', targetId: fohDailyIds[4], label: null, x: 320, y: 60, stage: 1, points: 10 },
+      { id: d('00d300000005'), kind: 'CHECKLIST', targetId: d('00c0000000000004'), label: null, x: 320, y: 170, stage: 1, points: 15 },
+      { id: d('00d300000006'), kind: 'GUIDE', targetId: GUIDE_IDS.fohClose, label: null, x: 320, y: 280, stage: 1, points: 10 },
+      { id: d('00d300000007'), kind: 'MILESTONE', targetId: null, label: 'FLOOR READY', x: 580, y: 170, stage: 2, points: 50 },
+    ],
+    edges: [
+      { fromNodeId: d('00d300000001'), toNodeId: d('00d300000002') },
+      { fromNodeId: d('00d300000001'), toNodeId: d('00d300000003') },
+      { fromNodeId: d('00d300000002'), toNodeId: d('00d300000004') },
+      { fromNodeId: d('00d300000003'), toNodeId: d('00d300000005') },
+      { fromNodeId: d('00d300000004'), toNodeId: d('00d300000006') },
+      { fromNodeId: d('00d300000005'), toNodeId: d('00d300000007') },
+      { fromNodeId: d('00d300000006'), toNodeId: d('00d300000007') },
+      { fromNodeId: d('00d300000004'), toNodeId: d('00d300000007') },
+    ],
+  }
+
+  const PW_BOH: { id: string; name: string; nodes: DemoNode[]; edges: { fromNodeId: string; toNodeId: string }[] } = {
+    id: d('00d200000002'),
+    name: 'BOH ONBOARDING',
+    nodes: [
+      { id: d('00d300000008'), kind: 'GUIDE', targetId: GUIDE_IDS.foodSafety, label: null, x: 60, y: 60, stage: 0, points: 15 },
+      { id: d('00d300000009'), kind: 'GUIDE', targetId: GUIDE_IDS.bohOpen, label: null, x: 60, y: 170, stage: 0, points: 10 },
+      { id: d('00d300000010'), kind: 'GUIDE', targetId: GUIDE_IDS.chemicals, label: null, x: 60, y: 280, stage: 0, points: 10 },
+      { id: d('00d300000011'), kind: 'GUIDE', targetId: GUIDE_IDS.fryer, label: null, x: 60, y: 390, stage: 0, points: 10 },
+      { id: d('00d300000012'), kind: 'TASK', targetId: bohDailyIds[0], label: null, x: 320, y: 60, stage: 1, points: 10 },
+      { id: d('00d300000013'), kind: 'GUIDE', targetId: GUIDE_IDS.tempLog, label: null, x: 320, y: 170, stage: 1, points: 10 },
+      { id: d('00d300000014'), kind: 'CHECKLIST', targetId: d('00c0000000000001'), label: null, x: 580, y: 60, stage: 2, points: 15 },
+      { id: d('00d300000015'), kind: 'MILESTONE', targetId: null, label: 'KITCHEN READY', x: 580, y: 170, stage: 2, points: 50 },
+    ],
+    edges: [
+      { fromNodeId: d('00d300000008'), toNodeId: d('00d300000012') },
+      { fromNodeId: d('00d300000009'), toNodeId: d('00d300000012') },
+      { fromNodeId: d('00d300000012'), toNodeId: d('00d300000013') },
+      { fromNodeId: d('00d300000010'), toNodeId: d('00d300000014') },
+      { fromNodeId: d('00d300000011'), toNodeId: d('00d300000014') },
+      { fromNodeId: d('00d300000013'), toNodeId: d('00d300000014') },
+      { fromNodeId: d('00d300000014'), toNodeId: d('00d300000015') },
+    ],
+  }
+
+  for (const pw of [PW_FOH, PW_BOH]) {
+    await prisma.pathway.upsert({
+      where: { id: pw.id },
+      update: { name: pw.name, description: null, status: 'PUBLISHED' },
+      create: {
+        id: pw.id,
+        name: pw.name,
+        description: null,
+        venueId: demoVenue.id,
+        departmentId: pw.id === PW_FOH.id ? deptFOH.id : deptBOH.id,
+        status: 'PUBLISHED',
+      },
+    })
+    await prisma.pathwayNode.deleteMany({ where: { pathwayId: pw.id } })
+    await prisma.pathwayNode.createMany({
+      data: pw.nodes.map((n, i) => ({
+        id: n.id,
+        pathwayId: pw.id,
+        kind: n.kind,
+        targetId: n.targetId,
+        label: n.label,
+        x: n.x,
+        y: n.y,
+        stage: n.stage,
+        points: n.points,
+        sortOrder: i,
+      })),
+    })
+    await prisma.pathwayEdge.deleteMany({ where: { pathwayId: pw.id } })
+    await prisma.pathwayEdge.createMany({
+      data: pw.edges.map((e) => ({ pathwayId: pw.id, ...e })),
+    })
+  }
+
+  // Demo completions + assignments so the worker tree shows real progress.
+  const guideCompletions: { guideId: string; staffId: string }[] = [
+    { guideId: GUIDE_IDS.foodSafety, staffId: staffBoh1.id },
+    { guideId: GUIDE_IDS.fryer, staffId: staffBoh1.id },
+    { guideId: GUIDE_IDS.tempLog, staffId: staffBoh2.id },
+    { guideId: GUIDE_IDS.welcome, staffId: staffFoh1.id },
+    { guideId: GUIDE_IDS.fohService, staffId: staffFoh1.id },
+    { guideId: GUIDE_IDS.allergens, staffId: staffFoh1.id },
+    { guideId: GUIDE_IDS.welcome, staffId: staffFoh2.id },
+  ]
+  for (const c of guideCompletions) {
+    await prisma.guideCompletion.upsert({
+      where: { guideId_staffId: { guideId: c.guideId, staffId: c.staffId } },
+      update: {},
+      create: { guideId: c.guideId, staffId: c.staffId, selfCompleted: true },
+    })
+  }
+
+  const guideAssignments: { guideId: string; staffId: string; reason: string }[] = [
+    { guideId: GUIDE_IDS.tempLog, staffId: staffBoh1.id, reason: 'ONBOARDING' },
+    { guideId: GUIDE_IDS.chemicals, staffId: staffBoh2.id, reason: 'AREA TO WORK ON' },
+    { guideId: GUIDE_IDS.fohClose, staffId: staffFoh2.id, reason: 'UPSKILL' },
+  ]
+  for (const a of guideAssignments) {
+    await prisma.guideAssignment.upsert({
+      where: { guideId_staffId: { guideId: a.guideId, staffId: a.staffId } },
+      update: { reason: a.reason },
+      create: { guideId: a.guideId, staffId: a.staffId, reason: a.reason },
+    })
+  }
+
   // ─── Phase 9: Training assignments ──────────────────────────────────
   await prisma.trainingAssignment.deleteMany({ where: { moduleId: { in: trainingModules.map((m) => m.id) } } })
   await prisma.trainingAssignment.createMany({
@@ -1248,6 +1629,9 @@ async function main() {
   console.log(`  ONE-OFF: ${oneOffTasks.length}`)
   console.log(`  CHECKLISTS: 8`)
   console.log(`  TRAINING: ${trainingModules.length} modules with 5 individual assignments`)
+  console.log(`  GUIDES: ${demoGuides.length} published playbook guides with steps + step links`)
+  console.log(`  PATHWAYS: 2 published (FOH ONBOARDING ${PW_FOH.nodes.length} nodes, BOH ONBOARDING ${PW_BOH.nodes.length} nodes)`)
+  console.log(`  GUIDE COMPLETIONS: ${guideCompletions.length} · ASSIGNMENTS: ${guideAssignments.length}`)
 }
 
 main()

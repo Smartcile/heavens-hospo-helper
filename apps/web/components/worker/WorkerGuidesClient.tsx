@@ -32,6 +32,7 @@ interface GuideItem {
   category: string | null
   requiresSignOff: boolean
   isOnboarding: boolean
+  isTracked: boolean
   source: string
   completed: boolean
   department: { id: string; name: string } | null
@@ -42,6 +43,7 @@ function GuidesInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [items, setItems] = useState<GuideItem[]>([])
+  const [reference, setReference] = useState<GuideItem[]>([])
   const [firstName, setFirstName] = useState('')
   const [loading, setLoading] = useState(true)
   const [active, setActive] = useState<GuideItem | null>(null)
@@ -59,6 +61,7 @@ function GuidesInner() {
     if (gR.status === 401) { router.push('/w/login'); return }
     const data = await gR.json()
     setItems(data.items ?? [])
+    setReference(data.reference ?? [])
     setFirstName(data.firstName ?? '')
 
     if (pR.ok) {
@@ -84,9 +87,9 @@ function GuidesInner() {
   function openTreeNode(node: TreeNode & { targetId?: string | null }) {
     setLockNote('')
     if (node.kind !== 'GUIDE' || !node.targetId) return
-    const guide = items.find((i) => i.id === node.targetId)
+    const guide = items.find((i) => i.id === node.targetId) ?? reference.find((i) => i.id === node.targetId)
     if (!guide) return
-    if (node.status === 'LOCKED') {
+    if (node.status === 'LOCKED' && guide.isTracked) {
       const names = node.blockedBy
         .map((b) => pathway?.nodes.find((n) => n.id === b)?.title)
         .filter(Boolean)
@@ -128,7 +131,12 @@ function GuidesInner() {
           <div>
             <h1 className="font-mono text-xl font-bold uppercase text-white">{active.title}</h1>
             {active.description && <p className="font-sans text-sm text-grey-light mt-2">{active.description}</p>}
-            {active.category && <span className="inline-block mt-2 font-mono text-xs border border-grey-mid px-2 py-0.5 text-grey-light">{active.category}</span>}
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              {active.category && <span className="inline-block font-mono text-xs border border-grey-mid px-2 py-0.5 text-grey-light">{active.category}</span>}
+              {!active.isTracked && (
+                <span className="inline-block font-mono text-xs border border-grey-mid px-2 py-0.5 text-grey-light">REFERENCE — NOT TRACKED</span>
+              )}
+            </div>
           </div>
 
           {active.steps.map((s, i) => (
@@ -154,7 +162,11 @@ function GuidesInner() {
         </div>
 
         <div className="px-4 pb-8 pt-4 border-t border-grey-mid">
-          {active.completed ? (
+          {!active.isTracked ? (
+            <div className="status-bar-success pl-3">
+              <p className="font-mono text-sm text-grey-light uppercase">REFERENCE GUIDE — READ ONLY</p>
+            </div>
+          ) : active.completed ? (
             <div className="status-bar-success pl-3">
               <p className="font-mono text-sm text-success uppercase">COMPLETED</p>
             </div>
@@ -236,7 +248,7 @@ function GuidesInner() {
       )}
 
       <div className={`px-4 py-4 space-y-2 ${tab === 'tree' ? 'hidden' : ''}`}>
-        {items.length === 0 && (
+        {items.length === 0 && reference.length === 0 && (
           <p className="font-mono text-xs text-grey-light">NO GUIDES ASSIGNED YET.</p>
         )}
         {items.map((it) => (
@@ -259,6 +271,26 @@ function GuidesInner() {
             </div>
           </button>
         ))}
+        {reference.length > 0 && (
+          <div className="pt-2">
+            <div className="font-mono text-[10px] uppercase text-grey-light tracking-widest pb-1.5">REFERENCE — READ ANY TIME</div>
+            {reference.map((it) => (
+              <button key={it.id} onClick={() => setActive(it)} className="w-full text-left bg-grey-dark border border-grey-mid/60 p-4 hover:border-white transition-colors active:bg-black">
+                <div className="flex items-start gap-3">
+                  <div className="w-5 h-5 border-2 flex-shrink-0 mt-0.5 border-grey-light/40" />
+                  <div className="min-w-0">
+                    <div className="font-mono font-semibold text-sm uppercase text-grey-light">{it.title}</div>
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                      <span className="font-mono text-xs text-grey-light/70">REFERENCE</span>
+                      {it.department && <span className="font-mono text-xs text-grey-light/70">{it.department.name}</span>}
+                      <span className="font-mono text-xs text-grey-light/70">{it.steps.length} STEP{it.steps.length !== 1 ? 'S' : ''}</span>
+                    </div>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

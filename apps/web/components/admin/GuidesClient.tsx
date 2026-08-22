@@ -185,6 +185,36 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const fileRefs = useRef<(HTMLInputElement | null)[]>([])
   const linkedRef = useRef<ComboboxHandle>(null)
   const compRef = useRef<ComboboxHandle>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) =>
+      prev.size === filteredGuides.length
+        ? new Set()
+        : new Set(filteredGuides.map((g) => g.id)),
+    )
+  }
+
+  const downloadPdf = (url: string) => window.open(url, '_blank', 'noopener')
+
+  function downloadSinglePdf(g: Guide) {
+    downloadPdf(`/api/admin/guides/${g.id}/pdf`)
+  }
+
+  function downloadBulkPdf() {
+    if (selectedIds.size === 0) return
+    const venueParam = effectiveVenueId ? `&venueId=${encodeURIComponent(effectiveVenueId)}` : ''
+    downloadPdf(`/api/admin/guides/pdf?ids=${[...selectedIds].join(',')}${venueParam}`)
+  }
 
   async function load() {
     const activeVenueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
@@ -397,7 +427,19 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
             TRAINING, SOPS, FAQS + HOW-TOS. PUBLISH WHEN READY.
           </p>
         </div>
-        <Button size="sm" onClick={openCreate}>+ NEW GUIDE</Button>
+        <div className="flex items-center gap-2">
+          {filteredGuides.length > 0 && (
+            <Button size="sm" variant="ghost" onClick={toggleSelectAll}>
+              {selectedIds.size === filteredGuides.length ? 'CLEAR ALL' : 'SELECT ALL'}
+            </Button>
+          )}
+          {selectedIds.size > 0 && (
+            <Button size="sm" variant="ghost" onClick={downloadBulkPdf}>
+              ⬇ PDF ({selectedIds.size})
+            </Button>
+          )}
+          <Button size="sm" onClick={openCreate}>+ NEW GUIDE</Button>
+        </div>
       </div>
 
       {loading ? (
@@ -409,7 +451,16 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
           {filteredGuides.map((g) => (
             <div key={g.id} className={`bg-grey-dark border p-4 flex flex-col gap-2 ${g.status === 'DRAFT' ? 'border-yellow-700' : 'border-grey-mid'}`}>
               <div className="flex items-start justify-between gap-2">
-                <span className="font-mono font-semibold text-sm uppercase text-white">{g.title}</span>
+                <div className="flex items-start gap-2 min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(g.id)}
+                    onChange={() => toggleSelected(g.id)}
+                    className="w-4 h-4 accent-white mt-0.5 shrink-0"
+                    aria-label={`SELECT ${g.title}`}
+                  />
+                  <span className="font-mono font-semibold text-sm uppercase text-white">{g.title}</span>
+                </div>
                 <Badge variant={g.status === 'DRAFT' ? 'warning' : 'success'}>{g.status}</Badge>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
@@ -432,6 +483,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
               )}
               <div className="flex gap-3 pt-1 border-t border-grey-mid mt-1">
                 <button onClick={() => openEdit(g)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">EDIT</button>
+                <button onClick={() => downloadSinglePdf(g)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">⬇ PDF</button>
                 <button onClick={() => handleDelete(g)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">DELETE</button>
                 {g.status === 'DRAFT'
                   ? <button onClick={() => handlePublish(g, 'PUBLISHED')} className="font-mono text-xs uppercase text-success hover:text-white transition-colors ml-auto">PUBLISH</button>
@@ -529,6 +581,20 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
           {!isTracked && (
             <p className="font-mono text-xs text-grey-light">REFERENCE GUIDES ARE NOT TRACKED. SIGN-OFF AND ONBOARDING DO NOT APPLY.</p>
           )}
+
+          <div className="border border-grey-mid p-3 space-y-1">
+            <div className="font-mono text-[10px] uppercase tracking-wider text-grey-light">On the worker phone</div>
+            <div className="font-mono text-xs text-white">
+              {editing?.status === 'DRAFT'
+                ? 'DRAFT — WORKERS CANNOT SEE THIS GUIDE YET. PUBLISH FROM THE LIST TO MAKE IT LIVE.'
+                : isTracked
+                  ? 'VISIBLE TO WORKERS — TRACKED (MY GUIDES + TREE, COMPLETIONS COUNT).'
+                  : 'VISIBLE TO WORKERS — REFERENCE ONLY (SHOWS IN THE BIBLE AS READ-ONLY, NOTHING IS TRACKED).'}
+            </div>
+            <p className="font-mono text-[10px] uppercase text-grey-light leading-tight">
+              A WORKER SEES A PUBLISHED GUIDE WHEN IT APPLIES TO THEM: ONBOARDING · DEPARTMENT · SECTION/POSITION TAG · OR A DIRECT ASSIGNMENT.
+            </p>
+          </div>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">

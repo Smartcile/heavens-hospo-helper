@@ -139,11 +139,16 @@ export interface ResolvedGuide {
 /**
  * Every published, tracked guide that applies to this staff member, with their
  * completion state. Fixed query count (4) regardless of how many guides apply.
+ *
+ * `items` is the tracked set — what "My Guides", the pathway tree, completions
+ * and the staff modal operate on. `reference` is the untracked set (SOPs,
+ * FAQs, HOW-TOs): they are published and apply to the person, so they belong
+ * in the worker BIBLE as read-only documents, but nothing tracks them.
  */
 export async function resolveStaffGuides(
   staffId: string,
   opts: { includeSteps?: boolean } = {},
-): Promise<{ staffId: string; items: ResolvedGuide[] } | null> {
+): Promise<{ staffId: string; items: ResolvedGuide[]; reference: ResolvedGuide[] } | null> {
   const staff = await prisma.staff.findUnique({
     where: { id: staffId },
     select: {
@@ -172,7 +177,6 @@ export async function resolveStaffGuides(
     where: {
       venueId: staff.venueId,
       status: 'PUBLISHED',
-      isTracked: true,
       deletedAt: null,
       OR: guideWhereOr(ctx),
     },
@@ -186,7 +190,8 @@ export async function resolveStaffGuides(
     orderBy: [{ isOnboarding: 'desc' }, { title: 'asc' }],
   })
 
-  const guideIds = guides.map((g) => g.id)
+  const tracked = guides.filter((g) => g.isTracked)
+  const guideIds = tracked.map((g) => g.id)
   const completions = guideIds.length
     ? await prisma.guideCompletion.findMany({
         where: { guideId: { in: guideIds }, staffId },
@@ -222,7 +227,7 @@ export async function resolveStaffGuides(
   const allLinks: StepLinkRow[] = guides.flatMap((g) => stepsOf(g).flatMap((s) => s.links))
   const targetIndex = allLinks.length ? await buildTargetIndex(allLinks) : new Map()
 
-  const items: ResolvedGuide[] = guides.flatMap((g) => {
+  const items: ResolvedGuide[] = tracked.flatMap((g) => {
     const source = guideSource(g, ctx)
     // The SQL OR and the predicate agree, so this is belt-and-braces — but it
     // keeps a schema change from silently widening what a worker can see.
@@ -262,5 +267,33 @@ export async function resolveStaffGuides(
     }]
   })
 
-  return { staffId: staff.id, items }
+  const reference: ResolvedGuide[] = guides.flatMap((g) => {
+    if (g.isTracked) return []
+    const source = guideSource(g, ctx)
+    if (!source) return []
+    return [{
+      id: g.id,
+      title: g.title,
+      description: g.description,
+      category: g.category,
+      requiresSignOff: g.requiresSignOff,
+      isOnboarding: g.isOnboarding,
+      source,
+      assignmentReason: reasonMap.get(g.id) ?? null,
+      completed: false,
+      completion: null,
+      department: g.department,
+      steps: stepsOf(g).map((s) => ({
+        id: s.id,
+        order: s.order,
+        heading: s.heading,
+        content: s.content,
+        imageUrl: s.imageUrl,
+        videoUrl: s.videoUrl,
+        links: attachTargets(s.links, targetIndex),
+      })),
+    }]
+  })
+
+  return { staffId: staff.id, items, reference }
 }

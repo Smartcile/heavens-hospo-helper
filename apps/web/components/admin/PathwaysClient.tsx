@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { resolvePathwayProgress } from '@/lib/pathway-progress'
+import { deleteNodeAndEdges, reorderWithinStage, shiftStage } from '@/lib/pathway-board-ops'
 import type { BoardKind, BoardNode } from '@/components/admin/PathwayBoard'
 
 // React Flow measures the DOM, so it can't render on the server.
@@ -70,6 +71,7 @@ export function PathwaysClient({
   const [newDept, setNewDept] = useState('')
   const [newSection, setNewSection] = useState('')
   const [newPosition, setNewPosition] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
 
@@ -174,16 +176,36 @@ export function PathwaysClient({
 
   function patchSelected(patch: Partial<BoardNode>) {
     if (!selectedId) return
-    setNodes((prev) => prev.map((n) => (n.id === selectedId ? { ...n, ...patch } : n)))
+    patchNode(selectedId, patch)
+  }
+
+  function patchNode(id: string, patch: Partial<BoardNode>) {
+    setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)))
+    setDirty(true)
+  }
+
+  // Shared by the board card buttons and the tree row controls — the board's
+  // ↑/↓ and the tree's S−/S+ are the same stage shift.
+  function moveStage(id: string, dir: -1 | 1) {
+    setNodes((prev) => shiftStage(prev, id, dir))
+    setDirty(true)
+  }
+
+  function moveWithinStage(id: string, dir: -1 | 1) {
+    setNodes((prev) => reorderWithinStage(prev, id, dir))
+    setDirty(true)
+  }
+
+  function deleteNode(id: string) {
+    setNodes((prev) => deleteNodeAndEdges(prev, edges, id).nodes)
+    setEdges((prev) => prev.filter((e) => e.fromNodeId !== id && e.toNodeId !== id))
+    if (selectedId === id) setSelectedId(null)
     setDirty(true)
   }
 
   function deleteSelected() {
     if (!selectedId) return
-    setNodes((prev) => prev.filter((n) => n.id !== selectedId))
-    setEdges((prev) => prev.filter((e) => e.fromNodeId !== selectedId && e.toNodeId !== selectedId))
-    setSelectedId(null)
-    setDirty(true)
+    deleteNode(selectedId)
   }
 
   async function save() {
@@ -328,9 +350,12 @@ export function PathwaysClient({
               <PathwayBoard
                 nodes={boardNodes}
                 edges={edges}
+                selectedId={selectedId}
                 onNodesChange={(next) => { setNodes(next); setDirty(true) }}
                 onEdgesChange={(next) => { setEdges(next); setDirty(true) }}
                 onSelect={setSelectedId}
+                onMoveStage={moveStage}
+                onDelete={deleteNode}
               />
               <div className="border border-grey-mid p-3 space-y-3 h-fit">
                 <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">NODE</h3>
@@ -374,21 +399,38 @@ export function PathwaysClient({
                   <div className="font-mono text-xs uppercase text-grey-light tracking-wider">
                     STAGE {stage + 1}
                   </div>
-                  <div className="border-l border-grey-mid ml-2 pl-4 mt-1 space-y-1">
-                    {displayNodes.filter((n) => n.stage === stage).map((n) => {
+                  <div className="border-l border-grey-mid ml-2 pl-4 mt-1 divide-y divide-grey-mid/50">
+                    {displayNodes.filter((n) => n.stage === stage).map((n, idx, arr) => {
                       const st = statusById.get(n.id)
                       const blocked = preview.nodes.find((p) => p.id === n.id)?.blockedBy ?? []
                       return (
-                        <div key={n.id} className="flex items-baseline gap-2 flex-wrap">
-                          <span className="font-mono text-[10px] uppercase text-grey-light w-16">
-                            {n.kind === 'CHECKLIST' ? 'LIST' : n.kind}
-                          </span>
-                          <span className="font-mono text-xs text-white">{n.title}</span>
-                          <span className="font-mono text-[10px] text-grey-light">{n.points}P</span>
-                          {st === 'LOCKED' && blocked.length > 0 && (
-                            <span className="font-mono text-[10px] uppercase text-grey-light">
-                              NEEDS {blocked.map((b) => displayNodes.find((x) => x.id === b)?.title ?? '?').join(', ')}
+                        <div key={n.id} className="py-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-[10px] uppercase text-grey-light w-16">
+                              {n.kind === 'CHECKLIST' ? 'LIST' : n.kind}
                             </span>
+                            <span className="font-mono text-xs text-white min-w-0 flex-1">{n.title}</span>
+                            <span className="font-mono text-[10px] text-grey-light">{n.points}P</span>
+                            {st === 'LOCKED' && blocked.length > 0 && (
+                              <span className="font-mono text-[10px] uppercase text-grey-light">
+                                NEEDS {blocked.map((b) => displayNodes.find((x) => x.id === b)?.title ?? '?').join(', ')}
+                              </span>
+                            )}
+                            <div className="flex items-center gap-0.5">
+                              <TreeButton label="↑" title="MOVE UP IN STAGE" disabled={idx === 0} onClick={() => moveWithinStage(n.id, -1)} />
+                              <TreeButton label="↓" title="MOVE DOWN IN STAGE" disabled={idx === arr.length - 1} onClick={() => moveWithinStage(n.id, 1)} />
+                              <TreeButton label="S−" title="STAGE UP" disabled={n.stage === 0} onClick={() => moveStage(n.id, -1)} />
+                              <TreeButton label="S+" title="STAGE DOWN" onClick={() => moveStage(n.id, 1)} />
+                              <TreeButton label="EDIT" title="EDIT NODE" onClick={() => { setEditingId(editingId === n.id ? null : n.id) }} />
+                              <TreeButton label="✕" title="DELETE NODE" onClick={() => deleteNode(n.id)} />
+                            </div>
+                          </div>
+                          {editingId === n.id && (
+                            <InlineNodeEditor
+                              node={nodes.find((x) => x.id === n.id) ?? n}
+                              onSave={(patch) => { patchNode(n.id, patch); setEditingId(null) }}
+                              onCancel={() => setEditingId(null)}
+                            />
                           )}
                         </div>
                       )
@@ -439,8 +481,7 @@ export function PathwaysClient({
 // Module-level so typing in it doesn't lose focus when the parent re-renders.
 function AddNodeRow({
   targets, onAdd,
-}: { targets: LinkTargets; onAdd: (kind: BoardKind, targetId: string) => void }) {
-  const [kind, setKind] = useState<BoardKind>('GUIDE')
+}: { targets: LinkTargets; onAdd: (kind: BoardKind, targetId: string) => void }) {  const [kind, setKind] = useState<BoardKind>('GUIDE')
   const [targetId, setTargetId] = useState('')
 
   const opts =
@@ -476,6 +517,73 @@ function AddNodeRow({
       >
         + ADD NODE
       </button>
+    </div>
+  )
+}
+
+function TreeButton({ label, title, onClick, disabled }: { label: string; title: string; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
+      className="font-mono text-[9px] uppercase border border-grey-mid px-1 py-0.5 text-grey-light hover:text-white hover:border-white transition-colors disabled:opacity-30 disabled:hover:text-grey-light disabled:hover:border-grey-mid"
+    >
+      {label}
+    </button>
+  )
+}
+
+// Inline editor for a tree row — the tree has no side panel, so points/stage
+// (and the milestone label) are edited right on the row.
+function InlineNodeEditor({
+  node,
+  onSave,
+  onCancel,
+}: {
+  node: BoardNode
+  onSave: (patch: Partial<BoardNode>) => void
+  onCancel: () => void
+}) {
+  const [points, setPoints] = useState(String(node.points))
+  const [stage, setStage] = useState(String(node.stage))
+  const [label, setLabel] = useState(node.title)
+
+  return (
+    <div className="flex items-end gap-2 flex-wrap py-1 pl-0">
+      <Input
+        label="Points"
+        type="number"
+        value={points}
+        onChange={(e) => setPoints(e.target.value)}
+        className="w-20"
+      />
+      <Input
+        label="Stage"
+        type="number"
+        value={stage}
+        onChange={(e) => setStage(e.target.value)}
+        className="w-20"
+      />
+      {node.kind === 'MILESTONE' && (
+        <Input label="Label" value={label} onChange={(e) => setLabel(e.target.value)} className="w-48" />
+      )}
+      <div className="flex gap-1.5">
+        <Button
+          size="sm"
+          onClick={() =>
+            onSave({
+              points: Number(points) || 0,
+              stage: Math.max(0, Number(stage) || 0),
+              ...(node.kind === 'MILESTONE' ? { title: label.trim() || 'MILESTONE' } : {}),
+            })
+          }
+        >
+          OK
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel}>CANCEL</Button>
+      </div>
     </div>
   )
 }

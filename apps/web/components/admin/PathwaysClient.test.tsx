@@ -23,15 +23,20 @@ const PATHWAYS = [
 const DETAIL = {
   id: 'pw1',
   nodes: [
-    { id: 'n1', kind: 'GUIDE', targetId: 'g1', label: null, x: 0, y: 0, stage: 0, points: 10, sortOrder: 0 },
-    { id: 'n2', kind: 'GUIDE', targetId: 'g2', label: null, x: 0, y: 0, stage: 1, points: 20, sortOrder: 1 },
+    { id: 'n1', kind: 'GUIDE', targetId: 'g1', label: null, x: 60, y: 60, stage: 0, points: 10, sortOrder: 0 },
+    { id: 'n2', kind: 'GUIDE', targetId: 'g2', label: null, x: 60, y: 160, stage: 0, points: 20, sortOrder: 1 },
+    { id: 'n3', kind: 'GUIDE', targetId: 'g3', label: null, x: 320, y: 60, stage: 1, points: 30, sortOrder: 2 },
   ],
-  edges: [{ fromNodeId: 'n1', toNodeId: 'n2' }],
+  edges: [{ fromNodeId: 'n1', toNodeId: 'n3' }],
 }
 
 const TARGETS = {
   ITEM: [], CHECKLIST: [], SECTION: [], RECIPE: [], TASK: [],
-  GUIDE: [{ value: 'g1', label: 'ESPRESSO 101' }, { value: 'g2', label: 'LATTE ART' }],
+  GUIDE: [
+    { value: 'g1', label: 'ESPRESSO 101' },
+    { value: 'g2', label: 'LATTE ART' },
+    { value: 'g3', label: 'MACCHIATO MASTERY' },
+  ],
 }
 
 function mockFetch() {
@@ -113,5 +118,74 @@ describe('PathwaysClient', () => {
     fireEvent.click(screen.getByText('NEW BARTENDER'))
     const save = await screen.findByText('SAVE')
     expect((save.closest('button') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  // ── Tree quick actions ──────────────────────────────────────────────
+
+  async function openTree() {
+    render(<PathwaysClient role="ADMIN" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('NEW BARTENDER')).toBeTruthy())
+    fireEvent.click(screen.getByText('NEW BARTENDER'))
+    fireEvent.click(await screen.findByText('TREE'))
+    await waitFor(() => expect(screen.getByText('STAGE 1')).toBeTruthy())
+  }
+
+  // The tree row is the closest block containing the title text (titles also
+  // appear as <option>s in the add-node picker, so skip those).
+  const rowOf = (title: string) =>
+    screen.getAllByText(title).filter((el) => el.tagName !== 'OPTION')[0].closest('div.py-1') as HTMLElement
+  const btn = (row: HTMLElement, title: string) => row.querySelector(`[title="${title}"]`) as HTMLButtonElement
+  const stageTitles = (stageHeader: string) => {
+    const list = screen.getByText(stageHeader).nextSibling as HTMLElement
+    return [...list.querySelectorAll('.text-white.min-w-0')].map((el) => el.textContent)
+  }
+
+  it('reorders a node up within its stage on the tree', async () => {
+    await openTree()
+    // stage 0 order starts ESPRESSO 101 → LATTE ART
+    expect(stageTitles('STAGE 1')).toEqual(['ESPRESSO 101', 'LATTE ART'])
+    fireEvent.click(btn(rowOf('LATTE ART'), 'MOVE UP IN STAGE'))
+    expect(stageTitles('STAGE 1')).toEqual(['LATTE ART', 'ESPRESSO 101'])
+    expect(screen.getByText('UNSAVED')).toBeTruthy()
+  })
+
+  it('reorders a node down within its stage on the tree', async () => {
+    await openTree()
+    fireEvent.click(btn(rowOf('ESPRESSO 101'), 'MOVE DOWN IN STAGE'))
+    expect(stageTitles('STAGE 1')).toEqual(['LATTE ART', 'ESPRESSO 101'])
+  })
+
+  it('does not move the first node further up', async () => {
+    await openTree()
+    fireEvent.click(btn(rowOf('ESPRESSO 101'), 'MOVE UP IN STAGE'))
+    expect(stageTitles('STAGE 1')).toEqual(['ESPRESSO 101', 'LATTE ART'])
+  })
+
+  it('shifts a node between stages with S−/S+', async () => {
+    await openTree()
+    fireEvent.click(btn(rowOf('LATTE ART'), 'STAGE DOWN'))
+    expect(stageTitles('STAGE 2')).toEqual(['LATTE ART', 'MACCHIATO MASTERY'])
+    expect(stageTitles('STAGE 1')).toEqual(['ESPRESSO 101'])
+    fireEvent.click(btn(rowOf('LATTE ART'), 'STAGE UP'))
+    expect(stageTitles('STAGE 1')).toEqual(['ESPRESSO 101', 'LATTE ART'])
+  })
+
+  it('deletes a node and its links from the tree', async () => {
+    await openTree()
+    fireEvent.click(btn(rowOf('LATTE ART'), 'DELETE NODE'))
+    const inTree = (label: string) => screen.getAllByText(label).filter((el) => el.tagName !== 'OPTION')
+    expect(inTree('LATTE ART').length).toBe(0)
+    expect(stageTitles('STAGE 1')).toEqual(['ESPRESSO 101'])
+  })
+
+  it('edits points and stage inline on the tree', async () => {
+    await openTree()
+    fireEvent.click(btn(rowOf('ESPRESSO 101'), 'EDIT NODE'))
+    const row = rowOf('ESPRESSO 101')
+    const points = row.querySelectorAll('input[type="number"]')[0] as HTMLInputElement
+    fireEvent.change(points, { target: { value: '25' } })
+    fireEvent.click([...row.querySelectorAll('button')].find((b) => b.textContent === 'OK')!)
+    expect(screen.getByText('25P')).toBeTruthy()
+    expect(screen.queryByText('10P')).toBeNull()
   })
 })
