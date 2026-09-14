@@ -54,7 +54,7 @@ export function opStatusToWooStatus(opStatus: string): OrderStatus | null {
   return null
 }
 
-export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 'wooCategoryId' | 'imageUrl' | 'shortDescription' | 'isVariable' | 'variations' | 'wooProductId'>, now: Date = new Date(), opts: { status?: string } = {}) {
+export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 'wooCategoryId' | 'imageUrl' | 'shortDescription' | 'isVariable' | 'variations' | 'wooProductId'> & { wooImageId?: string | null }, now: Date = new Date(), opts: { status?: string } = {}) {
   const payload: Record<string, unknown> = {
     name: item.name,
     regular_price: String(item.price ?? 0),
@@ -90,6 +90,10 @@ export function buildProductPushPayload(item: Pick<MenuItem, 'name' | 'price' | 
       ? item.imageUrl
       : `${process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? ''}${item.imageUrl}`
     payload.images = [{ src }]
+  } else if (item.wooImageId && item.wooProductId) {
+    // We pushed the image before and it has since been removed locally —
+    // clear it from the store product (reconcile then deletes the media).
+    payload.images = []
   }
   if (item.shortDescription) {
     payload.short_description = item.shortDescription
@@ -235,6 +239,7 @@ export async function pushProduct(menuItemId: string, opts: { status?: string } 
           message: `PUSHED ${item.name} TO WOOCOMMERCE (PRODUCT #${item.wooProductId})`,
           detail: { payload },
         })
+        await reconcileProductImage(item, integration, res.body)
         await pushVariationPrices(item, integration)
         return
       }
@@ -293,6 +298,7 @@ export async function pushProduct(menuItemId: string, opts: { status?: string } 
         : `PUSHED ${item.name} — CREATED ON WOOCOMMERCE`,
       detail: { payload },
     })
+    await reconcileProductImage(item, integration, postRes.body)
     await pushVariationPrices(item, integration)
   } catch (e) {
     console.error('pushProduct failed (non-blocking):', e)
@@ -301,6 +307,100 @@ export async function pushProduct(menuItemId: string, opts: { status?: string } 
       entity: 'PRODUCT',
       status: 'ERROR',
       message: `PUSH FAILED — ${String(e)}`,
+    })
+  }
+}
+
+// ── Product image ↔ WordPress media tracking ────────────────────────────
+// When a product image is pushed, WooCommerce copies it into its own media
+// library. We record the resulting attachment id (MenuItem.wooImageId) so
+// the app can remove that WordPress copy when the local image changes or the
+// local file is deleted — while keeping the local file itself (it may still
+// be referenced elsewhere or simply kept as history).
+
+type StoredMenuItem = NonNullable<Awaited<ReturnType<typeof prisma.menuItem.findFirst>>>
+
+function imageIdFromProductBody(body: string): string | null {
+  try {
+    const product = JSON.parse(body)
+    const images = Array.isArray(product?.images) ? product.images : []
+    if (images.length === 0) return null
+    return images[0]?.id != null ? String(images[0].id) : null
+  } catch {
+    return null
+  }
+}
+
+/** DELETE /wp-json/wp/v2/media/{id}?force=true via the Woo keys (they are
+ *  WordPress REST users — the same auth chain as the wc calls). */
+async function wooMediaDelete(integration: WooIntegration, mediaId: string): Promise<boolean> {
+  const baseUrl = integration.storeUrl.replace(/\/+$/, '')
+  const url = `${baseUrl}/wp-json/wp/v2/media/${encodeURIComponent(mediaId)}?force=true`
+  let response = await fetch(url, {
+    method: 'DELETE',
+    headers: { Authorization: wooAuthHeader(integration.consumerKey, integration.consumerSecret) },
+  })
+  if (response.status === 401) {
+    const sep = url.includes('?') ? '&' : '?'
+    response = await fetch(
+      `${url}${sep}consumer_key=${encodeURIComponent(integration.consumerKey)}&consumer_secret=${encodeURIComponent(integration.consumerSecret)}`,
+      { method: 'DELETE' },
+    )
+  }
+  if (response.status === 401) {
+    response = await fetch(
+      oauthSignedUrl('DELETE', url, integration.consumerKey, integration.consumerSecret),
+      { method: 'DELETE' },
+    )
+  }
+  return response.ok || response.status === 404
+}
+
+/**
+ * After a successful product push, keep `wooImageId` in step with the store:
+ * store the new attachment id, and when the old pushed image is gone from the
+ * product (replaced, or cleared because the local image was removed) delete
+ * the old WordPress media attachment. Never throws.
+ */
+async function reconcileProductImage(item: StoredMenuItem, integration: WooIntegration, productBody: string) {
+  try {
+    const newId = imageIdFromProductBody(productBody)
+    const prevId = item.wooImageId ?? null
+
+    if (newId) {
+      if (newId !== prevId) {
+        await prisma.menuItem.update({
+          where: { id: item.id },
+          data: { wooImageId: newId },
+        })
+        if (prevId) await deleteWooMedia(item, integration, prevId)
+      }
+      return
+    }
+
+    // No images on the store product now.
+    if (prevId && !item.imageUrl) {
+      await prisma.menuItem.update({
+        where: { id: item.id },
+        data: { wooImageId: null },
+      })
+      await deleteWooMedia(item, integration, prevId)
+    }
+  } catch (e) {
+    console.error('reconcileProductImage failed (non-blocking):', e)
+  }
+}
+
+async function deleteWooMedia(item: StoredMenuItem, integration: WooIntegration, mediaId: string) {
+  const ok = await wooMediaDelete(integration, mediaId)
+  if (!ok) {
+    await logSync({
+      venueId: item.venueId,
+      direction: 'PUSH',
+      entity: 'PRODUCT',
+      status: 'ERROR',
+      externalId: mediaId,
+      message: `OLD PRODUCT IMAGE #${mediaId} COULD NOT BE REMOVED FROM WORDPRESS`,
     })
   }
 }
@@ -326,6 +426,196 @@ async function pushVariationPrices(item: NonNullable<Awaited<ReturnType<typeof p
         message: `VARIATION #${v.wooVariationId} (${v.name ?? ''}) PUSH FAILED — HTTP ${res.status}`,
       })
     }
+  }
+}
+
+async function wooGet(
+  integration: WooIntegration,
+  path: string,
+): Promise<{ ok: boolean; status: number; body: string }> {
+  const baseUrl = integration.storeUrl.replace(/\/+$/, '')
+  const url = `${baseUrl}/wp-json/wc/v3/${path}`
+
+  let response = await fetch(url, {
+    method: 'GET',
+    headers: { Authorization: wooAuthHeader(integration.consumerKey, integration.consumerSecret) },
+  })
+  if (response.status === 401) {
+    const sep = url.includes('?') ? '&' : '?'
+    response = await fetch(
+      `${url}${sep}consumer_key=${encodeURIComponent(integration.consumerKey)}&consumer_secret=${encodeURIComponent(integration.consumerSecret)}`,
+    )
+  }
+  if (response.status === 401) {
+    response = await fetch(
+      oauthSignedUrl('GET', url, integration.consumerKey, integration.consumerSecret),
+    )
+  }
+  const responseBody = await response.text()
+  return { ok: response.ok, status: response.status, body: responseBody }
+}
+
+async function wooDelete(
+  integration: WooIntegration,
+  path: string,
+): Promise<{ ok: boolean; status: number; body: string }> {
+  const baseUrl = integration.storeUrl.replace(/\/+$/, '')
+  const url = `${baseUrl}/wp-json/wc/v3/${path}`
+
+  let response = await fetch(url, {
+    method: 'DELETE',
+    headers: { Authorization: wooAuthHeader(integration.consumerKey, integration.consumerSecret) },
+  })
+  if (response.status === 401) {
+    const sep = url.includes('?') ? '&' : '?'
+    response = await fetch(
+      `${url}${sep}consumer_key=${encodeURIComponent(integration.consumerKey)}&consumer_secret=${encodeURIComponent(integration.consumerSecret)}`,
+      { method: 'DELETE' },
+    )
+  }
+  if (response.status === 401) {
+    response = await fetch(
+      oauthSignedUrl('DELETE', url, integration.consumerKey, integration.consumerSecret),
+      { method: 'DELETE' },
+    )
+  }
+  const responseBody = await response.text()
+  return { ok: response.ok, status: response.status, body: responseBody }
+}
+
+const VARIATION_ATTRIBUTE_NAME = 'Size'
+
+interface StoreVariation {
+  id: string
+  option: string | null
+  price: string | null
+}
+
+/**
+ * Reconcile a variable menu item's store variations against a set of desired
+ * denominations. Creates missing variations, updates prices/option text of
+ * changed ones, and deletes previously-app-managed variations that were
+ * removed. Persists the denomination rows (with their store variation ids)
+ * back onto the item's `variations` JSON.
+ *
+ * Returns { ok, error? } — failures are also logged to the SyncLog.
+ */
+export async function syncProductVariations(
+  menuItemId: string,
+  denominations: number[],
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    interface DenomRow { name: string; price: number; wooVariationId?: string }
+    const rows: DenomRow[] = [...new Set(denominations)]
+      .filter((d) => Number.isFinite(d) && d > 0)
+      .sort((a, b) => a - b)
+      .map((d) => ({ name: `$${d}`, price: d }))
+    if (rows.length === 0) return { ok: false, error: 'At least one denomination is required' }
+
+    let item = await prisma.menuItem.findFirst({ where: { id: menuItemId, deletedAt: null } })
+    if (!item) return { ok: false, error: 'Product not found' }
+
+    const integration = await getIntegration(item.venueId)
+    if (!integration) return { ok: false, error: 'NO ACTIVE WOOCOMMERCE INTEGRATION FOR VENUE' }
+
+    // Make sure the variable product exists on the store first.
+    if (!item.wooProductId) {
+      await pushProduct(item.id)
+      item = (await prisma.menuItem.findFirst({ where: { id: menuItemId, deletedAt: null } })) ?? item
+    }
+    if (!item.wooProductId) return { ok: false, error: 'Could not create the product on the store' }
+
+    const previous = (item.variations as unknown as { name: string; price: number; wooVariationId?: string }[]) ?? []
+    const optionNames = rows.map((r) => r.name)
+
+    // Attribute options must stay in step so variation creates match the
+    // product-level Size attribute (options: [] on a non-variable reset).
+    const attrRes = await wooPut(integration, `products/${item.wooProductId}`, {
+      type: 'variable',
+      attributes: [{ name: VARIATION_ATTRIBUTE_NAME, options: optionNames, variation: true, visible: true }],
+      meta_data: selfUpdateMeta(),
+    })
+    if (!attrRes.ok) return { ok: false, error: `Could not update the product attributes (HTTP ${attrRes.status})` }
+
+    const listRes = await wooGet(integration, `products/${item.wooProductId}/variations?per_page=100`)
+    if (!listRes.ok) return { ok: false, error: `Could not read the store variations (HTTP ${listRes.status})` }
+
+    let storeVariations: StoreVariation[] = []
+    try {
+      const parsed = JSON.parse(listRes.body)
+      storeVariations = (Array.isArray(parsed) ? parsed : []).map((v: any) => ({
+        id: String(v.id),
+        option: Array.isArray(v.attributes)
+          ? String(v.attributes.find((a: any) => a.option != null)?.option ?? '')
+          : null,
+        price: v.price != null ? String(v.price) : null,
+      }))
+    } catch {
+      return { ok: false, error: 'Could not parse the store variation list' }
+    }
+
+    const previousIds = new Set(previous.map((p) => p.wooVariationId).filter(Boolean) as string[])
+    // Store variations the app manages (have a persisted store id that still exists).
+    const byStoreId = new Map(storeVariations.map((s) => [s.id, s]))
+    const owned = previous
+      .filter((p) => p.wooVariationId && byStoreId.has(String(p.wooVariationId)))
+      .map((p) => ({ ...p, storeId: String(p.wooVariationId) }))
+    const used = new Set<string>()
+    const keptStoreIds = new Set<string>()
+    let firstError: string | null = null
+
+    for (const row of rows) {
+      // Match by name first, then fall back to any still-unused managed
+      // variation (keeps price updates aligned when a denomination was added
+      // in the middle of the list).
+      const managed =
+        owned.find((p) => p.name === row.name && !used.has(p.storeId)) ??
+        owned.find((p) => !used.has(p.storeId))
+      const match = managed ? byStoreId.get(managed.storeId) : undefined
+      const payload = {
+        regular_price: String(row.price),
+        attributes: [{ name: VARIATION_ATTRIBUTE_NAME, option: row.name }],
+        meta_data: selfUpdateMeta(),
+      }
+      let res: { ok: boolean; status: number; body: string }
+      if (match) {
+        keptStoreIds.add(match.id)
+        if (managed) used.add(managed.storeId)
+        res = await wooPut(integration, `products/${item.wooProductId}/variations/${match.id}`, payload)
+      } else {
+        res = await wooPost(integration, `products/${item.wooProductId}/variations`, payload)
+        if (res.ok) {
+          try {
+            const created = JSON.parse(res.body)
+            if (created?.id) row.wooVariationId = String(created.id)
+          } catch { /* best-effort */ }
+        }
+      }
+      if (!res.ok && !firstError) firstError = `Variation ${row.name} failed (HTTP ${res.status})`
+    }
+
+    // Remove store variations we previously managed that are no longer wanted.
+    for (const sv of storeVariations) {
+      if (keptStoreIds.has(sv.id)) continue
+      if (!previousIds.has(sv.id)) continue // never managed by the app — leave it
+      const del = await wooDelete(integration, `products/${item.wooProductId}/variations/${sv.id}?force=true`)
+      if (!del.ok && !firstError) firstError = `Could not remove variation ${sv.id} (HTTP ${del.status})`
+    }
+
+    const persisted = rows.map((r) => ({
+      name: r.name,
+      price: r.price,
+      ...(r.wooVariationId ? { wooVariationId: r.wooVariationId } : {}),
+    }))
+    await prisma.menuItem.update({
+      where: { id: item.id },
+      data: { isVariable: true, variations: JSON.parse(JSON.stringify(persisted)) },
+    })
+
+    return { ok: firstError === null, ...(firstError ? { error: firstError } : {}) }
+  } catch (e) {
+    console.error('syncProductVariations failed (non-blocking):', e)
+    return { ok: false, error: String(e) }
   }
 }
 
@@ -547,5 +837,53 @@ export async function pushOrderStatus(orderId: string): Promise<void> {
       status: 'ERROR',
       message: `ORDER STATUS PUSH FAILED — ${String(e)}`,
     })
+  }
+}
+
+/**
+ * Confirm cash payment on the store: move the order to `completed` so it
+ * leaves the pending list. (WooCommerce's REST API ignores `date_paid`, so
+ * the app records the paid state itself — see the confirm route.)
+ * Returns { ok, error? } and logs to SyncLog.
+ */
+export async function pushOrderPaid(
+  venueId: string,
+  wooOrderId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const integration = await getIntegration(venueId)
+    if (!integration) {
+      return { ok: false, error: 'NO ACTIVE WOOCOMMERCE INTEGRATION FOR VENUE' }
+    }
+    const payload = {
+      status: 'completed',
+      meta_data: selfUpdateMeta(),
+    }
+    const res = await wooPut(integration, `orders/${wooOrderId}`, payload)
+    if (!res.ok) {
+      await logSync({
+        venueId,
+        direction: 'PUSH',
+        entity: 'ORDER',
+        status: 'ERROR',
+        externalId: wooOrderId,
+        message: `PAYMENT CONFIRMATION PUSH FAILED FOR ORDER #${wooOrderId} �?" HTTP ${res.status}`,
+        detail: { payload, response: res.body.slice(0, 1000) },
+      })
+      return { ok: false, error: `STORE REJECTED THE UPDATE (HTTP ${res.status})` }
+    }
+    await logSync({
+      venueId,
+      direction: 'PUSH',
+      entity: 'ORDER',
+      status: 'SUCCESS',
+      externalId: wooOrderId,
+      message: `ORDER #${wooOrderId} MARKED PAID ON THE STORE`,
+      detail: { payload },
+    })
+    return { ok: true }
+  } catch (e) {
+    console.error('pushOrderPaid failed (non-blocking):', e)
+    return { ok: false, error: String(e) }
   }
 }

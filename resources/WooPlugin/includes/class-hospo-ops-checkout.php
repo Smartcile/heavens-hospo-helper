@@ -22,6 +22,13 @@ class Hospo_Ops_Checkout {
 		// are never required.
 		add_filter( 'woocommerce_default_address_fields', array( __CLASS__, 'optional_address_fields' ) );
 
+		// Cash on delivery must be CONFIRMED before it counts: WooCommerce's
+		// default marks COD orders "processing" the moment they're placed
+		// (cash is collected on delivery), which surfaced in the app as an
+		// instant confirmation. Start COD orders at "pending" instead — the
+		// gift card PDF is only issued once the order is actually paid.
+		add_filter( 'woocommerce_cod_process_payment_order_status', array( __CLASS__, 'cod_order_status' ) );
+
 		// Classic checkout: drop the street address fields from billing
 		// entirely — the venue only ever needs name, email and phone.
 		add_filter( 'woocommerce_checkout_fields', array( __CLASS__, 'classic_billing_fields' ) );
@@ -34,6 +41,16 @@ class Hospo_Ops_Checkout {
 		// Admin: a column on the orders list.
 		add_filter( 'manage_edit-shop_order_columns', array( __CLASS__, 'order_column' ) );
 		add_action( 'manage_shop_order_posts_custom_column', array( __CLASS__, 'order_column_content' ), 10, 2 );
+	}
+
+	/**
+	 * COD orders start at "pending" so cash is confirmed before the order is
+	 * treated as paid (default WooCommerce behaviour is "processing").
+	 *
+	 * @return string
+	 */
+	public static function cod_order_status() {
+		return 'pending';
 	}
 
 	/**
@@ -103,6 +120,11 @@ class Hospo_Ops_Checkout {
 	 * The dining details block. `$relocate` marks it for the frontend script
 	 * to move inside the checkout form (Divi module placement) — the fields
 	 * must live in the form to submit with the order.
+	 *
+	 * The section only appears when the cart actually needs it:
+	 *   - a product from a category linked to an active service (menu mode), or
+	 *   - a gift card (the gift message field must survive gift-only carts).
+	 * Everything else (plain pickup/delivery carts) sees no booking widget.
 	 */
 	public static function render_section( $relocate = false ) {
 		// The auto-render hook only fires on the real checkout, so it can keep
@@ -118,12 +140,37 @@ class Hospo_Ops_Checkout {
 		}
 
 		$config = self::config();
-		if ( is_wp_error( $config ) || empty( $config['services'] ) ) {
-			return ''; // Not configured, or no active services — nothing to show.
+		if ( is_wp_error( $config ) ) {
+			return '';
 		}
 
-		$menu_ids  = self::cart_menu_ids( $config );
+		$menu_ids  = self::cart_service_menu_ids( $config );
 		$gift_card = self::cart_has_gift_card( $config );
+
+		if ( empty( $menu_ids ) && ! $gift_card ) {
+			return ''; // No service-menu product and no gift card — hide the widget.
+		}
+
+		ob_start();
+
+		// Gift-card-only cart: just the message field, no dining details and
+		// no `_hospo_service_*` inputs (so checkout validation skips them).
+		if ( empty( $menu_ids ) && $gift_card ) {
+			?>
+			<div class="hospo-ops-checkout" data-hospo-checkout data-hospo-gift-only<?php echo $relocate ? ' data-hospo-relocate' : ''; ?>>
+				<div class="hospo-ops-section">
+					<label class="hospo-ops-label" for="hospo_gift_card_message">Gift card message (optional)</label>
+					<textarea id="hospo_gift_card_message" name="_hospo_gift_card_message" rows="2" maxlength="500" placeholder="A message for the gift card recipient..."></textarea>
+					<p class="hospo-ops-hint">Printed on the gift card PDF that comes with your order email.</p>
+				</div>
+			</div>
+			<?php
+			return ob_get_clean();
+		}
+
+		if ( empty( $config['services'] ) ) {
+			return ''; // Not configured, or no active services — nothing to show.
+		}
 
 		ob_start();
 		?>
@@ -170,9 +217,16 @@ class Hospo_Ops_Checkout {
 	/**
 	 * Menu mode: the cart contains products from one of the venue's service
 	 * menus (matched by WooCommerce category id). Returns the ids of the
-	 * services whose menu is in the cart — empty means normal mode.
+	 * services whose menu is in the cart — empty means the dining widget
+	 * stays hidden (the checkout only shows it for service-menu carts).
 	 */
-	private static function cart_menu_ids( $config ) {
+	public static function cart_service_menu_ids( $config = null ) {
+		if ( null === $config ) {
+			$config = self::config();
+			if ( is_wp_error( $config ) ) {
+				return array();
+			}
+		}
 		if ( ! function_exists( 'WC' ) || ! WC()->cart || WC()->cart->is_empty() ) {
 			return array();
 		}
@@ -283,14 +337,22 @@ class Hospo_Ops_Checkout {
 
 	/**
 	 * Editable dining details on the admin order edit screen — same service
-	 * boxes + date buttons + time pills as the frontend, no calendar. Always
-	 * shown so undated orders can be given a service date by hand.
+	 * boxes + date buttons + time pills as the frontend, no calendar.
+	 *
+	 * Only orders that actually contain food from a service-linked category
+	 * get the panel: a gift-card-only or takeaway order has nothing to book,
+	 * so no service/date/time controls appear for it.
 	 */
 	public static function admin_order_details( $order ) {
 		if ( ! $order || ! method_exists( $order, 'get_meta' ) ) {
 			return;
 		}
-		$config  = Hospo_Ops_Booking_Widget::cached_config();
+		$config = Hospo_Ops_Booking_Widget::cached_config();
+
+		if ( ! self::order_has_service_menu_item( $order, $config ) ) {
+			return; // No food from a service category on this order.
+		}
+
 		$date    = $order->get_meta( '_hospo_service_date' );
 		$time    = $order->get_meta( '_hospo_service_time' );
 		$party   = $order->get_meta( '_hospo_party_size' );
@@ -476,6 +538,48 @@ class Hospo_Ops_Checkout {
 			</address>
 		</section>
 		<?php
+	}
+
+	/**
+	 * True when the order contains a line whose product (or its parent, for
+	 * variable products) sits in a category linked to an active service —
+	 * i.e. this is a food order that can carry a booking.
+	 */
+	private static function order_has_service_menu_item( $order, $config ) {
+		if ( ! $order || ! method_exists( $order, 'get_items' ) || empty( $config['services'] ) ) {
+			return false;
+		}
+		$service_cats = array();
+		foreach ( $config['services'] as $service ) {
+			if ( ! empty( $service['wooCategoryId'] ) ) {
+				$service_cats[] = (string) $service['wooCategoryId'];
+			}
+		}
+		if ( empty( $service_cats ) ) {
+			return false;
+		}
+
+		foreach ( $order->get_items() as $item ) {
+			if ( ! method_exists( $item, 'get_product' ) ) {
+				continue;
+			}
+			$product = $item->get_product();
+			if ( ! $product ) {
+				continue;
+			}
+			// Variations carry no categories of their own — resolve the parent.
+			$parent_id = method_exists( $product, 'get_parent_id' ) ? $product->get_parent_id() : 0;
+			$lookup    = $parent_id ? wc_get_product( $parent_id ) : $product;
+			if ( ! $lookup ) {
+				$lookup = $product;
+			}
+			foreach ( $lookup->get_category_ids() as $cid ) {
+				if ( in_array( (string) $cid, $service_cats, true ) ) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	// ── Admin orders list column ─────────────────────────────────────────

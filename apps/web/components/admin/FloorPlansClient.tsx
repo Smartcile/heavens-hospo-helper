@@ -91,7 +91,7 @@ export function FloorPlansClient({ role, venueId: sessionVenueId }: { role: stri
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="font-mono text-xl font-bold uppercase tracking-widest">FLOOR PLAN</h1>

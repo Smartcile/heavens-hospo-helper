@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { pushToast } from '@/components/ui/Toast'
 import { DateNav } from '@/components/admin/DateNav'
@@ -8,18 +9,15 @@ import { ServiceView, KitchenView, FohView, ProductionView, AllOrdersView } from
 import { OrderDetailDrawer } from '@/components/admin/OrderDetailDrawer'
 import { NewOrderModal } from '@/components/admin/NewOrderModal'
 import { applyFilters, summarise, type OrderView, type OrderFilters } from '@/lib/order-views'
+import { hubUrl } from '@/lib/hub-tabs'
 import { getActiveVenueId } from '@/lib/active-venue'
 import type { DateRange } from '@/lib/date-nav'
 
 type ViewType = 'SERVICE' | 'KITCHEN' | 'FOH' | 'PRODUCTION' | 'ALL'
 
-const VIEWS: { key: ViewType; label: string; hint: string }[] = [
-  { key: 'ALL', label: 'ALL', hint: 'EVERY SYNCED ORDER — DEBUG' },
-  { key: 'SERVICE', label: 'SERVICE', hint: 'BY TIME SLOT' },
-  { key: 'KITCHEN', label: 'KITCHEN', hint: 'PREP TOTALS + ALLERGENS' },
-  { key: 'FOH', label: 'FOH', hint: 'BY TABLE' },
-  { key: 'PRODUCTION', label: 'PRODUCTION', hint: 'PICK LIST' },
-]
+// Hint tooltips for these views live in OPS_SUB_TABS.orders (lib/hub-tabs.ts)
+// so the Ops Hub top bar can show them.
+const VIEW_KEYS: ViewType[] = ['ALL', 'SERVICE', 'KITCHEN', 'FOH', 'PRODUCTION']
 
 const OP_STATUSES = [
   'NEW', 'CONFIRMED', 'IN_PREP', 'READY', 'ARRIVED',
@@ -39,10 +37,10 @@ function today(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export function OrdersClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
+export function OrdersClient({ role, sessionVenueId, defaultVenueId, sub }: { role: string; sessionVenueId: string; defaultVenueId?: string | null; sub?: string }) {
+  const router = useRouter()
   const [date, setDate] = useState(today)
   const [dateRange, setDateRange] = useState<DateRange | null>(null)
-  const [view, setView] = useState<ViewType>('SERVICE')
   const [orders, setOrders] = useState<OrderView[]>([])
   const [categoryPairs, setCategoryPairs] = useState<[string, string[]][]>([])
   const [undatedCount, setUndatedCount] = useState(0)
@@ -55,6 +53,10 @@ export function OrdersClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [openOrderId, setOpenOrderId] = useState<string | null>(null)
   const [showNew, setShowNew] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
+
+  // ALL / SERVICE / KITCHEN / FOH / PRODUCTION is URL-driven (`sub` on
+  // /admin/ops) — the Ops Hub top bar owns the switcher.
+  const view = (VIEW_KEYS.find((k) => k.toLowerCase() === sub) ?? 'SERVICE')
 
   const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
 
@@ -107,9 +109,21 @@ export function OrdersClient({ role, sessionVenueId, defaultVenueId }: { role: s
 
   function applySaved(v: SavedView) {
     setActiveSavedId(v.id)
-    setView(v.viewType as ViewType)
     setFilters(v.config?.filters ?? {})
+    const next = (VIEW_KEYS.some((k) => k === v.viewType) ? v.viewType : 'SERVICE').toLowerCase()
+    // A saved view can preset a different renderer — switch the URL's sub so
+    // the top bar (and everything downstream) follows.
+    if (next !== sub) router.push(hubUrl('/admin/ops', 'orders', next), { scroll: false })
   }
+
+  // The view is URL-driven, but a saved-view chip stays highlighted only while
+  // its own renderer is the active one — picking a view from the top bar drops
+  // the highlight.
+  useEffect(() => {
+    if (!activeSavedId) return
+    const saved = savedViews.find((s) => s.id === activeSavedId)
+    if (saved && saved.viewType.toLowerCase() !== view.toLowerCase()) setActiveSavedId(null)
+  }, [view, activeSavedId, savedViews])
 
   async function saveCurrentView() {
     const name = prompt('NAME THIS VIEW')?.toUpperCase().trim()
@@ -177,7 +191,7 @@ export function OrdersClient({ role, sessionVenueId, defaultVenueId }: { role: s
             CHECK THE ORDER FIELD MAPPING IN SETTINGS → WOOCOMMERCE.
           </p>
           <button
-            onClick={() => setView('ALL')}
+            onClick={() => router.push(hubUrl('/admin/ops', 'orders', 'all'), { scroll: false })}
             className="font-mono text-[10px] uppercase border border-[#FACC15] text-[#FACC15] hover:bg-[#FACC15] hover:text-black px-2 py-1"
           >
             VIEW THEM
@@ -185,54 +199,41 @@ export function OrdersClient({ role, sessionVenueId, defaultVenueId }: { role: s
         </div>
       )}
 
-      {/* View switcher */}
-      <div className="flex items-center gap-0 border border-grey-mid flex-wrap">
-        {VIEWS.map((v) => (
-          <button
-            key={v.key}
-            onClick={() => { setView(v.key); setActiveSavedId(null) }}
-            title={v.hint}
-            className={`font-mono text-xs uppercase px-4 py-2 tracking-wider ${
-              view === v.key ? 'bg-white text-black' : 'text-grey-light hover:text-white'
-            }`}
-          >
-            {v.label}
-          </button>
-        ))}
+      {/* Filter + saved-view controls (the ALL/SERVICE/… renderer switcher
+          lives in the Ops Hub top bar) */}
+      <div className="flex items-center gap-2 flex-wrap">
         <button
           onClick={() => setShowFilters(!showFilters)}
-          className={`font-mono text-xs uppercase px-3 py-2 tracking-wider ml-auto ${
-            activeFilterCount > 0 ? 'text-[#60A5FA]' : 'text-grey-light hover:text-white'
+          className={`font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 tracking-wider ${
+            activeFilterCount > 0 ? 'text-[#60A5FA] border-[#60A5FA]' : 'text-grey-light hover:text-white hover:border-white'
           }`}
         >
           FILTERS{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
         </button>
+        {savedViews.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-mono text-[10px] uppercase text-grey-light">SAVED</span>
+            {savedViews.map((v) => (
+              <span key={v.id} className="inline-flex items-center">
+                <button
+                  onClick={() => applySaved(v)}
+                  className={`font-mono text-[10px] uppercase border px-2 py-1 ${
+                    activeSavedId === v.id ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:text-white'
+                  }`}
+                >
+                  {v.name}
+                </button>
+                <button
+                  onClick={() => deleteSaved(v.id)}
+                  className="font-mono text-[10px] text-grey-light hover:text-danger border border-l-0 border-grey-mid px-1 py-1"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
-
-      {/* Saved views */}
-      {savedViews.length > 0 && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-mono text-[10px] uppercase text-grey-light">SAVED</span>
-          {savedViews.map((v) => (
-            <span key={v.id} className="inline-flex items-center">
-              <button
-                onClick={() => applySaved(v)}
-                className={`font-mono text-[10px] uppercase border px-2 py-1 ${
-                  activeSavedId === v.id ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:text-white'
-                }`}
-              >
-                {v.name}
-              </button>
-              <button
-                onClick={() => deleteSaved(v.id)}
-                className="font-mono text-[10px] text-grey-light hover:text-danger border border-l-0 border-grey-mid px-1 py-1"
-              >
-                ✕
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
 
       {/* Filters */}
       {showFilters && (

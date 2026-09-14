@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
-import { getNextNumber } from '@/lib/gift-cards'
+import { premadeCards } from '@/lib/gift-cards'
+import { giftCardSortValue } from '@/lib/gift-card-numbers'
 import { guardAccess } from '@/lib/permissions'
 
 export async function GET(req: NextRequest) {
@@ -30,12 +31,20 @@ export async function GET(req: NextRequest) {
 
   const cards = await prisma.giftCard.findMany({
     where: where as any,
-    orderBy: { number: 'desc' },
     take: 200,
     include: { wooOrder: { select: { orderNumber: true } } },
   })
+  // Numeric order: newest year-series number first (e.g. 20260018 → 20260001).
+  cards.sort((a, b) => giftCardSortValue(b.number) - giftCardSortValue(a.number))
 
-  return NextResponse.json(cards)
+  // Flat `wooOrderNumber` for the list UI; the nested wooOrder stays for
+  // anything else that wants it.
+  const flat = cards.map((c) => ({
+    ...c,
+    wooOrderNumber: (c.wooOrder as { orderNumber: string | null } | null)?.orderNumber ?? null,
+  }))
+
+  return NextResponse.json(flat)
 }
 
 export async function POST(req: NextRequest) {
@@ -44,15 +53,17 @@ export async function POST(req: NextRequest) {
   const denied = await guardAccess(session, req, 'performance.giftcards.redeem')
   if (denied) return denied
 
-  const year = new Date().getFullYear()
-  const number = await getNextNumber(session.user.venueId, year)
+  // Premake ONE blank draft — the next number in the current year's series.
+  // Issuing never invents numbers; it consumes these premade drafts.
+  let numbers: string[]
+  try {
+    numbers = await premadeCards(session.user.venueId, 1)
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 400 })
+  }
 
-  const card = await prisma.giftCard.create({
-    data: {
-      venueId: session.user.venueId,
-      number,
-      amount: 0,
-    },
+  const card = await prisma.giftCard.findFirst({
+    where: { venueId: session.user.venueId, number: numbers[0], deletedAt: null },
   })
 
   return NextResponse.json(card, { status: 201 })

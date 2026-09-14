@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Drawer } from '@/components/ui/Drawer'
 import { Badge } from '@/components/ui/Badge'
 import { Combobox, ComboboxHandle } from '@/components/ui/Combobox'
+import { ImagePicker } from '@/components/ui/ImagePicker'
 import { getActiveVenueId } from '@/lib/active-venue'
 
 type LinkKind = 'ITEM' | 'TASK' | 'CHECKLIST' | 'GUIDE' | 'SECTION' | 'RECIPE'
@@ -181,8 +182,6 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [linkTargets, setLinkTargets] = useState<LinkTargets>(EMPTY_TARGETS)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null)
-  const fileRefs = useRef<(HTMLInputElement | null)[]>([])
   const linkedRef = useRef<ComboboxHandle>(null)
   const compRef = useRef<ComboboxHandle>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -309,20 +308,6 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
 
   function updateStep(i: number, patch: Partial<Step>) {
     setSteps((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)))
-  }
-
-  async function uploadImage(i: number, file: File) {
-    setUploadingIndex(i)
-    const form = new FormData()
-    form.append('file', file)
-    const r = await fetch('/api/admin/upload', { method: 'POST', body: form })
-    setUploadingIndex(null)
-    if (r.ok) {
-      const data = await r.json()
-      updateStep(i, { imageUrl: data.url })
-    } else {
-      setError('IMAGE UPLOAD FAILED')
-    }
   }
 
   async function handleSave() {
@@ -612,23 +597,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                 <Input value={s.heading} onChange={(e) => updateStep(i, { heading: e.target.value })} placeholder="STEP HEADING (OPTIONAL)" />
                 <Textarea value={s.content} onChange={(e) => updateStep(i, { content: e.target.value })} placeholder="What to do in this step..." />
                 <Input value={s.videoUrl} onChange={(e) => updateStep(i, { videoUrl: e.target.value })} placeholder="VIDEO LINK (YOUTUBE/VIMEO, OPTIONAL)" />
-                <div className="flex items-center gap-2">
-                  <input
-                    ref={(el) => { fileRefs.current[i] = el }}
-                    type="file" accept="image/*" className="hidden"
-                    onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(i, f) }}
-                  />
-                  <button type="button" onClick={() => fileRefs.current[i]?.click()} className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors">
-                    {uploadingIndex === i ? 'UPLOADING_' : s.imageUrl ? 'REPLACE PHOTO' : 'ADD PHOTO'}
-                  </button>
-                  {s.imageUrl && (
-                    <>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={s.imageUrl} alt="step" className="h-10 w-10 object-cover border border-grey-mid" />
-                      <button type="button" onClick={() => updateStep(i, { imageUrl: null })} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">REMOVE</button>
-                    </>
-                  )}
-                </div>
+                <ImagePicker value={s.imageUrl} onChange={(url) => updateStep(i, { imageUrl: url })} />
 
                 <div className="border-t border-grey-mid pt-2 space-y-2">
                   <label className="font-mono text-[10px] uppercase text-grey-light tracking-wider">

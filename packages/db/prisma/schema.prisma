@@ -2354,6 +2354,11 @@ model WooIntegration {
   metaFieldMap   Json?
   lastSyncAt     DateTime?
   isActive       Boolean   @default(true)
+  // Set by the WordPress plugin's CONNECT flow (credentials + webhook secret
+  // pushed from the store). The Settings UI shows the section read-only while
+  // this is true; a manual override clears it.
+  managedByPlugin Boolean  @default(false)
+  pairedAt        DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
@@ -2372,6 +2377,10 @@ model MenuItem {
   wooProductId     String?   @unique
   wooCategoryId    String?
   imageUrl         String?
+  // The WordPress media attachment id the pushed product image became. Lets
+  // the app remove that image from WordPress when the local image changes or
+  // the file is deleted (the local file itself is kept on replacement).
+  wooImageId       String?
   description      String?
   shortDescription String?
   isVariable       Boolean   @default(false)
@@ -2648,6 +2657,10 @@ model WooOrder {
   allergenNote    String? // order-level allergy note from the Woo checkout
   calendarEventId String?
   syncedAt        DateTime?
+  // Append-only log of what the APP did to this order: [{ at, type, note }] —
+  // status/payment changes, item edits, gift card issues and replacements.
+  // The store's own activity (syncs, webhooks, pushes) stays in SyncLog.
+  history         Json            @default("[]")
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   deletedAt       DateTime?
@@ -2709,17 +2722,27 @@ model GiftCard {
   status        GiftCardStatus @default(DRAFT)
   isInternal    Boolean        @default(false)
   wooOrderId    String?
+  // When this card is a replacement, the id of the card it voided (audit
+  // chain — a replacement is VOID old + ISSUE new with corrected details).
+  replacesId    String?
   issuedAt      DateTime?
   sentAt        DateTime?
   expiresAt     DateTime?
   pdfPath       String?
   notes         String?
+  // Append-only lifecycle log: [{ at, type, note }] — created/issued/sent/
+  // status changes/private notes/auto-issue from a WooCommerce order.
+  history       Json          @default("[]")
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   deletedAt     DateTime?
 
   venue    Venue     @relation(fields: [venueId], references: [id])
   wooOrder WooOrder? @relation(fields: [wooOrderId], references: [id])
+  // A replacement points at the card it replaced; the replaced card's
+  // `replacedBy` holds any cards issued in its place.
+  replaces   GiftCard?  @relation("GiftCardReplacement", fields: [replacesId], references: [id])
+  replacedBy GiftCard[] @relation("GiftCardReplacement")
 
   @@index([venueId])
   @@unique([venueId, number])
@@ -2733,7 +2756,10 @@ model GiftCardTemplate {
   id           String   @id @default(uuid())
   venueId      String
   name         String
-  filePath     String
+  // Absolute path of the template PDF on the UPLOAD_PATH storage root.
+  // Null when the file was removed — issuing then falls back to the built-in
+  // design until a replacement file is uploaded.
+  filePath     String?
   fieldMapping Json     @default("[]") // [{ pdfField, dataKey, format? }]
   isActive     Boolean  @default(false) // one active template per venue
   createdAt    DateTime @default(now())

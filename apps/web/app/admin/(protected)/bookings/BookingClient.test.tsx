@@ -40,16 +40,13 @@ describe('BookingClient deleted bookings', () => {
     vi.restoreAllMocks()
   })
 
-  it('lists deleted bookings under the DELETED tab and recovers one via the modal', async () => {
-    render(<BookingClient role="ADMIN" sessionVenueId="" />)
-
-    const tab = await screen.findByText('DELETED')
-    fireEvent.click(tab)
+  it('lists deleted bookings when the DELETED fine tab is active and recovers one via the modal', async () => {
+    render(<BookingClient role="ADMIN" sessionVenueId="" sub="deleted" />)
 
     expect(await screen.findByText('SUE LANE')).toBeTruthy()
-    expect(screen.getByText('19:30–21:00')).toBeTruthy()
+    expect(await screen.findByText('19:30–21:00')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'RECOVER' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'RECOVER' }))
 
     // The modal shows the old seating and the restore action.
     expect(screen.getByRole('button', { name: 'RECOVER BOOKING' })).toBeTruthy()
@@ -57,7 +54,7 @@ describe('BookingClient deleted bookings', () => {
     // "24" appears twice: the OLD TABLES readout and the reseat chip.
     expect(screen.getAllByText('24').length).toBeGreaterThan(0)
 
-    fireEvent.click(screen.getByRole('button', { name: 'RECOVER BOOKING' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'RECOVER BOOKING' }))
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -82,8 +79,7 @@ describe('BookingClient deleted bookings', () => {
       return res({})
     })
 
-    render(<BookingClient role="ADMIN" sessionVenueId="" />)
-    fireEvent.click(await screen.findByText('DELETED'))
+    render(<BookingClient role="ADMIN" sessionVenueId="" sub="deleted" />)
     expect(await screen.findByText('NO DELETED BOOKINGS')).toBeTruthy()
   })
 })

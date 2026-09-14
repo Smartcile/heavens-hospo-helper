@@ -86,7 +86,7 @@ function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export function BookingClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
+export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { role: string; sessionVenueId: string; defaultVenueId?: string | null; sub?: string }) {
   const [bookings, setBookings] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
   const [date, setDate] = useState(todayStr())
@@ -95,6 +95,10 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId }: { role: 
   const [setups, setSetups] = useState<SetupLite[]>([])
   const [services, setServices] = useState<ServiceLite[]>([])
   const [error, setError] = useState('')
+
+  // DIARY / TABLE / DELETED is URL-driven (`sub` on /admin/ops) — the Ops Hub
+  // top bar owns the switcher. Unknown values fall back to TABLE.
+  const viewMode = sub === 'diary' ? 'diary' : sub === 'deleted' ? 'deleted' : 'table'
 
   // Create / edit modal
   const [showModal, setShowModal] = useState(false)
@@ -116,7 +120,6 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId }: { role: 
   const [preOrderDraft, setPreOrderDraft] = useState<{ id: string; menuItemId: string; productName: string | null; qty: number; unitPrice: number | null }[]>([])
   const [savingPreOrder, setSavingPreOrder] = useState(false)
   const [availMsg, setAvailMsg] = useState('')
-  const [viewMode, setViewMode] = useState<'diary' | 'table' | 'deleted'>('table')
   const [tableRows, setTableRows] = useState<TableRow[]>([])
   const [tableBookings, setTableBookings] = useState<TableBooking[]>([])
   const [tableLoading, setTableLoading] = useState(false)
@@ -246,9 +249,9 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId }: { role: 
       // is part of the list.
       const preferred = getActiveVenueId(role, sessionVenueId, defaultVenueId) || vs[0]?.id || ''
       const effective = vs.some((v) => v.id === preferred) ? preferred : (vs[0]?.id ?? '')
+      // Setting the venue re-runs the load effect below — no direct calls here,
+      // or every endpoint is fetched twice on mount.
       setVenueId((prev) => (vs.some((v) => v.id === prev) ? prev : effective))
-      if (effective) loadBookings(date, effective)
-      if (effective) loadDeleted(effective)
     })
   }, [])
 
@@ -618,14 +621,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId }: { role: 
     <div className="space-y-4 pb-12">
       <div className="flex items-center justify-between">
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">BOOKINGS</h1>
-        <div className="flex items-center gap-2">
-          <div className="flex border border-grey-mid">
-            <button onClick={() => setViewMode('diary')} className={`font-mono text-[10px] uppercase px-3 py-1.5 ${viewMode === 'diary' ? 'bg-white text-black' : 'text-grey-light hover:text-white'}`}>DIARY</button>
-            <button onClick={() => setViewMode('table')} className={`font-mono text-[10px] uppercase px-3 py-1.5 ${viewMode === 'table' ? 'bg-white text-black' : 'text-grey-light hover:text-white'}`}>TABLE</button>
-            <button onClick={() => setViewMode('deleted')} className={`font-mono text-[10px] uppercase px-3 py-1.5 ${viewMode === 'deleted' ? 'bg-danger text-black' : 'text-grey-light hover:text-white'}`}>DELETED</button>
-          </div>
-          <Button size="sm" onClick={openCreate}>+ NEW BOOKING</Button>
-        </div>
+        <Button size="sm" onClick={openCreate}>+ NEW BOOKING</Button>
       </div>
 
       {/* Date bar — same navigation as the Orders page */}

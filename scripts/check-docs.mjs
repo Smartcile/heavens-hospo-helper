@@ -2,7 +2,7 @@
  * Checks if docs (CLAUDE.md, ROADMAP.md) were updated on this branch.
  * Run: node scripts/check-docs.mjs
  */
-import { execSync } from 'child_process'
+import { execSync, execFileSync } from 'child_process'
 import { readFileSync } from 'fs'
 
 const DOCS = ['CLAUDE.md', 'ROADMAP.md', 'README.md']
@@ -32,8 +32,15 @@ console.log(`  Last doc change: ${lastDocCommit || 'never'}`)
 console.log(`  Last commit:     ${lastCommit}\n`)
 
 console.log('Recent commits without doc updates:')
-const log = execSync(
-  `git log --oneline --no-decorate ${lastDocCommit ? lastDocCommit.split(' ')[0] : '--all'}..HEAD -- . ':!CLAUDE.md' ':!ROADMAP.md' ':!README.md'`,
+// execFileSync (not execSync) — pathspecs like `:!CLAUDE.md` are mangled by
+// cmd.exe's quoting on Windows, which crashed this script.
+const log = execFileSync(
+  'git',
+  [
+    'log', '--oneline', '--no-decorate',
+    `${lastDocCommit ? lastDocCommit.split(' ')[0] : '--all'}..HEAD`,
+    '--', '.', ':!CLAUDE.md', ':!ROADMAP.md', ':!README.md',
+  ],
   { encoding: 'utf8' }
 )
 if (log.trim()) {

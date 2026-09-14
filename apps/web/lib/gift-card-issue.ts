@@ -2,6 +2,7 @@ import { prisma } from '@hospo-ops/db'
 import { generateGiftCardPdf, giftCardPdfToBuffer } from '@/lib/gift-card-pdf'
 import { fillGiftCardTemplate, mergePdfBuffers, GiftCardFieldMapping } from '@/lib/gift-card-template'
 import { formatDate } from '@/lib/utils'
+import { storageDir } from '@/lib/storage'
 import { readFileSync, existsSync } from 'fs'
 import fs from 'fs'
 import path from 'path'
@@ -37,7 +38,7 @@ export async function giftCardPdfBuffer(card: GiftCardPdfSource): Promise<Buffer
     message: card.message || undefined,
   }
 
-  if (template && existsSync(template.filePath)) {
+  if (template?.filePath && existsSync(template.filePath)) {
     return fillGiftCardTemplate(
       readFileSync(template.filePath),
       (template.fieldMapping as unknown as GiftCardFieldMapping[]) ?? [],
@@ -56,7 +57,9 @@ export async function mergedGiftCardPdf(cards: GiftCardPdfSource[]): Promise<Buf
 
 /** Generate the card's PDF and write it to the uploads dir. Returns the path. */
 export async function issueGiftCardPdf(card: GiftCardPdfSource): Promise<string> {
-  const pdfDir = path.join(process.cwd(), 'public', 'uploads', 'gift-cards')
+  // Files live on the UPLOAD_PATH storage root — never in public/uploads,
+  // which is inside the container image and wiped on every redeploy.
+  const pdfDir = storageDir('gift-cards')
   if (!fs.existsSync(pdfDir)) fs.mkdirSync(pdfDir, { recursive: true })
 
   const pdfPath = path.join(pdfDir, `Gift Card - ${card.number}.pdf`)

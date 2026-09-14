@@ -67,7 +67,7 @@ class Hospo_Ops_Settings {
 								required
 							/>
 							<p class="description">
-								Generated in the app at <strong>Services &rarr; API KEYS</strong> for the venue this store belongs to.
+								Generated in the app at <strong>Settings &rarr; WOOCOMMERCE &rarr; EXTERNAL API</strong> for the venue this store belongs to.
 							</p>
 						</td>
 					</tr>
@@ -93,6 +93,8 @@ class Hospo_Ops_Settings {
 				<?php wp_nonce_field( 'hospo_ops_test' ); ?>
 				<?php submit_button( 'TEST CONNECTION', 'secondary' ); ?>
 			</form>
+
+			<?php self::render_woocommerce_connection(); ?>
 
 			<?php if ( $tested && $tested['ok'] && ! empty( $tested['config'] ) ) : ?>
 				<h2>What the app is serving</h2>
@@ -123,6 +125,87 @@ class Hospo_Ops_Settings {
 			<?php endif; ?>
 		</div>
 		<?php
+	}
+
+	/**
+	 * WooCommerce CONNECT / DISCONNECT. CONNECT mints a REST API key, hands it
+	 * to the app and writes the webhooks — replacing the manual SOP steps.
+	 */
+	private static function render_woocommerce_connection() {
+		if ( ! class_exists( 'WooCommerce' ) ) {
+			?>
+			<h2>WooCommerce connection</h2>
+			<div class="notice notice-error inline"><p>WooCommerce is not active on this site — activate it to pair the store.</p></div>
+			<?php
+			return;
+		}
+
+		$status = Hospo_Ops_Woo_Setup::status();
+		?>
+		<h2>WooCommerce connection</h2>
+		<p>
+			Connecting creates a <strong>Read/Write</strong> WooCommerce REST API key for HOSPO OPS,
+			sends it to the app, and registers the four order/product webhooks — no copy/pasting
+			between the two systems. Re-connecting rotates the key and the webhook secret.
+		</p>
+
+		<?php if ( $status ) : ?>
+			<table class="widefat striped" style="max-width: 720px;">
+				<tbody>
+					<tr><td><strong>Venue</strong></td><td><?php echo esc_html( $status['pairing']['venue'] ?: '—' ); ?></td></tr>
+					<tr><td><strong>Store URL</strong></td><td><?php echo esc_html( $status['pairing']['store_url'] ); ?></td></tr>
+					<tr><td><strong>Consumer key</strong></td><td><?php echo esc_html( self::mask( $status['pairing']['consumer_key'] ) ); ?></td></tr>
+					<tr><td><strong>Webhook secret</strong></td><td><?php echo esc_html( self::mask( $status['pairing']['webhook_secret'] ) ); ?></td></tr>
+					<tr><td><strong>Paired</strong></td><td><?php echo esc_html( $status['pairing']['paired_at'] ); ?></td></tr>
+				</tbody>
+			</table>
+
+			<h3>Webhooks</h3>
+			<table class="widefat striped" style="max-width: 720px;">
+				<thead>
+					<tr><th>Name</th><th>Topic</th><th>Status</th><th>Failures</th></tr>
+				</thead>
+				<tbody>
+					<?php foreach ( $status['webhooks'] as $topic => $webhook ) : ?>
+						<tr>
+							<td><?php echo esc_html( $webhook['name'] ); ?></td>
+							<td><code><?php echo esc_html( $topic ); ?></code></td>
+							<td><?php echo esc_html( ucfirst( $webhook['status'] ) ); ?></td>
+							<td><?php echo (int) $webhook['failure_count']; ?></td>
+						</tr>
+					<?php endforeach; ?>
+					<?php if ( empty( $status['webhooks'] ) ) : ?>
+						<tr><td colspan="4">No HOSPO OPS webhooks found — re-connect to create them.</td></tr>
+					<?php endif; ?>
+				</tbody>
+			</table>
+
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block; margin-right:8px;">
+				<input type="hidden" name="action" value="hospo_ops_connect" />
+				<?php wp_nonce_field( 'hospo_ops_connect' ); ?>
+				<?php submit_button( 'RE-CONNECT (ROTATE CREDENTIALS)', 'secondary', 'submit', false ); ?>
+			</form>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
+				<input type="hidden" name="action" value="hospo_ops_disconnect" />
+				<?php wp_nonce_field( 'hospo_ops_disconnect' ); ?>
+				<?php submit_button( 'DISCONNECT', 'delete', 'submit', false, array( 'onclick' => "return confirm('Disconnect this store? The API key is revoked and the HOSPO OPS webhooks are removed.');" ) ); ?>
+			</form>
+		<?php else : ?>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="hospo_ops_connect" />
+				<?php wp_nonce_field( 'hospo_ops_connect' ); ?>
+				<?php submit_button( 'CONNECT TO HOSPO OPS' ); ?>
+			</form>
+		<?php endif; ?>
+		<?php
+	}
+
+	private static function mask( $value ) {
+		$value = (string) $value;
+		if ( strlen( $value ) <= 4 ) {
+			return $value;
+		}
+		return '••••••••' . substr( $value, -4 );
 	}
 
 	public static function handle_save_settings() {
@@ -166,6 +249,79 @@ class Hospo_Ops_Settings {
 			);
 		}
 
+		wp_safe_redirect( admin_url( 'admin.php?page=hospo-ops' ) );
+		exit;
+	}
+
+	/**
+	 * CONNECT / RE-CONNECT: mint credentials, register them with the app and
+	 * write the webhooks. Re-running rotates everything.
+	 */
+	public static function handle_connect() {
+		if ( ! current_user_can( 'manage_options' ) || ! check_admin_referer( 'hospo_ops_connect' ) ) {
+			wp_die( 'Not allowed.' );
+		}
+
+		if ( '' === hospo_ops_app_url() || '' === hospo_ops_api_key() ) {
+			set_transient(
+				'hospo_ops_test_result',
+				array( 'ok' => false, 'message' => 'Save the app URL and API key first, then connect.' ),
+				30
+			);
+			wp_safe_redirect( admin_url( 'admin.php?page=hospo-ops' ) );
+			exit;
+		}
+
+		$result = Hospo_Ops_Woo_Setup::connect();
+
+		if ( is_wp_error( $result ) ) {
+			set_transient(
+				'hospo_ops_test_result',
+				array( 'ok' => false, 'message' => 'Connect failed: ' . $result->get_error_message() ),
+				60
+			);
+		} else {
+			$message = sprintf(
+				'Connected to %s — API key and %d webhooks configured.',
+				$result['pairing']['venue'] ? $result['pairing']['venue'] : 'your venue',
+				count( $result['pairing']['webhook_ids'] )
+			);
+			if ( ! empty( $result['ping'] ) ) {
+				$message .= $result['ping']['ok']
+					? ' Test delivery succeeded.'
+					: ' Test delivery failed: ' . $result['ping']['error'];
+			}
+			set_transient( 'hospo_ops_test_result', array( 'ok' => true, 'message' => $message ), 60 );
+		}
+
+		wp_safe_redirect( admin_url( 'admin.php?page=hospo-ops' ) );
+		exit;
+	}
+
+	/**
+	 * DISCONNECT: tell the app (best-effort), then revoke the key and delete
+	 * the webhooks locally.
+	 */
+	public static function handle_disconnect() {
+		if ( ! current_user_can( 'manage_options' ) || ! check_admin_referer( 'hospo_ops_disconnect' ) ) {
+			wp_die( 'Not allowed.' );
+		}
+
+		$pairing      = Hospo_Ops_Woo_Setup::pairing();
+		$consumer_key = isset( $pairing['consumer_key'] ) ? (string) $pairing['consumer_key'] : '';
+
+		// Best-effort app-side cleanup before the local credentials are gone.
+		if ( '' !== $consumer_key && '' !== hospo_ops_app_url() ) {
+			Hospo_Ops_API::disconnect_woocommerce( $consumer_key );
+		}
+
+		Hospo_Ops_Woo_Setup::disconnect();
+
+		set_transient(
+			'hospo_ops_test_result',
+			array( 'ok' => true, 'message' => 'Disconnected — API key revoked and HOSPO OPS webhooks removed.' ),
+			60
+		);
 		wp_safe_redirect( admin_url( 'admin.php?page=hospo-ops' ) );
 		exit;
 	}

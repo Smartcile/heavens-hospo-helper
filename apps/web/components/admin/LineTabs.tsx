@@ -22,6 +22,7 @@ export function LineTabs({ tabs, tab, sub, onNavigate }: LineTabsProps) {
           <button
             key={t.id}
             onClick={() => onNavigate(t.id)}
+            title={t.title}
             className={cn(
               'font-mono text-xs uppercase tracking-wider px-4 py-2.5 whitespace-nowrap border-b-2 transition-colors',
               tab === t.id ? 'text-white border-b-white' : 'text-grey-light border-b-transparent hover:text-white',

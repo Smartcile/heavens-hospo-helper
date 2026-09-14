@@ -245,6 +245,10 @@
 	}
 
 	function wireCheckout(root) {
+		// Gift-card-only carts render the message field without any booking
+		// controls — nothing to wire (a plain named textarea posts itself).
+		if (root.hasAttribute('data-hospo-gift-only')) return;
+
 		var servicesEl = root.querySelector('[data-hospo-services]');
 		var slotsEl = root.querySelector('[data-hospo-slots]');
 		var messageEl = root.querySelector('[data-hospo-message]');

@@ -98,6 +98,50 @@ class Hospo_Ops_API {
 	}
 
 	/**
+	 * POST /api/public/woocommerce/connect — pair this store: hands the app
+	 * the freshly minted REST API credentials and receives the webhook secret
+	 * + delivery URL back.
+	 *
+	 * @param array $payload storeUrl, consumerKey, consumerSecret, pluginVersion.
+	 * @return array|WP_Error
+	 */
+	public static function connect_woocommerce( $payload ) {
+		$url  = hospo_ops_app_url() . '/api/public/woocommerce/connect';
+		$resp = wp_remote_post(
+			$url,
+			array(
+				'headers' => array_merge( self::headers(), array( 'Content-Type' => 'application/json' ) ),
+				'timeout' => 20,
+				'body'    => wp_json_encode( $payload ),
+			)
+		);
+
+		return self::decode( $resp, __FUNCTION__ );
+	}
+
+	/**
+	 * DELETE /api/public/woocommerce/connect — tell the app this store is
+	 * disconnected. The consumer key proves which pairing is being removed.
+	 *
+	 * @param string $consumer_key
+	 * @return array|WP_Error
+	 */
+	public static function disconnect_woocommerce( $consumer_key ) {
+		$url  = hospo_ops_app_url() . '/api/public/woocommerce/connect';
+		$resp = wp_remote_request(
+			$url,
+			array(
+				'method'  => 'DELETE',
+				'headers' => array_merge( self::headers(), array( 'Content-Type' => 'application/json' ) ),
+				'timeout' => 15,
+				'body'    => wp_json_encode( array( 'consumerKey' => $consumer_key ) ),
+			)
+		);
+
+		return self::decode( $resp, __FUNCTION__ );
+	}
+
+	/**
 	 * Auth headers for every request.
 	 */
 	private static function headers() {

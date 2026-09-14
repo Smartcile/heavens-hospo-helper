@@ -4,7 +4,7 @@ Tags: woocommerce, booking, reservations, restaurant
 Requires at least: 6.0
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 0.4.0
+Stable tag: 0.5.0
 License: GPL-2.0-or-later
 
 Dated ordering + table bookings for WooCommerce, driven by your HOSPO OPS venue.
@@ -27,14 +27,23 @@ capacities are all configured in HOSPO OPS and served to the plugin
 automatically. There is nothing to configure here beyond the app URL and
 API key.
 
+**One-click WooCommerce pairing:** click **CONNECT TO HOSPO OPS** and the
+plugin creates its own Read/Write REST API key, sends it to the app, and
+registers the order/product webhooks with the app's webhook secret — no
+copy/pasting consumer keys or hand-creating webhooks. Re-connecting rotates
+the key and secret; DISCONNECT revokes them.
+
 == Installation ==
 
 1. Upload the `hospo-ops` folder to `/wp-content/plugins/` (or zip and
    upload via Plugins → Add New).
 2. Activate the plugin.
 3. Open **HOSPO OPS** in the admin menu.
-4. Enter your app URL and the API key from **Services → API KEYS** in the app.
+4. Enter your app URL and the API key from the app (Settings → WOOCOMMERCE →
+   EXTERNAL API).
 5. Click **TEST CONNECTION** — you should see your venue and its services.
+6. Click **CONNECT TO HOSPO OPS** — the REST API key and webhooks are
+   created and registered automatically.
 
 == Usage ==
 
@@ -60,6 +69,13 @@ details to the order, and the booking-only widget creates free
 reservations in the app.
 
 == Changelog ==
+
+= 0.5.0 =
+* One-click pairing: CONNECT creates a Read/Write WooCommerce REST API key,
+  registers it with the HOSPO OPS app and creates the four order/product
+  webhooks with the app-issued secret. RE-CONNECT rotates the key and
+  secret; DISCONNECT revokes both. Existing hand-made HOSPO OPS webhooks
+  are adopted instead of duplicated.
 
 = 0.4.0 =
 * Gift cards: PDFs for orders containing the venue's GIFT CARDS category

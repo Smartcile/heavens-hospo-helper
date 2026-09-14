@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { pushOrderStatus, pushOrderItems, opStatusToWooStatus } from '@/lib/woo-push'
 import { resolveCustomer } from '@/lib/customer-match'
+import { logOrderEvent } from '@/lib/gift-card-history'
 import type { OrderStatus, OrderOpStatus, PaymentStatus, FulfillmentType } from '@prisma/client'
 import { guardAccess } from '@/lib/permissions'
 
@@ -124,6 +125,29 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const updated = await prisma.wooOrder.update({ where: { id: params.id }, data })
 
+  // App-side actions on the order go into the order's own history feed (shown
+  // in the gift card popup as ORDER · APP) — the store's activity stays in
+  // SyncLog. Best-effort; never blocks the update.
+  const transitions: string[] = []
+  if (data.opStatus !== undefined && data.opStatus !== order.opStatus) {
+    transitions.push(`OPERATIONAL ${order.opStatus} → ${String(data.opStatus)}`)
+  }
+  if (data.status !== undefined && data.status !== order.status) {
+    transitions.push(`STORE ${order.status} → ${String(data.status)}`)
+  }
+  if (data.paymentStatus !== undefined && data.paymentStatus !== order.paymentStatus) {
+    transitions.push(`PAYMENT ${order.paymentStatus} → ${String(data.paymentStatus)}`)
+  }
+  if (data.serviceDate !== undefined || data.serviceTime !== undefined || data.fulfillmentType !== undefined) {
+    transitions.push('SERVICE DATE/TIME/FULFILLMENT UPDATED')
+  }
+  if (data.customerName !== undefined || data.customerEmail !== undefined || data.customerPhone !== undefined) {
+    transitions.push('CUSTOMER CONTACT UPDATED')
+  }
+  if (transitions.length > 0) {
+    await logOrderEvent(params.id, 'STATUS', transitions.join(' · ')).catch(() => {})
+  }
+
   // Only the WooCommerce-owned status pushes back, and only for Woo orders —
   // pushOrderStatus itself no-ops on local orders.
   if (data.status !== undefined) await pushOrderStatus(updated.id)
@@ -189,6 +213,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     where: { id: params.id },
     include: { items: { include: { menuItem: { select: { id: true, name: true } } } } },
   })
+
+  // App-side edit on the order (shown in the gift card popup's ORDER · APP feed).
+  await logOrderEvent(params.id, 'DETAILS_UPDATED', `LINE ITEMS REPLACED — ${lines.length} LINE(S), NEW TOTAL $${(updated?.totalAmount ?? 0).toFixed(2)}`).catch(() => {})
 
   // Sync the edited line items back to the WooCommerce order (best-effort —
   // logs to SyncLog; skipped when any line can't map to the store).

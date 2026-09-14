@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import fs from 'fs'
+import { logGiftCardEvent } from '@/lib/gift-card-history'
 import { guardAccess } from '@/lib/permissions'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -46,6 +47,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     where: { id: params.id },
     data: { status: 'SENT', sentAt: new Date() },
   })
+
+  await logGiftCardEvent(params.id, 'EMAIL_SENT', `TO ${card.customerEmail} — SUBJECT: ${mailSubject}`)
 
   return NextResponse.json(updated)
 }

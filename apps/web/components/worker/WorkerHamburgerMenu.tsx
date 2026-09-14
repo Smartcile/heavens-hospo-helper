@@ -11,12 +11,17 @@ export function WorkerHamburgerMenu({ firstName }: Props) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [noticeCount, setNoticeCount] = useState(0)
+  const [giftCardsAllowed, setGiftCardsAllowed] = useState(false)
 
   useEffect(() => {
     if (!open) return
     fetch('/api/worker/notices')
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) setNoticeCount(d.unackedRequired ?? 0) })
+      .catch(() => {})
+    fetch('/api/worker/giftcards/access')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setGiftCardsAllowed(!!d.allowed) })
       .catch(() => {})
   }, [open])
 
@@ -106,6 +111,17 @@ export function WorkerHamburgerMenu({ firstName }: Props) {
       action: () => go('/w/kitchen'),
     },
   ]
+
+  if (giftCardsAllowed) {
+    items.push({
+      label: 'GIFT CARDS',
+      sub: 'ISSUE & PRINT',
+      icon: (
+        <path strokeLinecap="square" strokeWidth={1.5} d="M12 21s-7-4.6-9.5-9A5.4 5.4 0 0112 6.2 5.4 5.4 0 0121.5 12c-2.5 4.4-9.5 9-9.5 9z" />
+      ),
+      action: () => go('/w/giftcards'),
+    })
+  }
 
   return (
     <>

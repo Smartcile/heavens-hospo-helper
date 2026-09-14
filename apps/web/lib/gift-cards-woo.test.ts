@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isGiftCardLine, skuLooksLikeGiftCard, categoryIdsFromString, GIFT_CARD_CATEGORY_DEFAULT_NAME } from './gift-cards-woo'
+import { isGiftCardLine, isGiftCardCategorized, skuLooksLikeGiftCard, categoryIdsFromString, GIFT_CARD_CATEGORY_DEFAULT_NAME } from './gift-cards-woo'
 
 describe('skuLooksLikeGiftCard', () => {
   it('matches GIFT anywhere in the sku, case-insensitive', () => {
@@ -44,6 +44,17 @@ describe('categoryIdsFromString', () => {
     expect(categoryIdsFromString('')).toEqual([])
     expect(categoryIdsFromString(null)).toEqual([])
     expect(categoryIdsFromString(undefined)).toEqual([])
+  })
+})
+
+describe('isGiftCardCategorized', () => {
+  it('true only when the item category list contains the gift card category', () => {
+    expect(isGiftCardCategorized('18', '18')).toBe(true)
+    expect(isGiftCardCategorized('15, 18', '18')).toBe(true)
+    expect(isGiftCardCategorized('18', null)).toBe(false)
+    expect(isGiftCardCategorized('1', '18')).toBe(false) // no substring traps
+    expect(isGiftCardCategorized('118', '18')).toBe(false)
+    expect(isGiftCardCategorized(null, '18')).toBe(false)
   })
 })
 

@@ -3,9 +3,9 @@ import { logSync } from '@/lib/sync-log'
 import { wooAuthHeader } from '@/lib/woo-sync'
 import { oauthSignedUrl } from '@/lib/woo-oauth'
 import { explodeRecipe } from '@/lib/inventory-engine'
-import { getNextNumber } from '@/lib/gift-cards'
+import { issuePremade } from '@/lib/gift-cards'
 import { isGiftCardLine, categoryIdsFromString } from '@/lib/gift-cards-woo'
-import { issueGiftCardPdf } from '@/lib/gift-card-issue'
+import { logGiftCardEvent, logOrderEvent } from '@/lib/gift-card-history'
 import { resolveOrderMeta, type ResolvedOrderMeta } from '@/lib/woo-meta-map'
 import { resolveCustomer } from '@/lib/customer-match'
 import { autoLinkBooking } from '@/lib/order-booking-link'
@@ -14,6 +14,35 @@ import { addMinutesHHMM, slotEndForTime, type ServiceScheduleInput } from '@/lib
 import { seatPartyOnServicePlan } from '@/lib/service-seating.server'
 import { withSeatLock } from '@/lib/seat-lock'
 import type { PrismaClient, OrderStatus, OrderOpStatus, PaymentStatus } from '@prisma/client'
+
+/**
+ * Resolve a Woo line's product to a local MenuItem. Variable products are
+ * ONE local row per PARENT: a line bought as a variation first tries the
+ * variation id (legacy simple products map 1:1), then falls back to the
+ * parent product id. Works with the pull transaction client or prisma.
+ */
+type MenuLookup = { menuItem: { findFirst: PrismaClient['menuItem']['findFirst'] } }
+async function resolveMenuProduct(
+  db: MenuLookup,
+  venueId: string,
+  productId: string,
+  variationId: string | null,
+) {
+  let menuItem = null
+  if (variationId) {
+    menuItem = await db.menuItem.findFirst({
+      where: { venueId, wooProductId: variationId, deletedAt: null },
+      select: { id: true },
+    })
+  }
+  if (!menuItem && productId) {
+    menuItem = await db.menuItem.findFirst({
+      where: { venueId, wooProductId: productId, deletedAt: null },
+      select: { id: true },
+    })
+  }
+  return menuItem
+}
 
 // ── Shared WooCommerce Order Processing ────────────────────────────────
 // Used by both the webhook handler (instant) and the REST API pull
@@ -146,26 +175,26 @@ export async function processWooOrder(
       const productId = String(li.product_id ?? li.id ?? '')
       const variationId = li.variation_id ? String(li.variation_id) : null
 
-      const menuItem = await tx.menuItem.findFirst({
-        where: {
-          venueId,
-          wooProductId: variationId ?? productId,
-          deletedAt: null,
-        },
-      })
+      const menuItem = await resolveMenuProduct(tx, venueId, productId, variationId)
 
       const qty = li.quantity ?? 1
       const unitPrice = parseFloat(li.price ?? li.total ?? '0')
 
       if (menuItem) {
+        // Key by the Woo line id when present — the same product can appear
+        // several times on one order (two gift denominations share the parent
+        // menu item) and each line must keep its own row.
+        const lineId = li.id != null ? String(li.id) : null
         const existing = await tx.wooOrderItem.findFirst({
-          where: { orderId: woo.id, menuItemId: menuItem.id },
+          where: lineId
+            ? { orderId: woo.id, wooLineItemId: lineId }
+            : { orderId: woo.id, menuItemId: menuItem.id },
         })
 
         if (existing) {
           await tx.wooOrderItem.update({
             where: { id: existing.id },
-            data: { qty, unitPrice, productName: li.name ?? null, wooLineItemId: li.id != null ? String(li.id) : undefined },
+            data: { qty, unitPrice, productName: li.name ?? null, wooLineItemId: lineId ?? undefined },
           })
           keptIds.add(existing.id)
         } else {
@@ -176,7 +205,7 @@ export async function processWooOrder(
               qty,
               unitPrice,
               productName: li.name ?? null,
-              wooLineItemId: li.id != null ? String(li.id) : null,
+              wooLineItemId: lineId,
             },
           })
           keptIds.add(created.id)
@@ -201,14 +230,13 @@ export async function processWooOrder(
     const productId = String(li.product_id ?? li.id ?? '')
     const variationId = li.variation_id ? String(li.variation_id) : null
 
-    const menuItem = await prisma.menuItem.findFirst({
-      where: {
-        venueId,
-        wooProductId: variationId ?? productId,
-        deletedAt: null,
-      },
-      include: { recipe: true },
-    })
+    const resolved = await resolveMenuProduct(prisma, venueId, productId, variationId)
+    const menuItem = resolved
+      ? await prisma.menuItem.findUnique({
+          where: { id: resolved.id },
+          include: { recipe: true },
+        })
+      : null
 
     if (menuItem?.recipeId) {
       const qty = li.quantity ?? 1
@@ -304,9 +332,16 @@ export async function processWooOrder(
       console.error('Booking auto-link failed (non-blocking):', e)
     }
   }
-
   try {
-    await detectGiftCards(lineItems, venueId, { ...order, wooOrderId }, customerName, customerEmail, meta.giftCardMessage)
+    await detectGiftCards(
+      lineItems,
+      venueId,
+      { ...order, wooOrderId },
+      customerName,
+      customerEmail,
+      meta.giftCardMessage,
+      paymentStatus === 'PAID',
+    )
   } catch (e) {
     console.error('Gift card detection failed (non-blocking):', e)
   }
@@ -322,6 +357,47 @@ export interface OrderPullResult {
   synced: number
   errors: number
   syncedAt: string
+}
+
+/** Fetch every order page for one store status (used by the Gift Cards
+ *  pending-orders module so it can show live unpaid orders without waiting
+ *  for a full sync). */
+export async function fetchWooOrdersByStatus(
+  storeUrl: string,
+  consumerKey: string,
+  consumerSecret: string,
+  status: string,
+): Promise<any[]> {
+  const baseUrl = storeUrl.replace(/\/+$/, '')
+  const orders: any[] = []
+  let page = 1
+
+  for (;;) {
+    const url = `${baseUrl}/wp-json/wc/v3/orders?per_page=100&page=${page}&status=${encodeURIComponent(status)}`
+    let response = await fetch(url, {
+      headers: { Authorization: wooAuthHeader(consumerKey, consumerSecret), 'Content-Type': 'application/json' },
+    })
+    if (response.status === 401) {
+      response = await fetch(
+        `${url}&consumer_key=${encodeURIComponent(consumerKey)}&consumer_secret=${encodeURIComponent(consumerSecret)}`,
+        { headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    if (response.status === 401) {
+      response = await fetch(oauthSignedUrl('GET', url, consumerKey, consumerSecret), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    if (!response.ok) {
+      throw new Error(`Store returned HTTP ${response.status} for status=${status}`)
+    }
+    const batch = JSON.parse(await response.text())
+    if (!Array.isArray(batch)) break
+    orders.push(...batch)
+    if (batch.length < 100) break
+    page++
+  }
+  return orders
 }
 
 async function fetchWooOrders(
@@ -612,6 +688,11 @@ function mapWooStatus(status: string): string {
  *
  * Idempotent: a re-delivered webhook or re-pull for the same order never
  * mints duplicate cards.
+ *
+ * Payment-gated: the card (and its PDF) is only created once the order is
+ * PAID (`date_paid` present). Unpaid cash-on-delivery orders stay pending —
+ * every re-sync logs a SKIPPED row so "why no card yet?" is answerable, and
+ * the moment payment lands the next webhook/pull issues the card.
  */
 async function detectGiftCards(
   lineItems: any[],
@@ -620,7 +701,20 @@ async function detectGiftCards(
   customerName: string,
   customerEmail: string | null,
   giftCardMessage: string | null,
+  paid: boolean,
 ) {
+  if (!paid) {
+    await logSync({
+      venueId,
+      direction: 'PULL',
+      entity: 'ORDER',
+      status: 'SKIPPED',
+      externalId: order.wooOrderId,
+      message: `GIFT CARD NOT ISSUED — PAYMENT NOT CONFIRMED (ORDER #${order.wooOrderId})`,
+    })
+    return
+  }
+
   const venue = await prisma.venue.findUnique({
     where: { id: venueId },
     select: { giftCardWooCategoryId: true },
@@ -628,67 +722,147 @@ async function detectGiftCards(
   const categoryId = venue?.giftCardWooCategoryId ?? null
 
   const existing = await prisma.giftCard.findFirst({
-    where: { venueId, wooOrderId: order.wooOrderId, deletedAt: null },
+    where: { venueId, wooOrderId: order.id, deletedAt: null },
     select: { id: true },
   })
   if (existing) return
 
-  const amounts: number[] = []
+  // ONE card per order: every gift line's total (qty × price) is summed, so
+  // buying several denominations together becomes a single combined card
+  // ($50 + $100 → one $150 card; qty 2 on a line counts twice).
+  let totalValue = 0
   for (const li of lineItems) {
     const productId = String(li.product_id ?? li.id ?? '')
     const variationId = li.variation_id ? String(li.variation_id) : null
-    const wooLookupId = variationId ?? productId
 
     // Resolve the product's store categories from its local MenuItem row.
     // An unresolved product is NOT a gift card for a category-configured
     // venue — the category is the signal, never a guess.
+    // Variable products: the app holds ONE row for the parent product, so a
+    // variation purchase must fall back from the variation id to the parent.
     let productCategories: string[] | null = null
-    if (wooLookupId) {
-      const menuItem = await prisma.menuItem.findFirst({
-        where: { venueId, wooProductId: wooLookupId, deletedAt: null },
-        select: { wooCategoryId: true },
-      })
+    if (variationId || productId) {
+      let menuItem = null
+      if (variationId) {
+        menuItem = await prisma.menuItem.findFirst({
+          where: { venueId, wooProductId: variationId, deletedAt: null },
+          select: { wooCategoryId: true },
+        })
+      }
+      if (!menuItem && productId) {
+        menuItem = await prisma.menuItem.findFirst({
+          where: { venueId, wooProductId: productId, deletedAt: null },
+          select: { wooCategoryId: true },
+        })
+      }
       productCategories = menuItem ? categoryIdsFromString(menuItem.wooCategoryId) : null
     }
 
     if (!isGiftCardLine({ sku: li.sku }, categoryId, productCategories)) continue
 
-    const amount = parseFloat(li.total ?? li.price ?? '0')
-    if (amount <= 0) continue
-    amounts.push(amount / (li.quantity ?? 1))
+    const lineTotal = parseFloat(li.total ?? li.price ?? '0')
+    if (lineTotal > 0) totalValue += lineTotal
   }
 
-  if (amounts.length === 0) return
+  if (totalValue <= 0) return
+  totalValue = Math.round(totalValue * 100) / 100
 
-  const year = new Date().getFullYear()
-  for (const amount of amounts) {
-    const number = await getNextNumber(venueId, year)
-    const card = await prisma.giftCard.create({
-      data: {
-        venueId,
-        number,
-        amount,
-        customerName: customerName || null,
-        customerEmail,
-        message: giftCardMessage || null,
-        wooOrderId: order.wooOrderId,
-        notes: categoryId
-          ? `Auto-created from WooCommerce order #${order.wooOrderId} (CATEGORY #${categoryId})`
-          : `Auto-created from WooCommerce order #${order.wooOrderId} (SKU)`,
+  // The next PREMADE card is consumed (one is premade in the current year's
+  // series when none remain) — issuing never invents a number.
+  let card: { id: string; number: string; amount: number; status: string }
+  try {
+    card = await issuePremade(venueId, {
+      amount: totalValue,
+      customerName: customerName || null,
+      customerEmail,
+      message: giftCardMessage || null,
+      wooOrderId: order.id,
+      notes: categoryId
+        ? `Auto-created from WooCommerce order #${order.wooOrderId} (CATEGORY #${categoryId})`
+        : `Auto-created from WooCommerce order #${order.wooOrderId} (SKU)`,
+    })
+  } catch (e) {
+    await logSync({
+      venueId,
+      direction: 'PULL',
+      entity: 'ORDER',
+      status: 'SKIPPED',
+      externalId: order.wooOrderId,
+      message: `GIFT CARD NOT ISSUED — ${(e as Error).message} (ORDER #${order.wooOrderId})`,
+    })
+    return
+  }
+
+  await logGiftCardEvent(
+    card.id,
+    'AUTO_ISSUED',
+    `AUTO-ISSUED FROM WOOCOMMERCE ORDER #${order.wooOrderId} — $${totalValue.toFixed(2)} COMBINED INTO ONE CARD`,
+  )
+  await logOrderEvent(
+    order.id,
+    'CARD_ISSUED',
+    `GIFT CARD #${card.number} ISSUED — $${totalValue.toFixed(2)} (ORDER #${order.wooOrderId})`,
+  )
+}
+
+/**
+ * Mint + issue the gift card for a LOCAL order after the app confirms its
+ * cash payment. Idempotent (a card already on the order returns issued:true).
+ * Used by the Gift Cards page's CONFIRM PAYMENT — WooCommerce's REST API
+ * cannot record `date_paid` itself, so the app is the authority here.
+ */
+export async function issueGiftCardForOrder(
+  venueId: string,
+  localOrderId: string,
+): Promise<{ issued: boolean; error?: string }> {
+  try {
+    const venue = await prisma.venue.findUnique({
+      where: { id: venueId },
+      select: { giftCardWooCategoryId: true },
+    })
+    const giftCat = venue?.giftCardWooCategoryId
+    if (!giftCat) return { issued: false, error: 'NO GIFT CARD CATEGORY LINKED' }
+
+    const order = await prisma.wooOrder.findFirst({
+      where: { id: localOrderId, venueId, deletedAt: null },
+      include: {
+        items: {
+          select: { qty: true, unitPrice: true, menuItem: { select: { wooCategoryId: true } } },
+        },
       },
     })
+    if (!order) return { issued: false, error: 'ORDER NOT FOUND' }
 
-    // Auto-issue. A failure leaves the card DRAFT — the public endpoint
-    // lazily generates on demand and the admin can issue by hand.
-    try {
-      const pdfPath = await issueGiftCardPdf(card)
-      await prisma.giftCard.update({
-        where: { id: card.id },
-        data: { pdfPath, status: 'ISSUED', issuedAt: new Date() },
-      })
-    } catch (e) {
-      console.error('Gift card auto-issue failed (non-blocking):', e)
-    }
+    const existing = await prisma.giftCard.findFirst({
+      where: { venueId, wooOrderId: order.id, deletedAt: null },
+      select: { id: true },
+    })
+    if (existing) return { issued: true }
+
+    const giftLines = order.items.filter(
+      (it) => it.menuItem && categoryIdsFromString(it.menuItem.wooCategoryId).includes(String(giftCat)),
+    )
+    if (giftLines.length === 0) return { issued: false, error: 'NO GIFT LINES ON THIS ORDER' }
+    const totalValue = Math.round(giftLines.reduce((sum, l) => sum + (l.qty ?? 0) * (l.unitPrice ?? 0), 0) * 100) / 100
+
+    // The next PREMADE card is consumed (one is premade when none remain).
+    const card = await issuePremade(venueId, {
+      amount: totalValue,
+      customerName: order.customerName,
+      customerEmail: order.customerEmail,
+      wooOrderId: order.id,
+      notes: `Payment confirmed in the app — WooCommerce order #${order.wooOrderId}`,
+    })
+    await logGiftCardEvent(card.id, 'AUTO_ISSUED', `CONFIRMED IN THE APP — ORDER #${order.wooOrderId} — $${totalValue.toFixed(2)}`)
+    await logOrderEvent(
+      order.id,
+      'PAYMENT_CONFIRMED',
+      `PAYMENT CONFIRMED IN THE APP — GIFT CARD #${card.number} ISSUED — $${totalValue.toFixed(2)}`,
+    )
+    return { issued: true }
+  } catch (e) {
+    console.error('issueGiftCardForOrder failed (non-blocking):', e)
+    return { issued: false, error: String(e) }
   }
 }
 

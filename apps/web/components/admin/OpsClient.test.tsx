@@ -34,56 +34,57 @@ describe('OpsClient', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders the 5 tab labels', async () => {
-    render(<OpsClient {...props} />)
-    for (const label of ['MENU & SERVICES', 'BOOKINGS', 'ORDERS', 'CUSTOMERS', 'INVENTORY & STOCKTAKE']) {
-      expect(screen.getByRole('button', { name: label })).toBeTruthy()
-    }
-    await screen.findByText('RECIPES & MENU ITEMS')
-  })
-
-  it('defaults to the MENU tab with the RECIPES sub-tab active', async () => {
+  it('defaults to the MENU area with the RECIPES fine tab active — areas are not buttons', async () => {
     render(<OpsClient {...props} />)
     expect(await screen.findByText('RECIPES & MENU ITEMS')).toBeTruthy()
     for (const label of ['RECIPES', 'MENUS & CATEGORIES', 'SERVICES']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy()
     }
+    // The five areas moved to the sidebar — none of them render as top-bar buttons.
+    for (const label of ['MENU & SERVICES', 'BOOKINGS', 'ORDERS', 'CUSTOMERS', 'INVENTORY & STOCKTAKE']) {
+      expect(screen.queryByRole('button', { name: label })).toBeNull()
+    }
   })
 
-  it('switching a top-level tab pushes the OPS HUB URL', async () => {
-    render(<OpsClient {...props} />)
-    fireEvent.click(screen.getByRole('button', { name: 'ORDERS' }))
-    expect(mocks.push).toHaveBeenCalledWith('/admin/ops?tab=orders', { scroll: false })
-    expect((await screen.findAllByText('ORDERS')).length).toBeGreaterThan(0)
-  })
-
-  it('switching a MENU sub-tab pushes the sub URL', async () => {
+  it('clicking a MENU fine tab pushes the area URL with that sub', async () => {
     render(<OpsClient {...props} />)
     fireEvent.click(screen.getByRole('button', { name: 'MENUS & CATEGORIES' }))
     expect(mocks.push).toHaveBeenCalledWith('/admin/ops?tab=menu&sub=menus', { scroll: false })
   })
 
-  it('SERVICES mounts as a MENU sub-tab', async () => {
+  it('clicking a BOOKINGS fine tab pushes the bookings sub URL', async () => {
+    mocks.params = new URLSearchParams('tab=bookings')
+    render(<OpsClient {...props} />)
+    for (const label of ['DIARY', 'TABLE', 'DELETED']) {
+      expect(await screen.findByRole('button', { name: label })).toBeTruthy()
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'DIARY' }))
+    expect(mocks.push).toHaveBeenCalledWith('/admin/ops?tab=bookings&sub=diary', { scroll: false })
+  })
+
+  it('SERVICES mounts as a MENU fine tab', async () => {
     mocks.params = new URLSearchParams('tab=menu&sub=services')
     render(<OpsClient {...props} />)
     expect(await screen.findByText('SERVICES')).toBeTruthy()
   })
 
-  it('STOCKTAKE mounts as an INVENTORY sub-tab', async () => {
+  it('STOCKTAKE mounts as an INVENTORY fine tab', async () => {
     mocks.params = new URLSearchParams('tab=inventory&sub=stocktake')
     render(<OpsClient {...props} />)
     expect(await screen.findByText('STOCKTAKES')).toBeTruthy()
   })
 
-  it('an invalid tab param falls back to the MENU tab', async () => {
+  it('an invalid area param falls back to the MENU area', async () => {
     mocks.params = new URLSearchParams('tab=bogus')
     render(<OpsClient {...props} />)
     expect(await screen.findByText('RECIPES & MENU ITEMS')).toBeTruthy()
   })
 
-  it('mounts the BOOKINGS tab from the URL', async () => {
-    mocks.params = new URLSearchParams('tab=bookings')
+  it('CUSTOMERS is a leaf — it renders without a top tab bar', async () => {
+    mocks.params = new URLSearchParams('tab=customers')
     render(<OpsClient {...props} />)
-    expect((await screen.findAllByText('BOOKINGS')).length).toBeGreaterThan(0)
+    expect(await screen.findByText('CUSTOMERS')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'RECIPES' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'DIARY' })).toBeNull()
   })
 })

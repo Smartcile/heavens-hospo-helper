@@ -17,3 +17,13 @@ Thumbs.db
 mock_data/
 apps/web/public/uploads/
 apps/web/.next/
+
+# Local WP + WooCommerce dev stack (MailHog etc.) and the store plugin source —
+# host-side tooling only, never needed inside the app image.
+resources/
+docker-compose.wordpress.yml
+wp-dev.ps1
+wp-dev-setup.sh
+wp-dev-mu-plugin.php
+wp-cron.ps1
+start.ps1

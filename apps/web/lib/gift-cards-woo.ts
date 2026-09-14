@@ -47,3 +47,17 @@ export function categoryIdsFromString(wooCategoryId: string | null | undefined):
     .map((c) => c.trim())
     .filter((c) => c.length > 0)
 }
+
+/**
+ * True when a menu item's stored category list includes the venue's gift
+ * card category — i.e. the product is a store-bought gift card. Food-facing
+ * lists (recipes/menus/order pickers) hide such items; the Gift Cards page's
+ * own product list and the WooCommerce sync see them normally.
+ */
+export function isGiftCardCategorized(
+  wooCategoryId: string | null | undefined,
+  giftCardCategoryId: string | null | undefined,
+): boolean {
+  if (!giftCardCategoryId) return false
+  return categoryIdsFromString(wooCategoryId).includes(String(giftCardCategoryId))
+}

@@ -20,10 +20,20 @@ export async function GET(req: NextRequest, { params }: { params: { wooOrderId: 
   const venue = await venueFromApiKey(req)
   if (!venue) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // The plugin passes the STORE's numeric order id; cards link to the LOCAL
+  // WooOrder row — resolve across, then fetch that order's cards.
+  const order = await prisma.wooOrder.findFirst({
+    where: { venueId: venue.id, wooOrderId: params.wooOrderId, deletedAt: null },
+    select: { id: true },
+  })
+  if (!order) {
+    return NextResponse.json({ error: 'No gift cards on this order' }, { status: 404 })
+  }
+
   const cards = await prisma.giftCard.findMany({
     where: {
       venueId: venue.id,
-      wooOrderId: params.wooOrderId,
+      wooOrderId: order.id,
       deletedAt: null,
       status: { not: 'VOIDED' },
     },

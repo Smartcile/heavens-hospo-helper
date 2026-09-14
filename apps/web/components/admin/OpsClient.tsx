@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { OPS_TABS, resolveTab, hubUrl } from '@/lib/hub-tabs'
+import { OPS_SUB_TABS, resolveOps, hubUrl } from '@/lib/hub-tabs'
 import { LineTabs } from '@/components/admin/LineTabs'
 import { RecipesClient } from '@/app/admin/(protected)/recipes/RecipesClient'
 import { MenusClient } from '@/components/admin/MenusClient'
@@ -21,28 +21,32 @@ interface OpsClientProps {
 export function OpsClient({ role, sessionVenueId, defaultVenueId }: OpsClientProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { tab, sub } = resolveTab(OPS_TABS, searchParams.get('tab'), searchParams.get('sub'))
+  const { area, sub } = resolveOps(searchParams.get('tab'), searchParams.get('sub'))
 
-  function go(nextTab: string, nextSub?: string) {
-    router.push(hubUrl('/admin/ops', nextTab, nextSub), { scroll: false })
+  function go(nextSub: string) {
+    router.push(hubUrl('/admin/ops', area, nextSub), { scroll: false })
   }
 
   const venueProps = { role, sessionVenueId, defaultVenueId: defaultVenueId ?? undefined }
+  // The active area's fine tabs are the page's top bar (customers is a leaf).
+  const fineTabs = OPS_SUB_TABS[area]
 
   return (
     <div className="min-h-screen bg-black flex flex-col">
-      <LineTabs tabs={OPS_TABS} tab={tab} sub={sub} onNavigate={go} />
+      {fineTabs && sub && (
+        <LineTabs tabs={fineTabs} tab={sub} onNavigate={go} />
+      )}
 
-      {/* Active tab */}
+      {/* Active area */}
       <div className="flex-1 p-4 md:p-6">
-        {tab === 'menu' && sub === 'recipes' && <RecipesClient {...venueProps} />}
-        {tab === 'menu' && sub === 'menus' && <MenusClient {...venueProps} />}
-        {tab === 'menu' && sub === 'services' && <ServicesClient {...venueProps} />}
-        {tab === 'bookings' && <BookingClient {...venueProps} />}
-        {tab === 'orders' && <OrdersClient {...venueProps} />}
-        {tab === 'customers' && <CustomersClient {...venueProps} />}
-        {tab === 'inventory' && sub === 'inventory' && <InventoryClient {...venueProps} />}
-        {tab === 'inventory' && sub === 'stocktake' && <StocktakeClient {...venueProps} />}
+        {area === 'menu' && sub === 'recipes' && <RecipesClient {...venueProps} />}
+        {area === 'menu' && sub === 'menus' && <MenusClient {...venueProps} />}
+        {area === 'menu' && sub === 'services' && <ServicesClient {...venueProps} />}
+        {area === 'bookings' && <BookingClient {...venueProps} sub={sub} />}
+        {area === 'orders' && <OrdersClient {...venueProps} sub={sub} />}
+        {area === 'customers' && <CustomersClient {...venueProps} />}
+        {area === 'inventory' && sub === 'inventory' && <InventoryClient {...venueProps} />}
+        {area === 'inventory' && sub === 'stocktake' && <StocktakeClient {...venueProps} />}
       </div>
     </div>
   )

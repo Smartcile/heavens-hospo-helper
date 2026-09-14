@@ -165,8 +165,18 @@ export function StaffAccessDrawer({
               />
             </label>
             <p className="font-mono text-xs text-grey-light">
-              OFF = THIS PERSON KEEPS FULL ACCESS (LEGACY BEHAVIOUR). ON = ACCESS IS EXACTLY THE GRANTS BELOW,
-              PER VENUE. STAFF ROLE IS UNAFFECTED — FLOOR LOGINS NEVER REACH THE ADMIN PANEL.
+              {staffRole === 'STAFF' ? (
+                <>
+                  FLOOR STAFF NEVER REACH THE ADMIN PANEL — THEIR GRANTS UNLOCK WORKER-PHONE MODULES.
+                  TICK <span className="text-white">PERFORMANCE → GIFT CARDS → ISSUE</span> TO LET THIS
+                  PERSON ISSUE GIFT CARDS ON THEIR PHONE.
+                </>
+              ) : (
+                <>
+                  OFF = THIS PERSON KEEPS FULL ACCESS (LEGACY BEHAVIOUR). ON = ACCESS IS EXACTLY THE GRANTS BELOW,
+                  PER VENUE.
+                </>
+              )}
             </p>
           </div>
 

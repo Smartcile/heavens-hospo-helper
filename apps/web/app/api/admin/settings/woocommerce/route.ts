@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       wcStoreUrl: '', wcConsumerKey: '', wcConsumerSecret: '', wcWebhookSecret: '',
       wcActive: false, lastSyncAt: null, sharedWooVenueId: sharedSourceId, readOnly: !!sharedSourceId,
+      managedByPlugin: false, pairedAt: null,
       metaFieldMap: DEFAULT_META_MAP, metaFieldDefaults: DEFAULT_META_MAP,
     })
   }
@@ -49,6 +50,8 @@ export async function GET(req: NextRequest) {
     lastSyncAt: existing.lastSyncAt,
     sharedWooVenueId: sharedSourceId,
     readOnly: !!sharedSourceId,
+    managedByPlugin: existing.managedByPlugin,
+    pairedAt: existing.pairedAt,
     // Effective map (stored merged over defaults) plus the defaults themselves,
     // so the UI can show what a blank field will fall back to.
     metaFieldMap: resolveMetaMap(existing.metaFieldMap),
@@ -60,7 +63,7 @@ export async function PUT(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { wcStoreUrl, wcConsumerKey, wcConsumerSecret, wcWebhookSecret, wcActive, venueId, metaFieldMap } = await req.json()
+  const { wcStoreUrl, wcConsumerKey, wcConsumerSecret, wcWebhookSecret, wcActive, venueId, metaFieldMap, managedByPlugin } = await req.json()
 
   // ADMIN can specify which venue's WooCommerce to configure
   const effectiveVenueId = session.user.role === 'ADMIN' && venueId
@@ -96,6 +99,12 @@ export async function PUT(req: NextRequest) {
     if (val && !val.includes('•')) data.webhookSecret = val
   }
   if (wcActive !== undefined) data.isActive = wcActive
+  // Manual override from the Settings UI — the client can only clear the flag
+  // (set it false), never claim plugin management.
+  if (managedByPlugin === false) {
+    data.managedByPlugin = false
+    data.pairedAt = null
+  }
 
   // Accept only known fields, each a clean list of non-empty string keys.
   // Blank rows are omitted entirely — the server then falls back to the
@@ -135,6 +144,8 @@ export async function PUT(req: NextRequest) {
     wcWebhookSecret: maskSecret(integration.webhookSecret),
     wcActive: integration.isActive,
     lastSyncAt: integration.lastSyncAt,
+    managedByPlugin: integration.managedByPlugin,
+    pairedAt: integration.pairedAt,
     metaFieldMap: resolveMetaMap(integration.metaFieldMap),
     metaFieldDefaults: DEFAULT_META_MAP,
   })

@@ -449,6 +449,12 @@ product/order-status changes push back automatically. **No host crontab
 or OS access is needed**, so this works the same on Portainer, plain compose,
 or any managed container platform.
 
+Pairing is **one click**: install the HOSPO OPS WordPress plugin, paste the
+app URL + API key, and press **CONNECT** — the plugin creates its own Read/Write
+REST API key and registers the webhooks for you. The app shows the store as
+`MANAGED BY PLUGIN` (read-only, with a manual override) and re-connecting
+rotates the credentials.
+
 - Setup guide: [`SOP-WOOCOMMERCE.md`](SOP-WOOCOMMERCE.md)
 - Live sync monitor: **Admin → Setup & Config → Settings → SYNC** (`/admin/settings?tab=sync`) — every pull, push,
   and webhook is logged there with errors in red, plus manual PULL PRODUCTS / PULL ORDERS / PUSH buttons.

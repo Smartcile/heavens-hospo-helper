@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { useEffect, useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -15,7 +15,11 @@ interface NavGroup { label: string; items: NavItem[]; href?: string }
 const NAV_ITEM_AREAS: Record<string, string> = {
   '/admin/calendar': 'calendar',
   '/w/kitchen': 'orders',
-  '/admin/ops': 'ops',
+  '/admin/ops?tab=menu': 'ops',
+  '/admin/ops?tab=bookings': 'ops',
+  '/admin/ops?tab=orders': 'ops',
+  '/admin/ops?tab=customers': 'ops',
+  '/admin/ops?tab=inventory': 'ops',
   '/admin/team': 'team',
   '/admin/execution': 'execution',
   '/admin/training': 'training',
@@ -24,7 +28,7 @@ const NAV_ITEM_AREAS: Record<string, string> = {
   '/admin/reports': 'performance',
   '/admin/budget': 'performance',
   '/admin/gift-cards': 'performance',
-  '/admin/floorplan': 'floorplans',
+  '/admin/settings?tab=floorplans': 'floorplans',
 }
 
 const NAV_GROUPS: NavGroup[] = [
@@ -33,45 +37,68 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/admin/calendar', label: 'Calendar' },
     { href: '/w/kitchen', label: 'Kitchen' },
   ] },
-  { label: 'OPS HUB', href: '/admin/ops', items: [
-    { href: '/admin/ops', label: 'OPS HUB' },
+  // Every group header deep-links to its first subpage (incl. the default
+  // sub-tab where one exists); the ▸/▾ button beside it still collapses.
+  { label: 'Ops hub', href: '/admin/ops?tab=menu&sub=recipes', items: [
+    { href: '/admin/ops?tab=menu', label: 'Menu & Services' },
+    { href: '/admin/ops?tab=bookings', label: 'Bookings' },
+    { href: '/admin/ops?tab=orders', label: 'Orders' },
+    { href: '/admin/ops?tab=customers', label: 'Customers' },
+    { href: '/admin/ops?tab=inventory', label: 'Inventory & Stocktake' },
   ] },
-  { label: 'Team & execution', items: [
+  { label: 'Team & execution', href: '/admin/team?tab=staff', items: [
     { href: '/admin/team', label: 'Roster & Pay' },
     { href: '/admin/execution', label: 'Daily Tasks' },
     { href: '/admin/training', label: 'Training' },
     { href: '/admin/notices', label: 'Notices' },
   ] },
-  { label: 'Compliance', href: '/admin/compliance', items: [
+  { label: 'Compliance', href: '/admin/compliance?tab=tasks', items: [
     { href: '/admin/compliance', label: 'Food Safety' },
   ] },
-  { label: 'Performance', items: [
+  { label: 'Performance', href: '/admin/reports', items: [
     { href: '/admin/reports', label: 'Reports' },
     { href: '/admin/budget', label: 'Budget' },
     { href: '/admin/gift-cards', label: 'Gift Cards' },
   ] },
-  { label: 'Setup & config', items: [
-    { href: '/admin/floorplan', label: 'Floor Plans' },
-    { href: '/admin/settings', label: 'Settings' },
+  { label: 'Setup & config', href: '/admin/settings?tab=general', items: [
+    { href: '/admin/settings?tab=floorplans', label: 'Floor Plans' },
+    { href: '/admin/settings?tab=general', label: 'Settings' },
   ] },
 ]
 
-function isItemActive(item: NavItem, pathname: string) {
+function hrefBase(href: string) {
+  const i = href.indexOf('?')
+  return i === -1 ? href : href.slice(0, i)
+}
+
+// Query-carrying hrefs (the five ops areas) match against pathname + search
+// so only the area whose ?tab= is current lights up.
+function isItemActive(item: NavItem, pathname: string, location: string) {
+  if (item.href.includes('?')) return location.startsWith(item.href)
   return item.exact ? pathname === item.href : pathname.startsWith(item.href)
 }
 
-function groupForPath(pathname: string): string | null {
+// Group headers deep-link to their first subpage (?tab=…): active when the
+// current location falls under that link or the bare path is visited (e.g.
+// /admin/ops typed without params still opens the Ops hub group). Plain-href
+// groups keep exact-path matching so /admin never claims /admin/venues.
+function isGroupActive(href: string, pathname: string, location: string) {
+  if (href.includes('?')) return location.startsWith(href) || pathname === hrefBase(href)
+  return pathname === href
+}
+
+function groupForPath(pathname: string, location: string): string | null {
   // Find the last (most specific) matching group — avoids /admin
   // matching both Overview and Venue when path is /admin/venues.
   const match = [...NAV_GROUPS].reverse().find((grp) =>
-    grp.items.some((it) => isItemActive(it, pathname)) ||
-    (grp.href && pathname.startsWith(grp.href))
+    grp.items.some((it) => isItemActive(it, pathname, location)) ||
+    (grp.href && isGroupActive(grp.href, pathname, location))
   )
   return match?.label ?? null
 }
 
-function ItemLink({ item, pathname, onNavigate }: { item: NavItem; pathname: string; onNavigate?: () => void }) {
-  const active = isItemActive(item, pathname)
+function ItemLink({ item, pathname, location, onNavigate }: { item: NavItem; pathname: string; location: string; onNavigate?: () => void }) {
+  const active = isItemActive(item, pathname, location)
   return (
     <Link
       href={item.href}
@@ -91,12 +118,14 @@ function ItemLink({ item, pathname, onNavigate }: { item: NavItem; pathname: str
 function NavGroups({
   groups,
   pathname,
+  location,
   openGroups,
   toggleGroup,
   onNavigate,
 }: {
   groups: NavGroup[]
   pathname: string
+  location: string
   openGroups: Set<string>
   toggleGroup: (label: string) => void
   onNavigate?: () => void
@@ -105,8 +134,8 @@ function NavGroups({
     <nav className="flex-1 py-2 overflow-y-auto">
       {groups.map((group) => {
         const open = openGroups.has(group.label)
-        const hasActive = group.items.some((it) => isItemActive(it, pathname))
-          || (group.href ? pathname === group.href : false)
+        const hasActive = group.items.some((it) => isItemActive(it, pathname, location))
+          || (group.href ? isGroupActive(group.href, pathname, location) : false)
         return (
           <div key={group.label} className="mb-1">
             {group.href ? (
@@ -141,7 +170,7 @@ function NavGroups({
               </button>
             )}
             {open && group.items.map((item) => (
-              <ItemLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
+              <ItemLink key={item.href} item={item} pathname={pathname} location={location} onNavigate={onNavigate} />
             ))}
           </div>
         )
@@ -177,9 +206,12 @@ function SignOutButton() {
 
 export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds, grantedAreas }: { role: string; venueId: string; defaultVenueId: string | null | undefined; availableVenueIds: string[]; grantedAreas?: string[] }) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [open, setOpen] = useState(false)
+  // Query-carrying hrefs (the ops areas) are matched against pathname+search.
+  const location = searchParams.toString() ? `${pathname}?${searchParams.toString()}` : pathname
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
-    const active = groupForPath(pathname)
+    const active = groupForPath(pathname, location)
     return new Set(active ? [active] : [NAV_GROUPS[0].label])
   })
   const appName = process.env.NEXT_PUBLIC_APP_NAME ?? 'HOSPO OPS'
@@ -201,9 +233,9 @@ export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds, gra
   // Close the mobile drawer on route change, and ensure the active group is open.
   useEffect(() => {
     setOpen(false)
-    const active = groupForPath(pathname)
+    const active = groupForPath(pathname, location)
     if (active) setOpenGroups(new Set([active]))
-  }, [pathname])
+  }, [pathname, location])
 
   function toggleGroup(label: string) {
     setOpenGroups((prev) => {
@@ -217,7 +249,7 @@ export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds, gra
       {/* Desktop sidebar */}
       <aside className="hidden md:flex w-56 sticky top-0 h-screen bg-grey-dark border-r border-grey-mid flex-col">
         <Brand appName={appName} role={role} venueId={venueId} defaultVenueId={defaultVenueId} availableVenueIds={availableVenueIds} />
-        <NavGroups groups={visibleGroups} pathname={pathname} openGroups={openGroups} toggleGroup={toggleGroup} />
+        <NavGroups groups={visibleGroups} pathname={pathname} location={location} openGroups={openGroups} toggleGroup={toggleGroup} />
         <SignOutButton />
       </aside>
 
@@ -242,7 +274,7 @@ export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds, gra
           <div className="absolute inset-0 bg-black/70" onClick={() => setOpen(false)} aria-hidden />
           <aside className="absolute left-0 top-0 h-full w-64 bg-grey-dark border-r border-grey-mid flex flex-col shadow-2xl">
             <Brand appName={appName} role={role} venueId={venueId} defaultVenueId={defaultVenueId} availableVenueIds={availableVenueIds} />
-            <NavGroups groups={visibleGroups} pathname={pathname} openGroups={openGroups} toggleGroup={toggleGroup} onNavigate={() => setOpen(false)} />
+            <NavGroups groups={visibleGroups} pathname={pathname} location={location} openGroups={openGroups} toggleGroup={toggleGroup} onNavigate={() => setOpen(false)} />
             <SignOutButton />
           </aside>
         </div>

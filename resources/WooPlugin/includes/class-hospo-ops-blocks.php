@@ -32,6 +32,16 @@ class Hospo_Ops_Blocks {
 					! class_exists( 'Automattic\WooCommerce\Blocks\Domain\Services\CheckoutFields' ) ) {
 					return;
 				}
+
+				// The dining fields belong to service-menu carts only. When the
+				// cart is already hydrated here (store-API checkout request)
+				// a plain or gift-only cart gets no booking fields; if the
+				// cart is not ready yet we keep the legacy registration.
+				$cart_ready = function_exists( 'WC' ) && isset( WC()->cart ) && WC()->cart && ! WC()->cart->is_empty();
+				if ( $cart_ready && empty( Hospo_Ops_Checkout::cart_service_menu_ids() ) ) {
+					return;
+				}
+
 				$fields = Automattic\WooCommerce\Blocks\Package::container()
 					->get( Automattic\WooCommerce\Blocks\Domain\Services\CheckoutFields::class );
 

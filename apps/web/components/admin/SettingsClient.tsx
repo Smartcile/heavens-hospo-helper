@@ -8,7 +8,9 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { SETTINGS_TABS, resolveTab, hubUrl } from '@/lib/hub-tabs'
 import { LineTabs } from '@/components/admin/LineTabs'
+import { FileBrowser } from '@/components/admin/FileBrowser'
 import { StructureClient } from '@/components/admin/StructureClient'
+import { FloorPlansClient } from '@/components/admin/FloorPlansClient'
 import { UomsClient } from '@/app/admin/(protected)/uoms/UomsClient'
 import { SuppliersClient } from '@/app/admin/(protected)/suppliers/SuppliersClient'
 import { QRCodesClient } from '@/components/admin/QRCodesClient'
@@ -74,12 +76,14 @@ export function SettingsClient({
   sessionVenueId,
   defaultVenueId,
   venueIsDemo,
+  grantedAreas,
 }: {
   staffId: string
   role: string
   sessionVenueId: string
   defaultVenueId: string | null | undefined
   venueIsDemo: boolean
+  grantedAreas?: string[]
 }) {
   // Change password
   const [newPassword, setNewPassword] = useState('')
@@ -134,6 +138,11 @@ export function SettingsClient({
   const [wcLastSync, setWcLastSync] = useState<string | null>(null)
   const [wcReadOnly, setWcReadOnly] = useState(false)
   const [wcSharedFrom, setWcSharedFrom] = useState<string | null>(null)
+  // True when the WordPress plugin's CONNECT flow owns these credentials —
+  // the section is read-only until MANUAL OVERRIDE is clicked.
+  const [wcManagedByPlugin, setWcManagedByPlugin] = useState(false)
+  const [wcPairedAt, setWcPairedAt] = useState<string | null>(null)
+  const [wcOverride, setWcOverride] = useState(false)
   // Meta-field mapping — stored as comma-separated strings while editing.
   const [wcMetaMap, setWcMetaMap] = useState<Record<string, string>>({})
   const [wcMetaDefaults, setWcMetaDefaults] = useState<Record<string, string[]>>({})
@@ -190,6 +199,9 @@ export function SettingsClient({
           setWcLastSync(d.lastSyncAt ?? null)
           setWcReadOnly(d.readOnly ?? false)
           setWcSharedFrom(d.sharedWooVenueId ?? null)
+          setWcManagedByPlugin(d.managedByPlugin ?? false)
+          setWcPairedAt(d.pairedAt ?? null)
+          setWcOverride(false)
           setWcMetaMap(metaMapToText(d.metaFieldMap))
           setWcMetaDefaults(d.metaFieldDefaults ?? {})
         }
@@ -333,6 +345,8 @@ export function SettingsClient({
       metaFieldMap: metaTextToMap(wcMetaMap),
     }
     if (role === 'ADMIN' && wcVenueId) body.venueId = wcVenueId
+    // Saving after MANUAL OVERRIDE hands the credentials back to the admin.
+    if (wcOverride) body.managedByPlugin = false
     const r = await fetch('/api/admin/settings/woocommerce', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -345,6 +359,9 @@ export function SettingsClient({
       setWcConsumerSecret(d.wcConsumerSecret ?? '')
       setWcWebhookSecret(d.wcWebhookSecret ?? '')
       setWcLastSync(d.lastSyncAt ?? null)
+      setWcManagedByPlugin(d.managedByPlugin ?? false)
+      setWcPairedAt(d.pairedAt ?? null)
+      setWcOverride(false)
       setWcMetaMap(metaMapToText(d.metaFieldMap))
       setWcMessage('SAVED')
     } else {
@@ -427,7 +444,19 @@ export function SettingsClient({
 
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { tab } = resolveTab(SETTINGS_TABS, searchParams.get('tab'), null)
+  // FILES is admin-only; FLOOR PLANS follows the same grant-gating as the
+  // sidebar item (restricted managers need the `floorplans` area). Neither
+  // group ever sees the tab nor lands on it — resolveTab falls back to the
+  // first visible tab when a hidden tab is requested by URL.
+  const settingsTabs = SETTINGS_TABS.filter((t) => {
+    if (t.id === 'files') return role === 'ADMIN'
+    if (t.id === 'floorplans') return !grantedAreas || grantedAreas.includes('floorplans')
+    return true
+  })
+  const { tab } = resolveTab(settingsTabs, searchParams.get('tab'), null)
+
+  // Plugin-managed credentials are read-only until MANUAL OVERRIDE is clicked.
+  const wcLocked = wcReadOnly || (wcManagedByPlugin && !wcOverride)
 
   function go(nextTab: string) {
     router.push(hubUrl('/admin/settings', nextTab), { scroll: false })
@@ -435,7 +464,7 @@ export function SettingsClient({
 
   return (
     <div className="min-h-screen bg-black flex flex-col">
-      <LineTabs tabs={SETTINGS_TABS} tab={tab} onNavigate={go} />
+      <LineTabs tabs={settingsTabs} tab={tab} onNavigate={go} />
       <div className="flex-1 p-4 md:p-6">
         {tab === 'general' && (
           <div className="space-y-8">
@@ -471,16 +500,32 @@ export function SettingsClient({
             <Select label="Venue" value={wcVenueId} onChange={(e) => setWcVenueId(e.target.value)} options={venues.map((v) => ({ value: v.id, label: v.name }))} />
           )}
           {wcReadOnly && <p className="font-mono text-xs text-[#FACC15]">READ-ONLY — WOOCOMMERCE IS MANAGED BY {wcSharedFrom ? venues.find((v) => v.id === wcSharedFrom)?.name ?? 'THE SOURCE VENUE' : 'ANOTHER VENUE'}</p>}
-          <Input label="STORE URL" value={wcStoreUrl} onChange={(e) => setWcStoreUrl(e.target.value)} placeholder="https://yourshop.co.nz" disabled={wcReadOnly} />
+          {wcManagedByPlugin && (
+            <div className={`border p-3 space-y-2 ${wcOverride ? 'border-[#FACC15]' : 'border-[#60A5FA]'}`}>
+              <div className="font-mono text-xs uppercase tracking-wider text-white">
+                {wcOverride ? 'MANUAL OVERRIDE' : 'MANAGED BY PLUGIN'}
+              </div>
+              <p className="font-mono text-[10px] text-grey-light leading-relaxed">
+                {wcOverride
+                  ? 'SAVING WILL DISCONNECT THE WORDPRESS PLUGIN\'S MANAGEMENT. THE PLUGIN CAN RE-CONNECT AT ANY TIME AND WILL TAKE OVER AGAIN.'
+                  : `CREDENTIALS AND WEBHOOKS WERE SET UP BY THE HOSPO OPS WORDPRESS PLUGIN${wcPairedAt ? ` ON ${new Date(wcPairedAt).toLocaleString()}` : ''}. RE-CONNECT FROM THE PLUGIN TO ROTATE THEM.`}
+              </p>
+              {!wcOverride && (
+                <Button size="sm" variant="ghost" onClick={() => setWcOverride(true)}>MANUAL OVERRIDE</Button>
+              )}
+            </div>
+          )}
+          <Input label="STORE URL" value={wcStoreUrl} onChange={(e) => setWcStoreUrl(e.target.value)} placeholder="https://yourshop.co.nz" disabled={wcLocked} />
           <div className="grid grid-cols-2 gap-3">
-            <Input label="CONSUMER KEY" type="password" value={wcConsumerKey} onChange={(e) => setWcConsumerKey(e.target.value)} placeholder={wcConsumerKey ? '•••••••• — TYPE TO REPLACE' : 'ck_...'} autoComplete="off" />
-            <Input label="CONSUMER SECRET" type="password" value={wcConsumerSecret} onChange={(e) => setWcConsumerSecret(e.target.value)} placeholder={wcConsumerSecret ? '•••••••• — TYPE TO REPLACE' : 'cs_...'} autoComplete="off" />
+            <Input label="CONSUMER KEY" type="password" value={wcConsumerKey} onChange={(e) => setWcConsumerKey(e.target.value)} placeholder={wcConsumerKey ? '•••••••• — TYPE TO REPLACE' : 'ck_...'} autoComplete="off" disabled={wcLocked} />
+            <Input label="CONSUMER SECRET" type="password" value={wcConsumerSecret} onChange={(e) => setWcConsumerSecret(e.target.value)} placeholder={wcConsumerSecret ? '•••••••• — TYPE TO REPLACE' : 'cs_...'} autoComplete="off" disabled={wcLocked} />
           </div>
-          <Input label="WEBHOOK SECRET" type="password" value={wcWebhookSecret} onChange={(e) => setWcWebhookSecret(e.target.value)} placeholder={wcWebhookSecret ? '•••••••• — TYPE TO REPLACE' : 'whsec_...'} autoComplete="off" />
+          <Input label="WEBHOOK SECRET" type="password" value={wcWebhookSecret} onChange={(e) => setWcWebhookSecret(e.target.value)} placeholder={wcWebhookSecret ? '•••••••• — TYPE TO REPLACE' : 'whsec_...'} autoComplete="off" disabled={wcLocked} />
           <div className="flex items-center gap-3">
             <button
               onClick={() => setWcActive(!wcActive)}
-              className={`font-mono text-xs uppercase px-3 py-1.5 border ${wcActive ? 'border-success text-success' : 'border-grey-mid text-grey-light'}`}
+              disabled={wcLocked}
+              className={`font-mono text-xs uppercase px-3 py-1.5 border ${wcActive ? 'border-success text-success' : 'border-grey-mid text-grey-light'} disabled:opacity-40`}
             >
               {wcActive ? 'ACTIVE' : 'INACTIVE'}
             </button>
@@ -558,7 +603,7 @@ export function SettingsClient({
             </div>
           </div>
           {wcMessage && <p className={`font-mono text-xs ${wcMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{wcMessage}</p>}
-          <Button onClick={saveWooCommerce} loading={wcSaving} size="sm">SAVE WOOCOMMERCE</Button>
+          <Button onClick={saveWooCommerce} loading={wcSaving} size="sm">{wcOverride ? 'SAVE & TAKE OVER' : 'SAVE WOOCOMMERCE'}</Button>
         </div>
       </div>
 
@@ -768,10 +813,22 @@ export function SettingsClient({
         </div>
         )}
         {tab === 'structure' && <StructureClient role={role} />}
+        {tab === 'floorplans' && (!grantedAreas || grantedAreas.includes('floorplans')) && (
+          <FloorPlansClient role={role} venueId={sessionVenueId} />
+        )}
         {tab === 'uoms' && <UomsClient />}
         {tab === 'suppliers' && <SuppliersClient />}
         {tab === 'qrcodes' && <QRCodesClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId ?? undefined} />}
         {tab === 'sync' && <SyncClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId ?? undefined} />}
+        {tab === 'files' && role === 'ADMIN' && (
+          <div className="max-w-4xl space-y-3">
+            <h1 className="font-mono text-xl font-bold uppercase tracking-widest">FILE MANAGER</h1>
+            <p className="font-mono text-xs text-grey-light">
+              BROWSE THE FILES THIS SERVER STORES — UPLOADED MEDIA AND KEPT BACKUP ARCHIVES. CLICK A FILE TO PREVIEW IT AND SEE WHERE IT&apos;S USED; LINKED FILES CANNOT BE DELETED.
+            </p>
+            <FileBrowser />
+          </div>
+        )}
       </div>
     </div>
   )

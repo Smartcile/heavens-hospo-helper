@@ -1,34 +1,70 @@
 export interface TabDef {
   id: string
   label: string
+  /** Optional tooltip for the tab's button (rendered as a `title` attr). */
+  title?: string
   subTabs?: { id: string; label: string }[]
   defaultSub?: string
 }
 
-export const OPS_TABS: TabDef[] = [
-  {
-    id: 'menu',
-    label: 'MENU & SERVICES',
-    subTabs: [
-      { id: 'recipes', label: 'RECIPES' },
-      { id: 'menus', label: 'MENUS & CATEGORIES' },
-      { id: 'services', label: 'SERVICES' },
-    ],
-    defaultSub: 'recipes',
-  },
+// ── OPS HUB ─────────────────────────────────────────────────────────────
+// The five ops areas live in the SIDEBAR (see NAV_GROUPS in AdminNav). The
+// /admin/ops top bar shows ONLY the active area's fine tabs (OPS_SUB_TABS) —
+// a single row, the same shape as every other hub page's top bar.
+// CUSTOMERS is a leaf: it has no fine tabs and renders without a top bar.
+export const OPS_AREAS: TabDef[] = [
+  { id: 'menu', label: 'MENU & SERVICES' },
   { id: 'bookings', label: 'BOOKINGS' },
   { id: 'orders', label: 'ORDERS' },
   { id: 'customers', label: 'CUSTOMERS' },
-  {
-    id: 'inventory',
-    label: 'INVENTORY & STOCKTAKE',
-    subTabs: [
-      { id: 'inventory', label: 'INVENTORY' },
-      { id: 'stocktake', label: 'STOCKTAKE' },
-    ],
-    defaultSub: 'inventory',
-  },
+  { id: 'inventory', label: 'INVENTORY & STOCKTAKE' },
 ]
+
+export const OPS_SUB_TABS: Record<string, TabDef[]> = {
+  menu: [
+    { id: 'recipes', label: 'RECIPES' },
+    { id: 'menus', label: 'MENUS & CATEGORIES' },
+    { id: 'services', label: 'SERVICES' },
+  ],
+  bookings: [
+    { id: 'diary', label: 'DIARY' },
+    { id: 'table', label: 'TABLE' },
+    { id: 'deleted', label: 'DELETED' },
+  ],
+  orders: [
+    { id: 'all', label: 'ALL', title: 'EVERY SYNCED ORDER — DEBUG' },
+    { id: 'service', label: 'SERVICE', title: 'BY TIME SLOT' },
+    { id: 'kitchen', label: 'KITCHEN', title: 'PREP TOTALS + ALLERGENS' },
+    { id: 'foh', label: 'FOH', title: 'BY TABLE' },
+    { id: 'production', label: 'PRODUCTION', title: 'PICK LIST' },
+  ],
+  inventory: [
+    { id: 'inventory', label: 'INVENTORY' },
+    { id: 'stocktake', label: 'STOCKTAKE' },
+  ],
+}
+
+const OPS_SUB_DEFAULTS: Record<string, string> = {
+  menu: 'recipes',
+  bookings: 'table',
+  orders: 'service',
+  inventory: 'inventory',
+}
+
+/** Resolve the active ops area + fine sub-tab from the URL params. */
+export function resolveOps(
+  tabParam: string | null | undefined,
+  subParam: string | null | undefined,
+): { area: string; sub?: string } {
+  const area = OPS_AREAS.some((a) => a.id === tabParam)
+    ? (tabParam as string)
+    : OPS_AREAS[0].id
+  const subs = OPS_SUB_TABS[area]
+  if (!subs) return { area }
+  const wanted =
+    subParam && subs.some((s) => s.id === subParam) ? subParam : OPS_SUB_DEFAULTS[area]
+  return { area, sub: wanted }
+}
 
 export const TEAM_TABS: TabDef[] = [
   { id: 'staff', label: 'STAFF' },
@@ -51,10 +87,12 @@ export const TRAINING_TABS: TabDef[] = [
 export const SETTINGS_TABS: TabDef[] = [
   { id: 'general', label: 'GENERAL' },
   { id: 'structure', label: 'STRUCTURE' },
+  { id: 'floorplans', label: 'FLOOR PLANS' }, // grant-gated — see SettingsClient
   { id: 'uoms', label: 'UNITS OF MEASURE' },
   { id: 'suppliers', label: 'SUPPLIERS' },
   { id: 'qrcodes', label: 'QR CODES' },
   { id: 'sync', label: 'SYNC' },
+  { id: 'files', label: 'FILES' }, // admin-only — see SettingsClient
 ]
 
 // Food Health & Safety (NZ GFMP) — Chomp-style hub. LOGGERS arrives with the

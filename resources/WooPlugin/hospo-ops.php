@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       HOSPO OPS
  * Plugin URI:        https://github.com/Smartcile/heavens-hospo-helper
- * Description:       Dated ordering + table bookings for WooCommerce, driven by your HOSPO OPS venue. Customers pick a service, date, time slot and party size at checkout; picking the date and time IS the booking (dine-in only) and creates the reservation in the app. Includes a booking-only widget for pages, and gift card PDFs auto-attached to order emails.
- * Version:           0.4.0
+ * Description:       Dated ordering + table bookings for WooCommerce, driven by your HOSPO OPS venue. Customers pick a service, date, time slot and party size at checkout; picking the date and time IS the booking (dine-in only) and creates the reservation in the app. Includes a booking-only widget for pages, gift card PDFs auto-attached to order emails, and one-click WooCommerce pairing (REST API key + webhooks created automatically).
+ * Version:           0.5.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            HOSPO OPS
@@ -15,12 +15,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'HOSPO_OPS_VERSION', '0.4.0' );
+define( 'HOSPO_OPS_VERSION', '0.5.0' );
 define( 'HOSPO_OPS_FILE', __FILE__ );
 define( 'HOSPO_OPS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'HOSPO_OPS_URL', plugin_dir_url( __FILE__ ) );
 
 require_once HOSPO_OPS_DIR . 'includes/class-hospo-ops-api.php';
+require_once HOSPO_OPS_DIR . 'includes/class-hospo-ops-woo-setup.php';
 require_once HOSPO_OPS_DIR . 'includes/class-hospo-ops-settings.php';
 require_once HOSPO_OPS_DIR . 'includes/class-hospo-ops-booking-widget.php';
 require_once HOSPO_OPS_DIR . 'includes/class-hospo-ops-checkout.php';
@@ -71,3 +72,5 @@ register_activation_hook( __FILE__, 'hospo_ops_activate' );
 add_action( 'admin_menu', array( 'Hospo_Ops_Settings', 'register_menu' ) );
 add_action( 'admin_post_hospo_ops_test_connection', array( 'Hospo_Ops_Settings', 'handle_test_connection' ) );
 add_action( 'admin_post_hospo_ops_save_settings', array( 'Hospo_Ops_Settings', 'handle_save_settings' ) );
+add_action( 'admin_post_hospo_ops_connect', array( 'Hospo_Ops_Settings', 'handle_connect' ) );
+add_action( 'admin_post_hospo_ops_disconnect', array( 'Hospo_Ops_Settings', 'handle_disconnect' ) );

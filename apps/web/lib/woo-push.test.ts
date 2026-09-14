@@ -95,6 +95,16 @@ describe('buildProductPushPayload', () => {
     expect(payload.images).toEqual([{ src: '/api/upload/abc.jpg' }])
   })
 
+  it('clears the store image when a pushed image is removed locally', () => {
+    const payload = buildProductPushPayload({ name: 'BURGER', price: 12, wooCategoryId: null, wooProductId: '55', imageUrl: null, wooImageId: '880', shortDescription: null, isVariable: false, variations: null }, NOW)
+    expect(payload.images).toEqual([])
+  })
+
+  it('never clears images it does not own (no wooImageId)', () => {
+    const payload = buildProductPushPayload({ name: 'BURGER', price: 12, wooCategoryId: null, wooProductId: '55', imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW)
+    expect(payload.images).toBeUndefined()
+  })
+
   it('defaults price to "0" when null-ish', () => {
     const payload = buildProductPushPayload({ name: 'X', price: null as unknown as number, wooCategoryId: null, wooProductId: null, imageUrl: null, shortDescription: null, isVariable: false, variations: null }, NOW)
     expect(payload.regular_price).toBe('0')

@@ -6,9 +6,12 @@ import { guardAccess } from '@/lib/permissions'
 import { discoverPdfFields, proposeFieldMapping } from '@/lib/gift-card-template'
 import { writeFile, mkdir } from 'fs/promises'
 import { existsSync, readFileSync } from 'fs'
+import { storageDir } from '@/lib/storage'
 import path from 'path'
 
-const TEMPLATE_DIR = path.join(process.cwd(), 'public', 'uploads', 'gift-cards', 'templates')
+// Templates live on the UPLOAD_PATH storage root (persistent volume in
+// Docker) — public/uploads is inside the image and is wiped on redeploy.
+const TEMPLATE_DIR = storageDir('gift-cards', 'templates')
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 export async function GET(req: NextRequest) {
@@ -25,7 +28,7 @@ export async function GET(req: NextRequest) {
   const withFields = await Promise.all(
     templates.map(async (t) => {
       let fields: { name: string; type: string }[] = []
-      if (existsSync(t.filePath)) {
+      if (t.filePath && existsSync(t.filePath)) {
         try {
           fields = await discoverPdfFields(readFileSync(t.filePath))
         } catch (err) {

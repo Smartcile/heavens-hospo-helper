@@ -27,6 +27,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   if (fieldMapping !== undefined) {
     if (!Array.isArray(fieldMapping)) return NextResponse.json({ error: 'fieldMapping must be an array' }, { status: 400 })
+    if (!template.filePath) return NextResponse.json({ error: 'Template has no PDF file — upload one first' }, { status: 400 })
 
     let fields: { name: string; type: string }[] = []
     if (existsSync(template.filePath)) {
