@@ -20,6 +20,9 @@ const NAV_ITEM_AREAS: Record<string, string> = {
   '/admin/ops?tab=orders': 'ops',
   '/admin/ops?tab=customers': 'ops',
   '/admin/ops?tab=inventory': 'ops',
+  '/admin/events?tab=events': 'events',
+  '/admin/events?tab=templates': 'events',
+  '/admin/events?tab=requests': 'events',
   '/admin/team': 'team',
   '/admin/execution': 'execution',
   '/admin/training': 'training',
@@ -45,6 +48,11 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/admin/ops?tab=orders', label: 'Orders' },
     { href: '/admin/ops?tab=customers', label: 'Customers' },
     { href: '/admin/ops?tab=inventory', label: 'Inventory & Stocktake' },
+  ] },
+  { label: 'Events', href: '/admin/events?tab=events', items: [
+    { href: '/admin/events?tab=events', label: 'BEO Planner' },
+    { href: '/admin/events?tab=templates', label: 'Event Templates' },
+    { href: '/admin/events?tab=requests', label: 'Requests' },
   ] },
   { label: 'Team & execution', href: '/admin/team?tab=staff', items: [
     { href: '/admin/team', label: 'Roster & Pay' },

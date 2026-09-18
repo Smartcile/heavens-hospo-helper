@@ -164,6 +164,20 @@ has an **ADMIN PANEL** button that returns to the landing page.
 On a phone, the admin panel collapses to a **burger menu** (top-left) that slides
 out the navigation; on desktop the sidebar is always visible.
 
+### Install it on your phone (app mode)
+
+HOSPO OPS is a PWA — you can add it to the home screen and it opens full-screen,
+with no browser bars, like a native app:
+
+- **iPhone (Safari):** open the app URL, tap **Share → Add to Home Screen → Add**.
+- **Android (Chrome):** tap the **⋮** menu → **Install app** / **Add to Home Screen**.
+
+Launch it from the home-screen icon from then on. The status bar is black to
+match the app, and the bottom bars keep clear of the iPhone home indicator.
+This is the intended way to use the worker screens and the BEO/events builder
+on the floor. Reach the app over your LAN (`http://<your-ip>:3000`) — an
+`https://` URL is required for some PWA features on iOS.
+
 ---
 
 ## HOW IT ALL LINKS TOGETHER
@@ -377,6 +391,39 @@ check having a **PASS band** and a wider **critical danger band**.
 Out-of-range readings are raised automatically when a worker logs the number on
 their phone — the verdict is computed on the server, so nothing can be silently
 recorded as a pass.
+
+---
+
+### BEO / EVENTS PLANNER
+
+Plan a banquet event end to end under **EVENTS → BEO Planner**
+(`/admin/events`).
+
+- **Build it from blocks.** An event is a header (date, times, guests, dining
+  style, contact, menu, layout, deposit) plus a body of blocks you drag in from
+  the library on the right — customer details, menu selection, drinks, dining
+  style, dietary requirements, room setup, run sheet, staffing, vendors,
+  transport, payment, notes and free text. Reorder, duplicate or remove them;
+  each block has its own editor. The event links to the menus, menu items and
+  floor-plan layouts you have already built.
+- **Templates.** Save any event as a reusable package (**SAVE AS TEMPLATE**), or
+  start a new event from a template under **TEMPLATES** — blocks, menu, layout,
+  pax and style come across, then you make the final changes.
+- **Live pricing.** Menu and drinks blocks are priced against your live menu
+  items, so the event shows subtotal, deposit and balance as you build it.
+- **Push to the floor.** **PUSH NOW** creates the booking, seats the party on
+  the service's table plan (or the layout you chose) and raises the pre-order,
+  all linked together.
+- **Share with the customer.** **SHARE** mints a private link (`/e/<token>`).
+  The customer sees the room setup, menu and drinks, dining style, guest count,
+  dietary needs, run sheet and pricing — but never your internal notes or
+  staffing — and can **approve**, **sign off** or **request a change**. Requests
+  land in the **REQUESTS** tab for you to accept or decline.
+- **Print it.** Download the BEO as a PDF in three versions: **FULL** (the
+  internal order), **CLIENT** (customer-safe) and **KITCHEN** (dietary first,
+  run sheet and dish totals).
+- **From the phone.** Managers (and staff granted EVENTS access under
+  Staff → ACCESS) can build and edit events from the worker app at `/w/events`.
 
 ---
 

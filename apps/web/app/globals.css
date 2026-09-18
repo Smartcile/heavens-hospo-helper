@@ -40,6 +40,23 @@
 
 * {
   box-sizing: border-box;
+  /* Native-app feel: no grey flash when tapping a control. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── Mobile / PWA shell ───────────────────────────────────────────────────
+   Fixed-bar heights used to offset the hubs' sticky bars so nothing slides
+   under the mobile admin top bar. --admin-topbar-h is 0 from md up, where the
+   sidebar replaces the fixed bar, so the same calc works at every width. */
+:root {
+  --admin-topbar-h: 3.5rem;
+  --hub-tabs-h: 2.5rem;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --admin-topbar-h: 0rem;
+  }
 }
 
 html,
@@ -47,6 +64,26 @@ body {
   background-color: var(--color-black);
   color: var(--color-white);
   font-family: var(--font-sans);
+}
+
+html {
+  /* Don't let iOS inflate text in landscape. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  /* dvh tracks the collapsing mobile browser chrome; the vh line is the fallback. */
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Remove the ~300ms tap delay on interactive elements. */
+button,
+a,
+select,
+label {
+  touch-action: manipulation;
 }
 
 ::-webkit-scrollbar {
@@ -103,4 +140,25 @@ body {
     content: '_';
     @apply animate-blink;
   }
+}
+
+/* ── Safe-area helpers (notch / home indicator) ────────────────────────── */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
+
+@utility mb-safe {
+  margin-bottom: env(safe-area-inset-bottom);
 }

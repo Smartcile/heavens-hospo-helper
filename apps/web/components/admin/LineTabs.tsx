@@ -16,7 +16,7 @@ export function LineTabs({ tabs, tab, sub, onNavigate }: LineTabsProps) {
   const tabDef = tabs.find((t) => t.id === tab) ?? tabs[0]
 
   return (
-    <div className="sticky top-0 z-20 bg-black border-b border-grey-mid">
+    <div className="sticky top-[var(--admin-topbar-h)] z-20 bg-black border-b border-grey-mid">
       <div className="flex overflow-x-auto">
         {tabs.map((t) => (
           <button

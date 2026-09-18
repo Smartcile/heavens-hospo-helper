@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
-type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock'
+type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events'
 
 interface DashData {
   firstName: string
@@ -19,6 +19,8 @@ interface DashData {
   newTraining: number
   pendingStocktakes: number
   isClockedIn: boolean
+  /** Managers / granted staff can build BEOs from the phone. */
+  eventsAllowed: boolean
 }
 
 let inactivityTimer: ReturnType<typeof setTimeout> | null = null
@@ -54,7 +56,7 @@ export function WorkerDashboardClient() {
     if (loaded.current) return
     loaded.current = true
 
-    const [tasksR, noticesR, calR, guidesR, pathwayR, stocktakeR, clockR] = await Promise.all([
+    const [tasksR, noticesR, calR, guidesR, pathwayR, stocktakeR, clockR, eventsR] = await Promise.all([
       fetch('/api/worker/tasks'),
       fetch('/api/worker/notices'),
       fetch('/api/worker/calendar'),
@@ -62,6 +64,7 @@ export function WorkerDashboardClient() {
       fetch('/api/worker/pathway'),
       fetch('/api/worker/stocktake'),
       fetch('/api/worker/timeclock/status'),
+      fetch('/api/worker/events/access'),
     ])
 
     if (tasksR.status === 401) { router.push('/w/login'); return }
@@ -73,6 +76,7 @@ export function WorkerDashboardClient() {
     const pathway = pathwayR.ok ? await pathwayR.json() : { pathway: null }
     const stocktakes = stocktakeR.ok ? await stocktakeR.json() : []
     const clock = clockR.ok ? await clockR.json() : { isClockedIn: false }
+    const eventsAccess = eventsR.ok ? await eventsR.json() : { allowed: false }
 
     const pending = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => !t.isCompleted).length
     const done = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => t.isCompleted).length
@@ -95,6 +99,7 @@ export function WorkerDashboardClient() {
       newTraining: newGuides,
       pendingStocktakes: (stocktakes ?? []).length,
       isClockedIn: clock.isClockedIn ?? false,
+      eventsAllowed: !!eventsAccess.allowed,
     })
     setLoading(false)
   }
@@ -159,7 +164,7 @@ export function WorkerDashboardClient() {
         <div className="flex-1">
           <iframe src={src} className="w-full h-full border-0" />
         </div>
-        <div className="p-3 bg-black border-t border-grey-mid">
+        <div className="px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] bg-black border-t border-grey-mid">
           <button
             onClick={() => setView('dashboard')}
             className="w-full h-12 bg-warning/10 border border-warning/30 text-warning font-mono text-sm font-bold uppercase tracking-widest hover:bg-warning/20 hover:border-warning/50 transition-colors"
@@ -301,6 +306,18 @@ export function WorkerDashboardClient() {
           data?.isClockedIn ? 'text-success' : 'text-grey-light',
           data?.isClockedIn ? 'border-success' : 'border-grey-mid',
           () => setView('timeclock')
+        )}
+
+        {data?.eventsAllowed && card(
+          'EVENTS',
+          'BUILD & EDIT BEOS',
+          <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="square" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2zM9 16h6" />
+          </svg>,
+          null,
+          'text-grey-light',
+          'border-grey-mid',
+          () => setView('events')
         )}
       </div>
     </div>

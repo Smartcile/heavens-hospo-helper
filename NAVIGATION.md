@@ -66,6 +66,14 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 | **Customers** | `/admin/ops?tab=customers` | Customer search by phone/name (a leaf — no top bar) |
 | **Inventory & Stocktake** | `/admin/ops?tab=inventory` | INVENTORY · STOCKTAKE (see section 2) |
 
+### EVENTS group
+
+| Item | URL | What it does |
+|---|---|---|
+| **BEO Planner** | `/admin/events?tab=events` | Events/BEO list (search + status filter) → the builder: event header (type, date, times, guests, dining style, contact, menu/service/layout, push-to-bookings, deposit, notes) plus a **drag-from-library block canvas** (14 typed blocks: customer details, menu, drinks, dining style, dietary, room setup, run sheet, staffing, vendors, transport, payment, notes, history, custom text). Blocks reorder/duplicate/delete; each renders a typed config editor. Live subtotal/deposit/balance, **PUSH NOW** (creates the booking + seating + pre-order), **SHARE** (mints the customer link), **SAVE AS TEMPLATE**, and **PDF** buttons (FULL / CLIENT / KITCHEN). Saves the event then its blocks |
+| **Event Templates** | `/admin/events?tab=templates` | Reusable packages: named block sets + default menu/service/layout + default pax/style. Create/edit in a modal (block library + per-block config), APPLY creates a DRAFT event (jumps to the planner). Built-in templates are read-only |
+| **Requests** | `/admin/events?tab=requests` | Customer-submitted queue (edit requests / approvals): PENDING/ACCEPTED/DECLINED filters, ACCEPT/DECLINE with a response note, OPEN EVENT. An accepted approval/sign-off stamps the event as customer-approved |
+
 ### TEAM & EXECUTION group
 
 | Item | URL | What it does |
@@ -178,6 +186,7 @@ keeping other query params.
 | **Notices** | `/w/notices` | Announcements with GOT IT acknowledgement |
 | **Timeclock** | `/w/timeclock` | Clock in/out, breaks (NZ rules), today's hours, history |
 | **Gift Cards** | /w/giftcards | Issue a physical gift card (permission-only tile): shows the lowest-numbered draft, buyer + amount, ISSUE → VIEW / PRINT PDF |
+| **Events** | `/w/events` | Build & edit BEOs from the phone (permission-only tile — ADMIN/MANAGER always, STAFF need EVENTS create/edit): event list → full-screen editor with the same typed blocks (click to add from the library, reorder, edit config) and menu/layout pickers. Venue is always the worker's own |
 
 
 ---
@@ -214,6 +223,7 @@ Every page merged into a hub keeps its URL as a redirect that forwards query par
 
 | URL | Status | Notes |
 |---|---|---|
+| `/e/[token]` | **public page** (no login) | The customer's BEO share page: event details, room setup, menu/drinks, dining style, pax, dietary, run sheet, order summary + pricing, APPROVE / SIGN OFF and REQUEST AN EDIT. The opaque token in the URL is the only credential; disabled/rotated/expired links show "LINK NOT AVAILABLE" |
 | `/admin/departments` | real page, not in sidebar | Departments managed inside other pages |
 | `/admin/sections` | real page, not in sidebar | Sections + positions used by staff/task forms |
 | `/api/public/*` | API only | Public booking widget + availability + config + WooCommerce plugin pairing (`/api/public/woocommerce/connect`) |

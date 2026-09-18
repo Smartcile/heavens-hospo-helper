@@ -111,6 +111,7 @@ enum BookingSource {
   PHONE
   WALK_IN
   WOOCOMMERCE
+  EVENT // raised by pushing a BEO event into bookings
 }
 
 // A knowledge resource's type. TRAINING is a sign-off-able guide; the rest are
@@ -178,6 +179,33 @@ enum BudgetLineKind {
   GROUP
   LINE
   TOTAL
+}
+
+// ── BEO / EVENTS ─────────────────────────────────────────────────────────
+// Lifecycle of a banquet event order. DRAFT/TENTATIVE are pre-confirmation;
+// nothing downstream (booking/calendar/layout) is created until the event is
+// CONFIRMED and `pushToBookings` is set.
+enum EventStatus {
+  DRAFT
+  TENTATIVE
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// A customer-submitted request against a shared event. EDIT asks for a change;
+// APPROVAL / SIGN_OFF record the customer accepting the BEO.
+enum BeoRequestKind {
+  EDIT
+  APPROVAL
+  SIGN_OFF
+}
+
+enum BeoRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
 }
 
 model Venue {
@@ -263,6 +291,8 @@ model Venue {
   hsAlerts            HsAlert[]
   deliveries          Delivery[]
   staffPermissions    StaffPermission[]
+  events              Event[]
+  beoTemplates        BeoTemplate[]
 }
 
 model Department {
@@ -827,6 +857,7 @@ model CalendarEvent {
   venue     Venue      @relation(fields: [venueId], references: [id])
   wooOrders WooOrder[]
   bookings  Booking[]
+  events    Event[]
 
   @@unique([venueId, source, uid])
   @@index([venueId, startsAt])
@@ -858,6 +889,7 @@ model Booking {
   service       Service?       @relation(fields: [serviceId], references: [id])
   tables        BookingTable[]
   orders        WooOrder[]
+  events        Event[]
 
   @@index([venueId, date])
   @@index([venueId])
@@ -1751,6 +1783,7 @@ model FloorPlanSetup {
   items     SetupItem[]
   groups    TableGroup[]
   services  Service[] // a dated Service can use this layout as its table plan
+  events    Event[] // an Event can pin this layout as its room setup
 
   @@index([floorPlanId])
 }
@@ -2444,6 +2477,7 @@ model Menu {
   venue  Venue          @relation(fields: [venueId], references: [id])
   items  MenuMenuItem[]
   orders WooOrder[]
+  events Event[]
 
   @@unique([venueId, name])
   @@index([venueId])
@@ -2529,6 +2563,7 @@ model Service {
   orders         WooOrder[]
   bookings       Booking[]
   tablePlanSetup FloorPlanSetup?    @relation(fields: [tablePlanSetupId], references: [id])
+  events         Event[]
 
   @@index([venueId])
 }
@@ -2609,6 +2644,7 @@ model Customer {
 
   venue  Venue      @relation(fields: [venueId], references: [id])
   orders WooOrder[]
+  events Event[]
 
   // Email is a strong identity — enforced at the DB so a duplicate is impossible.
   // Phone is only indexed, not unique: households legitimately share a landline,
@@ -2791,5 +2827,149 @@ model SyncLog {
 
   @@index([venueId])
   @@index([createdAt])
+  @@index([status])
+}
+
+// ── BEO / EVENTS ─────────────────────────────────────────────────────────
+
+// A banquet event order: the event contract that a Booking (the seated table
+// reservation) sits inside. It links the customer, the menu, the service, the
+// room layout and the pre-order, and carries a composable body of `BeoBlock`
+// rows (the drag-from-library builder). Whether it pushes downstream records is
+// per-event (`pushToBookings`) — an event can stay a standalone planning doc.
+model Event {
+  id              String      @id @default(uuid())
+  venueId         String
+  name            String
+  eventType       String? // "WEDDING" / "CONFERENCE" — venue-defined, not an enum
+  status          EventStatus @default(DRAFT)
+  eventDate       DateTime    @db.Date // venue-local calendar date
+  startTime       String? // "HH:mm" venue-local
+  endTime         String? // "HH:mm" venue-local
+  guestCount      Int         @default(0)
+  diningStyle     String? // "PLATED" / "BUFFET" / "COCKTAIL" — venue-defined
+  // Contact details as captured on the BEO. `customerId` is the deduped link;
+  // these stay as the point-in-time record (same pattern as WooOrder).
+  customerId      String?
+  contactName     String?
+  contactEmail    String?
+  contactPhone    String?
+  menuId          String?
+  serviceId       String?
+  setupId         String? // FloorPlanSetup — the room layout for this event
+  bookingId       String? // the seated reservation, when one exists
+  calendarEventId String?
+  templateId      String? // provenance — which BeoTemplate this was built from
+  // Per-event switch: when true (and the event is CONFIRMED) the event pushes
+  // into a Booking + CalendarEvent + FloorPlanSetup. Off by default so a BEO can
+  // be a planning doc without touching the floor.
+  pushToBookings  Boolean     @default(false)
+  depositAmount   Float?
+  paymentStatus   PaymentStatus @default(UNPAID)
+  notes           String?
+  internalNotes   String? // never shown on the customer share page
+  // Customer share link. The token is stored hashed (sha256), like ApiKey; the
+  // plaintext is returned once when generated and lives in the shared URL.
+  shareTokenHash  String?
+  shareEnabled    Boolean     @default(false)
+  shareExpiresAt  DateTime?
+  customerApprovedAt     DateTime?
+  customerApprovedByName String?
+  // Append-only log of what happened to the event: [{ at, type, note }] —
+  // created, status changes, block edits, customer link shared, requests
+  // raised/resolved, template applied. Rendered by the HISTORY block.
+  history         Json        @default("[]")
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  deletedAt       DateTime?
+
+  venue         Venue              @relation(fields: [venueId], references: [id])
+  customer      Customer?          @relation(fields: [customerId], references: [id])
+  menu          Menu?              @relation(fields: [menuId], references: [id])
+  service       Service?           @relation(fields: [serviceId], references: [id])
+  setup         FloorPlanSetup?    @relation(fields: [setupId], references: [id])
+  booking       Booking?           @relation(fields: [bookingId], references: [id])
+  calendarEvent CalendarEvent?     @relation(fields: [calendarEventId], references: [id])
+  template      BeoTemplate?       @relation(fields: [templateId], references: [id])
+  blocks        BeoBlock[]
+  changeRequests BeoChangeRequest[]
+
+  @@index([venueId, eventDate])
+  @@index([venueId])
+  @@index([customerId])
+  @@index([status])
+}
+
+// One composable section of a BEO. `type` is a library key defined in
+// `lib/beo-blocks.ts` (kept as a String so adding a block type needs no
+// migration — same reasoning as OrderView.viewType); `config` holds that
+// block's payload. Reordering is `sortOrder`; removal is a soft delete.
+model BeoBlock {
+  id        String    @id @default(uuid())
+  eventId   String
+  type      String // library key — see lib/beo-blocks.ts
+  title     String?
+  config    Json      @default("{}")
+  sortOrder Int       @default(0)
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+}
+
+// A reusable event package: a named set of blocks plus default menu/service/
+// layout. Applying it creates an Event and copies the blocks so the operator
+// only makes the final changes. `venueId` null = built-in (global) template.
+model BeoTemplate {
+  id               String   @id @default(uuid())
+  venueId          String? // null = built-in, shared across venues
+  isBuiltIn        Boolean  @default(false)
+  name             String
+  description      String?
+  category         String?
+  defaultPax       Int?
+  defaultStyle     String?
+  // Template block definitions: [{ type, title, config }] — no ids, no eventId.
+  // Copied into fresh BeoBlock rows when applied.
+  blocks           Json     @default("[]")
+  defaultMenuId    String?
+  defaultServiceId String?
+  defaultSetupId   String?
+  isActive         Boolean  @default(true)
+  sortOrder        Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  deletedAt        DateTime?
+
+  venue  Venue?  @relation(fields: [venueId], references: [id])
+  events Event[]
+
+  @@index([venueId])
+}
+
+// A request raised from the customer share page (or recorded by a manager):
+// EDIT = a change the customer wants, APPROVAL / SIGN_OFF = accepting the BEO.
+model BeoChangeRequest {
+  id              String           @id @default(uuid())
+  eventId         String
+  blockId         String? // which block the request is about (null = whole event)
+  kind            BeoRequestKind   @default(EDIT)
+  status          BeoRequestStatus @default(PENDING)
+  message         String
+  responseNote    String?
+  requestedByName String?
+  resolvedById    String?
+  resolvedAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  deletedAt       DateTime?
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
   @@index([status])
 }

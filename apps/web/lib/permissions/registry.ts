@@ -161,6 +161,35 @@ export const PERMISSION_TREE: PermissionArea[] = [
     ],
   },
   {
+    key: 'events',
+    label: 'EVENTS / BEO',
+    subAreas: [
+      {
+        key: 'events',
+        label: 'EVENTS',
+        functions: [
+          { key: 'view', label: 'VIEW' },
+          { key: 'create', label: 'CREATE' },
+          { key: 'edit', label: 'EDIT' },
+          { key: 'delete', label: 'DELETE' },
+          { key: 'blocks', label: 'BUILD BLOCKS' },
+          { key: 'share', label: 'CUSTOMER LINK' },
+          { key: 'requests', label: 'REVIEW REQUESTS' },
+        ],
+      },
+      {
+        key: 'templates',
+        label: 'TEMPLATES',
+        functions: [
+          { key: 'view', label: 'VIEW' },
+          { key: 'create', label: 'CREATE' },
+          { key: 'edit', label: 'EDIT' },
+          { key: 'delete', label: 'DELETE' },
+        ],
+      },
+    ],
+  },
+  {
     key: 'team',
     label: 'TEAM & PAY',
     subAreas: [
@@ -374,6 +403,7 @@ export const PERMISSION_PRESETS: PermissionPreset[] = [
     key: 'bar',
     label: 'BAR MANAGER',
     keys: [
+      keyFor('events', 'events', 'view'),
       keyFor('ops', 'recipes', 'view'),
       keyFor('ops', 'menus', 'view'),
       keyFor('ops', 'services', 'view'),
@@ -403,6 +433,7 @@ export const PERMISSION_PRESETS: PermissionPreset[] = [
     key: 'kitchen',
     label: 'KITCHEN MANAGER',
     keys: [
+      keyFor('events', 'events', 'view'),
       keyFor('ops', 'recipes', 'view'),
       keyFor('ops', 'recipes', 'create'),
       keyFor('ops', 'recipes', 'edit'),
@@ -431,6 +462,12 @@ export const PERMISSION_PRESETS: PermissionPreset[] = [
     key: 'foh',
     label: 'FOH MANAGER',
     keys: [
+      keyFor('events', 'events', 'view'),
+      keyFor('events', 'events', 'create'),
+      keyFor('events', 'events', 'edit'),
+      keyFor('events', 'events', 'blocks'),
+      keyFor('events', 'events', 'requests'),
+      keyFor('events', 'templates', 'view'),
       keyFor('bookings', 'bookings', 'view'),
       keyFor('bookings', 'bookings', 'create'),
       keyFor('bookings', 'bookings', 'edit'),

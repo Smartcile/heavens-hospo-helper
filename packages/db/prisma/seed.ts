@@ -1,5 +1,5 @@
 import { prisma } from '../index'
-import { Role, CompletionType, ScheduleType, HsCategory, StorageType } from '@prisma/client'
+import { Role, CompletionType, ScheduleType, HsCategory, StorageType, Prisma } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
 // ── UUID helpers ──
@@ -1607,6 +1607,174 @@ async function main() {
     }
   }
 
+  // ─── Phase 11: Demo BEO events + templates ──────────────────────────
+  // A built-in (global) template, a venue template, and one confirmed event
+  // built from blocks so the BEO planner has something to open on a fresh
+  // install. Blocks are recreated each run (steps pattern) to stay in sync.
+  const demoCustomer = await prisma.customer.upsert({
+    where: { id: d('00d800000001') },
+    update: {},
+    create: {
+      id: d('00d800000001'),
+      venueId: demoVenue.id,
+      name: 'JANE SMITH',
+      email: 'jane.smith@example.com',
+      emailKey: 'jane.smith@example.com',
+      phone: '021 555 0101',
+      phoneKey: '215550101',
+    },
+  })
+
+  const weddingTemplateBlocks = [
+    {
+      type: 'CUSTOMER_DETAILS',
+      title: null,
+      config: { billingNotes: 'INVOICE TO THE BRIDE — DEPOSIT RECEIVED.' },
+    },
+    {
+      type: 'TIMELINE',
+      title: null,
+      config: {
+        rows: [
+          { time: '15:00', label: 'VENDORS ARRIVE', note: 'FLORIST + BAND' },
+          { time: '16:00', label: 'GUESTS ARRIVE', note: 'CANAPES + BUBBLES' },
+          { time: '17:30', label: 'SPEECHES', note: 'MC TO CALL' },
+          { time: '18:00', label: 'MAINS SERVED', note: '' },
+          { time: '22:30', label: 'CARRIAGES', note: '' },
+        ],
+      },
+    },
+    { type: 'ROOM_SETUP', title: null, config: { layoutNotes: 'ROUNDS OF 10 — TOP TABLE OF 12. DANCE FLOOR CENTRE.' } },
+    { type: 'DIETARY', title: null, config: { rows: [{ name: 'GUEST 1', requirement: 'GLUTEN FREE', count: 2 }] } },
+    { type: 'PAYMENT', title: null, config: { method: 'BANK TRANSFER', dueDate: '2026-11-01', notes: 'BALANCE DUE 14 DAYS PRIOR.' } },
+    { type: 'STAFFING', title: null, config: { rows: [{ role: 'FOH', count: 6, note: 'INCL. 1 DUTY MANAGER' }, { role: 'BAR', count: 3, note: '' }] } },
+  ]
+
+  await prisma.beoTemplate.upsert({
+    where: { id: d('00d500000001') },
+    update: {
+      name: 'WEDDING PACKAGE — 100 PAX',
+      description: 'PLATED WEDDING PACKAGE FOR UP TO 100 GUESTS.',
+      category: 'WEDDING',
+      defaultPax: 100,
+      defaultStyle: 'PLATED',
+      isBuiltIn: true,
+      blocks: weddingTemplateBlocks as Prisma.InputJsonValue,
+    },
+    create: {
+      id: d('00d500000001'),
+      venueId: null,
+      isBuiltIn: true,
+      name: 'WEDDING PACKAGE — 100 PAX',
+      description: 'PLATED WEDDING PACKAGE FOR UP TO 100 GUESTS.',
+      category: 'WEDDING',
+      defaultPax: 100,
+      defaultStyle: 'PLATED',
+      sortOrder: 0,
+      blocks: weddingTemplateBlocks as Prisma.InputJsonValue,
+    },
+  })
+
+  await prisma.beoTemplate.upsert({
+    where: { id: d('00d500000002') },
+    update: {
+      name: 'CORPORATE CONFERENCE — 50 PAX',
+      description: 'DAY CONFERENCE WITH MORNING TEA, LUNCH AND AV.',
+      category: 'CORPORATE',
+      defaultPax: 50,
+      defaultStyle: 'BUFFET',
+      blocks: [
+        { type: 'ROOM_SETUP', title: null, config: { layoutNotes: 'CABARET SEATING — AV DESK AT THE BACK.' } },
+        { type: 'TIMELINE', title: null, config: { rows: [{ time: '08:30', label: 'ARRIVAL + COFFEE', note: '' }, { time: '12:30', label: 'LUNCH', note: 'BUFFET' }] } },
+        { type: 'PAYMENT', title: null, config: { method: 'INVOICE', dueDate: '', notes: '30-DAY ACCOUNT.' } },
+      ] as Prisma.InputJsonValue,
+    },
+    create: {
+      id: d('00d500000002'),
+      venueId: demoVenue.id,
+      isBuiltIn: false,
+      name: 'CORPORATE CONFERENCE — 50 PAX',
+      description: 'DAY CONFERENCE WITH MORNING TEA, LUNCH AND AV.',
+      category: 'CORPORATE',
+      defaultPax: 50,
+      defaultStyle: 'BUFFET',
+      sortOrder: 1,
+      blocks: [
+        { type: 'ROOM_SETUP', title: null, config: { layoutNotes: 'CABARET SEATING — AV DESK AT THE BACK.' } },
+        { type: 'TIMELINE', title: null, config: { rows: [{ time: '08:30', label: 'ARRIVAL + COFFEE', note: '' }, { time: '12:30', label: 'LUNCH', note: 'BUFFET' }] } },
+        { type: 'PAYMENT', title: null, config: { method: 'INVOICE', dueDate: '', notes: '30-DAY ACCOUNT.' } },
+      ] as Prisma.InputJsonValue,
+    },
+  })
+
+  const demoEventId = d('00d400000001')
+  await prisma.event.upsert({
+    where: { id: demoEventId },
+    update: { name: 'SMITH WEDDING', eventDate: new Date('2026-11-14T00:00:00Z') },
+    create: {
+      id: demoEventId,
+      venueId: demoVenue.id,
+      name: 'SMITH WEDDING',
+      eventType: 'WEDDING',
+      status: 'CONFIRMED',
+      eventDate: new Date('2026-11-14T00:00:00Z'),
+      startTime: '16:00',
+      endTime: '23:00',
+      guestCount: 96,
+      diningStyle: 'PLATED',
+      customerId: demoCustomer.id,
+      contactName: 'JANE SMITH',
+      contactEmail: 'jane.smith@example.com',
+      contactPhone: '021 555 0101',
+      templateId: d('00d500000001'),
+      pushToBookings: false,
+      depositAmount: 2500,
+      paymentStatus: 'PARTIAL',
+      notes: 'BRIDE + GROOM REQUEST THE CORNER TABLE FOR TWO.',
+      internalNotes: 'ALLERGY CARD FOR GUEST 1 — SEE DIETARY BLOCK.',
+      history: [
+        { at: new Date().toISOString(), type: 'CREATED', note: 'CREATED FROM TEMPLATE WEDDING PACKAGE — 100 PAX' },
+      ] as Prisma.InputJsonValue,
+    },
+  })
+
+  await prisma.beoBlock.deleteMany({ where: { eventId: demoEventId } })
+  await prisma.beoBlock.createMany({
+    data: [
+      { id: d('00d600000001'), eventId: demoEventId, type: 'CUSTOMER_DETAILS', config: { billingNotes: 'INVOICE TO THE BRIDE.' }, sortOrder: 0 },
+      {
+        id: d('00d600000002'),
+        eventId: demoEventId,
+        type: 'TIMELINE',
+        config: {
+          rows: [
+            { time: '16:00', label: 'GUESTS ARRIVE', note: 'CANAPES + BUBBLES' },
+            { time: '17:30', label: 'SPEECHES', note: 'MC TO CALL' },
+            { time: '18:00', label: 'MAINS SERVED', note: '' },
+          ],
+        },
+        sortOrder: 1,
+      },
+      { id: d('00d600000003'), eventId: demoEventId, type: 'ROOM_SETUP', config: { layoutNotes: 'ROUNDS OF 10 — TOP TABLE OF 12.' }, sortOrder: 2 },
+      { id: d('00d600000004'), eventId: demoEventId, type: 'DIETARY', config: { rows: [{ name: 'GUEST 1', requirement: 'GLUTEN FREE', count: 2 }] }, sortOrder: 3 },
+      { id: d('00d600000005'), eventId: demoEventId, type: 'PAYMENT', config: { method: 'BANK TRANSFER', dueDate: '2026-11-01', notes: 'BALANCE DUE 14 DAYS PRIOR.' }, sortOrder: 4 },
+    ],
+  })
+
+  const existingRequest = await prisma.beoChangeRequest.findFirst({ where: { id: d('00d700000001') } })
+  if (!existingRequest) {
+    await prisma.beoChangeRequest.create({
+      data: {
+        id: d('00d700000001'),
+        eventId: demoEventId,
+        kind: 'EDIT',
+        status: 'PENDING',
+        message: 'COULD WE ADD TWO MORE VEGETARIAN MAINS? WE ALSO NEED PARKING FOR 10 CARS.',
+        requestedByName: 'JANE SMITH',
+      },
+    })
+  }
+
   console.log('Seed complete.')
   console.log(`Demo venue: ${demoVenue.name} [isDemo=${demoVenue.isDemo}, isActive=${demoVenue.isActive}]`)
   console.log('')
@@ -1632,6 +1800,7 @@ async function main() {
   console.log(`  GUIDES: ${demoGuides.length} published playbook guides with steps + step links`)
   console.log(`  PATHWAYS: 2 published (FOH ONBOARDING ${PW_FOH.nodes.length} nodes, BOH ONBOARDING ${PW_BOH.nodes.length} nodes)`)
   console.log(`  GUIDE COMPLETIONS: ${guideCompletions.length} · ASSIGNMENTS: ${guideAssignments.length}`)
+  console.log(`  EVENTS: 1 confirmed BEO (SMITH WEDDING, 5 blocks) · TEMPLATES: 2 (1 built-in) · 1 pending request`)
 }
 
 main()
