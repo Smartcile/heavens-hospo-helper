@@ -9,6 +9,7 @@ import {
   saveEventBlocks,
   validateBlockPayload,
 } from '@/lib/events.server'
+import { loadBlockLibrary } from '@/lib/beo-block-defs.server'
 
 type Params = { params: { id: string } }
 
@@ -23,19 +24,20 @@ export async function PUT(req: NextRequest, { params }: Params) {
     session.user.role === 'MANAGER' ? { venueId: session.user.venueId } : {}
   const event = await prisma.event.findFirst({
     where: { id: params.id, deletedAt: null, ...scoped },
-    select: { id: true },
+    select: { id: true, venueId: true },
   })
   if (!event) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const body = (await req.json().catch(() => ({}))) as { blocks?: EventBlockInput[] }
   const blocks = Array.isArray(body.blocks) ? body.blocks : []
 
-  const invalid = validateBlockPayload(blocks)
+  const library = await loadBlockLibrary(event.venueId)
+  const invalid = validateBlockPayload(blocks, library)
   if (invalid.length > 0) {
     return NextResponse.json({ error: `Unknown block type: ${invalid.join(', ')}` }, { status: 400 })
   }
 
-  const result = await saveEventBlocks(params.id, blocks)
+  const result = await saveEventBlocks(params.id, blocks, library)
   await logEventEvent(
     params.id,
     'BLOCKS',

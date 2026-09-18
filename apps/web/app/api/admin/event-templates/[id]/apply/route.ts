@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { guardAccess } from '@/lib/permissions'
 import { createEventFromTemplate } from '@/lib/events.server'
+import { loadBlockLibrary } from '@/lib/beo-block-defs.server'
 
 type Params = { params: { id: string } }
 
@@ -30,16 +31,22 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Event date is required' }, { status: 400 })
   }
 
-  const event = await createEventFromTemplate(params.id, scopedVenueId, {
-    name,
-    eventDate,
-    eventType: (body.eventType as string | undefined) ?? null,
-    guestCount: body.guestCount == null ? null : Number(body.guestCount),
-    diningStyle: (body.diningStyle as string | undefined) ?? null,
-    contactName: (body.contactName as string | undefined) ?? null,
-    contactEmail: (body.contactEmail as string | undefined) ?? null,
-    contactPhone: (body.contactPhone as string | undefined) ?? null,
-  })
+  const library = await loadBlockLibrary(scopedVenueId)
+  const event = await createEventFromTemplate(
+    params.id,
+    scopedVenueId,
+    {
+      name,
+      eventDate,
+      eventType: (body.eventType as string | undefined) ?? null,
+      guestCount: body.guestCount == null ? null : Number(body.guestCount),
+      diningStyle: (body.diningStyle as string | undefined) ?? null,
+      contactName: (body.contactName as string | undefined) ?? null,
+      contactEmail: (body.contactEmail as string | undefined) ?? null,
+      contactPhone: (body.contactPhone as string | undefined) ?? null,
+    },
+    library,
+  )
   if (!event) return NextResponse.json({ error: 'Template not found' }, { status: 404 })
 
   return NextResponse.json(event, { status: 201 })

@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma, Prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { validateBlockPayload, type EventBlockInput } from '@/lib/events.server'
+import { loadBlockLibrary } from '@/lib/beo-block-defs.server'
 
 type Params = { params: { id: string } }
 
@@ -34,7 +35,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   const existing = await prisma.beoTemplate.findFirst({
     where: { id: params.id, deletedAt: null, ...scope(session) },
-    select: { id: true, isBuiltIn: true },
+    select: { id: true, isBuiltIn: true, venueId: true },
   })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (existing.isBuiltIn) {
@@ -61,7 +62,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.defaultSetupId !== undefined) data.defaultSetupId = (body.defaultSetupId as string) || null
   if (body.blocks !== undefined) {
     const blocks = Array.isArray(body.blocks) ? (body.blocks as EventBlockInput[]) : []
-    const invalid = validateBlockPayload(blocks)
+    const library = await loadBlockLibrary(existing.venueId ?? session.user.venueId)
+    const invalid = validateBlockPayload(blocks, library)
     if (invalid.length > 0) {
       return NextResponse.json({ error: `Unknown block type: ${invalid.join(', ')}` }, { status: 400 })
     }

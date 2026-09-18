@@ -10,6 +10,7 @@ import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { EventBuilder, type BeoRefs, type EventDetail } from '@/components/admin/EventBuilder'
 import { summariseBlock } from '@/lib/beo-blocks'
+import { useBlockLibrary } from '@/lib/use-block-library'
 
 interface EventListItem {
   id: string
@@ -60,6 +61,7 @@ export function EventsPlanner({
   onInitialOpened?: () => void
 }) {
   const venueId = defaultVenueId || sessionVenueId
+  const library = useBlockLibrary(`/api/admin/beo-block-defs?venueId=${venueId}`)
 
   const [events, setEvents] = useState<EventListItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -168,6 +170,7 @@ export function EventsPlanner({
         event={selected}
         venueId={venueId}
         refs={refs}
+        library={library}
         onBack={() => { setSelected(null); loadEvents() }}
         onSaved={async () => {
           const r = await fetch(`/api/admin/events/${selected.id}`)
@@ -239,7 +242,7 @@ export function EventsPlanner({
                 {[e.menu?.name, e.setup?.name].filter(Boolean).join(' · ') || 'NO MENU / LAYOUT'}
               </div>
               <div className="font-mono text-[9px] uppercase text-grey-light truncate">
-                {e.blocks.length === 0 ? 'NO BLOCKS' : e.blocks.map((b) => summariseBlock(b)).join(' · ')}
+                {e.blocks.length === 0 ? 'NO BLOCKS' : e.blocks.map((b) => summariseBlock(b, library)).join(' · ')}
               </div>
             </button>
           ))}

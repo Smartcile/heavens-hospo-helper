@@ -70,9 +70,12 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 
 | Item | URL | What it does |
 |---|---|---|
-| **BEO Planner** | `/admin/events?tab=events` | Events/BEO list (search + status filter) → the builder: event header (type, date, times, guests, dining style, contact, menu/service/layout, push-to-bookings, deposit, notes) plus a **drag-from-library block canvas** (14 typed blocks: customer details, menu, drinks, dining style, dietary, room setup, run sheet, staffing, vendors, transport, payment, notes, history, custom text). Blocks reorder/duplicate/delete; each renders a typed config editor. Live subtotal/deposit/balance, **PUSH NOW** (creates the booking + seating + pre-order), **SHARE** (mints the customer link), **SAVE AS TEMPLATE**, and **PDF** buttons (FULL / CLIENT / KITCHEN). Saves the event then its blocks |
-| **Event Templates** | `/admin/events?tab=templates` | Reusable packages: named block sets + default menu/service/layout + default pax/style. Create/edit in a modal (block library + per-block config), APPLY creates a DRAFT event (jumps to the planner). Built-in templates are read-only |
+| **Enquiries** | `/admin/events?tab=enquiries` | First-visit intake (status ENQUIRY). **+ NEW ENQUIRY** starts from the venue's **master template**; a simplified editor captures contact/date/pax/notes + the template's areas. **CONVERT TO BEO** advances it into the BEO lifecycle and jumps to the planner |
+| **BEO Planner** | `/admin/events?tab=events` | Events/BEO list (search + status filter) → the builder: event header (type, date, times, guests, dining style, contact, menu/service/layout, push-to-bookings, deposit, notes) plus a **drag-from-library block canvas** (14 built-in typed blocks + any venue-authored custom blocks). Blocks reorder/duplicate/delete; each renders a typed config editor and a **REFERENCE (n)** button for its linked playbook guides/tasks/checklists. Live subtotal/deposit/balance, **PUSH NOW** (creates the booking + seating + pre-order), **SHARE** (mints the customer link), **SAVE AS TEMPLATE**, and **PDF** buttons (FULL / CLIENT / KITCHEN). Saves the event then its blocks |
+| **Pipeline** | `/admin/events?tab=pipeline` | Kanban of every event by status (ENQUIRY → COMPLETED). Clicking a card shows its **auto-derived flow**: PLANNING areas (filled/empty), PREP (linked tasks/checklists) and EVENT DAY (run-sheet moments), plus OPEN BEO and the three PDF exports. Read-only |
+| **Event Templates** | `/admin/events?tab=templates` | Reusable packages: named block sets + default menu/service/layout + default pax/style. Create/edit in a modal (block library + per-block config), APPLY creates a DRAFT event (jumps to the planner). Built-in templates are read-only; a venue template can be set as the enquiry **MASTER** (one per venue) |
 | **Requests** | `/admin/events?tab=requests` | Customer-submitted queue (edit requests / approvals): PENDING/ACCEPTED/DECLINED filters, ACCEPT/DECLINE with a response note, OPEN EVENT. An accepted approval/sign-off stamps the event as customer-approved |
+| **Block Library** | `/admin/events?tab=library` | Edit the block library: built-in blocks are listed read-only; **+ NEW BLOCK** authors a venue custom block (label → auto key, group, description, field builder for text/long text/number/dropdown/table-rows). Every area — built-in or custom — has **LINKS** to attach playbook guides, tasks and checklists |
 
 ### TEAM & EXECUTION group
 
@@ -186,7 +189,7 @@ keeping other query params.
 | **Notices** | `/w/notices` | Announcements with GOT IT acknowledgement |
 | **Timeclock** | `/w/timeclock` | Clock in/out, breaks (NZ rules), today's hours, history |
 | **Gift Cards** | /w/giftcards | Issue a physical gift card (permission-only tile): shows the lowest-numbered draft, buyer + amount, ISSUE → VIEW / PRINT PDF |
-| **Events** | `/w/events` | Build & edit BEOs from the phone (permission-only tile — ADMIN/MANAGER always, STAFF need EVENTS create/edit): event list → full-screen editor with the same typed blocks (click to add from the library, reorder, edit config) and menu/layout pickers. Venue is always the worker's own |
+| **Events** | `/w/events` | Build & edit enquiries and BEOs from the phone (permission-only tile — ADMIN/MANAGER always, STAFF need EVENTS create/edit): list with an ENQUIRIES / EVENTS / ALL filter → full-screen editor with the same typed blocks (click to add from the library, reorder, edit config, REFERENCE viewer for linked playbook guides), menu/layout pickers, and **+ NEW** offering ENQUIRY (from the master template) or a blank event. An enquiry shows **CONVERT** to move it into the BEO lifecycle. Venue is always the worker's own |
 
 
 ---

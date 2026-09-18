@@ -7,7 +7,7 @@
 //   KITCHEN — the back-of-house copy: dietary, run sheet, dish totals, notes
 
 import { jsPDF } from 'jspdf'
-import { blockDef } from '@/lib/beo-blocks'
+import { blockDef, type BlockLibrary } from '@/lib/beo-blocks'
 
 export type BeoPdfVariant = 'FULL' | 'CLIENT' | 'KITCHEN'
 
@@ -85,7 +85,7 @@ function money(n: number): string {
   return `$${n.toFixed(2)}`
 }
 
-function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant) {
+function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?: BlockLibrary) {
   const pageW = doc.internal.pageSize.getWidth()
   const pageH = doc.internal.pageSize.getHeight()
   const margin = 15
@@ -163,7 +163,7 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant) {
   const nameOf = (id: string) => data.menuItems.find((m) => m.id === id)?.name ?? 'ITEM'
 
   for (const block of blocks) {
-    const def = blockDef(block.type)
+    const def = blockDef(block.type, library)
     const label = (block.title?.trim() || def?.label || block.type).toUpperCase()
     const cfg = block.config ?? {}
 
@@ -285,9 +285,13 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant) {
   }
 }
 
-export function generateBeoPdf(data: BeoPdfData, variant: BeoPdfVariant = 'FULL'): jsPDF {
+export function generateBeoPdf(
+  data: BeoPdfData,
+  variant: BeoPdfVariant = 'FULL',
+  library?: BlockLibrary,
+): jsPDF {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-  drawBeo(doc, data, variant)
+  drawBeo(doc, data, variant, library)
   stampFooter(doc, data.venueName)
   return doc
 }

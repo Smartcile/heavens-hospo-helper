@@ -44,6 +44,14 @@ export interface BeoBlockDef {
   fields: BeoBlockField[]
   /** Read-only blocks render their data but are never edited. */
   readOnly?: boolean
+  /**
+   * Playbook references attached to this area. Populated at runtime from
+   * `BeoBlockLink` rows (built-in and custom areas alike) — never stored on the
+   * def itself, so a built-in area can carry references without a def row.
+   */
+  guideIds?: string[]
+  taskIds?: string[]
+  checklistIds?: string[]
 }
 
 /** The minimum shape the pure helpers need — matches a `BeoBlock` row. */
@@ -54,6 +62,24 @@ export interface BeoBlockLike {
   config: Record<string, unknown>
   sortOrder: number
 }
+
+/**
+ * A resolved library: the built-in blocks plus any venue-authored `BeoBlockDef`
+ * rows. Every helper that resolves a type takes one of these (defaulting to the
+ * built-ins), so a custom block flows through the builder, the PDF and the share
+ * view exactly like a built-in one.
+ */
+export type BlockLibrary = BeoBlockDef[]
+
+/** The group new custom blocks land in when the author names none. */
+export const CUSTOM_BLOCK_GROUP = 'CUSTOM'
+
+/**
+ * Field kinds a venue-authored block may use. Deliberately narrower than the
+ * full `BeoFieldKind`: `menu` / `setup` / `items` depend on venue reference data
+ * and event pricing, so custom blocks stay plain config (text/number/select/rows).
+ */
+export const CUSTOM_FIELD_KINDS: BeoFieldKind[] = ['text', 'textarea', 'number', 'select', 'rows']
 
 export const BEO_BLOCK_GROUPS = ['DETAILS', 'FOOD & DRINK', 'ROOM', 'LOGISTICS', 'ADMIN'] as const
 
@@ -276,24 +302,117 @@ export const BEO_BLOCKS: BeoBlockDef[] = [
   },
 ]
 
+/** Every built-in type key — used to stop a custom def shadowing a built-in. */
+export const BUILT_IN_BLOCK_TYPES: string[] = BEO_BLOCKS.map((b) => b.type)
+
 /** Every block type key, for validation. */
-export const BEO_BLOCK_TYPES: string[] = BEO_BLOCKS.map((b) => b.type)
+export const BEO_BLOCK_TYPES: string[] = BUILT_IN_BLOCK_TYPES
 
 /** The library definition for a type, or undefined when the key is unknown. */
-export function blockDef(type: string): BeoBlockDef | undefined {
-  return BEO_BLOCKS.find((b) => b.type === type)
+export function blockDef(type: string, library: BlockLibrary = BEO_BLOCKS): BeoBlockDef | undefined {
+  return library.find((b) => b.type === type)
 }
 
 /** A human label for a type — falls back to the raw key for an unknown block. */
-export function blockLabel(type: string): string {
-  return blockDef(type)?.label ?? type
+export function blockLabel(type: string, library: BlockLibrary = BEO_BLOCKS): string {
+  return blockDef(type, library)?.label ?? type
 }
 
 /** A fresh config for a type (deep-cloned so callers can't share arrays). */
-export function defaultConfigFor(type: string): Record<string, unknown> {
-  const def = blockDef(type)
+export function defaultConfigFor(type: string, library: BlockLibrary = BEO_BLOCKS): Record<string, unknown> {
+  const def = blockDef(type, library)
   if (!def) return {}
   return JSON.parse(JSON.stringify(def.defaultConfig)) as Record<string, unknown>
+}
+
+/**
+ * The built-ins plus venue-authored defs, in built-in-first order. A custom def
+ * whose key collides with a built-in is dropped — the built-in always wins.
+ */
+export function mergeLibrary(customDefs: BeoBlockDef[] | null | undefined): BlockLibrary {
+  const builtIn = new Set(BUILT_IN_BLOCK_TYPES)
+  const custom = (customDefs ?? []).filter((d) => d && d.type && !builtIn.has(d.type))
+  return [...BEO_BLOCKS, ...custom]
+}
+
+/** The distinct groups present in a library, in first-seen order. */
+export function libraryGroups(library: BlockLibrary = BEO_BLOCKS): string[] {
+  const seen: string[] = []
+  for (const b of library) if (!seen.includes(b.group)) seen.push(b.group)
+  return seen
+}
+
+/** True when a type is one of the hard-coded built-ins (never editable). */
+export function isBuiltInType(type: string): boolean {
+  return BUILT_IN_BLOCK_TYPES.includes(type)
+}
+
+function asObject(v: unknown): Record<string, unknown> {
+  return v && typeof v === 'object' && !Array.isArray(v) ? { ...(v as Record<string, unknown>) } : {}
+}
+
+/**
+ * Validate + normalise a `fields` blob from a custom-def row into the spec the
+ * editor renders. Unknown kinds, missing keys/labels and row fields without
+ * columns are dropped rather than trusted.
+ */
+export function sanitiseFields(raw: unknown): BeoBlockField[] {
+  if (!Array.isArray(raw)) return []
+  const out: BeoBlockField[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const f = item as Record<string, unknown>
+    const key = String(f.key ?? '').trim()
+    const label = String(f.label ?? '').trim()
+    const kind = String(f.kind ?? '') as BeoFieldKind
+    if (!key || !label || seen.has(key) || !CUSTOM_FIELD_KINDS.includes(kind)) continue
+    seen.add(key)
+    const field: BeoBlockField = { key, label, kind }
+    if (typeof f.placeholder === 'string' && f.placeholder) field.placeholder = f.placeholder
+    if (kind === 'select') {
+      field.options = Array.isArray(f.options)
+        ? (f.options as { value?: unknown; label?: unknown }[])
+            .filter((o) => o && String(o.value ?? '') !== '' && String(o.label ?? '') !== '')
+            .map((o) => ({ value: String(o.value), label: String(o.label) }))
+        : []
+    }
+    if (kind === 'rows') {
+      const cols = Array.isArray(f.columns) ? (f.columns as Record<string, unknown>[]) : []
+      field.columns = cols
+        .map((c) => ({
+          key: String(c.key ?? '').trim(),
+          label: String(c.label ?? '').trim(),
+          kind: c.kind === 'number' ? ('number' as const) : ('text' as const),
+        }))
+        .filter((c) => c.key && c.label)
+      if (field.columns.length === 0) continue
+    }
+    out.push(field)
+  }
+  return out
+}
+
+/**
+ * Convert a `BeoBlockDef` row into a library definition. `eventField` is never
+ * produced — custom blocks are config-only by construction.
+ */
+export function defRowToBlockDef(row: {
+  key: string
+  label: string
+  group?: string | null
+  description?: string | null
+  defaultConfig?: unknown
+  fields?: unknown
+}): BeoBlockDef {
+  return {
+    type: row.key,
+    label: row.label,
+    group: row.group?.trim() || CUSTOM_BLOCK_GROUP,
+    description: row.description?.trim() || '',
+    defaultConfig: asObject(row.defaultConfig),
+    fields: sanitiseFields(row.fields),
+  }
 }
 
 /**
@@ -301,8 +420,12 @@ export function defaultConfigFor(type: string): Record<string, unknown> {
  * before a field existed still renders. Never drops unknown keys — a template
  * from a newer build is preserved rather than silently trimmed.
  */
-export function normaliseConfig(type: string, config: unknown): Record<string, unknown> {
-  const def = blockDef(type)
+export function normaliseConfig(
+  type: string,
+  config: unknown,
+  library: BlockLibrary = BEO_BLOCKS,
+): Record<string, unknown> {
+  const def = blockDef(type, library)
   const base = config && typeof config === 'object' ? { ...(config as Record<string, unknown>) } : {}
   if (!def) return base
   for (const field of def.fields) {
@@ -319,8 +442,12 @@ export function normaliseConfig(type: string, config: unknown): Record<string, u
  * Remove any bound (Event-column) keys from a config before it is stored, so a
  * malformed client can never shadow the Event row. Keeps unknown keys.
  */
-export function stripBoundFields(type: string, config: unknown): Record<string, unknown> {
-  const def = blockDef(type)
+export function stripBoundFields(
+  type: string,
+  config: unknown,
+  library: BlockLibrary = BEO_BLOCKS,
+): Record<string, unknown> {
+  const def = blockDef(type, library)
   const base = config && typeof config === 'object' ? { ...(config as Record<string, unknown>) } : {}
   if (!def) return base
   for (const field of def.fields) {
@@ -330,10 +457,14 @@ export function stripBoundFields(type: string, config: unknown): Record<string, 
 }
 
 /** The block types in `blocks` that are not in the library. Empty = all valid. */
-export function invalidBlockTypes(blocks: { type?: unknown }[]): string[] {
+export function invalidBlockTypes(
+  blocks: { type?: unknown }[],
+  library: BlockLibrary = BEO_BLOCKS,
+): string[] {
+  const valid = new Set(library.map((b) => b.type))
   return blocks
     .map((b) => String(b?.type ?? ''))
-    .filter((t) => t !== '' && !BEO_BLOCK_TYPES.includes(t))
+    .filter((t) => t !== '' && !valid.has(t))
 }
 
 /** Build a new block row (client-side; the id is minted by the caller or DB). */
@@ -341,12 +472,13 @@ export function makeBlock(
   type: string,
   sortOrder: number,
   overrides: Partial<BeoBlockLike> = {},
+  library: BlockLibrary = BEO_BLOCKS,
 ): BeoBlockLike {
   return {
     id: overrides.id ?? '',
     type,
     title: overrides.title ?? null,
-    config: overrides.config ?? defaultConfigFor(type),
+    config: overrides.config ?? defaultConfigFor(type, library),
     sortOrder,
   }
 }
@@ -368,7 +500,10 @@ export function moveBlock<T extends { sortOrder: number }>(
  * A one-line summary for a collapsed block card. Counts lists/rows, otherwise
  * shows the first non-empty scalar value.
  */
-export function summariseBlock(block: { type: string; config: Record<string, unknown> }): string {
+export function summariseBlock(
+  block: { type: string; config: Record<string, unknown> },
+  library: BlockLibrary = BEO_BLOCKS,
+): string {
   const cfg = block.config ?? {}
   if (Array.isArray(cfg.items)) {
     const n = cfg.items.length
@@ -381,6 +516,6 @@ export function summariseBlock(block: { type: string; config: Record<string, unk
   for (const value of Object.values(cfg)) {
     if (typeof value === 'string' && value.trim()) return value.trim().toUpperCase().slice(0, 60)
   }
-  const def = blockDef(block.type)
+  const def = blockDef(block.type, library)
   return def ? def.description : ''
 }

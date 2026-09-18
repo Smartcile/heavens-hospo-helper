@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWorkerSession } from '@/lib/worker-session'
 import { workerMayManageEvents } from '@/lib/worker-event-access'
 import { buildBeoPdfData } from '@/lib/events.server'
+import { loadBlockLibrary } from '@/lib/beo-block-defs.server'
 import { beoPdfFilename, beoPdfToBuffer, generateBeoPdf, type BeoPdfVariant } from '@/lib/beo-pdf'
 
 type Params = { params: { id: string } }
@@ -24,7 +25,8 @@ export async function GET(req: NextRequest, { params }: Params) {
   if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const variant = variantFrom(req)
-  const buffer = beoPdfToBuffer(generateBeoPdf(data, variant))
+  const library = await loadBlockLibrary(session!.venueId)
+  const buffer = beoPdfToBuffer(generateBeoPdf(data, variant, library))
 
   return new NextResponse(buffer, {
     headers: {

@@ -3,6 +3,7 @@ import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { workerMayManageEvents } from '@/lib/worker-event-access'
 import { isGiftCardCategorized } from '@/lib/gift-cards-woo'
+import { loadCustomDefRows } from '@/lib/beo-block-defs.server'
 
 /**
  * GET /api/worker/events/refs — the picker data the worker BEO builder needs
@@ -18,7 +19,7 @@ export async function GET() {
 
   const venueId = session!.venueId
 
-  const [menus, items, services, setups, venue] = await Promise.all([
+  const [menus, items, services, setups, venue, blockDefs] = await Promise.all([
     prisma.menu.findMany({
       where: { venueId, deletedAt: null },
       select: { id: true, name: true },
@@ -40,6 +41,7 @@ export async function GET() {
       orderBy: { name: 'asc' },
     }),
     prisma.venue.findUnique({ where: { id: venueId }, select: { giftCardWooCategoryId: true } }),
+    loadCustomDefRows(venueId),
   ])
 
   // Gift card products are managed on the Gift Cards page only — keep them out
@@ -48,5 +50,5 @@ export async function GET() {
     .filter((i) => !isGiftCardCategorized(i.wooCategoryId, venue?.giftCardWooCategoryId))
     .map((i) => ({ id: i.id, name: i.name }))
 
-  return NextResponse.json({ menus, menuItems, services, setups })
+  return NextResponse.json({ menus, menuItems, services, setups, blockDefs })
 }

@@ -5,7 +5,7 @@
 // may bind to an Event column (`eventField`) instead of the block config —
 // those are owned by the event header and edited through `onEventFieldChange`.
 
-import { blockDef, type BeoBlockField, type BeoRowColumn } from '@/lib/beo-blocks'
+import { blockDef, type BeoBlockField, type BeoRowColumn, type BlockLibrary } from '@/lib/beo-blocks'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
@@ -26,6 +26,8 @@ export interface BeoBlockEditorProps {
   disabled?: boolean
   /** Templates have no Event row — skip fields bound to one. */
   hideBoundFields?: boolean
+  /** The resolved library (built-ins + custom defs) to render from. */
+  library?: BlockLibrary
 }
 
 const inputClass =
@@ -181,8 +183,9 @@ export function BeoBlockEditor({
   setups = [],
   disabled,
   hideBoundFields,
+  library,
 }: BeoBlockEditorProps) {
-  const def = blockDef(type)
+  const def = blockDef(type, library)
   if (!def) {
     return <p className="font-mono text-xs text-danger">UNKNOWN BLOCK TYPE: {type}</p>
   }

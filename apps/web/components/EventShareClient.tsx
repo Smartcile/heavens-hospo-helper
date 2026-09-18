@@ -5,7 +5,6 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
-import { blockDef } from '@/lib/beo-blocks'
 import type { PublicEventBlock, PublicEventView } from '@/lib/event-share'
 
 const inputClass =
@@ -22,8 +21,7 @@ function BlockView({
   block: PublicEventBlock
   menuItems: { id: string; name: string }[]
 }) {
-  const def = blockDef(block.type)
-  const label = block.title?.trim() || def?.label || block.type
+  const label = block.title?.trim() || block.label
   const cfg = block.config ?? {}
   const nameOf = (id: string) => menuItems.find((m) => m.id === id)?.name ?? 'ITEM'
 
@@ -37,7 +35,7 @@ function BlockView({
     ([key, v]) => key !== 'rows' && key !== 'items' && typeof v === 'string' && v.trim(),
   )
 
-  const fieldLabel = (key: string) => def?.fields.find((f) => f.key === key)?.label ?? key
+  const fieldLabel = (key: string) => block.fields.find((f) => f.key === key)?.label ?? key
 
   return (
     <div className="border border-grey-mid p-4 space-y-2">
@@ -264,7 +262,7 @@ export function EventShareClient({ token }: { token: string }) {
               <select value={blockId} onChange={(e) => setBlockId(e.target.value)} className={inputClass}>
                 <option value="">WHOLE EVENT</option>
                 {view.blocks.map((b) => (
-                  <option key={b.id} value={b.id}>{b.title?.trim() || blockDef(b.type)?.label || b.type}</option>
+                  <option key={b.id} value={b.id}>{b.title?.trim() || b.label}</option>
                 ))}
               </select>
               <Button size="md" variant="ghost" onClick={() => submit('EDIT')} loading={sending} className="w-full justify-center">

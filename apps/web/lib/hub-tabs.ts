@@ -107,9 +107,12 @@ export const COMPLIANCE_TABS: TabDef[] = [
 // BEO / events hub. EVENTS is the planner (list + block builder); TEMPLATES is
 // the reusable-package library; REQUESTS is the customer-submitted queue.
 export const EVENTS_TABS: TabDef[] = [
+  { id: 'enquiries', label: 'ENQUIRIES' },
   { id: 'events', label: 'EVENTS' },
+  { id: 'pipeline', label: 'PIPELINE' },
   { id: 'templates', label: 'TEMPLATES' },
   { id: 'requests', label: 'REQUESTS' },
+  { id: 'library', label: 'BLOCK LIBRARY' },
 ]
 
 /** The active tab + sub-tab for a URL's ?tab=/&sub= params, with fallbacks. */

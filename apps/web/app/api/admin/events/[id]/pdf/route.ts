@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { buildBeoPdfData } from '@/lib/events.server'
+import { loadBlockLibrary } from '@/lib/beo-block-defs.server'
 import { beoPdfFilename, beoPdfToBuffer, generateBeoPdf, type BeoPdfVariant } from '@/lib/beo-pdf'
 
 type Params = { params: { id: string } }
@@ -36,7 +37,8 @@ export async function GET(req: NextRequest, { params }: Params) {
   if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const variant = variantFrom(req)
-  const buffer = beoPdfToBuffer(generateBeoPdf(data, variant))
+  const library = await loadBlockLibrary(event.venueId)
+  const buffer = beoPdfToBuffer(generateBeoPdf(data, variant, library))
 
   return new NextResponse(buffer, {
     headers: {

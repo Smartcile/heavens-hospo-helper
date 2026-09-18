@@ -5,6 +5,7 @@
 // internal working notes) plus the Event's own `internalNotes`, which is never
 // copied here. A new block type is customer-visible unless added to the list.
 
+import { blockDef, blockLabel, type BlockLibrary } from '@/lib/beo-blocks'
 import type { EventPriceLine } from '@/lib/event-pricing'
 
 export const INTERNAL_BLOCK_TYPES = ['STAFFING', 'NOTES', 'HISTORY']
@@ -20,6 +21,10 @@ export interface ShareBlockLike {
 export interface PublicEventBlock {
   id: string
   type: string
+  /** Resolved label (built-in or custom def) so the page never shows a raw key. */
+  label: string
+  /** Field key → label, so custom-block values render with their real labels. */
+  fields: { key: string; label: string }[]
   title: string | null
   config: Record<string, unknown>
 }
@@ -96,13 +101,18 @@ export function isPublicBlock(type: string): boolean {
 }
 
 /** Build the sanitised customer-facing view of an event. */
-export function buildPublicEventView(input: PublicEventInput): PublicEventView {
+export function buildPublicEventView(
+  input: PublicEventInput,
+  library?: BlockLibrary,
+): PublicEventView {
   const blocks = [...(input.blocks ?? [])]
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .filter((b) => isPublicBlock(b.type))
     .map((b) => ({
       id: b.id,
       type: b.type,
+      label: blockLabel(b.type, library),
+      fields: (blockDef(b.type, library)?.fields ?? []).map((f) => ({ key: f.key, label: f.label })),
       title: b.title,
       config: b.config && typeof b.config === 'object' ? (b.config as Record<string, unknown>) : {},
     }))

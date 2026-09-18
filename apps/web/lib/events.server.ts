@@ -6,9 +6,11 @@ import { prisma, Prisma } from '@hospo-ops/db'
 import { randomBytes } from 'node:crypto'
 import { hashApiKey } from '@/lib/public-api'
 import {
+  BEO_BLOCKS,
   invalidBlockTypes,
   normaliseConfig,
   stripBoundFields,
+  type BlockLibrary,
 } from '@/lib/beo-blocks'
 import { computeEventTotals, type EventBlockLike } from '@/lib/event-pricing'
 // Type-only — keeps jspdf out of every route that imports this module.
@@ -52,6 +54,7 @@ export async function eventByShareToken(token: string): Promise<ShareEvent | nul
 }
 
 export const EVENT_STATUS_VALUES = [
+  'ENQUIRY',
   'DRAFT',
   'TENTATIVE',
   'CONFIRMED',
@@ -190,6 +193,7 @@ export interface EventBlockInput {
 export async function saveEventBlocks(
   eventId: string,
   incoming: EventBlockInput[],
+  library: BlockLibrary = BEO_BLOCKS,
 ): Promise<{ saved: { id: string; _clientId: string }[]; deleted: number }> {
   const existing = await prisma.beoBlock.findMany({
     where: { eventId, deletedAt: null },
@@ -216,7 +220,8 @@ export async function saveEventBlocks(
       const title = str(b.title) ?? null
       const config = stripBoundFields(
         b.type,
-        normaliseConfig(b.type, b.config),
+        normaliseConfig(b.type, b.config, library),
+        library,
       ) as Prisma.InputJsonValue
 
       if (b.id && existingIds.has(b.id)) {
@@ -238,8 +243,11 @@ export async function saveEventBlocks(
 }
 
 /** Block types in an incoming payload that are not in the library. */
-export function validateBlockPayload(incoming: EventBlockInput[]): string[] {
-  return invalidBlockTypes(incoming)
+export function validateBlockPayload(
+  incoming: EventBlockInput[],
+  library: BlockLibrary = BEO_BLOCKS,
+): string[] {
+  return invalidBlockTypes(incoming, library)
 }
 
 interface TemplateBlock {
@@ -257,6 +265,8 @@ export interface CreateFromTemplateOverrides {
   contactName?: string | null
   contactEmail?: string | null
   contactPhone?: string | null
+  /** Lifecycle the new event starts in. Defaults to DRAFT. */
+  status?: (typeof EVENT_STATUS_VALUES)[number]
 }
 
 /**
@@ -268,6 +278,7 @@ export async function createEventFromTemplate(
   templateId: string,
   venueId: string,
   overrides: CreateFromTemplateOverrides,
+  library: BlockLibrary = BEO_BLOCKS,
 ): Promise<EventWithBlocks | null> {
   const tpl = await prisma.beoTemplate.findFirst({
     where: { id: templateId, deletedAt: null, OR: [{ venueId }, { venueId: null }] },
@@ -276,7 +287,7 @@ export async function createEventFromTemplate(
 
   const blocks = Array.isArray(tpl.blocks) ? (tpl.blocks as TemplateBlock[]) : []
   const validBlocks = blocks.filter(
-    (b) => typeof b.type === 'string' && invalidBlockTypes([b]).length === 0,
+    (b) => typeof b.type === 'string' && invalidBlockTypes([b], library).length === 0,
   )
 
   return prisma.event.create({
@@ -294,7 +305,7 @@ export async function createEventFromTemplate(
       contactName: overrides.contactName ?? null,
       contactEmail: overrides.contactEmail ?? null,
       contactPhone: overrides.contactPhone ?? null,
-      status: 'DRAFT',
+      status: overrides.status ?? 'DRAFT',
       history: [
         {
           at: new Date().toISOString(),
@@ -308,7 +319,7 @@ export async function createEventFromTemplate(
           return {
             type,
             title: typeof b.title === 'string' && b.title.trim() ? b.title.trim() : null,
-            config: stripBoundFields(type, normaliseConfig(type, b.config)) as Prisma.InputJsonValue,
+            config: stripBoundFields(type, normaliseConfig(type, b.config, library), library) as Prisma.InputJsonValue,
             sortOrder: i,
           }
         }),

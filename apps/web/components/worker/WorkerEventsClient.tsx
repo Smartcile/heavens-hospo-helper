@@ -4,14 +4,23 @@
 // from the phone. Simpler than the admin builder: click to add blocks (drag is
 // a desktop affordance), stacked fields, full-screen.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { BeoBlockEditor } from '@/components/admin/BeoBlockEditor'
 import { BeoBlockLibrary } from '@/components/admin/BeoBlockLibrary'
-import { blockLabel, defaultConfigFor, moveBlock, summariseBlock } from '@/lib/beo-blocks'
+import { BeoBlockReferences } from '@/components/admin/BeoBlockReferences'
+import {
+  BEO_BLOCKS,
+  blockLabel,
+  defaultConfigFor,
+  defRowToBlockDef,
+  mergeLibrary,
+  moveBlock,
+  summariseBlock,
+} from '@/lib/beo-blocks'
 
 interface BlockRow {
   id: string
@@ -48,9 +57,10 @@ interface Refs {
   menuItems: { id: string; name: string }[]
   services: { id: string; name: string }[]
   setups: { id: string; name: string }[]
+  blockDefs: Parameters<typeof defRowToBlockDef>[0][]
 }
 
-const STATUSES = ['DRAFT', 'TENTATIVE', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']
+const STATUSES = ['ENQUIRY', 'DRAFT', 'TENTATIVE', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']
 const PAYMENTS = ['UNPAID', 'PARTIAL', 'PAID', 'REFUNDED']
 
 function newId(): string {
@@ -78,7 +88,11 @@ const inputClass =
 export function WorkerEventsClient() {
   const [allowed, setAllowed] = useState<boolean | null>(null)
   const [events, setEvents] = useState<WorkerEvent[]>([])
-  const [refs, setRefs] = useState<Refs>({ menus: [], menuItems: [], services: [], setups: [] })
+  const [refs, setRefs] = useState<Refs>({ menus: [], menuItems: [], services: [], setups: [], blockDefs: [] })
+  const library = useMemo(
+    () => (refs.blockDefs.length ? mergeLibrary(refs.blockDefs.map(defRowToBlockDef)) : BEO_BLOCKS),
+    [refs.blockDefs],
+  )
   const [loading, setLoading] = useState(true)
   const [draft, setDraft] = useState<WorkerEvent | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -92,7 +106,10 @@ export function WorkerEventsClient() {
   const [newName, setNewName] = useState('')
   const [newDate, setNewDate] = useState(todayKey())
   const [newPax, setNewPax] = useState('0')
+  const [newIsEnquiry, setNewIsEnquiry] = useState(true)
   const [creating, setCreating] = useState(false)
+  const [view, setView] = useState<'ENQUIRIES' | 'EVENTS' | 'ALL'>('ENQUIRIES')
+  const [converting, setConverting] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -124,6 +141,7 @@ export function WorkerEventsClient() {
           menuItems: d.menuItems ?? [],
           services: d.services ?? [],
           setups: d.setups ?? [],
+          blockDefs: d.blockDefs ?? [],
         })
       } catch { /* pickers degrade to empty */ }
     })()
@@ -140,7 +158,7 @@ export function WorkerEventsClient() {
       if (!d) return d
       const id = newId()
       setExpanded((prev) => new Set(prev).add(id))
-      return { ...d, blocks: [...d.blocks, { id, type, title: null, config: defaultConfigFor(type), sortOrder: d.blocks.length }] }
+      return { ...d, blocks: [...d.blocks, { id, type, title: null, config: defaultConfigFor(type, library), sortOrder: d.blocks.length }] }
     })
   }
 
@@ -148,7 +166,7 @@ export function WorkerEventsClient() {
     if (!newName.trim()) return
     setCreating(true)
     setError('')
-    const r = await fetch('/api/worker/events', {
+    const r = await fetch(newIsEnquiry ? '/api/worker/enquiries' : '/api/worker/events', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newName, eventDate: newDate, guestCount: Number(newPax) || 0 }),
@@ -156,7 +174,7 @@ export function WorkerEventsClient() {
     setCreating(false)
     if (!r.ok) {
       const d = await r.json().catch(() => ({}))
-      setError(d.error ?? 'COULD NOT CREATE EVENT')
+      setError(d.error ?? 'COULD NOT CREATE')
       return
     }
     const created = (await r.json()) as WorkerEvent
@@ -167,8 +185,8 @@ export function WorkerEventsClient() {
     setDraft(toDraft(created))
   }
 
-  async function save() {
-    if (!draft) return
+  async function persist(): Promise<boolean> {
+    if (!draft) return false
     setSaving(true)
     setError('')
     const eventRes = await fetch(`/api/worker/events/${draft.id}`, {
@@ -198,7 +216,7 @@ export function WorkerEventsClient() {
       const d = await eventRes.json().catch(() => ({}))
       setSaving(false)
       setError(d.error ?? 'COULD NOT SAVE')
-      return
+      return false
     }
 
     const blocksRes = await fetch(`/api/worker/events/${draft.id}/blocks`, {
@@ -217,6 +235,32 @@ export function WorkerEventsClient() {
     if (!blocksRes.ok) {
       const d = await blocksRes.json().catch(() => ({}))
       setError(d.error ?? 'EVENT SAVED, BLOCKS FAILED')
+      return false
+    }
+    return true
+  }
+
+  async function save() {
+    const ok = await persist()
+    if (!ok) return
+    setDraft(null)
+    load()
+  }
+
+  async function convert() {
+    if (!draft) return
+    const ok = await persist()
+    if (!ok) return
+    setConverting(true)
+    const r = await fetch(`/api/worker/events/${draft.id}/convert`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'TENTATIVE' }),
+    })
+    setConverting(false)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setError(d.error ?? 'COULD NOT CONVERT')
       return
     }
     setDraft(null)
@@ -298,6 +342,9 @@ export function WorkerEventsClient() {
         <div className="sticky top-0 z-20 bg-black border-b border-grey-mid px-3 py-2 flex items-center gap-2">
           <Button size="sm" variant="ghost" onClick={() => setDraft(null)}>← BACK</Button>
           <span className="font-mono text-xs uppercase text-white truncate flex-1">{draft.name || 'UNTITLED'}</span>
+          {draft.status === 'ENQUIRY' && (
+            <Button size="sm" variant="ghost" onClick={convert} loading={converting}>CONVERT</Button>
+          )}
           <Button size="sm" variant="ghost" onClick={push} loading={pushing}>PUSH</Button>
           <Button size="sm" onClick={save} loading={saving}>SAVE</Button>
         </div>
@@ -363,15 +410,16 @@ export function WorkerEventsClient() {
                       onClick={() => setExpanded((prev) => { const n = new Set(prev); if (n.has(b.id)) n.delete(b.id); else n.add(b.id); return n })}
                       className="flex-1 min-w-0 text-left px-1 py-2.5 font-mono text-xs uppercase text-white truncate"
                     >
-                      {open ? '▾' : '▸'} {b.title?.trim() || blockLabel(b.type)}
+                      {open ? '▾' : '▸'} {b.title?.trim() || blockLabel(b.type, library)}
                     </button>
                     <button type="button" disabled={i === 0} aria-label="Move up" onClick={() => setDraft((d) => (d ? { ...d, blocks: moveBlock(d.blocks, i, -1) } : d))} className="w-10 h-10 flex items-center justify-center font-mono text-base text-grey-light hover:text-white disabled:opacity-30">↑</button>
                     <button type="button" disabled={i === draft.blocks.length - 1} aria-label="Move down" onClick={() => setDraft((d) => (d ? { ...d, blocks: moveBlock(d.blocks, i, 1) } : d))} className="w-10 h-10 flex items-center justify-center font-mono text-base text-grey-light hover:text-white disabled:opacity-30">↓</button>
                     <button type="button" aria-label="Delete block" onClick={() => setDraft((d) => (d ? { ...d, blocks: d.blocks.filter((x) => x.id !== b.id) } : d))} className="w-10 h-10 flex items-center justify-center font-mono text-base text-grey-light hover:text-danger">✕</button>
                   </div>
-                  <p className="px-2.5 pb-1 font-mono text-[9px] uppercase text-grey-light truncate">{summariseBlock(b)}</p>
+                  <p className="px-2.5 pb-1 font-mono text-[9px] uppercase text-grey-light truncate">{summariseBlock(b, library)}</p>
                   {open && (
-                    <div className="p-3 border-t border-grey-mid">
+                    <div className="p-3 border-t border-grey-mid space-y-3">
+                      <BeoBlockReferences blockType={b.type} library={library} mode="worker" />
                       <BeoBlockEditor
                         type={b.type}
                         config={b.config}
@@ -379,6 +427,7 @@ export function WorkerEventsClient() {
                         menus={refs.menus}
                         menuItems={refs.menuItems}
                         setups={refs.setups}
+                        library={library}
                         onConfigChange={(config) => setDraft((d) => (d ? { ...d, blocks: d.blocks.map((x) => (x.id === b.id ? { ...x, config } : x)) } : d))}
                         onEventFieldChange={(field, value) => patch({ [field]: value } as Partial<WorkerEvent>)}
                       />
@@ -391,25 +440,43 @@ export function WorkerEventsClient() {
         </div>
 
         <Modal isOpen={showLibrary} onClose={() => setShowLibrary(false)} title="ADD BLOCK">
-          <BeoBlockLibrary onAdd={addBlock} />
+          <BeoBlockLibrary onAdd={addBlock} library={library} />
         </Modal>
       </div>
     )
   }
 
+  const shown = events.filter((e) =>
+    view === 'ALL' ? true : view === 'ENQUIRIES' ? e.status === 'ENQUIRY' : e.status !== 'ENQUIRY',
+  )
+
   return (
     <div className="min-h-screen bg-black pb-16">
-      <div className="px-4 pt-6 pb-4 border-b border-grey-mid flex items-center gap-2">
-        <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white flex-1">EVENTS / BEO</h1>
-        <Button size="sm" onClick={() => setCreateOpen(true)}>+ NEW</Button>
+      <div className="px-4 pt-6 pb-4 border-b border-grey-mid space-y-3">
+        <div className="flex items-center gap-2">
+          <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white flex-1">ENQUIRIES / EVENTS</h1>
+          <Button size="sm" onClick={() => { setNewIsEnquiry(view !== 'EVENTS'); setCreateOpen(true) }}>+ NEW</Button>
+        </div>
+        <div className="flex gap-1">
+          {(['ENQUIRIES', 'EVENTS', 'ALL'] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              className={`font-mono text-[10px] uppercase px-2 py-1 border ${view === v ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light'}`}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="p-4 space-y-2">
         {error && <p className="font-mono text-[10px] text-danger uppercase">{error}</p>}
-        {events.length === 0 ? (
-          <p className="font-mono text-xs uppercase text-grey-light text-center py-6">NO EVENTS YET.</p>
+        {shown.length === 0 ? (
+          <p className="font-mono text-xs uppercase text-grey-light text-center py-6">NOTHING HERE YET.</p>
         ) : (
-          events.map((e) => (
+          shown.map((e) => (
             <button
               key={e.id}
               type="button"
@@ -429,9 +496,25 @@ export function WorkerEventsClient() {
         )}
       </div>
 
-      <Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title="NEW EVENT">
+      <Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title={newIsEnquiry ? 'NEW ENQUIRY' : 'NEW EVENT'}>
         <div className="space-y-3">
-          <Input label="Event name" value={newName} placeholder="SMITH WEDDING" onChange={(e) => setNewName(e.target.value)} />
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => setNewIsEnquiry(true)}
+              className={`flex-1 font-mono text-[10px] uppercase px-2 py-1.5 border ${newIsEnquiry ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light'}`}
+            >
+              ENQUIRY (FROM MASTER)
+            </button>
+            <button
+              type="button"
+              onClick={() => setNewIsEnquiry(false)}
+              className={`flex-1 font-mono text-[10px] uppercase px-2 py-1.5 border ${!newIsEnquiry ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light'}`}
+            >
+              BLANK EVENT
+            </button>
+          </div>
+          <Input label="Name" value={newName} placeholder="SMITH WEDDING" onChange={(e) => setNewName(e.target.value)} />
           <Input label="Date" type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} />
           <Input label="Guests" type="number" value={newPax} onChange={(e) => setNewPax(e.target.value)} />
           {error && <p className="font-mono text-xs text-danger uppercase">{error}</p>}

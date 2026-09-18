@@ -8,6 +8,7 @@ import {
   saveEventBlocks,
   validateBlockPayload,
 } from '@/lib/events.server'
+import { loadBlockLibrary } from '@/lib/beo-block-defs.server'
 
 type Params = { params: { id: string } }
 
@@ -27,12 +28,13 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const body = (await req.json().catch(() => ({}))) as { blocks?: EventBlockInput[] }
   const blocks = Array.isArray(body.blocks) ? body.blocks : []
 
-  const invalid = validateBlockPayload(blocks)
+  const library = await loadBlockLibrary(session!.venueId)
+  const invalid = validateBlockPayload(blocks, library)
   if (invalid.length > 0) {
     return NextResponse.json({ error: `Unknown block type: ${invalid.join(', ')}` }, { status: 400 })
   }
 
-  const result = await saveEventBlocks(params.id, blocks)
+  const result = await saveEventBlocks(params.id, blocks, library)
   await logEventEvent(params.id, 'BLOCKS', `BLOCKS SAVED ON THE WORKER APP — ${result.saved.length} BLOCK(S)`)
 
   return NextResponse.json(result)

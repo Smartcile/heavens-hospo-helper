@@ -186,6 +186,7 @@ enum BudgetLineKind {
 // nothing downstream (booking/calendar/layout) is created until the event is
 // CONFIRMED and `pushToBookings` is set.
 enum EventStatus {
+  ENQUIRY // first visit / chat — pre-BEO, built from the master template
   DRAFT
   TENTATIVE
   CONFIRMED
@@ -293,6 +294,8 @@ model Venue {
   staffPermissions    StaffPermission[]
   events              Event[]
   beoTemplates        BeoTemplate[]
+  beoBlockDefs        BeoBlockDef[]
+  beoBlockLinks       BeoBlockLink[]
 }
 
 model Department {
@@ -2939,6 +2942,9 @@ model BeoTemplate {
   defaultMenuId    String?
   defaultServiceId String?
   defaultSetupId   String?
+  // The venue's enquiry intake form — the simple, ordered block set a new
+  // enquiry is created from. At most one per venue (enforced in the API).
+  isMaster         Boolean  @default(false)
   isActive         Boolean  @default(true)
   sortOrder        Int      @default(0)
   createdAt        DateTime @default(now())
@@ -2949,6 +2955,55 @@ model BeoTemplate {
   events Event[]
 
   @@index([venueId])
+}
+
+// A venue-authored BEO block. Built-in blocks live in `lib/beo-blocks.ts`; a
+// custom def here extends the library per venue. `fields` is the `BeoBlockField[]`
+// spec and `defaultConfig` the fresh config — both stored as JSON so a new field
+// kind is an enum value in code, not a migration. Custom blocks are config-only
+// (never bound to an Event column). `guideIds` / `taskIds` / `checklistIds` link
+// the area to playbook references and real work items.
+model BeoBlockDef {
+  id            String   @id @default(uuid())
+  venueId       String
+  key           String // library key, e.g. "CUSTOM_BAR_TAB"; unique per venue
+  label         String
+  group         String   @default("CUSTOM")
+  description   String?
+  defaultConfig Json     @default("{}")
+  fields        Json     @default("[]")
+  sortOrder     Int      @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@unique([venueId, key])
+  @@index([venueId])
+}
+
+// A playbook reference attached to a BEO block AREA. `blockType` is any library
+// key (built-in or custom), so a built-in area like DIETARY can point at a guide
+// without a def row. `kind` is a String (GUIDE | TASK | CHECKLIST) — a new link
+// type is an enum value in code, not a migration. Polymorphic `targetId` has no
+// FK; the resolver drops a purged target rather than throwing.
+model BeoBlockLink {
+  id        String    @id @default(uuid())
+  venueId   String
+  blockType String
+  kind      String // GUIDE | TASK | CHECKLIST
+  targetId  String
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@unique([venueId, blockType, kind, targetId])
+  @@index([venueId, blockType])
 }
 
 // A request raised from the customer share page (or recorded by a manager):

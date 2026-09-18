@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { eventByShareToken } from '@/lib/events.server'
 import { buildPublicEventView } from '@/lib/event-share'
+import { loadBlockLibrary } from '@/lib/beo-block-defs.server'
 import { computeEventTotals, type EventBlockLike } from '@/lib/event-pricing'
 
 type Params = { params: { token: string } }
@@ -24,6 +25,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
     menuItems,
     event.depositAmount,
   )
+
+  const library = await loadBlockLibrary(event.venueId)
 
   return NextResponse.json(
     buildPublicEventView({
@@ -58,6 +61,6 @@ export async function GET(_req: NextRequest, { params }: Params) {
         responseNote: r.responseNote,
         createdAt: r.createdAt.toISOString(),
       })),
-    }),
+    }, library),
   )
 }

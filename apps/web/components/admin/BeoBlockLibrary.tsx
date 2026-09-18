@@ -4,20 +4,22 @@
 // add. Same HTML5 drag pattern as the furniture palette.
 
 import { useState } from 'react'
-import { BEO_BLOCKS, BEO_BLOCK_GROUPS } from '@/lib/beo-blocks'
+import { BEO_BLOCKS, libraryGroups, type BlockLibrary } from '@/lib/beo-blocks'
 
 export const BEO_BLOCK_DRAG_PREFIX = 'beo-block:'
 
 export function BeoBlockLibrary({
   onAdd,
   disabled,
+  library = BEO_BLOCKS,
 }: {
   onAdd: (type: string) => void
   disabled?: boolean
+  library?: BlockLibrary
 }) {
   const [group, setGroup] = useState<string>('ALL')
-  const groups = ['ALL', ...BEO_BLOCK_GROUPS]
-  const shown = group === 'ALL' ? BEO_BLOCKS : BEO_BLOCKS.filter((b) => b.group === group)
+  const groups = ['ALL', ...libraryGroups(library)]
+  const shown = group === 'ALL' ? library : library.filter((b) => b.group === group)
 
   return (
     <div className="border border-grey-mid">

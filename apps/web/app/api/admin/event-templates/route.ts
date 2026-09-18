@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma, Prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { validateBlockPayload, type EventBlockInput } from '@/lib/events.server'
+import { loadBlockLibrary } from '@/lib/beo-block-defs.server'
 
 /** GET /api/admin/event-templates — venue templates plus built-ins (venueId null). */
 export async function GET(req: NextRequest) {
@@ -42,7 +43,8 @@ export async function POST(req: NextRequest) {
   if (!name) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
 
   const blocks = Array.isArray(body.blocks) ? (body.blocks as EventBlockInput[]) : []
-  const invalid = validateBlockPayload(blocks)
+  const library = await loadBlockLibrary(scopedVenueId)
+  const invalid = validateBlockPayload(blocks, library)
   if (invalid.length > 0) {
     return NextResponse.json({ error: `Unknown block type: ${invalid.join(', ')}` }, { status: 400 })
   }

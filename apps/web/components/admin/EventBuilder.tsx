@@ -10,7 +10,8 @@ import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { BeoBlockEditor } from '@/components/admin/BeoBlockEditor'
 import { BeoBlockLibrary, BEO_BLOCK_DRAG_PREFIX } from '@/components/admin/BeoBlockLibrary'
-import { blockLabel, defaultConfigFor, moveBlock, summariseBlock } from '@/lib/beo-blocks'
+import { BeoBlockReferences } from '@/components/admin/BeoBlockReferences'
+import { BEO_BLOCKS, blockLabel, defaultConfigFor, moveBlock, summariseBlock, type BlockLibrary } from '@/lib/beo-blocks'
 import { computeEventTotals, type EventBlockLike } from '@/lib/event-pricing'
 
 export interface BeoBlockRow {
@@ -94,12 +95,14 @@ export function EventBuilder({
   event,
   venueId,
   refs,
+  library = BEO_BLOCKS,
   onBack,
   onSaved,
 }: {
   event: EventDetail
   venueId: string
   refs: BeoRefs
+  library?: BlockLibrary
   onBack: () => void
   onSaved: () => void
 }) {
@@ -135,7 +138,7 @@ export function EventBuilder({
         id,
         type,
         title: null,
-        config: defaultConfigFor(type),
+        config: defaultConfigFor(type, library),
         sortOrder: d.blocks.length,
       }
       setExpanded((prev) => new Set(prev).add(id))
@@ -501,7 +504,7 @@ export function EventBuilder({
                       onClick={() => toggle(b.id)}
                       className="flex-1 min-w-0 text-left px-1 py-2 font-mono text-xs uppercase text-white truncate"
                     >
-                      {open ? '▾' : '▸'} {b.title?.trim() || blockLabel(b.type)}
+                      {open ? '▾' : '▸'} {b.title?.trim() || blockLabel(b.type, library)}
                     </button>
                     <div className="flex items-center shrink-0">
                       <button type="button" onClick={() => move(b.id, -1)} disabled={i === 0} className="w-9 h-9 flex items-center justify-center font-mono text-sm text-grey-light hover:text-white disabled:opacity-30" aria-label="Move up">↑</button>
@@ -512,12 +515,13 @@ export function EventBuilder({
                   </div>
                   {!open && (
                     <p className="px-2.5 pb-2 -mt-1 font-mono text-[9px] uppercase text-grey-light truncate">
-                      {summariseBlock(b)}
+                      {summariseBlock(b, library)}
                     </p>
                   )}
                 </div>
                 {open && (
-                  <div className="p-3 border-t border-grey-mid">
+                  <div className="p-3 border-t border-grey-mid space-y-3">
+                    <BeoBlockReferences blockType={b.type} library={library} mode="admin" venueId={venueId} />
                     <BeoBlockEditor
                       type={b.type}
                       config={b.config}
@@ -525,6 +529,7 @@ export function EventBuilder({
                       menus={refs.menus}
                       menuItems={refs.menuItems}
                       setups={refs.setups}
+                      library={library}
                       onConfigChange={(config) => updateBlock(b.id, { config })}
                       onEventFieldChange={(field, value) => patch({ [field]: value } as Partial<Draft>)}
                     />
@@ -535,7 +540,7 @@ export function EventBuilder({
           })}
         </div>
 
-        <BeoBlockLibrary onAdd={addBlock} />
+        <BeoBlockLibrary onAdd={addBlock} library={library} />
       </div>
 
       <p className="font-mono text-[10px] uppercase text-grey-light">

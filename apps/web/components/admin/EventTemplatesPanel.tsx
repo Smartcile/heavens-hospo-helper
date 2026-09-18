@@ -11,6 +11,7 @@ import { Modal } from '@/components/ui/Modal'
 import { BeoBlockEditor } from '@/components/admin/BeoBlockEditor'
 import { BeoBlockLibrary, BEO_BLOCK_DRAG_PREFIX } from '@/components/admin/BeoBlockLibrary'
 import { blockLabel, defaultConfigFor, moveBlock } from '@/lib/beo-blocks'
+import { useBlockLibrary } from '@/lib/use-block-library'
 
 interface TemplateRow {
   id: string
@@ -24,6 +25,7 @@ interface TemplateRow {
   defaultSetupId: string | null
   blocks: { type: string; title: string | null; config: Record<string, unknown> }[]
   isBuiltIn: boolean
+  isMaster: boolean
 }
 
 interface BlockRow {
@@ -68,6 +70,7 @@ export function EventTemplatesPanel({
   onApplied: (eventId: string) => void
 }) {
   const venueId = defaultVenueId || sessionVenueId
+  const library = useBlockLibrary(`/api/admin/beo-block-defs?venueId=${venueId}`)
 
   const [templates, setTemplates] = useState<TemplateRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -160,7 +163,7 @@ export function EventTemplatesPanel({
     setBlocks((prev) => {
       const id = newId()
       setExpanded((e) => new Set(e).add(id))
-      return [...prev, { id, type, title: null, config: defaultConfigFor(type), sortOrder: prev.length }]
+      return [...prev, { id, type, title: null, config: defaultConfigFor(type, library), sortOrder: prev.length }]
     })
   }
 
@@ -194,6 +197,21 @@ export function EventTemplatesPanel({
       return
     }
     setEditOpen(false)
+    load()
+  }
+
+  async function setMaster(t: TemplateRow, isMaster: boolean) {
+    setError('')
+    const r = await fetch(`/api/admin/event-templates/${t.id}/master`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isMaster }),
+    })
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setError(d.error ?? 'COULD NOT UPDATE MASTER')
+      return
+    }
     load()
   }
 
@@ -254,6 +272,9 @@ export function EventTemplatesPanel({
                 {t.isBuiltIn && (
                   <span className="font-mono text-[9px] uppercase text-accent border border-accent px-1">BUILT-IN</span>
                 )}
+                {t.isMaster && (
+                  <span className="font-mono text-[9px] uppercase text-success border border-success px-1">MASTER</span>
+                )}
               </div>
               <div className="font-mono text-[10px] uppercase text-grey-light">
                 {[t.category, t.defaultPax ? `${t.defaultPax} PAX` : null, t.defaultStyle]
@@ -270,6 +291,9 @@ export function EventTemplatesPanel({
                 {!t.isBuiltIn && (
                   <>
                     <Button size="sm" variant="ghost" onClick={() => openEdit(t)}>EDIT</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setMaster(t, !t.isMaster)}>
+                      {t.isMaster ? 'CLEAR MASTER' : 'SET MASTER'}
+                    </Button>
                     <Button size="sm" variant="danger" onClick={() => remove(t)}>✕</Button>
                   </>
                 )}
@@ -311,7 +335,7 @@ export function EventTemplatesPanel({
                   <div key={b.id} className="border border-grey-mid">
                     <div className="flex items-center gap-2 px-2 py-1.5 bg-grey-dark/40">
                       <button type="button" onClick={() => setExpanded((prev) => { const n = new Set(prev); if (n.has(b.id)) n.delete(b.id); else n.add(b.id); return n })} className="font-mono text-xs uppercase text-white text-left truncate">
-                        {open ? '▾' : '▸'} {blockLabel(b.type)}
+                        {open ? '▾' : '▸'} {blockLabel(b.type, library)}
                       </button>
                       <div className="flex-1" />
                       <button type="button" disabled={i === 0} onClick={() => setBlocks((prev) => moveBlock(prev, i, -1))} className="font-mono text-xs text-grey-light hover:text-white disabled:opacity-30">↑</button>
@@ -326,6 +350,7 @@ export function EventTemplatesPanel({
                           menus={refs.menus}
                           setups={refs.setups}
                           hideBoundFields
+                          library={library}
                           onConfigChange={(config) => setBlocks((prev) => prev.map((x) => (x.id === b.id ? { ...x, config } : x)))}
                         />
                       </div>
@@ -335,7 +360,7 @@ export function EventTemplatesPanel({
               })}
             </div>
 
-            <BeoBlockLibrary onAdd={addBlock} />
+            <BeoBlockLibrary onAdd={addBlock} library={library} />
           </div>
 
           {error && <p className="font-mono text-xs text-danger uppercase">{error}</p>}

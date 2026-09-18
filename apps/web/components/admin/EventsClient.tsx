@@ -7,6 +7,9 @@ import { LineTabs } from '@/components/admin/LineTabs'
 import { EventsPlanner } from '@/components/admin/EventsPlanner'
 import { EventTemplatesPanel } from '@/components/admin/EventTemplatesPanel'
 import { EventRequestsPanel } from '@/components/admin/EventRequestsPanel'
+import { BlockLibraryPanel } from '@/components/admin/BlockLibraryPanel'
+import { EnquiriesPanel } from '@/components/admin/EnquiriesPanel'
+import { PipelinePanel } from '@/components/admin/PipelinePanel'
 
 interface EventsClientProps {
   role: string
@@ -32,11 +35,29 @@ export function EventsClient({ role, sessionVenueId, defaultVenueId }: EventsCli
       <LineTabs tabs={EVENTS_TABS} tab={tab} onNavigate={go} />
 
       <div className="flex-1 p-4 md:p-6">
+        {tab === 'enquiries' && (
+          <EnquiriesPanel
+            {...venueProps}
+            onConverted={(id) => {
+              setOpenEventId(id)
+              go('events')
+            }}
+          />
+        )}
         {tab === 'events' && (
           <EventsPlanner
             {...venueProps}
             initialEventId={openEventId}
             onInitialOpened={() => setOpenEventId(null)}
+          />
+        )}
+        {tab === 'pipeline' && (
+          <PipelinePanel
+            {...venueProps}
+            onOpenEvent={(id) => {
+              setOpenEventId(id)
+              go('events')
+            }}
           />
         )}
         {tab === 'templates' && (
@@ -57,6 +78,7 @@ export function EventsClient({ role, sessionVenueId, defaultVenueId }: EventsCli
             }}
           />
         )}
+        {tab === 'library' && <BlockLibraryPanel {...venueProps} />}
       </div>
     </div>
   )

@@ -17,8 +17,8 @@ const VIEW: PublicEventView = {
   menuName: 'WEDDING MENU',
   setupName: 'WEDDING RECEPTION',
   blocks: [
-    { id: 'b1', type: 'TIMELINE', title: null, config: { rows: [{ time: '18:00', label: 'MAINS' }] } },
-    { id: 'b2', type: 'MENU_SELECTION', title: null, config: { items: [{ menuItemId: 'm1', qty: 2 }] } },
+    { id: 'b1', type: 'TIMELINE', label: 'RUN SHEET', fields: [], title: null, config: { rows: [{ time: '18:00', label: 'MAINS' }] } },
+    { id: 'b2', type: 'MENU_SELECTION', label: 'MENU SELECTION', fields: [], title: null, config: { items: [{ menuItemId: 'm1', qty: 2 }] } },
   ],
   menuItems: [{ id: 'm1', name: 'ROAST LAMB' }],
   totals: {
