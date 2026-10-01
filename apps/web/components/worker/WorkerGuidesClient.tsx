@@ -4,7 +4,10 @@ import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { GuideStepLinks } from '@/components/GuideStepLinks'
 import { WorkerPathwayTree, type TreeNode, type TreeEdge } from '@/components/worker/WorkerPathwayTree'
+import { WorkerGuideEditor } from '@/components/worker/WorkerGuideEditor'
 import type { ResolvedStepLink } from '@/lib/guide-links'
+import { sanitiseRichText } from '@/lib/rich-text'
+import { guideTypeLabel } from '@/lib/guide-types'
 
 interface Step {
   id: string
@@ -30,6 +33,8 @@ interface GuideItem {
   title: string
   description: string | null
   category: string | null
+  guideType: string | null
+  bodyHtml: string | null
   requiresSignOff: boolean
   isOnboarding: boolean
   isTracked: boolean
@@ -52,6 +57,9 @@ function GuidesInner() {
   const [tab, setTab] = useState<'tree' | 'bible'>('tree')
   const [pathway, setPathway] = useState<PathwayView | null>(null)
   const [lockNote, setLockNote] = useState('')
+  const [canEdit, setCanEdit] = useState(false)
+  const [canPublish, setCanPublish] = useState(false)
+  const [editor, setEditor] = useState<{ id: string | null } | null>(null)
 
   async function load(openId?: string | null) {
     const [gR, pR] = await Promise.all([
@@ -63,6 +71,8 @@ function GuidesInner() {
     setItems(data.items ?? [])
     setReference(data.reference ?? [])
     setFirstName(data.firstName ?? '')
+    setCanEdit(!!data.canEdit)
+    setCanPublish(!!data.canPublish)
 
     if (pR.ok) {
       const p = await pR.json()
@@ -119,12 +129,28 @@ function GuidesInner() {
     )
   }
 
+  if (editor) {
+    return (
+      <WorkerGuideEditor
+        guideId={editor.id}
+        canPublish={canPublish}
+        onClose={() => setEditor(null)}
+        onSaved={() => { setEditor(null); load() }}
+      />
+    )
+  }
+
   if (active) {
     return (
       <div className="min-h-screen bg-black flex flex-col">
         <div className="flex items-center justify-between px-4 py-4 border-b border-grey-mid">
           <button onClick={() => { setActive(null); setLockNote('') }} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">← BACK</button>
-          <span className="font-mono text-xs text-grey-light">{active.requiresSignOff ? 'MANAGER SIGN-OFF' : 'SELF-COMPLETE'}</span>
+          <div className="flex items-center gap-3">
+            {canEdit && (
+              <button onClick={() => setEditor({ id: active.id })} className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors">EDIT</button>
+            )}
+            <span className="font-mono text-xs text-grey-light">{active.requiresSignOff ? 'MANAGER SIGN-OFF' : 'SELF-COMPLETE'}</span>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
@@ -132,12 +158,20 @@ function GuidesInner() {
             <h1 className="font-mono text-xl font-bold uppercase text-white">{active.title}</h1>
             {active.description && <p className="font-sans text-sm text-grey-light mt-2">{active.description}</p>}
             <div className="flex flex-wrap items-center gap-2 mt-2">
+              {guideTypeLabel(active.guideType) && <span className="inline-block font-mono text-xs border border-grey-mid px-2 py-0.5 text-white">{guideTypeLabel(active.guideType)}</span>}
               {active.category && <span className="inline-block font-mono text-xs border border-grey-mid px-2 py-0.5 text-grey-light">{active.category}</span>}
               {!active.isTracked && (
                 <span className="inline-block font-mono text-xs border border-grey-mid px-2 py-0.5 text-grey-light">REFERENCE — NOT TRACKED</span>
               )}
             </div>
           </div>
+
+          {active.bodyHtml && (
+            <div
+              className="font-sans text-sm text-white leading-relaxed [&_h1]:text-lg [&_h1]:font-bold [&_h1]:my-2 [&_h2]:text-base [&_h2]:font-bold [&_h2]:my-2 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_a]:underline"
+              dangerouslySetInnerHTML={{ __html: sanitiseRichText(active.bodyHtml) }}
+            />
+          )}
 
           {active.steps.map((s, i) => (
             <div key={s.id} className="border-l-4 border-l-grey-mid pl-4 space-y-2">
@@ -200,6 +234,9 @@ function GuidesInner() {
                 : `${done} OF ${items.length} COMPLETE`}
             </p>
           </div>
+          {canEdit && (
+            <button onClick={() => setEditor({ id: null })} className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors">+ NEW</button>
+          )}
         </div>
 
         {pathway && tab === 'tree' ? (

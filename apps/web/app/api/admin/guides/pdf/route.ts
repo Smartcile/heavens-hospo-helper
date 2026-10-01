@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { attachTargets, type StepLinkRow } from '@/lib/guide-links'
 import { buildTargetIndex } from '@/lib/guide-links.server'
+import { richTextToPlainText } from '@/lib/rich-text'
 import {
   mergedGuidePdf,
   guidePdfToBuffer,
@@ -64,6 +65,8 @@ export async function GET(req: NextRequest) {
       title: g.title,
       description: g.description,
       category: g.category,
+      guideType: g.guideType,
+      body: richTextToPlainText(g.bodyHtml),
       requiresSignOff: g.requiresSignOff,
       steps,
     })

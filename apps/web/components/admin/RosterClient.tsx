@@ -8,6 +8,7 @@ import { getActiveVenueId } from '@/lib/active-venue'
 import { formatDateLong, keyOfDay, mondayOf, parseDay, shiftDay, weekKeys } from '@/lib/date-nav'
 import { colourForShift, rosterWeekSummary, staffWeekTotals, type RosterShift } from '@/lib/roster-math'
 import { generateRosterPdf } from '@/lib/roster-pdf'
+import { availabilityMeta, availabilityState, conflictsWithShift, isCasual } from '@/lib/availability'
 
 interface RosterStaff {
   id: string
@@ -19,10 +20,20 @@ interface RosterStaff {
   positions: { id: string; name: string; colour: string | null }[]
 }
 
+interface RosterAvailability {
+  id: string
+  type: 'UNAVAILABLE' | 'PREFERRED'
+  isAllDay: boolean
+  startTime: string | null
+  endTime: string | null
+  notes: string | null
+}
+
 interface RosterData {
   staff: RosterStaff[]
   shifts: RosterShift[]
   blockedDays: Record<string, string[]>
+  availability: Record<string, Record<string, RosterAvailability>>
   budgetedSalesByDate: Record<string, number>
   summary: { totalCost: number; budgetedSales: number; staffingRatio: number; totalPaidHours: number }
 }
@@ -150,6 +161,13 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
 
   async function saveShift() {
     if (!form.staffId || !form.date || !form.startTime || !form.endTime) { setError('ALL FIELDS EXCEPT TAG/COLOUR ARE REQUIRED'); return }
+    // Soft warning: the person has flagged this day (or window) as unavailable.
+    const avail = data?.availability[form.staffId]?.[form.date]
+    if (conflictsWithShift(avail, form.startTime, form.endTime)) {
+      const person = data?.staff.find((s) => s.id === form.staffId)
+      const who = person ? `${person.firstName} ${person.lastName}` : 'THIS STAFF MEMBER'
+      if (!confirm(`${who} IS MARKED UNAVAILABLE AT THIS TIME. ASSIGN THIS SHIFT ANYWAY?`)) return
+    }
     setBusy(true); setError('')
     const body = {
       staffId: form.staffId,
@@ -265,6 +283,15 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
 
       {error && <p className="font-mono text-xs text-danger">{error}</p>}
 
+      {/* Availability legend */}
+      <div className="flex flex-wrap items-center gap-4">
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-danger bg-danger/20" /><span className="font-mono text-[10px] uppercase text-grey-light">Unavailable</span></span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-success bg-success/20" /><span className="font-mono text-[10px] uppercase text-grey-light">Preferred</span></span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-warning bg-warning/20" /><span className="font-mono text-[10px] uppercase text-grey-light">Unset (casual)</span></span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-grey-mid bg-danger/5" /><span className="font-mono text-[10px] uppercase text-grey-light">Time off</span></span>
+        <span className="font-mono text-[10px] uppercase text-grey-light">HOVER A BADGE FOR THE WINDOW · ASSIGNING UNAVAILABLE ASKS TO CONFIRM</span>
+      </div>
+
       {/* Grid */}
       {loading ? (
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
@@ -299,8 +326,25 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
                   {weekDays.map((d) => {
                     const dayShifts = data.shifts.filter((sh) => sh.staffId === s.id && sh.date === d)
                     const blocked = (data.blockedDays[s.id] ?? []).includes(d)
+                    const avail = data.availability[s.id]?.[d]
+                    const state = availabilityState(avail)
+                    const meta = availabilityMeta(state, s.employmentType)
+                    // FT/PT default is implied-available (no badge). A casual's
+                    // UNSET only matters where they're not already rostered.
+                    const showBadge = !blocked && (state !== 'DEFAULT' || (isCasual(s.employmentType) && dayShifts.length === 0))
                     return (
-                      <div key={d} className={`border-b border-grey-mid min-h-[72px] p-1 relative ${blocked ? 'bg-danger/5' : 'hover:bg-black/20'}`} onClick={() => !blocked && openModal(s.id, d)}>
+                      <div key={d} className={`border-b border-grey-mid min-h-[72px] p-1 relative ${blocked ? 'bg-danger/5' : meta.tint} ${blocked ? '' : 'hover:bg-black/20'}`} onClick={() => !blocked && openModal(s.id, d)}>
+                        {showBadge && (
+                          <div className="absolute top-0.5 right-0.5 z-0 pointer-events-none">
+                            <span
+                              className={`font-mono text-[7px] uppercase px-1 border ${meta.badge}`}
+                              title={avail
+                                ? `${meta.label} · ${avail.isAllDay ? 'ALL DAY' : `${avail.startTime}–${avail.endTime}`}${avail.notes ? ` · ${avail.notes}` : ''}`
+                                : 'NO PREFERENCE LOGGED'}>
+                              {meta.label}
+                            </span>
+                          </div>
+                        )}
                         {blocked && (
                           <div className="absolute inset-0 flex items-center justify-center z-0 pointer-events-none">
                             <span className="font-mono text-[9px] uppercase text-danger tracking-widest bg-black/60 px-2 py-0.5">TIME OFF</span>

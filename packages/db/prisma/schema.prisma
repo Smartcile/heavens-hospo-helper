@@ -143,6 +143,14 @@ enum ShiftStatus {
   PUBLISHED
 }
 
+// Staff availability for the roster planner. UNAVAILABLE is a hard block-out;
+// PREFERRED is a casual opting in to work. No row = DEFAULT (available for
+// FT/PT, unset/standby for casuals).
+enum AvailabilityType {
+  UNAVAILABLE
+  PREFERRED
+}
+
 // Time clock session approval — only APPROVED sessions count for payroll.
 enum ApprovalStatus {
   PENDING
@@ -233,6 +241,9 @@ model Venue {
   icalFeedUrl            String? // any .ics subscribe link (e.g. a Loaded/roster calendar feed) — imported
   externalRefreshMinutes Int       @default(0) // 0 = manual refresh only
   lastExternalSyncAt     DateTime? // last successful calendar import
+  // Roster availability cut-off: staff cannot add/edit availability on dates
+  // within this many days of today. 0 = no lock.
+  availabilityLockDays   Int       @default(0)
   // Geo-fence for timeclock punches (centre point + allowed radius in metres).
   // Null means geo-fencing is off for this venue.
   geoLat                 Float?
@@ -253,6 +264,7 @@ model Venue {
   shiftNotes          ShiftNote[]
   shifts              Shift[]
   timeOffRequests     TimeOffRequest[]
+  staffAvailabilities StaffAvailability[]
   notices             Notice[]
   calendarEvents      CalendarEvent[]
   sections            Section[]
@@ -378,6 +390,7 @@ model Staff {
   shiftNotes           ShiftNote[]
   shifts               Shift[]
   timeOffRequests      TimeOffRequest[]
+  availabilities       StaffAvailability[]
   noticeAcks           NoticeAck[]
   sections             StaffSection[]
   followUps            FollowUp[]
@@ -935,6 +948,31 @@ model TimeOffRequest {
   @@index([staffId])
 }
 
+// One staff member's declared availability for a single day. A day carries at
+// most one state (hence the unique key): UNAVAILABLE (hard block-out) or
+// PREFERRED (casual opting in). isAllDay true = the whole day; otherwise the
+// start/end "HH:mm" window is the availability (local time, like Shift).
+model StaffAvailability {
+  id        String           @id @default(uuid())
+  staffId   String
+  venueId   String
+  date      DateTime         @db.Date
+  type      AvailabilityType
+  isAllDay  Boolean          @default(true)
+  startTime String? // "HH:mm" — null when all-day
+  endTime   String? // "HH:mm"
+  notes     String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  deletedAt DateTime?
+
+  staff Staff @relation(fields: [staffId], references: [id])
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@unique([staffId, date])
+  @@index([venueId, date])
+}
+
 // ── TIME CLOCK + PAYROLL ──
 
 // A single clock-in/out session (one shift's worth of actual time).
@@ -1449,11 +1487,26 @@ model FollowUp {
 
 // --- PLAYBOOK GUIDES (Phase 6 — simplified replacement for TrainingModule) ---
 
+// A guide's document type. HOW TO is the common case; the rest give the
+// Playbook a light taxonomy on top of the free-text `category`.
+enum GuideType {
+  HOW_TO
+  SOP
+  FAQ
+  TRAINING
+  POLICY
+  OTHER
+}
+
 model Guide {
   id              String      @id @default(uuid())
   title           String
   description     String?
   category        String?
+  guideType       GuideType?
+  // Optional rich-text "document" body (sanitised HTML), rendered above steps.
+  // Lets a manager capture a quick How-To before breaking it into steps.
+  bodyHtml        String?
   venueId         String
   departmentId    String?
   status          GuideStatus @default(DRAFT)

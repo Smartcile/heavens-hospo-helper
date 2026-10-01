@@ -1,54 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { STEP_LINK_KINDS, type StepLinkKind } from '@/lib/guide-links'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
-
-interface IncomingLink {
-  kind: StepLinkKind
-  targetId: string
-  qty?: number | null
-  note?: string | null
-}
-
-interface IncomingStep {
-  heading?: string | null
-  content: string
-  imageUrl?: string | null
-  videoUrl?: string | null
-  links?: IncomingLink[]
-}
-
-interface IncomingTaskGuide {
-  taskId: string
-  isRequiredForCompetency: boolean
-}
-
-interface IncomingAudience {
-  kind: 'DEPARTMENT' | 'SECTION' | 'POSITION'
-  targetId: string
-}
-
-/** Drop malformed rows and duplicates — the unique key would reject them anyway. */
-function cleanLinks(links: IncomingLink[] | undefined) {
-  const seen = new Set<string>()
-  return (links ?? [])
-    .filter((l) => {
-      if (!l?.targetId || !STEP_LINK_KINDS.includes(l.kind)) return false
-      const key = `${l.kind}:${l.targetId}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-    .map((l, order) => ({
-      kind: l.kind,
-      targetId: l.targetId,
-      qty: typeof l.qty === 'number' ? l.qty : null,
-      note: l.note?.trim() || null,
-      order,
-    }))
-}
+import {
+  cleanAudiences,
+  cleanBodyHtml,
+  cleanGuideSteps,
+  cleanTaskGuides,
+  guideStepsCreate,
+  guideTypeValue,
+  type GuideStepInput,
+  type GuideTaskLinkInput,
+  type GuideAudienceInput,
+} from '@/lib/guides.server'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -90,6 +55,8 @@ export async function POST(req: NextRequest) {
     title,
     description,
     category,
+    guideType,
+    bodyHtml,
     departmentId,
     isTracked,
     isOnboarding,
@@ -102,14 +69,16 @@ export async function POST(req: NextRequest) {
     title: string
     description?: string
     category?: string
+    guideType?: string | null
+    bodyHtml?: string | null
     departmentId?: string | null
     isTracked?: boolean
     isOnboarding?: boolean
     requiresSignOff?: boolean
     venueId?: string
-    steps: IncomingStep[]
-    taskGuides?: IncomingTaskGuide[]
-    audiences?: IncomingAudience[]
+    steps: GuideStepInput[]
+    taskGuides?: GuideTaskLinkInput[]
+    audiences?: GuideAudienceInput[]
   }
 
   if (!title?.trim()) {
@@ -121,43 +90,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Venue is required' }, { status: 400 })
   }
 
-  const cleanSteps = (steps ?? []).filter((s) => s.content?.trim() || s.heading?.trim())
+  const cleanSteps = cleanGuideSteps(steps)
+  const tgs = cleanTaskGuides(taskGuides)
+  const auds = cleanAudiences(audiences)
 
   const guide = await prisma.guide.create({
     data: {
       title: String(title).toUpperCase().trim(),
       description: description?.trim() || null,
       category: category ? String(category).toUpperCase().trim() : null,
+      guideType: guideTypeValue(guideType),
+      bodyHtml: cleanBodyHtml(bodyHtml),
       venueId: scopedVenueId,
       departmentId: departmentId || null,
       status: 'DRAFT',
       isTracked: !!isTracked,
       isOnboarding: !!isOnboarding,
       requiresSignOff: !!requiresSignOff,
-      steps: {
-        create: cleanSteps.map((s, i) => ({
-          order: i,
-          heading: s.heading?.trim() || null,
-          content: s.content?.trim() ?? '',
-          imageUrl: s.imageUrl || null,
-          videoUrl: s.videoUrl?.trim() || null,
-          links: { create: cleanLinks(s.links) },
-        })),
-      },
-      taskGuides: taskGuides?.length
-        ? { create: taskGuides.map((tg) => ({ taskId: tg.taskId, isRequiredForCompetency: tg.isRequiredForCompetency })) }
-        : undefined,
-      audiences: audiences?.length
-        ? {
-            create: [
-              ...new Map(
-                audiences
-                  .filter((a) => a?.targetId && ['DEPARTMENT', 'SECTION', 'POSITION'].includes(a.kind))
-                  .map((a) => [`${a.kind}:${a.targetId}`, { kind: a.kind, targetId: a.targetId }]),
-              ).values(),
-            ],
-          }
-        : undefined,
+      steps: cleanSteps.length ? { create: guideStepsCreate(cleanSteps) } : undefined,
+      taskGuides: tgs.length ? { create: tgs } : undefined,
+      audiences: auds.length ? { create: auds } : undefined,
     },
     include: { steps: { orderBy: { order: 'asc' }, include: { links: true } }, taskGuides: true, audiences: true },
   })

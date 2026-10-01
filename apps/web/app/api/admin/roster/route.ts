@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   const start = new Date(`${startKey}T00:00:00Z`)
   const end = new Date(`${endKey}T23:59:59Z`)
 
-  const [staff, shifts, timeOff, budgetDays] = await Promise.all([
+  const [staff, shifts, timeOff, availability, budgetDays] = await Promise.all([
     prisma.staff.findMany({
       where: { venueId, deletedAt: null, isActive: true },
       select: {
@@ -55,6 +55,9 @@ export async function GET(req: NextRequest) {
       },
       select: { staffId: true, startDate: true, endDate: true },
     }),
+    prisma.staffAvailability.findMany({
+      where: { venueId, deletedAt: null, date: { gte: start, lte: end } },
+    }),
     prisma.budgetDay.findMany({
       where: { date: { gte: start, lte: end } },
       include: {
@@ -76,6 +79,28 @@ export async function GET(req: NextRequest) {
   for (const t of timeOff) {
     const keys = dateKeysBetween(t.startDate, t.endDate)
     blockedDays[t.staffId] = [...(blockedDays[t.staffId] ?? []), ...keys]
+  }
+
+  // Declared availability overlays the grid: staffId → dateKey → entry.
+  const availabilityByStaff: Record<string, Record<string, {
+    id: string
+    type: string
+    isAllDay: boolean
+    startTime: string | null
+    endTime: string | null
+    notes: string | null
+  }>> = {}
+  for (const a of availability) {
+    const day = formatDateKey(a.date)
+    availabilityByStaff[a.staffId] = availabilityByStaff[a.staffId] ?? {}
+    availabilityByStaff[a.staffId][day] = {
+      id: a.id,
+      type: a.type,
+      isAllDay: a.isAllDay,
+      startTime: a.startTime,
+      endTime: a.endTime,
+      notes: a.notes,
+    }
   }
 
   const shiftsOut: RosterShift[] = shifts.map((s) => ({
@@ -107,6 +132,7 @@ export async function GET(req: NextRequest) {
     })),
     shifts: shiftsOut,
     blockedDays,
+    availability: availabilityByStaff,
     budgetedSalesByDate,
     summary,
   })

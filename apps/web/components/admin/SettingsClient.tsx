@@ -23,6 +23,7 @@ interface Venue {
   googleCalendarUrl: string | null
   icalFeedUrl: string | null
   externalRefreshMinutes: number
+  availabilityLockDays: number
   sharingEnabled: boolean
   sharedWooVenueId: string | null
 }
@@ -113,6 +114,11 @@ export function SettingsClient({
   const [refresh, setRefresh] = useState('0')
   const [intSaving, setIntSaving] = useState(false)
   const [intMessage, setIntMessage] = useState('')
+
+  // Roster availability cut-off
+  const [lockDays, setLockDays] = useState('0')
+  const [lockSaving, setLockSaving] = useState(false)
+  const [lockMessage, setLockMessage] = useState('')
 
   // WooCommerce
   const [wcVenueId, setWcVenueId] = useState<string>(() => {
@@ -242,6 +248,7 @@ export function SettingsClient({
     setGoogleUrl(v.googleCalendarUrl ?? '')
     setIcalUrl(v.icalFeedUrl ?? '')
     setRefresh(String(v.externalRefreshMinutes ?? 0))
+    setLockDays(String(v.availabilityLockDays ?? 0))
     setSharingEnabled(v.sharingEnabled ?? false)
     setSharedWooVenueId(v.sharedWooVenueId ?? '')
   }
@@ -332,6 +339,22 @@ export function SettingsClient({
       setVenues((prev) => prev.map((x) => (x.id === v.id ? { ...x, ...v } : x)))
       setIntMessage('SAVED')
     } else setIntMessage('SAVE FAILED')
+  }
+
+  async function saveAvailabilityLock() {
+    if (!venueId) return
+    setLockSaving(true); setLockMessage('')
+    const r = await fetch(`/api/admin/venues/${venueId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ availabilityLockDays: Math.max(0, Math.floor(Number(lockDays) || 0)) }),
+    })
+    setLockSaving(false)
+    if (r.ok) {
+      const v = await r.json()
+      setVenues((prev) => prev.map((x) => (x.id === v.id ? { ...x, ...v } : x)))
+      setLockMessage('SAVED')
+    } else setLockMessage('SAVE FAILED')
   }
 
   async function saveWooCommerce() {
@@ -486,6 +509,19 @@ export function SettingsClient({
           <Select label="Auto-refresh / re-sync interval" value={refresh} onChange={(e) => setRefresh(e.target.value)} options={REFRESH_OPTIONS} />
           {intMessage && <p className={`font-mono text-xs ${intMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{intMessage}</p>}
           <Button onClick={saveIntegrations} loading={intSaving} size="sm">SAVE INTEGRATIONS</Button>
+        </div>
+      </div>
+
+      {/* Roster availability cut-off */}
+      <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">
+        <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">ROSTER AVAILABILITY</h2>
+        <p className="font-mono text-xs text-grey-light mb-3">
+          STAFF SET THEIR OWN AVAILABILITY FROM THE WORKER APP AND IT OVERLAYS THE ROSTER EDITOR. THIS CUT-OFF LOCKS NEAR-TERM DAYS SO AVAILABILITY CANNOT CHANGE WHILE YOU ARE BUILDING OR RUNNING A ROSTER. 0 = NO LOCK.
+        </p>
+        <div className="space-y-3">
+          <Input label="Lock-out (days before today)" type="number" min="0" value={lockDays} onChange={(e) => setLockDays(e.target.value)} />
+          {lockMessage && <p className={`font-mono text-xs ${lockMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{lockMessage}</p>}
+          <Button onClick={saveAvailabilityLock} loading={lockSaving} size="sm">SAVE</Button>
         </div>
       </div>
 

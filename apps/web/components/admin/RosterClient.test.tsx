@@ -4,7 +4,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
 import { RosterClient } from '@/components/admin/RosterClient'
-import { keyOfDay, mondayOf } from '@/lib/date-nav'
+import { keyOfDay, mondayOf, shiftDay } from '@/lib/date-nav'
 
 // The roster grid renders the CURRENT week, so the mocked shift must land on
 // this week's Monday or the block never appears (date-dependent test break).
@@ -18,8 +18,28 @@ const data = {
     { id: 'sh1', staffId: 'st1', date: monday, startTime: '07:00', endTime: '16:00', breakMinutes: 30, colour: null, tag: null, status: 'PUBLISHED', positionName: 'BARISTA', positionColour: '#60A5FA' },
   ],
   blockedDays: {},
+  availability: {},
   budgetedSalesByDate: { [monday]: 1000 },
   summary: { totalCost: 212.5, budgetedSales: 1000, staffingRatio: 21.25, totalPaidHours: 8.5 },
+}
+
+// A casual who has opted in on Monday and blocked Tuesday, plus a FT with no
+// entries (implied available — no badge).
+const availData = {
+  staff: [
+    { id: 'st1', firstName: 'LIAM', lastName: 'HEAVEN', hourlyRate: 25, employmentType: 'FULL_TIME', departmentName: 'BAR', positions: [] },
+    { id: 'st2', firstName: 'TAYLOR', lastName: 'REED', hourlyRate: 22, employmentType: 'CASUAL', departmentName: 'FOH', positions: [] },
+  ],
+  shifts: [],
+  blockedDays: {},
+  availability: {
+    st2: {
+      [monday]: { id: 'a1', type: 'PREFERRED', isAllDay: true, startTime: null, endTime: null, notes: null },
+      [shiftDay(monday, 1)]: { id: 'a2', type: 'UNAVAILABLE', isAllDay: false, startTime: '09:00', endTime: '17:00', notes: 'UNI' },
+    },
+  },
+  budgetedSalesByDate: {},
+  summary: { totalCost: 0, budgetedSales: 0, staffingRatio: 0, totalPaidHours: 0 },
 }
 
 function mockFetch(responses: unknown[]) {
@@ -81,5 +101,25 @@ describe('RosterClient', () => {
       expect(screen.getAllByText(/BARISTA/).length).toBeGreaterThan(0)
       expect(screen.getAllByText(/8\.50HRS/).length).toBeGreaterThan(0)
     })
+  })
+
+  it('overlays availability badges on the grid and shows the legend', async () => {
+    mockFetch([[], [], availData])
+
+    render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/TAYLOR REED/)).toBeDefined()
+    })
+    // PREFERRED on Monday, UNAVAILABLE on Tuesday, UNSET for the casual's other days.
+    expect(screen.getAllByText('PREFERRED').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('UNAVAILABLE').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('UNSET').length).toBeGreaterThan(0)
+    // The FT default must NOT be labelled available on every cell.
+    expect(screen.queryByText('AVAILABLE')).toBeNull()
+    // Legend.
+    expect(screen.getByText('Unavailable')).toBeDefined()
+    expect(screen.getByText('Preferred')).toBeDefined()
+    expect(screen.getByText(/Unset \(casual\)/)).toBeDefined()
   })
 })

@@ -185,6 +185,7 @@ keeping other query params.
 | **Kitchen** | `/w/kitchen` | Today's order items by table, allergy badges, prep totals. Auto-refresh 15s |
 | **Stocktake** | `/w/stocktake` | Assigned stocktakes: count list, submit IN_PROGRESS / COMPLETED |
 | **Calendar** | `/w/calendar` | My upcoming shifts + request/cancel time off |
+| **Availability** | `/w/availability` | Declare when I can work: tap a day → PREFERRED (casual opt-in) / UNAVAILABLE (block-out), all-day or a time window, repeat weekly; overlays the admin Roster Editor |
 | **Floor Plan** | `/w/floorplan` | Read-only plan: zoom/pan, setup switcher, event-mode banner |
 | **Notices** | `/w/notices` | Announcements with GOT IT acknowledgement |
 | **Timeclock** | `/w/timeclock` | Clock in/out, breaks (NZ rules), today's hours, history |

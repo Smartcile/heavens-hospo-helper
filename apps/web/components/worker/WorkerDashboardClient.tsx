@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
-type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events'
+type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events'
 
 interface DashData {
   firstName: string
@@ -238,6 +238,18 @@ export function WorkerDashboardClient() {
           'text-grey-light',
           'border-grey-mid',
           () => setView('calendar')
+        )}
+
+        {card(
+          'MY AVAILABILITY',
+          'SET WHEN YOU CAN WORK',
+          <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="square" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>,
+          null,
+          'text-grey-light',
+          'border-grey-mid',
+          () => setView('availability')
         )}
 
         {card(

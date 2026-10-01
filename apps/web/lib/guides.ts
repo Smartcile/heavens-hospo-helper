@@ -118,6 +118,8 @@ export interface ResolvedGuide {
   title: string
   description: string | null
   category: string | null
+  guideType: string | null
+  bodyHtml: string | null
   requiresSignOff: boolean
   isOnboarding: boolean
   source: GuideSource
@@ -241,6 +243,8 @@ export async function resolveStaffGuides(
       title: g.title,
       description: g.description,
       category: g.category,
+      guideType: g.guideType,
+      bodyHtml: g.bodyHtml,
       requiresSignOff: g.requiresSignOff,
       isOnboarding: g.isOnboarding,
       source,
@@ -276,6 +280,8 @@ export async function resolveStaffGuides(
       title: g.title,
       description: g.description,
       category: g.category,
+      guideType: g.guideType,
+      bodyHtml: g.bodyHtml,
       requiresSignOff: g.requiresSignOff,
       isOnboarding: g.isOnboarding,
       source,

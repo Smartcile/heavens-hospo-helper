@@ -5,6 +5,7 @@
 import { jsPDF } from 'jspdf'
 import path from 'node:path'
 import fs from 'node:fs'
+import { guideTypeLabel } from '@/lib/guide-types'
 
 export interface GuidePdfLink {
   kind: string
@@ -26,6 +27,9 @@ export interface GuidePdfData {
   title: string
   description?: string | null
   category?: string | null
+  guideType?: string | null
+  /** Plain-text form of the rich-text body (shown above the steps). */
+  body?: string | null
   requiresSignOff?: boolean
   steps: GuidePdfStep[]
 }
@@ -69,6 +73,7 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
   y += titleLines.length * 7 + 2
 
   const meta = [
+    guideTypeLabel(data.guideType),
     data.category ? `CATEGORY: ${data.category.toUpperCase()}` : null,
     data.requiresSignOff ? 'MANAGER SIGN-OFF REQUIRED' : 'SELF-COMPLETE',
   ]
@@ -97,6 +102,20 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
   doc.setDrawColor(0)
   doc.line(margin, y, pageW - margin, y)
   y += 8
+
+  // Rich-text body (plain text) — instructions before any numbered steps.
+  if (data.body) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9.5)
+    doc.setTextColor(30)
+    const bodyLines = doc.splitTextToSize(data.body, innerW) as string[]
+    for (const line of bodyLines) {
+      ensure(5)
+      doc.text(line, margin, y)
+      y += 4.8
+    }
+    y += 6
+  }
 
   // Steps
   for (let i = 0; i < data.steps.length; i++) {

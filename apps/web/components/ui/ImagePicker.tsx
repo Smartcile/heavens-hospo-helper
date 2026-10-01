@@ -13,9 +13,11 @@ interface ImagePickerProps {
   label?: string
   className?: string
   disabled?: boolean
+  /** Upload endpoint — admin by default; the worker editor passes /api/worker/upload. */
+  endpoint?: string
 }
 
-export function ImagePicker({ value, onChange, label, className, disabled }: ImagePickerProps) {
+export function ImagePicker({ value, onChange, label, className, disabled, endpoint = '/api/admin/upload' }: ImagePickerProps) {
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
 
@@ -26,7 +28,7 @@ export function ImagePicker({ value, onChange, label, className, disabled }: Ima
     try {
       const form = new FormData()
       form.append('file', file)
-      const r = await fetch('/api/admin/upload', { method: 'POST', body: form })
+        const r = await fetch(endpoint, { method: 'POST', body: form })
       if (r.ok) {
         const data = await r.json()
         if (data?.url) onChange(data.url)

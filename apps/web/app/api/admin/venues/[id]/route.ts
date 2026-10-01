@@ -21,7 +21,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
 
   const body = await req.json()
-  const { name, address, timezone, isActive, loadedRosterUrl, googleCalendarUrl, icalFeedUrl, externalRefreshMinutes, sharingEnabled, sharedWooVenueId } = body
+  const { name, address, timezone, isActive, loadedRosterUrl, googleCalendarUrl, icalFeedUrl, externalRefreshMinutes, availabilityLockDays, sharingEnabled, sharedWooVenueId } = body
 
   const data: Record<string, unknown> = {}
   // Integration settings — editable by an admin or the venue's own manager.
@@ -29,6 +29,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (googleCalendarUrl !== undefined) data.googleCalendarUrl = googleCalendarUrl?.trim() || null
   if (icalFeedUrl !== undefined) data.icalFeedUrl = icalFeedUrl?.trim() || null
   if (externalRefreshMinutes !== undefined) data.externalRefreshMinutes = Number(externalRefreshMinutes) || 0
+  // Roster availability cut-off (0 = no lock) — admin or the venue's manager.
+  if (availabilityLockDays !== undefined) data.availabilityLockDays = Math.max(0, Math.floor(Number(availabilityLockDays) || 0))
   // Venue sharing settings
   if (sharingEnabled !== undefined) data.sharingEnabled = sharingEnabled
   if (sharedWooVenueId !== undefined) {

@@ -44,11 +44,11 @@ const reference = {
   ],
 }
 
-function mockFetch() {
+function mockFetch(extra: Record<string, unknown> = {}, trackedOverride: unknown = tracked) {
   return vi.fn((url: string) => {
     const json = (data: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(data) })
     if (String(url).startsWith('/api/worker/guides')) {
-      return json({ firstName: 'ALEX', items: [tracked], reference: [reference] })
+      return json({ firstName: 'ALEX', items: [trackedOverride], reference: [reference], ...extra })
     }
     if (String(url).startsWith('/api/worker/pathway')) {
       return json({ pathway: null })
@@ -89,5 +89,22 @@ describe('WorkerGuidesClient', () => {
     render(<WorkerGuidesClient />)
     fireEvent.click(await screen.findByText('FOOD SAFETY BASICS'))
     await waitFor(() => expect(screen.getByText('MARK COMPLETE')).toBeTruthy())
+  })
+
+  it('renders a rich-text body above the steps', async () => {
+    globalThis.fetch = mockFetch({}, { ...tracked, bodyHtml: '<h2>BEFORE YOU START</h2><p>Sanitise your station.</p>', guideType: 'HOW_TO' })
+    render(<WorkerGuidesClient />)
+    fireEvent.click(await screen.findByText('FOOD SAFETY BASICS'))
+    await waitFor(() => expect(screen.getByText('Sanitise your station.')).toBeTruthy())
+    expect(screen.getByText('BEFORE YOU START')).toBeTruthy()
+    expect(screen.getByText('HOW TO')).toBeTruthy()
+  })
+
+  it('shows authoring controls only when the user can edit', async () => {
+    globalThis.fetch = mockFetch({ canEdit: true, canPublish: true })
+    render(<WorkerGuidesClient />)
+    expect(await screen.findByText('+ NEW')).toBeTruthy()
+    fireEvent.click(await screen.findByText('FOOD SAFETY BASICS'))
+    await waitFor(() => expect(screen.getByText('EDIT')).toBeTruthy())
   })
 })

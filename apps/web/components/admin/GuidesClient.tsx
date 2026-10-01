@@ -9,7 +9,9 @@ import { Drawer } from '@/components/ui/Drawer'
 import { Badge } from '@/components/ui/Badge'
 import { Combobox, ComboboxHandle } from '@/components/ui/Combobox'
 import { ImagePicker } from '@/components/ui/ImagePicker'
+import { RichTextEditor } from '@/components/ui/RichTextEditor'
 import { getActiveVenueId } from '@/lib/active-venue'
+import { GUIDE_TYPES, GUIDE_TYPE_LABELS, guideTypeLabel } from '@/lib/guide-types'
 
 type LinkKind = 'ITEM' | 'TASK' | 'CHECKLIST' | 'GUIDE' | 'SECTION' | 'RECIPE'
 type AudienceKind = 'DEPARTMENT' | 'SECTION' | 'POSITION'
@@ -69,6 +71,8 @@ interface Guide {
   title: string
   description: string | null
   category: string | null
+  guideType: string | null
+  bodyHtml: string | null
   venueId: string
   departmentId: string | null
   status: 'DRAFT' | 'PUBLISHED'
@@ -170,6 +174,8 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState('')
+  const [guideType, setGuideType] = useState('HOW_TO')
+  const [bodyHtml, setBodyHtml] = useState('')
   const [departmentId, setDepartmentId] = useState('')
   const [isTracked, setIsTracked] = useState(true)
   const [isOnboarding, setIsOnboarding] = useState(false)
@@ -272,6 +278,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   function openCreate() {
     setEditing(null)
     setTitle(''); setDescription(''); setCategory('')
+    setGuideType('HOW_TO'); setBodyHtml('')
     setDepartmentId(''); setIsTracked(true); setIsOnboarding(false); setRequiresSignOff(false)
     setLinkedTaskIds([]); setCompetencyTaskIds([])
     setSteps([emptyStep()]); setAudiences([])
@@ -282,6 +289,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   function openEdit(g: Guide) {
     setEditing(g)
     setTitle(g.title); setDescription(g.description ?? ''); setCategory(g.category ?? '')
+    setGuideType(g.guideType ?? ''); setBodyHtml(g.bodyHtml ?? '')
     setDepartmentId(g.departmentId ?? '')
     setIsTracked(g.isTracked); setIsOnboarding(g.isOnboarding); setRequiresSignOff(g.requiresSignOff)
     setVenueId(g.venueId)
@@ -326,6 +334,8 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
 
     const payload = {
       title, description, category,
+      guideType: guideType || null,
+      bodyHtml: bodyHtml || null,
       venueId: role === 'ADMIN' ? venueId : undefined,
       departmentId: departmentId || null,
       isTracked, isOnboarding, requiresSignOff,
@@ -452,6 +462,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                 {g.isTracked && <Badge variant="default">TRACKED</Badge>}
                 {!g.isTracked && <Badge variant="default">REFERENCE</Badge>}
                 {g.isOnboarding && <Badge variant="warning">ONBOARDING</Badge>}
+                {guideTypeLabel(g.guideType) && <Badge variant="default">{guideTypeLabel(g.guideType)}</Badge>}
                 {g.department && <Badge>{g.department.name}</Badge>}
                 {g.category && <Badge>{g.category}</Badge>}
                 <Badge variant={g.requiresSignOff ? 'warning' : 'success'}>
@@ -487,7 +498,13 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
           {role === 'ADMIN' && !editing && (
             <Select label="Venue" value={venueId} onChange={(e) => setVenueId(e.target.value)} options={venueOptions} />
           )}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Select
+              label="Type"
+              value={guideType}
+              onChange={(e) => setGuideType(e.target.value)}
+              options={[{ value: '', label: '— NONE —' }, ...GUIDE_TYPES.map((t) => ({ value: t, label: GUIDE_TYPE_LABELS[t] }))]}
+            />
             <Select label="Auto-assign to department" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} options={deptOptions} />
             <Input label="Category (optional)" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="BAR" />
           </div>
@@ -582,8 +599,16 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
           </div>
 
           <div className="space-y-2">
+            <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Instructions (rich text)</label>
+            <p className="font-mono text-[10px] uppercase text-grey-light leading-tight">
+              WRITE A SIMPLE DOCUMENT — HEADINGS, PARAGRAPHS, LISTS — AND ADD STEPS BELOW ONLY IF YOU WANT A CHECKLIST. EITHER CAN STAND ALONE.
+            </p>
+            <RichTextEditor value={bodyHtml} onChange={setBodyHtml} placeholder="Write basic instructions here…" />
+          </div>
+
+          <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Steps</label>
+              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Steps (optional)</label>
               <button type="button" onClick={() => setSteps((p) => [...p, emptyStep()])} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">+ ADD STEP</button>
             </div>
             {steps.map((s, i) => (
