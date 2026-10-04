@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { attachTargets, type StepLinkRow } from '@/lib/guide-links'
 import { buildTargetIndex } from '@/lib/guide-links.server'
+import { mergeStepImages } from '@/lib/guide-media'
 import { richTextToPlainText } from '@/lib/rich-text'
 import {
   mergedGuidePdf,
@@ -52,12 +53,17 @@ export async function GET(req: NextRequest) {
     const steps: GuidePdfData['steps'] = []
     for (const s of g.steps) {
       const resolved = attachTargets(s.links as StepLinkRow[], targetIndex)
+      const images = mergeStepImages(s.imageUrls, s.imageUrl)
+      const imageDataUrls = (await Promise.all(images.map((u) => loadImageDataUrl(u)))).filter(
+        (d): d is string => !!d,
+      )
       steps.push({
         heading: s.heading,
         content: s.content,
         videoUrl: s.videoUrl,
+        videoPath: s.videoPath,
         links: resolved.map((l) => ({ kind: l.kind, label: l.target.label, note: l.note })),
-        imageDataUrl: await loadImageDataUrl(s.imageUrl),
+        imageDataUrls,
       })
     }
     pages.push({

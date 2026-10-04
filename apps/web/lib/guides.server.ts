@@ -7,6 +7,7 @@
 
 import { prisma } from '@hospo-ops/db'
 import { STEP_LINK_KINDS, type StepLinkKind } from '@/lib/guide-links'
+import { mergeStepImages } from '@/lib/guide-media'
 import { isGuideType, type GuideType } from '@/lib/guide-types'
 import { sanitiseRichText } from '@/lib/rich-text'
 
@@ -21,8 +22,10 @@ export interface GuideStepInput {
   id?: string | null // present for an existing step — keeps ids (and links) stable
   heading?: string | null
   content: string
-  imageUrl?: string | null
-  videoUrl?: string | null
+  imageUrl?: string | null // legacy single image; kept in sync with imageUrls[0]
+  imageUrls?: string[] | null
+  videoUrl?: string | null // external link (YouTube/Vimeo)
+  videoPath?: string | null // locally uploaded + transcoded clip
   links?: GuideLinkInput[]
 }
 
@@ -54,12 +57,17 @@ export function cleanGuideSteps(raw: unknown): GuideStepInput[] {
 }
 
 function stepFields(s: GuideStepInput, i: number) {
+  // `imageUrl` stays as the first image so legacy readers (PDF, file manager)
+  // keep working; the ordered list is the source of truth.
+  const images = mergeStepImages(s.imageUrls, s.imageUrl)
   return {
     order: i,
     heading: s.heading?.trim() || null,
     content: s.content?.trim() ?? '',
-    imageUrl: s.imageUrl || null,
+    imageUrl: images[0] ?? null,
+    imageUrls: images,
     videoUrl: s.videoUrl?.trim() || null,
+    videoPath: s.videoPath?.trim() || null,
   }
 }
 

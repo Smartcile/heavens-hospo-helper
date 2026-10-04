@@ -349,7 +349,7 @@ export function EventBuilder({
 
   return (
     <div className="space-y-4" data-testid="beo-builder">
-      <div className="sticky top-[calc(var(--admin-topbar-h)+var(--hub-tabs-h))] z-10 bg-black border-b border-grey-mid -mx-4 px-4 py-2 flex items-center gap-2 flex-wrap">
+      <div className="sticky top-[var(--admin-topbar-h)] z-10 bg-black border-b border-grey-mid -mx-4 px-4 py-2 flex items-center gap-2 flex-wrap">
         <Button size="sm" variant="ghost" onClick={onBack}>← BACK</Button>
         <span className="font-mono text-xs uppercase text-white truncate">{draft.name || 'UNTITLED EVENT'}</span>
         <span className="font-mono text-[10px] uppercase text-grey-light">{draft.eventDate}</span>

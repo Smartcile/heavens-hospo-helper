@@ -2,15 +2,18 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { RichTextEditor } from '@/components/ui/RichTextEditor'
-import { ImagePicker } from '@/components/ui/ImagePicker'
+import { MultiImagePicker } from '@/components/ui/MultiImagePicker'
+import { VideoPicker } from '@/components/ui/VideoPicker'
+import { mergeStepImages } from '@/lib/guide-media'
 import { GUIDE_TYPES, GUIDE_TYPE_LABELS } from '@/lib/guide-types'
 
 interface GuideStep {
   id?: string
   heading: string
   content: string
-  imageUrl: string | null
+  imageUrls: string[]
   videoUrl: string | null
+  videoPath: string | null
 }
 
 interface TaskOption {
@@ -45,7 +48,7 @@ interface FormState {
 }
 
 function emptyStep(): GuideStep {
-  return { heading: '', content: '', imageUrl: null, videoUrl: null }
+  return { heading: '', content: '', imageUrls: [], videoUrl: null, videoPath: null }
 }
 
 function blankForm(): FormState {
@@ -113,12 +116,13 @@ export function WorkerGuideEditor({
           requiresSignOff: !!g.requiresSignOff,
           bodyHtml: g.bodyHtml ?? '',
           steps: (g.steps ?? []).length
-            ? (g.steps as { id: string; heading: string | null; content: string; imageUrl: string | null; videoUrl: string | null }[]).map((s) => ({
+            ? (g.steps as { id: string; heading: string | null; content: string; imageUrl: string | null; imageUrls?: string[] | null; videoUrl: string | null; videoPath?: string | null }[]).map((s) => ({
                 id: s.id,
                 heading: s.heading ?? '',
                 content: s.content ?? '',
-                imageUrl: s.imageUrl,
+                imageUrls: mergeStepImages(s.imageUrls, s.imageUrl),
                 videoUrl: s.videoUrl,
+                videoPath: s.videoPath ?? null,
               }))
             : [emptyStep()],
           taskLinks: (g.taskGuides ?? []).map((t: TaskLink) => ({ taskId: t.taskId, isRequiredForCompetency: !!t.isRequiredForCompetency })),
@@ -178,7 +182,7 @@ export function WorkerGuideEditor({
       bodyHtml: form.bodyHtml || null,
       steps: form.steps
         .filter((s) => s.content.trim() || s.heading.trim())
-        .map((s) => ({ id: s.id, heading: s.heading || null, content: s.content, imageUrl: s.imageUrl, videoUrl: s.videoUrl || null })),
+        .map((s) => ({ id: s.id, heading: s.heading || null, content: s.content, imageUrls: s.imageUrls, videoUrl: s.videoUrl || null, videoPath: s.videoPath })),
       taskGuides: form.taskLinks,
     }
     const url = guideId ? `/api/worker/guides/${guideId}` : '/api/worker/guides'
@@ -277,8 +281,9 @@ export function WorkerGuideEditor({
               </div>
               <input value={s.heading} onChange={(e) => updateStep(i, { heading: e.target.value })} placeholder="STEP HEADING (OPTIONAL)" className={FIELD} />
               <textarea value={s.content} onChange={(e) => updateStep(i, { content: e.target.value })} rows={3} placeholder="What to do..." className={`${FIELD} font-sans`} />
+              <MultiImagePicker value={s.imageUrls} onChange={(urls) => updateStep(i, { imageUrls: urls })} endpoint="/api/worker/upload" />
+              <VideoPicker value={s.videoPath} onChange={(url) => updateStep(i, { videoPath: url })} endpoint="/api/worker/upload-video" />
               <input value={s.videoUrl ?? ''} onChange={(e) => updateStep(i, { videoUrl: e.target.value })} placeholder="VIDEO LINK (OPTIONAL)" className={FIELD} />
-              <ImagePicker value={s.imageUrl} onChange={(url) => updateStep(i, { imageUrl: url })} endpoint="/api/worker/upload" />
             </div>
           ))}
         </div>

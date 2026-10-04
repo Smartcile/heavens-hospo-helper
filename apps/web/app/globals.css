@@ -45,12 +45,12 @@
 }
 
 /* ── Mobile / PWA shell ───────────────────────────────────────────────────
-   Fixed-bar heights used to offset the hubs' sticky bars so nothing slides
-   under the mobile admin top bar. --admin-topbar-h is 0 from md up, where the
-   sidebar replaces the fixed bar, so the same calc works at every width. */
+   Height of the fixed mobile admin top bar, used to offset any sticky bar
+   (e.g. the BEO builder action bar) so nothing slides underneath it.
+   --admin-topbar-h is 0 from md up, where the sidebar replaces the fixed bar,
+   so the same calc works at every width. */
 :root {
   --admin-topbar-h: 3.5rem;
-  --hub-tabs-h: 2.5rem;
 }
 
 @media (min-width: 768px) {

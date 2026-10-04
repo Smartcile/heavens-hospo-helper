@@ -11,6 +11,7 @@
 import { prisma } from '@hospo-ops/db'
 import { attachTargets, type ResolvedStepLink, type StepLinkRow } from '@/lib/guide-links'
 import { buildTargetIndex } from '@/lib/guide-links.server'
+import { mergeStepImages } from '@/lib/guide-media'
 
 export type GuideSource =
   | 'ASSIGNED'
@@ -133,7 +134,9 @@ export interface ResolvedGuide {
     heading: string | null
     content: string
     imageUrl: string | null
+    imageUrls: string[]
     videoUrl: string | null
+    videoPath: string | null
     links: ResolvedStepLink[]
   }[]
 }
@@ -216,7 +219,9 @@ export async function resolveStaffGuides(
     heading: string | null
     content: string
     imageUrl: string | null
+    imageUrls: string[]
     videoUrl: string | null
+    videoPath: string | null
     links: StepLinkRow[]
   }
   const stepsOf = (g: unknown): StepWithLinks[] => {
@@ -265,7 +270,9 @@ export async function resolveStaffGuides(
         heading: s.heading,
         content: s.content,
         imageUrl: s.imageUrl,
+        imageUrls: mergeStepImages(s.imageUrls, s.imageUrl),
         videoUrl: s.videoUrl,
+        videoPath: s.videoPath,
         links: attachTargets(s.links, targetIndex),
       })),
     }]
@@ -295,7 +302,9 @@ export async function resolveStaffGuides(
         heading: s.heading,
         content: s.content,
         imageUrl: s.imageUrl,
+        imageUrls: mergeStepImages(s.imageUrls, s.imageUrl),
         videoUrl: s.videoUrl,
+        videoPath: s.videoPath,
         links: attachTargets(s.links, targetIndex),
       })),
     }]

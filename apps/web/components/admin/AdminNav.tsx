@@ -130,6 +130,7 @@ function NavGroups({
   openGroups,
   toggleGroup,
   onNavigate,
+  expandOnly,
 }: {
   groups: NavGroup[]
   pathname: string
@@ -137,6 +138,9 @@ function NavGroups({
   openGroups: Set<string>
   toggleGroup: (label: string) => void
   onNavigate?: () => void
+  /** Mobile drawer: tapping a group header only expands it — navigating (and
+   *  closing the drawer) is reserved for tapping a sub-item. */
+  expandOnly?: boolean
 }) {
   return (
     <nav className="flex-1 py-2 overflow-y-auto">
@@ -146,7 +150,7 @@ function NavGroups({
           || (group.href ? isGroupActive(group.href, pathname, location) : false)
         return (
           <div key={group.label} className="mb-1">
-            {group.href ? (
+            {group.href && !expandOnly ? (
               <div className="flex items-center">
                 <Link
                   href={group.href}
@@ -282,7 +286,7 @@ export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds, gra
           <div className="absolute inset-0 bg-black/70" onClick={() => setOpen(false)} aria-hidden />
           <aside className="absolute left-0 top-0 h-full w-64 bg-grey-dark border-r border-grey-mid flex flex-col shadow-2xl">
             <Brand appName={appName} role={role} venueId={venueId} defaultVenueId={defaultVenueId} availableVenueIds={availableVenueIds} />
-            <NavGroups groups={visibleGroups} pathname={pathname} location={location} openGroups={openGroups} toggleGroup={toggleGroup} onNavigate={() => setOpen(false)} />
+            <NavGroups groups={visibleGroups} pathname={pathname} location={location} openGroups={openGroups} toggleGroup={toggleGroup} onNavigate={() => setOpen(false)} expandOnly />
             <SignOutButton />
           </aside>
         </div>

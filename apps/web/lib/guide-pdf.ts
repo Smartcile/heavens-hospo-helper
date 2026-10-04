@@ -17,8 +17,12 @@ export interface GuidePdfStep {
   heading: string | null
   content: string
   videoUrl?: string | null
+  /** Locally uploaded clip — printed as a "view in the app" note. */
+  videoPath?: string | null
   /** Optional data URL (filled by the route) — embedded below the content. */
   imageDataUrl?: string | null
+  /** Ordered step photos (data URLs, filled by the route). */
+  imageDataUrls?: string[]
   links?: GuidePdfLink[]
 }
 
@@ -149,26 +153,28 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
       y += linkLines.length * 4.2 + 1
     }
 
-    if (s.videoUrl) {
+    if (s.videoUrl || s.videoPath) {
       ensure(8)
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(8)
       doc.setTextColor(80)
-      const vLines = doc.splitTextToSize(`WATCH VIDEO: ${s.videoUrl}`, innerW) as string[]
+      const vLabel = s.videoUrl ? `WATCH VIDEO: ${s.videoUrl}` : 'VIDEO — VIEW IN THE APP'
+      const vLines = doc.splitTextToSize(vLabel, innerW) as string[]
       doc.text(vLines, margin, y)
       y += vLines.length * 4 + 2
     }
 
-    if (s.imageDataUrl) {
+    const stepImages = s.imageDataUrls ?? (s.imageDataUrl ? [s.imageDataUrl] : [])
+    for (const imgData of stepImages) {
       try {
-        const img = doc.getImageProperties(s.imageDataUrl)
+        const img = doc.getImageProperties(imgData)
         const maxW = innerW
         const maxH = 60
         const scale = Math.min(maxW / img.width, maxH / img.height, 1)
         const w = img.width * scale
         const h = img.height * scale
         ensure(h + 4)
-        doc.addImage(s.imageDataUrl, 'JPEG', margin, y, w, h)
+        doc.addImage(imgData, 'JPEG', margin, y, w, h)
         y += h + 6
       } catch {
         // Unreadable image data — the step text is the content, keep going.

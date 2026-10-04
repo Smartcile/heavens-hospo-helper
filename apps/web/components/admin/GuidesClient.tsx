@@ -9,11 +9,13 @@ import { Drawer } from '@/components/ui/Drawer'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { Combobox, ComboboxHandle } from '@/components/ui/Combobox'
-import { ImagePicker } from '@/components/ui/ImagePicker'
+import { MultiImagePicker } from '@/components/ui/MultiImagePicker'
+import { VideoPicker } from '@/components/ui/VideoPicker'
 import { RichTextEditor } from '@/components/ui/RichTextEditor'
 import { GuideReaderContent, type GuideReaderGuide } from '@/components/GuideReaderContent'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { downloadFile } from '@/lib/download-file'
+import { mergeStepImages } from '@/lib/guide-media'
 import { GUIDE_TYPES, GUIDE_TYPE_LABELS, guideTypeLabel } from '@/lib/guide-types'
 
 type LinkKind = 'ITEM' | 'TASK' | 'CHECKLIST' | 'GUIDE' | 'SECTION' | 'RECIPE'
@@ -58,8 +60,9 @@ interface Step {
   id: string | null // null = new; sent back on save so step ids stay stable
   heading: string
   content: string
-  imageUrl: string | null
+  imageUrls: string[]
   videoUrl: string
+  videoPath: string | null
   links: StepLink[]
 }
 
@@ -88,7 +91,9 @@ interface Guide {
     heading: string | null
     content: string
     imageUrl: string | null
+    imageUrls?: string[] | null
     videoUrl: string | null
+    videoPath?: string | null
     links?: StepLink[]
   }[]
   taskGuides?: TaskGuide[]
@@ -102,7 +107,7 @@ interface TaskLite { id: string; title: string; venueId: string }
 interface Position { id: string; name: string; venueId: string }
 
 function emptyStep(): Step {
-  return { id: null, heading: '', content: '', imageUrl: null, videoUrl: '', links: [] }
+  return { id: null, heading: '', content: '', imageUrls: [], videoUrl: '', videoPath: null, links: [] }
 }
 
 // Declared at module level so they aren't redefined on every parent render,
@@ -334,8 +339,9 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
             id: s.id,
             heading: s.heading ?? '',
             content: s.content,
-            imageUrl: s.imageUrl,
+            imageUrls: mergeStepImages(s.imageUrls, s.imageUrl),
             videoUrl: s.videoUrl ?? '',
+            videoPath: s.videoPath ?? null,
             links: s.links ?? [],
           }))
         : [emptyStep()]
@@ -373,8 +379,9 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
         id: s.id,
         heading: s.heading || null,
         content: s.content,
-        imageUrl: s.imageUrl,
+        imageUrls: s.imageUrls,
         videoUrl: s.videoUrl || null,
+        videoPath: s.videoPath,
         links: s.links.map((l) => ({
           kind: l.kind, targetId: l.targetId, qty: l.qty, note: l.note,
         })),
@@ -654,8 +661,9 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                 </div>
                 <Input value={s.heading} onChange={(e) => updateStep(i, { heading: e.target.value })} placeholder="STEP HEADING (OPTIONAL)" />
                 <Textarea value={s.content} onChange={(e) => updateStep(i, { content: e.target.value })} placeholder="What to do in this step..." />
+                <MultiImagePicker label="Photos" value={s.imageUrls} onChange={(urls) => updateStep(i, { imageUrls: urls })} />
+                <VideoPicker label="Video" value={s.videoPath} onChange={(url) => updateStep(i, { videoPath: url })} />
                 <Input value={s.videoUrl} onChange={(e) => updateStep(i, { videoUrl: e.target.value })} placeholder="VIDEO LINK (YOUTUBE/VIMEO, OPTIONAL)" />
-                <ImagePicker value={s.imageUrl} onChange={(url) => updateStep(i, { imageUrl: url })} />
 
                 <div className="border-t border-grey-mid pt-2 space-y-2">
                   <label className="font-mono text-[10px] uppercase text-grey-light tracking-wider">

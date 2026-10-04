@@ -42,9 +42,11 @@ export async function fileUsages(basename: string): Promise<FileUsage[]> {
       where: { imageUrl: contains(basename), module: { deletedAt: null } },
       select: { id: true, module: { select: { title: true } } },
     }),
+    // Guide steps carry an ordered photo list + video path, so scan the rows
+    // and match in memory rather than filtering on a single column.
     prisma.guideStep.findMany({
-      where: { imageUrl: contains(basename), guide: { deletedAt: null } },
-      select: { id: true, guide: { select: { title: true } } },
+      where: { guide: { deletedAt: null } },
+      select: { id: true, imageUrl: true, imageUrls: true, videoPath: true, guide: { select: { title: true } } },
     }),
     prisma.inventoryItem.findMany({
       where: { deletedAt: null },
@@ -77,7 +79,10 @@ export async function fileUsages(basename: string): Promise<FileUsage[]> {
     usages.push({ kind: 'training-step', label: 'LEGACY TRAINING PHOTO', ref: s.module?.title ?? '', id: s.id })
   }
   for (const s of guideSteps) {
-    usages.push({ kind: 'guide-step', label: 'GUIDE PHOTO', ref: s.guide?.title ?? '', id: s.id })
+    const urls = [s.imageUrl, s.videoPath, ...(Array.isArray(s.imageUrls) ? s.imageUrls : [])]
+    if (urls.some((u) => typeof u === 'string' && u.includes(basename))) {
+      usages.push({ kind: 'guide-step', label: 'GUIDE PHOTO/VIDEO', ref: s.guide?.title ?? '', id: s.id })
+    }
   }
   for (const it of items) {
     if (textListsContain(it.imageUrls, basename)) {
@@ -127,8 +132,8 @@ export async function fileUsagesForNames(names: string[]): Promise<Record<string
       select: { id: true, imageUrl: true, module: { select: { title: true } } },
     }),
     prisma.guideStep.findMany({
-      where: { ...orContains('imageUrl'), guide: { deletedAt: null } },
-      select: { id: true, imageUrl: true, guide: { select: { title: true } } },
+      where: { guide: { deletedAt: null } },
+      select: { id: true, imageUrl: true, imageUrls: true, videoPath: true, guide: { select: { title: true } } },
     }),
     prisma.inventoryItem.findMany({
       where: { deletedAt: null },
@@ -164,8 +169,11 @@ export async function fileUsagesForNames(names: string[]): Promise<Record<string
     if (n) (grouped[n] ??= []).push({ kind: 'training-step', label: 'LEGACY TRAINING PHOTO', ref: s.module?.title ?? '', id: s.id })
   }
   for (const s of guideSteps) {
-    const n = matchName(s.imageUrl)
-    if (n) (grouped[n] ??= []).push({ kind: 'guide-step', label: 'GUIDE PHOTO', ref: s.guide?.title ?? '', id: s.id })
+    const urls = [s.imageUrl, s.videoPath, ...(Array.isArray(s.imageUrls) ? s.imageUrls : [])].filter(
+      (u): u is string => typeof u === 'string',
+    )
+    const n = clean.find((x) => urls.some((u) => u.includes(x)))
+    if (n) (grouped[n] ??= []).push({ kind: 'guide-step', label: 'GUIDE PHOTO/VIDEO', ref: s.guide?.title ?? '', id: s.id })
   }
   for (const it of items) {
     const urls = Array.isArray(it.imageUrls) ? it.imageUrls : null

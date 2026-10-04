@@ -1539,8 +1539,10 @@ model GuideStep {
   order     Int
   heading   String?
   content   String
-  imageUrl  String?
-  videoUrl  String?
+  imageUrl  String? // legacy single image — kept as imageUrls[0] for old readers
+  imageUrls String[] @default([]) // ordered step photos (iFixit-style carousel)
+  videoUrl  String? // external link (YouTube/Vimeo)
+  videoPath String? // locally uploaded + transcoded phone-sized clip
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
