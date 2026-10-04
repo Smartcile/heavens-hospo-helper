@@ -3,6 +3,7 @@ import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { getTodayDate } from '@/lib/utils'
 import { isTaskDueOnDate } from '@/lib/scheduling'
+import { isActivatedOn } from '@/lib/checklist-activation'
 
 export async function GET(req: NextRequest) {
   const session = await getWorkerSession()
@@ -132,6 +133,7 @@ export async function GET(req: NextRequest) {
       id: true,
       name: true,
       appearFromTime: true,
+      activatedOn: true,
       tasks: { select: { taskId: true }, orderBy: { sortOrder: 'asc' } },
     },
     orderBy: [{ appearFromTime: 'asc' }, { name: 'asc' }],
@@ -140,6 +142,8 @@ export async function GET(req: NextRequest) {
     id: c.id,
     name: c.name,
     appearFromTime: c.appearFromTime,
+    // Force-opened by an admin for today's venue-local day.
+    activatedToday: isActivatedOn(c.activatedOn, today),
     taskIds: c.tasks.map((ct) => ct.taskId),
   }))
 

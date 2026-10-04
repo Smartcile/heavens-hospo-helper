@@ -20,10 +20,25 @@ const GUIDES = [
   },
 ]
 
+// The single-guide GET resolves step links + adds image/video fields.
+const RESOLVED_GUIDE = {
+  ...GUIDES[0],
+  guideType: 'HOW_TO',
+  bodyHtml: '<p>Always sanitise.</p>',
+  steps: [{ id: 's1', heading: null, content: 'Wash hands thoroughly', imageUrl: null, videoUrl: null, links: [] }],
+}
+
 function mockFetch() {
   return vi.fn((url: string) => {
-    const json = (data: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(data) })
+    const json = (data: unknown) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(data),
+      blob: () => Promise.resolve(new Blob(['pdf'], { type: 'application/pdf' })),
+      headers: { get: () => null },
+    })
     const u = String(url)
+    if (u === '/api/admin/guides/g1') return json(RESOLVED_GUIDE)
     if (u.startsWith('/api/admin/guides?') || u === '/api/admin/guides') return json(GUIDES)
     if (u.startsWith('/api/admin/guides/link-targets')) return json({ ITEM: [], TASK: [], CHECKLIST: [], GUIDE: [], SECTION: [], RECIPE: [] })
     if (u.startsWith('/api/admin/positions')) return json([])
@@ -34,9 +49,13 @@ function mockFetch() {
   }) as unknown as typeof fetch
 }
 
+function cardFor(title: string): HTMLElement {
+  return screen.getByText(title).closest('.bg-grey-dark') as HTMLElement
+}
+
 describe('GuidesClient', () => {
   beforeEach(() => { globalThis.fetch = mockFetch() })
-  afterEach(() => { vi.restoreAllMocks() })
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
   it('lists guides with status badges', async () => {
     render(<GuidesClient role="ADMIN" sessionVenueId="v1" />)
@@ -44,24 +63,35 @@ describe('GuidesClient', () => {
     expect(screen.getByText('HOW TO READ THE FRIDGE TEMP LOG')).toBeTruthy()
   })
 
-  it('opens the single-guide PDF from a card', async () => {
-    const open = vi.fn()
-    vi.stubGlobal('open', open)
+  it('downloads the single-guide PDF from a card', async () => {
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:fake'), revokeObjectURL: vi.fn() })
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     render(<GuidesClient role="ADMIN" sessionVenueId="v1" />)
     await waitFor(() => expect(screen.getByText('FOOD SAFETY BASICS')).toBeTruthy())
-    const card = screen.getByText('FOOD SAFETY BASICS').closest('.bg-grey-dark') as HTMLElement
-    fireEvent.click([...card.querySelectorAll('button')].find((b) => b.textContent === '⬇ PDF')!)
-    expect(open).toHaveBeenCalledWith('/api/admin/guides/g1/pdf', '_blank', 'noopener')
+
+    fireEvent.click([...cardFor('FOOD SAFETY BASICS').querySelectorAll('button')].find((b) => b.textContent === '⬇ PDF')!)
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith('/api/admin/guides/g1/pdf'))
   })
 
   it('bulk downloads the selected guides as one PDF', async () => {
-    const open = vi.fn()
-    vi.stubGlobal('open', open)
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:fake'), revokeObjectURL: vi.fn() })
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     render(<GuidesClient role="ADMIN" sessionVenueId="v1" />)
     await waitFor(() => expect(screen.getByText('FOOD SAFETY BASICS')).toBeTruthy())
+
     fireEvent.click(screen.getByText('SELECT ALL'))
     expect(screen.getByText('⬇ PDF (2)')).toBeTruthy()
     fireEvent.click(screen.getByText('⬇ PDF (2)'))
-    expect(open).toHaveBeenCalledWith('/api/admin/guides/pdf?ids=g1,g2&venueId=v1', '_blank', 'noopener')
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith('/api/admin/guides/pdf?ids=g1,g2&venueId=v1'))
+  })
+
+  it('opens the worker-style preview from a card', async () => {
+    render(<GuidesClient role="ADMIN" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FOOD SAFETY BASICS')).toBeTruthy())
+
+    fireEvent.click([...cardFor('FOOD SAFETY BASICS').querySelectorAll('button')].find((b) => b.textContent === 'VIEW')!)
+    // The resolved step body only exists in the popup, not the card.
+    await waitFor(() => expect(screen.getByText('Wash hands thoroughly')).toBeTruthy())
+    expect(screen.getByText('Always sanitise.')).toBeTruthy()
   })
 })

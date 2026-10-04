@@ -6,11 +6,14 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Drawer } from '@/components/ui/Drawer'
+import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { Combobox, ComboboxHandle } from '@/components/ui/Combobox'
 import { ImagePicker } from '@/components/ui/ImagePicker'
 import { RichTextEditor } from '@/components/ui/RichTextEditor'
+import { GuideReaderContent, type GuideReaderGuide } from '@/components/GuideReaderContent'
 import { getActiveVenueId } from '@/lib/active-venue'
+import { downloadFile } from '@/lib/download-file'
 import { GUIDE_TYPES, GUIDE_TYPE_LABELS, guideTypeLabel } from '@/lib/guide-types'
 
 type LinkKind = 'ITEM' | 'TASK' | 'CHECKLIST' | 'GUIDE' | 'SECTION' | 'RECIPE'
@@ -191,6 +194,9 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const linkedRef = useRef<ComboboxHandle>(null)
   const compRef = useRef<ComboboxHandle>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [viewing, setViewing] = useState<GuideReaderGuide | null>(null)
+  const [viewLoading, setViewLoading] = useState(false)
+  const [pdfError, setPdfError] = useState('')
 
   function toggleSelected(id: string) {
     setSelectedIds((prev) => {
@@ -209,16 +215,40 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     )
   }
 
-  const downloadPdf = (url: string) => window.open(url, '_blank', 'noopener')
-
-  function downloadSinglePdf(g: Guide) {
-    downloadPdf(`/api/admin/guides/${g.id}/pdf`)
+  // Fetch + blob save — more reliable than window.open for an authed route.
+  async function downloadSinglePdf(g: Guide) {
+    setPdfError('')
+    try {
+      await downloadFile(`/api/admin/guides/${g.id}/pdf`, `${g.title}.pdf`)
+    } catch {
+      setPdfError('PDF DOWNLOAD FAILED')
+    }
   }
 
-  function downloadBulkPdf() {
+  async function downloadBulkPdf() {
     if (selectedIds.size === 0) return
+    setPdfError('')
     const venueParam = effectiveVenueId ? `&venueId=${encodeURIComponent(effectiveVenueId)}` : ''
-    downloadPdf(`/api/admin/guides/pdf?ids=${[...selectedIds].join(',')}${venueParam}`)
+    try {
+      await downloadFile(`/api/admin/guides/pdf?ids=${[...selectedIds].join(',')}${venueParam}`)
+    } catch {
+      setPdfError('PDF DOWNLOAD FAILED')
+    }
+  }
+
+  // OPEN THE WORKER READER — the single-guide GET resolves step links, so the
+  // popup renders exactly what a worker sees on their phone.
+  async function openView(g: Guide) {
+    setPdfError(''); setViewLoading(true)
+    try {
+      const r = await fetch(`/api/admin/guides/${g.id}`)
+      if (!r.ok) { setPdfError('COULD NOT OPEN GUIDE'); return }
+      setViewing(await r.json())
+    } catch {
+      setPdfError('COULD NOT OPEN GUIDE')
+    } finally {
+      setViewLoading(false)
+    }
   }
 
   async function load() {
@@ -437,6 +467,8 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
         </div>
       </div>
 
+      {pdfError && <p className="font-mono text-xs text-danger">{pdfError}</p>}
+
       {loading ? (
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
       ) : filteredGuides.length === 0 ? (
@@ -479,6 +511,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
               )}
               <div className="flex gap-3 pt-1 border-t border-grey-mid mt-1">
                 <button onClick={() => openEdit(g)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">EDIT</button>
+                <button onClick={() => openView(g)} disabled={viewLoading} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors disabled:opacity-40">VIEW</button>
                 <button onClick={() => downloadSinglePdf(g)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">⬇ PDF</button>
                 <button onClick={() => handleDelete(g)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">DELETE</button>
                 {g.status === 'DRAFT'
@@ -674,6 +707,15 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
           </div>
         </div>
       </Drawer>
+
+      {/* Worker-view preview — the same reader a worker sees on the phone. */}
+      <Modal isOpen={!!viewing} onClose={() => setViewing(null)} title={viewing?.title} size="lg">
+        {viewing && (
+          <div className="space-y-6">
+            <GuideReaderContent guide={viewing} />
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

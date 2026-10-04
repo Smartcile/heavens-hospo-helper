@@ -70,7 +70,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   const isAdminOrManager = role === 'ADMIN' || role === 'MANAGER'
 
   const [tasks, setTasks] = useState<TaskState[]>([])
-  const [checklists, setChecklists] = useState<{ id: string; name: string; appearFromTime: string | null; taskIds: string[] }[]>([])
+  const [checklists, setChecklists] = useState<{ id: string; name: string; appearFromTime: string | null; activatedToday: boolean; taskIds: string[] }[]>([])
   const [firstName, setFirstName] = useState('')
   const [loading, setLoading] = useState(true)
   const [activeTask, setActiveTask] = useState<ModalTask>(null)
@@ -383,9 +383,11 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   // Time-gate the lists
   const now = new Date()
   const nowHHmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  const isOpen = (t: string | null) => !t || nowHHmm >= t
+  // An admin can force a not-yet-due list open for today (activatedToday).
+  const isOpen = (cl: { appearFromTime: string | null; activatedToday: boolean }) =>
+    cl.activatedToday || !cl.appearFromTime || nowHHmm >= cl.appearFromTime
 
-  const listsByTask = new Map<string, { id: string; name: string; appearFromTime: string | null }[]>()
+  const listsByTask = new Map<string, { id: string; name: string; appearFromTime: string | null; activatedToday: boolean }[]>()
   for (const cl of checklists) {
     for (const tid of cl.taskIds) {
       const arr = listsByTask.get(tid) ?? []
@@ -401,7 +403,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     const lists = listsByTask.get(t.id) ?? []
     if (lists.length === 0) { otherTasks.push(t); continue }
     const open = lists
-      .filter((l) => isOpen(l.appearFromTime))
+      .filter((l) => isOpen(l))
       .sort((a, b) => (a.appearFromTime ?? '').localeCompare(b.appearFromTime ?? '') || a.name.localeCompare(b.name))
     if (open.length === 0) {
       const next = lists.slice().sort((a, b) => (a.appearFromTime ?? '').localeCompare(b.appearFromTime ?? ''))[0]

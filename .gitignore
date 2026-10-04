@@ -4,10 +4,12 @@ node_modules/
 .pnp.js
 
 # Build outputs
+# Anchored: an unanchored `out/` also ignored source dirs named "out"
+# (e.g. app/api/worker/timeclock/out) so those routes never shipped.
 .next/
 dist/
 build/
-out/
+/out/
 next-env.d.ts
 *.tsbuildinfo
 

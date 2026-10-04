@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
       departmentId: c.departmentId,
       sectionId: c.sectionId,
       appearFromTime: c.appearFromTime,
+      activatedOn: c.activatedOn,
       department: c.department,
       section: c.section,
       tasks: c.tasks

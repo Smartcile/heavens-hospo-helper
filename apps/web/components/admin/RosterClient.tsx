@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { DateNav } from '@/components/admin/DateNav'
 import { getActiveVenueId } from '@/lib/active-venue'
-import { formatDateLong, keyOfDay, mondayOf, parseDay, shiftDay, weekKeys } from '@/lib/date-nav'
+import { formatDateLong, keyOfDay, mondayOf, parseDay, shiftDay, weekKeys, type DateRange } from '@/lib/date-nav'
 import { colourForShift, rosterWeekSummary, staffWeekTotals, type RosterShift } from '@/lib/roster-math'
 import { generateRosterPdf } from '@/lib/roster-pdf'
 import { availabilityMeta, availabilityState, conflictsWithShift, isCasual } from '@/lib/availability'
@@ -42,6 +43,9 @@ interface Venue { id: string; name: string }
 
 const WEEKDAY = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
 
+// One border colour for every grid line, so rows/columns read clearly.
+const GRID_LINE = 'border-grey-light/50'
+
 export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
   const [venueId, setVenueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [venues, setVenues] = useState<Venue[]>([])
@@ -55,6 +59,8 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
+  const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable')
+  const compact = density === 'compact'
 
   // Shift modal
   const [modal, setModal] = useState<null | { shift: RosterShift | null; staffId: string; date: string }>(null)
@@ -126,6 +132,11 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     } else {
       await rootRef.current?.requestFullscreen()
     }
+  }
+
+  // The DateNav picks a single day/range; a WEEK view snaps to that week's Monday.
+  function onChangeDate(next: string, _range: DateRange) {
+    setWeekStart(view === 'week' ? mondayOf(next) : next)
   }
 
   async function handlePublish(published: boolean) {
@@ -247,8 +258,18 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
 
   return (
     <div ref={rootRef} className="p-4 md:p-6 space-y-4 bg-black">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <h1 className="font-mono text-xl font-bold uppercase tracking-widest">ROSTER EDITOR</h1>
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h1 className="font-mono text-xl font-bold uppercase tracking-widest">ROSTER EDITOR</h1>
+          <div className="text-right">
+            <DateNav
+              date={weekStart}
+              range={{ start: weekStart, end: shiftDay(weekStart, view === 'week' ? 6 : 0) }}
+              onChange={onChangeDate}
+            />
+          </div>
+        </div>
+
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex gap-1">
             {(['day', 'week'] as const).map((v) => (
@@ -258,18 +279,20 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
               </button>
             ))}
           </div>
+          <div className="flex gap-1">
+            {(['comfortable', 'compact'] as const).map((dv) => (
+              <button key={dv} onClick={() => setDensity(dv)}
+                className={`font-mono text-xs uppercase px-3 py-1.5 border transition-colors ${density === dv ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>
+                {dv === 'compact' ? 'COMPACT' : 'COMFORT'}
+              </button>
+            ))}
+          </div>
           <div className="w-40">
             <Select value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
               options={[{ value: '', label: 'ALL ROLES' }, ...positions.map(p => ({ value: p.id, label: p.name }))]} />
           </div>
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="NAME..." className="w-40" />
-          <button onClick={() => setWeekStart((w) => shiftDay(w, -7))} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white">&lt;</button>
-          <button onClick={() => setWeekStart(mondayOf(todayKey))} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white">TODAY</button>
-          <button onClick={() => setWeekStart((w) => shiftDay(w, 7))} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white">&gt;</button>
-          <span className="font-mono text-xs uppercase text-white whitespace-nowrap">
-            {view === 'week' ? `${formatDateLong(weekStart)} — ${formatDateLong(shiftDay(weekStart, 6))}` : formatDateLong(weekStart)}
-          </span>
           <Button size="sm" variant="ghost" onClick={printRoster}>PRINT</Button>
           <Button size="sm" variant="ghost" onClick={toggleFullscreen}>{fullscreen ? 'EXIT FS' : 'FULLSCREEN'}</Button>
           <Button size="sm"
@@ -296,13 +319,13 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       {loading ? (
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
       ) : data && filteredStaff.length > 0 ? (
-        <div className="border border-grey-mid overflow-auto max-h-[70vh]">
+        <div className={`border ${GRID_LINE} overflow-auto max-h-[70vh]`}>
           <div className="grid" style={{ gridTemplateColumns: `220px repeat(${weekDays.length}, minmax(140px, 1fr))`, minWidth: 220 + weekDays.length * 140 }}>
             {/* Header row */}
-            <div className="sticky top-0 left-0 z-20 bg-grey-dark border-b border-r border-grey-mid px-3 py-2 font-mono text-[10px] uppercase text-grey-light">TEAM</div>
+            <div className={`sticky top-0 left-0 z-20 bg-black border-b-2 border-r ${GRID_LINE} font-mono text-[10px] uppercase text-white ${compact ? 'px-2 py-1' : 'px-3 py-2'}`}>TEAM</div>
             {weekDays.map((d, di) => (
-              <div key={d} className={`sticky top-0 z-10 bg-grey-dark border-b border-grey-mid px-3 py-2 ${d === todayKey ? 'border-l-2 border-l-accent' : ''}`}>
-                <div className="font-mono text-[10px] uppercase text-grey-light">{WEEKDAY[di]} {parseDay(d).getUTCDate()}</div>
+              <div key={d} className={`sticky top-0 z-10 bg-black border-b-2 border-r ${GRID_LINE} ${compact ? 'px-2 py-1' : 'px-3 py-2'} ${d === todayKey ? 'border-l-2 border-l-accent' : ''}`}>
+                <div className="font-mono text-[10px] uppercase text-white">{WEEKDAY[di]} {parseDay(d).getUTCDate()}</div>
                 {d === todayKey && <div className="font-mono text-[9px] uppercase text-accent">TODAY</div>}
               </div>
             ))}
@@ -312,8 +335,8 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
               return (
                 <div key={s.id} className="contents">
                   {/* Staff cell — sticky left */}
-                  <div className="sticky left-0 z-10 bg-grey-dark border-b border-r border-grey-mid px-3 py-2">
-                    <button onClick={() => openModal(s.id, weekDays[0])} className="font-mono text-xs text-accent hover:text-white underline decoration-dotted underline-offset-2">
+                  <div className={`sticky left-0 z-10 bg-grey-dark border-b border-r ${GRID_LINE} ${compact ? 'px-2 py-1' : 'px-3 py-2'}`}>
+                    <button onClick={() => openModal(s.id, weekDays[0])} className={`font-mono text-accent hover:text-white underline decoration-dotted underline-offset-2 ${compact ? 'text-[11px]' : 'text-xs'}`}>
                       {idx + 1} — {s.firstName} {s.lastName}
                     </button>
                     <div className="font-mono text-[10px] text-grey-light mt-0.5">
@@ -333,7 +356,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
                     // UNSET only matters where they're not already rostered.
                     const showBadge = !blocked && (state !== 'DEFAULT' || (isCasual(s.employmentType) && dayShifts.length === 0))
                     return (
-                      <div key={d} className={`border-b border-grey-mid min-h-[72px] p-1 relative ${blocked ? 'bg-danger/5' : meta.tint} ${blocked ? '' : 'hover:bg-black/20'}`} onClick={() => !blocked && openModal(s.id, d)}>
+                      <div key={d} className={`border-b border-r ${GRID_LINE} ${compact ? 'min-h-[44px] p-0.5' : 'min-h-[72px] p-1'} relative ${blocked ? 'bg-danger/5' : meta.tint} ${blocked ? '' : 'hover:bg-black/20'}`} onClick={() => !blocked && openModal(s.id, d)}>
                         {showBadge && (
                           <div className="absolute top-0.5 right-0.5 z-0 pointer-events-none">
                             <span
@@ -354,7 +377,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
                           {dayShifts.map((sh) => (
                             <div key={sh.id}
                               onClick={(e) => { e.stopPropagation(); openModal(s.id, d, sh) }}
-                              className="px-2 py-1 cursor-pointer hover:opacity-80 transition-opacity"
+                              className={`${compact ? 'px-1.5 py-0.5' : 'px-2 py-1'} cursor-pointer hover:opacity-80 transition-opacity`}
                               style={{ backgroundColor: colourForShift(sh) }}>
                               <div className="font-mono text-[10px] font-bold text-white leading-tight">{sh.startTime} — {sh.endTime}</div>
                               <div className="font-mono text-[9px] text-white/90 leading-tight truncate">

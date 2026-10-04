@@ -2,12 +2,10 @@
 
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { GuideStepLinks } from '@/components/GuideStepLinks'
 import { WorkerPathwayTree, type TreeNode, type TreeEdge } from '@/components/worker/WorkerPathwayTree'
 import { WorkerGuideEditor } from '@/components/worker/WorkerGuideEditor'
+import { GuideReaderContent } from '@/components/GuideReaderContent'
 import type { ResolvedStepLink } from '@/lib/guide-links'
-import { sanitiseRichText } from '@/lib/rich-text'
-import { guideTypeLabel } from '@/lib/guide-types'
 
 interface Step {
   id: string
@@ -153,45 +151,8 @@ function GuidesInner() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
-          <div>
-            <h1 className="font-mono text-xl font-bold uppercase text-white">{active.title}</h1>
-            {active.description && <p className="font-sans text-sm text-grey-light mt-2">{active.description}</p>}
-            <div className="flex flex-wrap items-center gap-2 mt-2">
-              {guideTypeLabel(active.guideType) && <span className="inline-block font-mono text-xs border border-grey-mid px-2 py-0.5 text-white">{guideTypeLabel(active.guideType)}</span>}
-              {active.category && <span className="inline-block font-mono text-xs border border-grey-mid px-2 py-0.5 text-grey-light">{active.category}</span>}
-              {!active.isTracked && (
-                <span className="inline-block font-mono text-xs border border-grey-mid px-2 py-0.5 text-grey-light">REFERENCE — NOT TRACKED</span>
-              )}
-            </div>
-          </div>
-
-          {active.bodyHtml && (
-            <div
-              className="font-sans text-sm text-white leading-relaxed [&_h1]:text-lg [&_h1]:font-bold [&_h1]:my-2 [&_h2]:text-base [&_h2]:font-bold [&_h2]:my-2 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_a]:underline"
-              dangerouslySetInnerHTML={{ __html: sanitiseRichText(active.bodyHtml) }}
-            />
-          )}
-
-          {active.steps.map((s, i) => (
-            <div key={s.id} className="border-l-4 border-l-grey-mid pl-4 space-y-2">
-              <div className="font-mono text-xs text-grey-light uppercase">
-                STEP {i + 1}{s.heading ? ` — ${s.heading}` : ''}
-              </div>
-              <p className="font-sans text-sm text-white whitespace-pre-wrap">{s.content}</p>
-              {s.imageUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={s.imageUrl} alt={`step ${i + 1}`} className="w-full border border-grey-mid" />
-              )}
-              {s.videoUrl && (
-                <a href={s.videoUrl} target="_blank" rel="noopener noreferrer" className="inline-block font-mono text-xs uppercase border border-grey-mid px-3 py-2 text-white hover:border-white transition-colors">
-                  ▶ WATCH VIDEO
-                </a>
-              )}
-              {s.links && s.links.length > 0 && <GuideStepLinks links={s.links} />}
-            </div>
-          ))}
-
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 space-y-6">
+          <GuideReaderContent guide={active} />
           {error && <p className="font-mono text-xs text-danger">{error}</p>}
         </div>
 

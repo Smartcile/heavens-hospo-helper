@@ -11,6 +11,7 @@ import { Combobox } from '@/components/ui/Combobox'
 import { moveItem } from '@/lib/array'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { getActiveVenueId } from '@/lib/active-venue'
+import { isActivatedOn, isChecklistHidden } from '@/lib/checklist-activation'
 
 interface Task {
   id: string
@@ -50,6 +51,7 @@ interface Checklist {
   departmentId: string | null
   sectionId: string | null
   appearFromTime: string | null
+  activatedOn: string | null
   department: { id: string; name: string } | null
   section: { id: string; name: string } | null
   tasks: ChecklistCardTask[]
@@ -125,6 +127,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [clAppearFrom, setClAppearFrom] = useState('')
   const [clSaving, setClSaving] = useState(false)
   const [clError, setClError] = useState('')
+  const [activateError, setActivateError] = useState('')
   const [dropActive, setDropActive] = useState(false)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
 
@@ -259,6 +262,12 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     await fetch(`/api/admin/checklists/${clEditing.id}`, { method: 'DELETE' })
     setClEditing(null); load()
   }
+  async function toggleChecklistActivation(c: Checklist, active: boolean) {
+    setActivateError('')
+    const r = await fetch(`/api/admin/checklists/${c.id}/activate`, { method: active ? 'POST' : 'DELETE' })
+    if (!r.ok) { const d = await r.json().catch(() => ({})); setActivateError(d.error ?? 'FAILED'); return }
+    load()
+  }
 
   // --- Derived ---
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
@@ -317,6 +326,12 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (kinds.has('HOWTO') || kinds.has('FAQ')) out.push({ text: 'GUIDE', cls: 'text-grey-light' })
     return out
   }
+
+  // Time-gated lists the floor can't see yet — surfaced at the bottom of the
+  // checklists panel so an admin can force one open for today.
+  const nowHHmm = `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`
+  const today = new Date()
+  const gatedLists = checklists.filter((c) => isChecklistHidden(c.appearFromTime, c.activatedOn, today, nowHHmm))
 
   // Group tasks: Department → Section, with a per-department "general" bucket.
   const deptGroups: { key: string; name: string; colour: string | null; sections: { id: string; name: string; tasks: Task[] }[]; loose: Task[] }[] = []
@@ -527,6 +542,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                       <div className="flex flex-wrap items-center gap-1.5">
                         {c.section ? <Badge>{c.section.name}</Badge> : c.department ? <Badge>{c.department.name}</Badge> : <Badge>WHOLE VENUE</Badge>}
                         {c.appearFromTime && <Badge variant="warning">FROM {c.appearFromTime}</Badge>}
+                        {c.appearFromTime && isActivatedOn(c.activatedOn, today) && nowHHmm < c.appearFromTime && <Badge variant="success">ACTIVE TODAY</Badge>}
                         <span className="font-mono text-xs text-grey-light">{c.tasks.length} TASK{c.tasks.length !== 1 ? 'S' : ''}</span>
                       </div>
                       <ol className="font-mono text-xs text-grey-light list-decimal list-inside">
@@ -535,6 +551,38 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                       </ol>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {gatedLists.length > 0 && (
+                <div className="pt-2 space-y-2">
+                  <div className="font-mono text-[10px] uppercase tracking-widest text-grey-light">
+                    HIDDEN — NOT OPEN YET ({gatedLists.length})
+                  </div>
+                  <p className="font-mono text-[10px] uppercase text-grey-light">
+                    THESE LISTS HAVE A &ldquo;FROM&rdquo; TIME LATER TODAY. ACTIVATE ONE TO SHOW IT ON THE FLOOR NOW — IT RESETS TOMORROW.
+                  </p>
+                  {gatedLists.map((c) => {
+                    const active = isActivatedOn(c.activatedOn, today)
+                    return (
+                      <div key={c.id} className="bg-grey-dark border border-grey-mid p-3 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-mono font-semibold text-sm uppercase text-white truncate">{c.name}</div>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                            <Badge variant="warning">FROM {c.appearFromTime}</Badge>
+                            {c.section ? <Badge>{c.section.name}</Badge> : c.department ? <Badge>{c.department.name}</Badge> : <Badge>WHOLE VENUE</Badge>}
+                            {active && <Badge variant="success">ACTIVE TODAY</Badge>}
+                          </div>
+                        </div>
+                        {active ? (
+                          <button onClick={() => toggleChecklistActivation(c, false)} className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white transition-colors flex-shrink-0">DEACTIVATE</button>
+                        ) : (
+                          <button onClick={() => toggleChecklistActivation(c, true)} className="font-mono text-[10px] uppercase border border-success/40 px-2 py-1 text-success hover:bg-success hover:text-black transition-colors flex-shrink-0">ACTIVATE NOW</button>
+                        )}
+                      </div>
+                    )
+                  })}
+                  {activateError && <p className="font-mono text-xs text-danger">{activateError}</p>}
                 </div>
               )}
             </div>

@@ -89,6 +89,20 @@ describe('RosterClient', () => {
     expect(screen.queryByText('Venue')).toBeNull()
   })
 
+  it('uses the shared date nav and toggles compact density', async () => {
+    mockFetch([[], [], data])
+
+    render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    // DateNav (same control as Clocks) renders its SELECT trigger.
+    expect(await screen.findByTitle('SELECT DATE')).toBeDefined()
+
+    const compact = screen.getByText('COMPACT')
+    expect(compact.className).not.toContain('bg-white')
+    compact.click()
+    await waitFor(() => expect(compact.className).toContain('bg-white'))
+  })
+
   it('opens the analyze modal with per-role totals', async () => {
     mockFetch([[], [], data])
 

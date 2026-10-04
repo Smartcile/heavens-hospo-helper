@@ -100,6 +100,20 @@ describe('WorkerGuidesClient', () => {
     expect(screen.getByText('HOW TO')).toBeTruthy()
   })
 
+  it('opens a step image full width and lets the reader dismiss it by clicking out', async () => {
+    const withImage = { ...tracked, steps: [{ ...tracked.steps[0], imageUrl: '/uploads/step.png' }] }
+    globalThis.fetch = mockFetch({}, withImage)
+    render(<WorkerGuidesClient />)
+    fireEvent.click(await screen.findByText('FOOD SAFETY BASICS'))
+    const stepImage = await screen.findByAltText('step 1')
+    expect(stepImage.className).toContain('w-full')
+    fireEvent.click(stepImage)
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.querySelector('img')?.getAttribute('src')).toBe('/uploads/step.png')
+    fireEvent.click(dialog)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('shows authoring controls only when the user can edit', async () => {
     globalThis.fetch = mockFetch({ canEdit: true, canPublish: true })
     render(<WorkerGuidesClient />)

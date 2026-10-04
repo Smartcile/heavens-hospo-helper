@@ -21,6 +21,7 @@ const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
 export function generateRosterPdf(data: RosterPdfData): jsPDF {
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
   const pageW = doc.internal.pageSize.getWidth()
+  const pageH = doc.internal.pageSize.getHeight()
   const margin = 12
   const innerW = pageW - margin * 2
 
@@ -46,8 +47,12 @@ export function generateRosterPdf(data: RosterPdfData): jsPDF {
   const rateById = new Map(data.rates.map((r) => [r.staffId, r.hourlyRate ?? 0]))
 
   for (let s = 0; s < data.staff.length; s++) {
+    // Break by available height, not a fixed count — A4 landscape fits ~7 rows.
+    if (s > 0 && y + rowH > pageH - 12) {
+      doc.addPage('a4', 'landscape')
+      y = 16
+    }
     const staff = data.staff[s]
-    const isLast = s === data.staff.length - 1
     const rowBottom = y + rowH
 
     doc.setDrawColor(180)
@@ -89,10 +94,6 @@ export function generateRosterPdf(data: RosterPdfData): jsPDF {
     doc.text(`PAID HRS: ${totalHours.toFixed(2)}`, margin + staffColW + 0, rowBottom - 3)
 
     y = rowBottom + 1
-    if (s > 0 && s % 12 === 0 && !isLast) {
-      doc.addPage('a4', 'landscape')
-      y = 18
-    }
   }
 
   return doc

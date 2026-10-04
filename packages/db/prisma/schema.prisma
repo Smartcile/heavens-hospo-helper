@@ -1294,6 +1294,7 @@ model Checklist {
   departmentId   String?
   sectionId      String?
   appearFromTime String? // "HH:mm" venue-local — list shows from this time; stays until all done
+  activatedOn    DateTime? @db.Date // admin force-opened the list for this venue-day; null = time gate only
   sortOrder      Int       @default(0)
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())
