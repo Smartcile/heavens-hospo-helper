@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   shiftPaidHours,
   shiftCost,
+  rateForShift,
   staffWeekTotals,
   rosterWeekSummary,
   colourForShift,
@@ -44,6 +45,23 @@ describe('shiftCost', () => {
   })
 })
 
+describe('rateForShift', () => {
+  const staffRate = { staffId: 'st1', hourlyRate: 25, positions: [{ positionId: 'p1', rate: 32 }] }
+
+  it('uses the role rate when the shift has that role', () => {
+    expect(rateForShift(shift({ positionId: 'p1' }), staffRate)).toBe(32)
+  })
+
+  it('falls back to the base rate for a role with no rate', () => {
+    expect(rateForShift(shift({ positionId: 'p2' }), staffRate)).toBe(25)
+  })
+
+  it('falls back for a role-less shift or a bare rate entry', () => {
+    expect(rateForShift(shift({ positionId: null }), staffRate)).toBe(25)
+    expect(rateForShift(shift({ positionId: 'p1' }), { staffId: 'st1', hourlyRate: 25 })).toBe(25)
+  })
+})
+
 describe('staffWeekTotals', () => {
   it('sums hours and cost per staff member', () => {
     const totals = staffWeekTotals(
@@ -54,6 +72,18 @@ describe('staffWeekTotals', () => {
     expect(t.hours).toBe(12)
     expect(t.cost).toBe(300)
     expect(t.shiftCount).toBe(2)
+  })
+
+  it('costs each shift at its role rate', () => {
+    const totals = staffWeekTotals(
+      [
+        shift({ id: 'a', positionId: 'p1' }), // 8h @ 32 = 256
+        shift({ id: 'b', startTime: '09:00', endTime: '13:00', positionId: null }), // 4h @ 25 = 100
+      ],
+      [{ staffId: 'st1', hourlyRate: 25, positions: [{ positionId: 'p1', rate: 32 }] }]
+    )
+    const t = totals.get('st1')!
+    expect(t.cost).toBe(356)
   })
 })
 

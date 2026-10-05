@@ -1,5 +1,6 @@
 import { prisma } from '@hospo-ops/db'
 import { formatDateKey } from '@/lib/scheduling'
+import { resolveStaffRate } from '@/lib/staff-rate'
 import {
   payrunForStaff,
   type PayrunSession,
@@ -97,11 +98,22 @@ export async function generatePayPeriod(
         clockIn: { gte: startDate, lte: endInclusive },
         deletedAt: null,
       },
-      select: { staffId: true, clockIn: true, clockOut: true, breaksMinutes: true },
+      select: { staffId: true, clockIn: true, clockOut: true, breaksMinutes: true, positionId: true },
     }),
     prisma.staff.findMany({
       where: { venueId, deletedAt: null },
-      select: { id: true, hourlyRate: true, employmentType: true, taxCode: true, kiwiSaverRate: true, studentLoan: true },
+      select: {
+        id: true,
+        hourlyRate: true,
+        employmentType: true,
+        taxCode: true,
+        kiwiSaverRate: true,
+        studentLoan: true,
+        // Per-role rates — resolved below into a staffId → positionId → rate index.
+        positions: {
+          select: { positionId: true, hourlyRate: true, position: { select: { hourlyRate: true } } },
+        },
+      },
     }),
   ])
 
@@ -122,6 +134,21 @@ export async function generatePayPeriod(
   const holidayKeys = new Set(holidays.map((h) => formatDateKey(h.date)))
   const staffById = new Map(staffRows.map((s) => [s.id, s]))
 
+  // Resolve each person's rate for each role they hold (override → role → base).
+  const rateForPosition = new Map<string, Map<string, number>>()
+  for (const s of staffRows) {
+    const byPosition = new Map<string, number>()
+    for (const sp of s.positions) {
+      const rate = resolveStaffRate({
+        staffPositionRate: sp.hourlyRate,
+        positionRate: sp.position?.hourlyRate,
+        staffRate: s.hourlyRate,
+      })
+      if (rate != null) byPosition.set(sp.positionId, rate)
+    }
+    rateForPosition.set(s.id, byPosition)
+  }
+
   const sessionsByStaff = new Map<string, PayrunSession[]>()
   for (const s of sessions) {
     const arr = sessionsByStaff.get(s.staffId) ?? []
@@ -130,6 +157,8 @@ export async function generatePayPeriod(
       clockIn: s.clockIn.toISOString(),
       clockOut: s.clockOut!.toISOString(),
       breaksMinutes: s.breaksMinutes ?? 0,
+      // The role this session was clocked as (null → falls back to base rate).
+      rate: s.positionId ? rateForPosition.get(s.staffId)?.get(s.positionId) ?? null : null,
     })
     sessionsByStaff.set(s.staffId, arr)
   }
@@ -157,13 +186,13 @@ export async function generatePayPeriod(
         holidayKeys
       )
 
-      const effectiveRate = Math.max(s.hourlyRate ?? 0, settings.minimumWage)
       await tx.payrollEntry.create({
         data: {
           payPeriodId,
           staffId,
           totalHours: result.totalHours,
-          hourlyRate: effectiveRate,
+          // Blended rate across the roles worked this period.
+          hourlyRate: result.averageRate,
           totalPay: result.grossPay,
           ordinaryHours: result.ordinaryHours,
           overtimeHours: result.overtimeHours,

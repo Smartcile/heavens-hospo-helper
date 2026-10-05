@@ -24,7 +24,13 @@ const STAFF_SELECT = {
   venue: { select: { id: true, name: true } },
   department: { select: { id: true, name: true } },
   sections: { select: { sectionId: true } },
-  positions: { select: { positionId: true } },
+  positions: {
+    select: {
+      positionId: true,
+      hourlyRate: true,
+      position: { select: { id: true, name: true, hourlyRate: true } },
+    },
+  },
   staffVenues: { select: { venueId: true } },
 } as const
 
@@ -85,6 +91,7 @@ export async function POST(req: NextRequest) {
     loadedReportsId,
     sectionIds,
     positionIds,
+    positions,
     venueIds,
   } = body
 
@@ -118,6 +125,22 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Roles + optional per-role rates. `positions` (objects) supersedes `positionIds`.
+  const positionRows: { positionId: string; hourlyRate: number | null }[] = []
+  if (Array.isArray(positions)) {
+    const seen = new Set<string>()
+    for (const p of positions) {
+      const positionId = typeof p?.positionId === 'string' ? p.positionId : null
+      if (!positionId || seen.has(positionId)) continue
+      seen.add(positionId)
+      positionRows.push({ positionId, hourlyRate: typeof p?.hourlyRate === 'number' ? p.hourlyRate : null })
+    }
+  } else if (Array.isArray(positionIds)) {
+    for (const positionId of [...new Set(positionIds as string[])]) {
+      if (positionId) positionRows.push({ positionId, hourlyRate: null })
+    }
+  }
+
   const normalisedEmail = email?.trim().toLowerCase() || null
   if (normalisedEmail) {
     const clash = await prisma.staff.findFirst({
@@ -145,9 +168,7 @@ export async function POST(req: NextRequest) {
       sections: Array.isArray(sectionIds) && sectionIds.length
         ? { create: sectionIds.map((sectionId: string) => ({ sectionId })) }
         : undefined,
-      positions: Array.isArray(positionIds) && positionIds.length
-        ? { create: [...new Set(positionIds as string[])].map((positionId) => ({ positionId })) }
-        : undefined,
+      positions: positionRows.length ? { create: positionRows } : undefined,
     },
     select: STAFF_SELECT,
   })

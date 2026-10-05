@@ -13,10 +13,13 @@ import { MultiImagePicker } from '@/components/ui/MultiImagePicker'
 import { VideoPicker } from '@/components/ui/VideoPicker'
 import { RichTextEditor } from '@/components/ui/RichTextEditor'
 import { GuideReaderContent, type GuideReaderGuide } from '@/components/GuideReaderContent'
+import { ReferenceTableEditor, type ReferenceRowDraft, type ReferenceProductOption } from '@/components/admin/ReferenceTableEditor'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { downloadFile } from '@/lib/download-file'
 import { mergeStepImages } from '@/lib/guide-media'
+import { groupGuidesByFolder } from '@/lib/guide-folders'
 import { GUIDE_TYPES, GUIDE_TYPE_LABELS, guideTypeLabel } from '@/lib/guide-types'
+import { PRODUCT_REFERENCE_DEFAULT_COLUMNS, sanitiseColumns, type ReferenceColumn, type ReferenceMenuItem } from '@/lib/reference-table'
 
 type LinkKind = 'ITEM' | 'TASK' | 'CHECKLIST' | 'GUIDE' | 'SECTION' | 'RECIPE'
 type AudienceKind = 'DEPARTMENT' | 'SECTION' | 'POSITION'
@@ -81,6 +84,7 @@ interface Guide {
   bodyHtml: string | null
   venueId: string
   departmentId: string | null
+  folderId: string | null
   status: 'DRAFT' | 'PUBLISHED'
   isTracked: boolean
   isOnboarding: boolean
@@ -98,10 +102,20 @@ interface Guide {
   }[]
   taskGuides?: TaskGuide[]
   audiences?: Audience[]
+  tableColumns?: ReferenceColumn[] | null
+  tableRows?: {
+    id: string
+    menuItemId: string | null
+    sortOrder: number
+    cells: Record<string, unknown>
+    menuItem?: ReferenceMenuItem | null
+  }[]
   department: { id: string; name: string } | null
+  _count?: { tableRows: number }
 }
 
 interface Venue { id: string; name: string }
+interface Folder { id: string; name: string; venueId: string; sortOrder: number }
 interface Department { id: string; name: string; venueId: string }
 interface TaskLite { id: string; title: string; venueId: string }
 interface Position { id: string; name: string; venueId: string }
@@ -171,6 +185,8 @@ function AddRow({
 
 export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [guides, setGuides] = useState<Guide[]>([])
+  const [folders, setFolders] = useState<Folder[]>([])
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set())
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [positions, setPositions] = useState<Position[]>([])
@@ -185,6 +201,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [guideType, setGuideType] = useState('HOW_TO')
   const [bodyHtml, setBodyHtml] = useState('')
   const [departmentId, setDepartmentId] = useState('')
+  const [folderId, setFolderId] = useState('')
   const [isTracked, setIsTracked] = useState(true)
   const [isOnboarding, setIsOnboarding] = useState(false)
   const [requiresSignOff, setRequiresSignOff] = useState(false)
@@ -192,6 +209,9 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [linkedTaskIds, setLinkedTaskIds] = useState<string[]>([])
   const [competencyTaskIds, setCompetencyTaskIds] = useState<string[]>([])
   const [steps, setSteps] = useState<Step[]>([emptyStep()])
+  const [tableColumns, setTableColumns] = useState<ReferenceColumn[]>([])
+  const [tableRows, setTableRows] = useState<ReferenceRowDraft[]>([])
+  const [productOptions, setProductOptions] = useState<ReferenceProductOption[]>([])
   const [audiences, setAudiences] = useState<Audience[]>([])
   const [linkTargets, setLinkTargets] = useState<LinkTargets>(EMPTY_TARGETS)
   const [saving, setSaving] = useState(false)
@@ -259,16 +279,55 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   async function load() {
     const activeVenueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
     const venueParam = activeVenueId ? `?venueId=${encodeURIComponent(activeVenueId)}` : ''
-    const [gR, dR, tR] = await Promise.all([
+    const [gR, fR, dR, tR] = await Promise.all([
       fetch(`/api/admin/guides${venueParam}`),
+      fetch(`/api/admin/guide-folders${venueParam}`),
       fetch('/api/admin/departments'),
       fetch('/api/admin/tasks'),
     ])
-    const [gData, dData, tData] = await Promise.all([gR.json(), dR.json(), tR.json()])
-    setGuides(gData)
+    const [gData, fData, dData, tData] = await Promise.all([gR.json(), fR.json(), dR.json(), tR.json()])
+    setGuides(Array.isArray(gData) ? gData : [])
+    setFolders(Array.isArray(fData) ? fData : [])
     setDepartments(dData)
     setTasks(tData)
     setLoading(false)
+  }
+
+  function toggleFolder(id: string) {
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function addFolder() {
+    const name = prompt('FOLDER NAME')
+    if (!name?.trim()) return
+    await fetch('/api/admin/guide-folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, venueId: role === 'ADMIN' ? effectiveVenueId : undefined }),
+    })
+    load()
+  }
+
+  async function renameFolder(f: Folder) {
+    const name = prompt('FOLDER NAME', f.name)
+    if (!name?.trim() || name === f.name) return
+    await fetch(`/api/admin/guide-folders/${f.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    load()
+  }
+
+  async function deleteFolder(f: Folder) {
+    if (!confirm(`DELETE FOLDER "${f.name}"? ITS GUIDES MOVE TO UNFILED.`)) return
+    await fetch(`/api/admin/guide-folders/${f.id}`, { method: 'DELETE' })
+    load()
   }
 
   useEffect(() => { load() }, [])
@@ -281,8 +340,11 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
       .then((r) => (r.ok ? r.json() : null))
       // Merge over the empty shape so every kind key exists — a partial payload
       // must not leave a picker's option list undefined.
-      .then((d: Partial<LinkTargets> | null) => {
-        if (d && !Array.isArray(d)) setLinkTargets({ ...EMPTY_TARGETS, ...d })
+      .then((d: (Partial<LinkTargets> & { MENU_ITEM?: ReferenceProductOption[] }) | null) => {
+        if (d && !Array.isArray(d)) {
+          setLinkTargets({ ...EMPTY_TARGETS, ...d })
+          setProductOptions(Array.isArray(d.MENU_ITEM) ? d.MENU_ITEM : [])
+        }
       })
       .catch(() => { /* picker just stays empty */ })
   }, [role, venueId, sessionVenueId])
@@ -314,9 +376,9 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setEditing(null)
     setTitle(''); setDescription(''); setCategory('')
     setGuideType('HOW_TO'); setBodyHtml('')
-    setDepartmentId(''); setIsTracked(true); setIsOnboarding(false); setRequiresSignOff(false)
+    setDepartmentId(''); setFolderId(''); setIsTracked(true); setIsOnboarding(false); setRequiresSignOff(false)
     setLinkedTaskIds([]); setCompetencyTaskIds([])
-    setSteps([emptyStep()]); setAudiences([])
+    setSteps([emptyStep()]); setTableColumns([]); setTableRows([]); setAudiences([])
     setVenueId(getActiveVenueId(role, sessionVenueId, defaultVenueId))
     setError(''); setOpen(true)
   }
@@ -325,7 +387,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setEditing(g)
     setTitle(g.title); setDescription(g.description ?? ''); setCategory(g.category ?? '')
     setGuideType(g.guideType ?? ''); setBodyHtml(g.bodyHtml ?? '')
-    setDepartmentId(g.departmentId ?? '')
+    setDepartmentId(g.departmentId ?? ''); setFolderId(g.folderId ?? '')
     setIsTracked(g.isTracked); setIsOnboarding(g.isOnboarding); setRequiresSignOff(g.requiresSignOff)
     setVenueId(g.venueId)
 
@@ -345,6 +407,16 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
             links: s.links ?? [],
           }))
         : [emptyStep()]
+    )
+    setTableColumns(sanitiseColumns(g.tableColumns))
+    setTableRows(
+      (g.tableRows ?? []).map((r) => ({
+        id: r.id,
+        menuItemId: r.menuItemId,
+        cells: Object.fromEntries(
+          Object.entries(r.cells ?? {}).map(([k, v]) => [k, typeof v === 'string' ? v : String(v)]),
+        ),
+      })),
     )
     setAudiences(g.audiences ?? [])
     setError(''); setOpen(true)
@@ -374,6 +446,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
       bodyHtml: bodyHtml || null,
       venueId: role === 'ADMIN' ? venueId : undefined,
       departmentId: departmentId || null,
+      folderId: folderId || null,
       isTracked, isOnboarding, requiresSignOff,
       steps: cleanSteps.map((s) => ({
         id: s.id,
@@ -388,6 +461,12 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
       })),
       taskGuides,
       audiences,
+      ...(guideType === 'PRODUCT_REFERENCE'
+        ? {
+            tableColumns,
+            rows: tableRows.map((r) => ({ id: r.id, menuItemId: r.menuItemId, cells: r.cells })),
+          }
+        : {}),
     }
     const url = editing ? `/api/admin/guides/${editing.id}` : '/api/admin/guides'
     const method = editing ? 'PUT' : 'POST'
@@ -410,6 +489,17 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }),
     })
     load()
+  }
+
+  // The reference table image is shared with the product — save it there and
+  // update the local option list so the table redraws immediately.
+  async function setProductImage(menuItemId: string, imageUrl: string | null) {
+    setProductOptions((prev) => prev.map((p) => (p.value === menuItemId ? { ...p, imageUrl } : p)))
+    await fetch('/api/admin/guides/product-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ menuItemId, imageUrl }),
+    })
   }
 
   const effectiveVenueId = role === 'ADMIN' ? venueId : sessionVenueId
@@ -449,6 +539,65 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   ]
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
   const taskOptions = filteredTasks.map((t) => ({ value: t.id, label: t.title }))
+  const filteredFolders = folders.filter((f) => !effectiveVenueId || f.venueId === effectiveVenueId)
+  const folderGroups = groupGuidesByFolder(filteredGuides, filteredFolders)
+  const showFolders = filteredFolders.length > 0
+  const folderSelectOptions = [
+    { value: '', label: 'UNFILED' },
+    ...filteredFolders.map((f) => ({ value: f.id, label: f.name })),
+  ]
+
+  function renderGuideCard(g: Guide) {
+    const isTable = g.guideType === 'PRODUCT_REFERENCE'
+    return (
+      <div key={g.id} className={`bg-grey-dark border p-4 flex flex-col gap-2 ${g.status === 'DRAFT' ? 'border-yellow-700' : 'border-grey-mid'}`}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start gap-2 min-w-0">
+            <input
+              type="checkbox"
+              checked={selectedIds.has(g.id)}
+              onChange={() => toggleSelected(g.id)}
+              className="w-4 h-4 accent-white mt-0.5 shrink-0"
+              aria-label={`SELECT ${g.title}`}
+            />
+            <span className="font-mono font-semibold text-sm uppercase text-white">{g.title}</span>
+          </div>
+          <Badge variant={g.status === 'DRAFT' ? 'warning' : 'success'}>{g.status}</Badge>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {g.isTracked && <Badge variant="default">TRACKED</Badge>}
+          {!g.isTracked && <Badge variant="default">REFERENCE</Badge>}
+          {g.isOnboarding && <Badge variant="warning">ONBOARDING</Badge>}
+          {guideTypeLabel(g.guideType) && <Badge variant="default">{guideTypeLabel(g.guideType)}</Badge>}
+          {g.department && <Badge>{g.department.name}</Badge>}
+          {g.category && <Badge>{g.category}</Badge>}
+          <Badge variant={g.requiresSignOff ? 'warning' : 'success'}>
+            {g.requiresSignOff ? 'SIGN-OFF' : 'SELF'}
+          </Badge>
+        </div>
+        {g.description && <p className="font-sans text-xs text-grey-light line-clamp-2">{g.description}</p>}
+        <div className="font-mono text-xs text-grey-light">
+          {isTable
+            ? `${g._count?.tableRows ?? 0} ITEM${(g._count?.tableRows ?? 0) !== 1 ? 'S' : ''}`
+            : `${g.steps.length} STEP${g.steps.length !== 1 ? 'S' : ''}`}
+          {(g.taskGuides?.length ?? 0) > 0 && <> · {g.taskGuides!.length} TASK LINK{g.taskGuides!.length !== 1 ? 'S' : ''}</>}
+        </div>
+        {g.legacyToolsNote && (
+          <p className="font-mono text-[10px] text-grey-light leading-tight">{g.legacyToolsNote}</p>
+        )}
+        <div className="flex gap-3 pt-1 border-t border-grey-mid mt-1">
+          <button onClick={() => openEdit(g)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">EDIT</button>
+          <button onClick={() => openView(g)} disabled={viewLoading} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors disabled:opacity-40">VIEW</button>
+          <button onClick={() => downloadSinglePdf(g)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">⬇ PDF</button>
+          <button onClick={() => handleDelete(g)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">DELETE</button>
+          {g.status === 'DRAFT'
+            ? <button onClick={() => handlePublish(g, 'PUBLISHED')} className="font-mono text-xs uppercase text-success hover:text-white transition-colors ml-auto">PUBLISH</button>
+            : <button onClick={() => handlePublish(g, 'DRAFT')} className="font-mono text-xs uppercase text-yellow-500 hover:text-white transition-colors ml-auto">UNPUBLISH</button>
+          }
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-6 space-y-4">
@@ -456,7 +605,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
         <div>
           <h1 className="font-mono text-xl font-bold uppercase tracking-widest">PLAYBOOK GUIDES</h1>
           <p className="font-mono text-xs text-grey-light mt-1 uppercase">
-            TRAINING, SOPS, FAQS + HOW-TOS. PUBLISH WHEN READY.
+            TRAINING, SOPS, FAQS, HOW-TOS + PRODUCT REFERENCES. PUBLISH WHEN READY.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -470,6 +619,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
               ⬇ PDF ({selectedIds.size})
             </Button>
           )}
+          <Button size="sm" variant="ghost" onClick={addFolder}>+ NEW FOLDER</Button>
           <Button size="sm" onClick={openCreate}>+ NEW GUIDE</Button>
         </div>
       </div>
@@ -480,54 +630,44 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
       ) : filteredGuides.length === 0 ? (
         <p className="font-mono text-xs text-grey-light">NO GUIDES YET.</p>
-      ) : (
+      ) : !showFolders ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {filteredGuides.map((g) => (
-            <div key={g.id} className={`bg-grey-dark border p-4 flex flex-col gap-2 ${g.status === 'DRAFT' ? 'border-yellow-700' : 'border-grey-mid'}`}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-start gap-2 min-w-0">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(g.id)}
-                    onChange={() => toggleSelected(g.id)}
-                    className="w-4 h-4 accent-white mt-0.5 shrink-0"
-                    aria-label={`SELECT ${g.title}`}
-                  />
-                  <span className="font-mono font-semibold text-sm uppercase text-white">{g.title}</span>
+          {filteredGuides.map(renderGuideCard)}
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {folderGroups.map(({ folder, guides: groupGuides }) => {
+            const key = folder?.id ?? '__unfiled__'
+            const collapsed = collapsedFolders.has(key)
+            return (
+              <div key={key} className="space-y-3">
+                <div className="flex items-center gap-2 border-b border-grey-mid pb-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleFolder(key)}
+                    className="font-mono text-xs uppercase tracking-wider text-grey-light hover:text-white transition-colors"
+                  >
+                    {collapsed ? '▸' : '▾'} {folder ? folder.name : 'UNFILED'}
+                  </button>
+                  <span className="font-mono text-[10px] text-grey-light">({groupGuides.length})</span>
+                  {folder && (
+                    <span className="ml-auto flex gap-3">
+                      <button type="button" onClick={() => renameFolder(folder)} className="font-mono text-[10px] uppercase text-grey-light hover:text-white transition-colors">RENAME</button>
+                      <button type="button" onClick={() => deleteFolder(folder)} className="font-mono text-[10px] uppercase text-grey-light hover:text-danger transition-colors">DEL</button>
+                    </span>
+                  )}
                 </div>
-                <Badge variant={g.status === 'DRAFT' ? 'warning' : 'success'}>{g.status}</Badge>
+                {!collapsed && groupGuides.length > 0 && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {groupGuides.map(renderGuideCard)}
+                  </div>
+                )}
+                {!collapsed && groupGuides.length === 0 && (
+                  <p className="font-mono text-xs text-grey-light">EMPTY — MOVE A GUIDE HERE FROM ITS EDIT FORM.</p>
+                )}
               </div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {g.isTracked && <Badge variant="default">TRACKED</Badge>}
-                {!g.isTracked && <Badge variant="default">REFERENCE</Badge>}
-                {g.isOnboarding && <Badge variant="warning">ONBOARDING</Badge>}
-                {guideTypeLabel(g.guideType) && <Badge variant="default">{guideTypeLabel(g.guideType)}</Badge>}
-                {g.department && <Badge>{g.department.name}</Badge>}
-                {g.category && <Badge>{g.category}</Badge>}
-                <Badge variant={g.requiresSignOff ? 'warning' : 'success'}>
-                  {g.requiresSignOff ? 'SIGN-OFF' : 'SELF'}
-                </Badge>
-              </div>
-              {g.description && <p className="font-sans text-xs text-grey-light line-clamp-2">{g.description}</p>}
-              <div className="font-mono text-xs text-grey-light">
-                {g.steps.length} STEP{g.steps.length !== 1 ? 'S' : ''}
-                {(g.taskGuides?.length ?? 0) > 0 && <> · {g.taskGuides!.length} TASK LINK{g.taskGuides!.length !== 1 ? 'S' : ''}</>}
-              </div>
-              {g.legacyToolsNote && (
-                <p className="font-mono text-[10px] text-grey-light leading-tight">{g.legacyToolsNote}</p>
-              )}
-              <div className="flex gap-3 pt-1 border-t border-grey-mid mt-1">
-                <button onClick={() => openEdit(g)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">EDIT</button>
-                <button onClick={() => openView(g)} disabled={viewLoading} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors disabled:opacity-40">VIEW</button>
-                <button onClick={() => downloadSinglePdf(g)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">⬇ PDF</button>
-                <button onClick={() => handleDelete(g)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">DELETE</button>
-                {g.status === 'DRAFT'
-                  ? <button onClick={() => handlePublish(g, 'PUBLISHED')} className="font-mono text-xs uppercase text-success hover:text-white transition-colors ml-auto">PUBLISH</button>
-                  : <button onClick={() => handlePublish(g, 'DRAFT')} className="font-mono text-xs uppercase text-yellow-500 hover:text-white transition-colors ml-auto">UNPUBLISH</button>
-                }
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -538,13 +678,21 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
           {role === 'ADMIN' && !editing && (
             <Select label="Venue" value={venueId} onChange={(e) => setVenueId(e.target.value)} options={venueOptions} />
           )}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <Select
               label="Type"
               value={guideType}
-              onChange={(e) => setGuideType(e.target.value)}
+              onChange={(e) => {
+                const t = e.target.value
+                setGuideType(t)
+                // A product reference needs a table — seed the default columns.
+                if (t === 'PRODUCT_REFERENCE' && tableColumns.length === 0) {
+                  setTableColumns(PRODUCT_REFERENCE_DEFAULT_COLUMNS)
+                }
+              }}
               options={[{ value: '', label: '— NONE —' }, ...GUIDE_TYPES.map((t) => ({ value: t, label: GUIDE_TYPE_LABELS[t] }))]}
             />
+            <Select label="Folder" value={folderId} onChange={(e) => setFolderId(e.target.value)} options={folderSelectOptions} />
             <Select label="Auto-assign to department" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} options={deptOptions} />
             <Input label="Category (optional)" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="BAR" />
           </div>
@@ -646,6 +794,24 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
             <RichTextEditor value={bodyHtml} onChange={setBodyHtml} placeholder="Write basic instructions here…" />
           </div>
 
+          {guideType === 'PRODUCT_REFERENCE' && (
+            <div className="space-y-2">
+              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Reference table</label>
+              <p className="font-mono text-[10px] uppercase text-grey-light leading-tight">
+                ONE ROW PER ITEM. COLUMNS FROM THE LINKED PRODUCT FILL THEMSELVES; THE IMAGE IS SHARED WITH THE PRODUCT.
+              </p>
+              <ReferenceTableEditor
+                columns={tableColumns}
+                rows={tableRows}
+                products={productOptions}
+                onColumnsChange={setTableColumns}
+                onRowsChange={setTableRows}
+                onProductImageChange={setProductImage}
+              />
+            </div>
+          )}
+
+          {guideType !== 'PRODUCT_REFERENCE' && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Steps (optional)</label>
@@ -707,6 +873,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
               </div>
             ))}
           </div>
+          )}
 
           {error && <p className="font-mono text-xs text-danger">{error}</p>}
           <div className="flex gap-2 pt-2">

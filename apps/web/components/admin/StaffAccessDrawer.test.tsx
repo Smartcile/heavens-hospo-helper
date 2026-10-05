@@ -64,4 +64,34 @@ describe('StaffAccessDrawer', () => {
     expect(body.restricted).toBe(true)
     expect(body.grants).toEqual([{ venueId: 'v1', keys: [] }])
   })
+
+  it('applies a role\'s default grants and turns on restricted', async () => {
+    const data = {
+      ...ACCESS_DATA,
+      roleDefaults: [
+        { venueId: 'v1', permissionKey: 'compliance.tasks.view' },
+        { venueId: 'v1', permissionKey: 'compliance.tasks.edit' },
+      ],
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(data) } as Response)),
+    )
+    const onClose = vi.fn()
+    render(<StaffAccessDrawer staffId="s1" staffName="JANE SMITH" staffRole="MANAGER" venues={VENUES} onClose={onClose} />)
+    await screen.findByText('ACCESS — JANE SMITH')
+
+    fireEvent.click(screen.getByText('APPLY ROLE DEFAULTS'))
+    expect(screen.getByText('RESTRICTED')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('SAVE ACCESS'))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+
+    const putCall = vi.mocked(fetch).mock.calls.find(
+      ([u, init]) => String(u).includes('/permissions') && (init as RequestInit)?.method === 'PUT',
+    )!
+    const body = JSON.parse(String((putCall[1] as RequestInit).body))
+    expect(body.restricted).toBe(true)
+    expect(body.grants[0].keys).toEqual(expect.arrayContaining(['compliance.tasks.view', 'compliance.tasks.edit']))
+  })
 })

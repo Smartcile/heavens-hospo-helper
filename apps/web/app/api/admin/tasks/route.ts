@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
     include: {
       department: { select: { id: true, name: true, colour: true } },
       section: { select: { id: true, name: true } },
+      sections: { select: { sectionId: true } },
       requiredTraining: { select: { moduleId: true, module: { select: { kind: true } } } },
       taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
       trainingModules: { select: { kind: true } }, // modules whose how-to is this task
@@ -45,7 +46,9 @@ export async function GET(req: NextRequest) {
     orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
   })
 
-  return NextResponse.json(tasks)
+  return NextResponse.json(
+    tasks.map((t) => ({ ...t, sectionIds: t.sections.map((s) => s.sectionId) })),
+  )
 }
 
 export async function POST(req: NextRequest) {
@@ -61,6 +64,7 @@ export async function POST(req: NextRequest) {
     venueId,
     departmentId,
     sectionId,
+    sectionIds,
     assignedToStaffId,
     completionType,
     scheduleType,
@@ -85,10 +89,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Title and venueId are required' }, { status: 400 })
   }
 
-  // A section implies its department — keep them consistent.
+  // A task can cover several sections; the first is the primary (drives the
+  // department and the classic sectionId field), all are stored as TaskSection.
+  const sectionSet: string[] = Array.isArray(sectionIds) && sectionIds.length
+    ? [...new Set(sectionIds as string[])]
+    : sectionId ? [sectionId] : []
+  const primarySectionId = sectionSet[0] ?? null
   let finalDepartmentId: string | null = departmentId ?? null
-  if (sectionId) {
-    const section = await prisma.section.findFirst({ where: { id: sectionId, deletedAt: null }, select: { departmentId: true } })
+  if (primarySectionId) {
+    const section = await prisma.section.findFirst({ where: { id: primarySectionId, deletedAt: null }, select: { departmentId: true } })
     if (section) finalDepartmentId = section.departmentId
   }
 
@@ -106,7 +115,8 @@ export async function POST(req: NextRequest) {
       description: description?.trim() ?? null,
       venueId,
       departmentId: finalDepartmentId,
-      sectionId: sectionId || null,
+      sectionId: primarySectionId,
+      sections: sectionSet.length ? { create: sectionSet.map((sectionId) => ({ sectionId })) } : undefined,
       assignedToStaffId: assignedToStaffId ?? null,
       completionType: completionType ?? 'TICK',
       scheduleType: scheduleType ?? 'DAILY',

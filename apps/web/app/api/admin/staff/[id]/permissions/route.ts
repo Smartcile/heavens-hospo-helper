@@ -22,10 +22,23 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         where: { deletedAt: null },
         select: { venueId: true, permissionKey: true },
       },
+      // Default grants from the staff member's roles, offered as a one-click
+      // "apply role defaults" in the drawer.
+      positions: {
+        select: {
+          position: {
+            select: { permissions: { select: { venueId: true, permissionKey: true } } },
+          },
+        },
+      },
     },
   })
   if (!staff) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json(staff)
+  const { positions, ...rest } = staff
+  return NextResponse.json({
+    ...rest,
+    roleDefaults: positions.flatMap((p) => p.position.permissions),
+  })
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {

@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { prisma } from '@hospo-ops/db'
+import { prisma, Prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { loadMenuItemIndex } from '@/lib/reference-table.server'
 import {
   cleanAudiences,
   cleanBodyHtml,
   cleanGuideSteps,
+  cleanTableColumns,
+  cleanTableRows,
   cleanTaskGuides,
   guideStepsCreate,
   guideTypeValue,
+  scopedFolderId,
+  tableRowsCreate,
   type GuideStepInput,
+  type GuideTableRowInput,
   type GuideTaskLinkInput,
   type GuideAudienceInput,
 } from '@/lib/guides.server'
@@ -34,14 +40,30 @@ export async function GET(req: NextRequest) {
     where,
     include: {
       steps: { orderBy: { order: 'asc' }, include: { links: true } },
+      tableRows: { orderBy: { sortOrder: 'asc' } },
       taskGuides: { select: { id: true, taskId: true, isRequiredForCompetency: true } },
       audiences: { select: { kind: true, targetId: true } },
       department: { select: { id: true, name: true } },
+      folder: { select: { id: true, name: true } },
+      _count: { select: { tableRows: true } },
     },
     orderBy: [{ isOnboarding: 'desc' }, { category: 'asc' }, { title: 'asc' }],
   })
 
-  return NextResponse.json(guides)
+  // Resolve linked products once for every reference table in the list.
+  const menuIndex = await loadMenuItemIndex(
+    guides.flatMap((g) => g.tableRows.map((r) => r.menuItemId)),
+  )
+
+  return NextResponse.json(
+    guides.map((g) => ({
+      ...g,
+      tableRows: g.tableRows.map((r) => ({
+        ...r,
+        menuItem: r.menuItemId ? menuIndex.get(r.menuItemId) ?? null : null,
+      })),
+    })),
+  )
 }
 
 export async function POST(req: NextRequest) {
@@ -58,6 +80,7 @@ export async function POST(req: NextRequest) {
     guideType,
     bodyHtml,
     departmentId,
+    folderId,
     isTracked,
     isOnboarding,
     requiresSignOff,
@@ -65,6 +88,8 @@ export async function POST(req: NextRequest) {
     steps,
     taskGuides,
     audiences,
+    tableColumns,
+    rows,
   } = body as {
     title: string
     description?: string
@@ -72,6 +97,7 @@ export async function POST(req: NextRequest) {
     guideType?: string | null
     bodyHtml?: string | null
     departmentId?: string | null
+    folderId?: string | null
     isTracked?: boolean
     isOnboarding?: boolean
     requiresSignOff?: boolean
@@ -79,6 +105,8 @@ export async function POST(req: NextRequest) {
     steps: GuideStepInput[]
     taskGuides?: GuideTaskLinkInput[]
     audiences?: GuideAudienceInput[]
+    tableColumns?: unknown
+    rows?: GuideTableRowInput[]
   }
 
   if (!title?.trim()) {
@@ -93,6 +121,8 @@ export async function POST(req: NextRequest) {
   const cleanSteps = cleanGuideSteps(steps)
   const tgs = cleanTaskGuides(taskGuides)
   const auds = cleanAudiences(audiences)
+  const cleanColumns = cleanTableColumns(tableColumns)
+  const cleanRows = cleanTableRows(rows, cleanColumns)
 
   const guide = await prisma.guide.create({
     data: {
@@ -103,15 +133,25 @@ export async function POST(req: NextRequest) {
       bodyHtml: cleanBodyHtml(bodyHtml),
       venueId: scopedVenueId,
       departmentId: departmentId || null,
+      folderId: await scopedFolderId(folderId, scopedVenueId),
       status: 'DRAFT',
       isTracked: !!isTracked,
       isOnboarding: !!isOnboarding,
       requiresSignOff: !!requiresSignOff,
+      tableColumns: cleanColumns.length
+        ? (cleanColumns as unknown as Prisma.InputJsonValue)
+        : undefined,
       steps: cleanSteps.length ? { create: guideStepsCreate(cleanSteps) } : undefined,
+      tableRows: cleanRows.length ? { create: tableRowsCreate(cleanRows) } : undefined,
       taskGuides: tgs.length ? { create: tgs } : undefined,
       audiences: auds.length ? { create: auds } : undefined,
     },
-    include: { steps: { orderBy: { order: 'asc' }, include: { links: true } }, taskGuides: true, audiences: true },
+    include: {
+      steps: { orderBy: { order: 'asc' }, include: { links: true } },
+      tableRows: { orderBy: { sortOrder: 'asc' } },
+      taskGuides: true,
+      audiences: true,
+    },
   })
 
   return NextResponse.json(guide, { status: 201 })

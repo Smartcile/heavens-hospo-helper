@@ -121,13 +121,33 @@ export async function GET(req: NextRequest) {
   const assigneeName = new Map(assignees.map((s) => [s.id, `${s.firstName} ${s.lastName}`]))
 
   // Checklists ("lists") for this floor — they gate visibility by appear-from
-  // time and stay until everything's done.
+  // time and stay until everything's done. A list can target departments,
+  // sections and/or roles (ChecklistAudience); legacy dept-scoped lists still
+  // work (only when they carry no audiences).
+  const staffCtx = await prisma.staff.findUnique({
+    where: { id: session.staffId },
+    select: { sections: { select: { sectionId: true } }, positions: { select: { positionId: true } } },
+  })
+  const sectionIds = (staffCtx?.sections ?? []).map((s) => s.sectionId)
+  const positionIds = (staffCtx?.positions ?? []).map((p) => p.positionId)
   const checklists = await prisma.checklist.findMany({
     where: {
       deletedAt: null,
       isActive: true,
       venueId: session.venueId,
-      ...(departmentIds ? { OR: [{ departmentId: { in: departmentIds } }, { departmentId: null }] } : {}),
+      OR: [
+        ...(departmentIds ? [{ departmentId: { in: departmentIds }, audiences: { none: {} } }] : []),
+        { departmentId: null, audiences: { none: {} } },
+        ...(session.departmentId
+          ? [{ audiences: { some: { kind: 'DEPARTMENT' as const, targetId: session.departmentId } } }]
+          : []),
+        ...(sectionIds.length
+          ? [{ audiences: { some: { kind: 'SECTION' as const, targetId: { in: sectionIds } } } }]
+          : []),
+        ...(positionIds.length
+          ? [{ audiences: { some: { kind: 'POSITION' as const, targetId: { in: positionIds } } } }]
+          : []),
+      ],
     },
     select: {
       id: true,

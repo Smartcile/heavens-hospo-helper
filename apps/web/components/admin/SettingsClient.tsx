@@ -10,6 +10,7 @@ import { SETTINGS_TABS, resolveTab, hubUrl } from '@/lib/hub-tabs'
 import { LineTabs } from '@/components/admin/LineTabs'
 import { FileBrowser } from '@/components/admin/FileBrowser'
 import { StructureClient } from '@/components/admin/StructureClient'
+import { VenueSetupClient } from '@/components/admin/VenueSetupClient'
 import { FloorPlansClient } from '@/components/admin/FloorPlansClient'
 import { UomsClient } from '@/app/admin/(protected)/uoms/UomsClient'
 import { SuppliersClient } from '@/app/admin/(protected)/suppliers/SuppliersClient'
@@ -847,6 +848,9 @@ export function SettingsClient({
         </div>
       </div>
         </div>
+        )}
+        {tab === 'venue' && (
+          <VenueSetupClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId} />
         )}
         {tab === 'structure' && <StructureClient role={role} />}
         {tab === 'floorplans' && (!grantedAreas || grantedAreas.includes('floorplans')) && (

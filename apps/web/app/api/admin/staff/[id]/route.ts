@@ -80,13 +80,24 @@ export async function PUT(req: NextRequest, { params }: Params) {
     updates.sections = { deleteMany: {}, create: ids.map((sectionId: string) => ({ sectionId })) }
   }
 
-  // Same for positions — a person can hold several roles.
-  if (body.positionIds !== undefined) {
-    const ids: string[] = Array.isArray(body.positionIds) ? body.positionIds : []
-    updates.positions = {
-      deleteMany: {},
-      create: [...new Set(ids)].map((positionId: string) => ({ positionId })),
+  // Roles — a person can hold several, each with an optional per-role rate.
+  // `positions` (objects) supersedes `positionIds`.
+  if (body.positions !== undefined || body.positionIds !== undefined) {
+    const rows: { positionId: string; hourlyRate: number | null }[] = []
+    if (Array.isArray(body.positions)) {
+      const seen = new Set<string>()
+      for (const p of body.positions) {
+        const positionId = typeof p?.positionId === 'string' ? p.positionId : null
+        if (!positionId || seen.has(positionId)) continue
+        seen.add(positionId)
+        rows.push({ positionId, hourlyRate: typeof p?.hourlyRate === 'number' ? p.hourlyRate : null })
+      }
+    } else if (Array.isArray(body.positionIds)) {
+      for (const positionId of [...new Set(body.positionIds as string[])]) {
+        if (positionId) rows.push({ positionId, hourlyRate: null })
+      }
     }
+    updates.positions = { deleteMany: {}, create: rows }
   }
 
   // PIN: empty/undefined leaves it unchanged; empty string clears it.

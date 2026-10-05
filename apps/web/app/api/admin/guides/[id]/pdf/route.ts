@@ -6,6 +6,8 @@ import { guardAccess } from '@/lib/permissions'
 import { attachTargets, type StepLinkRow } from '@/lib/guide-links'
 import { buildTargetIndex } from '@/lib/guide-links.server'
 import { mergeStepImages } from '@/lib/guide-media'
+import { sanitiseColumns } from '@/lib/reference-table'
+import { buildPdfTable } from '@/lib/reference-table.server'
 import { richTextToPlainText } from '@/lib/rich-text'
 import {
   generateGuidePdf,
@@ -26,6 +28,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     include: {
       venue: { select: { name: true } },
       steps: { orderBy: { order: 'asc' }, include: { links: true } },
+      tableRows: { orderBy: { sortOrder: 'asc' } },
     },
   })
   if (!guide || guide.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -53,6 +56,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     })
   }
 
+  const table = await buildPdfTable(
+    sanitiseColumns(guide.tableColumns),
+    guide.tableRows,
+  )
+
   const data: GuidePdfData = {
     venueName: guide.venue.name,
     title: guide.title,
@@ -62,6 +70,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     body: richTextToPlainText(guide.bodyHtml),
     requiresSignOff: guide.requiresSignOff,
     steps,
+    table,
   }
 
   const buffer = guidePdfToBuffer(generateGuidePdf(data))

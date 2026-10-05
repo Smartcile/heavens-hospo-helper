@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { cleanNoticeAudiences } from '@/lib/notice-audience'
 
 // A checklist is an ordered set of references to LIVE tasks. Reads return the
 // current task data, so edits to a task show up here automatically.
@@ -26,6 +27,7 @@ export async function GET(req: NextRequest) {
     include: {
       department: { select: { id: true, name: true } },
       section: { select: { id: true, name: true } },
+      audiences: { select: { kind: true, targetId: true } },
       tasks: {
         orderBy: { sortOrder: 'asc' },
         include: {
@@ -55,6 +57,7 @@ export async function GET(req: NextRequest) {
       activatedOn: c.activatedOn,
       department: c.department,
       section: c.section,
+      audiences: c.audiences,
       tasks: c.tasks
         .filter((ct) => ct.task && !ct.task.deletedAt)
         .map((ct) => ({
@@ -78,8 +81,9 @@ export async function POST(req: NextRequest) {
   if (denied) return denied
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, audiences } = body
   const venueId = session.user.role === 'MANAGER' ? session.user.venueId : body.venueId
+  const cleanAud = cleanNoticeAudiences(audiences)
 
   if (!name?.trim() || !venueId) {
     return NextResponse.json({ error: 'Name and venue are required' }, { status: 400 })
@@ -94,6 +98,7 @@ export async function POST(req: NextRequest) {
       departmentId: departmentId || null,
       sectionId: sectionId || null,
       appearFromTime: appearFromTime?.trim() || null,
+      audiences: cleanAud.length ? { create: cleanAud } : undefined,
       tasks: { create: ids.map((taskId, i) => ({ taskId, sortOrder: i })) },
     },
   })

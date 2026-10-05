@@ -39,7 +39,7 @@ with its default sub-tab, e.g. OPS HUB → Menu & Services → RECIPES); the
 │     REPORTS · BUDGET · GIFT CARDS                             │
 │ ▾ SETUP & CONFIG (the "Plumbing" — bottom)                    │
 │     FLOOR PLANS       /admin/settings?tab=floorplans          │
-│     SETTINGS          /admin/settings — 8 tabs (below)        │
+│     SETTINGS          /admin/settings — 9 tabs (below)        │
 │ SIGN OUT                                                     │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -105,7 +105,7 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 | Item | URL | What it does |
 |---|---|---|
 | **Floor Plans** | `/admin/settings?tab=floorplans` | To-scale venue editor (PixiJS canvas): walls, doors, section zones, tables. BASE layer + SETUPS (event layouts). Furniture from inventory palette, snapping, auto-join groups, BOM shortages, zone pax totals, undo/redo, PDF export. Lives as a tab of SETTINGS — `/admin/floorplan` redirects here |
-| **Settings** | `/admin/settings` | 8 tabs — GENERAL · STRUCTURE · FLOOR PLANS · UNITS OF MEASURE · SUPPLIERS · QR CODES · SYNC · FILES (admin) (section 3) |
+| **Settings** | `/admin/settings` | 9 tabs — GENERAL · VENUE SETUP · STRUCTURE · FLOOR PLANS · UNITS OF MEASURE · SUPPLIERS · QR CODES · SYNC · FILES (admin) (section 3) |
 
 ---
 
@@ -140,11 +140,12 @@ keeping other query params.
 
 ---
 
-## 3. SETTINGS — the 8 tabs (`/admin/settings`)
+## 3. SETTINGS — the 9 tabs (`/admin/settings`)
 
 | Tab | What it does |
 |---|---|
 | **GENERAL** | Integrations (Google/iCal/Loaded embeds + refresh), WooCommerce (store keys, webhook secret, order field mapping, API keys — plugin-paired stores show MANAGED BY PLUGIN read-only with MANUAL OVERRIDE), DEMO VENUE, BACKUP & RESTORE, VENUE SHARING, NZ break entitlements, default venue, change password/PIN |
+| **VENUE SETUP** | Stand up a venue in one place: **venues** (add / remove test ones), **roles** (Positions — with training requirements, team readiness, default access, per-role rate) and **departments** |
 | **STRUCTURE** | The org tree + workflow node map (TREE/MAP) — moved here from the sidebar |
 | **FLOOR PLANS** | The to-scale venue layout editor (list + PixiJS canvas) — moved here from the sidebar; grant-gated like the old sidebar item |
 | **UNITS OF MEASURE** | UOM list + CRUD with base-unit ratios and kind (VOLUME/MASS/COUNT) |

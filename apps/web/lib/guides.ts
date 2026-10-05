@@ -9,9 +9,11 @@
 // filter and the in-memory answer in agreement.
 
 import { prisma } from '@hospo-ops/db'
-import { attachTargets, type ResolvedStepLink, type StepLinkRow } from '@/lib/guide-links'
+import { attachTargets, type LinkTarget, type ResolvedStepLink, type StepLinkRow } from '@/lib/guide-links'
 import { buildTargetIndex } from '@/lib/guide-links.server'
 import { mergeStepImages } from '@/lib/guide-media'
+import { sanitiseColumns, type ReferenceColumn, type ReferenceMenuItem } from '@/lib/reference-table'
+import { loadMenuItemIndex } from '@/lib/reference-table.server'
 
 export type GuideSource =
   | 'ASSIGNED'
@@ -128,6 +130,15 @@ export interface ResolvedGuide {
   completed: boolean
   completion: ResolvedGuideCompletion | null
   department: { id: string; name: string } | null
+  /** Product-reference table (empty for a step-based guide). */
+  tableColumns: ReferenceColumn[]
+  tableRows: {
+    id: string
+    menuItemId: string | null
+    sortOrder: number
+    cells: Record<string, unknown>
+    menuItem: ReferenceMenuItem | null
+  }[]
   steps: {
     id: string
     order: number
@@ -189,7 +200,10 @@ export async function resolveStaffGuides(
       department: { select: { id: true, name: true } },
       audiences: { select: { kind: true, targetId: true } },
       ...(opts.includeSteps
-        ? { steps: { orderBy: { order: 'asc' as const }, include: { links: true } } }
+        ? {
+            steps: { orderBy: { order: 'asc' as const }, include: { links: true } },
+            tableRows: { orderBy: { sortOrder: 'asc' as const } },
+          }
         : {}),
     },
     orderBy: [{ isOnboarding: 'desc' }, { title: 'asc' }],
@@ -229,10 +243,31 @@ export async function resolveStaffGuides(
     return Array.isArray(s) ? (s as StepWithLinks[]) : []
   }
 
+  type TableRowShape = { id: string; menuItemId: string | null; sortOrder: number; cells: unknown }
+  const rowsOf = (g: unknown): TableRowShape[] => {
+    const r = (g as { tableRows?: unknown }).tableRows
+    return Array.isArray(r) ? (r as TableRowShape[]) : []
+  }
+
   // One batched target lookup across every step of every guide, rather than one
   // per step. Empty when steps weren't requested.
   const allLinks: StepLinkRow[] = guides.flatMap((g) => stepsOf(g).flatMap((s) => s.links))
-  const targetIndex = allLinks.length ? await buildTargetIndex(allLinks) : new Map()
+  const allRows = guides.flatMap((g) => rowsOf(g))
+  const targetIndex = allLinks.length ? await buildTargetIndex(allLinks) : new Map<string, LinkTarget>()
+  const menuIndex = allRows.length
+    ? await loadMenuItemIndex(allRows.map((r) => r.menuItemId))
+    : new Map<string, ReferenceMenuItem>()
+
+  const tableOf = (g: unknown) => ({
+    tableColumns: sanitiseColumns((g as { tableColumns?: unknown }).tableColumns),
+    tableRows: rowsOf(g).map((r) => ({
+      id: r.id,
+      menuItemId: r.menuItemId,
+      sortOrder: r.sortOrder,
+      cells: (r.cells && typeof r.cells === 'object' ? r.cells : {}) as Record<string, unknown>,
+      menuItem: r.menuItemId ? menuIndex.get(r.menuItemId) ?? null : null,
+    })),
+  })
 
   const items: ResolvedGuide[] = tracked.flatMap((g) => {
     const source = guideSource(g, ctx)
@@ -264,6 +299,7 @@ export async function resolveStaffGuides(
           }
         : null,
       department: g.department,
+      ...tableOf(g),
       steps: steps.map((s) => ({
         id: s.id,
         order: s.order,
@@ -296,6 +332,7 @@ export async function resolveStaffGuides(
       completed: false,
       completion: null,
       department: g.department,
+      ...tableOf(g),
       steps: stepsOf(g).map((s) => ({
         id: s.id,
         order: s.order,

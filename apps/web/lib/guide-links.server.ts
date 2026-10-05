@@ -50,20 +50,27 @@ export async function buildTargetIndex(
           select: {
             id: true, name: true, unit: true, imageUrls: true,
             storageNotes: true,
-            storageSection: {
-              select: { name: true, department: { select: { name: true } } },
+            storageLocations: {
+              where: { deletedAt: null },
+              select: {
+                notes: true,
+                section: { select: { name: true, department: { select: { name: true } } } },
+              },
             },
           },
         })
         .then((rows) => {
           for (const r of rows) {
-            const where = r.storageSection
-              ? `${r.storageSection.department?.name ?? ''} → ${r.storageSection.name}`.replace(/^ → /, '')
-              : null
+            const where = r.storageLocations
+              .map((loc) => {
+                const path = `${loc.section.department?.name ?? ''} → ${loc.section.name}`.replace(/^ → /, '')
+                return [path, loc.notes].filter(Boolean).join(' · ')
+              })
+              .join(' ; ')
             add('ITEM', {
               id: r.id,
               label: r.name,
-              sub: [where, r.storageNotes].filter(Boolean).join(' · ') || r.unit || null,
+              sub: where || r.storageNotes || r.unit || null,
               imageUrl: firstImage(r.imageUrls),
             })
           }

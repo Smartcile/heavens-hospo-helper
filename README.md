@@ -88,6 +88,31 @@ npm run dev
 
 App runs at `http://localhost:3000`.
 
+### Local development (Docker)
+
+Two local stacks are included (both bring up their own Postgres):
+
+- **Live / hot reload** — `docker-compose.dev.yml` runs `next dev` (Turbopack)
+  with your source bind-mounted, so edits reload the page:
+  ```bash
+  docker compose -f docker-compose.dev.yml up -d --build
+  docker compose -f docker-compose.dev.yml logs -f app
+  docker compose -f docker-compose.dev.yml down
+  ```
+- **Built image / fast start-stop** — `docker-compose.local.yml` builds a
+  production image (`hospo-ops:local`) and runs `next start`, so pages are
+  already compiled and start-up is instant. Use `build-local.cmd` (Windows) —
+  it rebuilds only when your source is newer than the image, then starts:
+  ```bash
+  ./build-local.cmd            # build if stale, then start
+  docker compose -f docker-compose.local.yml stop    # stop (instant)
+  docker compose -f docker-compose.local.yml start   # start again (instant)
+  ```
+  Trade-off: no hot reload — re-run `build-local.cmd` after code changes. Or
+  start/stop the `hospo-local-app` + `hospo-local-db` containers in Docker
+  Desktop. Both local stacks publish port 3000, so stop one before starting the
+  other.
+
 ---
 
 ## DEFAULT CREDENTIALS

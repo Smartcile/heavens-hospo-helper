@@ -32,11 +32,17 @@ interface StaffMember {
   venue: { id: string; name: string }
   department: { id: string; name: string } | null
   sections: { sectionId: string }[]
+  positions: {
+    positionId: string
+    hourlyRate: number | null
+    position: { id: string; name: string; hourlyRate: number | null }
+  }[]
 }
 
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string }
 interface Section { id: string; name: string; venueId: string; departmentId: string }
+interface Position { id: string; name: string; venueId: string; departmentId: string | null; departmentIds: string[]; hourlyRate: number | null }
 
 interface FormState {
   firstName: string
@@ -56,6 +62,9 @@ interface FormState {
   myHrId: string
   loadedReportsId: string
   sectionIds: string[]
+  positionIds: string[]
+  /** positionId → rate override string ('' = use the role default / base). */
+  positionRates: Record<string, string>
 }
 
 const EMPTY_FORM: FormState = {
@@ -76,6 +85,8 @@ const EMPTY_FORM: FormState = {
   myHrId: '',
   loadedReportsId: '',
   sectionIds: [],
+  positionIds: [],
+  positionRates: {},
 }
 
 const TAX_CODE_OPTIONS = ['M', 'M SL', 'S', 'S SL', 'SB', 'SB SL', 'SH', 'SH SL', 'ST', 'ST SL', 'CAE', 'CAE SL'].map((c) => ({ value: c, label: c }))
@@ -100,6 +111,7 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [sections, setSections] = useState<Section[]>([])
+  const [positions, setPositions] = useState<Position[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [guidesFor, setGuidesFor] = useState<StaffMember | null>(null)
@@ -114,17 +126,19 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
   async function load() {
     const activeVenueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
     const venueParam = isAdmin && activeVenueId ? `?venueId=${encodeURIComponent(activeVenueId)}` : ''
-    const [sR, vR, dR, secR] = await Promise.all([
+    const [sR, vR, dR, secR, pR] = await Promise.all([
       fetch(`/api/admin/staff${venueParam}`),
       fetch('/api/admin/venues'),
       fetch('/api/admin/departments'),
       fetch('/api/admin/sections'),
+      fetch(`/api/admin/positions${venueParam}`),
     ])
-    const [staffData, venueData, deptData, sectionData] = await Promise.all([sR.json(), vR.json(), dR.json(), secR.json()])
+    const [staffData, venueData, deptData, sectionData, positionData] = await Promise.all([sR.json(), vR.json(), dR.json(), secR.json(), pR.json()])
     setStaff(staffData)
     setVenues(venueData)
     setDepartments(deptData)
     setSections(sectionData)
+    setPositions(Array.isArray(positionData) ? positionData : [])
     setLoading(false)
   }
 
@@ -157,6 +171,13 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
       kiwiSaverRate: s.kiwiSaverRate != null ? String(s.kiwiSaverRate) : '',
       studentLoan: s.studentLoan ?? false,
       sectionIds: (s.sections ?? []).map((x) => x.sectionId),
+      positionIds: (s.positions ?? []).map((x) => x.positionId),
+      // Only an explicit per-role override is shown; the role default stays a placeholder.
+      positionRates: Object.fromEntries(
+        (s.positions ?? [])
+          .filter((x) => x.hourlyRate != null)
+          .map((x) => [x.positionId, String(x.hourlyRate)]),
+      ),
     })
     setError('')
     setModalOpen(true)
@@ -211,6 +232,10 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
       kiwiSaverRate: form.kiwiSaverRate ? Number(form.kiwiSaverRate) : null,
       studentLoan: form.studentLoan,
       sectionIds: form.sectionIds,
+      positions: form.positionIds.map((positionId) => ({
+        positionId,
+        hourlyRate: form.positionRates[positionId]?.trim() ? Number(form.positionRates[positionId]) : null,
+      })),
     }
     if (form.pin) body.pin = form.pin
     if (form.password) body.password = form.password
@@ -259,12 +284,41 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
   ]
   const formSections = sections.filter((s) => s.venueId === form.venueId)
   const isWebUser = form.role === 'ADMIN' || form.role === 'MANAGER'
+  // Roles for the chosen venue + department. A department-less role (e.g. DUTY
+  // MANAGER, which spans every section) stays available under any department.
+  const positionInDept = (p: Position, deptId: string | null) =>
+    !deptId || !p.departmentIds?.length ? true : p.departmentIds.includes(deptId) || p.departmentId === deptId
+  const formPositions = positions.filter(
+    (p) => p.venueId === form.venueId && positionInDept(p, form.departmentId || null),
+  )
 
   function toggleSection(id: string) {
     setForm((f) => ({
       ...f,
       sectionIds: f.sectionIds.includes(id) ? f.sectionIds.filter((x) => x !== id) : [...f.sectionIds, id],
     }))
+  }
+
+  function togglePosition(id: string) {
+    setForm((f) => ({
+      ...f,
+      positionIds: f.positionIds.includes(id) ? f.positionIds.filter((x) => x !== id) : [...f.positionIds, id],
+    }))
+  }
+
+  // Picking a department narrows the roles to that department (plus spanning
+  // roles) and drops any role no longer offered — the cascade the user asked for.
+  function setDepartment(id: string) {
+    setForm((f) => {
+      const allowed = positions
+        .filter((p) => p.venueId === f.venueId && positionInDept(p, id || null))
+        .map((p) => p.id)
+      return { ...f, departmentId: id, positionIds: f.positionIds.filter((pid) => allowed.includes(pid)) }
+    })
+  }
+
+  function setVenue(id: string) {
+    setForm((f) => ({ ...f, venueId: id, departmentId: '', positionIds: [] }))
   }
 
   return (
@@ -302,9 +356,14 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
                       {s.lastName}, {s.firstName}
                     </td>
                     <td className="px-4 py-2.5">
-                      <Badge variant={s.role === 'ADMIN' ? 'warning' : s.role === 'MANAGER' ? 'default' : 'default'}>
-                        {s.role}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Badge variant={s.role === 'ADMIN' ? 'warning' : 'default'}>{s.role}</Badge>
+                        {(s.positions ?? []).map((p) => (
+                          <span key={p.positionId} className="font-mono text-[10px] uppercase text-grey-light border border-grey-mid px-1.5 py-0.5">
+                            {p.position.name}
+                          </span>
+                        ))}
+                      </div>
                     </td>
                     <td className="px-4 py-2.5 font-mono text-xs text-grey-light">{s.venue.name}</td>
                     <td className="px-4 py-2.5 font-mono text-xs text-grey-light">{s.department?.name ?? '—'}</td>
@@ -371,7 +430,7 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
             <Select
               label="Venue"
               value={form.venueId}
-              onChange={(e) => setForm({ ...form, venueId: e.target.value, departmentId: '' })}
+              onChange={(e) => setVenue(e.target.value)}
               options={venueOptions}
               placeholder="SELECT VENUE"
             />
@@ -379,9 +438,62 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
           <Select
             label="Department"
             value={form.departmentId}
-            onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
+            onChange={(e) => setDepartment(e.target.value)}
             options={deptOptions}
           />
+
+          {formPositions.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">
+                Roles{form.departmentId ? ' in this department' : ''} (optional)
+              </label>
+              <div className="flex flex-wrap gap-1">
+                {formPositions.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => togglePosition(p.id)}
+                    className={`font-mono text-xs px-2 py-1.5 border transition-colors ${
+                      form.positionIds.includes(p.id)
+                        ? 'bg-white text-black border-white'
+                        : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
+                    }`}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+              {form.positionIds.length > 0 && (
+                <div className="space-y-1.5 mt-2 border-t border-grey-mid pt-2">
+                  <div className="font-mono text-[10px] uppercase text-grey-light">
+                    Per-role rate (blank = role rate, then base rate)
+                  </div>
+                  {form.positionIds.map((pid) => {
+                    const p = positions.find((x) => x.id === pid)
+                    if (!p) return null
+                    return (
+                      <div key={pid} className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] uppercase text-grey-light w-36 truncate" title={p.name}>{p.name}</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={form.positionRates[pid] ?? ''}
+                          onChange={(e) => setForm((f) => ({ ...f, positionRates: { ...f.positionRates, [pid]: e.target.value } }))}
+                          placeholder={p.hourlyRate != null ? String(p.hourlyRate) : 'BASE'}
+                          className="w-24 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 text-right outline-none focus:border-white placeholder:text-grey-light"
+                        />
+                        <span className="font-mono text-[10px] text-grey-light">/HR</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              <p className="font-mono text-[10px] text-grey-light">
+                ONE PERSON CAN HOLD SEVERAL ROLES. ROLES DRIVE GUIDE REQUIREMENTS AND PAY RATES.
+              </p>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <Input

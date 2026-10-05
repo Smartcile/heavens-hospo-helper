@@ -257,4 +257,21 @@ describe('payrunForStaff', () => {
     expect(r.breakdown).toHaveLength(1)
     expect(r.breakdown[0]).toMatchObject({ dateKey: '2026-08-10', hours: 8, type: 'ORDINARY' })
   })
+
+  it('pays each session at its own role rate and blends the average', () => {
+    const sessions = [
+      { ...session('2026-08-10', 9, 13), rate: 25 }, // 4h @ 25 = 100
+      { ...session('2026-08-11', 9, 17), rate: 30 }, // 8h @ 30 = 240
+    ]
+    const r = payrunForStaff(sessions, staff, settings)
+    expect(r.grossPay).toBeCloseTo(340, 2)
+    expect(r.averageRate).toBeCloseTo((4 * 25 + 8 * 30) / 12, 2)
+    expect(r.breakdown[0].rate).toBe(25)
+    expect(r.breakdown[1].rate).toBe(30)
+  })
+
+  it('floors a role rate to the minimum wage per session', () => {
+    const r = payrunForStaff([{ ...session('2026-08-10', 9, 17), rate: 20 }], staff, settings)
+    expect(r.grossPay).toBeCloseTo(8 * 23.5, 2)
+  })
 })

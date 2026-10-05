@@ -1,0 +1,69 @@
+# HOSPO OPS — LOCAL BUILT-IMAGE stack (fast start/stop, no hot reload).
+#
+# Unlike docker-compose.dev.yml (which runs `next dev` and compiles routes on
+# demand), this BUILDS the production image from your files and runs
+# `next start` — so pages are already compiled and the app starts in seconds.
+#
+# Use it when you want to click around fast:
+#   .\build-local.ps1            # rebuild if source is newer, then start
+#   docker compose -f docker-compose.local.yml up -d --build   # manual
+#   docker compose -f docker-compose.local.yml stop            # stop
+#   docker compose -f docker-compose.local.yml start           # start again (instant)
+#
+# Or just start/stop the `hospo-local-app` + `hospo-local-db` containers in
+# Docker Desktop — no rebuild happens on start/stop.
+#
+# Trade-off: NO hot reload. After a code change, re-run build-local.ps1 (it
+# re-runs `next build`, ~2-3 min). For live editing use docker-compose.dev.yml.
+#
+# Port 3000 — stop the dev stack first if it is running:
+#   docker compose -f docker-compose.dev.yml down
+name: hospo-local
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: hospo-local-db
+    environment:
+      POSTGRES_DB: hospo_ops
+      POSTGRES_USER: hospo_ops_user
+      POSTGRES_PASSWORD: hospo123
+    volumes:
+      - hospo-local-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hospo_ops_user -d hospo_ops"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: hospo-ops:local
+    container_name: hospo-local-app
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://hospo_ops_user:hospo123@db:5432/hospo_ops
+      NEXTAUTH_SECRET: local-build-secret-change-me
+      NEXTAUTH_URL: http://localhost:3000
+      APP_URL: http://localhost:3000
+      APP_NAME: HOSPO OPS
+      NEXT_PUBLIC_APP_NAME: HOSPO OPS
+      WORKER_SESSION_SECRET: local-build-worker-secret-change-me
+      WORKER_SESSION_EXPIRY_MINUTES: "15"
+      NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES: "15"
+      UPLOAD_PROVIDER: local
+      UPLOAD_PATH: /app/uploads
+      # No WooCommerce inside the local build — skip the built-in scheduler.
+      INTERNAL_CRON: "false"
+    volumes:
+      - hospo-local-uploads:/app/uploads
+
+volumes:
+  hospo-local-db:
+  hospo-local-uploads:

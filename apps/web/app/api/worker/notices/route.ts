@@ -1,11 +1,27 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
+import { noticeWhereOr } from '@/lib/notice-audience'
 
 // Active notices for this worker's venue/department, with their ack status.
 export async function GET() {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // The worker JWT carries departmentId but not sections/roles, so load them.
+  const staff = await prisma.staff.findUnique({
+    where: { id: session.staffId },
+    select: {
+      departmentId: true,
+      sections: { select: { sectionId: true } },
+      positions: { select: { positionId: true } },
+    },
+  })
+  const ctx = {
+    departmentId: staff?.departmentId ?? session.departmentId ?? null,
+    sectionIds: new Set((staff?.sections ?? []).map((s) => s.sectionId)),
+    positionIds: new Set((staff?.positions ?? []).map((p) => p.positionId)),
+  }
 
   const now = new Date()
   const notices = await prisma.notice.findMany({
@@ -13,7 +29,7 @@ export async function GET() {
       deletedAt: null,
       isActive: true,
       venueId: session.venueId,
-      OR: [{ departmentId: null }, ...(session.departmentId ? [{ departmentId: session.departmentId }] : [])],
+      OR: noticeWhereOr(ctx),
       AND: [
         { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
         { OR: [{ endsAt: null }, { endsAt: { gte: now } }] },

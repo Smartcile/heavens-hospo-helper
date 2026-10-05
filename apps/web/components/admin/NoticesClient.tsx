@@ -21,13 +21,23 @@ interface Notice {
   venueId: string
   departmentId: string | null
   departmentName: string | null
+  audiences: { kind: string; targetId: string }[]
   ackCount: number
   applicableCount: number
   createdAt: string
 }
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string }
+interface Section { id: string; name: string; venueId: string; departmentId: string }
+interface Position { id: string; name: string; venueId: string }
+interface Audience { kind: 'DEPARTMENT' | 'SECTION' | 'POSITION'; targetId: string }
 interface AckRow { id: string; name: string; acked: boolean; ackedAt: string | null }
+
+const AUDIENCE_KINDS: { value: Audience['kind']; label: string }[] = [
+  { value: 'DEPARTMENT', label: 'DEPARTMENT' },
+  { value: 'SECTION', label: 'SECTION' },
+  { value: 'POSITION', label: 'ROLE' },
+]
 
 const PRIORITY_OPTIONS = [
   { value: 'INFO', label: 'INFO' },
@@ -35,12 +45,54 @@ const PRIORITY_OPTIONS = [
   { value: 'URGENT', label: 'URGENT' },
 ]
 
-const EMPTY = { title: '', body: '', priority: 'INFO', departmentId: '', pinned: false, requiresAck: false }
+const EMPTY = { title: '', body: '', priority: 'INFO', pinned: false, requiresAck: false, audiences: [] as Audience[] }
+
+// Module-level so it isn't remounted on every parent render (keeps focus).
+function AddAudience({
+  options,
+  onAdd,
+}: {
+  options: Record<Audience['kind'], { value: string; label: string }[]>
+  onAdd: (kind: Audience['kind'], targetId: string) => void
+}) {
+  const [kind, setKind] = useState<Audience['kind']>('DEPARTMENT')
+  const [targetId, setTargetId] = useState('')
+  const opts = options[kind] ?? []
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <select
+        value={kind}
+        onChange={(e) => { setKind(e.target.value as Audience['kind']); setTargetId('') }}
+        className="bg-black border border-grey-mid text-white font-mono text-xs uppercase px-2 py-1.5 outline-none focus:border-white"
+      >
+        {AUDIENCE_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+      </select>
+      <select
+        value={targetId}
+        onChange={(e) => setTargetId(e.target.value)}
+        className="flex-1 min-w-[10rem] bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
+      >
+        <option value="">{opts.length ? 'SELECT…' : 'NONE AVAILABLE'}</option>
+        {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <button
+        type="button"
+        disabled={!targetId}
+        onClick={() => { onAdd(kind, targetId); setTargetId('') }}
+        className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors disabled:opacity-40"
+      >
+        + ADD
+      </button>
+    </div>
+  )
+}
 
 export function NoticesClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [notices, setNotices] = useState<Notice[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
+  const [sections, setSections] = useState<Section[]>([])
+  const [positions, setPositions] = useState<Position[]>([])
   const [loading, setLoading] = useState(true)
 
   const [open, setOpen] = useState(false)
@@ -55,15 +107,19 @@ export function NoticesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   async function load() {
     const activeVenueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
     const venueParam = activeVenueId ? `?venueId=${encodeURIComponent(activeVenueId)}` : ''
-    const [nR, vR, dR] = await Promise.all([
+    const [nR, vR, dR, secR, pR] = await Promise.all([
       fetch(`/api/admin/notices${venueParam}`),
       fetch('/api/admin/venues'),
       fetch('/api/admin/departments'),
+      fetch('/api/admin/sections'),
+      fetch(`/api/admin/positions${venueParam}`),
     ])
-    const [nData, vData, dData] = await Promise.all([nR.json(), vR.json(), dR.json()])
-    setNotices(nData)
+    const [nData, vData, dData, secData, pData] = await Promise.all([nR.json(), vR.json(), dR.json(), secR.json(), pR.json()])
+    setNotices(Array.isArray(nData) ? nData : [])
     setVenues(vData)
     setDepartments(dData)
+    setSections(Array.isArray(secData) ? secData : [])
+    setPositions(Array.isArray(pData) ? pData : [])
     setLoading(false)
   }
 
@@ -76,7 +132,14 @@ export function NoticesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   }
   function openEdit(n: Notice) {
     setEditing(n)
-    setForm({ title: n.title, body: n.body, priority: n.priority, departmentId: n.departmentId ?? '', pinned: n.pinned, requiresAck: n.requiresAck, venueId: n.venueId })
+    setForm({
+      title: n.title, body: n.body, priority: n.priority, pinned: n.pinned, requiresAck: n.requiresAck, venueId: n.venueId,
+      audiences: (n.audiences ?? []).length
+        ? n.audiences.map((a) => ({ kind: a.kind as Audience['kind'], targetId: a.targetId }))
+        : n.departmentId
+          ? [{ kind: 'DEPARTMENT' as const, targetId: n.departmentId }]
+          : [],
+    })
     setError(''); setOpen(true)
   }
 
@@ -88,7 +151,7 @@ export function NoticesClient({ role, sessionVenueId, defaultVenueId }: { role: 
     const method = editing ? 'PUT' : 'POST'
     const r = await fetch(url, {
       method, headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, departmentId: form.departmentId || null }),
+      body: JSON.stringify({ ...form, departmentId: null, audiences: form.audiences }),
     })
     setSaving(false)
     if (!r.ok) { const d = await r.json(); setError(d.error ?? 'SAVE FAILED'); return }
@@ -112,10 +175,21 @@ export function NoticesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   }
 
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
-  const deptOptions = [
-    { value: '', label: 'WHOLE VENUE' },
-    ...departments.filter((d) => d.venueId === form.venueId).map((d) => ({ value: d.id, label: d.name })),
-  ]
+  const audienceOptions: Record<Audience['kind'], { value: string; label: string }[]> = {
+    DEPARTMENT: departments.filter((d) => d.venueId === form.venueId).map((d) => ({ value: d.id, label: d.name })),
+    SECTION: sections.filter((s) => s.venueId === form.venueId).map((s) => ({ value: s.id, label: s.name })),
+    POSITION: positions.filter((p) => p.venueId === form.venueId).map((p) => ({ value: p.id, label: p.name })),
+  }
+  const audienceLabel = (a: Audience) =>
+    audienceOptions[a.kind].find((o) => o.value === a.targetId)?.label ?? 'REMOVED'
+  function addAudience(kind: Audience['kind'], targetId: string) {
+    if (!targetId) return
+    setForm((f) =>
+      f.audiences.some((x) => x.kind === kind && x.targetId === targetId)
+        ? f
+        : { ...f, audiences: [...f.audiences, { kind, targetId }] },
+    )
+  }
 
   return (
     <div className="p-6 space-y-4">
@@ -141,7 +215,11 @@ export function NoticesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                     {n.pinned && <span className="font-mono text-xs text-accent">📌</span>}
                     <span className="font-mono text-sm font-semibold uppercase text-white">{n.title}</span>
                     <Badge variant={n.priority === 'URGENT' ? 'danger' : n.priority === 'IMPORTANT' ? 'warning' : 'default'}>{n.priority}</Badge>
-                    <Badge>{n.departmentName ?? 'WHOLE VENUE'}</Badge>
+                    <Badge>
+                      {n.audiences.length === 0
+                        ? n.departmentName ?? 'WHOLE VENUE'
+                        : `${n.audiences.length} TARGET${n.audiences.length === 1 ? '' : 'S'}`}
+                    </Badge>
                     {!n.isActive && <Badge variant="danger">INACTIVE</Badge>}
                   </div>
                   <p className="font-sans text-xs text-grey-light mt-1 whitespace-pre-wrap">{n.body}</p>
@@ -170,10 +248,33 @@ export function NoticesClient({ role, sessionVenueId, defaultVenueId }: { role: 
           <Textarea label="Body" value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} placeholder="Details staff need to know..." />
           <div className="grid grid-cols-2 gap-3">
             {role === 'ADMIN' && (
-              <Select label="Venue" value={form.venueId} onChange={(e) => setForm({ ...form, venueId: e.target.value, departmentId: '' })} options={[{ value: '', label: 'SELECT VENUE' }, ...venueOptions]} />
+              <Select label="Venue" value={form.venueId} onChange={(e) => setForm({ ...form, venueId: e.target.value, audiences: [] })} options={[{ value: '', label: 'SELECT VENUE' }, ...venueOptions]} />
             )}
-            <Select label="Target" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })} options={deptOptions} />
             <Select label="Priority" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} options={PRIORITY_OPTIONS} />
+          </div>
+
+          <div className="border border-grey-mid p-3 space-y-2">
+            <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Applies to</label>
+            {form.audiences.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {form.audiences.map((a) => (
+                  <span key={`${a.kind}:${a.targetId}`} className="inline-flex items-center gap-1.5 border border-grey-mid px-2 py-0.5 font-mono text-[10px] uppercase text-white">
+                    <span className="text-grey-light">{a.kind}</span>
+                    {audienceLabel(a)}
+                    <button
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, audiences: f.audiences.filter((x) => !(x.kind === a.kind && x.targetId === a.targetId)) }))}
+                      className="text-grey-light hover:text-danger transition-colors"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="font-mono text-[10px] uppercase text-grey-light">WHOLE VENUE — ADD TARGETS TO NARROW IT.</p>
+            )}
+            <AddAudience options={audienceOptions} onAdd={addAudience} />
           </div>
           <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-2 cursor-pointer">

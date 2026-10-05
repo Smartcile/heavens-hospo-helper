@@ -24,12 +24,13 @@ export async function GET(_req: NextRequest, { params }: Params) {
       intervalMonths: true, monthlyOption: true, monthlyDay: true, isActive: true,
       status: true, hsCategory: true, linkedItemId: true,
       readingUnit: true, readingMin: true, readingMax: true, criticalMin: true, criticalMax: true,
+      sections: { select: { sectionId: true } },
       requiredTraining: { select: { moduleId: true } },
       taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
     },
   })
   if (!task) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json(task)
+  return NextResponse.json({ ...task, sectionIds: task.sections.map((s) => s.sectionId) })
 }
 
 export async function PUT(req: NextRequest, { params }: Params) {
@@ -64,8 +65,18 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.criticalMin !== undefined) updates.criticalMin = body.criticalMin != null && Number.isFinite(body.criticalMin) ? Number(body.criticalMin) : null
   if (body.criticalMax !== undefined) updates.criticalMax = body.criticalMax != null && Number.isFinite(body.criticalMax) ? Number(body.criticalMax) : null
 
+  // Multiple sections — replace the set; the first is primary (department).
+  if (body.sectionIds !== undefined) {
+    const ids: string[] = Array.isArray(body.sectionIds) ? [...new Set(body.sectionIds as string[])] : []
+    updates.sections = { deleteMany: {}, create: ids.map((sectionId) => ({ sectionId })) }
+    updates.sectionId = ids[0] ?? null
+    if (ids[0]) {
+      const section = await prisma.section.findFirst({ where: { id: ids[0], deletedAt: null }, select: { departmentId: true } })
+      if (section) updates.departmentId = section.departmentId
+    }
+  }
   // Section implies its department.
-  if (body.sectionId !== undefined) {
+  if (body.sectionId !== undefined && body.sectionIds === undefined) {
     updates.sectionId = body.sectionId || null
     if (body.sectionId) {
       const section = await prisma.section.findFirst({ where: { id: body.sectionId, deletedAt: null }, select: { departmentId: true } })

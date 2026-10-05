@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { cleanNoticeAudiences } from '@/lib/notice-audience'
 
 interface Params {
   params: { id: string }
@@ -31,6 +32,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.taskIds !== undefined) {
     const ids: string[] = Array.isArray(body.taskIds) ? body.taskIds : []
     updates.tasks = { deleteMany: {}, create: ids.map((taskId: string, i: number) => ({ taskId, sortOrder: i })) }
+  }
+  if (body.audiences !== undefined) {
+    updates.audiences = { deleteMany: {}, create: cleanNoticeAudiences(body.audiences) }
   }
 
   const checklist = await prisma.checklist.update({ where: { id: params.id }, data: updates })

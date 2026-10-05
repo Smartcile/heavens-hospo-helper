@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -24,11 +24,14 @@ interface Item {
   densityGramsPerMl?: number | null; weightPerUnitGrams?: number | null
   // Equipment / tool tracking
   imageUrls?: string[] | null; storageSectionId?: string | null; storageNotes?: string | null
+  storageLocations?: { sectionId: string; qty: number | null; notes: string | null; section?: { id: string; name: string } | null }[]
+  menuLinks?: { menuItemId: string; menuItem: { id: string; name: string } }[]
+  serviceSuppliers?: { supplierId: string; supplier: { id: string; name: string } }[]
   serialNumber?: string | null; purchaseDate?: string | null; warrantyExpiry?: string | null
   serviceIntervalDays?: number | null; lastServicedAt?: string | null; nextServiceAt?: string | null
   maintenanceNotes?: string | null; supplierId?: string | null
 }
-interface Uom { id: string; name: string; baseUnit: string }
+interface Uom { id: string; name: string; baseUnit: string; kind?: string }
 interface IngredientRef { id: string; name: string; densityGramsPerMl: number | null; weightPerUnitGrams: number | null; notes: string | null; isBuiltIn: boolean }
 interface SectionLite { id: string; name: string; department: { id: string; name: string } }
 interface SupplierLite { id: string; name: string }
@@ -67,6 +70,12 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
     return 'OTHER'
   })
   const [uoms, setUoms] = useState<Uom[]>([])
+  const uomById = useMemo(() => new Map(uoms.map((u) => [u.id, u])), [uoms])
+  // Group the list by physical kind so volumes / weights / counts are easy to scan.
+  const kindOf = (item: Item): string =>
+    (item.countingUnitId ? uomById.get(item.countingUnitId)?.kind : null) ?? 'COUNT'
+  const KIND_LABEL: Record<string, string> = { VOLUME: 'VOLUME', MASS: 'WEIGHT', COUNT: 'COUNT / EACH' }
+  const KIND_ORDER: Record<string, number> = { VOLUME: 0, MASS: 1, COUNT: 2 }
 
   // Property editor (non-furniture items)
   const [selectedItem, setSelectedItem] = useState<Item | null>(null)
@@ -93,7 +102,6 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
   const [formFreezerShelfLifeDays, setFormFreezerShelfLifeDays] = useState('')
   const [formCountingUnitQty, setFormCountingUnitQty] = useState('')
   const [formOrderingUnitQty, setFormOrderingUnitQty] = useState('')
-  const [formParLevelUnitId, setFormParLevelUnitId] = useState('')
 
   // Density (volume ↔ mass ↔ count conversion)
   const [formDensity, setFormDensity] = useState('')
@@ -108,8 +116,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
 
   // Equipment / tool tracking
   const [formImageUrls, setFormImageUrls] = useState<string[]>([])
-  const [formStorageSectionId, setFormStorageSectionId] = useState('')
-  const [formStorageNotes, setFormStorageNotes] = useState('')
+  const [formStorageLocations, setFormStorageLocations] = useState<{ sectionId: string; qty: string; notes: string }[]>([])
   const [formSerialNumber, setFormSerialNumber] = useState('')
   const [formPurchaseDate, setFormPurchaseDate] = useState('')
   const [formWarrantyExpiry, setFormWarrantyExpiry] = useState('')
@@ -120,12 +127,15 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
   const [formMaintenanceNotes, setFormMaintenanceNotes] = useState('')
   const [formSupplierId, setFormSupplierId] = useState('')
   const [formAltSupplierIds, setFormAltSupplierIds] = useState<string[]>([])
+  const [formMenuItemIds, setFormMenuItemIds] = useState<string[]>([])
+  const [formServiceSupplierIds, setFormServiceSupplierIds] = useState<string[]>([])
   const [showEquipmentFields, setShowEquipmentFields] = useState(true)
   const [catShowDeep, setCatShowDeep] = useState(false)
   const [catShowEquip, setCatShowEquip] = useState(false)
   const [formUploadingImg, setFormUploadingImg] = useState(false)
   const [sections, setSections] = useState<SectionLite[]>([])
   const [suppliers, setSuppliers] = useState<SupplierLite[]>([])
+  const [menuItems, setMenuItems] = useState<{ id: string; name: string }[]>([])
   const [pantryRefs, setPantryRefs] = useState<PantryRef[]>([])
 
   // Furniture editor. Furniture is an InventoryItem with geometry set, so the
@@ -140,7 +150,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
     setFormExpiryDate(''); setFormFallbackCatId(''); setFormAllergyInfo(''); setShowDeepFields(true)
     setFormShelfLifeDays(''); setFormCanFreeze(false); setFormFreezerShelfLifeDays('')
     setFormDensity(''); setFormCupWeight(''); setFormWeightPerUnit(''); setKnownSuggestion(null); setLlmAnswer('')
-    setFormImageUrls([]); setFormStorageSectionId(''); setFormStorageNotes('')
+    setFormImageUrls([]); setFormStorageLocations([]); setFormMenuItemIds([]); setFormServiceSupplierIds([])
     setFormSerialNumber(''); setFormPurchaseDate(''); setFormWarrantyExpiry('')
     setFormServiceIntervalDays(''); setFormLastServicedAt(''); setFormNextServiceAt('')
     setFormMaintenanceNotes(''); setFormSupplierId(''); setShowEquipmentFields(false)
@@ -162,8 +172,14 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
     setFormWeightPerUnit(item.weightPerUnitGrams != null ? String(item.weightPerUnitGrams) : '')
     setKnownSuggestion(null); setLlmAnswer('')
     setFormImageUrls(Array.isArray(item.imageUrls) ? item.imageUrls : item.imageUrls ? [item.imageUrls as any] : [])
-    setFormStorageSectionId(item.storageSectionId ?? '')
-    setFormStorageNotes(item.storageNotes ?? '')
+    const locs = Array.isArray(item.storageLocations) && item.storageLocations.length
+      ? item.storageLocations
+      : item.storageSectionId
+        ? [{ sectionId: item.storageSectionId, qty: null as number | null, notes: item.storageNotes ?? null }]
+        : []
+    setFormStorageLocations(locs.map((l) => ({ sectionId: l.sectionId, qty: l.qty != null ? String(l.qty) : '', notes: l.notes ?? '' })))
+    setFormMenuItemIds(Array.isArray(item.menuLinks) ? item.menuLinks.map((l) => l.menuItemId) : [])
+    setFormServiceSupplierIds(Array.isArray(item.serviceSuppliers) ? item.serviceSuppliers.map((s) => s.supplierId) : [])
     setFormSerialNumber(item.serialNumber ?? '')
     setFormPurchaseDate(item.purchaseDate ? String(item.purchaseDate).slice(0, 10) : '')
     setFormWarrantyExpiry(item.warrantyExpiry ? String(item.warrantyExpiry).slice(0, 10) : '')
@@ -186,7 +202,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
   async function load() {
     setLoading(true)
     const venueParam = venueId ? `?venueId=${venueId}` : ''
-    const [catRes, itemRes, prRes, uomRes, secRes, supRes, refRes] = await Promise.all([
+    const [catRes, itemRes, prRes, uomRes, secRes, supRes, refRes, menuRes] = await Promise.all([
       fetch(`/api/admin/inventory/categories${venueParam}`),
       fetch(`/api/admin/inventory${venueParam}`),
       fetch(`/api/admin/furniture${venueParam}`),
@@ -194,6 +210,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
       fetch(`/api/admin/sections${venueParam}`),
       fetch(`/api/admin/suppliers${venueParam}`),
       fetch(`/api/admin/ingredient-references${venueParam}`),
+      fetch(`/api/admin/menu-items${venueParam}`),
     ])
     if (catRes.ok) setCategories(await catRes.json())
     if (itemRes.ok) setItems(await itemRes.json())
@@ -216,6 +233,10 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
     if (refRes.ok) {
       const data = await refRes.json()
       setIngredientRefs(Array.isArray(data) ? data : [])
+    }
+    if (menuRes.ok) {
+      const data = await menuRes.json()
+      setMenuItems(Array.isArray(data) ? data.map((m: { id: string; name: string }) => ({ id: m.id, name: m.name })) : [])
     }
     setLoading(false)
   }
@@ -321,6 +342,9 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
       defaultParLevel: parseInt(formPar) || 0,
       totalQty: parseInt(formTotalQty) || 0,
       countingUnitId: formCountingUnitId || null,
+      // Par level is always in the counting unit — only the ORDERING UOM may
+      // differ (supplier-dependent).
+      parLevelUnitId: formCountingUnitId || null,
       orderingUnitId: formOrderingUnitId || null,
       yieldPercentage: formYield ? parseFloat(formYield) : null,
       costPrice: formCostPrice ? parseFloat(formCostPrice) : null,
@@ -328,8 +352,11 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
       fallbackCategoryId: formFallbackCatId || null,
       allergyInfo: formAllergyInfo || null,
       imageUrls: formImageUrls.length ? formImageUrls : null,
-      storageSectionId: formStorageSectionId || null,
-      storageNotes: formStorageNotes || null,
+      storageLocations: formStorageLocations
+        .filter((l) => l.sectionId)
+        .map((l) => ({ sectionId: l.sectionId, qty: l.qty.trim() ? Number(l.qty) : null, notes: l.notes || null })),
+      menuItemIds: formMenuItemIds,
+      serviceSupplierIds: formServiceSupplierIds,
       serialNumber: formSerialNumber || null,
       purchaseDate: formPurchaseDate || null,
       warrantyExpiry: formWarrantyExpiry || null,
@@ -465,6 +492,10 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
             const catItemList = catItems.get(cat.id) ?? []
             const isCollapsed = collapsed.has(cat.name)
             const isFurniture = cat.name === 'TABLES'
+            const orderedItems = [...catItemList].sort(
+              (a, b) => (KIND_ORDER[kindOf(a)] ?? 2) - (KIND_ORDER[kindOf(b)] ?? 2),
+            )
+            const showKindHeaders = new Set(orderedItems.map(kindOf)).size > 1
             return (
               <div key={cat.id} className="border border-grey-mid">
                 <div className="flex items-center">
@@ -491,7 +522,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                     {catItemList.length === 0 && (
                       <p className="font-mono text-xs text-grey-light px-3 py-3">No items yet.</p>
                     )}
-                    {catItemList.map((item, idx) => {
+                    {orderedItems.map((item, idx) => {
                       const isFurnitureItem = item.furnitureType != null
                       const avail = Math.max(0, (item.totalQty ?? 0) - (item.placedCount ?? 0))
                       const isEditing = selectedItem?.id === item.id || (showTableProfile && editProfileId === item.id)
@@ -503,7 +534,12 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                       const profileCapacity = matchingProfile?.defaultChairCount ?? 0
 
                       return (
-                        <div key={item.id}>
+                        <Fragment key={item.id}>
+                          {showKindHeaders && (idx === 0 || kindOf(orderedItems[idx - 1]) !== kindOf(item)) && (
+                            <div className="px-3 pt-2 font-mono text-[9px] uppercase tracking-wider text-grey-light">
+                              {KIND_LABEL[kindOf(item)] ?? kindOf(item)}
+                            </div>
+                          )}
                           <div className={`flex items-center gap-3 py-2 px-3 ${isEditing ? 'bg-grey-mid/20' : ''}`}>
                             {isFurnitureItem && item.defaultColour && (
                               <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.defaultColour }} />
@@ -562,10 +598,10 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                                 className="font-mono text-[10px] text-danger hover:text-white border border-grey-mid px-1.5 py-0.5">DLT</button>
                             </div>
                           </div>
-                          {idx < catItemList.length - 1 && (
+                          {idx < orderedItems.length - 1 && (
                             <div className="mx-3 border-b border-grey-mid" />
                           )}
-                        </div>
+                        </Fragment>
                       )
                     })}
                   </div>
@@ -756,26 +792,20 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                 disabled={!!selectedItem?.furnitureType} />
             </div>
           </div>
-          <div className="grid grid-cols-6 gap-2">
-            {catShowDeep ? (
-              <div className="col-span-6">
+          {!catShowDeep && (
+            <div className="grid grid-cols-6 gap-2">
+              <div className="col-span-2">
+                <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
+                  options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
+              </div>
+              <div className="col-span-2">
+                <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
+              </div>
+              <div className="col-span-2">
                 <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
               </div>
-            ) : (
-              <>
-                <div className="col-span-2">
-                  <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
-                    options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
-                </div>
-                <div className="col-span-2">
-                  <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
-                </div>
-                <div className="col-span-2">
-                  <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
-                </div>
-              </>
-            )}
-          </div>
+            </div>
+          )}
           {catShowDeep && (
             <button onClick={() => setShowDeepFields(!showDeepFields)}
               className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
@@ -798,12 +828,13 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
               <div className="col-span-1">
                 <Input label="QTY" type="number" step="0.01" value={formOrderingUnitQty} onChange={(e) => setFormOrderingUnitQty(e.target.value)} placeholder="1" />
               </div>
-              <div className="col-span-2">
-                <Select label="PAR LEVEL UOM" value={formParLevelUnitId} onChange={(e) => setFormParLevelUnitId(e.target.value)}
-                  options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
-              </div>
-              <div className="col-span-1">
-                <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
+              <div className="col-span-3">
+                <Input
+                  label={`PAR LEVEL (${uoms.find((u) => u.id === formCountingUnitId)?.name ?? 'COUNTING UOM'})`}
+                  type="number"
+                  value={formPar}
+                  onChange={(e) => setFormPar(e.target.value)}
+                />
               </div>
               <div className="col-span-2">
                 <Input label="YIELD %" type="number" step="0.1" value={formYield} onChange={(e) => setFormYield(e.target.value)} />
@@ -962,10 +993,6 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                   )}
                   <div className="grid grid-cols-6 gap-2">
                     <div className="col-span-3">
-                      <Select label="STORAGE SECTION" value={formStorageSectionId} onChange={(e) => setFormStorageSectionId(e.target.value)}
-                        options={sections.map((s) => ({ value: s.id, label: `${s.department?.name ?? ''} → ${s.name}` }))} placeholder="—" />
-                    </div>
-                    <div className="col-span-3">
                       <Select label="SUPPLIER" value={formSupplierId} onChange={(e) => setFormSupplierId(e.target.value)}
                         options={suppliers.map((s) => ({ value: s.id, label: s.name }))} placeholder="—" />
                     </div>
@@ -979,7 +1006,71 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                       />
                     </div>
                     <div className="col-span-6">
-                      <Input label="STORAGE NOTES" value={formStorageNotes} onChange={(e) => setFormStorageNotes(e.target.value)} placeholder="TOP SHELF, ABOVE THE COFFEE STATION" />
+                      <Combobox label="LINKED PRODUCTS (MENU ITEMS)"
+                        options={menuItems.map((m) => ({ value: m.id, label: m.name }))}
+                        selected={formMenuItemIds}
+                        onChange={setFormMenuItemIds}
+                        placeholder="Search products this stock feeds..."
+                        hideTags
+                      />
+                    </div>
+                    <div className="col-span-6">
+                      <Combobox label="SERVICE SUPPLIERS (REPAIRS / PARTS)"
+                        options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+                        selected={formServiceSupplierIds}
+                        onChange={setFormServiceSupplierIds}
+                        placeholder="Search suppliers..."
+                        hideTags
+                      />
+                    </div>
+                    <div className="col-span-6 border border-grey-mid p-2 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-[10px] uppercase text-grey-light tracking-wider">Storage locations</span>
+                        <button
+                          type="button"
+                          onClick={() => setFormStorageLocations((prev) => [...prev, { sectionId: '', qty: '', notes: '' }])}
+                          className="font-mono text-[10px] uppercase text-grey-light hover:text-white transition-colors"
+                        >
+                          + ADD LOCATION
+                        </button>
+                      </div>
+                      {formStorageLocations.length === 0 && (
+                        <p className="font-mono text-[10px] text-grey-light">WHERE THIS ITEM IS KEPT — ADD A SECTION PER PLACE (BAR, STOREROOM, KITCHEN).</p>
+                      )}
+                      {formStorageLocations.map((loc, i) => (
+                        <div key={i} className="flex flex-wrap items-center gap-2">
+                          <select
+                            value={loc.sectionId}
+                            onChange={(e) => setFormStorageLocations((prev) => prev.map((x, idx) => (idx === i ? { ...x, sectionId: e.target.value } : x)))}
+                            className="flex-1 min-w-[10rem] bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
+                          >
+                            <option value="">— SECTION —</option>
+                            {sections.map((s) => (
+                              <option key={s.id} value={s.id}>{`${s.department?.name ?? ''} → ${s.name}`}</option>
+                            ))}
+                          </select>
+                          <input
+                            value={loc.qty}
+                            onChange={(e) => setFormStorageLocations((prev) => prev.map((x, idx) => (idx === i ? { ...x, qty: e.target.value } : x)))}
+                            placeholder="QTY"
+                            inputMode="decimal"
+                            className="w-20 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 text-right outline-none focus:border-white placeholder:text-grey-light"
+                          />
+                          <input
+                            value={loc.notes}
+                            onChange={(e) => setFormStorageLocations((prev) => prev.map((x, idx) => (idx === i ? { ...x, notes: e.target.value } : x)))}
+                            placeholder="NOTE (OPTIONAL)"
+                            className="flex-1 min-w-[10rem] bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white placeholder:text-grey-light"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setFormStorageLocations((prev) => prev.filter((_, idx) => idx !== i))}
+                            className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
                     </div>
                     <div className="col-span-3">
                       <Input label="SERIAL NUMBER" value={formSerialNumber} onChange={(e) => setFormSerialNumber(e.target.value)} placeholder="SN-12345" />

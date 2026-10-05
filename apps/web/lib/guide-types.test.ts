@@ -1,9 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { GUIDE_TYPES, GUIDE_TYPE_LABELS, guideTypeLabel, isGuideType } from '@/lib/guide-types'
+import { GUIDE_TYPES, GUIDE_TYPE_LABELS, guideTypeLabel, isGuideType, isProductReference } from '@/lib/guide-types'
 
 describe('guide-types', () => {
   it('exposes the fixed taxonomy in order', () => {
-    expect(GUIDE_TYPES).toEqual(['HOW_TO', 'SOP', 'FAQ', 'TRAINING', 'POLICY', 'OTHER'])
+    expect(GUIDE_TYPES).toEqual(['HOW_TO', 'SOP', 'FAQ', 'TRAINING', 'POLICY', 'OTHER', 'PRODUCT_REFERENCE'])
+  })
+
+  it('identifies a product reference', () => {
+    expect(isProductReference('PRODUCT_REFERENCE')).toBe(true)
+    expect(isProductReference('SOP')).toBe(false)
+    expect(isProductReference(null)).toBe(false)
   })
 
   it('validates known values only', () => {

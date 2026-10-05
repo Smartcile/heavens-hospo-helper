@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 
   const scope = { venueId, deletedAt: null }
 
-  const [items, tasks, checklists, guides, sections, recipes] = await Promise.all([
+  const [items, tasks, checklists, guides, sections, recipes, menuItems] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: scope,
       select: { id: true, name: true, unit: true },
@@ -52,6 +52,11 @@ export async function GET(req: NextRequest) {
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
     }),
+    prisma.menuItem.findMany({
+      where: { ...scope, isActive: true },
+      select: { id: true, name: true, price: true },
+      orderBy: { name: 'asc' },
+    }),
   ])
 
   return NextResponse.json({
@@ -67,5 +72,10 @@ export async function GET(req: NextRequest) {
       label: s.department ? `${s.department.name} → ${s.name}` : s.name,
     })),
     RECIPE: recipes.map((r) => ({ value: r.id, label: r.name })),
+    // Products for a product-reference table's linked-product column.
+    MENU_ITEM: menuItems.map((m) => ({
+      value: m.id,
+      label: m.price ? `${m.name} — $${m.price.toFixed(2)}` : m.name,
+    })),
   })
 }

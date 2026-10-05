@@ -86,6 +86,7 @@ export const TRAINING_TABS: TabDef[] = [
 
 export const SETTINGS_TABS: TabDef[] = [
   { id: 'general', label: 'GENERAL' },
+  { id: 'venue', label: 'VENUE SETUP' },
   { id: 'structure', label: 'STRUCTURE' },
   { id: 'floorplans', label: 'FLOOR PLANS' }, // grant-gated — see SettingsClient
   { id: 'uoms', label: 'UNITS OF MEASURE' },

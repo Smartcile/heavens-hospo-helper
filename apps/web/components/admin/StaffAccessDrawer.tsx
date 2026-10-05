@@ -16,6 +16,8 @@ interface AccessData {
   venueId: string
   staffVenues: { venueId: string }[]
   permissions: { venueId: string; permissionKey: string }[]
+  /** Default grants from the staff member's roles. */
+  roleDefaults?: { venueId: string; permissionKey: string }[]
 }
 
 interface VenueRef { id: string; name: string }
@@ -38,6 +40,7 @@ export function StaffAccessDrawer({
   const [data, setData] = useState<AccessData | null>(null)
   const [selectedVenueId, setSelectedVenueId] = useState('')
   const [keysByVenue, setKeysByVenue] = useState<Record<string, string[]>>({})
+  const [roleDefaultsByVenue, setRoleDefaultsByVenue] = useState<Record<string, string[]>>({})
   const [restricted, setRestricted] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -56,6 +59,11 @@ export function StaffAccessDrawer({
           byVenue[v] = d.permissions.filter((p) => p.venueId === v).map((p) => p.permissionKey)
         }
         setKeysByVenue(byVenue)
+        const defaults: Record<string, string[]> = {}
+        for (const rd of d.roleDefaults ?? []) {
+          defaults[rd.venueId] = [...(defaults[rd.venueId] ?? []), rd.permissionKey]
+        }
+        setRoleDefaultsByVenue(defaults)
       })
       .catch(() => {
         if (!cancelled) setError('FAILED TO LOAD ACCESS SETTINGS')
@@ -106,6 +114,17 @@ export function StaffAccessDrawer({
 
   function clearVenue() {
     setKeysByVenue((prev) => ({ ...prev, [selectedVenueId]: [] }))
+  }
+
+  // Merge the role's default grants into the active venue and flip RESTRICTED on
+  // (defaults only take effect when the person is restricted).
+  function applyRoleDefaults() {
+    const defaults = roleDefaultsByVenue[selectedVenueId] ?? []
+    setKeysByVenue((prev) => ({
+      ...prev,
+      [selectedVenueId]: completeGrantSet([...(prev[selectedVenueId] ?? []), ...defaults]),
+    }))
+    setRestricted(true)
   }
 
   async function save() {
@@ -207,6 +226,9 @@ export function StaffAccessDrawer({
               </Button>
             ))}
             <Button size="sm" variant="ghost" onClick={clearVenue}>CLEAR ALL</Button>
+            {(roleDefaultsByVenue[selectedVenueId]?.length ?? 0) > 0 && (
+              <Button size="sm" variant="ghost" onClick={applyRoleDefaults}>APPLY ROLE DEFAULTS</Button>
+            )}
           </div>
 
           <div className="space-y-3">

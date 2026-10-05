@@ -49,6 +49,8 @@ export async function GET(req: NextRequest) {
     source: g.source,
     completed: g.completed,
     department: g.department,
+    tableColumns: g.tableColumns,
+    tableRows: g.tableRows,
     steps: g.steps,
   })
 

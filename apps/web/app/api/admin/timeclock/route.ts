@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { resolveClockPosition } from '@/lib/clock-position.server'
 
 const staffSelect = {
   select: {
@@ -77,11 +78,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Staff not found' }, { status: 404 })
   }
 
+  const clockInDate = new Date(clockIn)
   const tc = await prisma.timeClock.create({
     data: {
       staffId,
       venueId: session.user.venueId,
-      clockIn: new Date(clockIn),
+      positionId: await resolveClockPosition(staffId, session.user.venueId, clockInDate),
+      clockIn: clockInDate,
       clockOut: clockOut ? new Date(clockOut) : null,
       isActive: !clockOut,
       geoValid: true,

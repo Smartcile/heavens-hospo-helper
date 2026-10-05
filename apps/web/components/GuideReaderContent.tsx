@@ -7,8 +7,10 @@
 
 import { useRef, useState } from 'react'
 import { GuideStepLinks } from '@/components/GuideStepLinks'
+import { ReferenceTable, type ReferenceTableRow } from '@/components/ReferenceTable'
 import type { ResolvedStepLink } from '@/lib/guide-links'
 import { mergeStepImages } from '@/lib/guide-media'
+import type { ReferenceColumn } from '@/lib/reference-table'
 import { sanitiseRichText } from '@/lib/rich-text'
 import { guideTypeLabel } from '@/lib/guide-types'
 
@@ -30,6 +32,8 @@ export interface GuideReaderGuide {
   guideType: string | null
   bodyHtml: string | null
   isTracked: boolean
+  tableColumns?: ReferenceColumn[] | null
+  tableRows?: ReferenceTableRow[] | null
   steps: GuideReaderStep[]
 }
 
@@ -111,7 +115,11 @@ export function GuideReaderContent({ guide }: { guide: GuideReaderGuide }) {
         />
       )}
 
-      {guide.steps.map((s, i) => {
+      {guide.tableColumns && guide.tableColumns.length > 0 && (
+        <ReferenceTable columns={guide.tableColumns} rows={guide.tableRows ?? []} />
+      )}
+
+      {!(guide.tableColumns && guide.tableColumns.length > 0) && guide.steps.map((s, i) => {
         const images = mergeStepImages(s.imageUrls, s.imageUrl)
         return (
           <div key={s.id} className="border-l-4 border-l-grey-mid pl-4 space-y-2">

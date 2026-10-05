@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { dateKeysBetween } from '@/lib/calendar'
 import { formatDateKey } from '@/lib/scheduling'
 import { rosterWeekSummary, type RosterShift } from '@/lib/roster-math'
+import { resolveStaffRate } from '@/lib/staff-rate'
 import { guardAccess } from '@/lib/permissions'
 
 // The week grid payload for the Roster Editor: staff (with rates, positions,
@@ -35,7 +36,11 @@ export async function GET(req: NextRequest) {
         employmentType: true,
         department: { select: { name: true } },
         positions: {
-          select: { position: { select: { id: true, name: true, colour: true } } },
+          select: {
+            positionId: true,
+            hourlyRate: true,
+            position: { select: { id: true, name: true, colour: true, hourlyRate: true } },
+          },
         },
       },
       orderBy: { firstName: 'asc' },
@@ -113,11 +118,26 @@ export async function GET(req: NextRequest) {
     colour: s.colour,
     tag: s.tag,
     status: s.status,
+    positionId: s.positionId,
     positionName: s.position?.name ?? null,
     positionColour: s.position?.colour ?? null,
   }))
 
-  const rates = staff.map((s) => ({ staffId: s.id, hourlyRate: s.hourlyRate }))
+  // Role-resolved rates for the labour-cost footer.
+  const rates = staff.map((s) => ({
+    staffId: s.id,
+    hourlyRate: s.hourlyRate,
+    positions: s.positions
+      .map((sp) => ({
+        positionId: sp.positionId,
+        rate: resolveStaffRate({
+          staffPositionRate: sp.hourlyRate,
+          positionRate: sp.position.hourlyRate,
+          staffRate: s.hourlyRate,
+        }),
+      }))
+      .filter((p): p is { positionId: string; rate: number } => p.rate != null),
+  }))
   const summary = rosterWeekSummary(shiftsOut, rates, budgetedSalesByDate)
 
   return NextResponse.json({
@@ -128,7 +148,16 @@ export async function GET(req: NextRequest) {
       hourlyRate: s.hourlyRate,
       employmentType: s.employmentType,
       departmentName: s.department?.name ?? null,
-      positions: s.positions.map((p) => ({ id: p.position.id, name: p.position.name, colour: p.position.colour })),
+      positions: s.positions.map((sp) => ({
+        id: sp.position.id,
+        name: sp.position.name,
+        colour: sp.position.colour,
+        rate: resolveStaffRate({
+          staffPositionRate: sp.hourlyRate,
+          positionRate: sp.position.hourlyRate,
+          staffRate: s.hourlyRate,
+        }),
+      })),
     })),
     shifts: shiftsOut,
     blockedDays,

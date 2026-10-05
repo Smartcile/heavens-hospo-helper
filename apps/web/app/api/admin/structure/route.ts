@@ -70,8 +70,14 @@ export async function GET(req: NextRequest) {
       select: { fromDepartmentId: true, toDepartment: { select: { id: true, name: true, colour: true } } },
     }),
     prisma.inventoryItem.findMany({
-      where: { deletedAt: null, venueId: { in: venueIds }, storageSectionId: { not: null } },
-      select: { id: true, name: true, unit: true, storageSectionId: true, storageNotes: true, totalQty: true, imageUrls: true },
+      where: { deletedAt: null, venueId: { in: venueIds }, storageLocations: { some: { deletedAt: null } } },
+      select: {
+        id: true, name: true, unit: true, storageNotes: true, totalQty: true, imageUrls: true,
+        storageLocations: {
+          where: { deletedAt: null },
+          select: { sectionId: true, qty: true, notes: true },
+        },
+      },
       orderBy: { name: 'asc' },
     }),
   ])
@@ -138,9 +144,18 @@ export async function GET(req: NextRequest) {
 
   const storedBySection = new Map<string, { id: string; name: string; unit: string; storageNotes: string | null; totalQty: number; imageUrls: string[] | null }[]>()
   for (const inv of storedItems) {
-    const arr = storedBySection.get(inv.storageSectionId!) ?? []
-    arr.push({ id: inv.id, name: inv.name, unit: inv.unit, storageNotes: inv.storageNotes, totalQty: inv.totalQty, imageUrls: inv.imageUrls as string[] | null })
-    storedBySection.set(inv.storageSectionId!, arr)
+    for (const loc of inv.storageLocations) {
+      const arr = storedBySection.get(loc.sectionId) ?? []
+      arr.push({
+        id: inv.id,
+        name: inv.name,
+        unit: inv.unit,
+        storageNotes: loc.notes ?? inv.storageNotes,
+        totalQty: inv.totalQty,
+        imageUrls: inv.imageUrls as string[] | null,
+      })
+      storedBySection.set(loc.sectionId, arr)
+    }
   }
 
   const staffName = new Map(staff.map((s) => [s.id, `${s.firstName} ${s.lastName}`]))

@@ -151,6 +151,8 @@ export interface PayrunSession {
   clockIn: string // ISO
   clockOut: string // ISO
   breaksMinutes: number // total clocked break minutes for the session
+  /** Effective hourly rate for this session (role-based). Falls back to staff.hourlyRate. */
+  rate?: number | null
 }
 
 export interface PayrunStaff {
@@ -181,6 +183,7 @@ export interface PayrunBreakdownLine {
   hours: number // paid hours (incl. paid breaks, excl. unpaid)
   breaksMinutes: number
   type: 'ORDINARY' | 'OVERTIME' | 'PUBLIC_HOLIDAY'
+  rate: number // the effective hourly rate applied to this session
 }
 
 export interface PayrunResult {
@@ -188,6 +191,8 @@ export interface PayrunResult {
   ordinaryHours: number
   overtimeHours: number
   publicHolidayHours: number
+  /** Hours-weighted average of the session rates actually used. */
+  averageRate: number
   grossPay: number // ordinary + OT + PH (PH at 1.5x), min-wage floored
   holidayPay: number // 8% casual — paid out
   annualLeaveAccruedHours: number // permanents — recorded, not paid
@@ -220,7 +225,7 @@ export function payrunForStaff(
   settings: PayrunSettings,
   publicHolidayDateKeys: Set<string> = new Set()
 ): PayrunResult {
-  const rate = Math.max(staff.hourlyRate ?? 0, settings.minimumWage)
+  const baseRate = staff.hourlyRate
   const taxCode = (staff.taxCode ?? (settings.defaultTaxCode || 'M')).trim()
 
   let ordinaryMinutes = 0
@@ -230,7 +235,8 @@ export function payrunForStaff(
   let alternativeDays = 0
 
   // Pass 1: parse sessions, split minutes into ordinary / public-holiday pools.
-  const parsed: { dateKey: string; clockIn: string; clockOut: string; paidMinutes: number; breaksMinutes: number; isPH: boolean; ot?: boolean }[] = []
+  // Each session carries its own effective rate (role-based), min-wage floored.
+  const parsed: { dateKey: string; clockIn: string; clockOut: string; paidMinutes: number; breaksMinutes: number; isPH: boolean; rate: number; ot?: boolean }[] = []
   const phDays = new Set<string>()
   for (const s of sessions) {
     const start = new Date(s.clockIn).getTime()
@@ -240,6 +246,7 @@ export function payrunForStaff(
     const breaks = Math.min(s.breaksMinutes || 0, totalMinutes)
     const paidMinutes = totalMinutes - breaks // unpaid (meal) minutes already excluded
     const isPH = publicHolidayDateKeys.has(s.dateKey)
+    const sessionRate = Math.max(s.rate ?? baseRate ?? 0, settings.minimumWage)
 
     if (isPH) {
       phMinutes += paidMinutes
@@ -250,7 +257,7 @@ export function payrunForStaff(
     } else {
       ordinaryMinutes += paidMinutes
     }
-    parsed.push({ dateKey: s.dateKey, clockIn: s.clockIn, clockOut: s.clockOut, paidMinutes, breaksMinutes: s.breaksMinutes || 0, isPH })
+    parsed.push({ dateKey: s.dateKey, clockIn: s.clockIn, clockOut: s.clockOut, paidMinutes, breaksMinutes: s.breaksMinutes || 0, isPH, rate: sessionRate })
   }
 
   // Pass 2: contractual overtime over the weekly threshold (non-PH only).
@@ -268,8 +275,9 @@ export function payrunForStaff(
     const carve = Math.min(p.paidMinutes, otRemaining)
     p.paidMinutes -= carve
     otRemaining -= carve
-    p.ot = true
-    parsed.push({ ...p, paidMinutes: carve, isPH: false })
+    // The carved-off copy is the overtime; the original stays ordinary (setting
+    // p.ot here too would mislabel the remaining ordinary minutes as OT).
+    parsed.push({ ...p, paidMinutes: carve, isPH: false, ot: true })
   }
   for (const p of parsed) {
     if (p.paidMinutes <= 0) continue
@@ -280,6 +288,7 @@ export function payrunForStaff(
       hours: round2(p.paidMinutes / 60),
       breaksMinutes: p.breaksMinutes,
       type: p.isPH ? 'PUBLIC_HOLIDAY' : p.ot ? 'OVERTIME' : 'ORDINARY',
+      rate: p.rate,
     })
   }
 
@@ -287,10 +296,25 @@ export function payrunForStaff(
   const overtimeHours = round2(otMinutes / 60)
   const publicHolidayHours = round2(phMinutes / 60)
 
-  const ordinaryPay = ordinaryHours * rate
-  const overtimePay = overtimeHours * rate * (settings.overtimeRate || 1.5)
-  const phPay = publicHolidayHours * rate * 1.5
+  // Pay per session at its own rate — PH at 1.5×, OT at the multiplier.
+  let ordinaryPay = 0
+  let overtimePay = 0
+  let phPay = 0
+  let rateMinutes = 0
+  let paidMinutesTotal = 0
+  for (const p of parsed) {
+    if (p.paidMinutes <= 0) continue
+    const hours = p.paidMinutes / 60
+    if (p.isPH) phPay += hours * p.rate * 1.5
+    else if (p.ot) overtimePay += hours * p.rate * (settings.overtimeRate || 1.5)
+    else ordinaryPay += hours * p.rate
+    rateMinutes += p.paidMinutes * p.rate
+    paidMinutesTotal += p.paidMinutes
+  }
   const grossPay = round2(ordinaryPay + overtimePay + phPay)
+  const averageRate = paidMinutesTotal > 0
+    ? round2(rateMinutes / paidMinutesTotal)
+    : Math.max(baseRate ?? 0, settings.minimumWage)
 
   // Holiday pay: casuals get it paid out; permanents accrue annual leave.
   const isCasual = (staff.employmentType ?? '').toUpperCase() === 'CASUAL'
@@ -319,6 +343,7 @@ export function payrunForStaff(
     ordinaryHours,
     overtimeHours,
     publicHolidayHours,
+    averageRate,
     grossPay,
     holidayPay,
     annualLeaveAccruedHours,

@@ -1,5 +1,6 @@
 // Pure roster math for the Roster Editor. Shift times are "HH:mm" strings that
-// may cross midnight; rates come from Staff.hourlyRate.
+// may cross midnight; rates come from Staff.hourlyRate, or the shift's role rate
+// when the person has one set for that role.
 
 import { shiftHours } from '@/lib/breaks'
 
@@ -12,6 +13,7 @@ export interface RosterShift {
   breakMinutes?: number // rostered unpaid break
   colour?: string | null
   tag?: string | null
+  positionId?: string | null
   positionName?: string | null
   positionColour?: string | null
   status?: string
@@ -20,6 +22,17 @@ export interface RosterShift {
 export interface StaffRate {
   staffId: string
   hourlyRate: number | null
+  /** Resolved rate per role this person holds (see lib/staff-rate.ts). */
+  positions?: { positionId: string; rate: number }[]
+}
+
+/** The rate to cost a shift at: the role rate when the person has one, else base. */
+export function rateForShift(shift: RosterShift, staffRate: StaffRate | undefined): number | null {
+  if (shift.positionId && staffRate?.positions) {
+    const match = staffRate.positions.find((p) => p.positionId === shift.positionId)
+    if (match) return match.rate
+  }
+  return staffRate?.hourlyRate ?? null
 }
 
 /** Paid hours for a shift (rostered duration minus the unpaid break). */
@@ -43,12 +56,12 @@ export interface StaffWeekTotal {
 
 /** Per-staff hours/cost across a set of shifts. */
 export function staffWeekTotals(shifts: RosterShift[], rates: StaffRate[]): Map<string, StaffWeekTotal> {
-  const rateById = new Map(rates.map((r) => [r.staffId, r.hourlyRate ?? 0]))
+  const rateById = new Map(rates.map((r) => [r.staffId, r]))
   const totals = new Map<string, StaffWeekTotal>()
   for (const s of shifts) {
     const t = totals.get(s.staffId) ?? { staffId: s.staffId, hours: 0, cost: 0, shiftCount: 0 }
     t.hours = Math.round((t.hours + shiftPaidHours(s)) * 100) / 100
-    t.cost = Math.round((t.cost + shiftCost(s, rateById.get(s.staffId) ?? null)) * 100) / 100
+    t.cost = Math.round((t.cost + shiftCost(s, rateForShift(s, rateById.get(s.staffId)))) * 100) / 100
     t.shiftCount += 1
     totals.set(s.staffId, t)
   }
@@ -72,11 +85,11 @@ export function rosterWeekSummary(
   rates: StaffRate[],
   budgetedSalesByDate: Record<string, number>
 ): RosterWeekSummary {
-  const rateById = new Map(rates.map((r) => [r.staffId, r.hourlyRate ?? 0]))
+  const rateById = new Map(rates.map((r) => [r.staffId, r]))
   let totalCost = 0
   let totalPaidHours = 0
   for (const s of shifts) {
-    totalCost += shiftCost(s, rateById.get(s.staffId) ?? null)
+    totalCost += shiftCost(s, rateForShift(s, rateById.get(s.staffId)))
     totalPaidHours += shiftPaidHours(s)
   }
   totalCost = Math.round(totalCost * 100) / 100

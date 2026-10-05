@@ -7,7 +7,7 @@ import { Select } from '@/components/ui/Select'
 import { DateNav } from '@/components/admin/DateNav'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { formatDateLong, keyOfDay, mondayOf, parseDay, shiftDay, weekKeys, type DateRange } from '@/lib/date-nav'
-import { colourForShift, rosterWeekSummary, staffWeekTotals, type RosterShift } from '@/lib/roster-math'
+import { colourForShift, rateForShift, rosterWeekSummary, staffWeekTotals, type RosterShift, type StaffRate } from '@/lib/roster-math'
 import { generateRosterPdf } from '@/lib/roster-pdf'
 import { availabilityMeta, availabilityState, conflictsWithShift, isCasual } from '@/lib/availability'
 
@@ -18,7 +18,18 @@ interface RosterStaff {
   hourlyRate: number | null
   employmentType: string | null
   departmentName: string | null
-  positions: { id: string; name: string; colour: string | null }[]
+  positions: { id: string; name: string; colour: string | null; rate: number | null }[]
+}
+
+/** Roster rates with the per-role rates attached (for labour cost). */
+function ratesFor(staff: RosterStaff[]): StaffRate[] {
+  return staff.map((s) => ({
+    staffId: s.id,
+    hourlyRate: s.hourlyRate,
+    positions: s.positions
+      .filter((p): p is { id: string; name: string; colour: string | null; rate: number } => p.rate != null)
+      .map((p) => ({ positionId: p.id, rate: p.rate })),
+  }))
 }
 
 interface RosterAvailability {
@@ -114,8 +125,8 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
 
   const totals = useMemo(() => {
     if (!data) return { byStaff: new Map<string, { hours: number; cost: number; shiftCount: number }>(), summary: { totalCost: 0, budgetedSales: 0, staffingRatio: 0, totalPaidHours: 0 } }
-    const byStaff = staffWeekTotals(data.shifts, data.staff.map((s) => ({ staffId: s.id, hourlyRate: s.hourlyRate })))
-    const summary = rosterWeekSummary(data.shifts, data.staff.map((s) => ({ staffId: s.id, hourlyRate: s.hourlyRate })), data.budgetedSalesByDate)
+    const byStaff = staffWeekTotals(data.shifts, ratesFor(data.staff))
+    const summary = rosterWeekSummary(data.shifts, ratesFor(data.staff), data.budgetedSalesByDate)
     return { byStaff, summary }
   }, [data])
 
@@ -179,6 +190,21 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       const who = person ? `${person.firstName} ${person.lastName}` : 'THIS STAFF MEMBER'
       if (!confirm(`${who} IS MARKED UNAVAILABLE AT THIS TIME. ASSIGN THIS SHIFT ANYWAY?`)) return
     }
+    // Soft warning: the person is not yet trained for this role's requirements.
+    if (form.positionId) {
+      try {
+        const rr = await fetch(`/api/admin/positions/${form.positionId}/readiness`)
+        if (rr.ok) {
+          const rows: { staffId: string; readiness: { requiredCount: number; completedCount: number; ready: boolean } }[] = await rr.json()
+          const row = rows.find((x) => x.staffId === form.staffId)
+          if (row && row.readiness.requiredCount > 0 && !row.readiness.ready) {
+            const person = data?.staff.find((s) => s.id === form.staffId)
+            const who = person ? `${person.firstName} ${person.lastName}` : 'THIS STAFF MEMBER'
+            if (!confirm(`${who} IS NOT YET TRAINED FOR THIS ROLE (${row.readiness.completedCount}/${row.readiness.requiredCount} REQUIRED GUIDES). ASSIGN THIS SHIFT ANYWAY?`)) return
+          }
+        }
+      } catch { /* warning only — never block the save */ }
+    }
     setBusy(true); setError('')
     const body = {
       staffId: form.staffId,
@@ -216,7 +242,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       weekDates: weekDays,
       staff: filteredStaff.map((s) => ({ id: s.id, name: `${s.firstName} ${s.lastName}` })),
       shifts: data.shifts,
-      rates: data.staff.map((s) => ({ staffId: s.id, hourlyRate: s.hourlyRate })),
+      rates: ratesFor(data.staff),
     })
     doc.save(`ROSTER-${weekStart}.pdf`)
   }
@@ -224,6 +250,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const positionTotals = useMemo(() => {
     if (!data) return []
     const map = new Map<string, { name: string; hours: number; cost: number; count: number }>()
+    const rateIndex = new Map(ratesFor(data.staff).map((r) => [r.staffId, r]))
     for (const s of data.shifts) {
       const name = s.positionName ?? 'GENERAL'
       const e = map.get(name) ?? { name, hours: 0, cost: 0, count: 0 }
@@ -233,7 +260,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       if (mins < 0) mins += 24 * 60
       mins -= Math.min(s.breakMinutes ?? 0, mins)
       e.hours = Math.round((e.hours + mins / 60) * 100) / 100
-      const rate = data.staff.find((st) => st.id === s.staffId)?.hourlyRate ?? 0
+      const rate = rateForShift(s, rateIndex.get(s.staffId)) ?? 0
       e.cost = Math.round((e.cost + (mins / 60) * rate) * 100) / 100
       e.count += 1
       map.set(name, e)

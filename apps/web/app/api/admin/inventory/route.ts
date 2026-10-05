@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { cleanStorageLocations } from '@/lib/inventory-locations'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -29,7 +30,17 @@ export async function GET(req: NextRequest) {
 
   const items = await prisma.inventoryItem.findMany({
     where,
-    include: { category: true, _count: { select: { elements: true } } },
+    include: {
+      category: true,
+      storageLocations: {
+        where: { deletedAt: null },
+        include: { section: { select: { id: true, name: true } } },
+        orderBy: { createdAt: 'asc' },
+      },
+      menuLinks: { include: { menuItem: { select: { id: true, name: true } } } },
+      serviceSuppliers: { include: { supplier: { select: { id: true, name: true } } } },
+      _count: { select: { elements: true } },
+    },
     orderBy: { name: 'asc' },
   })
   const result = items.map(({ _count, ...item }) => ({ ...item, placedCount: _count.elements }))
@@ -42,7 +53,8 @@ export async function POST(req: NextRequest) {
   const denied = await guardAccess(session, req, 'ops.inventory.create')
   if (denied) return denied
 
-  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrls, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId, shelfLifeDays, canFreeze, freezerShelfLifeDays, densityGramsPerMl, weightPerUnitGrams, venueId: bodyVenueId } = await req.json()
+  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrls, storageLocations, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId, shelfLifeDays, canFreeze, freezerShelfLifeDays, densityGramsPerMl, weightPerUnitGrams, menuItemIds, serviceSupplierIds, venueId: bodyVenueId } = await req.json()
+  const cleanLocations = cleanStorageLocations(storageLocations)
   if (!name || !categoryId) {
     return NextResponse.json({ error: 'name and categoryId are required' }, { status: 400 })
   }
@@ -81,8 +93,16 @@ export async function POST(req: NextRequest) {
       fallbackCategoryId: fallbackCategoryId || null,
       allergyInfo: allergyInfo || null,
       imageUrls: Array.isArray(imageUrls) ? imageUrls : undefined,
-      storageSectionId: storageSectionId || null,
-      storageNotes: storageNotes || null,
+      // storageSectionId/storageNotes mirror the first location for legacy readers.
+      storageSectionId: cleanLocations[0]?.sectionId ?? (storageSectionId || null),
+      storageNotes: cleanLocations[0]?.notes ?? (storageNotes || null),
+      storageLocations: cleanLocations.length ? { create: cleanLocations } : undefined,
+      menuLinks: Array.isArray(menuItemIds) && menuItemIds.length
+        ? { create: [...new Set(menuItemIds as string[])].map((menuItemId) => ({ menuItemId })) }
+        : undefined,
+      serviceSuppliers: Array.isArray(serviceSupplierIds) && serviceSupplierIds.length
+        ? { create: [...new Set(serviceSupplierIds as string[])].map((supplierId) => ({ supplierId })) }
+        : undefined,
       serialNumber: serialNumber || null,
       purchaseDate: purchaseDate ? new Date(purchaseDate) : null,
       warrantyExpiry: warrantyExpiry ? new Date(warrantyExpiry) : null,

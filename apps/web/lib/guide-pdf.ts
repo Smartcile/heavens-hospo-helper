@@ -26,6 +26,13 @@ export interface GuidePdfStep {
   links?: GuidePdfLink[]
 }
 
+/** One product-reference item, pre-flattened by the route for printing. */
+export interface GuidePdfTableItem {
+  heading: string | null
+  imageDataUrl?: string | null
+  fields: { label: string; value: string }[]
+}
+
 export interface GuidePdfData {
   venueName: string
   title: string
@@ -36,6 +43,8 @@ export interface GuidePdfData {
   body?: string | null
   requiresSignOff?: boolean
   steps: GuidePdfStep[]
+  /** Product-reference rows — rendered instead of steps when present. */
+  table?: GuidePdfTableItem[] | null
 }
 
 const LINK_LABEL: Record<string, string> = {
@@ -118,6 +127,49 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
       doc.text(line, margin, y)
       y += 4.8
     }
+    y += 6
+  }
+
+  // Product-reference items — one block each (image + labelled fields).
+  for (const item of data.table ?? []) {
+    ensure(14)
+    if (item.heading) {
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.setTextColor(0)
+      const hLines = doc.splitTextToSize(item.heading.toUpperCase(), innerW) as string[]
+      doc.text(hLines, margin, y)
+      y += hLines.length * 5.5 + 1
+    }
+    if (item.imageDataUrl) {
+      try {
+        const img = doc.getImageProperties(item.imageDataUrl)
+        const scale = Math.min(45 / img.width, 45 / img.height, 1)
+        const w = img.width * scale
+        const h = img.height * scale
+        ensure(h + 4)
+        doc.addImage(item.imageDataUrl, 'JPEG', margin, y, w, h)
+        y += h + 3
+      } catch {
+        // Unreadable image — the fields still print.
+      }
+    }
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.setTextColor(60)
+    for (const f of item.fields) {
+      const lines = doc.splitTextToSize(`${f.label.toUpperCase()}: ${f.value}`, innerW - 2) as string[]
+      for (const line of lines) {
+        ensure(5)
+        doc.text(line, margin + 2, y)
+        y += 4.4
+      }
+    }
+    y += 4
+    ensure(4)
+    doc.setLineWidth(0.1)
+    doc.setDrawColor(180)
+    doc.line(margin, y, pageW - margin, y)
     y += 6
   }
 

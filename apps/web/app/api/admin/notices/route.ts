@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { cleanNoticeAudiences, noticeAppliesTo, type NoticeAudienceKind } from '@/lib/notice-audience'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -19,6 +20,7 @@ export async function GET(req: NextRequest) {
     include: {
       department: { select: { id: true, name: true } },
       venue: { select: { id: true, name: true } },
+      audiences: { select: { kind: true, targetId: true } },
       _count: { select: { acks: true } },
     },
     orderBy: [{ pinned: 'desc' }, { createdAt: 'desc' }],
@@ -27,10 +29,30 @@ export async function GET(req: NextRequest) {
   // How many staff each notice applies to (for "x of y acknowledged").
   const staff = await prisma.staff.findMany({
     where: { deletedAt: null, isActive: true, ...(venueScope ? { venueId: venueScope } : {}) },
-    select: { venueId: true, departmentId: true },
+    select: {
+      venueId: true,
+      departmentId: true,
+      sections: { select: { sectionId: true } },
+      positions: { select: { positionId: true } },
+    },
   })
-  const applicableCount = (n: { venueId: string; departmentId: string | null }) =>
-    staff.filter((s) => s.venueId === n.venueId && (!n.departmentId || s.departmentId === n.departmentId)).length
+  const applicableCount = (n: {
+    venueId: string
+    departmentId: string | null
+    audiences: { kind: string; targetId: string }[]
+  }) =>
+    staff.filter(
+      (s) =>
+        s.venueId === n.venueId &&
+        noticeAppliesTo(
+          { departmentId: n.departmentId, audiences: n.audiences.map((a) => ({ kind: a.kind as NoticeAudienceKind, targetId: a.targetId })) },
+          {
+            departmentId: s.departmentId,
+            sectionIds: new Set(s.sections.map((x) => x.sectionId)),
+            positionIds: new Set(s.positions.map((x) => x.positionId)),
+          },
+        ),
+    ).length
 
   return NextResponse.json(
     notices.map((n) => ({
@@ -47,6 +69,7 @@ export async function GET(req: NextRequest) {
       venueName: n.venue.name,
       departmentId: n.departmentId,
       departmentName: n.department?.name ?? null,
+      audiences: n.audiences,
       ackCount: n._count.acks,
       applicableCount: applicableCount(n),
       createdAt: n.createdAt,
@@ -61,7 +84,8 @@ export async function POST(req: NextRequest) {
   if (denied) return denied
 
   const body = await req.json()
-  const { venueId, departmentId, title, body: text, priority, pinned, requiresAck, startsAt, endsAt } = body
+  const { venueId, departmentId, title, body: text, priority, pinned, requiresAck, startsAt, endsAt, audiences } = body
+  const cleanAud = cleanNoticeAudiences(audiences)
 
   if (!title?.trim() || !text?.trim()) {
     return NextResponse.json({ error: 'Title and body are required' }, { status: 400 })
@@ -80,6 +104,7 @@ export async function POST(req: NextRequest) {
       requiresAck: !!requiresAck,
       startsAt: startsAt ? new Date(startsAt) : null,
       endsAt: endsAt ? new Date(endsAt) : null,
+      audiences: cleanAud.length ? { create: cleanAud } : undefined,
       createdById: session.user.id,
     },
   })

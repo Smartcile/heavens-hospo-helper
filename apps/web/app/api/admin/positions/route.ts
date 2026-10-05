@@ -20,12 +20,15 @@ export async function GET(req: NextRequest) {
     },
     include: {
       department: { select: { id: true, name: true } },
+      departmentLinks: { select: { departmentId: true } },
       _count: { select: { staff: true } },
     },
     orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
   })
 
-  return NextResponse.json(positions)
+  return NextResponse.json(
+    positions.map((p) => ({ ...p, departmentIds: p.departmentLinks.map((d) => d.departmentId) })),
+  )
 }
 
 export async function POST(req: NextRequest) {
@@ -35,11 +38,13 @@ export async function POST(req: NextRequest) {
   if (denied) return denied
 
   const body = await req.json()
-  const { name, departmentId, colour, venueId } = body as {
+  const { name, departmentId, departmentIds, colour, venueId, hourlyRate } = body as {
     name?: string
     departmentId?: string | null
+    departmentIds?: string[]
     colour?: string | null
     venueId?: string
+    hourlyRate?: number | null
   }
 
   if (!name?.trim()) {
@@ -51,15 +56,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Venue is required' }, { status: 400 })
   }
 
+  const deptIds = Array.isArray(departmentIds)
+    ? [...new Set(departmentIds.filter((x): x is string => !!x))]
+    : departmentId
+      ? [departmentId]
+      : []
+
   const position = await prisma.position.create({
     data: {
       name: name.toUpperCase().trim(),
       venueId: scopedVenueId,
-      departmentId: departmentId || null,
+      departmentId: deptIds[0] ?? null,
       colour: colour || null,
+      hourlyRate: hourlyRate != null ? Number(hourlyRate) : null,
+      departmentLinks: deptIds.length ? { create: deptIds.map((departmentId) => ({ departmentId })) } : undefined,
     },
-    include: { department: { select: { id: true, name: true } } },
+    include: {
+      department: { select: { id: true, name: true } },
+      departmentLinks: { select: { departmentId: true } },
+    },
   })
 
-  return NextResponse.json(position, { status: 201 })
+  return NextResponse.json(
+    { ...position, departmentIds: position.departmentLinks.map((d) => d.departmentId) },
+    { status: 201 },
+  )
 }

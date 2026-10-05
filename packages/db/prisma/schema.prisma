@@ -260,6 +260,7 @@ model Venue {
   budgetPeriods       BudgetPeriod[]
   trainingModules     TrainingModule[]
   guides              Guide[]
+  guideFolders        GuideFolder[]
   taskTemplates       TaskTemplate[]
   shiftNotes          ShiftNote[]
   shifts              Shift[]
@@ -285,6 +286,7 @@ model Venue {
   menus               Menu[]
   orderViews          OrderView[]
   customers           Customer[]
+  customerLinks       CustomerVenue[]
   wooOrders           WooOrder[]
   giftCards           GiftCard[]
   giftCardTemplates   GiftCardTemplate[]
@@ -335,6 +337,7 @@ model Department {
   linkedTo          DepartmentLink[]   @relation("ToDepartment")
   positions         Position[]
   pathways          Pathway[]
+  positionLinks     PositionDepartment[]
 }
 
 model DepartmentLink {
@@ -478,6 +481,7 @@ model Task {
   checklistLinks   ChecklistTask[]
   followUps        FollowUp[]
   moduleTasks      ModuleTask[]
+  sections         TaskSection[]
 }
 
 model TaskCompletion {
@@ -803,6 +807,23 @@ model Notice {
   venue      Venue       @relation(fields: [venueId], references: [id])
   department Department? @relation(fields: [departmentId], references: [id])
   acks       NoticeAck[]
+  // Who a notice targets. Empty = whole venue (like departmentId null).
+  audiences  NoticeAudience[]
+}
+
+// A notice audience — mirrors GuideAudience (kind + polymorphic targetId). Lets
+// one notice target several departments, sections and/or positions at once.
+model NoticeAudience {
+  id        String       @id @default(uuid())
+  noticeId  String
+  kind      AudienceKind
+  targetId  String
+  createdAt DateTime     @default(now())
+
+  notice Notice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+
+  @@unique([noticeId, kind, targetId])
+  @@index([noticeId])
 }
 
 model NoticeAck {
@@ -983,6 +1004,9 @@ model TimeClock {
   id             String         @id @default(uuid())
   staffId        String
   venueId        String
+  // The role this session is paid as. Resolved at clock-in from the day's
+  // published shift (Position.hourlyRate / StaffPosition.hourlyRate feed pay).
+  positionId     String?
   clockIn        DateTime
   clockOut       DateTime? // null until punched out
   isActive       Boolean        @default(true)
@@ -1006,6 +1030,7 @@ model TimeClock {
 
   staff          Staff            @relation(fields: [staffId], references: [id])
   venue          Venue            @relation(fields: [venueId], references: [id])
+  position       Position?        @relation(fields: [positionId], references: [id])
   breaks         TimeClockBreak[]
   timeClockEdits TimeClockEdit[]
 
@@ -1306,6 +1331,7 @@ model Checklist {
   section       Section?        @relation(fields: [sectionId], references: [id])
   tasks         ChecklistTask[]
   trainingSteps TrainingStep[]
+  audiences     ChecklistAudience[]
 
   @@index([venueId])
 }
@@ -1349,8 +1375,11 @@ model Section {
   boundaries        SectionBoundary[]
   setupItems        SetupItem[]
   storedItems       InventoryItem[]
+  storageLocations  ItemStorageLocation[]
+  taskSections      TaskSection[]
   budgetLines       BudgetLine[]
   pathways          Pathway[]
+  positionRequirements PositionSection[]
 
   @@index([venueId])
   @@index([departmentId])
@@ -1373,6 +1402,8 @@ model StaffVenue {
   id        String   @id @default(uuid())
   staffId   String
   venueId   String
+  // Optional per-venue base rate (a person may be paid differently per site).
+  hourlyRate Float?
   createdAt DateTime @default(now())
 
   staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
@@ -1391,6 +1422,9 @@ model Position {
   departmentId String?
   colour       String?
   sortOrder    Int       @default(0)
+  // Default pay rate for the role. A staff member's StaffPosition.hourlyRate
+  // overrides it; both fall back to Staff.hourlyRate.
+  hourlyRate   Float?
   isActive     Boolean   @default(true)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -1401,8 +1435,60 @@ model Position {
   staff      StaffPosition[]
   pathways   Pathway[]
   shifts     Shift[]
+  timeClocks TimeClock[]
+  // What someone in this role must know: extra required guides, sections they
+  // must be fully trained in, and default access grants.
+  guideRequirements   PositionGuideRequirement[]
+  sectionRequirements PositionSection[]
+  permissions         PositionPermission[]
+  departmentLinks     PositionDepartment[]
 
   @@index([venueId])
+}
+
+// An extra guide a role must complete (beyond the guides a required section
+// already carries).
+model PositionGuideRequirement {
+  id         String   @id @default(uuid())
+  positionId String
+  guideId    String
+  createdAt  DateTime @default(now())
+
+  position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  guide    Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
+
+  @@unique([positionId, guideId])
+  @@index([positionId])
+}
+
+// A section a role must be fully trained in — every guide targeting the section
+// must be complete.
+model PositionSection {
+  id         String   @id @default(uuid())
+  positionId String
+  sectionId  String
+  createdAt  DateTime @default(now())
+
+  position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  section  Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([positionId, sectionId])
+  @@index([positionId])
+}
+
+// Default admin access granted by a role. Applied to staff holding the role via
+// the "apply role defaults" action (creates StaffPermission rows).
+model PositionPermission {
+  id            String   @id @default(uuid())
+  positionId    String
+  venueId       String
+  permissionKey String
+  createdAt     DateTime @default(now())
+
+  position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+
+  @@unique([positionId, venueId, permissionKey])
+  @@index([positionId])
 }
 
 // Staff ⇄ Position (a person can hold many roles — common in small venues where
@@ -1412,6 +1498,9 @@ model StaffPosition {
   staffId    String
   positionId String
   isPrimary  Boolean  @default(false)
+  // Per-person override for this role (null = use Position.hourlyRate, then
+  // Staff.hourlyRate). Lets one person be paid a different rate per role.
+  hourlyRate Float?
   createdAt  DateTime @default(now())
 
   staff    Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
@@ -1497,6 +1586,10 @@ enum GuideType {
   TRAINING
   POLICY
   OTHER
+  // A tabular reference (wine/beer/food lists). Renders as a table instead of
+  // steps; its columns are admin-defined in `Guide.tableColumns`, its rows are
+  // GuideTableRow. Still a normal Guide: folders, audiences, bible, PDF.
+  PRODUCT_REFERENCE
 }
 
 model Guide {
@@ -1510,6 +1603,11 @@ model Guide {
   bodyHtml        String?
   venueId         String
   departmentId    String?
+  // Which playbook folder this guide sits in. Flat (one level); null = UNFILED.
+  folderId        String?
+  // Column definitions for a PRODUCT_REFERENCE table (JSON array of
+  // lib/reference-table.ts ColumnDef). Null/empty on every other guide type.
+  tableColumns    Json?
   status          GuideStatus @default(DRAFT)
   isTracked       Boolean     @default(false)
   isOnboarding    Boolean     @default(false)
@@ -1522,15 +1620,56 @@ model Guide {
 
   venue       Venue             @relation(fields: [venueId], references: [id])
   department  Department?       @relation(fields: [departmentId], references: [id])
+  folder      GuideFolder?      @relation(fields: [folderId], references: [id])
   steps       GuideStep[]
+  tableRows   GuideTableRow[]
   taskGuides  TaskGuide[]
   completions GuideCompletion[]
   assignments GuideAssignment[]
   followUps   FollowUp[]
   audiences   GuideAudience[]
+  positionRequirements PositionGuideRequirement[]
 
   @@index([venueId])
   @@index([venueId, status])
+  @@index([folderId])
+}
+
+// A playbook folder — a named, ordered bucket for guides. Flat (no nesting yet).
+model GuideFolder {
+  id        String    @id @default(uuid())
+  venueId   String
+  name      String
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  venue  Venue   @relation(fields: [venueId], references: [id])
+  guides Guide[]
+
+  @@index([venueId])
+  @@index([venueId, sortOrder])
+}
+
+// One product row in a PRODUCT_REFERENCE guide's table. `cells` is keyed by the
+// guide's column keys; a cell tied to a MENU_FIELD column is derived from the
+// linked MenuItem at read time rather than stored, so it never drifts.
+model GuideTableRow {
+  id         String    @id @default(uuid())
+  guideId    String
+  menuItemId String?
+  sortOrder  Int       @default(0)
+  cells      Json
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  guide    Guide     @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  menuItem MenuItem? @relation(fields: [menuItemId], references: [id])
+
+  @@index([guideId])
+  @@index([menuItemId])
 }
 
 model GuideStep {
@@ -2154,6 +2293,12 @@ model InventoryItem {
   parLevelUnit      UnitOfMeasure?         @relation("ParLevelUOM", fields: [parLevelUnitId], references: [id])
   fallbackCategory  InventoryCategory?     @relation("FallbackCategory", fields: [fallbackCategoryId], references: [id])
   storageSection    Section?               @relation(fields: [storageSectionId], references: [id])
+  // Where this item is kept — one row per section (an item can live in several).
+  // `storageSectionId` above is kept as the primary/first location for legacy
+  // readers; new reads use storageLocations.
+  storageLocations  ItemStorageLocation[]
+  menuLinks         MenuItemInventoryItem[]
+  serviceSuppliers  AssetServiceSupplier[]
   elements          ElementInventoryItem[]
   tableProfileItems TableProfileItem[]
   stocktake         StocktakeLineItem[]
@@ -2174,6 +2319,28 @@ model InventoryItem {
   @@index([venueId])
   @@index([categoryId])
   @@index([chairItemId])
+}
+
+// Where an inventory item physically lives. A venue commonly keeps the same
+// item in several places (bar, storeroom, kitchen) with different counts, so
+// this is a junction with an optional quantity per location. Replaces the single
+// InventoryItem.storageSectionId for reads.
+model ItemStorageLocation {
+  id              String    @id @default(uuid())
+  inventoryItemId String
+  sectionId       String
+  qty             Float? // how much is kept here (optional)
+  notes           String? // e.g. "TOP SHELF"
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  section       Section       @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([inventoryItemId, sectionId])
+  @@index([inventoryItemId])
+  @@index([sectionId])
 }
 
 // Bill of materials for a furniture item: what has to be laid on / carried with
@@ -2306,6 +2473,7 @@ model Supplier {
   itemCodes SupplierItemCode[]
   items     InventoryItem[]
   deliveries Delivery[]
+  assetServiceLinks AssetServiceSupplier[]
 
   @@index([venueId])
 }
@@ -2483,14 +2651,120 @@ model MenuItem {
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
 
-  venue       Venue           @relation(fields: [venueId], references: [id])
-  recipe      Recipe?         @relation(fields: [recipeId], references: [id])
-  orderItems  WooOrderItem[]
-  venueShares MenuItemVenue[]
-  menuLinks   MenuMenuItem[]
+  venue          Venue           @relation(fields: [venueId], references: [id])
+  recipe         Recipe?         @relation(fields: [recipeId], references: [id])
+  orderItems     WooOrderItem[]
+  venueShares    MenuItemVenue[]
+  menuLinks      MenuMenuItem[]
+  guideTableRows GuideTableRow[]
+  inventoryLinks MenuItemInventoryItem[]
 
   @@index([venueId])
   @@index([wooProductId])
+}
+
+// A product ⇄ stock link. A menu item (e.g. the sellable "SAUVIGNON BLANC
+// 750ML") points at the inventory item(s) it draws from, so entering stock
+// details lets training/product references show cost, storage and allergens.
+model MenuItemInventoryItem {
+  id              String   @id @default(uuid())
+  menuItemId      String
+  inventoryItemId String
+  createdAt       DateTime @default(now())
+
+  menuItem      MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  @@unique([menuItemId, inventoryItemId])
+  @@index([menuItemId])
+  @@index([inventoryItemId])
+}
+
+// ── Multiple-link junctions (a thing that applies to several things) ─────────
+
+// A task that covers several sections at once (e.g. "DEEP CLEAN" → BAR, FLOOR).
+model TaskSection {
+  id        String   @id @default(uuid())
+  taskId    String
+  sectionId String
+  createdAt DateTime @default(now())
+
+  task    Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  section Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, sectionId])
+  @@index([sectionId])
+}
+
+// A checklist that appears for several sections / roles (mirrors GuideAudience).
+model ChecklistAudience {
+  id          String       @id @default(uuid())
+  checklistId String
+  kind        AudienceKind
+  targetId    String
+  createdAt   DateTime     @default(now())
+
+  checklist Checklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+
+  @@unique([checklistId, kind, targetId])
+  @@index([checklistId])
+}
+
+// A role that spans several departments (e.g. "BARISTA" → BAR + CAFE).
+model PositionDepartment {
+  id           String   @id @default(uuid())
+  positionId   String
+  departmentId String
+  createdAt    DateTime @default(now())
+
+  position   Position   @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([positionId, departmentId])
+  @@index([departmentId])
+}
+
+// An event that uses several menus (food + drinks + wine list).
+model EventMenu {
+  id        String   @id @default(uuid())
+  eventId   String
+  menuId    String
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  menu  Menu  @relation(fields: [menuId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, menuId])
+  @@index([menuId])
+}
+
+// A customer that belongs to several venues (shared directory for multi-site).
+model CustomerVenue {
+  id         String   @id @default(uuid())
+  customerId String
+  venueId    String
+  createdAt  DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  venue    Venue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, venueId])
+  @@index([venueId])
+}
+
+// Extra service suppliers for an asset (parts / servicing), beyond the primary.
+model AssetServiceSupplier {
+  id              String   @id @default(uuid())
+  inventoryItemId String
+  supplierId      String
+  note            String?
+  createdAt       DateTime @default(now())
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  supplier      Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@unique([inventoryItemId, supplierId])
+  @@index([supplierId])
 }
 
 model MenuItemVenue {
@@ -2537,6 +2811,7 @@ model Menu {
   items  MenuMenuItem[]
   orders WooOrder[]
   events Event[]
+  eventLinks EventMenu[]
 
   @@unique([venueId, name])
   @@index([venueId])
@@ -2704,6 +2979,7 @@ model Customer {
   venue  Venue      @relation(fields: [venueId], references: [id])
   orders WooOrder[]
   events Event[]
+  venues CustomerVenue[]
 
   // Email is a strong identity — enforced at the DB so a duplicate is impossible.
   // Phone is only indexed, not unique: households legitimately share a landline,
@@ -2952,6 +3228,7 @@ model Event {
   template      BeoTemplate?       @relation(fields: [templateId], references: [id])
   blocks        BeoBlock[]
   changeRequests BeoChangeRequest[]
+  menuLinks     EventMenu[]
 
   @@index([venueId, eventDate])
   @@index([venueId])

@@ -53,6 +53,33 @@ function cardFor(title: string): HTMLElement {
   return screen.getByText(title).closest('.bg-grey-dark') as HTMLElement
 }
 
+// One guide filed into WINE, one left unfiled.
+const FOLDERS = [{ id: 'f1', name: 'WINE', venueId: 'v1', sortOrder: 0 }]
+const FILED_GUIDES = [
+  { ...GUIDES[0], folderId: 'f1' },
+  { ...GUIDES[1], folderId: null },
+]
+
+function mockFetchWithFolders() {
+  return vi.fn((url: string) => {
+    const json = (data: unknown) => Promise.resolve({
+      ok: true, status: 200,
+      json: () => Promise.resolve(data),
+      blob: () => Promise.resolve(new Blob(['pdf'], { type: 'application/pdf' })),
+      headers: { get: () => null },
+    })
+    const u = String(url)
+    if (u.startsWith('/api/admin/guide-folders')) return json(FOLDERS)
+    if (u.startsWith('/api/admin/guides?') || u === '/api/admin/guides') return json(FILED_GUIDES)
+    if (u.startsWith('/api/admin/guides/link-targets')) return json({ ITEM: [], TASK: [], CHECKLIST: [], GUIDE: [], SECTION: [], RECIPE: [] })
+    if (u.startsWith('/api/admin/positions')) return json([])
+    if (u.startsWith('/api/admin/departments')) return json([])
+    if (u.startsWith('/api/admin/tasks')) return json([])
+    if (u.startsWith('/api/admin/venues')) return json([{ id: 'v1', name: 'DEMO VENUE — AUCKLAND' }])
+    return json(null)
+  }) as unknown as typeof fetch
+}
+
 describe('GuidesClient', () => {
   beforeEach(() => { globalThis.fetch = mockFetch() })
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
@@ -93,5 +120,21 @@ describe('GuidesClient', () => {
     // The resolved step body only exists in the popup, not the card.
     await waitFor(() => expect(screen.getByText('Wash hands thoroughly')).toBeTruthy())
     expect(screen.getByText('Always sanitise.')).toBeTruthy()
+  })
+
+  it('groups guides into collapsible folders with an UNFILED bucket', async () => {
+    globalThis.fetch = mockFetchWithFolders()
+    render(<GuidesClient role="ADMIN" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText(/WINE/)).toBeTruthy())
+    expect(screen.getByText(/UNFILED/)).toBeTruthy()
+
+    // Both cards start visible under their folders.
+    expect(screen.getByText('FOOD SAFETY BASICS')).toBeTruthy()
+    expect(screen.getByText('HOW TO READ THE FRIDGE TEMP LOG')).toBeTruthy()
+
+    // Collapsing WINE hides its card but leaves the other folder alone.
+    fireEvent.click(screen.getByText(/WINE/))
+    await waitFor(() => expect(screen.queryByText('FOOD SAFETY BASICS')).toBeNull())
+    expect(screen.getByText('HOW TO READ THE FRIDGE TEMP LOG')).toBeTruthy()
   })
 })

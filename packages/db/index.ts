@@ -15,7 +15,9 @@ export const prisma =
   global.__prisma ??
   new PrismaClient({
     adapter,
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+    // Query logging is opt-in (PRISMA_QUERY_LOG=1) — in dev it floods the logs
+    // with full SQL on every request and slows the dev server noticeably.
+    log: process.env.PRISMA_QUERY_LOG === '1' ? ['query', 'error', 'warn'] : ['error'],
   })
 
 if (process.env.NODE_ENV !== 'production') {

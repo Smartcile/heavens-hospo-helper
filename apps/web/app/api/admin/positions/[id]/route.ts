@@ -34,7 +34,13 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const updates: Record<string, unknown> = {}
   if (body.name !== undefined) updates.name = String(body.name).toUpperCase().trim()
   if (body.departmentId !== undefined) updates.departmentId = body.departmentId || null
+  if (body.departmentIds !== undefined) {
+    const ids: string[] = Array.isArray(body.departmentIds) ? [...new Set(body.departmentIds as string[])] : []
+    updates.departmentId = ids[0] ?? null
+    updates.departmentLinks = { deleteMany: {}, create: ids.map((departmentId) => ({ departmentId })) }
+  }
   if (body.colour !== undefined) updates.colour = body.colour || null
+  if (body.hourlyRate !== undefined) updates.hourlyRate = body.hourlyRate != null ? Number(body.hourlyRate) : null
   if (body.sortOrder !== undefined) updates.sortOrder = Number(body.sortOrder) || 0
   if (body.isActive !== undefined) updates.isActive = !!body.isActive
 

@@ -6,6 +6,8 @@ import { guardAccess } from '@/lib/permissions'
 import { attachTargets, type StepLinkRow } from '@/lib/guide-links'
 import { buildTargetIndex } from '@/lib/guide-links.server'
 import { mergeStepImages } from '@/lib/guide-media'
+import { sanitiseColumns } from '@/lib/reference-table'
+import { buildPdfTable } from '@/lib/reference-table.server'
 import { richTextToPlainText } from '@/lib/rich-text'
 import {
   mergedGuidePdf,
@@ -40,6 +42,7 @@ export async function GET(req: NextRequest) {
     include: {
       venue: { select: { name: true } },
       steps: { orderBy: { order: 'asc' }, include: { links: true } },
+      tableRows: { orderBy: { sortOrder: 'asc' } },
     },
     orderBy: [{ isOnboarding: 'desc' }, { title: 'asc' }],
   })
@@ -75,6 +78,7 @@ export async function GET(req: NextRequest) {
       body: richTextToPlainText(g.bodyHtml),
       requiresSignOff: g.requiresSignOff,
       steps,
+      table: await buildPdfTable(sanitiseColumns(g.tableColumns), g.tableRows),
     })
   }
 

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { cleanNoticeAudiences } from '@/lib/notice-audience'
 
 interface Params {
   params: { id: string }
@@ -28,6 +29,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.pinned !== undefined) updates.pinned = !!body.pinned
   if (body.requiresAck !== undefined) updates.requiresAck = !!body.requiresAck
   if (body.departmentId !== undefined) updates.departmentId = body.departmentId || null
+  if (body.audiences !== undefined) {
+    updates.audiences = { deleteMany: {}, create: cleanNoticeAudiences(body.audiences) }
+  }
   if (body.isActive !== undefined) updates.isActive = !!body.isActive
   if (body.startsAt !== undefined) updates.startsAt = body.startsAt ? new Date(body.startsAt) : null
   if (body.endsAt !== undefined) updates.endsAt = body.endsAt ? new Date(body.endsAt) : null

@@ -74,8 +74,8 @@ describe('generatePayPeriod', () => {
       { staffId: 's2', clockIn: baseClockIn, clockOut: baseClockOut, breaksMinutes: 30 },
     ])
     mockStaff.mockResolvedValueOnce([
-      { id: 's1', hourlyRate: 25, employmentType: 'FULL_TIME', taxCode: 'M', kiwiSaverRate: 3, studentLoan: false },
-      { id: 's2', hourlyRate: 23.5, employmentType: 'CASUAL', taxCode: 'M', kiwiSaverRate: null, studentLoan: false },
+      { id: 's1', hourlyRate: 25, employmentType: 'FULL_TIME', taxCode: 'M', kiwiSaverRate: 3, studentLoan: false, positions: [] },
+      { id: 's2', hourlyRate: 23.5, employmentType: 'CASUAL', taxCode: 'M', kiwiSaverRate: null, studentLoan: false, positions: [] },
     ])
 
     const count = await generatePayPeriod('pp1', 'v1', new Date('2026-07-01'), new Date('2026-07-05'))
@@ -95,7 +95,7 @@ describe('generatePayPeriod', () => {
       { staffId: 's1', clockIn: new Date('2026-07-03T09:00:00Z'), clockOut: new Date('2026-07-03T17:00:00Z'), breaksMinutes: 0 },
     ])
     mockStaff.mockResolvedValueOnce([
-      { id: 's1', hourlyRate: 25, employmentType: 'FULL_TIME', taxCode: 'M', kiwiSaverRate: null, studentLoan: false },
+      { id: 's1', hourlyRate: 25, employmentType: 'FULL_TIME', taxCode: 'M', kiwiSaverRate: null, studentLoan: false, positions: [] },
     ])
 
     await generatePayPeriod('pp1', 'v1', new Date('2026-07-01'), new Date('2026-07-05'))
@@ -103,5 +103,25 @@ describe('generatePayPeriod', () => {
     const createCalls = (prisma.alternativeDay.create as unknown as ReturnType<typeof vi.fn>).mock.calls
     expect(createCalls).toHaveLength(1)
     expect(createCalls[0][0].data).toMatchObject({ staffId: 's1', payPeriodId: 'pp1' })
+  })
+
+  it('pays a session at its role rate', async () => {
+    mockSettings.mockResolvedValueOnce(null)
+    mockHolidays.mockResolvedValueOnce([])
+    mockTimeClock.mockResolvedValueOnce([
+      { staffId: 's1', clockIn: baseClockIn, clockOut: baseClockOut, breaksMinutes: 0, positionId: 'p1' },
+    ])
+    mockStaff.mockResolvedValueOnce([
+      {
+        id: 's1', hourlyRate: 25, employmentType: 'FULL_TIME', taxCode: 'M', kiwiSaverRate: null, studentLoan: false,
+        positions: [{ positionId: 'p1', hourlyRate: null, position: { hourlyRate: 32 } }],
+      },
+    ])
+
+    await generatePayPeriod('pp1', 'v1', new Date('2026-07-01'), new Date('2026-07-05'))
+
+    const createCall = (prisma.payrollEntry.create as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(createCall.data.hourlyRate).toBe(32)
+    expect(createCall.data.grossPay).toBeCloseTo(8 * 32, 2)
   })
 })
