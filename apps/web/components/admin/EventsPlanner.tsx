@@ -201,7 +201,7 @@ export function EventsPlanner({
             onChange={(e) => setStatusFilter(e.target.value)}
           />
         </div>
-        {opening && <span className="font-mono text-[10px] text-grey-light uppercase loading-cursor pb-1.5">OPENING</span>}
+        {opening && <span className="font-mono text-xs text-grey-light uppercase loading-cursor pb-1.5">OPENING</span>}
       </div>
 
       {error && <p className="font-mono text-xs text-danger uppercase">{error}</p>}
@@ -211,7 +211,7 @@ export function EventsPlanner({
       ) : grouped.length === 0 ? (
         <div className="border border-grey-mid p-6 text-center">
           <p className="font-mono text-xs uppercase text-grey-light">NO EVENTS YET.</p>
-          <p className="font-mono text-[10px] uppercase text-grey-light mt-1">CREATE ONE, OR START FROM A TEMPLATE.</p>
+          <p className="font-mono text-xs uppercase text-grey-light mt-1">CREATE ONE, OR START FROM A TEMPLATE.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -226,22 +226,22 @@ export function EventsPlanner({
               <div className="flex items-center gap-2">
                 <span className="font-mono text-xs uppercase text-white truncate">{e.name}</span>
                 {e._count && e._count.changeRequests > 0 && (
-                  <span className="font-mono text-[9px] uppercase text-danger border border-danger px-1">
+                  <span className="font-mono text-xs uppercase text-danger border border-danger px-1">
                     {e._count.changeRequests} REQ
                   </span>
                 )}
                 <div className="flex-1" />
-                <span className="font-mono text-[9px] uppercase text-grey-light">{e.status}</span>
+                <span className="font-mono text-xs uppercase text-grey-light">{e.status}</span>
               </div>
-              <div className="font-mono text-[10px] uppercase text-grey-light">
+              <div className="font-mono text-xs uppercase text-grey-light">
                 {new Date(e.eventDate).toISOString().slice(0, 10)}
                 {e.startTime ? ` · ${e.startTime}` : ''} · {e.guestCount} PAX
                 {e.eventType ? ` · ${e.eventType}` : ''}
               </div>
-              <div className="font-mono text-[10px] uppercase text-grey-light truncate">
+              <div className="font-mono text-xs uppercase text-grey-light truncate">
                 {[e.menu?.name, e.setup?.name].filter(Boolean).join(' · ') || 'NO MENU / LAYOUT'}
               </div>
-              <div className="font-mono text-[9px] uppercase text-grey-light truncate">
+              <div className="font-mono text-xs uppercase text-grey-light truncate">
                 {e.blocks.length === 0 ? 'NO BLOCKS' : e.blocks.map((b) => summariseBlock(b, library)).join(' · ')}
               </div>
             </button>

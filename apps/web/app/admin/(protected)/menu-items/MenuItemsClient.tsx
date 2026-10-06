@@ -173,10 +173,10 @@ export function MenuItemsClient() {
                   <span className="block truncate">
                     {m.name}
                     {m.sharedFromVenueName && (
-                      <span className="ml-1 font-mono text-[9px] text-[#60A5FA] normal-case">(SHARED FROM {m.sharedFromVenueName})</span>
+                      <span className="ml-1 font-mono text-xs text-info normal-case">(SHARED FROM {m.sharedFromVenueName})</span>
                     )}
                   </span>
-                  <span className="block text-[10px] text-grey-light normal-case">
+                  <span className="block text-xs text-grey-light normal-case">
                     ${(m.sharedPriceOverride ?? m.price).toFixed(2)} · {m.recipe?.name ?? 'NO RECIPE'}
                   </span>
                 </button>
@@ -209,7 +209,7 @@ export function MenuItemsClient() {
                   </div>
                   {selectedIsShared && (
                     <div>
-                      <label className="font-mono text-xs uppercase text-[#60A5FA] block mb-1">PRICE OVERRIDE</label>
+                      <label className="font-mono text-xs uppercase text-info block mb-1">PRICE OVERRIDE</label>
                       <Input type="number" step="0.01" value={formSharedPriceOverride} onChange={(e) => setFormSharedPriceOverride(e.target.value)} placeholder="LEAVE BLANK FOR SOURCE PRICE" />
                     </div>
                   )}
@@ -222,7 +222,7 @@ export function MenuItemsClient() {
 
                 {!selectedIsShared && (
                   <div className="border-t border-grey-mid pt-3">
-                    <p className="font-mono text-[10px] text-grey-light uppercase mb-3">WOOCOMMERCE SYNC</p>
+                    <p className="font-mono text-xs text-grey-light uppercase mb-3">WOOCOMMERCE SYNC</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
                         <label className="font-mono text-xs uppercase text-grey-light block mb-1">PRODUCT ID</label>
@@ -279,7 +279,7 @@ export function MenuItemsClient() {
                         className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors">
                         {imageUploading ? 'UPLOADING_' : formImageUrl ? 'REPLACE IMAGE' : 'ADD IMAGE'}
                       </button>
-                      <span className="font-mono text-[9px] text-grey-light/50 hidden sm:inline">OR PASTE (CTRL+V)</span>
+                      <span className="font-mono text-xs text-grey-light/50 hidden sm:inline">OR PASTE (CTRL+V)</span>
                       {formImageUrl && (
                         <>
                           {/* eslint-disable-next-line @next/next/no-img-element */}

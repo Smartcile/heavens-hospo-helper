@@ -19,7 +19,7 @@ import { downloadFile } from '@/lib/download-file'
 import { mergeStepImages } from '@/lib/guide-media'
 import { groupGuidesByFolder } from '@/lib/guide-folders'
 import { GUIDE_TYPES, GUIDE_TYPE_LABELS, guideTypeLabel } from '@/lib/guide-types'
-import { PRODUCT_REFERENCE_DEFAULT_COLUMNS, sanitiseColumns, type ReferenceColumn, type ReferenceMenuItem } from '@/lib/reference-table'
+import { PRODUCT_REFERENCE_DEFAULT_COLUMNS, mergeMenuRows, sanitiseColumns, type ReferenceColumn, type ReferenceMenuItem } from '@/lib/reference-table'
 
 type LinkKind = 'ITEM' | 'TASK' | 'CHECKLIST' | 'GUIDE' | 'SECTION' | 'RECIPE'
 type AudienceKind = 'DEPARTMENT' | 'SECTION' | 'POSITION'
@@ -59,6 +59,8 @@ const EMPTY_TARGETS: LinkTargets = {
   ITEM: [], TASK: [], CHECKLIST: [], GUIDE: [], SECTION: [], RECIPE: [],
 }
 
+interface MenuOption { value: string; label: string; itemIds: string[] }
+
 interface Step {
   id: string | null // null = new; sent back on save so step ids stay stable
   heading: string
@@ -85,6 +87,7 @@ interface Guide {
   venueId: string
   departmentId: string | null
   folderId: string | null
+  sourceMenuId?: string | null
   status: 'DRAFT' | 'PUBLISHED'
   isTracked: boolean
   isOnboarding: boolean
@@ -212,6 +215,8 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [tableColumns, setTableColumns] = useState<ReferenceColumn[]>([])
   const [tableRows, setTableRows] = useState<ReferenceRowDraft[]>([])
   const [productOptions, setProductOptions] = useState<ReferenceProductOption[]>([])
+  const [menuOptions, setMenuOptions] = useState<MenuOption[]>([])
+  const [sourceMenuId, setSourceMenuId] = useState('')
   const [audiences, setAudiences] = useState<Audience[]>([])
   const [linkTargets, setLinkTargets] = useState<LinkTargets>(EMPTY_TARGETS)
   const [saving, setSaving] = useState(false)
@@ -340,10 +345,11 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
       .then((r) => (r.ok ? r.json() : null))
       // Merge over the empty shape so every kind key exists — a partial payload
       // must not leave a picker's option list undefined.
-      .then((d: (Partial<LinkTargets> & { MENU_ITEM?: ReferenceProductOption[] }) | null) => {
+      .then((d: (Partial<LinkTargets> & { MENU_ITEM?: ReferenceProductOption[]; MENU?: MenuOption[] }) | null) => {
         if (d && !Array.isArray(d)) {
           setLinkTargets({ ...EMPTY_TARGETS, ...d })
           setProductOptions(Array.isArray(d.MENU_ITEM) ? d.MENU_ITEM : [])
+          setMenuOptions(Array.isArray(d.MENU) ? d.MENU : [])
         }
       })
       .catch(() => { /* picker just stays empty */ })
@@ -378,7 +384,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setGuideType('HOW_TO'); setBodyHtml('')
     setDepartmentId(''); setFolderId(''); setIsTracked(true); setIsOnboarding(false); setRequiresSignOff(false)
     setLinkedTaskIds([]); setCompetencyTaskIds([])
-    setSteps([emptyStep()]); setTableColumns([]); setTableRows([]); setAudiences([])
+    setSteps([emptyStep()]); setTableColumns([]); setTableRows([]); setSourceMenuId(''); setAudiences([])
     setVenueId(getActiveVenueId(role, sessionVenueId, defaultVenueId))
     setError(''); setOpen(true)
   }
@@ -387,7 +393,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setEditing(g)
     setTitle(g.title); setDescription(g.description ?? ''); setCategory(g.category ?? '')
     setGuideType(g.guideType ?? ''); setBodyHtml(g.bodyHtml ?? '')
-    setDepartmentId(g.departmentId ?? ''); setFolderId(g.folderId ?? '')
+    setDepartmentId(g.departmentId ?? ''); setFolderId(g.folderId ?? ''); setSourceMenuId(g.sourceMenuId ?? '')
     setIsTracked(g.isTracked); setIsOnboarding(g.isOnboarding); setRequiresSignOff(g.requiresSignOff)
     setVenueId(g.venueId)
 
@@ -464,6 +470,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
       ...(guideType === 'PRODUCT_REFERENCE'
         ? {
             tableColumns,
+            sourceMenuId: sourceMenuId || null,
             rows: tableRows.map((r) => ({ id: r.id, menuItemId: r.menuItemId, cells: r.cells })),
           }
         : {}),
@@ -500,6 +507,13 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ menuItemId, imageUrl }),
     })
+  }
+
+  // Pull a menu's products in as rows (additive — existing rows + cells stay).
+  function syncFromMenu() {
+    const menu = menuOptions.find((m) => m.value === sourceMenuId)
+    if (!menu) return
+    setTableRows((prev) => mergeMenuRows(prev, menu.itemIds))
   }
 
   const effectiveVenueId = role === 'ADMIN' ? venueId : sessionVenueId
@@ -546,6 +560,10 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     { value: '', label: 'UNFILED' },
     ...filteredFolders.map((f) => ({ value: f.id, label: f.name })),
   ]
+  const menuSelectOptions = [
+    { value: '', label: '— NONE (MANUAL ROWS) —' },
+    ...menuOptions.map((m) => ({ value: m.value, label: m.label })),
+  ]
 
   function renderGuideCard(g: Guide) {
     const isTable = g.guideType === 'PRODUCT_REFERENCE'
@@ -583,7 +601,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
           {(g.taskGuides?.length ?? 0) > 0 && <> · {g.taskGuides!.length} TASK LINK{g.taskGuides!.length !== 1 ? 'S' : ''}</>}
         </div>
         {g.legacyToolsNote && (
-          <p className="font-mono text-[10px] text-grey-light leading-tight">{g.legacyToolsNote}</p>
+          <p className="font-mono text-xs text-grey-light leading-tight">{g.legacyToolsNote}</p>
         )}
         <div className="flex gap-3 pt-1 border-t border-grey-mid mt-1">
           <button onClick={() => openEdit(g)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">EDIT</button>
@@ -649,11 +667,11 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                   >
                     {collapsed ? '▸' : '▾'} {folder ? folder.name : 'UNFILED'}
                   </button>
-                  <span className="font-mono text-[10px] text-grey-light">({groupGuides.length})</span>
+                  <span className="font-mono text-xs text-grey-light">({groupGuides.length})</span>
                   {folder && (
                     <span className="ml-auto flex gap-3">
-                      <button type="button" onClick={() => renameFolder(folder)} className="font-mono text-[10px] uppercase text-grey-light hover:text-white transition-colors">RENAME</button>
-                      <button type="button" onClick={() => deleteFolder(folder)} className="font-mono text-[10px] uppercase text-grey-light hover:text-danger transition-colors">DEL</button>
+                      <button type="button" onClick={() => renameFolder(folder)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">RENAME</button>
+                      <button type="button" onClick={() => deleteFolder(folder)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">DEL</button>
                     </span>
                   )}
                 </div>
@@ -700,7 +718,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
           <div className="border border-grey-mid p-3 space-y-2">
             <div className="flex items-baseline justify-between gap-2">
               <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Applies to</label>
-              <span className="font-mono text-[10px] uppercase text-grey-light">
+              <span className="font-mono text-xs uppercase text-grey-light">
                 TAG A SECTION OR ROLE — STAFF INHERIT IT AUTOMATICALLY
               </span>
             </div>
@@ -709,7 +727,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                 {audiences.map((a) => (
                   <span
                     key={`${a.kind}:${a.targetId}`}
-                    className="inline-flex items-center gap-1.5 border border-grey-mid px-2 py-0.5 font-mono text-[10px] uppercase text-white"
+                    className="inline-flex items-center gap-1.5 border border-grey-mid px-2 py-0.5 font-mono text-xs uppercase text-white"
                   >
                     <span className="text-grey-light">{a.kind}</span>
                     {audienceLabel(a)}
@@ -773,7 +791,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
           )}
 
           <div className="border border-grey-mid p-3 space-y-1">
-            <div className="font-mono text-[10px] uppercase tracking-wider text-grey-light">On the worker phone</div>
+            <div className="font-mono text-xs uppercase tracking-wider text-grey-light">On the worker phone</div>
             <div className="font-mono text-xs text-white">
               {editing?.status === 'DRAFT'
                 ? 'DRAFT — WORKERS CANNOT SEE THIS GUIDE YET. PUBLISH FROM THE LIST TO MAKE IT LIVE.'
@@ -781,14 +799,14 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                   ? 'VISIBLE TO WORKERS — TRACKED (MY GUIDES + TREE, COMPLETIONS COUNT).'
                   : 'VISIBLE TO WORKERS — REFERENCE ONLY (SHOWS IN THE BIBLE AS READ-ONLY, NOTHING IS TRACKED).'}
             </div>
-            <p className="font-mono text-[10px] uppercase text-grey-light leading-tight">
+            <p className="font-mono text-xs uppercase text-grey-light leading-tight">
               A WORKER SEES A PUBLISHED GUIDE WHEN IT APPLIES TO THEM: ONBOARDING · DEPARTMENT · SECTION/POSITION TAG · OR A DIRECT ASSIGNMENT.
             </p>
           </div>
 
           <div className="space-y-2">
             <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Instructions (rich text)</label>
-            <p className="font-mono text-[10px] uppercase text-grey-light leading-tight">
+            <p className="font-mono text-xs uppercase text-grey-light leading-tight">
               WRITE A SIMPLE DOCUMENT — HEADINGS, PARAGRAPHS, LISTS — AND ADD STEPS BELOW ONLY IF YOU WANT A CHECKLIST. EITHER CAN STAND ALONE.
             </p>
             <RichTextEditor value={bodyHtml} onChange={setBodyHtml} placeholder="Write basic instructions here…" />
@@ -797,9 +815,20 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
           {guideType === 'PRODUCT_REFERENCE' && (
             <div className="space-y-2">
               <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Reference table</label>
-              <p className="font-mono text-[10px] uppercase text-grey-light leading-tight">
+              <p className="font-mono text-xs uppercase text-grey-light leading-tight">
                 ONE ROW PER ITEM. COLUMNS FROM THE LINKED PRODUCT FILL THEMSELVES; THE IMAGE IS SHARED WITH THE PRODUCT.
               </p>
+              <div className="border border-grey-mid p-3 space-y-2">
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="flex-1 min-w-[12rem]">
+                    <Select label="Source menu" value={sourceMenuId} onChange={(e) => setSourceMenuId(e.target.value)} options={menuSelectOptions} />
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={syncFromMenu} disabled={!sourceMenuId}>↻ SYNC FROM MENU</Button>
+                </div>
+                <p className="font-mono text-xs uppercase text-grey-light leading-tight">
+                  OPTIONAL — PICK A MENU, THEN SYNC TO PULL ITS PRODUCTS IN AS ROWS. SYNC IS ADDITIVE: YOUR ROWS AND TYPED CELLS STAY.
+                </p>
+              </div>
               <ReferenceTableEditor
                 columns={tableColumns}
                 rows={tableRows}
@@ -832,7 +861,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                 <Input value={s.videoUrl} onChange={(e) => updateStep(i, { videoUrl: e.target.value })} placeholder="VIDEO LINK (YOUTUBE/VIMEO, OPTIONAL)" />
 
                 <div className="border-t border-grey-mid pt-2 space-y-2">
-                  <label className="font-mono text-[10px] uppercase text-grey-light tracking-wider">
+                  <label className="font-mono text-xs uppercase text-grey-light tracking-wider">
                     Links — tools, tasks, lists, guides
                   </label>
                   {s.links.length > 0 && (
@@ -840,7 +869,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                       {s.links.map((l) => (
                         <span
                           key={`${l.kind}:${l.targetId}`}
-                          className="inline-flex items-center gap-1.5 border border-grey-mid px-2 py-0.5 font-mono text-[10px] uppercase text-white"
+                          className="inline-flex items-center gap-1.5 border border-grey-mid px-2 py-0.5 font-mono text-xs uppercase text-white"
                         >
                           <span className="text-grey-light">{l.kind}</span>
                           {l.qty && l.qty > 1 ? `${l.qty}× ` : ''}

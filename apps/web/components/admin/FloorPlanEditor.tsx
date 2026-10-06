@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Panel'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Combobox } from '@/components/ui/Combobox'
@@ -750,14 +751,14 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           <h1 className="font-mono text-sm font-bold uppercase tracking-widest text-white">{plan.name}</h1>
           <div className="flex items-center gap-1">
             <input type="number" step="10" value={editRoomW} onChange={(e) => setEditRoomW(e.target.value)}
-              className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-1 py-0.5 text-center outline-none focus:border-white" />
-            <span className="font-mono text-[10px] text-grey-light">×</span>
+              className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-xs px-1 py-0.5 text-center outline-none focus:border-white" />
+            <span className="font-mono text-xs text-grey-light">×</span>
             <input type="number" step="10" value={editRoomD} onChange={(e) => setEditRoomD(e.target.value)}
-              className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-1 py-0.5 text-center outline-none focus:border-white" />
-            <span className="font-mono text-[10px] text-grey-light">cm ·</span>
+              className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-xs px-1 py-0.5 text-center outline-none focus:border-white" />
+            <span className="font-mono text-xs text-grey-light">cm ·</span>
             <input type="number" step="10" value={editGridUnit} onChange={(e) => setEditGridUnit(e.target.value)}
-              className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-1 py-0.5 text-center outline-none focus:border-white" />
-            <span className="font-mono text-[10px] text-grey-light">cm grid</span>
+              className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-xs px-1 py-0.5 text-center outline-none focus:border-white" />
+            <span className="font-mono text-xs text-grey-light">cm grid</span>
             <button onClick={async () => {
               const r = await fetch(`/api/admin/floorplan/${plan.id}`, {
                 method: 'PUT',
@@ -766,7 +767,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               })
               if (r.ok) setRebuildKey((k) => k + 1)
             }}
-              className="font-mono text-[10px] text-success hover:text-white uppercase px-1 py-0.5 border border-success">
+              className="font-mono text-xs text-success hover:text-white uppercase px-1 py-0.5 border border-success">
               APPLY
             </button>
           </div>
@@ -798,21 +799,21 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               <select
                 value={activeSetupId}
                 onChange={(e) => handleSetupChange(e.target.value || null)}
-                className="bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-2 py-1 outline-none"
+                className="bg-grey-dark border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none"
               >
                 {setups.map(s => (
                   <option key={s.id} value={s.id}>{s.isDefault ? `★ ${s.name} (DEFAULT)` : s.name}</option>
                 ))}
               </select>
               <button onClick={handleNewSetup}
-                className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5 border border-grey-mid">
+                className="font-mono text-xs text-grey-light hover:text-white uppercase px-1.5 py-0.5 border border-grey-mid">
                 + EVENT
               </button>
               {/* The default layout is what the room reverts to between events,
                   so it is editable but never removable. */}
               {!activeSetup?.isDefault && (
                 <button onClick={handleDeleteSetup}
-                  className="font-mono text-[10px] text-danger hover:text-white uppercase px-1.5 py-0.5 border border-red-800/50">
+                  className="font-mono text-xs text-danger hover:text-white uppercase px-1.5 py-0.5 border border-red-800/50">
                   DELETE
                 </button>
               )}
@@ -820,12 +821,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           )}
         </div>
         {activeSetup?.isDefault && (
-          <span className="font-mono text-[9px] uppercase text-grey-light tracking-wider">
+          <span className="font-mono text-xs uppercase text-grey-light tracking-wider">
             EVERYDAY LAYOUT · OWNS TABLE NUMBERS
           </span>
         )}
         {activeSetupId && (
-          <span className="font-mono text-[10px] uppercase text-success tracking-wider">
+          <span className="font-mono text-xs uppercase text-success tracking-wider">
             {setupGrand.tables} TBL · {setupGrand.seats} PAX
           </span>
         )}
@@ -833,7 +834,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
       {/* ── CONTEXT TOOLBAR ── */}
       <div className="flex items-center gap-2 px-4 py-1.5 border-b border-grey-mid bg-black flex-wrap">
-        <label className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+        <label className="flex items-center gap-1 font-mono text-xs text-grey-light cursor-pointer select-none">
           <input type="checkbox" checked={snapEnabled} onChange={() => setSnapEnabled(!snapEnabled)} className="accent-white" />
           GRID
         </label>
@@ -841,7 +842,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           <>
             {setupSelectedIds.length >= 2 && (
               <button onClick={handleGroup}
-                className="font-mono text-[10px] uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-white">
+                className="font-mono text-xs uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-white">
                 GROUP
               </button>
             )}
@@ -849,16 +850,16 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               const grouped = setupItems.find(i => i.id === setupSelectedIds[0] && i.tableGroupId)
               return grouped ? (
                 <button onClick={handleUngroup}
-                  className="font-mono text-[10px] uppercase px-2 py-1 border border-red-800/50 text-danger hover:border-red-700">
+                  className="font-mono text-xs uppercase px-2 py-1 border border-red-800/50 text-danger hover:border-red-700">
                   UNGROUP
                 </button>
               ) : null
             })()}
-            <span className="font-mono text-[9px] text-grey-light ml-1">BASE PLAN LOCKED</span>
+            <span className="font-mono text-xs text-grey-light ml-1">BASE PLAN LOCKED</span>
           </>
         ) : (
           <>
-            <label className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+            <label className="flex items-center gap-1 font-mono text-xs text-grey-light cursor-pointer select-none">
               <input type="checkbox" checked={snap45Enabled} onChange={() => setSnap45Enabled(!snap45Enabled)} className="accent-white" />
               45°
             </label>
@@ -866,35 +867,35 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               if (zoneDrawing) { setZoneDrawing(false); setZoneDrawStart(null); setZoneDrawRect(null) }
               else { setZoneDrawing(true); setZonePolyMode(false); setZonePolyPoints([]) }
             }}
-              className={`font-mono text-[10px] uppercase px-2 py-1 border ${zoneDrawing && !zonePolyMode ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
+              className={`font-mono text-xs uppercase px-2 py-1 border ${zoneDrawing && !zonePolyMode ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
               SECTIONS {zoneDrawing && !zonePolyMode ? '· ON' : ''}
             </button>
             <button onClick={() => {
               if (zonePolyMode) { setZonePolyMode(false); setZonePolyPoints([]); setZoneDrawing(false) }
               else { setZonePolyMode(true); setZoneDrawing(false); setZonePolyPoints([]) }
             }}
-              className={`font-mono text-[10px] uppercase px-2 py-1 border ${zonePolyMode ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
+              className={`font-mono text-xs uppercase px-2 py-1 border ${zonePolyMode ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
               POLYGON {zonePolyMode ? '· ON' : ''}
             </button>
             <button onClick={() => {
               if (wallDrawing) { setWallDrawing(false); setWallPoints([]) }
               else { setWallDrawing(true); setZoneDrawing(false) }
             }}
-              className={`font-mono text-[10px] uppercase px-2 py-1 border ${wallDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
+              className={`font-mono text-xs uppercase px-2 py-1 border ${wallDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
               WALLS {wallDrawing ? '· ON' : ''}
             </button>
             <button onClick={() => setShowSummary(!showSummary)}
-              className={`font-mono text-[10px] uppercase px-2 py-1 border ${showSummary ? 'border-success text-success' : 'border-grey-mid text-grey-light hover:border-success'}`}>
+              className={`font-mono text-xs uppercase px-2 py-1 border ${showSummary ? 'border-success text-success' : 'border-grey-mid text-grey-light hover:border-success'}`}>
               SUMMARY
             </button>
           </>
         )}
         <span className="flex-1" />
         <div className="flex items-center gap-1">
-          <span className="font-mono text-[8px] text-grey-light">TEXT</span>
+          <span className="font-mono text-xs text-grey-light">TEXT</span>
           <input type="range" min="0.5" max="3" step="0.1" value={textScale} onChange={(e) => setTextScale(parseFloat(e.target.value))}
             className="w-16 accent-white" />
-          <span className="font-mono text-[9px] text-grey-light w-5">{textScale.toFixed(1)}×</span>
+          <span className="font-mono text-xs text-grey-light w-5">{textScale.toFixed(1)}×</span>
         </div>
         <FloorplanToolbar zoom={zoomLevel} onZoomChange={(z) => { setZoomLevel(z); viewRef.current.zoom = z; setRebuildKey((k) => k + 1) }}
           showDimensions={showDimensions} onShowDimensionsChange={setShowDimensions} />
@@ -1039,9 +1040,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         {/* Right panel — always rendered */}
         <div className="w-56 flex-shrink-0 border-l border-grey-mid overflow-y-auto bg-grey-dark p-3 space-y-3">
           {wallDrawing && (
-            <div className="border border-[#4488FF] p-3 space-y-2">
-              <h2 className="font-mono text-xs font-bold text-[#4488FF] uppercase tracking-wider">WALL DRAWING</h2>
-              <p className="font-mono text-[10px] text-grey-light">{wallPoints.length} POINT{wallPoints.length !== 1 ? 'S' : ''}</p>
+            <div className="border border-info p-3 space-y-2">
+              <h2 className="font-mono text-xs font-bold text-info uppercase tracking-wider">WALL DRAWING</h2>
+              <p className="font-mono text-xs text-grey-light">{wallPoints.length} POINT{wallPoints.length !== 1 ? 'S' : ''}</p>
               <Input label="THICKNESS (CM)" type="number" value={wallThickness.toString()} onChange={(e) => setWallThickness(Math.max(2, parseInt(e.target.value) || 15))} />
               <div className="flex gap-1">
                 <Button size="sm" onClick={() => {
@@ -1098,7 +1099,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             return (
               <>
                 {/* ── TABLE IDENTITY ── */}
-                <div className="border border-grey-mid p-3 space-y-2">
+                <Panel variant="outline" className="space-y-2">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 flex-shrink-0 border border-grey-mid" style={{ backgroundColor: profile?.colour ?? '#555' }} />
                     <div className="min-w-0 flex-1">
@@ -1106,86 +1107,86 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                         {sel.length > 1 ? `${sel.length} TABLES` : (first?.label || profile?.name || 'TABLE')}
                       </p>
                       {profile && (
-                        <p className="font-mono text-[9px] text-grey-light">
+                        <p className="font-mono text-xs text-grey-light">
                           {profile.name} · {Math.round(profile.width)}×{Math.round(profile.depth)}
                         </p>
                       )}
                     </div>
                     <button onClick={deleteSetupSelected}
-                      className="font-mono text-[10px] text-danger hover:text-white uppercase border border-red-800/50 px-1.5 py-0.5 flex-shrink-0">
+                      className="font-mono text-xs text-danger hover:text-white uppercase border border-red-800/50 px-1.5 py-0.5 flex-shrink-0">
                       ×
                     </button>
                   </div>
                   {sel.length === 1 && (
-                    <p className="font-mono text-[10px] text-grey-light uppercase pt-1 border-t border-grey-mid">
+                    <p className="font-mono text-xs text-grey-light uppercase pt-1 border-t border-grey-mid">
                       SECTION: {sectionName ?? 'NONE'}
                       {first.tableGroupId && <span className="text-accent ml-1">· GROUPED</span>}
                     </p>
                   )}
-                </div>
+                </Panel>
 
                 {/* ── ROTATION ── */}
                 {sel.length === 1 && (
-                  <div className="border border-grey-mid p-3 space-y-2">
-                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">ROTATION</p>
+                  <Panel variant="outline" className="space-y-2">
+                    <p className="font-mono text-xs text-grey-light uppercase tracking-wider">ROTATION</p>
                     <div className="flex flex-wrap gap-1">
                       {[0, 45, 90, 135, 180, 270].map((angle) => (
                         <button key={angle} onClick={() => rotateSetupSelected(angle)}
-                          className={`font-mono text-[10px] px-2 py-1 border ${first && Math.round(first.rotation) === angle ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
+                          className={`font-mono text-xs px-2 py-1 border ${first && Math.round(first.rotation) === angle ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
                           {angle}°
                         </button>
                       ))}
                     </div>
-                  </div>
+                  </Panel>
                 )}
 
                 {/* ── CHAIRS ── */}
                 {sel.length === 1 && !first?.tableGroupId && (
-                  <div className="border border-grey-mid p-3 space-y-2">
-                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">
+                  <Panel variant="outline" className="space-y-2">
+                    <p className="font-mono text-xs text-grey-light uppercase tracking-wider">
                       CHAIRS ({totalChairs})
                     </p>
-                    <p className="font-mono text-[9px] text-grey-light leading-snug">
+                    <p className="font-mono text-xs text-grey-light leading-snug">
                       DRAG A CHAIR TO MOVE IT · CLICK THE TABLE EDGE TO ADD · RIGHT-CLICK A CHAIR TO REMOVE
                     </p>
                     <div className="grid grid-cols-3 gap-1">
                       <button onClick={() => handleChairsTidy(first.id)}
-                        className="font-mono text-[9px] uppercase text-grey-light hover:text-white border border-grey-mid hover:border-white px-1 py-1">
+                        className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid hover:border-white px-1 py-1">
                         TIDY
                       </button>
                       <button onClick={() => handleChairsReset(first.id)}
-                        className="font-mono text-[9px] uppercase text-grey-light hover:text-white border border-grey-mid hover:border-white px-1 py-1">
+                        className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid hover:border-white px-1 py-1">
                         RESET
                       </button>
                       <button onClick={() => handleChairsClear(first.id)}
-                        className="font-mono text-[9px] uppercase text-danger hover:text-white border border-red-800/50 hover:border-danger px-1 py-1">
+                        className="font-mono text-xs uppercase text-danger hover:text-white border border-red-800/50 hover:border-danger px-1 py-1">
                         CLEAR
                       </button>
                     </div>
-                  </div>
+                  </Panel>
                 )}
 
                 {sel.length >= 2 && (
-                  <div className="border border-grey-mid p-3">
-                    <p className="font-mono text-[10px] text-grey-light">Select GROUP from the toolbar to join these tables.</p>
-                  </div>
+                  <Panel variant="outline">
+                    <p className="font-mono text-xs text-grey-light">Select GROUP from the toolbar to join these tables.</p>
+                  </Panel>
                 )}
               </>
             )
           })() : selectedIds.length > 0 && selected ? (
             <>
               {selectedIds.length > 1 && (
-                <div className="border border-grey-mid p-3">
-                  <p className="font-mono text-[10px] text-accent uppercase">{selectedIds.length} ELEMENTS SELECTED</p>
+                <Panel variant="outline">
+                  <p className="font-mono text-xs text-accent uppercase">{selectedIds.length} ELEMENTS SELECTED</p>
                   <button onClick={deleteSelected}
-                    className="mt-2 font-mono text-[10px] text-danger hover:text-white uppercase border border-red-800/50 px-2 py-1 w-full">
+                    className="mt-2 font-mono text-xs text-danger hover:text-white uppercase border border-red-800/50 px-2 py-1 w-full">
                     DELETE {selectedIds.length}
                   </button>
-                </div>
+                </Panel>
               )}
               {selectedIds.length === 1 && (
                 <>
-                  <div className="border border-grey-mid p-3 space-y-2">
+                  <Panel variant="outline" className="space-y-2">
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 flex-shrink-0 border border-grey-mid" style={{ backgroundColor: selected.fillColour ?? '#666' }} />
                       <div className="min-w-0 flex-1">
@@ -1194,23 +1195,23 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                           className="font-mono text-xs font-bold text-white bg-transparent border-0 p-0 outline-none w-full" />
                       </div>
                       <button onClick={deleteSelected}
-                        className="font-mono text-[10px] text-danger hover:text-white uppercase border border-red-800/50 px-1.5 py-0.5 flex-shrink-0">
+                        className="font-mono text-xs text-danger hover:text-white uppercase border border-red-800/50 px-1.5 py-0.5 flex-shrink-0">
                         ×
                       </button>
                     </div>
                     {selected.sectionId && (
-                      <p className="font-mono text-[10px] text-grey-light uppercase pt-1 border-t border-grey-mid">
+                      <p className="font-mono text-xs text-grey-light uppercase pt-1 border-t border-grey-mid">
                         {sectionMap.get(selected.sectionId)?.name ?? selected.sectionId}
                       </p>
                     )}
-                  </div>
-                  <div className="border border-grey-mid p-3 space-y-2">
-                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">SIZE</p>
+                  </Panel>
+                  <Panel variant="outline" className="space-y-2">
+                    <p className="font-mono text-xs text-grey-light uppercase tracking-wider">SIZE</p>
                     <FloorplanInspector selectedElement={selected} elements={elements}
                       onChange={(patch) => updateElement(selected.id!, patch)} />
-                  </div>
-                  <div className="border border-grey-mid p-3 space-y-2">
-                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">LABEL & STYLE</p>
+                  </Panel>
+                  <Panel variant="outline" className="space-y-2">
+                    <p className="font-mono text-xs text-grey-light uppercase tracking-wider">LABEL & STYLE</p>
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 flex-shrink-0 border border-grey-mid" style={{ backgroundColor: selected.fillColour ?? '#666' }} />
                       <Input label="Fill" value={selected.fillColour ?? ''}
@@ -1218,7 +1219,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     </div>
                     <Input label="Label" value={selected.label ?? ''}
                       onChange={(e) => updateElement(selected.id!, { label: e.target.value.toUpperCase() || null })} />
-                    <label className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+                    <label className="flex items-center gap-2 font-mono text-xs text-grey-light cursor-pointer select-none">
                       <input type="checkbox" checked={selected.labelVisible !== false}
                         onChange={(e) => updateElement(selected.id!, { labelVisible: e.target.checked })}
                         className="accent-white" />
@@ -1226,7 +1227,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     </label>
                     {selected.shape === 'RECTANGLE' && (
                       <div>
-                        <p className="font-mono text-[10px] text-grey-light uppercase mb-1">Corner Radius</p>
+                        <p className="font-mono text-xs text-grey-light uppercase mb-1">Corner Radius</p>
                         <div className="grid grid-cols-4 gap-1">
                           {['TL', 'TR', 'BR', 'BL'].map((label, idx) => {
                             const cr: number[] = ((selected.style as any)?.cornerRadius) ?? [0, 0, 0, 0]
@@ -1248,20 +1249,20 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                       onChange={(e) => updateElement(selected.id!, { opacity: Math.min(1, Math.max(0, parseFloat(e.target.value) || 1)) })} />
                     <Input label="Label Scale" type="number" min="0.5" max="3" step="0.1" value={((selected.style as any)?.labelScale ?? 1).toString()}
                       onChange={(e) => updateElement(selected.id!, { style: { ...(selected.style ?? {}), labelScale: Math.max(0.5, Math.min(3, parseFloat(e.target.value) || 1)) } })} />
-                  </div>
-                  <div className="border border-grey-mid p-3 space-y-2">
-                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">ROTATION</p>
+                  </Panel>
+                  <Panel variant="outline" className="space-y-2">
+                    <p className="font-mono text-xs text-grey-light uppercase tracking-wider">ROTATION</p>
                     <div className="flex flex-wrap gap-1">
                       {[0, 45, 90, 135, 180, 270].map((angle) => (
                         <button key={angle} onClick={() => updateElement(selected.id!, { rotation: angle })}
-                          className={`font-mono text-[10px] px-2 py-1 border ${Math.round(selected.rotation ?? 0) === angle ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
+                          className={`font-mono text-xs px-2 py-1 border ${Math.round(selected.rotation ?? 0) === angle ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
                           {angle}°
                         </button>
                       ))}
                     </div>
-                  </div>
-                  <div className="border border-grey-mid p-3 space-y-2">
-                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">POSITION</p>
+                  </Panel>
+                  <Panel variant="outline" className="space-y-2">
+                    <p className="font-mono text-xs text-grey-light uppercase tracking-wider">POSITION</p>
                     <div className="grid grid-cols-2 gap-2">
                       <Input label="X (cm)" type="number" step="10" value={Math.round(selected.x).toString()}
                         onChange={(e) => updateElement(selected.id!, { x: parseFloat(e.target.value) || 0 })}
@@ -1270,10 +1271,10 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                         onChange={(e) => updateElement(selected.id!, { y: parseFloat(e.target.value) || 0 })}
                         onBlur={() => { if (selected.id) updateElement(selected.id, { y: snap(selected.y, plan.gridUnit) }) }} />
                     </div>
-                  </div>
-                  <div className="border border-grey-mid p-3">
+                  </Panel>
+                  <Panel variant="outline">
                     <button onClick={() => setShowInvTab(!showInvTab)}
-                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase w-full text-left mb-2">
+                      className="font-mono text-xs text-grey-light hover:text-white uppercase w-full text-left mb-2">
                       {showInvTab ? '▼ INVENTORY' : '▶ INVENTORY'}
                     </button>
                     {showInvTab && selected.id ? (
@@ -1286,22 +1287,22 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                       <Input label="Capacity" type="number" value={selected.capacity?.toString() ?? ''}
                         onChange={(e) => updateElement(selected.id!, { capacity: e.target.value ? parseInt(e.target.value) : null })} />
                     </div>
-                  </div>
+                  </Panel>
                   {selected.type === 'TABLE' && (
-                    <div className="border border-grey-mid p-3 space-y-2">
-                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">CHAIRS</p>
+                    <Panel variant="outline" className="space-y-2">
+                      <p className="font-mono text-xs text-grey-light uppercase tracking-wider">CHAIRS</p>
                       <Input label="Count" type="number" min="0" value={(selected.chairCount ?? 0).toString()}
                         onChange={(e) => updateElement(selected.id!, { chairCount: parseInt(e.target.value) || 0 })} />
                       <Select label="Style" value={((selected.style as any)?.chairStyle ?? 'bracket') as string}
                         onChange={(e) => updateElement(selected.id!, { style: { ...(selected.style ?? {}), chairStyle: e.target.value } })}
                         options={[{ value: 'round', label: 'ROUND' }, { value: 'bracket', label: 'BRACKET' }]} />
-                      <p className="font-mono text-[10px] text-grey-light uppercase">On Sides</p>
+                      <p className="font-mono text-xs text-grey-light uppercase">On Sides</p>
                       <div className="grid grid-cols-2 gap-1">
                         {['top', 'bottom', 'left', 'right'].map((side) => {
                           const sides: string[] = ((selected.style as any)?.chairSides) ?? ['top', 'bottom', 'left', 'right']
                           const checked = sides.includes(side)
                           return (
-                            <label key={side} className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+                            <label key={side} className="flex items-center gap-1 font-mono text-xs text-grey-light cursor-pointer select-none">
                               <input type="checkbox" checked={checked}
                                 onChange={() => {
                                   const next = checked ? sides.filter((s) => s !== side) : [...sides, side]
@@ -1313,16 +1314,16 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                           )
                         })}
                       </div>
-                    </div>
+                    </Panel>
                   )}
                   {selected.type === 'BOOTH_BENCH' && (
-                    <div className="border border-grey-mid p-3 space-y-2">
-                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">SERVES TABLES</p>
+                    <Panel variant="outline" className="space-y-2">
+                      <p className="font-mono text-xs text-grey-light uppercase tracking-wider">SERVES TABLES</p>
                       {elements.filter((e) => e.type === 'TABLE').map((t) => {
                         const served: string[] = (selected.style as any)?.servedTableIds ?? []
                         const checked = served.includes(t.id!)
                         return (
-                          <label key={t.id} className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none py-0.5">
+                          <label key={t.id} className="flex items-center gap-2 font-mono text-xs text-grey-light cursor-pointer select-none py-0.5">
                             <input type="checkbox" checked={checked}
                               onChange={() => {
                                 const s: string[] = [...served]
@@ -1336,13 +1337,13 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                         )
                       })}
                       {elements.filter((e) => e.type === 'TABLE').length === 0 && (
-                        <p className="font-mono text-[10px] text-grey-light italic">No tables on plan</p>
+                        <p className="font-mono text-xs text-grey-light italic">No tables on plan</p>
                       )}
-                    </div>
+                    </Panel>
                   )}
                   {selected.style !== undefined && (
                     <button onClick={() => updateElement(selected.id!, { style: null })}
-                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1 w-full">
+                      className="font-mono text-xs text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1 w-full">
                       RESET STYLE
                     </button>
                   )}
@@ -1353,7 +1354,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             <>
               <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider mb-3">SECTION SUMMARY</h2>
               {summary && summary.entries.length === 0 && (
-                <p className="font-mono text-[10px] text-grey-light">No elements placed yet.</p>
+                <p className="font-mono text-xs text-grey-light">No elements placed yet.</p>
               )}
               {summary && summary.entries.map((entry) => (
                 <div key={entry.sectionName} className="mb-3 pb-2 border-b border-grey-mid last:border-0">
@@ -1363,7 +1364,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   </div>
                   {Object.entries(entry.byType).map(([type, info]) => (
                     <div key={type}>
-                      <div className="flex justify-between font-mono text-[10px] text-grey-light pl-3">
+                      <div className="flex justify-between font-mono text-xs text-grey-light pl-3">
                         <span>{type}{info.totalCapacity > 0 ? ` (${info.totalCapacity} seats)` : ''}</span>
                         <span>×{info.count}</span>
                       </div>
@@ -1375,14 +1376,14 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                           return t?.label || '?'
                         })
                         return (
-                          <div key={bench.id} className="font-mono text-[9px] text-accent pl-5">
+                          <div key={bench.id} className="font-mono text-xs text-accent pl-5">
                             {bench.label || '?'} serves {tableLabels.join(', ')}
                           </div>
                         )
                       })}
                     </div>
                   ))}
-                  <div className="flex justify-between font-mono text-[10px] text-white mt-1 pl-3">
+                  <div className="flex justify-between font-mono text-xs text-white mt-1 pl-3">
                     <span>TOTAL</span>
                     <span>{entry.itemCount} items{entry.totalCapacity > 0 ? ` · ${entry.totalCapacity} seats` : ''}</span>
                   </div>
@@ -1395,7 +1396,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     <span>{summary.grandTotal.itemCount} items{summary.grandTotal.totalCapacity > 0 ? ` · ${summary.grandTotal.totalCapacity} seats` : ''}</span>
                   </div>
                   {Object.entries(summary.grandTotal.byType).map(([type, info]) => (
-                    <div key={type} className="flex justify-between font-mono text-[10px] text-grey-light">
+                    <div key={type} className="flex justify-between font-mono text-xs text-grey-light">
                       <span>{type}</span>
                       <span>×{info.count}</span>
                     </div>
@@ -1406,14 +1407,14 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           ) : (zoneDrawing || zonePolyMode) ? (
             <>
               <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider">{zonePolyMode ? 'POLYGON ZONE' : 'RECTANGLE ZONE'}</h2>
-              <p className="font-mono text-[10px] text-grey-light">
+              <p className="font-mono text-xs text-grey-light">
                 {zonePolyMode
                   ? 'Click canvas to place vertices. Double-click or click SAVE below when done.'
                   : 'Drag on canvas to draw a rectangle zone.'}
               </p>
               {zonePolyMode && (
                 <div className="border border-accent/30 p-2 space-y-1">
-                  <p className="font-mono text-[9px] text-grey-light">{zonePolyPoints.length} VERTEX{zonePolyPoints.length !== 1 ? 'TICES' : ''}</p>
+                  <p className="font-mono text-xs text-grey-light">{zonePolyPoints.length} VERTEX{zonePolyPoints.length !== 1 ? 'TICES' : ''}</p>
                   <div className="flex gap-1">
                     <Button size="sm" onClick={() => {
                       if (zonePolyPoints.length < 3) return
@@ -1450,12 +1451,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   }
                   return Array.from(deptMap.entries()).map(([dept, grp]) => (
                     <div key={dept}>
-                      <div className="font-mono text-[8px] uppercase text-grey-light px-1 py-0.5 border-b border-grey-mid/30">{dept}</div>
+                      <div className="font-mono text-xs uppercase text-grey-light px-1 py-0.5 border-b border-grey-mid/30">{dept}</div>
                       {grp.zones.map((z) => {
                         const sec = sectionMap.get(z.sectionId)
                         return (
                           <div key={z.id} onClick={() => setSelectedZoneId(z.id)}
-                            className={`flex items-center gap-2 p-1.5 cursor-pointer font-mono text-[10px] ${z.id === selectedZoneId ? 'bg-grey-mid text-white' : 'text-grey-light hover:text-white'}`}>
+                            className={`flex items-center gap-2 p-1.5 cursor-pointer font-mono text-xs ${z.id === selectedZoneId ? 'bg-grey-mid text-white' : 'text-grey-light hover:text-white'}`}>
                             <div className="w-3 h-3 flex-shrink-0" style={{ backgroundColor: sec?.colour ?? '#666' }} />
                             <span className="truncate flex-1">{sec?.name ?? '?'}</span>
                             <span>{Math.round(z.width)}×{Math.round(z.height)}</span>
@@ -1494,7 +1495,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                       setZones((prev) => prev.filter((x) => x.id !== selectedZoneId))
                       setSelectedZoneId(null)
                     }}
-                      className="font-mono text-[10px] text-danger hover:text-white uppercase border border-danger px-2 py-1 w-full">
+                      className="font-mono text-xs text-danger hover:text-white uppercase border border-danger px-2 py-1 w-full">
                       DELETE ZONE
                     </button>
                   </div>
@@ -1506,7 +1507,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             <>
               <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider">LAYERS</h2>
               {elements.length === 0 && (
-                <p className="font-mono text-[10px] text-grey-light">No elements on this plan.</p>
+                <p className="font-mono text-xs text-grey-light">No elements on this plan.</p>
               )}
               {(() => {
                 const grouped: Record<string, ElementData[]> = {}
@@ -1516,13 +1517,13 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 }
                 return Object.entries(grouped).map(([type, els]) => (
                   <div key={type}>
-                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider border-b border-grey-mid pb-0.5 mb-0.5">{type} ({els.length})</p>
+                    <p className="font-mono text-xs text-grey-light uppercase tracking-wider border-b border-grey-mid pb-0.5 mb-0.5">{type} ({els.length})</p>
                     {els.map((el) => (
                       <div key={el.id} onClick={() => setSelectedIds([el.id!])}
                         className="flex items-center gap-2 py-0.5 cursor-pointer hover:bg-grey-mid px-1 rounded-sm">
                         <div className="w-2.5 h-2.5 flex-shrink-0 border border-grey-light" style={{ backgroundColor: el.fillColour ?? '#666' }} />
-                        <span className="font-mono text-[10px] text-white truncate flex-1">{el.label || el.type}</span>
-                        <span className="font-mono text-[8px] text-grey-light">{Math.round(el.width)}×{Math.round(el.depth)}</span>
+                        <span className="font-mono text-xs text-white truncate flex-1">{el.label || el.type}</span>
+                        <span className="font-mono text-xs text-grey-light">{Math.round(el.width)}×{Math.round(el.depth)}</span>
                       </div>
                     ))}
                   </div>

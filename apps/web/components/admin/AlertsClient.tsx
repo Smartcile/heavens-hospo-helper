@@ -154,31 +154,31 @@ export function AlertsClient({ role, sessionVenueId, defaultVenueId }: AlertsCli
         )}
         {alerts.map((a) => (
           <div key={a.id} className={cn('border p-3 flex items-start gap-3', a.status === 'RESOLVED' && 'opacity-50')}>
-            <div className={cn('w-1 self-stretch shrink-0', a.severity === 'CRITICAL' ? 'bg-danger' : 'bg-[#FACC15]')} />
+            <div className={cn('w-1 self-stretch shrink-0', a.severity === 'CRITICAL' ? 'bg-danger' : 'bg-warning')} />
             <div className="flex-1 min-w-0 space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className={cn('font-mono text-[10px] border px-1.5 py-0.5', a.severity === 'CRITICAL' ? 'text-danger border-danger/50' : 'text-[#FACC15] border-[#FACC15]/50')}>
+                <span className={cn('font-mono text-xs border px-1.5 py-0.5', a.severity === 'CRITICAL' ? 'text-danger border-danger/50' : 'text-warning border-warning/50')}>
                   {a.severity}
                 </span>
-                <span className="font-mono text-[10px] text-grey-light border border-grey-mid px-1.5 py-0.5">{a.kind}</span>
-                <span className="font-mono text-[10px] text-grey-light">{fmtDate(a.createdAt)}</span>
-                {a.value != null && <span className="font-mono text-[10px] text-white">{a.value}°C</span>}
+                <span className="font-mono text-xs text-grey-light border border-grey-mid px-1.5 py-0.5">{a.kind}</span>
+                <span className="font-mono text-xs text-grey-light">{fmtDate(a.createdAt)}</span>
+                {a.value != null && <span className="font-mono text-xs text-white">{a.value}°C</span>}
                 {a.task && (
-                  <a href="/admin/compliance?tab=tasks" className="font-mono text-[10px] text-grey-light hover:text-white underline">
+                  <a href="/admin/compliance?tab=tasks" className="font-mono text-xs text-grey-light hover:text-white underline">
                     TASK: {a.task.title}
                   </a>
                 )}
                 {a.deliveryItem && (
-                  <span className="font-mono text-[10px] text-grey-light">DELIVERY: {a.deliveryItem.itemName}</span>
+                  <span className="font-mono text-xs text-grey-light">DELIVERY: {a.deliveryItem.itemName}</span>
                 )}
                 {a.status === 'RESOLVED' && a.resolvedBy && (
-                  <span className="font-mono text-[10px] text-success">
+                  <span className="font-mono text-xs text-success">
                     RESOLVED {a.resolvedAt ? fmtDate(a.resolvedAt) : ''} BY {a.resolvedBy.firstName} {a.resolvedBy.lastName}
                   </span>
                 )}
               </div>
               <p className="font-mono text-xs text-white">{a.message}</p>
-              {a.resolutionNote && <p className="font-mono text-[10px] text-grey-light">NOTE: {a.resolutionNote}</p>}
+              {a.resolutionNote && <p className="font-mono text-xs text-grey-light">NOTE: {a.resolutionNote}</p>}
             </div>
             <div className="flex items-center gap-1 shrink-0">
               {a.status === 'OPEN' && (

@@ -144,7 +144,7 @@ export function NewOrderModal({
         </div>
 
         <div className="p-4 space-y-4">
-          <p className="font-mono text-[9px] text-grey-light uppercase">
+          <p className="font-mono text-xs text-grey-light uppercase">
             MANUAL ORDERS STAY LOCAL — THEY ARE NEVER PUSHED TO WOOCOMMERCE, AND TAKE NO PAYMENT.
           </p>
 
@@ -189,7 +189,7 @@ export function NewOrderModal({
             <Input label="PHONE" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="021..." />
             <Input label="EMAIL" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="OPTIONAL" />
           </div>
-          <p className="font-mono text-[9px] text-grey-light uppercase">
+          <p className="font-mono text-xs text-grey-light uppercase">
             MATCHED AGAINST EXISTING CUSTOMERS BY EMAIL THEN PHONE — NO DUPLICATE RECORD IS CREATED.
           </p>
 
@@ -201,7 +201,7 @@ export function NewOrderModal({
 
             {lines.length > 0 && (
               <div className="space-y-1">
-                <div className="grid grid-cols-12 gap-2 font-mono text-[9px] uppercase text-grey-light">
+                <div className="grid grid-cols-12 gap-2 font-mono text-xs uppercase text-grey-light">
                   <div className="col-span-5">ITEM</div>
                   <div className="col-span-2">QTY</div>
                   <div className="col-span-2">PRICE</div>
@@ -242,7 +242,7 @@ export function NewOrderModal({
             {itemSearch && (
               <div className="border border-grey-mid divide-y divide-grey-mid max-h-40 overflow-y-auto">
                 {available.length === 0 ? (
-                  <p className="font-mono text-[10px] text-grey-light p-2 uppercase">NO MATCHES</p>
+                  <p className="font-mono text-xs text-grey-light p-2 uppercase">NO MATCHES</p>
                 ) : (
                   available.map((i) => (
                     <button
@@ -266,7 +266,7 @@ export function NewOrderModal({
             <div className="border border-danger p-3 space-y-1">
               <h3 className="font-mono text-xs uppercase text-danger tracking-wider">MENU RULES</h3>
               {violations.map((v, i) => (
-                <p key={i} className="font-mono text-[10px] text-danger uppercase">{v.message}</p>
+                <p key={i} className="font-mono text-xs text-danger uppercase">{v.message}</p>
               ))}
             </div>
           )}

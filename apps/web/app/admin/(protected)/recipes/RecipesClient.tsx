@@ -9,7 +9,7 @@ import { ListBox, ListRow } from '@/components/ui/ListBox'
 import { Modal } from '@/components/ui/Modal'
 import { computeRecipeAllergens, type AllergenSource } from '@/lib/allergens'
 import { getActiveVenueId } from '@/lib/active-venue'
-import { convertLine, convertQty } from '@/lib/unit-convert'
+import { convertLine, convertQty, resolveItemKind, uomsForItem } from '@/lib/unit-convert'
 
 interface Recipe {
   id: string; name: string; yieldQty: number; yieldUnitId: string; instructions: string | null
@@ -42,6 +42,19 @@ interface OrphanMenuItem {
 }
 
   function generateId() { return crypto.randomUUID() }
+
+/** Units valid for an inventory item — its own kind plus any density/weight
+ *  bridges. Non-stock targets (recipes / pantry) are unrestricted. */
+function uomOptionsFor(uoms: Uom[], inv?: InvItem) {
+  const item = inv
+    ? {
+        kind: resolveItemKind(inv.unit, uoms),
+        densityGramsPerMl: inv.densityGramsPerMl ?? null,
+        weightPerUnitGrams: inv.weightPerUnitGrams ?? null,
+      }
+    : null
+  return uomsForItem(uoms, item).map((u) => ({ value: u.id, label: u.name }))
+}
 
 export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
   const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
@@ -453,14 +466,14 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                           const resolved = c === 'UNCATEGORISED' ? 'UNCATEGORISED' : categoryName(c)
                           const uncat = c === 'UNCATEGORISED'
                           return (
-                            <span key={c} className={`font-mono text-[8px] border px-1 shrink-0 ${uncat ? 'text-grey-light border-grey-mid' : 'text-[#c4a530] border-[#c4a530]'}`}>
+                            <span key={c} className={`font-mono text-xs border px-1 shrink-0 ${uncat ? 'text-grey-light border-grey-mid' : 'text-gold border-gold'}`}>
                               {resolved}
                             </span>
                           )
                         })
                       })()}
                     </div>
-                    <span className="block text-[10px] text-grey-light">
+                    <span className="block text-xs text-grey-light">
                       v{r.version} · {r.yieldQty} {r.yieldUnit?.name ?? ''}{r.menuItem ? ` · $${r.menuItem.price.toFixed(2)}` : ''}
                     </span>
                   </div>
@@ -468,14 +481,14 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
               ))}
               {filteredOrphans.length > 0 && filteredRecipes.length > 0 && (
                 <div className="px-3 py-1">
-                  <span className="font-mono text-[9px] text-warning uppercase">NEEDS RECIPE</span>
+                  <span className="font-mono text-xs text-warning uppercase">NEEDS RECIPE</span>
                 </div>
               )}
               {filteredOrphans.map((o) => (
                 <ListRow key={o.id} onClick={() => populateOrphan(o)}>
                   <div className="min-w-0 flex-1">
-                    <span className="block truncate font-mono text-xs uppercase text-[#c4a530]">{o.name}</span>
-                    <span className="block text-[10px] text-grey-light">IMPORTED · ${o.price.toFixed(2)}</span>
+                    <span className="block truncate font-mono text-xs uppercase text-gold">{o.name}</span>
+                    <span className="block text-xs text-grey-light">IMPORTED · ${o.price.toFixed(2)}</span>
                   </div>
                 </ListRow>
               ))}
@@ -508,7 +521,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                   <div className="col-span-1">
                     <label className="font-mono text-xs uppercase text-grey-light block mb-1">YIELD UNIT</label>
                     <Select value={formYieldUnitId} onChange={(e) => setFormYieldUnitId(e.target.value)}
-                      options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="UOM" />
+                    options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="UOM" />
                   </div>
                   <div className="col-span-1">
                     <label className="font-mono text-xs uppercase text-grey-light block mb-1">PREP (MIN)</label>
@@ -535,13 +548,13 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                       ]}
                       placeholder="SELECT MENU..."
                     />
-                    <p className="font-mono text-[9px] text-grey-light mt-1">
+                    <p className="font-mono text-xs text-grey-light mt-1">
                       THE MENU AND ITS WOO CATEGORY ARE THE SAME THING — SELECTING ONE SETS THE PRODUCT&apos;S CATEGORY.
                     </p>
                     {formWooCategories.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1">
                         {formWooCategories.map((c) => (
-                          <span key={c} className="font-mono text-[9px] text-[#c4a530] border border-[#c4a530] px-1">
+                          <span key={c} className="font-mono text-xs text-gold border border-gold px-1">
                             {categoryName(c)}
                           </span>
                         ))}
@@ -566,7 +579,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                       <div className="flex border border-grey-mid">
                         {(['VOLUME', 'WEIGHT'] as const).map((m) => (
                           <button key={m} onClick={() => setDisplayMode(m)}
-                            className={`font-mono text-[9px] uppercase px-2 py-0.5 transition-colors ${displayMode === m ? 'bg-white text-black' : 'text-grey-light hover:text-white'}`}>
+                            className={`font-mono text-xs uppercase px-2 py-0.5 transition-colors ${displayMode === m ? 'bg-white text-black' : 'text-grey-light hover:text-white'}`}>
                             {m}
                           </button>
                         ))}
@@ -589,16 +602,16 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                         return (
                           <ListRow key={cid}>
                             <span className="text-white flex-1 min-w-0 truncate font-mono text-xs uppercase">{li.inventoryItemName ?? li.childRecipeName ?? li.ingredientReferenceName ?? '—'}</span>
-                            {li.ingredientReferenceId && <span className="font-mono text-[10px] text-[#c4a530] border border-[#c4a530] px-1 shrink-0">PANTRY BIBLE</span>}
+                            {li.ingredientReferenceId && <span className="font-mono text-xs text-gold border border-gold px-1 shrink-0">PANTRY BIBLE</span>}
                             {li.allergyInfo && li.allergyInfo.split(',').map((a: string) => a.trim()).filter(Boolean).map((allergen: string) => (
-                              <span key={allergen} className="font-mono text-[8px] text-[#c4a530] border border-[#c4a530] px-1">{allergen}</span>
+                              <span key={allergen} className="font-mono text-xs text-gold border border-gold px-1">{allergen}</span>
                             ))}
                             <span className={`font-mono text-xs shrink-0 ${displayMode === 'WEIGHT' && li.inventoryItemId && !converted ? 'text-danger' : 'text-grey-light'}`}>
                               ×{li.qty} {uom?.name ?? ''}{weightReadout}
                             </span>
-                            {li.childRecipeId && <span className="font-mono text-[10px] text-warning shrink-0">SUB-RECIPE</span>}
+                            {li.childRecipeId && <span className="font-mono text-xs text-warning shrink-0">SUB-RECIPE</span>}
                             <button onClick={() => openLineEdit(li)}
-                              className="font-mono text-[10px] text-[#c4a530] border border-[#c4a530] px-1.5 py-0.5 hover:text-white hover:border-white uppercase shrink-0"
+                              className="font-mono text-xs text-gold border border-gold px-1.5 py-0.5 hover:text-white hover:border-white uppercase shrink-0"
                             >EDIT</button>
                             <button onClick={() => removeLineItem(cid)} className="font-mono text-xs text-grey-light hover:text-danger shrink-0">✕</button>
                           </ListRow>
@@ -630,7 +643,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
           footerAction={{ label: 'ADD INGREDIENT', onClick: () => setShowAddIngredient(true) }} />
                     <Input type="number" step="0.01" value={newItemQty} onChange={(e) => setNewItemQty(e.target.value)} className="w-20" />
                     <Select value={newItemUomId} onChange={(e) => setNewItemUomId(e.target.value)}
-                      options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="UOM" className="w-28" />
+                      options={uomOptionsFor(uoms, newItemType === 'inventory' ? inventoryItems.find((i) => i.id === newItemId) : undefined)} placeholder="UOM" className="w-28" />
                     <Button size="sm" onClick={addLineItem} disabled={!newItemId || !newItemUomId}>+ ADD</Button>
                   </div>
                   {newItemId && newItemUomId && newItemType === 'inventory' && (() => {
@@ -640,7 +653,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                     const converted = convertLine(parseFloat(newItemQty) || 0, uom,
                       { densityGramsPerMl: inv.densityGramsPerMl ?? null, weightPerUnitGrams: inv.weightPerUnitGrams ?? null }, 'MASS')
                     return (
-                      <p className={`font-mono text-[9px] ${converted ? 'text-grey-light' : 'text-danger'}`}>
+                      <p className={`font-mono text-xs ${converted ? 'text-grey-light' : 'text-danger'}`}>
                         {converted ? `≈ ${converted.qty} ${converted.label}${inv.densityGramsPerMl != null ? ` · ${inv.densityGramsPerMl} G/ML` : inv.weightPerUnitGrams != null ? ` · ${inv.weightPerUnitGrams} G/EA` : ''}` : 'NO DENSITY — ADD ONE IN INVENTORY'}
                       </p>
                     )
@@ -663,14 +676,14 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                       <div className="space-y-1.5">
                         {ALLERGEN_GROUPS.map((grp) => (
                           <div key={grp.label}>
-                            <div className="font-mono text-[8px] uppercase text-grey-light mb-0.5 pl-0.5">{grp.label}</div>
+                            <div className="font-mono text-xs uppercase text-grey-light mb-0.5 pl-0.5">{grp.label}</div>
                             <div className="flex flex-wrap gap-1">
                               {grp.items.filter((a) => ALLERGENS.includes(a)).map((a) => {
                                 const inh = inheritedMap.get(a as any)
                                 const selected = formDietaryInfo.includes(a)
                                 if (inh) {
                                   return (
-                                    <span key={a} onClick={() => setAllergenPopout({ allergen: a, source: inh.source })} className="inline-flex items-center gap-1 font-mono text-[9px] uppercase px-1.5 py-0.5 border cursor-pointer bg-[#c4a530]/10 text-[#c4a530] border-[#c4a530]/50 hover:border-[#c4a530]">
+                                    <span key={a} onClick={() => setAllergenPopout({ allergen: a, source: inh.source })} className="inline-flex items-center gap-1 font-mono text-xs uppercase px-1.5 py-0.5 border cursor-pointer bg-gold/10 text-gold border-gold/50 hover:border-gold">
                                       ⚿ {a}
                                     </span>
                                   )
@@ -678,7 +691,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                                 return (
                                   <button key={a} type="button"
                                     onClick={() => setFormDietaryInfo((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a])}
-                                    className={`font-mono text-[9px] uppercase px-1.5 py-0.5 border transition-colors ${selected ? 'bg-[#c4a530]/10 text-[#c4a530] border-[#c4a530]/50' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
+                                    className={`font-mono text-xs uppercase px-1.5 py-0.5 border transition-colors ${selected ? 'bg-gold/10 text-gold border-gold/50' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
                                       }`}>
                                     {selected ? '✓ ' : ''}{a}
                                   </button>
@@ -698,7 +711,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                     <input type="checkbox" checked={linkToMenu} onChange={(e) => setLinkToMenu(e.target.checked)}
                       className="bg-black border border-grey-mid accent-white" />
                     <span className="font-mono text-xs uppercase text-white">LINK TO WOO</span>
-                    {linkToMenu && <span className="font-mono text-[10px] text-grey-light">(APPEARS ON WOOCOMMERCE)</span>}
+                    {linkToMenu && <span className="font-mono text-xs text-grey-light">(APPEARS ON WOOCOMMERCE)</span>}
                   </label>
                   {linkToMenu && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -724,11 +737,11 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                           <input type="checkbox" checked={formIsVariable} onChange={(e) => { setFormIsVariable(e.target.checked); if (!e.target.checked) setFormVariations([]) }}
                             className="bg-black border border-grey-mid accent-white" />
                           <span className="font-mono text-xs uppercase text-white">VARIABLE PRODUCT</span>
-                          <span className="font-mono text-[10px] text-grey-light">(E.G. SMALL, MEDIUM, LARGE)</span>
+                          <span className="font-mono text-xs text-grey-light">(E.G. SMALL, MEDIUM, LARGE)</span>
                         </label>
                         {formIsVariable && (
                           <div className="mt-3 ml-2 border-l border-grey-mid pl-4 space-y-3">
-                            <p className="font-mono text-[10px] text-grey-light leading-relaxed">
+                            <p className="font-mono text-xs text-grey-light leading-relaxed">
                               EACH VARIATION CREATES A UNIQUE PRICE POINT ON WOOCOMMERCE.
                               THE MAIN PRICE ABOVE IS THE DEFAULT (LOWEST) PRICE.<br />
                               VARIATION PRICES ARE SYNCED BACK TO WOOCOMMERCE ON SAVE WHEN
@@ -749,7 +762,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                                 </div>
                               ))}
                               <button onClick={addVariation}
-                                className="font-mono text-[10px] uppercase text-[#60A5FA] hover:text-white">
+                                className="font-mono text-xs uppercase text-info hover:text-white">
                                 + ADD VARIATION
                               </button>
                             </div>
@@ -777,7 +790,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                             className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors">
                             {imageUploading ? 'UPLOADING_' : formImageUrl ? 'REPLACE IMAGE' : 'ADD IMAGE'}
                           </button>
-                          <span className="font-mono text-[9px] text-grey-light/50 hidden sm:inline">OR PASTE (CTRL+V)</span>
+                          <span className="font-mono text-xs text-grey-light/50 hidden sm:inline">OR PASTE (CTRL+V)</span>
                           {formImageUrl && (
                             <>
                               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -839,7 +852,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                     }
                     setEditLineUomId(next)
                   }}
-                    options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="UOM" />
+                    options={uomOptionsFor(uoms, li?.inventoryItemId ? inventoryItems.find((i) => i.id === li.inventoryItemId) : undefined)} placeholder="UOM" />
                 </div>
               </div>
               <div className="flex gap-2 pt-2">
@@ -854,12 +867,12 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
       <Modal isOpen={allergenPopout != null} onClose={() => setAllergenPopout(null)} title="ALLERGEN SOURCE" size="sm">
         {allergenPopout && (
           <div className="space-y-3">
-            <div className="border border-[#c4a530]/50 bg-[#c4a530]/10 px-3 py-2 font-mono text-sm uppercase text-[#c4a530]">
+            <div className="border border-gold/50 bg-gold/10 px-3 py-2 font-mono text-sm uppercase text-gold">
               ⚿ {allergenPopout.allergen}
             </div>
             <p className="font-mono text-xs text-grey-light">THIS ALLERGEN IS INHERITED FROM AN INGREDIENT AND CANNOT BE REMOVED.</p>
             <div className="border border-grey-mid p-3">
-              <div className="font-mono text-[10px] uppercase text-grey-light mb-1">SOURCE CHAIN</div>
+              <div className="font-mono text-xs uppercase text-grey-light mb-1">SOURCE CHAIN</div>
               <div className="font-mono text-xs text-white">{allergenPopout.source}</div>
             </div>
             <Button variant="ghost" onClick={() => setAllergenPopout(null)}>CLOSE</Button>

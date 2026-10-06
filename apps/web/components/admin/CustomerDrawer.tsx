@@ -61,7 +61,7 @@ export function CustomerDrawer({ isOpen, onClose, name, phone, email, venueId }:
               {(customer?.phone ?? phone) && <div className="font-mono text-xs text-grey-light">{customer?.phone ?? phone}</div>}
               {(customer?.email ?? email) && <div className="font-mono text-xs text-grey-light">{customer?.email ?? email}</div>}
               {customer && (
-                <div className="font-mono text-[10px] text-grey-light mt-1">
+                <div className="font-mono text-xs text-grey-light mt-1">
                   {customer.totalBookings} BOOKINGS · {customer.totalPax} PAX TOTAL
                 </div>
               )}
@@ -77,7 +77,7 @@ export function CustomerDrawer({ isOpen, onClose, name, phone, email, venueId }:
                     <div key={b.id} className="flex items-center justify-between px-3 py-2">
                       <div>
                         <span className="font-mono text-xs text-white">{String(b.date).slice(0, 10)} · {b.startTime}–{b.endTime}</span>
-                        <span className="font-mono text-[10px] text-grey-light ml-2">{b.partySize} PAX</span>
+                        <span className="font-mono text-xs text-grey-light ml-2">{b.partySize} PAX</span>
                       </div>
                       <Button size="sm" variant="ghost" onClick={() => {
                         onClose()

@@ -41,6 +41,11 @@ const UOMS = [
   { id: 'u-g', name: 'GRAM', baseUnit: 'g', conversionRatio: 1, kind: 'MASS' },
 ]
 
+const INVENTORY = [
+  { id: 'i-flour', name: 'FLOUR - 00', unit: 'KILOGRAM', densityGramsPerMl: 0.528, weightPerUnitGrams: null },
+  { id: 'i-eggs', name: 'EGGS', unit: 'EACH', densityGramsPerMl: null, weightPerUnitGrams: 50 },
+]
+
 function mockFetch() {
   vi.spyOn(global, 'fetch').mockImplementation((input: RequestInfo | URL) => {
     const url = String(input)
@@ -51,7 +56,7 @@ function mockFetch() {
       if (url.includes('/api/admin/menus')) return []
       if (url.includes('/api/admin/woocommerce/categories')) return { categories: [] }
       if (url.includes('/api/admin/menu-items')) return []
-      if (url.includes('/api/admin/inventory')) return []
+      if (url.includes('/api/admin/inventory')) return INVENTORY
       return []
     }
     return Promise.resolve({ ok: true, json } as Response)
@@ -93,5 +98,21 @@ describe('RecipesClient — volume/weight display mode', () => {
     fireEvent.click(screen.getByRole('button', { name: 'WEIGHT' }))
     fireEvent.click(screen.getByRole('button', { name: 'VOLUME' }))
     expect(screen.getByText('×2 CUP')).toBeTruthy()
+  })
+
+  it('filters the line unit list to the ingredient\u2019s kind plus its bridges', async () => {
+    await openRecipe()
+    // Second line is EGGS — an EACH item with a 50 g unit weight.
+    fireEvent.click(screen.getAllByText('EDIT')[1])
+    await waitFor(() => expect(screen.getByText('EDIT INGREDIENT')).toBeTruthy())
+
+    const select = [...document.querySelectorAll('select')].find(
+      (s) => (s as HTMLSelectElement).value === 'u-ea',
+    ) as HTMLSelectElement
+    expect(select).toBeTruthy()
+    const values = [...select.options].map((o) => o.value)
+    expect(values).toContain('u-ea') // EACH — the item's own kind
+    expect(values).toContain('u-g') // GRAM — allowed via the 50 g unit weight
+    expect(values).not.toContain('u-cup') // CUP — a COUNT item can't be measured by volume here
   })
 })

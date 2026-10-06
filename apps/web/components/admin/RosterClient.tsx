@@ -335,11 +335,11 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
 
       {/* Availability legend */}
       <div className="flex flex-wrap items-center gap-4">
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-danger bg-danger/20" /><span className="font-mono text-[10px] uppercase text-grey-light">Unavailable</span></span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-success bg-success/20" /><span className="font-mono text-[10px] uppercase text-grey-light">Preferred</span></span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-warning bg-warning/20" /><span className="font-mono text-[10px] uppercase text-grey-light">Unset (casual)</span></span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-grey-mid bg-danger/5" /><span className="font-mono text-[10px] uppercase text-grey-light">Time off</span></span>
-        <span className="font-mono text-[10px] uppercase text-grey-light">HOVER A BADGE FOR THE WINDOW · ASSIGNING UNAVAILABLE ASKS TO CONFIRM</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-danger bg-danger/20" /><span className="font-mono text-2xs uppercase text-grey-light">Unavailable</span></span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-success bg-success/20" /><span className="font-mono text-2xs uppercase text-grey-light">Preferred</span></span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-warning bg-warning/20" /><span className="font-mono text-2xs uppercase text-grey-light">Unset (casual)</span></span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-grey-mid bg-danger/5" /><span className="font-mono text-2xs uppercase text-grey-light">Time off</span></span>
+        <span className="font-mono text-2xs uppercase text-grey-light">HOVER A BADGE FOR THE WINDOW · ASSIGNING UNAVAILABLE ASKS TO CONFIRM</span>
       </div>
 
       {/* Grid */}
@@ -349,11 +349,11 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
         <div className={`border ${GRID_LINE} overflow-auto max-h-[70vh]`}>
           <div className="grid" style={{ gridTemplateColumns: `220px repeat(${weekDays.length}, minmax(140px, 1fr))`, minWidth: 220 + weekDays.length * 140 }}>
             {/* Header row */}
-            <div className={`sticky top-0 left-0 z-20 bg-black border-b-2 border-r ${GRID_LINE} font-mono text-[10px] uppercase text-white ${compact ? 'px-2 py-1' : 'px-3 py-2'}`}>TEAM</div>
+            <div className={`sticky top-0 left-0 z-20 bg-black border-b-2 border-r ${GRID_LINE} font-mono text-2xs uppercase text-white ${compact ? 'px-2 py-1' : 'px-3 py-2'}`}>TEAM</div>
             {weekDays.map((d, di) => (
               <div key={d} className={`sticky top-0 z-10 bg-black border-b-2 border-r ${GRID_LINE} ${compact ? 'px-2 py-1' : 'px-3 py-2'} ${d === todayKey ? 'border-l-2 border-l-accent' : ''}`}>
-                <div className="font-mono text-[10px] uppercase text-white">{WEEKDAY[di]} {parseDay(d).getUTCDate()}</div>
-                {d === todayKey && <div className="font-mono text-[9px] uppercase text-accent">TODAY</div>}
+                <div className="font-mono text-2xs uppercase text-white">{WEEKDAY[di]} {parseDay(d).getUTCDate()}</div>
+                {d === todayKey && <div className="font-mono text-2xs uppercase text-accent">TODAY</div>}
               </div>
             ))}
 
@@ -363,14 +363,14 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
                 <div key={s.id} className="contents">
                   {/* Staff cell — sticky left */}
                   <div className={`sticky left-0 z-10 bg-grey-dark border-b border-r ${GRID_LINE} ${compact ? 'px-2 py-1' : 'px-3 py-2'}`}>
-                    <button onClick={() => openModal(s.id, weekDays[0])} className={`font-mono text-accent hover:text-white underline decoration-dotted underline-offset-2 ${compact ? 'text-[11px]' : 'text-xs'}`}>
+                    <button onClick={() => openModal(s.id, weekDays[0])} className={`font-mono text-accent hover:text-white underline decoration-dotted underline-offset-2 ${compact ? 'text-2xs' : 'text-xs'}`}>
                       {idx + 1} — {s.firstName} {s.lastName}
                     </button>
-                    <div className="font-mono text-[10px] text-grey-light mt-0.5">
+                    <div className="font-mono text-2xs text-grey-light mt-0.5">
                       {t ? `${t.hours.toFixed(2)}HRS / $${t.cost.toFixed(2)}` : '0HRS / $0.00'}
                     </div>
                     {s.positions.length > 0 && (
-                      <div className="font-mono text-[9px] text-grey-light mt-0.5 truncate">{s.positions.map((p) => p.name).join(' · ')}</div>
+                      <div className="font-mono text-2xs text-grey-light mt-0.5 truncate">{s.positions.map((p) => p.name).join(' · ')}</div>
                     )}
                   </div>
                   {weekDays.map((d) => {
@@ -387,7 +387,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
                         {showBadge && (
                           <div className="absolute top-0.5 right-0.5 z-0 pointer-events-none">
                             <span
-                              className={`font-mono text-[7px] uppercase px-1 border ${meta.badge}`}
+                              className={`font-mono text-2xs uppercase px-1 border ${meta.badge}`}
                               title={avail
                                 ? `${meta.label} · ${avail.isAllDay ? 'ALL DAY' : `${avail.startTime}–${avail.endTime}`}${avail.notes ? ` · ${avail.notes}` : ''}`
                                 : 'NO PREFERENCE LOGGED'}>
@@ -397,7 +397,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
                         )}
                         {blocked && (
                           <div className="absolute inset-0 flex items-center justify-center z-0 pointer-events-none">
-                            <span className="font-mono text-[9px] uppercase text-danger tracking-widest bg-black/60 px-2 py-0.5">TIME OFF</span>
+                            <span className="font-mono text-2xs uppercase text-danger tracking-widest bg-black/60 px-2 py-0.5">TIME OFF</span>
                           </div>
                         )}
                         <div className="space-y-1 relative z-10">
@@ -406,11 +406,11 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
                               onClick={(e) => { e.stopPropagation(); openModal(s.id, d, sh) }}
                               className={`${compact ? 'px-1.5 py-0.5' : 'px-2 py-1'} cursor-pointer hover:opacity-80 transition-opacity`}
                               style={{ backgroundColor: colourForShift(sh) }}>
-                              <div className="font-mono text-[10px] font-bold text-white leading-tight">{sh.startTime} — {sh.endTime}</div>
-                              <div className="font-mono text-[9px] text-white/90 leading-tight truncate">
+                              <div className="font-mono text-2xs font-bold text-white leading-tight">{sh.startTime} — {sh.endTime}</div>
+                              <div className="font-mono text-2xs text-white/90 leading-tight truncate">
                                 {sh.tag ?? sh.positionName ?? 'SHIFT'}{sh.breakMinutes ? ` · ${sh.breakMinutes}M BRK` : ''}
                               </div>
-                              {sh.status === 'DRAFT' && <div className="font-mono text-[8px] uppercase text-black/60 mt-0.5">DRAFT</div>}
+                              {sh.status === 'DRAFT' && <div className="font-mono text-2xs uppercase text-black/60 mt-0.5">DRAFT</div>}
                             </div>
                           ))}
                         </div>
@@ -440,7 +440,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
             { label: 'TOTAL PAID HOURS', value: totals.summary.totalPaidHours.toFixed(2) },
           ].map((x) => (
             <div key={x.label} className="border border-grey-mid p-3">
-              <div className="font-mono text-[10px] uppercase text-grey-light tracking-wider mb-1">{x.label}</div>
+              <div className="font-mono text-2xs uppercase text-grey-light tracking-wider mb-1">{x.label}</div>
               <div className="font-mono text-sm font-bold text-white">{x.value}</div>
             </div>
           ))}
@@ -496,11 +496,11 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
                 <div key={p.name} className="flex items-center justify-between border border-grey-mid px-3 py-2">
                   <div>
                     <div className="font-mono text-xs text-white">{p.name}</div>
-                    <div className="font-mono text-[10px] text-grey-light">{p.count} SHIFT{p.count !== 1 ? 'S' : ''}</div>
+                    <div className="font-mono text-2xs text-grey-light">{p.count} SHIFT{p.count !== 1 ? 'S' : ''}</div>
                   </div>
                   <div className="text-right">
                     <div className="font-mono text-xs text-white">{p.hours.toFixed(2)}HRS</div>
-                    <div className="font-mono text-[10px] text-grey-light">${p.cost.toFixed(2)}</div>
+                    <div className="font-mono text-2xs text-grey-light">${p.cost.toFixed(2)}</div>
                   </div>
                 </div>
               ))}

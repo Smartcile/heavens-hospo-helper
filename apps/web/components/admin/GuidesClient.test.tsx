@@ -80,6 +80,41 @@ function mockFetchWithFolders() {
   }) as unknown as typeof fetch
 }
 
+// A venue with one menu ("TAP BEER") holding two products.
+function mockFetchWithMenu() {
+  return vi.fn((url: string) => {
+    const json = (data: unknown) => Promise.resolve({
+      ok: true, status: 200,
+      json: () => Promise.resolve(data),
+      blob: () => Promise.resolve(new Blob(['pdf'], { type: 'application/pdf' })),
+      headers: { get: () => null },
+    })
+    const u = String(url)
+    if (u.startsWith('/api/admin/guides/link-targets')) {
+      return json({
+        ITEM: [], TASK: [], CHECKLIST: [], GUIDE: [], SECTION: [], RECIPE: [],
+        MENU_ITEM: [
+          { value: 'p1', label: 'ASAHI — $16.50', name: 'ASAHI', price: 16.5, description: null, imageUrl: null, dietaryInfo: null },
+          { value: 'p2', label: 'PERONI — $16.50', name: 'PERONI', price: 16.5, description: null, imageUrl: null, dietaryInfo: null },
+        ],
+        MENU: [{ value: 'menu1', label: 'TAP BEER', itemIds: ['p1', 'p2'] }],
+      })
+    }
+    if (u.startsWith('/api/admin/guides?') || u === '/api/admin/guides') return json(GUIDES)
+    if (u.startsWith('/api/admin/positions')) return json([])
+    if (u.startsWith('/api/admin/departments')) return json([])
+    if (u.startsWith('/api/admin/tasks')) return json([])
+    if (u.startsWith('/api/admin/venues')) return json([{ id: 'v1', name: 'DEMO VENUE — AUCKLAND' }])
+    return json(null)
+  }) as unknown as typeof fetch
+}
+
+function selectWithOptionValue(value: string): HTMLSelectElement | undefined {
+  return [...document.querySelectorAll('select')].find((s) =>
+    [...s.options].some((o) => o.value === value),
+  ) as HTMLSelectElement | undefined
+}
+
 describe('GuidesClient', () => {
   beforeEach(() => { globalThis.fetch = mockFetch() })
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
@@ -136,5 +171,28 @@ describe('GuidesClient', () => {
     fireEvent.click(screen.getByText(/WINE/))
     await waitFor(() => expect(screen.queryByText('FOOD SAFETY BASICS')).toBeNull())
     expect(screen.getByText('HOW TO READ THE FRIDGE TEMP LOG')).toBeTruthy()
+  })
+
+  it('pulls a menu\'s products into the reference table on SYNC FROM MENU', async () => {
+    globalThis.fetch = mockFetchWithMenu()
+    render(<GuidesClient role="ADMIN" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FOOD SAFETY BASICS')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('+ NEW GUIDE'))
+
+    // Switch the guide type to PRODUCT_REFERENCE (seeds the default columns).
+    const typeSelect = selectWithOptionValue('PRODUCT_REFERENCE')!
+    fireEvent.change(typeSelect, { target: { value: 'PRODUCT_REFERENCE' } })
+
+    // The source menu arrives with the link-targets payload.
+    await waitFor(() => expect(selectWithOptionValue('menu1')).toBeTruthy())
+    fireEvent.change(selectWithOptionValue('menu1')!, { target: { value: 'menu1' } })
+
+    fireEvent.click(screen.getByText('↻ SYNC FROM MENU'))
+
+    // Both menu products become rows, drawn from the linked product.
+    await waitFor(() => expect(screen.getByText('Items (2)')).toBeTruthy())
+    expect(screen.getByText('ASAHI')).toBeTruthy()
+    expect(screen.getByText('PERONI')).toBeTruthy()
   })
 })

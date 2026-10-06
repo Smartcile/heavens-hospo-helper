@@ -236,7 +236,7 @@ function GuidesInner() {
           <div className="px-4 pb-1">
             <div className="font-mono text-xs uppercase text-white">{pathway.name}</div>
             {pathway.progress.nextLevelAt !== null && (
-              <div className="font-mono text-[10px] uppercase text-grey-light">
+              <div className="font-mono text-xs uppercase text-grey-light">
                 {Math.max(0, pathway.progress.nextLevelAt - pathway.progress.earnedPoints)} PTS TO LEVEL {pathway.progress.level + 1}
               </div>
             )}
@@ -271,7 +271,7 @@ function GuidesInner() {
         ))}
         {reference.length > 0 && (
           <div className="pt-2">
-            <div className="font-mono text-[10px] uppercase text-grey-light tracking-widest pb-1.5">REFERENCE — READ ANY TIME</div>
+            <div className="font-mono text-xs uppercase text-grey-light tracking-widest pb-1.5">REFERENCE — READ ANY TIME</div>
             {reference.map((it) => (
               <button key={it.id} onClick={() => setActive(it)} className="w-full text-left bg-grey-dark border border-grey-mid/60 p-4 hover:border-white transition-colors active:bg-black">
                 <div className="flex items-start gap-3">

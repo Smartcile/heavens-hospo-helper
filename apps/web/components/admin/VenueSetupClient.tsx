@@ -80,7 +80,7 @@ export function VenueSetupClient({
         <div className="border border-grey-mid p-4 space-y-3">
           <div>
             <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">VENUES</h3>
-            <p className="font-mono text-[10px] uppercase text-grey-light mt-0.5">
+            <p className="font-mono text-xs uppercase text-grey-light mt-0.5">
               CREATE A VENUE OR REMOVE A TEST ONE (SOFT DELETE — HIDDEN EVERYWHERE).
             </p>
           </div>
@@ -92,7 +92,7 @@ export function VenueSetupClient({
                 <div key={v.id} className="flex items-center justify-between gap-2 px-3 py-2">
                   <span className="font-mono text-xs uppercase text-white">
                     {v.name}
-                    {!v.isActive && <span className="font-mono text-[10px] text-danger ml-2">INACTIVE</span>}
+                    {!v.isActive && <span className="font-mono text-xs text-danger ml-2">INACTIVE</span>}
                   </span>
                   <button
                     onClick={() => removeVenue(v)}

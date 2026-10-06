@@ -39,7 +39,7 @@ export function GuideStepLinks({ links }: { links: ResolvedStepLink[] }) {
             )}
             <div className="min-w-0 flex-1">
               <div
-                className="font-mono text-[9px] uppercase tracking-widest"
+                className="font-mono text-xs uppercase tracking-widest"
                 style={{ color: l.target.missing ? '#F87171' : accent }}
               >
                 {STEP_LINK_LABEL[l.kind]}
@@ -53,7 +53,7 @@ export function GuideStepLinks({ links }: { links: ResolvedStepLink[] }) {
                 {l.target.label}
               </div>
               {(l.note || l.target.sub) && (
-                <div className="font-mono text-[10px] uppercase text-grey-light truncate">
+                <div className="font-mono text-xs uppercase text-grey-light truncate">
                   {l.note || l.target.sub}
                 </div>
               )}

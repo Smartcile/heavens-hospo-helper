@@ -22,7 +22,7 @@ type DateMode = 'DAY' | 'WEEK' | 'MONTH' | 'CUSTOM'
 const MODES: DateMode[] = ['DAY', 'WEEK', 'MONTH', 'CUSTOM']
 const WEEKDAY_ABBR = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']
 
-const NAV_LINK = 'font-mono text-[10px] uppercase tracking-wider text-grey-light hover:text-white'
+const NAV_LINK = 'font-mono text-2xs uppercase tracking-wider text-grey-light hover:text-white'
 
 interface DateNavProps {
   date: string
@@ -140,10 +140,10 @@ export function DateNav({ date, range, onChange }: DateNavProps) {
   ]
 
   function cellClass(key: string, inMonth: boolean): string {
-    const base = 'w-7 h-7 flex items-center justify-center font-mono text-[10px]'
+    const base = 'w-7 h-7 flex items-center justify-center font-mono text-2xs'
     if (!inMonth) return `${base} text-transparent`
-    if (key === start || key === end) return `${base} bg-[#60A5FA] text-black font-bold`
-    if (start && end && key > start && key < end) return `${base} bg-[#60A5FA]/25 text-white`
+    if (key === start || key === end) return `${base} bg-info text-black font-bold`
+    if (start && end && key > start && key < end) return `${base} bg-info/25 text-white`
     return `${base} text-grey-light hover:text-white`
   }
 
@@ -203,7 +203,7 @@ export function DateNav({ date, range, onChange }: DateNavProps) {
                   <div key={`${m.year}-${m.month}`} className="shrink-0">
                     <div className="mb-1 grid grid-cols-7">
                       {WEEKDAY_ABBR.map((w) => (
-                        <div key={w} className="w-7 text-center font-mono text-[9px] text-grey-light">
+                        <div key={w} className="w-7 text-center font-mono text-2xs text-grey-light">
                           {w}
                         </div>
                       ))}
@@ -231,13 +231,13 @@ export function DateNav({ date, range, onChange }: DateNavProps) {
             {/* Right: mode + selection display */}
             <div className="w-72 shrink-0 space-y-4 border-l border-grey-mid pl-5">
               <div>
-                <div className="mb-1 font-mono text-[10px] uppercase text-grey-light">SELECT</div>
+                <div className="mb-1 font-mono text-2xs uppercase text-grey-light">SELECT</div>
                 <div className="flex border border-grey-mid">
                   {MODES.map((m) => (
                     <button
                       key={m}
                       onClick={() => switchMode(m)}
-                      className={`flex-1 px-2 py-1.5 font-mono text-[10px] uppercase tracking-wider ${
+                      className={`flex-1 px-2 py-1.5 font-mono text-2xs uppercase tracking-wider ${
                         mode === m ? 'bg-white text-black' : 'text-grey-light hover:text-white'
                       }`}
                     >
@@ -247,19 +247,19 @@ export function DateNav({ date, range, onChange }: DateNavProps) {
                 </div>
               </div>
               <div>
-                <div className="mb-1 font-mono text-[10px] uppercase text-grey-light">START DATE</div>
+                <div className="mb-1 font-mono text-2xs uppercase text-grey-light">START DATE</div>
                 <div className="border border-grey-mid bg-grey-dark/40 px-2 py-1.5 font-mono text-xs text-white">
                   {start ? formatDateShort(start) : '—'}
                 </div>
               </div>
               <div>
-                <div className="mb-1 font-mono text-[10px] uppercase text-grey-light">END DATE</div>
+                <div className="mb-1 font-mono text-2xs uppercase text-grey-light">END DATE</div>
                 <div className="border border-grey-mid bg-grey-dark/40 px-2 py-1.5 font-mono text-xs text-white">
                   {end ? formatDateShort(end) : '—'}
                 </div>
               </div>
               <div>
-                <div className="mb-1 font-mono text-[10px] uppercase text-grey-light">TIME</div>
+                <div className="mb-1 font-mono text-2xs uppercase text-grey-light">TIME</div>
                 <div className="flex gap-2">
                   <div className="flex-1 border border-grey-mid bg-grey-dark/40 px-2 py-1.5 font-mono text-xs text-grey-light">
                     {DEFAULT_BUSINESS_HOURS.start}
@@ -281,7 +281,7 @@ export function DateNav({ date, range, onChange }: DateNavProps) {
             </button>
             <button
               onClick={apply}
-              className="border border-[#60A5FA] bg-[#60A5FA] px-4 py-1.5 font-mono text-xs font-semibold uppercase tracking-wider text-black hover:bg-[#93C5FD]"
+              className="border border-info bg-info px-4 py-1.5 font-mono text-xs font-semibold uppercase tracking-wider text-black hover:bg-info/80"
             >
               APPLY
             </button>

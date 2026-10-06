@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { ThemeToggle } from '@/components/ui/ThemeToggle'
 
 interface Props {
   firstName: string
@@ -145,12 +146,15 @@ export function WorkerHamburgerMenu({ firstName }: Props) {
           {/* Header bar */}
           <div className="flex items-center justify-between px-4 py-4 border-b border-grey-mid">
             <span className="font-mono text-xs text-grey-light uppercase">{firstName}</span>
-            <button
-              onClick={() => setOpen(false)}
-              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
-            >
-              CLOSE ✕
-            </button>
+            <div className="flex items-center gap-3">
+              <ThemeToggle />
+              <button
+                onClick={() => setOpen(false)}
+                className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+              >
+                CLOSE ✕
+              </button>
+            </div>
           </div>
 
           {/* Grid of blocks */}
@@ -172,7 +176,7 @@ export function WorkerHamburgerMenu({ firstName }: Props) {
                   )}
                 </div>
                 <span className="font-mono text-sm font-bold uppercase text-white">{item.label}</span>
-                <span className="font-mono text-[10px] uppercase text-grey-light">{item.sub}</span>
+                <span className="font-mono text-xs uppercase text-grey-light">{item.sub}</span>
               </button>
             ))}
           </div>

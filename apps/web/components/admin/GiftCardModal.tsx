@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { Panel } from '@/components/ui/Panel'
 
 // Gift card popup: click any card in the list. Left = the card itself (edit
 // details, status actions, private notes, PDF/email); right = the
@@ -80,8 +81,8 @@ interface CardDetail {
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'text-grey-light',
-  ISSUED: 'text-[#60A5FA]',
-  SENT: 'text-[#FACC15]',
+  ISSUED: 'text-info',
+  SENT: 'text-warning',
   REDEEMED: 'text-success',
   VOIDED: 'text-danger',
   EXPIRED: 'text-danger',
@@ -326,14 +327,14 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
   if (!detail && !loadError) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
-        <div className="border border-grey-mid bg-grey-dark p-6"><p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p></div>
+        <Panel padding="xl"><p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p></Panel>
       </div>
     )
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
-      <div className="border border-grey-mid bg-grey-dark p-5 w-full max-w-6xl space-y-3 max-h-[94vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+      <Panel padding="lg" className="w-full max-w-6xl space-y-3 max-h-[94vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-3 min-w-0">
@@ -342,37 +343,37 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
               {card?.status ?? '—'}
             </span>
             {order && (
-              <span className="font-mono text-[10px] uppercase text-[#60A5FA] border border-[#60A5FA]/50 px-1.5 py-0.5">WOO ORDER #{order.orderNumber ?? order.wooOrderId}</span>
+              <span className="font-mono text-xs uppercase text-info border border-info/50 px-1.5 py-0.5">WOO ORDER #{order.orderNumber ?? order.wooOrderId}</span>
             )}
           </div>
           {loadError && <span className="font-mono text-xs text-danger">{loadError}</span>}
-          <button onClick={onClose} className="font-mono text-[10px] uppercase text-grey-light hover:text-white px-2 py-1 shrink-0">CLOSE</button>
+          <button onClick={onClose} className="font-mono text-xs uppercase text-grey-light hover:text-white px-2 py-1 shrink-0">CLOSE</button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0 flex-1 overflow-hidden">
           {/* Left — card details, statuses, notes */}
           <div className="space-y-3 overflow-y-auto pr-1">
-            <div className="border border-grey-mid p-3 space-y-2">
-              <p className="font-mono text-[10px] uppercase text-grey-light tracking-wider">CARD DETAILS</p>
+            <Panel padding="md" variant="outline">
+              <p className="font-mono text-xs uppercase text-grey-light tracking-wider">CARD DETAILS</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <div>
-                  <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">CUSTOMER NAME</label>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">CUSTOMER NAME</label>
                   <Input value={draft.customerName} onChange={(e) => setDraft({ ...draft, customerName: e.target.value })} placeholder="CUSTOMER NAME" />
                 </div>
                 <div>
-                  <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">CUSTOMER EMAIL</label>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">CUSTOMER EMAIL</label>
                   <Input value={draft.customerEmail} onChange={(e) => setDraft({ ...draft, customerEmail: e.target.value })} placeholder="email@example.com" />
                 </div>
                 <div>
-                  <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">AMOUNT ($)</label>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">AMOUNT ($)</label>
                   <Input type="number" value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} placeholder="0.00" className="text-right" />
                 </div>
                 <div>
-                  <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">MESSAGE</label>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">MESSAGE</label>
                   <Input value={draft.message} onChange={(e) => setDraft({ ...draft, message: e.target.value })} placeholder="Something special just for you..." />
                 </div>
               </div>
-              {card?.isInternal && <p className="font-mono text-[10px] text-[#FACC15]">INTERNAL — PRINT LATER</p>}
+              {card?.isInternal && <p className="font-mono text-xs text-warning">INTERNAL — PRINT LATER</p>}
               <div className="flex items-center gap-2 flex-wrap">
                 <Button size="sm" onClick={saveDetails} disabled={saving}>{saving ? 'SAVING' : 'SAVE DETAILS'}</Button>
                 {card?.status === 'DRAFT' && (
@@ -400,12 +401,12 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                   <Button size="sm" variant="danger" onClick={deleteCard} disabled={saving}>DELETE</Button>
                 )}
               </div>
-              {message && <p className="font-mono text-[10px] text-success">{message}</p>}
-              {error && <p className="font-mono text-[10px] text-danger">{error}</p>}
-            </div>
+              {message && <p className="font-mono text-xs text-success">{message}</p>}
+              {error && <p className="font-mono text-xs text-danger">{error}</p>}
+            </Panel>
 
-            <div className="border border-grey-mid p-3 space-y-2">
-              <p className="font-mono text-[10px] uppercase text-grey-light tracking-wider">PRIVATE NOTES <span className="text-grey-light/50">(SAVED WITH DETAILS — LOGGED TO HISTORY)</span></p>
+            <Panel padding="md" variant="outline">
+              <p className="font-mono text-xs uppercase text-grey-light tracking-wider">PRIVATE NOTES <span className="text-grey-light/50">(SAVED WITH DETAILS — LOGGED TO HISTORY)</span></p>
               <textarea
                 value={draft.notes}
                 onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
@@ -413,18 +414,18 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                 placeholder="INTERNAL NOTES — NOT SHOWN TO THE CUSTOMER"
                 className="bg-black border border-grey-mid text-white font-sans text-sm px-3 py-2 w-full outline-none focus:border-white transition-colors placeholder:text-grey-light resize-none"
               />
-            </div>
+            </Panel>
 
             {/* Status jump */}
-            <div className="border border-grey-mid p-3 space-y-2">
-              <p className="font-mono text-[10px] uppercase text-grey-light tracking-wider">STATUS — SET DIRECTLY</p>
+            <Panel padding="md" variant="outline">
+              <p className="font-mono text-xs uppercase text-grey-light tracking-wider">STATUS — SET DIRECTLY</p>
               <div className="flex items-center gap-1 flex-wrap">
                 {['DRAFT', 'ISSUED', 'SENT', 'REDEEMED', 'VOIDED', 'EXPIRED'].map((s) => (
                   <button
                     key={s}
                     onClick={() => setStatus(s)}
                     disabled={saving || s === card?.status}
-                    className={`font-mono text-[10px] uppercase border px-2 py-1 transition-colors disabled:opacity-40 ${
+                    className={`font-mono text-xs uppercase border px-2 py-1 transition-colors disabled:opacity-40 ${
                       s === card?.status
                         ? 'border-white text-white'
                         : s === 'VOIDED' || s === 'EXPIRED'
@@ -438,18 +439,18 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                   </button>
                 ))}
               </div>
-            </div>
+            </Panel>
           </div>
 
           {/* Right — order */}
           <div className="space-y-3 overflow-y-auto pr-1">
-            <div className="border border-grey-mid p-3 space-y-2">
-              <p className="font-mono text-[10px] uppercase text-grey-light tracking-wider">WOOCOMMERCE ORDER</p>
+            <Panel padding="md" variant="outline">
+              <p className="font-mono text-xs uppercase text-grey-light tracking-wider">WOOCOMMERCE ORDER</p>
               {!card?.wooOrderId && !order && (
-                <p className="font-mono text-[10px] text-grey-light uppercase">NO LINKED ORDER — INTERNAL CARD (CREATED IN THE APP)</p>
+                <p className="font-mono text-xs text-grey-light uppercase">NO LINKED ORDER — INTERNAL CARD (CREATED IN THE APP)</p>
               )}
               {card?.wooOrderId && !order && (
-                <p className="font-mono text-[10px] text-[#FACC15] uppercase">ORDER NOT FOUND — THE LINKED STORE ORDER IS MISSING OR DELETED</p>
+                <p className="font-mono text-xs text-warning uppercase">ORDER NOT FOUND — THE LINKED STORE ORDER IS MISSING OR DELETED</p>
               )}
               {order && (
                 <>
@@ -468,12 +469,12 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                     <DetailRow label="CREATED" value={fmt(order.createdAt)} />
                   </div>
                   {order.notes && (
-                    <p className="font-mono text-[10px] text-grey-light border-t border-grey-mid pt-2">ORDER NOTE: {order.notes}</p>
+                    <p className="font-mono text-xs text-grey-light border-t border-grey-mid pt-2">ORDER NOTE: {order.notes}</p>
                   )}
                   <div className="border-t border-grey-mid pt-2 space-y-1">
-                    {order.items.length === 0 && <p className="font-mono text-[10px] text-grey-light">NO LINE ITEMS</p>}
+                    {order.items.length === 0 && <p className="font-mono text-xs text-grey-light">NO LINE ITEMS</p>}
                     {order.items.map((it) => (
-                      <div key={it.id} className="flex items-center gap-2 text-[10px]">
+                      <div key={it.id} className="flex items-center gap-2 text-xs">
                         <span className="font-mono text-white truncate min-w-0 flex-1">{it.productName ?? 'ITEM'}</span>
                         <span className="font-mono text-grey-light shrink-0">×{it.qty ?? 1}</span>
                         <span className="font-mono text-grey-light shrink-0">{it.unitPrice != null ? `$${(it.unitPrice ?? 0).toFixed(2)}` : ''}</span>
@@ -483,62 +484,62 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                   </div>
                 </>
               )}
-            </div>
+            </Panel>
 
             {/* History — every row is labelled with WHO did it */}
-            <div className="border border-grey-mid p-3 space-y-2">
-              <p className="font-mono text-[10px] uppercase text-grey-light tracking-wider">
+            <Panel padding="md" variant="outline">
+              <p className="font-mono text-xs uppercase text-grey-light tracking-wider">
                 HISTORY — EVERYTHING THAT TOUCHED THIS CARD &amp; ITS ORDER <span className="text-grey-light/50">(NEWEST FIRST)</span>
               </p>
-              {timeline.length === 0 && <p className="font-mono text-[10px] text-grey-light">NO ACTIVITY YET</p>}
+              {timeline.length === 0 && <p className="font-mono text-xs text-grey-light">NO ACTIVITY YET</p>}
               <div className="space-y-1.5 max-h-[38vh] overflow-y-auto pr-1">
                 {timeline.map((t, i) => (
-                  <div key={`${t.at}-${i}`} className="border border-grey-mid/60 px-2 py-1.5 space-y-0.5">
+                  <Panel key={`${t.at}-${i}`} variant="outline" padding="none" className="border-grey-mid/60 px-2 py-1.5 space-y-0.5">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-[10px] text-grey-light/70">{fmt(t.at)}</span>
+                      <span className="font-mono text-xs text-grey-light/70">{fmt(t.at)}</span>
                       <span
-                        className={`font-mono text-[9px] uppercase border px-1 py-0.5 shrink-0 ${
+                        className={`font-mono text-xs uppercase border px-1 py-0.5 shrink-0 ${
                           t.origin === 'card'
                             ? 'border-white/40 text-white'
                             : t.origin === 'orderapp'
                               ? 'border-success/60 text-success'
-                              : 'border-[#60A5FA]/60 text-[#60A5FA]'
+                              : 'border-info/60 text-info'
                         }`}
                       >
                         {t.origin === 'card' ? 'CARD · APP' : t.origin === 'orderapp' ? 'ORDER · APP' : 'ORDER · STORE'}
                       </span>
                       <span
-                        className={`font-mono text-[9px] uppercase shrink-0 ${
-                          t.origin === 'orderstore' ? 'text-[#60A5FA]' : t.origin === 'orderapp' ? 'text-success' : 'text-grey-light'
+                        className={`font-mono text-xs uppercase shrink-0 ${
+                          t.origin === 'orderstore' ? 'text-info' : t.origin === 'orderapp' ? 'text-success' : 'text-grey-light'
                         }`}
                       >
                         {t.title}
                       </span>
                     </div>
-                    <p className="font-sans text-[11px] text-white/90 break-words">{t.note}</p>
-                  </div>
+                    <p className="font-sans text-xs text-white/90 break-words">{t.note}</p>
+                  </Panel>
                 ))}
               </div>
-            </div>
+            </Panel>
           </div>
         </div>
 
         {/* Send email popup */}
         {sendOpen && card && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70" onClick={() => setSendOpen(false)}>
-            <div className="border border-grey-mid bg-grey-dark p-5 w-full max-w-lg space-y-3 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <Panel padding="lg" className="w-full max-w-lg space-y-3 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
               <h3 className="font-mono text-sm uppercase tracking-widest text-white">SEND GIFT CARD — {card.number}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <div className="md:col-span-2">
-                  <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">TO</label>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">TO</label>
                   <Input value={draft.customerEmail} onChange={(e) => setDraft({ ...draft, customerEmail: e.target.value })} placeholder="recipient@example.com" />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">SUBJECT</label>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">SUBJECT</label>
                   <Input value={emailDraft.subject} onChange={(e) => setEmailDraft({ ...emailDraft, subject: e.target.value })} placeholder={`Your Gift Card - ${card.number}`} />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">BODY</label>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">BODY</label>
                   <textarea
                     value={emailDraft.body}
                     onChange={(e) => setEmailDraft({ ...emailDraft, body: e.target.value })}
@@ -549,26 +550,26 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                 </div>
               </div>
               <div className="border-t border-grey-mid pt-2">
-                <p className="font-mono text-[10px] uppercase text-grey-light tracking-wider mb-2">SMTP CONFIGURATION</p>
+                <p className="font-mono text-xs uppercase text-grey-light tracking-wider mb-2">SMTP CONFIGURATION</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   <div>
-                    <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">HOST</label>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">HOST</label>
                     <Input value={emailDraft.smtpHost} onChange={(e) => setEmailDraft({ ...emailDraft, smtpHost: e.target.value })} placeholder="smtp.example.com" />
                   </div>
                   <div>
-                    <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">PORT</label>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">PORT</label>
                     <Input value={emailDraft.smtpPort} onChange={(e) => setEmailDraft({ ...emailDraft, smtpPort: e.target.value })} className="text-right" />
                   </div>
                   <div>
-                    <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">USER</label>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">USER</label>
                     <Input value={emailDraft.smtpUser} onChange={(e) => setEmailDraft({ ...emailDraft, smtpUser: e.target.value })} />
                   </div>
                   <div>
-                    <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">PASSWORD</label>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">PASSWORD</label>
                     <Input type="password" value={emailDraft.smtpPass} onChange={(e) => setEmailDraft({ ...emailDraft, smtpPass: e.target.value })} />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">FROM</label>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">FROM</label>
                     <Input value={emailDraft.smtpFrom} onChange={(e) => setEmailDraft({ ...emailDraft, smtpFrom: e.target.value })} placeholder="noreply@yourvenue.co.nz" />
                   </div>
                 </div>
@@ -577,39 +578,39 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                 <Button size="sm" onClick={sendEmail} disabled={saving}>{saving ? 'SENDING' : 'SEND'}</Button>
                 <Button variant="ghost" size="sm" onClick={() => setSendOpen(false)}>CANCEL</Button>
               </div>
-            </div>
+            </Panel>
           </div>
         )}
         {/* Replace card popup */}
         {replaceOpen && card && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70" onClick={() => setReplaceOpen(false)}>
-            <div className="border border-grey-mid bg-grey-dark p-5 w-full max-w-lg space-y-3 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <Panel padding="lg" className="w-full max-w-lg space-y-3 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
               <h3 className="font-mono text-sm uppercase tracking-widest text-white">REPLACE GIFT CARD — {card.number}</h3>
-              <p className="font-mono text-[10px] text-danger uppercase leading-relaxed">
+              <p className="font-mono text-xs text-danger uppercase leading-relaxed">
                 THIS CARD WILL BE VOIDED AND A NEW CARD ISSUED WITH A NEW NUMBER. THE NEW CARD KEEPS THIS
                 CARD&apos;S WOOCOMMERCE ORDER LINK — RESEND THE ORDER EMAIL FROM THE STORE TO DELIVER THE
                 CORRECTED PDF TO THE CUSTOMER. THE OLD NUMBER IS NEVER REUSED.
               </p>
               <div className="space-y-2">
                 <div>
-                  <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">REASON (REQUIRED)</label>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">REASON (REQUIRED)</label>
                   <Input value={replaceDraft.reason} onChange={(e) => setReplaceDraft({ ...replaceDraft, reason: e.target.value })} placeholder="WRONG AMOUNT PRINTED / TYPO ON NAME — BE SPECIFIC" />
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   <div>
-                    <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">CUSTOMER NAME</label>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">CUSTOMER NAME</label>
                     <Input value={replaceDraft.customerName} onChange={(e) => setReplaceDraft({ ...replaceDraft, customerName: e.target.value })} placeholder="CUSTOMER NAME" />
                   </div>
                   <div>
-                    <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">CUSTOMER EMAIL</label>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">CUSTOMER EMAIL</label>
                     <Input value={replaceDraft.customerEmail} onChange={(e) => setReplaceDraft({ ...replaceDraft, customerEmail: e.target.value })} placeholder="email@example.com" />
                   </div>
                   <div>
-                    <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">AMOUNT ($)</label>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">AMOUNT ($)</label>
                     <Input type="number" value={replaceDraft.amount} onChange={(e) => setReplaceDraft({ ...replaceDraft, amount: e.target.value })} placeholder="0.00" className="text-right" />
                   </div>
                   <div>
-                    <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">MESSAGE</label>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">MESSAGE</label>
                     <Input value={replaceDraft.message} onChange={(e) => setReplaceDraft({ ...replaceDraft, message: e.target.value })} placeholder="Something special just for you..." />
                   </div>
                 </div>
@@ -618,10 +619,10 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                 <Button size="sm" variant="danger" onClick={replaceCard} disabled={saving}>{saving ? 'REPLACING' : 'VOID & ISSUE REPLACEMENT'}</Button>
                 <Button variant="ghost" size="sm" onClick={() => setReplaceOpen(false)}>CANCEL</Button>
               </div>
-            </div>
+            </Panel>
           </div>
         )}
-      </div>
+      </Panel>
     </div>
   )
 }
@@ -629,8 +630,8 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <div className="font-mono text-[9px] uppercase text-grey-light">{label}</div>
-      <div className="font-mono text-[11px] text-white truncate" title={value}>{value}</div>
+      <div className="font-mono text-xs uppercase text-grey-light">{label}</div>
+      <div className="font-mono text-xs text-white truncate" title={value}>{value}</div>
     </div>
   )
 }

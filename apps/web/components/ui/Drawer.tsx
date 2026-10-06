@@ -40,7 +40,7 @@ export function Drawer({ isOpen, onClose, title, children, width = 'lg' }: Drawe
 
   return (
     <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/70" onClick={onClose} aria-hidden />
+      <div className="absolute inset-0 bg-scrim" onClick={onClose} aria-hidden />
       <div
         ref={panelRef}
         className={cn(

@@ -115,10 +115,10 @@ export function FurnitureShapeEditor({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="font-mono text-[10px] uppercase text-grey-light tracking-wider">
+        <span className="font-mono text-xs uppercase text-grey-light tracking-wider">
           {isPolygon ? 'SHAPE OUTLINE' : 'PREVIEW'}
         </span>
-        <span className="font-mono text-[10px] text-grey-light">
+        <span className="font-mono text-xs text-grey-light">
           {Math.round(ringArea(ring) / 100) / 100} m² · {Math.round(ringPerimeter(ring))} cm EDGE · {chairs.length} SEATS
         </span>
       </div>
@@ -232,7 +232,7 @@ export function FurnitureShapeEditor({
             <button
               type="button"
               onClick={() => { setDraft([]); setDrawing(true) }}
-              className="font-mono text-[10px] uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-white hover:text-white"
+              className="font-mono text-xs uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-white hover:text-white"
             >
               {points.length >= 3 ? 'REDRAW' : 'DRAW SHAPE'}
             </button>
@@ -242,7 +242,7 @@ export function FurnitureShapeEditor({
                 type="button"
                 onClick={finishDrawing}
                 disabled={draft.length < 3}
-                className="font-mono text-[10px] uppercase px-2 py-1 border border-success text-success hover:bg-success hover:text-black disabled:opacity-40"
+                className="font-mono text-xs uppercase px-2 py-1 border border-success text-success hover:bg-success hover:text-black disabled:opacity-40"
               >
                 DONE ({draft.length})
               </button>
@@ -250,27 +250,27 @@ export function FurnitureShapeEditor({
                 type="button"
                 onClick={() => setDraft((prev) => prev.slice(0, -1))}
                 disabled={draft.length === 0}
-                className="font-mono text-[10px] uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-white disabled:opacity-40"
+                className="font-mono text-xs uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-white disabled:opacity-40"
               >
                 UNDO POINT
               </button>
               <button
                 type="button"
                 onClick={() => { setDrawing(false); setDraft([]) }}
-                className="font-mono text-[10px] uppercase px-2 py-1 border border-red-800/50 text-danger hover:border-danger"
+                className="font-mono text-xs uppercase px-2 py-1 border border-red-800/50 text-danger hover:border-danger"
               >
                 CANCEL
               </button>
             </>
           )}
-          <span className="font-mono text-[9px] text-grey-light">
+          <span className="font-mono text-xs text-grey-light">
             {drawing ? 'CLICK TO PLACE POINTS · DOUBLE-CLICK TO FINISH' : 'DRAG POINTS TO ADJUST'}
           </span>
         </div>
       )}
 
       {errors.map((e) => (
-        <p key={e} className="font-mono text-[10px] text-danger">{e}</p>
+        <p key={e} className="font-mono text-xs text-danger">{e}</p>
       ))}
     </div>
   )

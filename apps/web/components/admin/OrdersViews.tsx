@@ -14,7 +14,7 @@ import {
 export const OP_STATUS_STYLES: Record<string, string> = {
   NEW: 'text-grey-light border-grey-mid',
   CONFIRMED: 'text-accent border-accent',
-  IN_PREP: 'text-[#FACC15] border-[#FACC15]',
+  IN_PREP: 'text-warning border-warning',
   READY: 'text-success border-success',
   ARRIVED: 'text-success border-success',
   OUT_FOR_DELIVERY: 'text-accent border-accent',
@@ -25,13 +25,13 @@ export const OP_STATUS_STYLES: Record<string, string> = {
 
 const PAYMENT_STYLES: Record<string, string> = {
   PAID: 'text-success border-success',
-  PARTIAL: 'text-[#FACC15] border-[#FACC15]',
+  PARTIAL: 'text-warning border-warning',
   UNPAID: 'text-danger border-danger',
   REFUNDED: 'text-grey-light border-grey-mid',
 }
 
 function Tag({ label, className }: { label: string; className: string }) {
-  return <span className={`font-mono text-[9px] uppercase border px-1 py-0.5 ${className}`}>{label}</span>
+  return <span className={`font-mono text-xs uppercase border px-1 py-0.5 ${className}`}>{label}</span>
 }
 
 /** Compact order row shared by the SERVICE and FOH views. */
@@ -60,7 +60,7 @@ function OrderCard({
         </div>
       </div>
 
-      <div className="flex items-center gap-3 font-mono text-[10px] text-grey-light flex-wrap">
+      <div className="flex items-center gap-3 font-mono text-xs text-grey-light flex-wrap">
         {showDate && order.serviceDate && <span className="text-accent shrink-0">{order.serviceDate}</span>}
         {order.serviceTime && <span className="text-white">{order.serviceTime}</span>}
         <span>{order.partySize != null ? `${order.partySize} PAX` : '— PAX'}</span>
@@ -72,7 +72,7 @@ function OrderCard({
       </div>
 
       {order.items.length > 0 && (
-        <p className="font-mono text-[10px] text-grey-light truncate">
+        <p className="font-mono text-xs text-grey-light truncate">
           {order.items.map((i) => `${i.qty}× ${i.name}`).join('  ·  ')}
         </p>
       )}
@@ -104,7 +104,7 @@ export function ServiceView({
         <div key={slot.slot} className="border border-grey-mid">
           <div className="px-3 py-1.5 bg-grey-dark/30 border-b border-grey-mid flex items-center justify-between">
             <span className="font-mono text-xs text-white uppercase tracking-wider">{slot.slot}</span>
-            <span className="font-mono text-[10px] text-grey-light">
+            <span className="font-mono text-xs text-grey-light">
               {slot.orders.length} ORDER{slot.orders.length === 1 ? '' : 'S'} · {slot.covers} PAX
             </span>
           </div>
@@ -146,13 +146,13 @@ export function KitchenView({
               <div key={a.orderId} className="px-3 py-2 flex items-start gap-3 flex-wrap">
                 <span className="font-mono text-xs text-white font-bold">{a.ref}</span>
                 {multiDay && a.serviceDate && (
-                  <span className="font-mono text-[10px] text-accent">{a.serviceDate}</span>
+                  <span className="font-mono text-xs text-accent">{a.serviceDate}</span>
                 )}
-                {a.serviceTime && <span className="font-mono text-[10px] text-grey-light">{a.serviceTime}</span>}
+                {a.serviceTime && <span className="font-mono text-xs text-grey-light">{a.serviceTime}</span>}
                 {a.tables.length > 0 && (
-                  <span className="font-mono text-[10px] text-success">T{a.tables.join(', ')}</span>
+                  <span className="font-mono text-xs text-success">T{a.tables.join(', ')}</span>
                 )}
-                <span className="font-mono text-[10px] text-grey-light uppercase">{a.customerName ?? '—'}</span>
+                <span className="font-mono text-xs text-grey-light uppercase">{a.customerName ?? '—'}</span>
                 <span className="font-mono text-xs text-danger uppercase w-full">{a.note}</span>
               </div>
             ))}
@@ -173,7 +173,7 @@ export function KitchenView({
                 <span className="font-mono text-xs text-white uppercase flex-1 truncate">{d.name}</span>
                 <div className="flex gap-1 flex-wrap justify-end">
                   {d.allergens.map((a) => (
-                    <Tag key={a} label={a} className="text-[#c4a530] border-[#c4a530]" />
+                    <Tag key={a} label={a} className="text-gold border-gold" />
                   ))}
                 </div>
               </div>
@@ -185,17 +185,17 @@ export function KitchenView({
         <div className="border border-grey-mid p-3 space-y-3">
           <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">BY CATEGORY</h3>
           {categories.length === 0 ? (
-            <p className="font-mono text-[10px] text-grey-light uppercase">NO RECIPE DATA</p>
+            <p className="font-mono text-xs text-grey-light uppercase">NO RECIPE DATA</p>
           ) : (
             categories.map((c) => (
               <div key={c.category}>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-mono text-[11px] text-white uppercase">{c.category}</span>
+                  <span className="font-mono text-xs text-white uppercase">{c.category}</span>
                   <span className="font-mono text-sm text-white">{c.total}</span>
                 </div>
                 <div className="space-y-0.5">
                   {c.items.map((i) => (
-                    <div key={i.name} className="flex items-center justify-between text-[10px] font-mono text-grey-light">
+                    <div key={i.name} className="flex items-center justify-between text-xs font-mono text-grey-light">
                       <span className="uppercase truncate">{i.name}</span>
                       <span className="shrink-0 ml-2">×{i.qty}</span>
                     </div>
@@ -226,7 +226,7 @@ export function FohView({ orders, onOpen }: { orders: OrderView[]; onOpen: (id: 
             <span className="font-mono text-xs text-white uppercase tracking-wider">
               {g.table === 'UNASSIGNED' ? 'UNASSIGNED' : `TABLE ${g.table}`}
             </span>
-            <span className="font-mono text-[10px] text-grey-light">
+            <span className="font-mono text-xs text-grey-light">
               {g.orders.length} ORDER{g.orders.length === 1 ? '' : 'S'} · {g.covers} PAX
             </span>
           </div>
@@ -250,7 +250,7 @@ export function ProductionView({ orders }: { orders: OrderView[] }) {
 
   return (
     <div className="border border-grey-mid">
-      <div className="grid grid-cols-12 gap-2 px-3 py-2 border-b border-grey-mid bg-grey-dark/30 font-mono text-[10px] uppercase text-grey-light">
+      <div className="grid grid-cols-12 gap-2 px-3 py-2 border-b border-grey-mid bg-grey-dark/30 font-mono text-xs uppercase text-grey-light">
         <div className="col-span-2">PICK</div>
         <div className="col-span-6">ITEM</div>
         <div className="col-span-4">ALLERGENS</div>
@@ -259,15 +259,15 @@ export function ProductionView({ orders }: { orders: OrderView[] }) {
         {dishes.map((d) => (
           <div key={d.name} className="grid grid-cols-12 gap-2 px-3 py-2 items-center">
             <div className="col-span-2 flex items-center gap-2">
-              <span className="font-mono text-[10px] text-grey-light border border-grey-mid w-4 h-4 inline-block" />
+              <span className="font-mono text-xs text-grey-light border border-grey-mid w-4 h-4 inline-block" />
               <span className="font-mono text-sm text-white">{d.qty}</span>
             </div>
             <div className="col-span-6 font-mono text-xs text-white uppercase truncate">{d.name}</div>
             <div className="col-span-4 flex gap-1 flex-wrap">
               {d.allergens.length === 0 ? (
-                <span className="font-mono text-[9px] text-grey-light">—</span>
+                <span className="font-mono text-xs text-grey-light">—</span>
               ) : (
-                d.allergens.map((a) => <Tag key={a} label={a} className="text-[#c4a530] border-[#c4a530]" />)
+                d.allergens.map((a) => <Tag key={a} label={a} className="text-gold border-gold" />)
               )}
             </div>
           </div>
@@ -301,12 +301,12 @@ export function AllOrdersView({ orders, onOpen }: { orders: OrderView[]; onOpen:
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2 min-w-0">
                 {o.serviceDate ? (
-                  <span className="font-mono text-[10px] text-grey-light shrink-0">{o.serviceDate}</span>
+                  <span className="font-mono text-xs text-grey-light shrink-0">{o.serviceDate}</span>
                 ) : (
-                  <Tag label="NO DATE" className="text-[#FACC15] border-[#FACC15]" />
+                  <Tag label="NO DATE" className="text-warning border-warning" />
                 )}
                 {o.serviceTime && (
-                  <span className="font-mono text-[10px] text-white shrink-0">{o.serviceTime}</span>
+                  <span className="font-mono text-xs text-white shrink-0">{o.serviceTime}</span>
                 )}
                 <span className="font-mono text-xs text-white font-bold shrink-0">{o.ref}</span>
                 <span className="font-mono text-xs text-grey-light uppercase truncate">
@@ -319,12 +319,12 @@ export function AllOrdersView({ orders, onOpen }: { orders: OrderView[]; onOpen:
                 <Tag label={o.paymentStatus} className={PAYMENT_STYLES[o.paymentStatus] ?? ''} />
               </div>
             </div>
-            <div className="flex items-center gap-3 font-mono text-[10px] text-grey-light flex-wrap">
+            <div className="flex items-center gap-3 font-mono text-xs text-grey-light flex-wrap">
               <span>{o.partySize != null ? `${o.partySize} PAX` : '— PAX'}</span>
               {o.bookingId ? (
                 <span className="text-accent">◆ BOOKED</span>
               ) : (
-                <span className="text-[#FACC15]">NO BOOKING</span>
+                <span className="text-warning">NO BOOKING</span>
               )}
               {o.source !== 'WOO' && <span>{o.source}</span>}
               {o.tables.length > 0 && <span className="text-success">T{o.tables.join(', ')}</span>}

@@ -359,7 +359,7 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
                       <div className="flex flex-wrap items-center gap-1">
                         <Badge variant={s.role === 'ADMIN' ? 'warning' : 'default'}>{s.role}</Badge>
                         {(s.positions ?? []).map((p) => (
-                          <span key={p.positionId} className="font-mono text-[10px] uppercase text-grey-light border border-grey-mid px-1.5 py-0.5">
+                          <span key={p.positionId} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1.5 py-0.5">
                             {p.position.name}
                           </span>
                         ))}
@@ -465,7 +465,7 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
               </div>
               {form.positionIds.length > 0 && (
                 <div className="space-y-1.5 mt-2 border-t border-grey-mid pt-2">
-                  <div className="font-mono text-[10px] uppercase text-grey-light">
+                  <div className="font-mono text-xs uppercase text-grey-light">
                     Per-role rate (blank = role rate, then base rate)
                   </div>
                   {form.positionIds.map((pid) => {
@@ -473,7 +473,7 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
                     if (!p) return null
                     return (
                       <div key={pid} className="flex items-center gap-2">
-                        <span className="font-mono text-[10px] uppercase text-grey-light w-36 truncate" title={p.name}>{p.name}</span>
+                        <span className="font-mono text-xs uppercase text-grey-light w-36 truncate" title={p.name}>{p.name}</span>
                         <input
                           type="number"
                           min="0"
@@ -483,13 +483,13 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
                           placeholder={p.hourlyRate != null ? String(p.hourlyRate) : 'BASE'}
                           className="w-24 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 text-right outline-none focus:border-white placeholder:text-grey-light"
                         />
-                        <span className="font-mono text-[10px] text-grey-light">/HR</span>
+                        <span className="font-mono text-xs text-grey-light">/HR</span>
                       </div>
                     )
                   })}
                 </div>
               )}
-              <p className="font-mono text-[10px] text-grey-light">
+              <p className="font-mono text-xs text-grey-light">
                 ONE PERSON CAN HOLD SEVERAL ROLES. ROLES DRIVE GUIDE REQUIREMENTS AND PAY RATES.
               </p>
             </div>

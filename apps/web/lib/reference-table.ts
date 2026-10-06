@@ -11,6 +11,8 @@
 export type ReferenceColumnType =
   | 'MENU_ITEM'
   | 'MENU_FIELD'
+  | 'METHOD'
+  | 'SERVE'
   | 'TEXT'
   | 'LONG_TEXT'
   | 'NUMBER'
@@ -22,6 +24,8 @@ export type MenuField = 'NAME' | 'PRICE' | 'DESCRIPTION' | 'IMAGE' | 'DIETARY'
 export const REFERENCE_COLUMN_TYPES: ReferenceColumnType[] = [
   'MENU_ITEM',
   'MENU_FIELD',
+  'METHOD',
+  'SERVE',
   'TEXT',
   'LONG_TEXT',
   'NUMBER',
@@ -34,11 +38,18 @@ export const MENU_FIELDS: MenuField[] = ['NAME', 'PRICE', 'DESCRIPTION', 'IMAGE'
 export const REFERENCE_COLUMN_TYPE_LABELS: Record<ReferenceColumnType, string> = {
   MENU_ITEM: 'LINKED PRODUCT',
   MENU_FIELD: 'FROM PRODUCT',
+  METHOD: 'SERVE METHOD',
+  SERVE: 'SERVE SIZE',
   TEXT: 'TEXT',
   LONG_TEXT: 'LONG TEXT',
   NUMBER: 'NUMBER',
   IMAGE: 'IMAGE',
   SELECT: 'CHOICE',
+}
+
+/** True when the column derives from the linked product (never stored). */
+export function isDerivedColumn(col: ReferenceColumn): boolean {
+  return col.type === 'MENU_FIELD' || col.type === 'METHOD' || col.type === 'SERVE'
 }
 
 export const MENU_FIELD_LABELS: Record<MenuField, string> = {
@@ -71,6 +82,9 @@ export interface ReferenceMenuItem {
   description: string | null
   imageUrl: string | null
   dietaryInfo: string | null
+  /** Derived from the product's serves (see lib/menu-serves.ts). */
+  serveMethod?: string | null
+  serveSummary?: string | null
 }
 
 export interface ReferenceRowLike {
@@ -175,7 +189,7 @@ export function sanitiseCells(raw: unknown, columns: ReferenceColumn[]): Record<
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
   const out: Record<string, string> = {}
   for (const col of columns) {
-    if (col.type === 'MENU_FIELD') continue
+    if (isDerivedColumn(col)) continue
     const value = source[col.key]
     if (value == null) continue
     if (Array.isArray(value)) {
@@ -225,6 +239,12 @@ export function displayCellText(row: ReferenceRowLike, col: ReferenceColumn): st
   if (col.type === 'MENU_FIELD') {
     return col.menuField ? menuFieldValue(row.menuItem, col.menuField) : null
   }
+  if (col.type === 'METHOD') {
+    return row.menuItem?.serveMethod ?? null
+  }
+  if (col.type === 'SERVE') {
+    return row.menuItem?.serveSummary ?? null
+  }
   const value = row.cells?.[col.key]
   if (value == null) return null
   return typeof value === 'string' && value.trim() ? value.trim() : null
@@ -244,5 +264,33 @@ export function displayCellImage(row: ReferenceRowLike, col: ReferenceColumn): s
 
 /** True when the column carries admin-entered data on the row (not derived). */
 export function columnIsEditable(col: ReferenceColumn): boolean {
-  return col.type !== 'MENU_FIELD'
+  return !isDerivedColumn(col)
+}
+
+/** A draft row as the editor holds it (`id` null = not yet saved). */
+export interface ReferenceRowDraftLike {
+  id: string | null
+  menuItemId: string | null
+  cells: Record<string, string>
+}
+
+/**
+ * Additive merge of a menu's products into a reference table's rows: append a
+ * row for every menu item not already present. Never removes or reorders, so a
+ * manually added off-menu row and any hand-typed cells survive a re-sync.
+ * Returns the same array instance when there is nothing to add, so React state
+ * stays referentially stable.
+ */
+export function mergeMenuRows(
+  rows: ReferenceRowDraftLike[],
+  menuItemIds: readonly string[],
+): ReferenceRowDraftLike[] {
+  const present = new Set(rows.map((r) => r.menuItemId).filter((id): id is string => !!id))
+  const additions: ReferenceRowDraftLike[] = []
+  for (const id of menuItemIds) {
+    if (!id || present.has(id)) continue
+    present.add(id)
+    additions.push({ id: null, menuItemId: id, cells: {} })
+  }
+  return additions.length ? [...rows, ...additions] : rows
 }

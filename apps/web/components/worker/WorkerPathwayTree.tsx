@@ -120,7 +120,7 @@ export function WorkerPathwayTree({
 
         {stages.map((stage) => (
           <div key={stage} className="relative flex flex-col gap-3 min-w-[11rem]">
-            <div className="font-mono text-[10px] uppercase tracking-widest text-grey-light">
+            <div className="font-mono text-xs uppercase tracking-widest text-grey-light">
               STAGE {stage + 1}
             </div>
             {nodes
@@ -135,18 +135,18 @@ export function WorkerPathwayTree({
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[9px] uppercase tracking-widest text-grey-light">
+                    <span className="font-mono text-xs uppercase tracking-widest text-grey-light">
                       {KIND_TAG[n.kind]}
                     </span>
-                    <span className="font-mono text-[9px] text-grey-light">
+                    <span className="font-mono text-xs text-grey-light">
                       {n.status === 'LOCKED' ? '🔒' : n.status === 'DONE' ? '✓' : ''} {n.points}P
                     </span>
                   </div>
-                  <div className="font-mono text-[11px] leading-tight mt-1 line-clamp-3">
+                  <div className="font-mono text-xs leading-tight mt-1 line-clamp-3">
                     {n.title}
                   </div>
                   {n.status === 'LOCKED' && n.blockedBy.length > 0 && (
-                    <div className="font-mono text-[9px] uppercase text-grey-light mt-1 leading-tight">
+                    <div className="font-mono text-xs uppercase text-grey-light mt-1 leading-tight">
                       NEEDS: {n.blockedBy.map((b) => byId.get(b)?.title ?? '?').join(', ')}
                     </div>
                   )}

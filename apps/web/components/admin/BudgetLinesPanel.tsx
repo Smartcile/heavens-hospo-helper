@@ -34,7 +34,7 @@ function money(n: number | null | undefined) {
 const INDENTS = ['', 'pl-4', 'pl-8', 'pl-12', 'pl-16']
 
 function kindColour(kind: string): string {
-  if (kind === 'GROUP') return 'text-[#FACC15]'
+  if (kind === 'GROUP') return 'text-warning'
   if (kind === 'TOTAL') return 'text-success'
   return 'text-grey-light'
 }

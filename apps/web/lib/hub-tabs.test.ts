@@ -27,7 +27,7 @@ describe('hub-tabs', () => {
     expect(EXECUTION_TABS.map((t) => t.id)).toEqual(['tasks', 'review', 'followups'])
     expect(TRAINING_TABS.map((t) => t.id)).toEqual(['playbook', 'pathways'])
     // FLOOR PLANS is grant-gated and FILES is admin-only — SettingsClient hides both.
-    expect(SETTINGS_TABS.map((t) => t.id)).toEqual(['general', 'venue', 'structure', 'floorplans', 'uoms', 'suppliers', 'qrcodes', 'sync', 'files'])
+    expect(SETTINGS_TABS.map((t) => t.id)).toEqual(['general', 'venue', 'structure', 'floorplans', 'uoms', 'suppliers', 'qrcodes', 'sync', 'swiftpos', 'files'])
   })
 
   it('COMPLIANCE has the Chomp-style tab set', () => {

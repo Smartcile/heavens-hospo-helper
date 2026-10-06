@@ -14,6 +14,7 @@ import {
   guideStepsCreate,
   guideTypeValue,
   scopedFolderId,
+  scopedMenuId,
   tableRowsCreate,
   type GuideStepInput,
   type GuideTableRowInput,
@@ -81,6 +82,7 @@ export async function POST(req: NextRequest) {
     bodyHtml,
     departmentId,
     folderId,
+    sourceMenuId,
     isTracked,
     isOnboarding,
     requiresSignOff,
@@ -98,6 +100,7 @@ export async function POST(req: NextRequest) {
     bodyHtml?: string | null
     departmentId?: string | null
     folderId?: string | null
+    sourceMenuId?: string | null
     isTracked?: boolean
     isOnboarding?: boolean
     requiresSignOff?: boolean
@@ -134,6 +137,7 @@ export async function POST(req: NextRequest) {
       venueId: scopedVenueId,
       departmentId: departmentId || null,
       folderId: await scopedFolderId(folderId, scopedVenueId),
+      sourceMenuId: await scopedMenuId(sourceMenuId, scopedVenueId),
       status: 'DRAFT',
       isTracked: !!isTracked,
       isOnboarding: !!isOnboarding,

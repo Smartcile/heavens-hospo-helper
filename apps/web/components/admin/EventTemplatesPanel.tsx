@@ -270,18 +270,18 @@ export function EventTemplatesPanel({
               <div className="flex items-center gap-2">
                 <span className="font-mono text-xs uppercase text-white truncate">{t.name}</span>
                 {t.isBuiltIn && (
-                  <span className="font-mono text-[9px] uppercase text-accent border border-accent px-1">BUILT-IN</span>
+                  <span className="font-mono text-xs uppercase text-accent border border-accent px-1">BUILT-IN</span>
                 )}
                 {t.isMaster && (
-                  <span className="font-mono text-[9px] uppercase text-success border border-success px-1">MASTER</span>
+                  <span className="font-mono text-xs uppercase text-success border border-success px-1">MASTER</span>
                 )}
               </div>
-              <div className="font-mono text-[10px] uppercase text-grey-light">
+              <div className="font-mono text-xs uppercase text-grey-light">
                 {[t.category, t.defaultPax ? `${t.defaultPax} PAX` : null, t.defaultStyle]
                   .filter(Boolean)
                   .join(' · ') || 'NO DEFAULTS'}
               </div>
-              <div className="font-mono text-[9px] uppercase text-grey-light">
+              <div className="font-mono text-xs uppercase text-grey-light">
                 {(Array.isArray(t.blocks) ? t.blocks : []).length} BLOCK(S)
               </div>
               <div className="flex gap-2 pt-1">
@@ -325,9 +325,9 @@ export function EventTemplatesPanel({
               }}
               className="border border-grey-mid p-3 space-y-2 min-h-[6rem]"
             >
-              <h3 className="font-mono text-[10px] uppercase text-grey-light tracking-wider">TEMPLATE BLOCKS</h3>
+              <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">TEMPLATE BLOCKS</h3>
               {blocks.length === 0 && (
-                <p className="font-mono text-[10px] uppercase text-grey-light py-3 text-center">DRAG OR CLICK A BLOCK TO ADD IT.</p>
+                <p className="font-mono text-xs uppercase text-grey-light py-3 text-center">DRAG OR CLICK A BLOCK TO ADD IT.</p>
               )}
               {blocks.map((b, i) => {
                 const open = expanded.has(b.id)
@@ -373,7 +373,7 @@ export function EventTemplatesPanel({
 
       <Modal isOpen={!!applyTarget} onClose={() => setApplyTarget(null)} title="CREATE EVENT FROM TEMPLATE">
         <div className="space-y-3">
-          <p className="font-mono text-[10px] uppercase text-grey-light">
+          <p className="font-mono text-xs uppercase text-grey-light">
             {applyTarget?.name} — BLOCKS AND DEFAULTS ARE COPIED; MAKE FINAL CHANGES AFTER.
           </p>
           <Input label="Event name" value={applyName} placeholder="SMITH WEDDING" onChange={(e) => setApplyName(e.target.value)} />

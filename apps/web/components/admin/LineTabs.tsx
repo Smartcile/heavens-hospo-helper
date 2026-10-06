@@ -39,7 +39,7 @@ export function LineTabs({ tabs, tab, sub, onNavigate }: LineTabsProps) {
               key={s.id}
               onClick={() => onNavigate(tab, s.id)}
               className={cn(
-                'font-mono text-[10px] uppercase tracking-wider px-4 py-1.5 whitespace-nowrap transition-colors',
+                'font-mono text-xs uppercase tracking-wider px-4 py-1.5 whitespace-nowrap transition-colors',
                 sub === s.id ? 'text-black bg-white' : 'text-grey-light hover:text-white',
               )}
             >

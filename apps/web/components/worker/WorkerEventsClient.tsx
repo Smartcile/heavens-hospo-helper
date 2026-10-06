@@ -350,8 +350,8 @@ export function WorkerEventsClient() {
         </div>
 
         <div className="p-3 space-y-3">
-          {error && <p className="font-mono text-[10px] text-danger uppercase">{error}</p>}
-          {pushMsg && <p className="font-mono text-[10px] text-accent uppercase">{pushMsg}</p>}
+          {error && <p className="font-mono text-xs text-danger uppercase">{error}</p>}
+          {pushMsg && <p className="font-mono text-xs text-accent uppercase">{pushMsg}</p>}
 
           <Input label="Name" value={draft.name} onChange={(e) => patch({ name: e.target.value })} />
           <div className="grid grid-cols-2 gap-2">
@@ -367,12 +367,12 @@ export function WorkerEventsClient() {
           <Input label="Contact name" value={draft.contactName ?? ''} onChange={(e) => patch({ contactName: e.target.value })} />
           <Input label="Contact phone" value={draft.contactPhone ?? ''} onChange={(e) => patch({ contactPhone: e.target.value })} />
           <div>
-            <label className="block font-mono text-[10px] uppercase text-grey-light mb-1">Notes</label>
+            <label className="block font-mono text-xs uppercase text-grey-light mb-1">Notes</label>
             <textarea rows={3} value={draft.notes ?? ''} onChange={(e) => patch({ notes: e.target.value })} className={`${inputClass} resize-y`} />
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-[10px] uppercase text-grey-light">PDF:</span>
+            <span className="font-mono text-xs uppercase text-grey-light">PDF:</span>
             {([
               ['FULL', 'BEO'],
               ['CLIENT', 'CLIENT'],
@@ -383,7 +383,7 @@ export function WorkerEventsClient() {
                 href={`/api/worker/events/${draft.id}/pdf?variant=${variant}`}
                 target="_blank"
                 rel="noreferrer"
-                className="font-mono text-[10px] uppercase tracking-wider border border-grey-mid text-white px-2 py-1 hover:border-white transition-colors"
+                className="font-mono text-xs uppercase tracking-wider border border-grey-mid text-white px-2 py-1 hover:border-white transition-colors"
               >
                 {label}
               </a>
@@ -397,7 +397,7 @@ export function WorkerEventsClient() {
             </div>
 
             {draft.blocks.length === 0 && (
-              <p className="font-mono text-[10px] uppercase text-grey-light text-center py-3">NO BLOCKS YET.</p>
+              <p className="font-mono text-xs uppercase text-grey-light text-center py-3">NO BLOCKS YET.</p>
             )}
 
             {draft.blocks.map((b, i) => {
@@ -416,7 +416,7 @@ export function WorkerEventsClient() {
                     <button type="button" disabled={i === draft.blocks.length - 1} aria-label="Move down" onClick={() => setDraft((d) => (d ? { ...d, blocks: moveBlock(d.blocks, i, 1) } : d))} className="w-10 h-10 flex items-center justify-center font-mono text-base text-grey-light hover:text-white disabled:opacity-30">↓</button>
                     <button type="button" aria-label="Delete block" onClick={() => setDraft((d) => (d ? { ...d, blocks: d.blocks.filter((x) => x.id !== b.id) } : d))} className="w-10 h-10 flex items-center justify-center font-mono text-base text-grey-light hover:text-danger">✕</button>
                   </div>
-                  <p className="px-2.5 pb-1 font-mono text-[9px] uppercase text-grey-light truncate">{summariseBlock(b, library)}</p>
+                  <p className="px-2.5 pb-1 font-mono text-xs uppercase text-grey-light truncate">{summariseBlock(b, library)}</p>
                   {open && (
                     <div className="p-3 border-t border-grey-mid space-y-3">
                       <BeoBlockReferences blockType={b.type} library={library} mode="worker" />
@@ -463,7 +463,7 @@ export function WorkerEventsClient() {
               key={v}
               type="button"
               onClick={() => setView(v)}
-              className={`font-mono text-[10px] uppercase px-2 py-1 border ${view === v ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light'}`}
+              className={`font-mono text-xs uppercase px-2 py-1 border ${view === v ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light'}`}
             >
               {v}
             </button>
@@ -472,7 +472,7 @@ export function WorkerEventsClient() {
       </div>
 
       <div className="p-4 space-y-2">
-        {error && <p className="font-mono text-[10px] text-danger uppercase">{error}</p>}
+        {error && <p className="font-mono text-xs text-danger uppercase">{error}</p>}
         {shown.length === 0 ? (
           <p className="font-mono text-xs uppercase text-grey-light text-center py-6">NOTHING HERE YET.</p>
         ) : (
@@ -485,9 +485,9 @@ export function WorkerEventsClient() {
             >
               <div className="flex items-center gap-2">
                 <span className="font-mono text-sm uppercase text-white truncate flex-1">{e.name}</span>
-                <span className="font-mono text-[9px] uppercase text-grey-light">{e.status}</span>
+                <span className="font-mono text-xs uppercase text-grey-light">{e.status}</span>
               </div>
-              <p className="font-mono text-[10px] uppercase text-grey-light">
+              <p className="font-mono text-xs uppercase text-grey-light">
                 {new Date(e.eventDate).toISOString().slice(0, 10)}
                 {e.startTime ? ` · ${e.startTime}` : ''} · {e.guestCount} PAX
               </p>
@@ -502,14 +502,14 @@ export function WorkerEventsClient() {
             <button
               type="button"
               onClick={() => setNewIsEnquiry(true)}
-              className={`flex-1 font-mono text-[10px] uppercase px-2 py-1.5 border ${newIsEnquiry ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light'}`}
+              className={`flex-1 font-mono text-xs uppercase px-2 py-1.5 border ${newIsEnquiry ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light'}`}
             >
               ENQUIRY (FROM MASTER)
             </button>
             <button
               type="button"
               onClick={() => setNewIsEnquiry(false)}
-              className={`flex-1 font-mono text-[10px] uppercase px-2 py-1.5 border ${!newIsEnquiry ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light'}`}
+              className={`flex-1 font-mono text-xs uppercase px-2 py-1.5 border ${!newIsEnquiry ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light'}`}
             >
               BLANK EVENT
             </button>

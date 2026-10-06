@@ -33,6 +33,8 @@ export interface ReferenceProductOption {
   description: string | null
   imageUrl: string | null
   dietaryInfo: string | null
+  serveMethod?: string | null
+  serveSummary?: string | null
 }
 
 interface Props {
@@ -82,6 +84,8 @@ export function ReferenceTableEditor({
       description: p.description,
       imageUrl: p.imageUrl,
       dietaryInfo: p.dietaryInfo,
+      serveMethod: p.serveMethod ?? null,
+      serveSummary: p.serveSummary ?? null,
     }
   }
 
@@ -203,7 +207,7 @@ export function ReferenceTableEditor({
               <div className="space-y-2">
                 {columns.map((col) => (
                   <div key={col.key} className="grid grid-cols-[8rem_1fr] gap-2 items-start">
-                    <span className="font-mono text-[10px] uppercase text-grey-light pt-1.5 truncate" title={col.label}>{col.label}</span>
+                    <span className="font-mono text-xs uppercase text-grey-light pt-1.5 truncate" title={col.label}>{col.label}</span>
                     <div>
                       {col.type === 'MENU_ITEM' ? (
                         <span className="font-mono text-xs text-grey-light">{mi?.name ?? '—'}</span>
@@ -214,11 +218,11 @@ export function ReferenceTableEditor({
                             disabled={!mi}
                             onChange={(url) => { if (row.menuItemId) onProductImageChange?.(row.menuItemId, url) }}
                           />
-                          <span className="font-mono text-[9px] text-grey-light">
+                          <span className="font-mono text-xs text-grey-light">
                             {mi ? 'SHARED WITH THE PRODUCT' : 'LINK A PRODUCT FIRST'}
                           </span>
                         </div>
-                      ) : col.type === 'MENU_FIELD' ? (
+                      ) : col.type === 'MENU_FIELD' || col.type === 'METHOD' || col.type === 'SERVE' ? (
                         <span className="font-mono text-xs text-grey-light">
                           {displayCellText({ menuItem: mi, cells: row.cells }, col) ?? '—'}
                         </span>

@@ -91,7 +91,7 @@ export function UomsClient() {
                 <button key={u.id} onClick={() => { setIsCreating(false); setSelectedId(u.id) }}
                   className={`w-full text-left px-2 py-1.5 font-mono text-xs uppercase border ${selectedId === u.id && !isCreating ? 'border-white text-white' : 'border-transparent text-grey-light hover:border-grey-mid hover:text-white'}`}>
                   <span className="block truncate">{u.name}</span>
-                  <span className="block text-[10px] text-grey-light normal-case">1 = {u.conversionRatio} {u.baseUnit} · {u.kind ?? 'COUNT'}</span>
+                  <span className="block text-xs text-grey-light normal-case">1 = {u.conversionRatio} {u.baseUnit} · {u.kind ?? 'COUNT'}</span>
                 </button>
               ))}
               {uoms.length === 0 && <p className="font-mono text-xs text-grey-light px-2 py-1">No units yet.</p>}
@@ -131,7 +131,7 @@ export function UomsClient() {
                     <Input type="number" step="0.0001" value={formRatio} onChange={(e) => setFormRatio(e.target.value)} placeholder="e.g. 6000" />
                   </div>
                 </div>
-                <p className="font-mono text-[10px] text-grey-light">
+                <p className="font-mono text-xs text-grey-light">
                   {formName && formBaseUnit ? `1 ${formName || '?'} = ${parseFloat(formRatio) || 1} ${formBaseUnit}` : 'Enter name and base unit to see the conversion'}
                 </p>
                 <div className="border-t border-grey-mid pt-3 flex items-center gap-2">

@@ -74,14 +74,14 @@ export function ElementInventoryPanel({ elementId, floorPlanId }: { elementId: s
 
   const unassigned = items.filter((i) => !assignments.some((a) => a.itemId === i.id))
 
-  if (loading) return <p className="font-mono text-[10px] text-grey-light">LOADING INVENTORY...</p>
+  if (loading) return <p className="font-mono text-xs text-grey-light">LOADING INVENTORY...</p>
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="font-mono text-[10px] text-grey-light uppercase">ITEMS ON THIS ELEMENT</span>
+        <span className="font-mono text-xs text-grey-light uppercase">ITEMS ON THIS ELEMENT</span>
         <button onClick={() => setShowAdd(!showAdd)}
-          className="font-mono text-[10px] text-accent hover:text-white uppercase">+ ADD</button>
+          className="font-mono text-xs text-accent hover:text-white uppercase">+ ADD</button>
       </div>
 
       {showAdd && (
@@ -98,25 +98,25 @@ export function ElementInventoryPanel({ elementId, floorPlanId }: { elementId: s
       )}
 
       {assignments.length === 0 && !showAdd && (
-        <p className="font-mono text-[10px] text-grey-light">No items assigned.</p>
+        <p className="font-mono text-xs text-grey-light">No items assigned.</p>
       )}
 
       {assignments.map((a) => (
         <div key={a.id} className="flex items-center gap-2 bg-black border border-grey-mid p-1.5">
           <div className="flex-1 min-w-0">
-            <span className="font-mono text-[10px] text-white truncate">{a.item.name}</span>
-            <span className="font-mono text-[8px] text-grey-light ml-1">{a.item.category.name}</span>
+            <span className="font-mono text-xs text-white truncate">{a.item.name}</span>
+            <span className="font-mono text-xs text-grey-light ml-1">{a.item.category.name}</span>
           </div>
           <div className="flex items-center gap-1">
             <button onClick={() => updateQty(a.itemId, a.quantity - 1)}
-              className="w-5 h-5 bg-grey-mid text-white font-mono text-[10px]">−</button>
-            <span className="w-6 text-center font-mono text-[10px] text-white">{a.quantity}</span>
+              className="w-5 h-5 bg-grey-mid text-white font-mono text-xs">−</button>
+            <span className="w-6 text-center font-mono text-xs text-white">{a.quantity}</span>
             <button onClick={() => updateQty(a.itemId, a.quantity + 1)}
-              className="w-5 h-5 bg-grey-mid text-white font-mono text-[10px]">+</button>
+              className="w-5 h-5 bg-grey-mid text-white font-mono text-xs">+</button>
           </div>
-          <span className="font-mono text-[8px] text-grey-light w-8 text-right">{a.item.unit}</span>
+          <span className="font-mono text-xs text-grey-light w-8 text-right">{a.item.unit}</span>
           <button onClick={() => removeAssignment(a.itemId)}
-            className="font-mono text-[10px] text-danger hover:text-white">✕</button>
+            className="font-mono text-xs text-danger hover:text-white">✕</button>
         </div>
       ))}
     </div>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatBreaks } from '@/lib/breaks'
+import { DateInput } from '@/components/ui/DateInput'
 
 interface Shift {
   id: string
@@ -113,15 +114,15 @@ export function WorkerCalendarClient() {
           <div className="bg-grey-dark border border-grey-mid p-3 space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <div className="flex flex-col gap-1">
-                <label className="font-mono text-xs uppercase text-grey-light">FROM</label>
-                <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="bg-black border border-grey-mid text-white font-mono text-sm px-2 py-2 outline-none focus:border-white" />
+                <label className="label">FROM</label>
+                <DateInput value={start} onChange={(e) => setStart(e.target.value)} />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="font-mono text-xs uppercase text-grey-light">TO</label>
-                <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="bg-black border border-grey-mid text-white font-mono text-sm px-2 py-2 outline-none focus:border-white" />
+                <label className="label">TO</label>
+                <DateInput value={end} onChange={(e) => setEnd(e.target.value)} />
               </div>
             </div>
-            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="REASON (OPTIONAL)" className="w-full bg-black border border-grey-mid text-white font-sans text-sm px-3 py-2 outline-none focus:border-white placeholder:text-grey-light" />
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="REASON (OPTIONAL)" className="field" />
             {error && <p className="font-mono text-xs text-danger">{error}</p>}
             <button onClick={submitRequest} disabled={submitting} className="w-full h-12 bg-white text-black font-mono font-bold text-sm uppercase tracking-widest hover:bg-accent transition-colors disabled:opacity-40">
               {submitting ? 'SENDING_' : 'SUBMIT REQUEST'}

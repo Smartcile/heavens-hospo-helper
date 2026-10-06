@@ -2,7 +2,10 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Panel'
 import { Modal } from '@/components/ui/Modal'
+import { DateInput } from '@/components/ui/DateInput'
+import { TimeInput } from '@/components/ui/TimeInput'
 import { pushToast } from '@/components/ui/Toast'
 import { CustomerDrawer } from '@/components/admin/CustomerDrawer'
 import { OP_STATUS_STYLES } from '@/components/admin/OrdersViews'
@@ -93,7 +96,7 @@ export function OrderDetailDrawer({
       title={
         <span className="flex items-center gap-2 min-w-0">
           <span className="font-mono text-sm text-white font-bold">{order.ref}</span>
-          <span className="font-mono text-[9px] uppercase border border-accent text-accent px-1">
+          <span className="font-mono text-xs uppercase border border-accent text-accent px-1">
             {order.source}
           </span>
         </span>
@@ -102,7 +105,7 @@ export function OrderDetailDrawer({
       <div className="space-y-4">
         {/* Allergy first — the safety-critical information */}
         {(order.allergenNote || order.items.some((i) => i.allergenNote)) && (
-            <div className="border border-danger p-3 space-y-1">
+            <Panel padding="md" className="border-danger space-y-1">
               <h3 className="font-mono text-xs uppercase text-danger tracking-wider">⚠ ALLERGY REQUIREMENTS</h3>
               {order.allergenNote && (
                 <p className="font-mono text-xs text-danger uppercase">{order.allergenNote}</p>
@@ -112,11 +115,11 @@ export function OrderDetailDrawer({
                   {i.name}: {i.allergenNote}
                 </p>
               ))}
-            </div>
+            </Panel>
           )}
 
           {/* Contact */}
-          <div className="border border-grey-mid p-3 space-y-2">
+          <Panel variant="outline" padding="md" className="space-y-2">
             <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">CUSTOMER</h3>
             <div className="grid grid-cols-3 gap-2 font-mono text-xs">
               <span className="text-grey-light uppercase">NAME</span>
@@ -137,12 +140,12 @@ export function OrderDetailDrawer({
             {order.customerName && (
               <Button size="sm" variant="ghost" onClick={() => setShowCustomer(true)}>VIEW CUSTOMER</Button>
             )}
-          </div>
+          </Panel>
 
           {/* Service — the fields adapt to fulfillment type: dine-in carries
               the table booking (create/edit in place), pickup and delivery
               carry only their time (no pax, no reservation). */}
-          <div className="border border-grey-mid p-3 space-y-2">
+          <Panel variant="outline" padding="md" className="space-y-2">
             <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">SERVICE</h3>
             <div className="grid grid-cols-3 gap-2 font-mono text-xs items-center">
               <span className="text-grey-light uppercase">TYPE</span>
@@ -155,22 +158,20 @@ export function OrderDetailDrawer({
                 {FULFILLMENT_TYPES.map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
               </select>
               <span className="text-grey-light uppercase">DATE</span>
-              <input
-                type="date"
+              <DateInput
                 value={order.serviceDate ?? ''}
                 disabled={busy}
                 onChange={(e) => patch({ serviceDate: e.target.value }, 'DATE UPDATED')}
-                className="col-span-2 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white disabled:opacity-40"
+                className="col-span-2"
               />
               <span className="text-grey-light uppercase">
                 {order.fulfillmentType === 'DINE_IN' ? 'TIME' : order.fulfillmentType === 'PICKUP' ? 'PICKUP TIME' : 'DELIVERY TIME'}
               </span>
-              <input
-                type="time"
+              <TimeInput
                 value={order.serviceTime ?? ''}
                 disabled={busy}
                 onChange={(e) => patch({ serviceTime: e.target.value }, 'TIME UPDATED')}
-                className="col-span-2 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white disabled:opacity-40"
+                className="col-span-2"
               />
               {order.fulfillmentType === 'DINE_IN' && (<>
                 <span className="text-grey-light uppercase">PARTY</span>
@@ -196,11 +197,11 @@ export function OrderDetailDrawer({
             </div>
 
             {order.fulfillmentType === 'DINE_IN' && (
-              <div className="border border-grey-mid p-2 space-y-2">
-                <h4 className="font-mono text-[10px] uppercase text-grey-light tracking-wider">BOOKING</h4>
+              <Panel variant="outline" padding="xs" className="space-y-2">
+                <h4 className="font-mono text-xs uppercase text-grey-light tracking-wider">BOOKING</h4>
                 {order.booking ? (
                   <>
-                    <div className="grid grid-cols-3 gap-2 font-mono text-[11px] items-center">
+                    <div className="grid grid-cols-3 gap-2 font-mono text-xs items-center">
                       <span className="text-grey-light uppercase">TIME</span>
                       <span className="col-span-2 text-white">{order.booking.startTime}–{order.booking.endTime}</span>
                       <span className="text-grey-light uppercase">PAX</span>
@@ -212,22 +213,20 @@ export function OrderDetailDrawer({
                     </div>
                     {editingBooking ? (
                       <>
-                        <div className="grid grid-cols-3 gap-2 font-mono text-[11px] items-center">
+                        <div className="grid grid-cols-3 gap-2 font-mono text-xs items-center">
                           <span className="text-grey-light uppercase">START</span>
-                          <input
-                            type="time"
+                          <TimeInput
                             value={editStart}
                             disabled={busy}
                             onChange={(e) => setEditStart(e.target.value)}
-                            className="col-span-2 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white disabled:opacity-40"
+                            className="col-span-2"
                           />
                           <span className="text-grey-light uppercase">END</span>
-                          <input
-                            type="time"
+                          <TimeInput
                             value={editEnd}
                             disabled={busy}
                             onChange={(e) => setEditEnd(e.target.value)}
-                            className="col-span-2 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white disabled:opacity-40"
+                            className="col-span-2"
                           />
                           <span className="text-grey-light uppercase">PAX</span>
                           <input
@@ -263,18 +262,18 @@ export function OrderDetailDrawer({
                   </>
                 ) : (
                   <>
-                    <p className="font-mono text-[9px] text-grey-light uppercase">
+                    <p className="font-mono text-xs text-grey-light uppercase">
                       NO BOOKING YET — THIS ORDER HAS A SERVICE TIME BUT NO TABLE RESERVATION
                     </p>
                     <Button size="sm" onClick={createBooking} loading={busy}>CREATE BOOKING</Button>
                   </>
                 )}
-              </div>
+              </Panel>
             )}
-          </div>
+          </Panel>
 
           {/* Progress */}
-          <div className="border border-grey-mid p-3 space-y-2">
+          <Panel variant="outline" padding="md" className="space-y-2">
             <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">PROGRESS</h3>
             <div className="flex flex-wrap gap-1">
               {OP_STATUSES.map((s) => (
@@ -282,7 +281,7 @@ export function OrderDetailDrawer({
                   key={s}
                   disabled={busy}
                   onClick={() => patch({ opStatus: s }, `MARKED ${s.replace(/_/g, ' ')}`)}
-                  className={`font-mono text-[9px] uppercase border px-1.5 py-1 disabled:opacity-40 ${
+                  className={`font-mono text-xs uppercase border px-1.5 py-1 disabled:opacity-40 ${
                     order.opStatus === s
                       ? OP_STATUS_STYLES[s] ?? 'text-white border-white'
                       : 'text-grey-light border-grey-mid hover:border-white hover:text-white'
@@ -292,12 +291,12 @@ export function OrderDetailDrawer({
                 </button>
               ))}
             </div>
-          </div>
+          </Panel>
 
           {/* Payment — read-only truth lives in WooCommerce */}
-          <div className="border border-grey-mid p-3 space-y-2">
+          <Panel variant="outline" padding="md" className="space-y-2">
             <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">PAYMENT</h3>
-            <p className="font-mono text-[9px] text-grey-light">
+            <p className="font-mono text-xs text-grey-light">
               PAYMENTS ARE TAKEN IN WOOCOMMERCE. THIS RECORDS WHAT WAS REPORTED.
             </p>
             <div className="grid grid-cols-3 gap-2 font-mono text-xs items-center">
@@ -315,10 +314,10 @@ export function OrderDetailDrawer({
               <span className="text-grey-light uppercase">TOTAL</span>
               <span className="col-span-2 text-white">${(order.totalAmount ?? 0).toFixed(2)}</span>
             </div>
-          </div>
+          </Panel>
 
           {/* Items */}
-          <div className="border border-grey-mid">
+          <Panel variant="outline" padding="none">
             <div className="px-3 py-1.5 border-b border-grey-mid">
               <span className="font-mono text-xs uppercase text-grey-light tracking-wider">
                 ITEMS ({order.items.length})
@@ -340,31 +339,31 @@ export function OrderDetailDrawer({
                     {i.dietaryInfo && (
                       <div className="flex gap-1 flex-wrap pl-10">
                         {i.dietaryInfo.split(',').map((a) => a.trim()).filter(Boolean).map((a) => (
-                          <span key={a} className="font-mono text-[9px] uppercase border border-[#c4a530] text-[#c4a530] px-1">
+                          <span key={a} className="font-mono text-xs uppercase border border-gold text-gold px-1">
                             {a}
                           </span>
                         ))}
                       </div>
                     )}
                     {i.customerNote && (
-                      <p className="font-mono text-[10px] text-grey-light pl-10 italic">{i.customerNote}</p>
+                      <p className="font-mono text-xs text-grey-light pl-10 italic">{i.customerNote}</p>
                     )}
                   </div>
                 ))}
               </div>
             )}
-          </div>
+          </Panel>
 
           {order.notes && (
-            <div className="border border-grey-mid p-3">
+            <Panel variant="outline" padding="md">
               <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider mb-1">NOTES</h3>
               <p className="font-mono text-xs text-white">{order.notes}</p>
-            </div>
+            </Panel>
           )}
 
           {/* WooCommerce status — only meaningful for Woo orders */}
           {isWoo && (
-            <div className="border border-grey-mid p-3 space-y-2">
+            <Panel variant="outline" padding="md" className="space-y-2">
               <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">WOOCOMMERCE STATUS</h3>
               <select
                 value={order.status}
@@ -374,8 +373,8 @@ export function OrderDetailDrawer({
               >
                 {WOO_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
-              <p className="font-mono text-[9px] text-grey-light uppercase">CHANGES PUSH BACK TO WOOCOMMERCE</p>
-            </div>
+              <p className="font-mono text-xs text-grey-light uppercase">CHANGES PUSH BACK TO WOOCOMMERCE</p>
+            </Panel>
           )}
 
           <div className="border-t border-grey-mid pt-3">

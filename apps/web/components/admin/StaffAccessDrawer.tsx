@@ -243,7 +243,7 @@ export function StaffAccessDrawer({
                   <div className="space-y-2">
                     {area.subAreas.map((sub) => (
                       <div key={sub.key} className="border-l border-grey-mid ml-2 pl-3">
-                        <div className="font-mono text-[11px] uppercase text-grey-light tracking-wider mb-1">{sub.label}</div>
+                        <div className="font-mono text-xs uppercase text-grey-light tracking-wider mb-1">{sub.label}</div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1">
                           {sub.functions.map((fn) => {
                             const key = `${area.key}.${sub.key}.${fn.key}`
@@ -251,7 +251,7 @@ export function StaffAccessDrawer({
                             return (
                               <label
                                 key={key}
-                                className={`flex items-center gap-1.5 font-mono text-[11px] uppercase cursor-pointer transition-colors ${checked ? 'text-white' : 'text-grey-light hover:text-white'}`}
+                                className={`flex items-center gap-1.5 font-mono text-xs uppercase cursor-pointer transition-colors ${checked ? 'text-white' : 'text-grey-light hover:text-white'}`}
                               >
                                 <input
                                   type="checkbox"

@@ -91,6 +91,21 @@ export function toMillilitres(qty: number, uom: UomLike, item?: ItemLike | null)
   return (qty * perUnit) / density
 }
 
+/**
+ * The canonical quantity `explodeRecipe` records for `qty` of an item in `uom`:
+ * GRAMS when the item has density / unit-weight data (so mixed volume+mass lines
+ * for the same item sum), else base units (`qty × conversionRatio` — mL / g / ea).
+ * Kept here so the serve drawdown and the recipe explosion agree.
+ */
+export function canonicalQty(qty: number, uom: UomLike, item?: ItemLike | null): number {
+  const hasBridge = !!(item?.densityGramsPerMl != null || item?.weightPerUnitGrams != null)
+  if (hasBridge) {
+    const grams = toGrams(qty, uom, item)
+    if (grams != null) return grams
+  }
+  return qty * (uom.conversionRatio || 1)
+}
+
 /** Grams per mL from a metric-cup weight ("1 CUP = 132 G" → 0.528). */
 export function cupToDensity(gramsPerCup: number): number {
   return gramsPerCup / METRIC_CUP_ML
@@ -154,6 +169,65 @@ export function convertLine(
   const grams = target === 'MASS' ? toGrams(qty, uom, item) : toMillilitres(qty, uom, item)
   if (grams == null || !isFinite(grams)) return null
   return target === 'MASS' ? massDisplayUnit(grams) : volumeDisplayUnit(grams)
+}
+
+export interface KindedItemLike extends ItemLike {
+  /** The item's primary dimension (its counting unit kind), when known. */
+  kind?: string | null
+}
+
+/**
+ * Every dimension an ingredient can be measured in — the ingredient's own kind,
+ * plus anything the mass hub reaches with its bridges. A VOLUME item with a
+ * density may also be measured by MASS; a COUNT item with a unit weight may also
+ * be measured by MASS; reaching from VOLUME to COUNT needs both. With no kind
+ * (or no bridge), nothing is restricted.
+ */
+export function allowedKinds(item: KindedItemLike | null | undefined): Set<UnitKind> {
+  const primary = item?.kind
+  if (primary !== 'VOLUME' && primary !== 'MASS' && primary !== 'COUNT') {
+    return new Set<UnitKind>(['VOLUME', 'MASS', 'COUNT'])
+  }
+  const density = !!item?.densityGramsPerMl
+  const perUnit = !!item?.weightPerUnitGrams
+  const out = new Set<UnitKind>([primary])
+  if (primary === 'MASS') {
+    if (density) out.add('VOLUME')
+    if (perUnit) out.add('COUNT')
+  } else if (primary === 'VOLUME') {
+    if (density) {
+      out.add('MASS')
+      if (perUnit) out.add('COUNT')
+    }
+  } else {
+    if (perUnit) {
+      out.add('MASS')
+      if (density) out.add('VOLUME')
+    }
+  }
+  return out
+}
+
+/** True when an ingredient may be measured in this UOM's dimension. */
+export function uomFitsItem(uom: UomLike, item: KindedItemLike | null | undefined): boolean {
+  return allowedKinds(item).has(uomKind(uom))
+}
+
+/** The subset of `uoms` an ingredient may use (all of them when unrestricted). */
+export function uomsForItem<T extends UomLike>(uoms: T[], item: KindedItemLike | null | undefined): T[] {
+  return uoms.filter((u) => uomFitsItem(u, item))
+}
+
+/**
+ * An inventory item's dimension, resolved from its unit string via the UOM list
+ * (exact name, then base unit). Returns null when it matches nothing.
+ */
+export function resolveItemKind(unit: string | null | undefined, uoms: UomLike[]): UnitKind | null {
+  if (!unit) return null
+  const u = unit.toUpperCase().trim()
+  let match = uoms.find((um) => um.name.toUpperCase() === u)
+  if (!match) match = uoms.find((um) => (um.baseUnit || '').toUpperCase() === u)
+  return match ? uomKind(match) : null
 }
 
 /**

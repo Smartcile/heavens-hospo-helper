@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
+import { DateInput } from '@/components/ui/DateInput'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { formatDateTime } from '@/lib/utils'
 
@@ -123,18 +124,8 @@ export function ReportsClient({ role, sessionVenueId, defaultVenueId }: { role: 
             options={deptOptions}
           />
         </div>
-        <input
-          type="date"
-          value={filterFrom}
-          onChange={(e) => setFilterFrom(e.target.value)}
-          className="bg-grey-dark border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white"
-        />
-        <input
-          type="date"
-          value={filterTo}
-          onChange={(e) => setFilterTo(e.target.value)}
-          className="bg-grey-dark border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white"
-        />
+        <DateInput value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} className="w-40" />
+        <DateInput value={filterTo} onChange={(e) => setFilterTo(e.target.value)} className="w-40" />
         <button
           onClick={() => { setFilterFrom(''); setFilterTo(''); setFilterDept(''); if (role === 'ADMIN') setFilterVenue('') }}
           className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"

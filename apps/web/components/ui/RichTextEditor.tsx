@@ -26,7 +26,7 @@ const BLOCKS: { label: string; arg: string }[] = [
   { label: 'P', arg: 'p' },
 ]
 
-const BTN = 'font-mono text-[10px] uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-white hover:text-white transition-colors'
+const BTN = 'font-mono text-xs uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-white hover:text-white transition-colors'
 
 export function RichTextEditor({
   value,

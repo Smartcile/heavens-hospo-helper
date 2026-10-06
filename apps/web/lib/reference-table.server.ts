@@ -10,6 +10,7 @@ import {
   type ReferenceMenuItem,
 } from '@/lib/reference-table'
 import { loadImageDataUrl, type GuidePdfTableItem } from '@/lib/guide-pdf'
+import { summariseMethods, summariseServes } from '@/lib/menu-serves'
 
 /**
  * Load every referenced MenuItem in one query. Missing/soft-deleted ids are
@@ -30,9 +31,36 @@ export async function loadMenuItemIndex(
       description: true,
       imageUrl: true,
       dietaryInfo: true,
+      // Serves drive the derived METHOD / SERVE columns.
+      serves: {
+        where: { deletedAt: null },
+        orderBy: { sortOrder: 'asc' },
+        select: {
+          method: true,
+          label: true,
+          qty: true,
+          uom: { select: { name: true } },
+          recipe: { select: { name: true } },
+          inventoryItem: { select: { name: true } },
+        },
+      },
     },
   })
-  return new Map(rows.map((r) => [r.id, r]))
+  return new Map(
+    rows.map((r) => [
+      r.id,
+      {
+        id: r.id,
+        name: r.name,
+        price: r.price,
+        description: r.description,
+        imageUrl: r.imageUrl,
+        dietaryInfo: r.dietaryInfo,
+        serveMethod: summariseMethods(r.serves),
+        serveSummary: summariseServes(r.serves),
+      },
+    ]),
+  )
 }
 
 interface PdfTableRowInput {

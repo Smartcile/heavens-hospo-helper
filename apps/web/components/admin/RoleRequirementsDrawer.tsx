@@ -178,7 +178,7 @@ export function RoleRequirementsDrawer({
               const list = derivedBySection.get(sid) ?? []
               return (
                 <div key={sid} className="space-y-1">
-                  <div className="font-mono text-[10px] uppercase text-grey-light">{sectionName.get(sid) ?? 'SECTION'}</div>
+                  <div className="font-mono text-xs uppercase text-grey-light">{sectionName.get(sid) ?? 'SECTION'}</div>
                   {list.length === 0 ? (
                     <p className="font-mono text-xs text-grey-light">NO GUIDES TARGET THIS SECTION YET.</p>
                   ) : (
@@ -231,7 +231,7 @@ export function RoleRequirementsDrawer({
                 key={preset.key}
                 type="button"
                 onClick={() => setPermissionKeys(completeGrantSet(preset.keys))}
-                className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors"
+                className="font-mono text-xs uppercase border border-grey-mid px-2 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors"
               >
                 {preset.label}
               </button>
@@ -239,12 +239,12 @@ export function RoleRequirementsDrawer({
             <button
               type="button"
               onClick={() => setPermissionKeys([])}
-              className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1.5 text-grey-light hover:text-danger transition-colors"
+              className="font-mono text-xs uppercase border border-grey-mid px-2 py-1.5 text-grey-light hover:text-danger transition-colors"
             >
               CLEAR
             </button>
           </div>
-          <p className="font-mono text-[10px] uppercase text-grey-light">
+          <p className="font-mono text-xs uppercase text-grey-light">
             {permissionKeys.length} PERMISSION{permissionKeys.length === 1 ? '' : 'S'} SELECTED — APPLY TO STAFF WITH THIS ROLE FROM THEIR ACCESS DRAWER.
           </p>
         </div>
@@ -258,13 +258,13 @@ export function RoleRequirementsDrawer({
                 type="button"
                 onClick={assignMissing}
                 disabled={assigning}
-                className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors disabled:opacity-40"
+                className="font-mono text-xs uppercase border border-grey-mid px-2 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors disabled:opacity-40"
               >
                 {assigning ? 'ASSIGNING…' : 'ASSIGN MISSING GUIDES'}
               </button>
             )}
           </div>
-          {assignMsg && <p className="font-mono text-[10px] text-success">{assignMsg}</p>}
+          {assignMsg && <p className="font-mono text-xs text-success">{assignMsg}</p>}
           {readiness.length === 0 ? (
             <p className="font-mono text-xs text-grey-light">NOBODY HOLDS THIS ROLE YET.</p>
           ) : (
@@ -272,7 +272,7 @@ export function RoleRequirementsDrawer({
               {readiness.map((r) => (
                 <div key={r.staffId} className="flex items-center justify-between px-3 py-2 gap-2">
                   <span className="font-mono text-xs uppercase text-white">{r.name}</span>
-                  <span className={`font-mono text-[10px] uppercase ${r.readiness.ready ? 'text-success' : 'text-[#FACC15]'}`}>
+                  <span className={`font-mono text-xs uppercase ${r.readiness.ready ? 'text-success' : 'text-warning'}`}>
                     {readinessLabel(r.readiness)}
                   </span>
                 </div>

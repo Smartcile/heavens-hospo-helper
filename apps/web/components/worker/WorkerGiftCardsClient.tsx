@@ -90,7 +90,7 @@ export function WorkerGiftCardsClient() {
       <div className="min-h-screen bg-black flex items-center justify-center p-6">
         <div className="border border-grey-mid p-6 max-w-sm text-center space-y-3">
           <p className="font-mono text-sm uppercase tracking-widest text-white">NOT AUTHORISED</p>
-          <p className="font-mono text-[10px] text-grey-light leading-relaxed">
+          <p className="font-mono text-xs text-grey-light leading-relaxed">
             THIS MODULE IS LOCKED. ASK A MANAGER TO GRANT IT IN STAFF → ACCESS → PERFORMANCE → GIFT CARDS → ISSUE.
           </p>
         </div>
@@ -111,7 +111,7 @@ export function WorkerGiftCardsClient() {
             <Button onClick={() => window.open(`/api/worker/giftcards/${done.cardId}/pdf`, '_blank')}>VIEW / PRINT PDF</Button>
             <Button variant="ghost" onClick={() => setDone(null)}>NEXT CARD</Button>
           </div>
-          <p className="font-mono text-[9px] text-grey-light">PRINT THE PDF ON A CARD PRINTER OR STANDARD PAPER.</p>
+          <p className="font-mono text-xs text-grey-light">PRINT THE PDF ON A CARD PRINTER OR STANDARD PAPER.</p>
         </div>
       </div>
     )
@@ -123,7 +123,7 @@ export function WorkerGiftCardsClient() {
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">GIFT CARDS</h1>
 
         <div className="border border-grey-mid p-4 space-y-1">
-          <p className="font-mono text-[10px] uppercase text-grey-light">NEXT CARD TO ISSUE</p>
+          <p className="font-mono text-xs uppercase text-grey-light">NEXT CARD TO ISSUE</p>
           {state.draft ? (
             <p className="font-mono text-2xl text-white">{state.draft.number}</p>
           ) : state.poolFull ? (
@@ -152,7 +152,7 @@ export function WorkerGiftCardsClient() {
           </div>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={isInternal} onChange={(e) => setIsInternal(e.target.checked)} className="bg-grey-dark border border-grey-mid accent-white" />
-            <span className="font-mono text-[10px] uppercase text-grey-light">INTERNAL (PRINT LATER)</span>
+            <span className="font-mono text-xs uppercase text-grey-light">INTERNAL (PRINT LATER)</span>
           </label>
           {state.error && <p className="font-mono text-xs text-danger">{state.error}</p>}
           <Button className="w-full" onClick={issue} disabled={issuing}>
@@ -160,7 +160,7 @@ export function WorkerGiftCardsClient() {
           </Button>
         </div>
 
-        <p className="font-mono text-[9px] text-grey-light leading-relaxed">
+        <p className="font-mono text-xs text-grey-light leading-relaxed">
           THE PDF IS GENERATED WITH THE VENUE&apos;S ACTIVE TEMPLATE (OR THE BUILT-IN DESIGN) AND CAN BE PRINTED IMMEDIATELY.
         </p>
       </div>

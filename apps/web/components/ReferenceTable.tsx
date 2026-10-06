@@ -73,7 +73,7 @@ export function ReferenceTable({ columns, rows }: { columns: ReferenceColumn[]; 
                     <th key={col.key} className="text-left uppercase tracking-wider text-grey-light px-3 py-2 border-b border-grey-mid whitespace-nowrap">
                       {col.label}
                       {(col.type === 'MENU_FIELD' || col.type === 'MENU_ITEM') && (
-                        <span className="ml-1 text-[9px] text-grey-light/70">
+                        <span className="ml-1 text-xs text-grey-light/70">
                           ({col.type === 'MENU_FIELD' ? menuFieldLabel(col.menuField) ?? columnTypeLabel(col.type) : 'LINKED'})
                         </span>
                       )}
@@ -101,7 +101,7 @@ export function ReferenceTable({ columns, rows }: { columns: ReferenceColumn[]; 
               <div key={row.id} className="border border-grey-mid p-3 space-y-2">
                 {columns.map((col, idx) => (
                   <div key={col.key} className={idx === 0 ? '' : 'border-t border-grey-mid pt-2'}>
-                    <div className="font-mono text-[10px] uppercase tracking-wider text-grey-light">{col.label}</div>
+                    <div className="font-mono text-xs uppercase tracking-wider text-grey-light">{col.label}</div>
                     <div className="font-sans text-sm text-white">
                       <CellValue row={row} col={col} onImage={setLightbox} />
                     </div>

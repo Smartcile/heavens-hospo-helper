@@ -219,42 +219,42 @@ export function FurnitureForm({ furnitureId, onSaved, onCancel, onDeleted }: Pro
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">NAME</label>
+              <label className="font-mono text-xs uppercase text-grey-light block mb-1">NAME</label>
               <Input value={name} onChange={(e) => setName(e.target.value.toUpperCase())} placeholder="8-SEAT ROUND" />
             </div>
             <div>
-              <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">TYPE</label>
+              <label className="font-mono text-xs uppercase text-grey-light block mb-1">TYPE</label>
               <Select value={furnitureType} onChange={(e) => setFurnitureType(e.target.value)} options={FURNITURE_TYPES} />
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">SHAPE</label>
+              <label className="font-mono text-xs uppercase text-grey-light block mb-1">SHAPE</label>
               <Select value={shape} onChange={(e) => setShape(e.target.value as FurnitureShape)} options={SHAPES} />
             </div>
             <div>
-              <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">WIDTH (CM)</label>
+              <label className="font-mono text-xs uppercase text-grey-light block mb-1">WIDTH (CM)</label>
               <Input type="number" value={width} onChange={(e) => setWidth(e.target.value)} disabled={shape === 'POLYGON'} />
             </div>
             <div>
-              <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">DEPTH (CM)</label>
+              <label className="font-mono text-xs uppercase text-grey-light block mb-1">DEPTH (CM)</label>
               <Input type="number" value={depth} onChange={(e) => setDepth(e.target.value)} disabled={shape === 'POLYGON'} />
             </div>
           </div>
           {shape === 'POLYGON' && (
-            <p className="font-mono text-[9px] text-grey-light">
+            <p className="font-mono text-xs text-grey-light">
               SIZE IS TAKEN FROM THE SHAPE YOU DRAW
             </p>
           )}
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">HOW MANY OWNED</label>
+              <label className="font-mono text-xs uppercase text-grey-light block mb-1">HOW MANY OWNED</label>
               <Input type="number" value={totalQty} onChange={(e) => setTotalQty(e.target.value)} />
             </div>
             <div>
-              <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">COLOUR</label>
+              <label className="font-mono text-xs uppercase text-grey-light block mb-1">COLOUR</label>
               <div className="flex items-center gap-2">
                 <input
                   type="color"
@@ -271,21 +271,21 @@ export function FurnitureForm({ furnitureId, onSaved, onCancel, onDeleted }: Pro
             <>
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">SEATS</label>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">SEATS</label>
                   <Input type="number" value={defaultChairCount} onChange={(e) => setDefaultChairCount(e.target.value)} />
                 </div>
                 <div>
-                  <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">CM / CHAIR</label>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">CM / CHAIR</label>
                   <Input type="number" value={seatingDensity} onChange={(e) => setSeatingDensity(e.target.value)} placeholder="60" />
                 </div>
                 <div>
-                  <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">MAX ON ENDS</label>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">MAX ON ENDS</label>
                   <Input type="number" value={maxHeadChairs} onChange={(e) => setMaxHeadChairs(e.target.value)} />
                 </div>
               </div>
 
               <div>
-                <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">CHAIR TYPE</label>
+                <label className="font-mono text-xs uppercase text-grey-light block mb-1">CHAIR TYPE</label>
                 <Select
                   value={chairItemId}
                   onChange={(e) => setChairItemId(e.target.value)}
@@ -295,16 +295,16 @@ export function FurnitureForm({ furnitureId, onSaved, onCancel, onDeleted }: Pro
                   }))}
                   placeholder={chairOptions.length ? 'GENERIC CHAIR' : 'NO CHAIRS IN INVENTORY YET'}
                 />
-                <p className="font-mono text-[9px] text-grey-light mt-1">
+                <p className="font-mono text-xs text-grey-light mt-1">
                   DRAWN TO ITS REAL SIZE ON THE PLAN AND COUNTED AGAINST STOCK
                 </p>
               </div>
 
               <div>
-                <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">TABLE NUMBERS</label>
+                <label className="font-mono text-xs uppercase text-grey-light block mb-1">TABLE NUMBERS</label>
                 <div className="flex flex-wrap gap-1 mb-1.5">
                   {tableNumbers.map((n, i) => (
-                    <span key={n} className="inline-flex items-center gap-1 bg-grey-mid border border-grey-light px-1.5 py-0.5 font-mono text-[10px] text-white">
+                    <span key={n} className="inline-flex items-center gap-1 bg-grey-mid border border-grey-light px-1.5 py-0.5 font-mono text-xs text-white">
                       {n}
                       <button type="button" onClick={() => setTableNumbers((prev) => prev.filter((_, j) => j !== i))} className="text-grey-light hover:text-danger">×</button>
                     </span>
@@ -317,7 +317,7 @@ export function FurnitureForm({ furnitureId, onSaved, onCancel, onDeleted }: Pro
                   onBlur={addNumber}
                   placeholder="TYPE A NUMBER, PRESS ENTER..."
                 />
-                <p className="font-mono text-[9px] text-grey-light mt-1">
+                <p className="font-mono text-xs text-grey-light mt-1">
                   CLAIMED BY THE DEFAULT LAYOUT — EVENT LAYOUTS CAN OVERRIDE PER TABLE
                 </p>
               </div>
@@ -346,7 +346,7 @@ export function FurnitureForm({ furnitureId, onSaved, onCancel, onDeleted }: Pro
       {/* ── BOM ── */}
       {!isChair && (
         <div className="border border-grey-mid p-3 space-y-3">
-          <h3 className="font-mono text-[10px] uppercase text-grey-light tracking-wider">
+          <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">
             WHAT GOES ON IT ({bom.length})
           </h3>
 
@@ -358,7 +358,7 @@ export function FurnitureForm({ furnitureId, onSaved, onCancel, onDeleted }: Pro
                   <div key={b.inventoryItemId} className="flex items-center gap-2 font-mono text-xs">
                     <span className="text-white flex-1 uppercase truncate">{b.name ?? inv?.name ?? b.inventoryItemId}</span>
                     <span className="text-grey-light">×{b.quantity}</span>
-                    <span className={`text-[10px] ${b.perChair ? 'text-success' : 'text-grey-light'}`}>
+                    <span className={`text-xs ${b.perChair ? 'text-success' : 'text-grey-light'}`}>
                       {b.perChair ? 'PER CHAIR' : 'PER PIECE'}
                     </span>
                     <button

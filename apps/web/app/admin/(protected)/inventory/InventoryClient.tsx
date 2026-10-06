@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { Combobox } from '@/components/ui/Combobox'
 import { AllergenPicker } from '@/components/ui/AllergenPicker'
+import { Panel } from '@/components/ui/Panel'
 import { ALLERGENS } from '@/lib/allergens'
 import { cupToDensity, findKnownIngredient } from '@/lib/unit-convert'
 import { buildDensityPrompt, parseDensityFromAnswer } from '@/lib/llm-prompt'
@@ -455,14 +456,14 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
           <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">INVENTORY</h1>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center border border-grey-mid">
+          <Panel variant="outline" padding="none" className="flex items-center">
             {([['FOOD', 'FOOD'], ['BEVERAGE', 'BEVERAGE'], ['OTHER', 'OTHER']] as const).map(([key, label]) => (
               <button key={key} onClick={() => { setActiveTab(key); localStorage.setItem('hospo-inventory-tab', key) }}
-                className={`font-mono text-[10px] uppercase px-3 py-1.5 border-r border-grey-mid last:border-r-0 ${activeTab === key ? 'bg-grey-mid/30 text-white' : 'text-grey-light hover:text-white'}`}>
+                className={`font-mono text-xs uppercase px-3 py-1.5 border-r border-grey-mid last:border-r-0 ${activeTab === key ? 'bg-grey-mid/30 text-white' : 'text-grey-light hover:text-white'}`}>
                 {label}
               </button>
             ))}
-          </div>
+          </Panel>
           <Button size="sm" onClick={() => { setEditingCat(null); setNewCatName(''); setNewCatTab('FOOD'); setShowCatModal(true) }} variant="ghost">+ CATEGORY</Button>
           <Button size="sm" onClick={() => { if (!showDeleted) loadDeleted(); setShowDeleted(!showDeleted) }} variant="ghost">{showDeleted ? 'HIDE DELETED' : 'SHOW DELETED'}</Button>
         </div>
@@ -476,14 +477,14 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
             <div className="relative" onClick={(e) => e.stopPropagation()}>
               <Button size="sm" variant="ghost" onClick={() => setShowCatDropdown(!showCatDropdown)}>+ ADD ITEM</Button>
               {showCatDropdown && (
-                <div className="absolute top-full left-0 mt-1 z-50 border border-grey-mid bg-black p-1 min-w-[200px] shadow-lg">
+                <Panel variant="outline" padding="none" className="absolute top-full left-0 mt-1 z-50 bg-black p-1 min-w-[200px] shadow-lg">
                   {tabCategories.map((c) => (
                     <button key={c.id} onClick={() => startCreate(c.id)}
                       className="block w-full text-left px-3 py-1.5 font-mono text-xs uppercase text-grey-light hover:text-white hover:bg-grey-mid/30">
                       {c.name}
                     </button>
                   ))}
-                </div>
+                </Panel>
               )}
             </div>
           </div>
@@ -497,22 +498,22 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
             )
             const showKindHeaders = new Set(orderedItems.map(kindOf)).size > 1
             return (
-              <div key={cat.id} className="border border-grey-mid">
+              <Panel key={cat.id} variant="outline" padding="none">
                 <div className="flex items-center">
                   <button onClick={() => toggleCollapse(cat.name)}
                     className="flex-1 flex items-center justify-between px-3 py-2 hover:bg-grey-mid/20 text-left">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-xs text-grey-light">{isCollapsed ? '▸' : '▾'}</span>
                       <span className="font-mono text-xs font-bold text-white uppercase">{cat.name}</span>
-                      <span className="font-mono text-[10px] text-grey-light">({catItemList.length})</span>
+                      <span className="font-mono text-xs text-grey-light">({catItemList.length})</span>
                     </div>
                   </button>
                   <button onClick={(e) => { e.stopPropagation(); startCreate(cat.id) }}
-                    className="font-mono text-[10px] uppercase text-grey-light hover:text-white px-3 py-2 border-l border-grey-mid">
+                    className="font-mono text-xs uppercase text-grey-light hover:text-white px-3 py-2 border-l border-grey-mid">
                     {isFurniture ? '+ ADD TABLE' : '+ ADD'}
                   </button>
                   <button onClick={(e) => { e.stopPropagation(); setEditingCat(cat); setNewCatName(cat.name); setNewCatTab(cat.tab ?? 'OTHER'); setShowCatModal(true) }}
-                    className="font-mono text-[10px] uppercase text-[#c4a530] hover:text-white px-2 py-2 border-l border-grey-mid">
+                    className="font-mono text-xs uppercase text-gold hover:text-white px-2 py-2 border-l border-grey-mid">
                     EDIT
                   </button>
                 </div>
@@ -536,7 +537,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                       return (
                         <Fragment key={item.id}>
                           {showKindHeaders && (idx === 0 || kindOf(orderedItems[idx - 1]) !== kindOf(item)) && (
-                            <div className="px-3 pt-2 font-mono text-[9px] uppercase tracking-wider text-grey-light">
+                            <div className="px-3 pt-2 font-mono text-xs uppercase tracking-wider text-grey-light">
                               {KIND_LABEL[kindOf(item)] ?? kindOf(item)}
                             </div>
                           )}
@@ -551,30 +552,30 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                             <div className="flex-1 min-w-0">
                               <span className="font-mono text-xs text-white block truncate">
                                 {item.name}
-                                <span className="inline-block ml-1 font-mono text-[8px] text-grey-light border border-grey-mid px-1 align-middle">CUSTOM</span>
+                                <span className="inline-block ml-1 font-mono text-xs text-grey-light border border-grey-mid px-1 align-middle">CUSTOM</span>
                                 {item.allergyInfo && item.allergyInfo.split(',').map((a: string) => a.trim()).filter(Boolean).map((allergen: string) => (
-                                  <span key={allergen} className="inline-block ml-1 font-mono text-[8px] text-[#c4a530] border border-[#c4a530] px-1 align-middle">{allergen}</span>
+                                  <span key={allergen} className="inline-block ml-1 font-mono text-xs text-gold border border-gold px-1 align-middle">{allergen}</span>
                                 ))}
                               </span>
                               {isFurnitureItem && (
                                 <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                                  <span className="font-mono text-[10px] text-grey-light border border-grey-mid px-1.5 py-px">{item.elementWidth}×{item.elementDepth}</span>
+                                  <span className="font-mono text-xs text-grey-light border border-grey-mid px-1.5 py-px">{item.elementWidth}×{item.elementDepth}</span>
                                   {(item.defaultChairCount ?? 0) > 0 && (
-                                    <span className="font-mono text-[10px] text-grey-light border border-grey-mid px-1.5 py-px">{(item.defaultChairCount ?? 0)}/{profileCapacity || (item.defaultChairCount ?? 0)}</span>
+                                    <span className="font-mono text-xs text-grey-light border border-grey-mid px-1.5 py-px">{(item.defaultChairCount ?? 0)}/{profileCapacity || (item.defaultChairCount ?? 0)}</span>
                                   )}
                                   {profileNumbers.map((n: string, i: number) => (
-                                    <span key={i} className="font-mono text-[10px] text-white border border-grey-mid px-1.5 py-px bg-grey-dark/50">{n}</span>
+                                    <span key={i} className="font-mono text-xs text-white border border-grey-mid px-1.5 py-px bg-grey-dark/50">{n}</span>
                                   ))}
                                 </div>
                               )}
                             </div>
                             <div className="flex items-center gap-3 text-right flex-shrink-0">
-                              <span className="font-mono text-[10px] text-grey-light w-10">QTY {item.totalQty ?? 0}</span>
+                              <span className="font-mono text-xs text-grey-light w-10">QTY {item.totalQty ?? 0}</span>
                               {item.costPrice != null && (
-                                <span className="font-mono text-[10px] text-grey-light w-14 text-right">${item.costPrice.toFixed(2)}</span>
+                                <span className="font-mono text-xs text-grey-light w-14 text-right">${item.costPrice.toFixed(2)}</span>
                               )}
                               {isFurnitureItem && (
-                                <span className={`font-mono text-[10px] w-10 ${avail > 0 ? 'text-accent' : 'text-danger'}`}>AVAIL {avail}</span>
+                                <span className={`font-mono text-xs w-10 ${avail > 0 ? 'text-accent' : 'text-danger'}`}>AVAIL {avail}</span>
                               )}
                               <button onClick={() => {
                                 if (isFurnitureItem) {
@@ -593,9 +594,9 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                                   }
                                 }
                               }}
-                                className="font-mono text-[10px] text-[#c4a530] border border-[#c4a530] px-1.5 py-0.5 hover:text-white hover:border-white uppercase"                                >EDIT</button>
+                                className="font-mono text-xs text-gold border border-gold px-1.5 py-0.5 hover:text-white hover:border-white uppercase"                                >EDIT</button>
                               <button onClick={() => deleteItem(item.id)}
-                                className="font-mono text-[10px] text-danger hover:text-white border border-grey-mid px-1.5 py-0.5">DLT</button>
+                                className="font-mono text-xs text-danger hover:text-white border border-grey-mid px-1.5 py-0.5">DLT</button>
                             </div>
                           </div>
                           {idx < orderedItems.length - 1 && (
@@ -606,30 +607,30 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                     })}
                   </div>
                 )}
-              </div>
+              </Panel>
             )
           })}
 
           {/* Pantry Bible — the known-ingredient density library. These are
               references for recipes (density / unit weight), not stock. */}
-          <div className="border border-grey-mid">
+          <Panel variant="outline" padding="none">
             <div className="flex items-center">
               <button onClick={() => toggleCollapse('PANTRY BIBLE')}
                 className="flex-1 flex items-center justify-between px-3 py-2 hover:bg-grey-mid/20 text-left">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-xs text-grey-light">{collapsed.has('PANTRY BIBLE') ? '▸' : '▾'}</span>
                   <span className="font-mono text-xs font-bold text-white uppercase">PANTRY BIBLE</span>
-                  <span className="font-mono text-[10px] text-grey-light">({ingredientRefs.length})</span>
+                  <span className="font-mono text-xs text-grey-light">({ingredientRefs.length})</span>
                 </div>
               </button>
               <button onClick={() => setShowRefPicker(true)}
-                className="font-mono text-[10px] uppercase text-grey-light hover:text-white px-3 py-2 border-l border-grey-mid">
+                className="font-mono text-xs uppercase text-grey-light hover:text-white px-3 py-2 border-l border-grey-mid">
                 LIBRARY
               </button>
             </div>
             {!collapsed.has('PANTRY BIBLE') && (
               <div className="border-t border-grey-mid">
-                <p className="font-mono text-[9px] text-grey-light px-3 pt-2">
+                <p className="font-mono text-xs text-grey-light px-3 pt-2">
                   KNOWN INGREDIENTS WITH DENSITY / UNIT-WEIGHT — REFERENCE VALUES FOR RECIPES, NOT STOCK.
                 </p>
                 {ingredientRefs.length === 0 && <p className="font-mono text-xs text-grey-light px-3 py-3">No known ingredients.</p>}
@@ -639,24 +640,24 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                       <div className="flex-1 min-w-0">
                         <span className="font-mono text-xs text-white block truncate uppercase">
                           {r.name}
-                          <span className="inline-block ml-1 font-mono text-[8px] text-[#c4a530] border border-[#c4a530] px-1 align-middle">PANTRY BIBLE</span>
+                          <span className="inline-block ml-1 font-mono text-xs text-gold border border-gold px-1 align-middle">PANTRY BIBLE</span>
                         </span>
-                        <span className="block font-mono text-[9px] text-grey-light">
+                        <span className="block font-mono text-xs text-grey-light">
                           {r.notes ?? (r.densityGramsPerMl != null ? `1 CUP ≈ ${Math.round(r.densityGramsPerMl * 250)}G` : r.weightPerUnitGrams != null ? `1 EA ≈ ${r.weightPerUnitGrams}G` : '')}
                         </span>
                       </div>
-                      <span className="font-mono text-[9px] text-grey-light shrink-0 uppercase">REFERENCE</span>
+                      <span className="font-mono text-xs text-grey-light shrink-0 uppercase">REFERENCE</span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-          </div>
+          </Panel>
         </div>
 
         {/* Restore deleted items */}
         {showDeleted && (
-          <div className="border border-grey-mid border-dashed">
+          <Panel variant="outline" padding="none" className="border-dashed">
             <div className="px-3 py-2 border-b border-grey-mid font-mono text-xs font-bold text-white uppercase bg-grey-dark/50">DELETED ITEMS</div>
             {deletedItems.length === 0 ? (
               <p className="px-3 py-3 font-mono text-xs text-grey-light">No deleted items.</p>
@@ -666,21 +667,21 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                   <div key={item.id} className="flex items-center justify-between px-3 py-2">
                     <span className="font-mono text-xs text-grey-light line-through">{item.name}</span>
                     <div className="flex gap-2">
-                      <button onClick={() => restoreItem(item.id)} className="font-mono text-[10px] text-success hover:text-white border border-grey-mid px-1.5 py-0.5">RESTORE</button>
-                      <button onClick={() => purgeItem(item.id)} className="font-mono text-[10px] text-danger hover:text-white border border-grey-mid px-1.5 py-0.5">PURGE</button>
+                      <button onClick={() => restoreItem(item.id)} className="font-mono text-xs text-success hover:text-white border border-grey-mid px-1.5 py-0.5">RESTORE</button>
+                      <button onClick={() => purgeItem(item.id)} className="font-mono text-xs text-danger hover:text-white border border-grey-mid px-1.5 py-0.5">PURGE</button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
-          </div>
+          </Panel>
         )}
 
         {/* Right: Summary + TableProfileForm */}
         <div className="lg:col-span-4 space-y-4">
           {/* Category stock summary for FOOD/BEVERAGE */}
           {(activeTab === 'FOOD' || activeTab === 'BEVERAGE') && (
-          <div className="border border-grey-mid p-4">
+          <Panel variant="outline" padding="lg">
             <h2 className="font-mono text-xs font-bold text-white uppercase mb-3">{activeTab} SUMMARY</h2>
             {tabCategories.length === 0 ? (
               <p className="font-mono text-xs text-grey-light">No categories yet.</p>
@@ -699,35 +700,35 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                 })}
               </div>
             )}
-          </div>
+          </Panel>
           )}
           {activeTab === 'OTHER' && (
-          <div className="border border-grey-mid p-4">
+          <Panel variant="outline" padding="lg">
             <h2 className="font-mono text-xs font-bold text-white uppercase mb-3">INVENTORY SUMMARY</h2>
             {stockLoading && <p className="font-mono text-xs text-grey-light">LOADING...</p>}
             {!stockLoading && stock.length === 0 && <p className="font-mono text-xs text-grey-light">No stock hierarchy found. Create sections and place tables on floor plans first.</p>}
             {!stockLoading && stock.map((sec) => (
               <div key={sec.id} className="mb-2">
-                <h3 className="font-mono text-[11px] font-bold text-accent uppercase">{sec.name}</h3>
-                {sec.tables.length === 0 && <p className="font-mono text-[9px] text-grey-light italic ml-3">No tables in this section.</p>}
+                <h3 className="font-mono text-xs font-bold text-accent uppercase">{sec.name}</h3>
+                {sec.tables.length === 0 && <p className="font-mono text-xs text-grey-light italic ml-3">No tables in this section.</p>}
                 {sec.tables.map((tbl) => (
                   <div key={tbl.id} className="ml-3 border-l border-grey-mid pl-3 py-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[10px] text-white">{tbl.label}</span>
-                      <span className="font-mono text-[8px] text-grey-light">{tbl.width}×{tbl.depth} cm · {tbl.planName}</span>
+                      <span className="font-mono text-xs text-white">{tbl.label}</span>
+                      <span className="font-mono text-xs text-grey-light">{tbl.width}×{tbl.depth} cm · {tbl.planName}</span>
                     </div>
-                    {tbl.inventoryItems.length === 0 && <p className="font-mono text-[8px] text-grey-light ml-2 italic">No equipment linked.</p>}
+                    {tbl.inventoryItems.length === 0 && <p className="font-mono text-xs text-grey-light ml-2 italic">No equipment linked.</p>}
                     {tbl.inventoryItems.map((inv) => (
                       <div key={inv.id} className="flex items-center gap-2 ml-2">
-                        <span className="font-mono text-[9px] text-grey-light">{inv.name}</span>
-                        <span className="font-mono text-[8px] text-accent">×{inv.quantity}</span>
+                        <span className="font-mono text-xs text-grey-light">{inv.name}</span>
+                        <span className="font-mono text-xs text-accent">×{inv.quantity}</span>
                       </div>
                     ))}
                   </div>
                 ))}
               </div>
             ))}
-          </div>
+          </Panel>
           )}
 
           {showTableProfile && (
@@ -758,11 +759,11 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
           <div className="flex flex-wrap gap-2">
             <label className="flex items-center gap-1 cursor-pointer">
               <input type="checkbox" checked={!showDeepFields} onChange={(e) => setShowDeepFields(!e.target.checked)} className="accent-white" />
-              <span className="font-mono text-[10px] uppercase text-grey-light">DEEP INVENTORY FIELDS</span>
+              <span className="font-mono text-xs uppercase text-grey-light">DEEP INVENTORY FIELDS</span>
             </label>
             <label className="flex items-center gap-1 cursor-pointer">
               <input type="checkbox" checked={showEquipmentFields} onChange={(e) => setShowEquipmentFields(e.target.checked)} className="accent-white" />
-              <span className="font-mono text-[10px] uppercase text-grey-light">EQUIPMENT / TOOL TRACKING</span>
+              <span className="font-mono text-xs uppercase text-grey-light">EQUIPMENT / TOOL TRACKING</span>
             </label>
           </div>
           <div className="flex gap-2">
@@ -808,7 +809,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
           )}
           {catShowDeep && (
             <button onClick={() => setShowDeepFields(!showDeepFields)}
-              className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
+              className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
               {showDeepFields ? '▾ DEEP INVENTORY' : '▸ DEEP INVENTORY'}
             </button>
           )}
@@ -848,7 +849,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
               <div className="col-span-3">
                 <label className="flex items-center gap-2 cursor-pointer pt-1">
                   <input type="checkbox" checked={formCanFreeze} onChange={(e) => setFormCanFreeze(e.target.checked)} className="accent-white" />
-                  <span className="font-mono text-[10px] uppercase text-grey-light">CAN BE FROZEN</span>
+                  <span className="font-mono text-xs uppercase text-grey-light">CAN BE FROZEN</span>
                 </label>
               </div>
               {formCanFreeze && (
@@ -856,27 +857,27 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                   <Input label="FREEZER SHELF LIFE (DAYS)" type="number" value={formFreezerShelfLifeDays} onChange={(e) => setFormFreezerShelfLifeDays(e.target.value)} placeholder="e.g. 90" />
                 </div>
               )}
-              <div className="col-span-6 border border-grey-mid p-3 space-y-2">
+              <Panel variant="outline" padding="md" className="col-span-6 space-y-2">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <h3 className="font-mono text-[10px] uppercase text-grey-light tracking-wider">DENSITY — CONVERTS VOLUME ↔ WEIGHT</h3>
+                  <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">DENSITY — CONVERTS VOLUME ↔ WEIGHT</h3>
                   <div className="flex gap-1">
                     <button onClick={() => { setRefSearch(''); setShowRefPicker(true) }}
-                      className="font-mono text-[9px] uppercase border border-grey-mid px-1.5 py-0.5 text-grey-light hover:border-white hover:text-white">
+                      className="font-mono text-xs uppercase border border-grey-mid px-1.5 py-0.5 text-grey-light hover:border-white hover:text-white">
                       FROM LIBRARY
                     </button>
                     <button onClick={() => { setLlmAnswer(''); setShowLlmModal(true) }}
-                      className="font-mono text-[9px] uppercase border border-[#60A5FA]/50 px-1.5 py-0.5 text-[#60A5FA] hover:border-[#60A5FA] hover:text-white">
+                      className="font-mono text-xs uppercase border border-info/50 px-1.5 py-0.5 text-info hover:border-info hover:text-white">
                       HELP ME FIND OUT
                     </button>
                   </div>
                 </div>
                 {knownSuggestion && (
-                  <div className="flex items-center gap-2 border border-[#c4a530]/50 bg-[#c4a530]/10 px-2 py-1.5">
-                    <span className="font-mono text-[10px] text-[#c4a530] flex-1 truncate">
+                  <div className="flex items-center gap-2 border border-gold/50 bg-gold/10 px-2 py-1.5">
+                    <span className="font-mono text-xs text-gold flex-1 truncate">
                       KNOWN: {knownSuggestion.name} · {knownSuggestion.notes ?? (knownSuggestion.densityGramsPerMl != null ? `1 CUP ≈ ${Math.round(knownSuggestion.densityGramsPerMl * 250)}G` : knownSuggestion.weightPerUnitGrams != null ? `1 EA ≈ ${knownSuggestion.weightPerUnitGrams}G` : '')}
                     </span>
                     <button onClick={() => applyRef(knownSuggestion)}
-                      className="font-mono text-[9px] uppercase text-white border border-[#c4a530] px-1.5 py-0.5 hover:bg-[#c4a530] hover:text-black shrink-0">
+                      className="font-mono text-xs uppercase text-white border border-gold px-1.5 py-0.5 hover:bg-gold hover:text-black shrink-0">
                       APPLY DENSITY?
                     </button>
                   </div>
@@ -895,7 +896,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                       onChange={(e) => setFormWeightPerUnit(e.target.value)} placeholder="e.g. 50 (EGG)" />
                   </div>
                 </div>
-                <p className="font-mono text-[9px] text-grey-light">
+                <p className="font-mono text-xs text-grey-light">
                   {(() => {
                     const d = formDensity !== '' ? parseFloat(formDensity) : formCupWeight !== '' ? cupWeightToDensity(formCupWeight) : null
                     if (d == null || !isFinite(d) || d <= 0) {
@@ -906,7 +907,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                     return `1 CUP ≈ ${cupG}G · 1 TBSP ≈ ${Math.round(d * 20)}G · 1 TSP ≈ ${Math.round(d * 5)}G${unit}`
                   })()}
                 </p>
-              </div>
+              </Panel>
               <div className="col-span-6">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider block mb-1">ALLERGENS</label>
                 <div className="space-y-1.5">
@@ -925,7 +926,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                       if (visible.length === 0) return null
                       return (
                         <div key={grp.label}>
-                          <div className="font-mono text-[8px] uppercase text-grey-light mb-0.5">{grp.label}</div>
+                          <div className="font-mono text-xs uppercase text-grey-light mb-0.5">{grp.label}</div>
                           <div className="flex flex-wrap gap-1">
                             {visible.map((a) => {
                               const on = selected.includes(a)
@@ -935,7 +936,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                                     const next = on ? selected.filter((x: string) => x !== a) : [...selected, a]
                                     setFormAllergyInfo(next.join(', '))
                                   }}
-                                  className={`font-mono text-[9px] uppercase px-1.5 py-0.5 border transition-colors ${on ? 'bg-[#c4a530]/10 text-[#c4a530] border-[#c4a530]/50' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>
+                                  className={`font-mono text-xs uppercase px-1.5 py-0.5 border transition-colors ${on ? 'bg-gold/10 text-gold border-gold/50' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>
                                   {on ? '✓ ' : ''}{a}
                                 </button>
                               )
@@ -952,7 +953,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
             {catShowEquip && (
               <>
                 <button onClick={() => setShowEquipmentFields(!showEquipmentFields)}
-                  className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
+                  className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
                   {showEquipmentFields ? '▾ EQUIPMENT / TOOL TRACKING' : '▸ EQUIPMENT / TOOL TRACKING'}
                 </button>
                 {showEquipmentFields && (
@@ -972,10 +973,10 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                     <input id="inv-img-upload" type="file" accept="image/*" className="hidden"
                       onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
                     <button type="button" onClick={() => document.getElementById('inv-img-upload')?.click()}
-                      className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
+                      className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
                       {formUploadingImg ? 'UPLOADING_' : 'ADD PHOTO'}
                     </button>
-                    <span className="font-mono text-[9px] text-grey-light/50">OR PASTE IMAGE (CTRL+V)</span>
+                    <span className="font-mono text-xs text-grey-light/50">OR PASTE IMAGE (CTRL+V)</span>
                   </div>
                   {formImageUrls.length > 0 && (
                     <div className="flex flex-wrap gap-2">
@@ -984,7 +985,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                           <img src={url} alt={`photo ${i + 1}`} className="h-16 w-16 object-cover border border-grey-mid cursor-pointer"
                             onClick={() => setPreviewImage(url)} />
                           <button onClick={() => setFormImageUrls((prev) => prev.filter((_, idx) => idx !== i))}
-                            className="absolute -top-1 -right-1 w-4 h-4 bg-danger text-black font-mono text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            className="absolute -top-1 -right-1 w-4 h-4 bg-danger text-black font-mono text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                             ×
                           </button>
                         </div>
@@ -1023,19 +1024,19 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                         hideTags
                       />
                     </div>
-                    <div className="col-span-6 border border-grey-mid p-2 space-y-2">
+                    <Panel variant="outline" padding="xs" className="col-span-6 space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="font-mono text-[10px] uppercase text-grey-light tracking-wider">Storage locations</span>
+                        <span className="font-mono text-xs uppercase text-grey-light tracking-wider">Storage locations</span>
                         <button
                           type="button"
                           onClick={() => setFormStorageLocations((prev) => [...prev, { sectionId: '', qty: '', notes: '' }])}
-                          className="font-mono text-[10px] uppercase text-grey-light hover:text-white transition-colors"
+                          className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
                         >
                           + ADD LOCATION
                         </button>
                       </div>
                       {formStorageLocations.length === 0 && (
-                        <p className="font-mono text-[10px] text-grey-light">WHERE THIS ITEM IS KEPT — ADD A SECTION PER PLACE (BAR, STOREROOM, KITCHEN).</p>
+                        <p className="font-mono text-xs text-grey-light">WHERE THIS ITEM IS KEPT — ADD A SECTION PER PLACE (BAR, STOREROOM, KITCHEN).</p>
                       )}
                       {formStorageLocations.map((loc, i) => (
                         <div key={i} className="flex flex-wrap items-center gap-2">
@@ -1071,7 +1072,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                           </button>
                         </div>
                       ))}
-                    </div>
+                    </Panel>
                     <div className="col-span-3">
                       <Input label="SERIAL NUMBER" value={formSerialNumber} onChange={(e) => setFormSerialNumber(e.target.value)} placeholder="SN-12345" />
                     </div>
@@ -1111,26 +1112,26 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
             {maintLogs.length > 0 && (
               <div className="border-t border-grey-mid pt-3">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider block mb-2">MAINTENANCE HISTORY</label>
-                <div className="border border-grey-mid max-h-40 overflow-y-auto">
+                <Panel variant="outline" padding="none" className="max-h-40 overflow-y-auto">
                   <table className="w-full text-left">
                     <thead>
                       <tr className="border-b border-grey-mid bg-grey-dark/30">
-                        <th className="font-mono text-[9px] uppercase text-grey-light px-2 py-1">DATE</th>
-                        <th className="font-mono text-[9px] uppercase text-grey-light px-2 py-1">BY</th>
-                        <th className="font-mono text-[9px] uppercase text-grey-light px-2 py-1">NOTE</th>
+                        <th className="font-mono text-xs uppercase text-grey-light px-2 py-1">DATE</th>
+                        <th className="font-mono text-xs uppercase text-grey-light px-2 py-1">BY</th>
+                        <th className="font-mono text-xs uppercase text-grey-light px-2 py-1">NOTE</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-grey-mid/30">
                       {maintLogs.map((l) => (
                         <tr key={l.id}>
-                          <td className="font-mono text-[9px] text-white px-2 py-1 whitespace-nowrap">{String(l.createdAt).slice(0, 10)}</td>
-                          <td className="font-mono text-[9px] text-grey-light px-2 py-1 whitespace-nowrap">{l.staffName || '—'}</td>
-                          <td className="font-mono text-[9px] text-white px-2 py-1">{l.note}</td>
+                          <td className="font-mono text-xs text-white px-2 py-1 whitespace-nowrap">{String(l.createdAt).slice(0, 10)}</td>
+                          <td className="font-mono text-xs text-grey-light px-2 py-1 whitespace-nowrap">{l.staffName || '—'}</td>
+                          <td className="font-mono text-xs text-white px-2 py-1">{l.note}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </Panel>
               </div>
             )}
             <div className="flex gap-2 pt-2">
@@ -1144,12 +1145,12 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
       <Modal isOpen={showRefPicker} onClose={() => setShowRefPicker(false)} title="KNOWN INGREDIENTS" size="md">
         <div className="space-y-3">
           <Input value={refSearch} onChange={(e) => setRefSearch(e.target.value.toUpperCase())} placeholder="SEARCH LIBRARY..." />
-          <div className="max-h-[40vh] overflow-y-auto divide-y divide-grey-mid/50 border border-grey-mid">
+          <Panel variant="outline" padding="none" className="max-h-[40vh] overflow-y-auto divide-y divide-grey-mid/50">
             {ingredientRefs.filter((r) => !refSearch || r.name.includes(refSearch)).map((r) => (
               <div key={r.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-grey-dark/40">
                 <button onClick={() => applyRef(r)} className="flex-1 min-w-0 text-left">
                   <span className="block font-mono text-xs uppercase text-white truncate">{r.name}</span>
-                  <span className="block font-mono text-[9px] text-grey-light">{r.notes ?? (r.densityGramsPerMl != null ? `1 CUP ≈ ${Math.round(r.densityGramsPerMl * 250)}G` : r.weightPerUnitGrams != null ? `1 EA ≈ ${r.weightPerUnitGrams}G` : '')}</span>
+                  <span className="block font-mono text-xs text-grey-light">{r.notes ?? (r.densityGramsPerMl != null ? `1 CUP ≈ ${Math.round(r.densityGramsPerMl * 250)}G` : r.weightPerUnitGrams != null ? `1 EA ≈ ${r.weightPerUnitGrams}G` : '')}</span>
                 </button>
                 {!r.isBuiltIn && (
                   <button onClick={() => deleteReference(r.id)} className="font-mono text-xs text-grey-light hover:text-danger shrink-0">✕</button>
@@ -1157,9 +1158,9 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
               </div>
             ))}
             {ingredientRefs.length === 0 && <p className="font-mono text-xs text-grey-light px-2 py-2">LIBRARY EMPTY.</p>}
-          </div>
+          </Panel>
           <div className="flex items-center justify-between gap-2">
-            <p className="font-mono text-[9px] text-grey-light flex-1">CLICK A ROW TO APPLY ITS DENSITY TO THIS ITEM.</p>
+            <p className="font-mono text-xs text-grey-light flex-1">CLICK A ROW TO APPLY ITS DENSITY TO THIS ITEM.</p>
             <Button size="sm" onClick={saveAsReference} disabled={!formName.trim() || (formDensity === '' && formCupWeight === '' && formWeightPerUnit === '')}>
               + SAVE CURRENT AS REFERENCE
             </Button>
@@ -1170,7 +1171,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
       {/* LLM density helper */}
       <Modal isOpen={showLlmModal} onClose={() => setShowLlmModal(false)} title="FIND THE DENSITY" size="lg">
         <div className="space-y-3">
-          <p className="font-mono text-[10px] text-grey-light leading-relaxed">
+          <p className="font-mono text-xs text-grey-light leading-relaxed">
             COPY THE PROMPT BELOW INTO ANY LLM (CHATGPT, CLAUDE, GEMINI...). IT ASKS
             FOR THE DENSITY OF &quot;{formName.toUpperCase().trim() || 'THIS ITEM'}&quot; — PASTE THE ANSWER BACK
             AND WE WILL FILL IN THE DENSITY FIELD.
@@ -1178,16 +1179,16 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
           <textarea readOnly value={buildDensityPrompt({ itemName: formName.toUpperCase().trim() || 'THIS ITEM' })}
             onFocus={(e) => e.target.select()}
             rows={10}
-            className="w-full bg-black border border-grey-mid text-white font-mono text-[10px] px-3 py-2 outline-none focus:border-white resize-y" />
+            className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white resize-y" />
           <Button size="sm" onClick={async () => {
             try { await navigator.clipboard.writeText(buildDensityPrompt({ itemName: formName.toUpperCase().trim() || 'THIS ITEM' })) } catch { /* clipboard unavailable */ }
           }}>COPY PROMPT</Button>
           <div>
-            <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">PASTE THE LLM&apos;S ANSWER HERE</label>
+            <label className="font-mono text-xs uppercase text-grey-light block mb-1">PASTE THE LLM&apos;S ANSWER HERE</label>
             <textarea value={llmAnswer} onChange={(e) => setLlmAnswer(e.target.value)}
               rows={6}
               placeholder={'DENSITY: 0.528 g/mL (ESTIMATE)\n1 CUP: 132 g\n...'}
-              className="w-full bg-black border border-grey-mid text-white font-mono text-[10px] px-3 py-2 outline-none focus:border-white placeholder:text-grey-light resize-y" />
+              className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light resize-y" />
           </div>
           <div className="flex items-center gap-2">
             <Button size="sm" onClick={() => {

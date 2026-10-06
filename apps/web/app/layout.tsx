@@ -36,10 +36,14 @@ export const viewport: Viewport = {
   themeColor: '#0A0A0A',
 }
 
+// Applied before first paint so there is no light/dark flash. Dark is the default.
+const themeScript = `(function(){try{var t=localStorage.getItem('hospo-theme');document.documentElement.setAttribute('data-theme',t==='light'?'light':'dark')}catch(e){}})();`
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" data-theme="dark" suppressHydrationWarning>
       <body className="bg-black text-white font-sans antialiased">
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <Providers>{children}</Providers>
       </body>
     </html>

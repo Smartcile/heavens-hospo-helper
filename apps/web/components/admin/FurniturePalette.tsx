@@ -109,7 +109,7 @@ export function FurniturePalette({ furniture, armedId, onArm, disabled, disabled
   if (disabled) {
     return (
       <div className="border border-grey-mid p-3">
-        <p className="font-mono text-[10px] text-grey-light uppercase">
+        <p className="font-mono text-xs text-grey-light uppercase">
           {disabledReason ?? 'PICK A LAYOUT TO PLACE FURNITURE'}
         </p>
       </div>
@@ -119,7 +119,7 @@ export function FurniturePalette({ furniture, armedId, onArm, disabled, disabled
   return (
     <div className="border border-grey-mid">
       <div className="px-2 py-1.5 border-b border-grey-mid bg-grey-dark/40">
-        <h3 className="font-mono text-[10px] font-bold uppercase text-white tracking-wider">FURNITURE</h3>
+        <h3 className="font-mono text-xs font-bold uppercase text-white tracking-wider">FURNITURE</h3>
       </div>
 
       <div className="p-2 space-y-2">
@@ -127,7 +127,7 @@ export function FurniturePalette({ furniture, armedId, onArm, disabled, disabled
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="SEARCH..."
-          className="w-full bg-black border border-grey-mid text-white font-mono text-[10px] px-2 py-1 outline-none focus:border-white placeholder:text-grey-light"
+          className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white placeholder:text-grey-light"
         />
 
         {types.length > 2 && (
@@ -136,7 +136,7 @@ export function FurniturePalette({ furniture, armedId, onArm, disabled, disabled
               <button
                 key={t}
                 onClick={() => setTypeFilter(t)}
-                className={`font-mono text-[9px] uppercase px-1.5 py-0.5 border ${
+                className={`font-mono text-xs uppercase px-1.5 py-0.5 border ${
                   typeFilter === t
                     ? 'border-white text-white bg-grey-mid'
                     : 'border-grey-mid text-grey-light hover:border-white'
@@ -149,7 +149,7 @@ export function FurniturePalette({ furniture, armedId, onArm, disabled, disabled
         )}
 
         {shown.length === 0 ? (
-          <p className="font-mono text-[10px] text-grey-light py-2">
+          <p className="font-mono text-xs text-grey-light py-2">
             {placeable.length === 0
               ? 'NO FURNITURE YET — ADD IT UNDER INVENTORY → TABLES'
               : 'NOTHING MATCHES'}
@@ -183,13 +183,13 @@ export function FurniturePalette({ furniture, armedId, onArm, disabled, disabled
                     <Thumb item={f} />
                   </div>
                   <div className="px-1 py-0.5 border-t border-grey-mid">
-                    <p className="font-mono text-[9px] text-white uppercase truncate leading-tight">{f.name}</p>
+                    <p className="font-mono text-xs text-white uppercase truncate leading-tight">{f.name}</p>
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-[8px] text-grey-light">
+                      <span className="font-mono text-xs text-grey-light">
                         {Math.round(f.width)}×{Math.round(f.depth)}
                       </span>
                       <span
-                        className={`font-mono text-[8px] ${
+                        className={`font-mono text-xs ${
                           out ? 'text-danger' : available > 0 ? 'text-accent' : 'text-grey-light'
                         }`}
                       >
@@ -204,7 +204,7 @@ export function FurniturePalette({ furniture, armedId, onArm, disabled, disabled
         )}
 
         {armedId && (
-          <p className="font-mono text-[9px] text-accent uppercase">
+          <p className="font-mono text-xs text-accent uppercase">
             CLICK THE PLAN TO PLACE · ESC TO CANCEL
           </p>
         )}

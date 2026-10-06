@@ -239,6 +239,9 @@ model Venue {
   loadedRosterUrl        String?
   googleCalendarUrl      String? // also imported into the planner via its derived iCal feed
   icalFeedUrl            String? // any .ics subscribe link (e.g. a Loaded/roster calendar feed) — imported
+  // SwiftDOSnet base URL (e.g. http://localhost:5080) — the SwiftPOS sales API
+  // that drives stock consumption. Null = not connected. See MENUS.md §8.
+  swiftPosBaseUrl        String?
   externalRefreshMinutes Int       @default(0) // 0 = manual refresh only
   lastExternalSyncAt     DateTime? // last successful calendar import
   // Roster availability cut-off: staff cannot add/edit availability on dates
@@ -307,6 +310,7 @@ model Venue {
   deliveries          Delivery[]
   staffPermissions    StaffPermission[]
   events              Event[]
+  menuItemServes      MenuItemServe[]
   beoTemplates        BeoTemplate[]
   beoBlockDefs        BeoBlockDef[]
   beoBlockLinks       BeoBlockLink[]
@@ -1605,6 +1609,9 @@ model Guide {
   departmentId    String?
   // Which playbook folder this guide sits in. Flat (one level); null = UNFILED.
   folderId        String?
+  // Which menu a PRODUCT_REFERENCE table is sourced from (re-pull + provenance).
+  // Rows stay plain GuideTableRow; this only records the origin. Null = manual.
+  sourceMenuId    String?
   // Column definitions for a PRODUCT_REFERENCE table (JSON array of
   // lib/reference-table.ts ColumnDef). Null/empty on every other guide type.
   tableColumns    Json?
@@ -1621,6 +1628,7 @@ model Guide {
   venue       Venue             @relation(fields: [venueId], references: [id])
   department  Department?       @relation(fields: [departmentId], references: [id])
   folder      GuideFolder?      @relation(fields: [folderId], references: [id])
+  sourceMenu  Menu?             @relation("GuideSourceMenu", fields: [sourceMenuId], references: [id])
   steps       GuideStep[]
   tableRows   GuideTableRow[]
   taskGuides  TaskGuide[]
@@ -2308,6 +2316,7 @@ model InventoryItem {
   maintenanceLogs   MaintenanceLog[]
   hsTasks           Task[]       @relation("TaskLinkedItem")
   deliveryItems     DeliveryItem[]
+  serves            MenuItemServe[]
 
   // --- Furniture relations ---
   chairItem       InventoryItem?     @relation("FurnitureChair", fields: [chairItemId], references: [id])
@@ -2498,6 +2507,7 @@ model UnitOfMeasure {
   recipeYields      Recipe[]           @relation("RecipeYield")
   recipeLineItems   RecipeLineItem[]
   supplierItemCodes SupplierItemCode[]
+  serves            MenuItemServe[]
 
   @@unique([venueId, name])
   @@index([venueId])
@@ -2568,6 +2578,7 @@ model Recipe {
   lineItems RecipeLineItem[] @relation("ParentRecipe")
   parentOf  RecipeLineItem[] @relation("ChildRecipe")
   menuItems MenuItem[]
+  serves    MenuItemServe[]
 
   @@index([venueId])
 }
@@ -2634,6 +2645,10 @@ model MenuItem {
   name             String
   recipeId         String?
   price            Float     @default(0)
+  // SwiftPOS product code (ProductTable.Inventory_Code). A POS sale line
+  // (EJItemsTable.InventoryCode) maps to this product so selling it consumes
+  // stock via the product's serves. Null = unmapped. See MENUS.md §8.
+  swiftPosId       String?
   wooProductId     String?   @unique
   wooCategoryId    String?
   imageUrl         String?
@@ -2658,9 +2673,11 @@ model MenuItem {
   menuLinks      MenuMenuItem[]
   guideTableRows GuideTableRow[]
   inventoryLinks MenuItemInventoryItem[]
+  serves         MenuItemServe[]
 
   @@index([venueId])
   @@index([wooProductId])
+  @@index([venueId, swiftPosId])
 }
 
 // A product ⇄ stock link. A menu item (e.g. the sellable "SAUVIGNON BLANC
@@ -2677,6 +2694,50 @@ model MenuItemInventoryItem {
 
   @@unique([menuItemId, inventoryItemId])
   @@index([menuItemId])
+  @@index([inventoryItemId])
+}
+
+// How selling one unit of a product consumes stock — the app's POS item link.
+// A product can carry several (tap beer 400ML / 1.4L, wine GLASS / CARAFE /
+// BOTTLE). Each points at EITHER a recipe (a built drink) or a single stock
+// item (a pour / a bottle), with the qty + UOM it draws in. The unit must be
+// consistent with the stock item's unit type (Volume↔Volume, Count↔Count) —
+// see MENUS.md.
+enum ServeMethod {
+  MADE
+  DRAUGHT
+  POURED
+  BOTTLED
+  WINE
+  OTHER
+}
+
+model MenuItemServe {
+  id              String      @id @default(uuid())
+  menuItemId      String
+  venueId         String
+  // "400ML", "GLASS", "1.4L JUG" — null when the product has a single serve.
+  label           String?
+  method          ServeMethod @default(OTHER)
+  // Exactly one target: a recipe, or a stock item.
+  recipeId        String?
+  inventoryItemId String?
+  qty             Float       @default(1)
+  uomId           String?
+  sortOrder       Int         @default(0)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  deletedAt       DateTime?
+
+  menuItem      MenuItem       @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  venue         Venue          @relation(fields: [venueId], references: [id])
+  recipe        Recipe?        @relation(fields: [recipeId], references: [id])
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id])
+  uom           UnitOfMeasure? @relation(fields: [uomId], references: [id])
+
+  @@index([menuItemId])
+  @@index([venueId])
+  @@index([recipeId])
   @@index([inventoryItemId])
 }
 
@@ -2812,6 +2873,7 @@ model Menu {
   orders WooOrder[]
   events Event[]
   eventLinks EventMenu[]
+  guides Guide[]        @relation("GuideSourceMenu")
 
   @@unique([venueId, name])
   @@index([venueId])

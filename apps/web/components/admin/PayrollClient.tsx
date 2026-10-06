@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { Panel } from '@/components/ui/Panel'
 import { getActiveVenueId } from '@/lib/active-venue'
 
 interface Period {  id: string
@@ -256,19 +257,19 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
       ) : tab === 'periods' ? (
         <div className="space-y-3">
           {periods.length === 0 && (
-            <div className="border border-grey-mid p-4">
+            <Panel variant="outline" padding="lg">
               <p className="font-mono text-xs text-grey-light">NO PAY PERIODS YET. CREATE ONE TO START PAYROLL.</p>
-            </div>
+            </Panel>
           )}
           {periods.map((p) => (
-            <div key={p.id} className="border border-grey-mid bg-grey-dark">
+            <Panel key={p.id} padding="none">
               <div className="p-3 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="font-mono text-sm font-bold uppercase text-white">{p.startDate} → {p.endDate}</div>
-                  <div className="font-mono text-[10px] text-grey-light mt-0.5">{p.entryCount} ENTR{p.entryCount === 1 ? 'Y' : 'IES'}</div>
+                  <div className="font-mono text-xs text-grey-light mt-0.5">{p.entryCount} ENTR{p.entryCount === 1 ? 'Y' : 'IES'}</div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`px-2 py-0.5 font-mono text-[10px] uppercase border ${p.status === 'CLOSED' ? (p.paidAt ? 'bg-success/15 text-success border-success' : 'bg-warning/10 text-warning border-warning') : 'text-grey-light border-grey-mid'}`}>
+                  <span className={`px-2 py-0.5 font-mono text-xs uppercase border ${p.status === 'CLOSED' ? (p.paidAt ? 'bg-success/15 text-success border-success' : 'bg-warning/10 text-warning border-warning') : 'text-grey-light border-grey-mid'}`}>
                     {p.status}{p.paidAt ? ' / PAID' : ''}
                   </span>
                   {p.status === 'OPEN' && (
@@ -277,7 +278,7 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
                   {p.status === 'CLOSED' && (
                     <>
                       {!p.paidAt && <Button size="sm" onClick={() => markPaid(p.id)} loading={busy}>MARK PAID</Button>}
-                      <a href={`/api/admin/payroll/periods/${p.id}/export?format=csv`} className="font-mono text-[10px] uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:text-white hover:border-white">CSV</a>
+                      <a href={`/api/admin/payroll/periods/${p.id}/export?format=csv`} className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:text-white hover:border-white">CSV</a>
                     </>
                   )}
                   <Button size="sm" variant="ghost" onClick={() => openPeriodDetail(p.id)}>{openPeriod?.id === p.id ? 'HIDE' : 'ENTRIES'}</Button>
@@ -289,16 +290,16 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
                   <table className="w-full text-left">
                     <thead>
                       <tr className="border-b border-grey-mid">
-                        <th className="px-3 py-2 font-mono text-[10px] text-grey-light uppercase">STAFF</th>
-                        <th className="px-3 py-2 font-mono text-[10px] text-grey-light uppercase">HOURS (ORD/OT/PH)</th>
-                        <th className="px-3 py-2 font-mono text-[10px] text-grey-light uppercase">GROSS</th>
-                        <th className="px-3 py-2 font-mono text-[10px] text-grey-light uppercase">HOL PAY</th>
-                        <th className="px-3 py-2 font-mono text-[10px] text-grey-light uppercase">PAYE</th>
-                        <th className="px-3 py-2 font-mono text-[10px] text-grey-light uppercase">ACC</th>
-                        <th className="px-3 py-2 font-mono text-[10px] text-grey-light uppercase">KIWI</th>
-                        <th className="px-3 py-2 font-mono text-[10px] text-grey-light uppercase">SL</th>
-                        <th className="px-3 py-2 font-mono text-[10px] text-grey-light uppercase">NET</th>
-                        <th className="px-3 py-2 font-mono text-[10px] text-grey-light uppercase">ALT</th>
+                        <th className="px-3 py-2 font-mono text-xs text-grey-light uppercase">STAFF</th>
+                        <th className="px-3 py-2 font-mono text-xs text-grey-light uppercase">HOURS (ORD/OT/PH)</th>
+                        <th className="px-3 py-2 font-mono text-xs text-grey-light uppercase">GROSS</th>
+                        <th className="px-3 py-2 font-mono text-xs text-grey-light uppercase">HOL PAY</th>
+                        <th className="px-3 py-2 font-mono text-xs text-grey-light uppercase">PAYE</th>
+                        <th className="px-3 py-2 font-mono text-xs text-grey-light uppercase">ACC</th>
+                        <th className="px-3 py-2 font-mono text-xs text-grey-light uppercase">KIWI</th>
+                        <th className="px-3 py-2 font-mono text-xs text-grey-light uppercase">SL</th>
+                        <th className="px-3 py-2 font-mono text-xs text-grey-light uppercase">NET</th>
+                        <th className="px-3 py-2 font-mono text-xs text-grey-light uppercase">ALT</th>
                         <th className="px-3 py-2" />
                       </tr>
                     </thead>
@@ -310,7 +311,7 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
                         <tr key={e.id} className="hover:bg-black/20">
                           <td className="px-3 py-2">
                             <div className="font-mono text-xs text-white">{e.staff.firstName} {e.staff.lastName}</div>
-                            <div className="font-mono text-[10px] text-grey-light">{e.staff.employmentType ?? '—'}{e.staff.taxCode ? ` · ${e.staff.taxCode}` : ''}</div>
+                            <div className="font-mono text-xs text-grey-light">{e.staff.employmentType ?? '—'}{e.staff.taxCode ? ` · ${e.staff.taxCode}` : ''}</div>
                           </td>
                           <td className="px-3 py-2 font-mono text-xs text-grey-light">
                             {(e.ordinaryHours ?? 0).toFixed(2)} / {(e.overtimeHours ?? 0).toFixed(2)} / {(e.publicHolidayHours ?? 0).toFixed(2)}
@@ -324,13 +325,13 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
                           <td className="px-3 py-2 font-mono text-xs text-white">{money(e.netPay)}</td>
                           <td className="px-3 py-2 font-mono text-xs text-grey-light">{e.alternativeDaysOwed ?? 0}</td>
                           <td className="px-3 py-2">
-                            <button onClick={() => setPayslip(e)} className="font-mono text-[10px] uppercase text-grey-light border border-grey-mid px-2 py-1 hover:text-white hover:border-white">PAYSLIP</button>
+                            <button onClick={() => setPayslip(e)} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-2 py-1 hover:text-white hover:border-white">PAYSLIP</button>
                           </td>
                         </tr>
                       ))}
                       {entries.length > 0 && (
                         <tr className="border-t-2 border-grey-mid">
-                          <td className="px-3 py-2 font-mono text-[10px] uppercase text-grey-light">TOTALS</td>
+                          <td className="px-3 py-2 font-mono text-xs uppercase text-grey-light">TOTALS</td>
                           <td className="px-3 py-2 font-mono text-xs text-white">{totals.hours.toFixed(2)}</td>
                           <td className="px-3 py-2 font-mono text-xs text-white">{money(totals.gross)}</td>
                           <td className="px-3 py-2" />
@@ -347,12 +348,12 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
                   </table>
                 </div>
               )}
-            </div>
+            </Panel>
           ))}
         </div>
       ) : tab === 'holidays' ? (
         <div className="space-y-3">
-          <div className="border border-grey-mid p-4 space-y-3 bg-grey-dark">
+          <Panel padding="lg" className="space-y-3">
             <h2 className="font-mono text-xs uppercase text-grey-light tracking-wider">ADD HOLIDAY</h2>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <Input label="Date" type="date" value={holidayForm.date} onChange={(e) => setHolidayForm({ ...holidayForm, date: e.target.value })} />
@@ -365,23 +366,23 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
               </div>
               <Button size="sm" onClick={addHoliday} loading={busy}>+ ADD</Button>
             </div>
-          </div>
-          <div className="border border-grey-mid bg-grey-dark divide-y divide-grey-mid">
+          </Panel>
+          <Panel padding="none" className="divide-y divide-grey-mid">
             {holidays.length === 0 && <div className="p-4 font-mono text-xs text-grey-light">NO PUBLIC HOLIDAYS. NATIONAL DEFAULTS ARE SEEDED.</div>}
             {holidays.map((h) => (
               <div key={h.id} className="px-4 py-2 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="font-mono text-xs text-white">{h.date}</span>
                   <span className="font-mono text-xs text-grey-light truncate">{h.name}</span>
-                  {h.isRegional && <span className="font-mono text-[9px] uppercase text-grey-light border border-grey-mid px-1.5 py-0.5">REGIONAL</span>}
-                  {h.national && <span className="font-mono text-[9px] uppercase text-accent border border-grey-mid px-1.5 py-0.5">NATIONAL</span>}
+                  {h.isRegional && <span className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1.5 py-0.5">REGIONAL</span>}
+                  {h.national && <span className="font-mono text-xs uppercase text-accent border border-grey-mid px-1.5 py-0.5">NATIONAL</span>}
                 </div>
                 {!h.national && (
-                  <button onClick={() => deleteHoliday(h.id)} className="font-mono text-[10px] uppercase text-grey-light hover:text-danger transition-colors">DEL</button>
+                  <button onClick={() => deleteHoliday(h.id)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">DEL</button>
                 )}
               </div>
             ))}
-          </div>
+          </Panel>
         </div>
       ) : tab === 'altdays' ? (
         <div className="space-y-3">
@@ -393,28 +394,28 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
               </button>
             ))}
           </div>
-          <div className="border border-grey-mid bg-grey-dark divide-y divide-grey-mid">
+          <Panel padding="none" className="divide-y divide-grey-mid">
             {altDays.length === 0 && <div className="p-4 font-mono text-xs text-grey-light">NO ALTERNATIVE DAYS {altFilter === '0' ? 'OWED' : 'TAKEN'}.</div>}
             {altDays.map((d) => (
               <div key={d.id} className="px-4 py-2 flex items-center justify-between gap-3">
                 <div>
                   <div className="font-mono text-xs text-white">{d.staffName}</div>
-                  <div className="font-mono text-[10px] text-grey-light">ACCRUED {d.accruedOn}{d.takenOn ? ` · TAKEN ${d.takenOn}` : ''}</div>
+                  <div className="font-mono text-xs text-grey-light">ACCRUED {d.accruedOn}{d.takenOn ? ` · TAKEN ${d.takenOn}` : ''}</div>
                 </div>
                 {d.takenOn ? (
-                  <button onClick={() => setAltTaken(d.id, false)} className="font-mono text-[10px] uppercase text-grey-light border border-grey-mid px-2 py-1 hover:text-white">UNTAKE</button>
+                  <button onClick={() => setAltTaken(d.id, false)} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-2 py-1 hover:text-white">UNTAKE</button>
                 ) : (
                   <Button size="sm" onClick={() => setAltTaken(d.id, true)}>TAKE DAY</Button>
                 )}
               </div>
             ))}
-          </div>
+          </Panel>
         </div>
       ) : (
         /* SETTINGS */
         <div className="space-y-3">
           {settingsForm && (
-            <div className="border border-grey-mid p-4 space-y-4 bg-grey-dark max-w-2xl">
+            <Panel padding="lg" className="space-y-4 max-w-2xl">
               <div className="grid grid-cols-2 gap-3">
                 <Select label="Pay Frequency"
                   value={settingsForm.payFrequency}
@@ -430,7 +431,7 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
                   onChange={(e) => setSettingsForm({ ...settingsForm, defaultTaxCode: e.target.value })}
                   options={TAX_CODES.map((c) => ({ value: c, label: c }))} />
               </div>
-              <div className="border border-grey-mid p-3 space-y-3">
+              <Panel variant="outline" padding="md" className="space-y-3">
                 <label className="flex items-center gap-2 font-mono text-xs uppercase text-grey-light cursor-pointer">
                   <input type="checkbox" checked={settingsForm.overtimeEnabled} onChange={(e) => setSettingsForm({ ...settingsForm, overtimeEnabled: e.target.checked })} className="accent-white" />
                   OVERTIME (CONTRACTUAL — NZ HAS NO STATUTORY OT)
@@ -441,12 +442,12 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
                     <Input label="Overtime rate (×)" type="number" step="0.1" value={String(settingsForm.overtimeRate)} onChange={(e) => setSettingsForm({ ...settingsForm, overtimeRate: Number(e.target.value) })} />
                   </div>
                 )}
-              </div>
+              </Panel>
               <div className="flex items-center justify-between gap-3">
-                <p className="font-mono text-[10px] text-grey-light">STATUTORY RATES CHANGE ANNUALLY — CHECK IRD BEFORE EACH TAX YEAR. THIS APP IS NOT A TAX ADVISER.</p>
+                <p className="font-mono text-xs text-grey-light">STATUTORY RATES CHANGE ANNUALLY — CHECK IRD BEFORE EACH TAX YEAR. THIS APP IS NOT A TAX ADVISER.</p>
                 <Button size="sm" onClick={saveSettings} loading={busy}>SAVE</Button>
               </div>
-            </div>
+            </Panel>
           )}
         </div>
       )}
@@ -454,7 +455,7 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
       {/* New period modal */}
       {showCreate && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setShowCreate(false)}>
-          <div className="bg-grey-dark border border-grey-mid p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
+          <Panel padding="lg" className="w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-mono text-xs uppercase tracking-widest text-white">NEW PAY PERIOD</h2>
             <div className="grid grid-cols-2 gap-3">
               <Input label="Start" type="date" value={newPeriod.startDate} onChange={(e) => setNewPeriod({ ...newPeriod, startDate: e.target.value })} />
@@ -468,16 +469,16 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
               <Button size="sm" onClick={createPeriod} loading={busy}>CREATE</Button>
               <Button size="sm" variant="ghost" onClick={() => setShowCreate(false)}>CANCEL</Button>
             </div>
-          </div>
+          </Panel>
         </div>
       )}
 
       {/* Payslip modal */}
       {payslip && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setPayslip(null)}>
-          <div className="bg-grey-dark border border-grey-mid p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto space-y-3" onClick={(e) => e.stopPropagation()}>
+          <Panel padding="lg" className="w-full max-w-lg max-h-[85vh] overflow-y-auto space-y-3" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-white">PAYSLIP — {payslip.staff.firstName} {payslip.staff.lastName}</h2>
-            <p className="font-mono text-[10px] text-grey-light uppercase">
+            <p className="font-mono text-xs text-grey-light uppercase">
               {openPeriod?.startDate} → {openPeriod?.endDate} · {payslip.staff.employmentType ?? '—'} · TAX CODE {payslip.staff.taxCode ?? 'M'} · KIWI {payslip.staff.kiwiSaverRate ? `${payslip.staff.kiwiSaverRate}%` : 'NO'} · SL {payslip.staff.studentLoan ? 'YES' : 'NO'}
             </p>
             <div className="grid grid-cols-2 gap-x-6 gap-y-1">
@@ -498,22 +499,22 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
                 ['EMPLOYER COST', money(payslip.employerCost)],
               ].map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between border-b border-grey-mid/50 py-1">
-                  <span className="font-mono text-[10px] uppercase text-grey-light">{label}</span>
+                  <span className="font-mono text-xs uppercase text-grey-light">{label}</span>
                   <span className={`font-mono text-xs ${label === 'NET PAY' ? 'font-bold text-white' : 'text-grey-light'}`}>{value}</span>
                 </div>
               ))}
             </div>
             {payslip.breakdown && payslip.breakdown.length > 0 && (
               <div>
-                <h3 className="font-mono text-[10px] uppercase text-grey-light tracking-wider mb-1">SESSION DETAIL</h3>
+                <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider mb-1">SESSION DETAIL</h3>
                 <div className="space-y-1">
                   {payslip.breakdown.map((b, i) => (
-                    <div key={i} className="flex items-center justify-between border border-grey-mid px-2 py-1">
-                      <span className="font-mono text-[10px] text-grey-light">
+                    <Panel key={i} variant="outline" padding="none" className="flex items-center justify-between px-2 py-1">
+                      <span className="font-mono text-xs text-grey-light">
                         {b.dateKey} · {new Date(b.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}—{new Date(b.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
-                      <span className="font-mono text-[10px] text-white">{b.type} · {b.hours.toFixed(2)}H{b.breaksMinutes ? ` · ${b.breaksMinutes}M BRK` : ''}</span>
-                    </div>
+                      <span className="font-mono text-xs text-white">{b.type} · {b.hours.toFixed(2)}H{b.breaksMinutes ? ` · ${b.breaksMinutes}M BRK` : ''}</span>
+                    </Panel>
                   ))}
                 </div>
               </div>
@@ -521,7 +522,7 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
             <div className="flex justify-end pt-2">
               <Button size="sm" variant="ghost" onClick={() => setPayslip(null)}>CLOSE</Button>
             </div>
-          </div>
+          </Panel>
         </div>
       )}
     </div>

@@ -61,7 +61,7 @@ interface DraftException { date: string; closed: boolean; startTime: string; end
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
 
 const timeInputClass =
-  'w-full bg-black border border-grey-mid text-white font-mono text-[10px] px-1 py-1 outline-none focus:border-white text-center'
+  'w-full bg-black border border-grey-mid text-white font-mono text-2xs px-1 py-1 outline-none focus:border-white text-center'
 
 export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
   const [venueId, setVenueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
@@ -296,7 +296,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
         {services.length === 0 ? (
           <div className="border border-grey-mid p-8 text-center">
             <p className="font-mono text-xs text-grey-light uppercase">NO SERVICES YET</p>
-            <p className="font-mono text-[10px] text-grey-light mt-1">
+            <p className="font-mono text-2xs text-grey-light mt-1">
               CREATE ONE FOR EACH DATED ORDERING OPTION — E.G. FRIDAY MENU, SUNDAY ROAST
               {!venueId ? ' — PICK A VENUE IN THE SIDEBAR TO ADD SERVICES.' : ''}
             </p>
@@ -313,7 +313,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
                   <span className="font-mono text-xs text-white uppercase truncate">{s.name}</span>
                   <div className="flex items-center gap-2 shrink-0">
                     <span
-                      className={`font-mono text-[9px] uppercase border px-1 ${
+                      className={`font-mono text-2xs uppercase border px-1 ${
                         s.isActive ? 'text-success border-success' : 'text-grey-light border-grey-mid'
                       }`}
                     >
@@ -321,7 +321,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
                     </span>
                   </div>
                 </div>
-                <p className="font-mono text-[10px] text-grey-light mt-1">
+                <p className="font-mono text-2xs text-grey-light mt-1">
                   {!venueId && <span>{s.venue.name.toUpperCase()} · </span>}
                   {s.slots.length} SLOT{s.slots.length === 1 ? '' : 'S'}
                   {s.wooCategoryName ? ` · MENU: ${s.wooCategoryName.toUpperCase()}` : ''}
@@ -346,7 +346,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
             options={wooCategories}
             placeholder={wooCategories.length === 0 ? 'NO WOO CATEGORIES — PULL PRODUCTS FIRST' : 'SELECT THE MENU FOR THIS SERVICE'}
           />
-          <p className="font-mono text-[9px] text-grey-light -mt-2">
+          <p className="font-mono text-2xs text-grey-light -mt-2">
             THE CATEGORY IS THE MENU AVAILABLE FOR ORDERING ON THIS SERVICE.
           </p>
 
@@ -360,7 +360,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
             }))}
             placeholder={setups.length === 0 ? 'NO FLOOR PLANS WITH SETUPS — CREATE ONE FIRST' : '— NO TABLE PLAN —'}
           />
-          <p className="font-mono text-[9px] text-grey-light -mt-2">
+          <p className="font-mono text-2xs text-grey-light -mt-2">
             THE LAYOUT WHOSE TABLES SEAT BOOKINGS AND ORDERS FOR THIS SERVICE. BOOKINGS THAT
             CANNOT BE SEATED ON THIS PLAN ARE REJECTED.
           </p>
@@ -411,7 +411,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
             {bookableTimes.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {bookableTimes.map((t) => (
-                  <span key={t} className="inline-flex items-center gap-1 border border-grey-mid px-2 py-0.5 font-mono text-[10px] text-white bg-grey-dark">
+                  <span key={t} className="inline-flex items-center gap-1 border border-grey-mid px-2 py-0.5 font-mono text-2xs text-white bg-grey-dark">
                     {t}
                     <button
                       onClick={() => setBookableTimes(bookableTimes.filter((x) => x !== t))}
@@ -423,7 +423,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
                 ))}
               </div>
             )}
-            <p className="font-mono text-[9px] text-grey-light">
+            <p className="font-mono text-2xs text-grey-light">
               THE SERVICE WINDOW ABOVE IS THE FULL SERVICE LENGTH (WALK-INS, LAST CALLS, CUSTOMERS GONE, CLOCK-OUT).
               BOOKINGS ARE ONLY TAKEN AT THE START TIMES HERE — EVERY 15 MIN BY DEFAULT, OR EXACTLY THE TIMES LISTED.
             </p>
@@ -433,7 +433,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
             <button
               onClick={() => setRequiresBooking(!requiresBooking)}
               className={`font-mono text-xs uppercase px-3 py-1.5 border ${
-                requiresBooking ? 'border-[#60A5FA] text-[#60A5FA]' : 'border-grey-mid text-grey-light'
+                requiresBooking ? 'border-info text-info' : 'border-grey-mid text-grey-light'
               }`}
             >
               BOOKING REQUIRED
@@ -447,7 +447,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
               {isActive ? 'ACTIVE' : 'INACTIVE'}
             </button>
           </div>
-          <p className="font-mono text-[9px] text-grey-light -mt-2">
+          <p className="font-mono text-2xs text-grey-light -mt-2">
             BOOKING REQUIRED = CUSTOMERS MUST BOOK A TABLE WHEN ORDERING THIS SERVICE.
           </p>
 
@@ -476,7 +476,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
             {slots.length === 0 ? (
               <div className="border border-dashed border-grey-mid p-4 text-center">
                 <p className="font-mono text-xs text-grey-light uppercase">NO DAYS SET YET</p>
-                <p className="font-mono text-[10px] text-grey-light mt-1">ADD THE DAYS THIS SERVICE RUNS — THEN SET THE TIME SLOTS PER DAY.</p>
+                <p className="font-mono text-2xs text-grey-light mt-1">ADD THE DAYS THIS SERVICE RUNS — THEN SET THE TIME SLOTS PER DAY.</p>
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
@@ -488,12 +488,12 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
                       <div className="px-2 py-1 bg-grey-mid/20 flex items-center justify-between border-b border-grey-mid">
                         <div>
                           <span className="font-mono text-xs font-bold text-white tracking-wider">{day.code}</span>
-                          <span className="font-mono text-[9px] text-grey-light tracking-wider ml-1">{day.name}</span>
+                          <span className="font-mono text-2xs text-grey-light tracking-wider ml-1">{day.name}</span>
                         </div>
                         <button
                           onClick={() => removeDay(di)}
                           title={`REMOVE ${day.name}`}
-                          className="font-mono text-[10px] text-grey-light hover:text-danger"
+                          className="font-mono text-2xs text-grey-light hover:text-danger"
                         >
                           ✕
                         </button>
@@ -503,7 +503,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
                           <div key={i} className="space-y-1">
                             <div className="grid grid-cols-2 gap-1">
                               <div className="space-y-0.5">
-                                <div className="text-center font-mono text-[8px] uppercase text-grey-light">START</div>
+                                <div className="text-center font-mono text-2xs uppercase text-grey-light">START</div>
                                 <input
                                   type="time"
                                   value={s.startTime}
@@ -512,7 +512,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
                                 />
                               </div>
                               <div className="space-y-0.5">
-                                <div className="text-center font-mono text-[8px] uppercase text-grey-light">END</div>
+                                <div className="text-center font-mono text-2xs uppercase text-grey-light">END</div>
                                 <input
                                   type="time"
                                   value={s.endTime}
@@ -523,7 +523,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
                             </div>
                             <div className="flex items-end gap-1">
                               <div className="flex-1 space-y-0.5">
-                                <div className="text-center font-mono text-[8px] uppercase text-grey-light">MAX COVERS</div>
+                                <div className="text-center font-mono text-2xs uppercase text-grey-light">MAX COVERS</div>
                                 <input
                                   type="number"
                                   min={1}
@@ -534,7 +534,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
                               </div>
                               <button
                                 onClick={() => setSlots(slots.filter((_, x) => x !== i))}
-                                className="font-mono text-[10px] text-danger border border-danger px-1 py-1 hover:bg-danger hover:text-black"
+                                className="font-mono text-2xs text-danger border border-danger px-1 py-1 hover:bg-danger hover:text-black"
                               >
                                 ✕
                               </button>
@@ -543,7 +543,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
                         ))}
                         <button
                           onClick={() => addSlot(di)}
-                          className="w-full text-center font-mono text-[9px] uppercase text-grey-light border border-dashed border-grey-mid py-1 hover:text-white hover:border-white"
+                          className="w-full text-center font-mono text-2xs uppercase text-grey-light border border-dashed border-grey-mid py-1 hover:text-white hover:border-white"
                         >
                           + TIME
                         </button>
@@ -553,7 +553,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
                 })}
               </div>
             )}
-            <p className="font-mono text-[9px] text-grey-light">
+            <p className="font-mono text-2xs text-grey-light">
               START/END DEFINE A TIME SLOT. MAX COVERS CAPS HOW MANY PEOPLE A SLOT ACCEPTS.
             </p>
           </div>
@@ -563,7 +563,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
             <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">DATE EXCEPTIONS ({exceptions.length})</h3>
             {exceptions.length > 0 && (
               <div className="space-y-1.5">
-                <div className="grid grid-cols-12 gap-2 font-mono text-[9px] uppercase text-grey-light">
+                <div className="grid grid-cols-12 gap-2 font-mono text-2xs uppercase text-grey-light">
                   <div className="col-span-4">DATE</div>
                   <div className="col-span-2">CLOSED</div>
                   <div className="col-span-2">START</div>
@@ -577,27 +577,27 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
                       type="date"
                       value={e.date}
                       onChange={(ev) => updateException(i, { date: ev.target.value })}
-                      className="col-span-4 bg-black border border-grey-mid text-white font-mono text-[10px] px-1 py-1 outline-none focus:border-white"
+                      className="col-span-4 bg-black border border-grey-mid text-white font-mono text-2xs px-1 py-1 outline-none focus:border-white"
                     />
                     <input
                       type="checkbox"
                       checked={e.closed}
                       onChange={(ev) => updateException(i, { closed: ev.target.checked })}
-                      className="col-span-2 accent-[#4ADE80]"
+                      className="col-span-2 accent-success"
                     />
                     <input
                       type="time"
                       value={e.startTime}
                       disabled={e.closed}
                       onChange={(ev) => updateException(i, { startTime: ev.target.value })}
-                      className="col-span-2 bg-black border border-grey-mid text-white font-mono text-[10px] px-1 py-1 outline-none focus:border-white disabled:opacity-30"
+                      className="col-span-2 bg-black border border-grey-mid text-white font-mono text-2xs px-1 py-1 outline-none focus:border-white disabled:opacity-30"
                     />
                     <input
                       type="time"
                       value={e.endTime}
                       disabled={e.closed}
                       onChange={(ev) => updateException(i, { endTime: ev.target.value })}
-                      className="col-span-2 bg-black border border-grey-mid text-white font-mono text-[10px] px-1 py-1 outline-none focus:border-white disabled:opacity-30"
+                      className="col-span-2 bg-black border border-grey-mid text-white font-mono text-2xs px-1 py-1 outline-none focus:border-white disabled:opacity-30"
                     />
                     <input
                       type="number"
@@ -605,11 +605,11 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
                       value={e.maxCovers}
                       disabled={e.closed}
                       onChange={(ev) => updateException(i, { maxCovers: ev.target.value })}
-                      className="col-span-1 bg-black border border-grey-mid text-white font-mono text-[10px] px-1 py-1 outline-none focus:border-white text-right disabled:opacity-30"
+                      className="col-span-1 bg-black border border-grey-mid text-white font-mono text-2xs px-1 py-1 outline-none focus:border-white text-right disabled:opacity-30"
                     />
                     <button
                       onClick={() => setExceptions(exceptions.filter((_, x) => x !== i))}
-                      className="col-span-1 font-mono text-[10px] text-danger border border-danger px-1 hover:bg-danger hover:text-black"
+                      className="col-span-1 font-mono text-2xs text-danger border border-danger px-1 hover:bg-danger hover:text-black"
                     >
                       ✕
                     </button>
@@ -618,7 +618,7 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
               </div>
             )}
             <Button size="sm" variant="ghost" onClick={addException}>+ DATE EXCEPTION</Button>
-            <p className="font-mono text-[9px] text-grey-light">
+            <p className="font-mono text-2xs text-grey-light">
               CLOSED = NO ORDERS THAT DATE. OPEN WITH TIMES = OVERRIDES THE WEEKLY RULE.
             </p>
           </div>

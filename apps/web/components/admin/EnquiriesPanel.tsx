@@ -226,9 +226,9 @@ export function EnquiriesPanel({
         <div className="sticky top-[var(--admin-topbar-h)] z-10 bg-black border-b border-grey-mid -mx-4 px-4 py-2 flex items-center gap-2 flex-wrap">
           <Button size="sm" variant="ghost" onClick={() => { setDraft(null); load() }}>← BACK</Button>
           <span className="font-mono text-xs uppercase text-white truncate">{draft.name || 'UNTITLED ENQUIRY'}</span>
-          <span className="font-mono text-[10px] uppercase text-grey-light">ENQUIRY</span>
+          <span className="font-mono text-xs uppercase text-grey-light">ENQUIRY</span>
           <div className="flex-1" />
-          {error && <span className="font-mono text-[10px] text-danger uppercase">{error}</span>}
+          {error && <span className="font-mono text-xs text-danger uppercase">{error}</span>}
           <Button size="sm" variant="ghost" onClick={convert} loading={converting}>CONVERT TO BEO</Button>
           <Button size="sm" onClick={save} loading={saving}>SAVE</Button>
         </div>
@@ -245,7 +245,7 @@ export function EnquiriesPanel({
             <Input label="Contact email" value={draft.contactEmail ?? ''} onChange={(e) => patch({ contactEmail: e.target.value })} />
           </div>
           <div>
-            <label className="block font-mono text-[10px] uppercase text-grey-light mb-1">Notes</label>
+            <label className="block font-mono text-xs uppercase text-grey-light mb-1">Notes</label>
             <textarea rows={3} value={draft.notes ?? ''} onChange={(e) => patch({ notes: e.target.value })} className={textareaClass} />
           </div>
         </div>
@@ -256,7 +256,7 @@ export function EnquiriesPanel({
             <Button size="sm" variant="ghost" onClick={() => setShowLibrary(true)}>+ ADD AREA</Button>
           </div>
           {draft.blocks.length === 0 && (
-            <p className="font-mono text-[10px] uppercase text-grey-light text-center py-3">
+            <p className="font-mono text-xs uppercase text-grey-light text-center py-3">
               NO AREAS YET. SET A MASTER TEMPLATE TO SEED NEW ENQUIRIES.
             </p>
           )}
@@ -276,7 +276,7 @@ export function EnquiriesPanel({
                   <button type="button" disabled={i === draft.blocks.length - 1} aria-label="Move down" onClick={() => setDraft((d) => (d ? { ...d, blocks: moveBlock(d.blocks, i, 1) } : d))} className="w-9 h-9 flex items-center justify-center font-mono text-sm text-grey-light hover:text-white disabled:opacity-30">↓</button>
                   <button type="button" aria-label="Delete area" onClick={() => setDraft((d) => (d ? { ...d, blocks: d.blocks.filter((x) => x.id !== b.id) } : d))} className="w-9 h-9 flex items-center justify-center font-mono text-sm text-grey-light hover:text-danger">✕</button>
                 </div>
-                {!open && <p className="px-2.5 pb-2 -mt-1 font-mono text-[9px] uppercase text-grey-light truncate">{summariseBlock(b, library)}</p>}
+                {!open && <p className="px-2.5 pb-2 -mt-1 font-mono text-xs uppercase text-grey-light truncate">{summariseBlock(b, library)}</p>}
                 {open && (
                   <div className="p-3 border-t border-grey-mid space-y-3">
                     <BeoBlockReferences blockType={b.type} library={library} mode="admin" venueId={venueId} />
@@ -310,7 +310,7 @@ export function EnquiriesPanel({
         <Button size="sm" onClick={() => setCreateOpen(true)}>+ NEW ENQUIRY</Button>
       </div>
 
-      <p className="font-mono text-[10px] uppercase text-grey-light">
+      <p className="font-mono text-xs uppercase text-grey-light">
         FIRST VISIT AND CHAT. START FROM THE MASTER TEMPLATE, THEN CONVERT TO A BEO WHEN IT IS REAL.
       </p>
 
@@ -335,15 +335,15 @@ export function EnquiriesPanel({
               <div className="flex items-center gap-2">
                 <span className="font-mono text-xs uppercase text-white truncate">{e.name}</span>
                 <div className="flex-1" />
-                <span className="font-mono text-[9px] uppercase text-accent border border-accent px-1">ENQUIRY</span>
+                <span className="font-mono text-xs uppercase text-accent border border-accent px-1">ENQUIRY</span>
               </div>
-              <div className="font-mono text-[10px] uppercase text-grey-light">
+              <div className="font-mono text-xs uppercase text-grey-light">
                 {dateKey(e.eventDate)}{e.guestCount ? ` · ${e.guestCount} PAX` : ''}
               </div>
-              <div className="font-mono text-[10px] uppercase text-grey-light truncate">
+              <div className="font-mono text-xs uppercase text-grey-light truncate">
                 {[e.contactName, e.contactPhone].filter(Boolean).join(' · ') || 'NO CONTACT'}
               </div>
-              <div className="font-mono text-[9px] uppercase text-grey-light truncate">
+              <div className="font-mono text-xs uppercase text-grey-light truncate">
                 {e.blocks.length === 0 ? 'NO AREAS' : e.blocks.map((b) => summariseBlock(b, library)).join(' · ')}
               </div>
             </button>

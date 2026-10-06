@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { Badge } from '@/components/ui/Badge'
+import { Panel } from '@/components/ui/Panel'
 import { formatDateTime, formatDate } from '@/lib/utils'
 import type { DashboardStats } from '@hospo-ops/types'
 
@@ -66,13 +67,13 @@ export function DashboardClient({ role }: { role: string }) {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link href="/admin/execution?tab=tasks" className="btn-ghost text-xs px-3 py-1.5 font-mono uppercase border border-grey-mid text-white hover:border-white transition-colors">
+          <Link href="/admin/execution?tab=tasks" className="btn btn-sm btn-ghost">
             + TASK
           </Link>
-          <Link href="/admin/team?tab=staff" className="btn-ghost text-xs px-3 py-1.5 font-mono uppercase border border-grey-mid text-white hover:border-white transition-colors">
+          <Link href="/admin/team?tab=staff" className="btn btn-sm btn-ghost">
             + STAFF
           </Link>
-          <Link href="/admin/settings?tab=qrcodes" className="btn-ghost text-xs px-3 py-1.5 font-mono uppercase border border-grey-mid text-white hover:border-white transition-colors">
+          <Link href="/admin/settings?tab=qrcodes" className="btn btn-sm btn-ghost">
             + QR CODE
           </Link>
         </div>
@@ -84,18 +85,18 @@ export function DashboardClient({ role }: { role: string }) {
         const pending = stats.overdueCount
         if (missed === 0 && pending === 0) {
           return (
-            <div className="status-bar-success bg-grey-dark border border-grey-mid p-4">
+            <Panel padding="lg" className="status-bar-success">
               <p className="font-mono text-sm text-success uppercase tracking-wider">
                 ALL CLEAR — EVERYTHING ON TRACK
               </p>
               <p className="font-mono text-xs text-grey-light mt-1">
                 NO MISSED TASKS IN THE LAST {overdue.days} DAYS AND NOTHING OUTSTANDING TODAY.
               </p>
-            </div>
+            </Panel>
           )
         }
         return (
-          <div className={`${missed > 0 ? 'status-bar-danger' : 'status-bar-warning'} bg-grey-dark border border-grey-mid p-4`}>
+          <Panel padding="lg" className={missed > 0 ? 'status-bar-danger' : 'status-bar-warning'}>
             <p className={`font-mono text-sm uppercase tracking-wider ${missed > 0 ? 'text-danger' : 'text-warning'}`}>
               ATTENTION NEEDED
             </p>
@@ -108,64 +109,64 @@ export function DashboardClient({ role }: { role: string }) {
                 <span className="text-warning">{pending} STILL PENDING TODAY</span>
               )}
             </p>
-          </div>
+          </Panel>
         )
       })()}
 
       {/* Summary Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="card p-4 bg-grey-dark border border-grey-mid">
-          <div className="label text-grey-light font-mono text-xs uppercase tracking-wider mb-1">TOTAL TASKS</div>
+        <Panel padding="lg">
+          <div className="label mb-1">TOTAL TASKS</div>
           <div className="font-mono text-3xl font-bold text-white">{stats.totalTasksToday}</div>
-        </div>
-        <div className="card p-4 bg-grey-dark border border-grey-mid">
-          <div className="label text-grey-light font-mono text-xs uppercase tracking-wider mb-1">COMPLETED</div>
+        </Panel>
+        <Panel padding="lg">
+          <div className="label mb-1">COMPLETED</div>
           <div className="font-mono text-3xl font-bold text-success">{stats.completedTasksToday}</div>
-        </div>
-        <div className="card p-4 bg-grey-dark border border-grey-mid">
-          <div className="label text-grey-light font-mono text-xs uppercase tracking-wider mb-1">PENDING</div>
+        </Panel>
+        <Panel padding="lg">
+          <div className="label mb-1">PENDING</div>
           <div className="font-mono text-3xl font-bold text-warning">{stats.overdueCount}</div>
-        </div>
-        <div className="card p-4 bg-grey-dark border border-grey-mid">
-          <div className="label text-grey-light font-mono text-xs uppercase tracking-wider mb-1">COMPLETION</div>
+        </Panel>
+        <Panel padding="lg">
+          <div className="label mb-1">COMPLETION</div>
           <div className="font-mono text-3xl font-bold" style={{ color: overallPercent >= 75 ? '#4ADE80' : overallPercent >= 40 ? '#FACC15' : '#F87171' }}>
             {overallPercent}%
           </div>
-        </div>
+        </Panel>
       </div>
 
       {/* Par Level Alerts */}
       {stats.parAlerts && stats.parAlerts.length > 0 && (
-        <div className="card p-4 bg-grey-dark border border-danger/50">
+        <Panel padding="lg" className="border-danger/50">
           <div className="flex items-center justify-between mb-2">
             <span className="font-mono text-xs uppercase tracking-wider text-danger font-bold">PAR LEVEL ALERTS</span>
             <span className="font-mono text-xs text-danger">{stats.parAlerts.length} ITEM(S) BELOW PAR</span>
           </div>
           <div className="space-y-1 max-h-32 overflow-y-auto">
             {stats.parAlerts.slice(0, 10).map((a, i) => (
-              <div key={i} className="flex items-center justify-between font-mono text-[10px] text-grey-light">
+              <div key={i} className="flex items-center justify-between font-mono text-xs text-grey-light">
                 <span>{a.itemName} <span className="text-grey-mid">({a.categoryName})</span></span>
                 <span className="text-danger">{a.currentQty} / {a.parLevel}</span>
               </div>
             ))}
           </div>
-        </div>
+        </Panel>
       )}
 
       {/* Overall Progress */}
-      <div className="card p-4 bg-grey-dark border border-grey-mid">
+      <Panel padding="lg">
         <div className="flex items-center justify-between mb-2">
           <span className="font-mono text-xs uppercase tracking-wider text-grey-light">OVERALL PROGRESS</span>
           <span className="font-mono text-xs text-white">{stats.completedTasksToday} / {stats.totalTasksToday}</span>
         </div>
         <ProgressBar value={stats.completedTasksToday} max={stats.totalTasksToday} />
-      </div>
+      </Panel>
 
       {/* Venue/Department breakdown */}
       <div className="space-y-4">
         <h2 className="font-mono text-sm uppercase tracking-widest text-grey-light">BY VENUE</h2>
         {stats.venueStats.map((venue) => (
-          <div key={venue.venueId} className="card bg-grey-dark border border-grey-mid">
+          <Panel key={venue.venueId} padding="none">
             <div className="p-4 border-b border-grey-mid flex items-center justify-between">
               <div>
                 <span className="font-mono text-sm font-semibold uppercase text-white">{venue.venueName}</span>
@@ -195,14 +196,14 @@ export function DashboardClient({ role }: { role: string }) {
                 </div>
               ))}
             </div>
-          </div>
+          </Panel>
         ))}
       </div>
 
       {/* Recent Activity */}
       <div className="space-y-2">
         <h2 className="font-mono text-sm uppercase tracking-widest text-grey-light">RECENT ACTIVITY</h2>
-        <div className="card bg-grey-dark border border-grey-mid overflow-hidden">
+        <Panel padding="none" className="overflow-hidden">
           {stats.recentActivity.length === 0 ? (
             <p className="p-4 font-mono text-xs text-grey-light">NO ACTIVITY YET TODAY</p>
           ) : (
@@ -224,7 +225,7 @@ export function DashboardClient({ role }: { role: string }) {
               ))}
             </div>
           )}
-        </div>
+        </Panel>
       </div>
 
       {/* Missed tasks (last 7 days) */}
@@ -238,7 +239,7 @@ export function DashboardClient({ role }: { role: string }) {
               <Badge variant="danger">{overdue.totalMissed}</Badge>
             )}
           </div>
-          <div className="card bg-grey-dark border border-grey-mid overflow-hidden">
+          <Panel padding="none" className="overflow-hidden">
             {overdue.totalMissed === 0 ? (
               <div className="status-bar-success p-4">
                 <p className="font-mono text-xs text-success">
@@ -270,7 +271,7 @@ export function DashboardClient({ role }: { role: string }) {
                 )}
               </div>
             )}
-          </div>
+          </Panel>
         </div>
       )}
     </div>

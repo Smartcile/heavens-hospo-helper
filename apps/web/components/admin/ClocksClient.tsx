@@ -228,14 +228,14 @@ export function ClocksClient({ role, sessionVenueId, defaultVenueId }: { role: s
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-grey-mid">
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-grey-light">TEAM MEMBER</th>
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-grey-light">ROLE</th>
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-grey-light">WHEN IN</th>
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-grey-light">WHEN OUT</th>
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-grey-light">BREAKS</th>
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-grey-light">TIME WORKED</th>
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-grey-light">RATE</th>
-              <th className="px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-grey-light">STATUS</th>
+              <th className="px-3 py-2 font-mono text-xs uppercase tracking-wider text-grey-light">TEAM MEMBER</th>
+              <th className="px-3 py-2 font-mono text-xs uppercase tracking-wider text-grey-light">ROLE</th>
+              <th className="px-3 py-2 font-mono text-xs uppercase tracking-wider text-grey-light">WHEN IN</th>
+              <th className="px-3 py-2 font-mono text-xs uppercase tracking-wider text-grey-light">WHEN OUT</th>
+              <th className="px-3 py-2 font-mono text-xs uppercase tracking-wider text-grey-light">BREAKS</th>
+              <th className="px-3 py-2 font-mono text-xs uppercase tracking-wider text-grey-light">TIME WORKED</th>
+              <th className="px-3 py-2 font-mono text-xs uppercase tracking-wider text-grey-light">RATE</th>
+              <th className="px-3 py-2 font-mono text-xs uppercase tracking-wider text-grey-light">STATUS</th>
               <th className="px-3 py-2" />
             </tr>
           </thead>
@@ -244,7 +244,7 @@ export function ClocksClient({ role, sessionVenueId, defaultVenueId }: { role: s
               <tr key={s.id} className="hover:bg-black/20">
                 <td className="px-3 py-2">
                   <div className="font-mono text-xs text-white">{s.staff.firstName} {s.staff.lastName}</div>
-                  {s.note && <div className="font-mono text-[10px] text-grey-light">[{s.note}]</div>}
+                  {s.note && <div className="font-mono text-xs text-grey-light">[{s.note}]</div>}
                 </td>
                 <td className="px-3 py-2 font-mono text-xs text-grey-light">{roleOf(s)}</td>
                 <td className="px-3 py-2 font-mono text-xs text-grey-light">{fmtTime(s.clockIn)}</td>
@@ -263,7 +263,7 @@ export function ClocksClient({ role, sessionVenueId, defaultVenueId }: { role: s
                   </button>
                 </td>
                 <td className="px-3 py-2">
-                  <span className={`inline-block px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider border ${STATUS_COLOUR[s.approvalStatus] ?? STATUS_COLOUR.PENDING}`}>
+                  <span className={`inline-block px-2 py-0.5 font-mono text-xs uppercase tracking-wider border ${STATUS_COLOUR[s.approvalStatus] ?? STATUS_COLOUR.PENDING}`}>
                     {s.approvalStatus}
                   </span>
                 </td>
@@ -272,24 +272,24 @@ export function ClocksClient({ role, sessionVenueId, defaultVenueId }: { role: s
                     {s.approvalStatus === 'PENDING' && !s.isActive && (
                       <>
                         <button onClick={() => handleApproval(s, 'APPROVED')}
-                          className="font-mono text-[10px] uppercase text-success hover:text-white border border-success/40 px-2 py-1 hover:bg-success hover:text-black transition-colors">
+                          className="font-mono text-xs uppercase text-success hover:text-white border border-success/40 px-2 py-1 hover:bg-success hover:text-black transition-colors">
                           APPROVE
                         </button>
                         <button onClick={() => handleApproval(s, 'REJECTED')}
-                          className="font-mono text-[10px] uppercase text-danger hover:text-white border border-danger/40 px-2 py-1 hover:bg-danger hover:text-black transition-colors">
+                          className="font-mono text-xs uppercase text-danger hover:text-white border border-danger/40 px-2 py-1 hover:bg-danger hover:text-black transition-colors">
                           REJECT
                         </button>
                       </>
                     )}
                     {s.rejectedReason && (
-                      <span className="font-mono text-[10px] text-danger" title={s.rejectedReason}>REASON</span>
+                      <span className="font-mono text-xs text-danger" title={s.rejectedReason}>REASON</span>
                     )}
                     <button onClick={() => openEdit(s)} title="EDIT"
-                      className="font-mono text-[10px] uppercase text-grey-light hover:text-white border border-grey-mid px-2 py-1 transition-colors">
+                      className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid px-2 py-1 transition-colors">
                       EDIT
                     </button>
                     <button onClick={() => handleDelete(s.id)} title="DELETE"
-                      className="font-mono text-[10px] uppercase text-grey-light hover:text-danger transition-colors px-1">
+                      className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors px-1">
                       DEL
                     </button>
                   </div>
@@ -334,7 +334,7 @@ export function ClocksClient({ role, sessionVenueId, defaultVenueId }: { role: s
             <div className="grid grid-cols-2 gap-3">
               <Input label="Breaks (minutes)" type="number" min="0" value={form.breaks} onChange={(e) => setForm({ ...form, breaks: e.target.value })} />
               <div className="flex items-end pb-1">
-                <p className="font-mono text-[10px] text-grey-light">RATE: {money(staff.find(s => s.id === form.staffId)?.hourlyRate ?? null)}</p>
+                <p className="font-mono text-xs text-grey-light">RATE: {money(staff.find(s => s.id === form.staffId)?.hourlyRate ?? null)}</p>
               </div>
             </div>
             <Input label="Note (optional)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="e.g. LATE START" />
@@ -363,11 +363,11 @@ export function ClocksClient({ role, sessionVenueId, defaultVenueId }: { role: s
                     <span className="font-mono text-xs text-white">
                       {e.timeClock.staff.firstName} {e.timeClock.staff.lastName}
                     </span>
-                    <span className="font-mono text-[10px] text-grey-light">
+                    <span className="font-mono text-xs text-grey-light">
                       {new Date(e.editedAt).toLocaleString([], { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}
                     </span>
                   </div>
-                  <div className="font-mono text-[10px] text-grey-light mt-1">
+                  <div className="font-mono text-xs text-grey-light mt-1">
                     {FIELD_LABELS[e.field] ?? e.field}: {e.oldValue || '—'} → {e.newValue || '—'}
                   </div>
                 </div>

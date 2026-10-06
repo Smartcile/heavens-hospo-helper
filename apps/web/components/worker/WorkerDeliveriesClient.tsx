@@ -179,14 +179,14 @@ export function WorkerDeliveriesClient() {
               <div className="px-3 py-2 bg-grey-dark/30 border-b border-grey-mid flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="font-mono text-xs text-white uppercase truncate">{d.supplierName}</div>
-                  <div className="font-mono text-[10px] text-grey-light">{fmtTime(d.deliveredAt)}</div>
+                  <div className="font-mono text-xs text-grey-light">{fmtTime(d.deliveredAt)}</div>
                 </div>
                 {failed.length > 0 ? (
-                  <span className="font-mono text-[10px] text-danger border border-danger/50 px-1.5 py-0.5 shrink-0">
+                  <span className="font-mono text-xs text-danger border border-danger/50 px-1.5 py-0.5 shrink-0">
                     {failed.length} FAILED
                   </span>
                 ) : (
-                  <span className="font-mono text-[10px] text-success shrink-0">ALL PASS</span>
+                  <span className="font-mono text-xs text-success shrink-0">ALL PASS</span>
                 )}
               </div>
               <div className="divide-y divide-grey-mid">
@@ -194,11 +194,11 @@ export function WorkerDeliveriesClient() {
                   <div key={i.id} className="px-3 py-2 flex items-center gap-2">
                     <div className="flex-1 min-w-0">
                       <div className="font-mono text-xs text-white truncate">{i.itemName}</div>
-                      <div className="font-mono text-[10px] text-grey-light">
+                      <div className="font-mono text-xs text-grey-light">
                         {i.qty != null ? `${i.qty} ${i.unit ?? ''} · ` : ''}{i.temp != null ? `${i.temp}°C` : 'NO TEMP'}
                       </div>
                     </div>
-                    <span className={cn('font-mono text-[10px] border px-1.5 py-0.5 shrink-0', i.verdict === 'PASS' ? 'text-success border-success/50' : i.verdict === 'FAIL' ? 'text-danger border-danger/50' : 'text-grey-light border-grey-mid')}>
+                    <span className={cn('font-mono text-xs border px-1.5 py-0.5 shrink-0', i.verdict === 'PASS' ? 'text-success border-success/50' : i.verdict === 'FAIL' ? 'text-danger border-danger/50' : 'text-grey-light border-grey-mid')}>
                       {verdictLabel(i.verdict as Verdict)}
                     </span>
                   </div>
@@ -246,9 +246,9 @@ export function WorkerDeliveriesClient() {
                 <Input placeholder="SEARCH PRODUCTS…" value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} />
                 {itemSearch.trim() !== '' && (
                   <div className="absolute top-full left-0 right-0 z-10 bg-grey-dark border border-grey-mid max-h-48 overflow-y-auto">
-                    {itemMatches.length === 0 && <div className="px-3 py-2 font-mono text-[10px] text-grey-light">NO MATCHES</div>}
+                    {itemMatches.length === 0 && <div className="px-3 py-2 font-mono text-xs text-grey-light">NO MATCHES</div>}
                     {itemMatches.map((c) => (
-                      <button key={c.id} onClick={() => addLine(c)} className="w-full text-left px-3 py-2 font-mono text-[10px] text-white hover:bg-grey-mid flex items-center gap-2">
+                      <button key={c.id} onClick={() => addLine(c)} className="w-full text-left px-3 py-2 font-mono text-xs text-white hover:bg-grey-mid flex items-center gap-2">
                         {c.name}
                         <span className="text-grey-light ml-auto">{c.storageType} · {c.unit}</span>
                       </button>
@@ -264,7 +264,7 @@ export function WorkerDeliveriesClient() {
                 <div key={idx} className="border border-grey-mid p-3 space-y-2">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs text-white truncate flex-1">{l.itemName}</span>
-                    <span className={cn('font-mono text-[10px] border px-1.5 py-0.5 shrink-0', liveLineVerdict(l) === 'PASS' ? 'text-success border-success/50' : liveLineVerdict(l) === 'FAIL' ? 'text-danger border-danger/50' : 'text-grey-light border-grey-mid')}>
+                    <span className={cn('font-mono text-xs border px-1.5 py-0.5 shrink-0', liveLineVerdict(l) === 'PASS' ? 'text-success border-success/50' : liveLineVerdict(l) === 'FAIL' ? 'text-danger border-danger/50' : 'text-grey-light border-grey-mid')}>
                       {verdictLabel(liveLineVerdict(l))}
                     </span>
                     <button onClick={() => removeLine(idx)} className="font-mono text-xs text-danger shrink-0">✕</button>

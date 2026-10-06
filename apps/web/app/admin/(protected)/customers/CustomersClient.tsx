@@ -57,7 +57,7 @@ export function CustomersClient({ role, sessionVenueId, defaultVenueId }: { role
                   {c.email && <span>{c.email}</span>}
                 </div>
               </div>
-              <span className="font-mono text-[10px] uppercase text-grey-light flex-shrink-0 ml-2">VIEW →</span>
+              <span className="font-mono text-xs uppercase text-grey-light flex-shrink-0 ml-2">VIEW →</span>
             </button>
           ))}
         </div>

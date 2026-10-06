@@ -78,7 +78,7 @@ export function EventRequestsPanel({
               key={s || 'ALL'}
               type="button"
               onClick={() => setStatusFilter(s)}
-              className={`font-mono text-[10px] uppercase px-2 py-1 border ${
+              className={`font-mono text-xs uppercase px-2 py-1 border ${
                 statusFilter === s ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'
               }`}
             >
@@ -102,19 +102,19 @@ export function EventRequestsPanel({
             <div key={req.id} className="border border-grey-mid p-3 space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-mono text-xs uppercase text-white">{req.event.name}</span>
-                <span className="font-mono text-[9px] uppercase text-accent border border-accent px-1">{req.kind}</span>
-                <span className="font-mono text-[9px] uppercase text-grey-light border border-grey-mid px-1">{req.status}</span>
+                <span className="font-mono text-xs uppercase text-accent border border-accent px-1">{req.kind}</span>
+                <span className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1">{req.status}</span>
                 <div className="flex-1" />
                 <button
                   type="button"
                   onClick={() => onOpenEvent(req.event.id)}
-                  className="font-mono text-[10px] uppercase text-grey-light hover:text-white"
+                  className="font-mono text-xs uppercase text-grey-light hover:text-white"
                 >
                   OPEN EVENT
                 </button>
               </div>
               <p className="font-mono text-xs text-white whitespace-pre-wrap">{req.message}</p>
-              <p className="font-mono text-[10px] uppercase text-grey-light">
+              <p className="font-mono text-xs uppercase text-grey-light">
                 {new Date(req.createdAt).toISOString().slice(0, 16).replace('T', ' ')}
                 {req.requestedByName ? ` · ${req.requestedByName}` : ''}
               </p>
@@ -133,7 +133,7 @@ export function EventRequestsPanel({
                 </div>
               ) : (
                 req.responseNote && (
-                  <p className="font-mono text-[10px] uppercase text-grey-light">NOTE: {req.responseNote}</p>
+                  <p className="font-mono text-xs uppercase text-grey-light">NOTE: {req.responseNote}</p>
                 )
               )}
             </div>

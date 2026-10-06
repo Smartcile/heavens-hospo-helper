@@ -119,7 +119,7 @@ export const Combobox = forwardRef<ComboboxHandle, ComboboxProps>(function Combo
                     <button
                       type="button"
                       onClick={() => onPreview(o.value)}
-                      className="font-mono text-xs text-[#60A5FA] hover:text-white px-1.5 py-1 border-r border-grey-mid transition-colors group relative"
+                      className="font-mono text-xs text-info hover:text-white px-1.5 py-1 border-r border-grey-mid transition-colors group relative"
                     >
                       <span className="opacity-50 group-hover:opacity-100 transition-opacity">🔗</span>
                       <span className="absolute -top-6 left-1/2 -translate-x-1/2 font-mono text-xs text-accent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">LINK</span>

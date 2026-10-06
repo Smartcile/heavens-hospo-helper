@@ -307,7 +307,7 @@ export function PathwaysClient({
               <span className="font-mono text-xs uppercase text-white">{p.name}</span>
               <Badge variant={p.status === 'DRAFT' ? 'warning' : 'success'}>{p.status}</Badge>
             </div>
-            <div className="font-mono text-[10px] uppercase text-grey-light">
+            <div className="font-mono text-xs uppercase text-grey-light">
               {p.position?.name ?? p.section?.name ?? p.department?.name ?? 'WHOLE VENUE'} · {p._count.nodes} NODES
             </div>
           </button>
@@ -331,7 +331,7 @@ export function PathwaysClient({
               ))}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {dirty && <span className="font-mono text-[10px] uppercase text-[#FACC15]">UNSAVED</span>}
+              {dirty && <span className="font-mono text-xs uppercase text-warning">UNSAVED</span>}
               <Button size="sm" variant="ghost" onClick={() => togglePublish(active)}>
                 {active.status === 'DRAFT' ? 'PUBLISH' : 'UNPUBLISH'}
               </Button>
@@ -386,7 +386,7 @@ export function PathwaysClient({
                     <Button size="sm" variant="danger" onClick={deleteSelected}>DELETE NODE</Button>
                   </>
                 )}
-                <div className="border-t border-grey-mid pt-3 font-mono text-[10px] uppercase text-grey-light space-y-0.5">
+                <div className="border-t border-grey-mid pt-3 font-mono text-xs uppercase text-grey-light space-y-0.5">
                   <div>{nodes.length} NODES · {edges.length} LINKS</div>
                   <div>{preview.totalPoints} POINTS TOTAL</div>
                 </div>
@@ -406,13 +406,13 @@ export function PathwaysClient({
                       return (
                         <div key={n.id} className="py-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono text-[10px] uppercase text-grey-light w-16">
+                            <span className="font-mono text-xs uppercase text-grey-light w-16">
                               {n.kind === 'CHECKLIST' ? 'LIST' : n.kind}
                             </span>
                             <span className="font-mono text-xs text-white min-w-0 flex-1">{n.title}</span>
-                            <span className="font-mono text-[10px] text-grey-light">{n.points}P</span>
+                            <span className="font-mono text-xs text-grey-light">{n.points}P</span>
                             {st === 'LOCKED' && blocked.length > 0 && (
-                              <span className="font-mono text-[10px] uppercase text-grey-light">
+                              <span className="font-mono text-xs uppercase text-grey-light">
                                 NEEDS {blocked.map((b) => displayNodes.find((x) => x.id === b)?.title ?? '?').join(', ')}
                               </span>
                             )}
@@ -465,7 +465,7 @@ export function PathwaysClient({
             onChange={(e) => setNewDept(e.target.value)}
             options={[{ value: '', label: 'ANY' }, ...departments.map((d) => ({ value: d.id, label: d.name }))]}
           />
-          <p className="font-mono text-[10px] uppercase text-grey-light">
+          <p className="font-mono text-xs uppercase text-grey-light">
             LEAVE ALL BLANK FOR A VENUE-WIDE PATHWAY. THE MOST SPECIFIC MATCH WINS.
           </p>
           <div className="flex gap-2 pt-1">
@@ -528,7 +528,7 @@ function TreeButton({ label, title, onClick, disabled }: { label: string; title:
       title={title}
       disabled={disabled}
       onClick={onClick}
-      className="font-mono text-[9px] uppercase border border-grey-mid px-1 py-0.5 text-grey-light hover:text-white hover:border-white transition-colors disabled:opacity-30 disabled:hover:text-grey-light disabled:hover:border-grey-mid"
+      className="font-mono text-xs uppercase border border-grey-mid px-1 py-0.5 text-grey-light hover:text-white hover:border-white transition-colors disabled:opacity-30 disabled:hover:text-grey-light disabled:hover:border-grey-mid"
     >
       {label}
     </button>

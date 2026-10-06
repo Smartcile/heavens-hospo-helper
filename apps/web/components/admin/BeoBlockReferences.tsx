@@ -68,7 +68,7 @@ export function BeoBlockReferences({
       <button
         type="button"
         onClick={load}
-        className="font-mono text-[9px] uppercase tracking-wider border border-accent text-accent px-1.5 py-0.5 hover:bg-accent hover:text-black transition-colors"
+        className="font-mono text-xs uppercase tracking-wider border border-accent text-accent px-1.5 py-0.5 hover:bg-accent hover:text-black transition-colors"
       >
         REFERENCE ({count})
       </button>
@@ -80,21 +80,21 @@ export function BeoBlockReferences({
           <div className="space-y-4 max-h-[70vh] overflow-y-auto">
             {data.guides.length > 0 && (
               <section className="space-y-2">
-                <h3 className="font-mono text-[10px] uppercase text-grey-light tracking-wider">GUIDES</h3>
+                <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">GUIDES</h3>
                 {data.guides.map((g) => (
                   <div key={g.id} className="border border-grey-mid p-3 space-y-2">
                     <div className="font-mono text-xs uppercase text-white">{g.title}</div>
-                    {g.description && <p className="font-mono text-[10px] text-grey-light">{g.description}</p>}
+                    {g.description && <p className="font-mono text-xs text-grey-light">{g.description}</p>}
                     {g.steps.map((s, i) => (
                       <div key={i} className="border-l border-grey-mid ml-1 pl-3 space-y-1">
-                        {s.heading && <div className="font-mono text-[10px] uppercase text-white">{s.heading}</div>}
-                        <p className="font-mono text-[10px] text-grey-light whitespace-pre-wrap">{s.content}</p>
+                        {s.heading && <div className="font-mono text-xs uppercase text-white">{s.heading}</div>}
+                        <p className="font-mono text-xs text-grey-light whitespace-pre-wrap">{s.content}</p>
                         {s.imageUrl && (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={s.imageUrl} alt="" className="max-h-40 border border-grey-mid" />
                         )}
                         {s.videoUrl && (
-                          <a href={s.videoUrl} target="_blank" rel="noreferrer" className="block font-mono text-[10px] uppercase text-accent underline">
+                          <a href={s.videoUrl} target="_blank" rel="noreferrer" className="block font-mono text-xs uppercase text-accent underline">
                             WATCH VIDEO ↗
                           </a>
                         )}
@@ -107,24 +107,24 @@ export function BeoBlockReferences({
 
             {data.tasks.length > 0 && (
               <section className="space-y-1">
-                <h3 className="font-mono text-[10px] uppercase text-grey-light tracking-wider">TASKS</h3>
+                <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">TASKS</h3>
                 {data.tasks.map((t) => (
-                  <div key={t.id} className="font-mono text-[10px] uppercase text-white border border-grey-mid px-2 py-1">{t.name}</div>
+                  <div key={t.id} className="font-mono text-xs uppercase text-white border border-grey-mid px-2 py-1">{t.name}</div>
                 ))}
               </section>
             )}
 
             {data.checklists.length > 0 && (
               <section className="space-y-1">
-                <h3 className="font-mono text-[10px] uppercase text-grey-light tracking-wider">CHECKLISTS</h3>
+                <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">CHECKLISTS</h3>
                 {data.checklists.map((c) => (
-                  <div key={c.id} className="font-mono text-[10px] uppercase text-white border border-grey-mid px-2 py-1">{c.name}</div>
+                  <div key={c.id} className="font-mono text-xs uppercase text-white border border-grey-mid px-2 py-1">{c.name}</div>
                 ))}
               </section>
             )}
 
             {data.guides.length === 0 && data.tasks.length === 0 && data.checklists.length === 0 && (
-              <p className="font-mono text-[10px] uppercase text-grey-light">NO LIVE REFERENCES — THEY MAY HAVE BEEN REMOVED.</p>
+              <p className="font-mono text-xs uppercase text-grey-light">NO LIVE REFERENCES — THEY MAY HAVE BEEN REMOVED.</p>
             )}
 
             <div className="flex justify-end">

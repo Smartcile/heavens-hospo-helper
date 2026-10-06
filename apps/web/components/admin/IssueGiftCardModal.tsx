@@ -60,29 +60,29 @@ export function IssueGiftCardModal({ cardId, cardNumber, templatePreviewUrl, onC
             <h2 className="font-mono text-base font-bold uppercase tracking-widest text-white">ISSUE GIFT CARD</h2>
             <span className="font-mono text-sm text-grey-light">NUMBER {cardNumber}</span>
           </div>
-          <button onClick={onClose} className="font-mono text-[10px] uppercase text-grey-light hover:text-white px-2 py-1 shrink-0">CLOSE</button>
+          <button onClick={onClose} className="font-mono text-xs uppercase text-grey-light hover:text-white px-2 py-1 shrink-0">CLOSE</button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0 flex-1 overflow-hidden">
           {/* Details */}
           <div className="space-y-3 overflow-y-auto pr-1">
             <div className="border border-grey-mid p-3 space-y-3">
-              <p className="font-mono text-[10px] uppercase text-grey-light tracking-wider">DETAILS</p>
+              <p className="font-mono text-xs uppercase text-grey-light tracking-wider">DETAILS</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <div>
-                  <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">CUSTOMER NAME</label>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">CUSTOMER NAME</label>
                   <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="CUSTOMER NAME" />
                 </div>
                 <div>
-                  <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">CUSTOMER EMAIL</label>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">CUSTOMER EMAIL</label>
                   <Input value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="email@example.com" />
                 </div>
                 <div>
-                  <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">AMOUNT ($)</label>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">AMOUNT ($)</label>
                   <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" className="text-right" autoFocus />
                 </div>
                 <div>
-                  <label className="font-mono text-[10px] uppercase text-grey-light block mb-1">MESSAGE</label>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">MESSAGE</label>
                   <Input value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Something special just for you..." />
                 </div>
               </div>
@@ -93,7 +93,7 @@ export function IssueGiftCardModal({ cardId, cardNumber, templatePreviewUrl, onC
                   onChange={(e) => setIsInternal(e.target.checked)}
                   className="bg-grey-dark border border-grey-mid accent-white"
                 />
-                <span className="font-mono text-[10px] uppercase text-grey-light">INTERNAL (PRINT LATER)</span>
+                <span className="font-mono text-xs uppercase text-grey-light">INTERNAL (PRINT LATER)</span>
               </label>
             </div>
 
@@ -111,13 +111,13 @@ export function IssueGiftCardModal({ cardId, cardNumber, templatePreviewUrl, onC
           <div className="border border-grey-mid flex flex-col min-h-[360px] min-w-0">
             <div className="px-3 py-2 border-b border-grey-mid flex items-center justify-between gap-2">
               <span className="font-mono text-xs uppercase tracking-widest text-white">PREVIEW</span>
-              <span className="font-mono text-[9px] uppercase text-grey-light">SAMPLE — WHAT THE CARD LOOKS LIKE</span>
+              <span className="font-mono text-xs uppercase text-grey-light">SAMPLE — WHAT THE CARD LOOKS LIKE</span>
             </div>
             {templatePreviewUrl ? (
               <iframe src={templatePreviewUrl} title="GIFT CARD TEMPLATE PREVIEW" className="w-full flex-1 bg-white min-h-0" />
             ) : (
               <div className="flex-1 flex items-center justify-center p-4">
-                <p className="font-mono text-[10px] uppercase text-grey-light">
+                <p className="font-mono text-xs uppercase text-grey-light">
                   NO CUSTOM TEMPLATE — THE BUILT-IN CARD DESIGN WILL BE USED
                 </p>
               </div>

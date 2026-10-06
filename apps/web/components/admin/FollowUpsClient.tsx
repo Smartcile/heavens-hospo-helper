@@ -81,7 +81,7 @@ export function FollowUpsClient({ role }: { role: string }) {
                   {role === 'ADMIN' && <span className="font-mono text-xs text-grey-light">· {f.venueName}</span>}
                 </div>
                 {f.detail && <p className="font-mono text-xs text-grey-light">{f.detail}</p>}
-                <div className="font-mono text-[10px] uppercase text-grey-light flex flex-wrap gap-2">
+                <div className="font-mono text-xs uppercase text-grey-light flex flex-wrap gap-2">
                   {f.taskTitle && <span>TASK: {f.taskTitle}</span>}
                   {f.guideTitle && <span className="text-accent">GUIDE: {f.guideTitle}</span>}
                 </div>

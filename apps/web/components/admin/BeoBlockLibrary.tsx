@@ -24,7 +24,7 @@ export function BeoBlockLibrary({
   return (
     <div className="border border-grey-mid">
       <div className="px-2 py-1.5 border-b border-grey-mid bg-grey-dark/40">
-        <h3 className="font-mono text-[10px] font-bold uppercase text-white tracking-wider">BLOCK LIBRARY</h3>
+        <h3 className="font-mono text-xs font-bold uppercase text-white tracking-wider">BLOCK LIBRARY</h3>
       </div>
 
       <div className="p-2 space-y-2">
@@ -34,7 +34,7 @@ export function BeoBlockLibrary({
               key={g}
               type="button"
               onClick={() => setGroup(g)}
-              className={`font-mono text-[9px] uppercase px-1.5 py-0.5 border ${
+              className={`font-mono text-xs uppercase px-1.5 py-0.5 border ${
                 group === g ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'
               }`}
             >
@@ -58,8 +58,8 @@ export function BeoBlockLibrary({
               title={`${b.description} — DRAG OR CLICK TO ADD`}
               className="w-full text-left border border-grey-mid hover:border-white px-2 py-1.5 transition-colors disabled:opacity-40 cursor-grab"
             >
-              <span className="block font-mono text-[10px] uppercase text-white">{b.label}</span>
-              <span className="block font-mono text-[9px] uppercase text-grey-light truncate">{b.description}</span>
+              <span className="block font-mono text-xs uppercase text-white">{b.label}</span>
+              <span className="block font-mono text-xs uppercase text-grey-light truncate">{b.description}</span>
             </button>
           ))}
         </div>

@@ -352,9 +352,9 @@ export function EventBuilder({
       <div className="sticky top-[var(--admin-topbar-h)] z-10 bg-black border-b border-grey-mid -mx-4 px-4 py-2 flex items-center gap-2 flex-wrap">
         <Button size="sm" variant="ghost" onClick={onBack}>← BACK</Button>
         <span className="font-mono text-xs uppercase text-white truncate">{draft.name || 'UNTITLED EVENT'}</span>
-        <span className="font-mono text-[10px] uppercase text-grey-light">{draft.eventDate}</span>
+        <span className="font-mono text-xs uppercase text-grey-light">{draft.eventDate}</span>
         <div className="flex-1" />
-        {error && <span className="font-mono text-[10px] text-danger uppercase">{error}</span>}
+        {error && <span className="font-mono text-xs text-danger uppercase">{error}</span>}
         <Button size="sm" variant="ghost" onClick={() => setShareOpen(true)}>SHARE</Button>
         <Button size="sm" variant="ghost" onClick={() => setTplOpen(true)}>SAVE AS TEMPLATE</Button>
         <Button size="sm" onClick={save} loading={saving}>SAVE</Button>
@@ -415,23 +415,23 @@ export function EventBuilder({
 
         <div className="flex items-center gap-2 flex-wrap">
           <Button size="sm" variant="ghost" onClick={push} loading={pushing}>PUSH NOW</Button>
-          <span className="font-mono text-[10px] uppercase text-grey-light">
+          <span className="font-mono text-xs uppercase text-grey-light">
             CREATES THE BOOKING, SEATS THE PARTY AND RAISES THE PRE-ORDER
           </span>
-          {pushMsg && <span className="font-mono text-[10px] uppercase text-accent">{pushMsg}</span>}
+          {pushMsg && <span className="font-mono text-xs uppercase text-accent">{pushMsg}</span>}
         </div>
 
         <div className="border border-grey-mid p-3 grid grid-cols-3 gap-3">
           <div>
-            <div className="font-mono text-[10px] uppercase text-grey-light mb-0.5">SUBTOTAL</div>
+            <div className="font-mono text-xs uppercase text-grey-light mb-0.5">SUBTOTAL</div>
             <div className="font-mono text-sm text-white">${totals.subtotal.toFixed(2)}</div>
           </div>
           <div>
-            <div className="font-mono text-[10px] uppercase text-grey-light mb-0.5">DEPOSIT</div>
+            <div className="font-mono text-xs uppercase text-grey-light mb-0.5">DEPOSIT</div>
             <div className="font-mono text-sm text-white">${totals.deposit.toFixed(2)}</div>
           </div>
           <div>
-            <div className="font-mono text-[10px] uppercase text-grey-light mb-0.5">BALANCE</div>
+            <div className="font-mono text-xs uppercase text-grey-light mb-0.5">BALANCE</div>
             <div className={`font-mono text-sm ${totals.balance <= 0 ? 'text-success' : 'text-white'}`}>
               ${totals.balance.toFixed(2)}
             </div>
@@ -439,7 +439,7 @@ export function EventBuilder({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-mono text-[10px] uppercase text-grey-light">PDF:</span>
+          <span className="font-mono text-xs uppercase text-grey-light">PDF:</span>
           {([
             ['FULL', 'FULL BEO'],
             ['CLIENT', 'CLIENT COPY'],
@@ -450,7 +450,7 @@ export function EventBuilder({
               href={`/api/admin/events/${event.id}/pdf?variant=${variant}`}
               target="_blank"
               rel="noreferrer"
-              className="font-mono text-[10px] uppercase tracking-wider border border-grey-mid text-white px-2 py-1 hover:border-white transition-colors"
+              className="font-mono text-xs uppercase tracking-wider border border-grey-mid text-white px-2 py-1 hover:border-white transition-colors"
             >
               {label}
             </a>
@@ -459,11 +459,11 @@ export function EventBuilder({
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="block font-mono text-[10px] uppercase text-grey-light mb-1">Notes</label>
+            <label className="block font-mono text-xs uppercase text-grey-light mb-1">Notes</label>
             <textarea rows={2} value={draft.notes ?? ''} onChange={(e) => patch({ notes: e.target.value })} className={textareaClass} />
           </div>
           <div>
-            <label className="block font-mono text-[10px] uppercase text-grey-light mb-1">Internal notes</label>
+            <label className="block font-mono text-xs uppercase text-grey-light mb-1">Internal notes</label>
             <textarea rows={2} value={draft.internalNotes ?? ''} onChange={(e) => patch({ internalNotes: e.target.value })} className={textareaClass} />
           </div>
         </div>
@@ -484,11 +484,11 @@ export function EventBuilder({
         >
           <div className="flex items-center justify-between">
             <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">EVENT BLOCKS</h3>
-            <span className="font-mono text-[10px] uppercase text-grey-light">{draft.blocks.length} BLOCK(S)</span>
+            <span className="font-mono text-xs uppercase text-grey-light">{draft.blocks.length} BLOCK(S)</span>
           </div>
 
           {draft.blocks.length === 0 && (
-            <p className="font-mono text-[10px] uppercase text-grey-light py-4 text-center">
+            <p className="font-mono text-xs uppercase text-grey-light py-4 text-center">
               DRAG A BLOCK FROM THE LIBRARY, OR CLICK ONE TO ADD IT.
             </p>
           )}
@@ -509,12 +509,12 @@ export function EventBuilder({
                     <div className="flex items-center shrink-0">
                       <button type="button" onClick={() => move(b.id, -1)} disabled={i === 0} className="w-9 h-9 flex items-center justify-center font-mono text-sm text-grey-light hover:text-white disabled:opacity-30" aria-label="Move up">↑</button>
                       <button type="button" onClick={() => move(b.id, 1)} disabled={i === draft.blocks.length - 1} className="w-9 h-9 flex items-center justify-center font-mono text-sm text-grey-light hover:text-white disabled:opacity-30" aria-label="Move down">↓</button>
-                      <button type="button" onClick={() => duplicateBlock(b.id)} className="h-9 px-2 flex items-center justify-center font-mono text-[10px] text-grey-light hover:text-white" aria-label="Duplicate">DUP</button>
+                      <button type="button" onClick={() => duplicateBlock(b.id)} className="h-9 px-2 flex items-center justify-center font-mono text-xs text-grey-light hover:text-white" aria-label="Duplicate">DUP</button>
                       <button type="button" onClick={() => removeBlock(b.id)} className="w-9 h-9 flex items-center justify-center font-mono text-sm text-grey-light hover:text-danger" aria-label="Delete block">✕</button>
                     </div>
                   </div>
                   {!open && (
-                    <p className="px-2.5 pb-2 -mt-1 font-mono text-[9px] uppercase text-grey-light truncate">
+                    <p className="px-2.5 pb-2 -mt-1 font-mono text-xs uppercase text-grey-light truncate">
                       {summariseBlock(b, library)}
                     </p>
                   )}
@@ -543,13 +543,13 @@ export function EventBuilder({
         <BeoBlockLibrary onAdd={addBlock} library={library} />
       </div>
 
-      <p className="font-mono text-[10px] uppercase text-grey-light">
+      <p className="font-mono text-xs uppercase text-grey-light">
         VENUE {venueId.slice(0, 8)} · BLOCKS SAVE WITH THE EVENT
       </p>
 
       <Modal isOpen={tplOpen} onClose={() => setTplOpen(false)} title="SAVE AS TEMPLATE">
         <div className="space-y-3">
-          <p className="font-mono text-[10px] uppercase text-grey-light">
+          <p className="font-mono text-xs uppercase text-grey-light">
             COPIES THE EVENT BLOCKS, MENU, LAYOUT, PAX AND STYLE INTO A REUSABLE TEMPLATE.
           </p>
           <Input label="Template name" value={tplName} placeholder="WEDDING PACKAGE — 100 PAX" onChange={(e) => setTplName(e.target.value)} />
@@ -564,18 +564,18 @@ export function EventBuilder({
 
       <Modal isOpen={shareOpen} onClose={() => setShareOpen(false)} title="CUSTOMER LINK">
         <div className="space-y-3">
-          <p className="font-mono text-[10px] uppercase text-grey-light">
+          <p className="font-mono text-xs uppercase text-grey-light">
             ANYONE WITH THIS LINK CAN VIEW THE EVENT — INTERNAL NOTES, STAFFING AND HISTORY ARE HIDDEN — AND CAN
             APPROVE, SIGN OFF OR REQUEST CHANGES.
           </p>
-          <p className="font-mono text-[10px] uppercase text-grey-light">
+          <p className="font-mono text-xs uppercase text-grey-light">
             STATUS: {event.shareEnabled ? 'ACTIVE' : 'OFF'}
             {event.shareExpiresAt ? ` · EXPIRES ${event.shareExpiresAt.slice(0, 10)}` : ''}
           </p>
 
           {shareUrl && (
             <div className="border border-grey-mid p-2 space-y-1">
-              <p className="font-mono text-[10px] text-white break-all">{shareUrl}</p>
+              <p className="font-mono text-xs text-white break-all">{shareUrl}</p>
               <Button size="sm" variant="ghost" onClick={() => navigator.clipboard?.writeText(shareUrl)}>
                 COPY LINK
               </Button>
@@ -584,7 +584,7 @@ export function EventBuilder({
 
           <Input label="Expiry (optional)" type="date" value={shareExpiry} onChange={(e) => setShareExpiry(e.target.value)} />
 
-          {shareMsg && <p className="font-mono text-[10px] uppercase text-accent">{shareMsg}</p>}
+          {shareMsg && <p className="font-mono text-xs uppercase text-accent">{shareMsg}</p>}
 
           <div className="flex justify-end gap-2">
             {event.shareEnabled && (

@@ -185,14 +185,14 @@ export function OrdersClient({ role, sessionVenueId, defaultVenueId, sub }: { ro
       </div>
 
       {undatedCount > 0 && (
-        <div className="border border-[#FACC15] p-2.5 flex items-center justify-between gap-3 flex-wrap">
-          <p className="font-mono text-[10px] text-[#FACC15] uppercase">
+        <div className="border border-warning p-2.5 flex items-center justify-between gap-3 flex-wrap">
+          <p className="font-mono text-xs text-warning uppercase">
             {undatedCount} ORDER{undatedCount === 1 ? '' : 'S'} HAVE NO SERVICE DATE AND CANNOT BE SHOWN ON A DAY.
             CHECK THE ORDER FIELD MAPPING IN SETTINGS → WOOCOMMERCE.
           </p>
           <button
             onClick={() => router.push(hubUrl('/admin/ops', 'orders', 'all'), { scroll: false })}
-            className="font-mono text-[10px] uppercase border border-[#FACC15] text-[#FACC15] hover:bg-[#FACC15] hover:text-black px-2 py-1"
+            className="font-mono text-xs uppercase border border-warning text-warning hover:bg-warning hover:text-black px-2 py-1"
           >
             VIEW THEM
           </button>
@@ -205,19 +205,19 @@ export function OrdersClient({ role, sessionVenueId, defaultVenueId, sub }: { ro
         <button
           onClick={() => setShowFilters(!showFilters)}
           className={`font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 tracking-wider ${
-            activeFilterCount > 0 ? 'text-[#60A5FA] border-[#60A5FA]' : 'text-grey-light hover:text-white hover:border-white'
+            activeFilterCount > 0 ? 'text-info border-info' : 'text-grey-light hover:text-white hover:border-white'
           }`}
         >
           FILTERS{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
         </button>
         {savedViews.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-[10px] uppercase text-grey-light">SAVED</span>
+            <span className="font-mono text-xs uppercase text-grey-light">SAVED</span>
             {savedViews.map((v) => (
               <span key={v.id} className="inline-flex items-center">
                 <button
                   onClick={() => applySaved(v)}
-                  className={`font-mono text-[10px] uppercase border px-2 py-1 ${
+                  className={`font-mono text-xs uppercase border px-2 py-1 ${
                     activeSavedId === v.id ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:text-white'
                   }`}
                 >
@@ -225,7 +225,7 @@ export function OrdersClient({ role, sessionVenueId, defaultVenueId, sub }: { ro
                 </button>
                 <button
                   onClick={() => deleteSaved(v.id)}
-                  className="font-mono text-[10px] text-grey-light hover:text-danger border border-l-0 border-grey-mid px-1 py-1"
+                  className="font-mono text-xs text-grey-light hover:text-danger border border-l-0 border-grey-mid px-1 py-1"
                 >
                   ✕
                 </button>
@@ -246,15 +246,15 @@ export function OrdersClient({ role, sessionVenueId, defaultVenueId, sub }: { ro
           />
 
           <div>
-            <p className="font-mono text-[10px] uppercase text-grey-light mb-1">PROGRESS</p>
+            <p className="font-mono text-xs uppercase text-grey-light mb-1">PROGRESS</p>
             <div className="flex flex-wrap gap-1">
               {OP_STATUSES.map((s) => (
                 <button
                   key={s}
                   onClick={() => setFilters({ ...filters, opStatus: toggleIn(filters.opStatus, s) })}
-                  className={`font-mono text-[9px] uppercase border px-1.5 py-1 ${
+                  className={`font-mono text-xs uppercase border px-1.5 py-1 ${
                     filters.opStatus?.includes(s)
-                      ? 'border-[#60A5FA] text-[#60A5FA]'
+                      ? 'border-info text-info'
                       : 'border-grey-mid text-grey-light hover:text-white'
                   }`}
                 >
@@ -265,15 +265,15 @@ export function OrdersClient({ role, sessionVenueId, defaultVenueId, sub }: { ro
           </div>
 
           <div>
-            <p className="font-mono text-[10px] uppercase text-grey-light mb-1">PAYMENT</p>
+            <p className="font-mono text-xs uppercase text-grey-light mb-1">PAYMENT</p>
             <div className="flex flex-wrap gap-1">
               {PAYMENT_STATUSES.map((s) => (
                 <button
                   key={s}
                   onClick={() => setFilters({ ...filters, paymentStatus: toggleIn(filters.paymentStatus, s) })}
-                  className={`font-mono text-[9px] uppercase border px-1.5 py-1 ${
+                  className={`font-mono text-xs uppercase border px-1.5 py-1 ${
                     filters.paymentStatus?.includes(s)
-                      ? 'border-[#60A5FA] text-[#60A5FA]'
+                      ? 'border-info text-info'
                       : 'border-grey-mid text-grey-light hover:text-white'
                   }`}
                 >
@@ -286,7 +286,7 @@ export function OrdersClient({ role, sessionVenueId, defaultVenueId, sub }: { ro
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={() => setFilters({ ...filters, allergensOnly: !filters.allergensOnly })}
-              className={`font-mono text-[10px] uppercase border px-2 py-1 ${
+              className={`font-mono text-xs uppercase border px-2 py-1 ${
                 filters.allergensOnly ? 'border-danger text-danger' : 'border-grey-mid text-grey-light hover:text-white'
               }`}
             >

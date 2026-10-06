@@ -74,7 +74,7 @@ export function WorkerStocktakeClient() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-grey-mid">
           <div>
             <h1 className="font-mono text-sm font-bold uppercase tracking-widest text-white">STOCKTAKE</h1>
-            <p className="font-mono text-[10px] text-grey-light">{active.date}</p>
+            <p className="font-mono text-xs text-grey-light">{active.date}</p>
           </div>
           <div className="flex gap-2">
             <Button size="sm" variant="ghost" onClick={() => saveAndClose('IN_PROGRESS')} loading={saving}>SAVE</Button>
@@ -84,7 +84,7 @@ export function WorkerStocktakeClient() {
 
         {hasVariance && (
           <div className="bg-danger/10 border-b border-danger px-4 py-2">
-            <p className="font-mono text-[10px] text-danger">SOME COUNTS DON&apos;T MATCH — TAP ITEMS TO REVIEW</p>
+            <p className="font-mono text-xs text-danger">SOME COUNTS DON&apos;T MATCH — TAP ITEMS TO REVIEW</p>
           </div>
         )}
 
@@ -93,10 +93,10 @@ export function WorkerStocktakeClient() {
             <div key={li.id} className={`bg-grey-dark border p-3 ${li.variance !== 0 ? 'border-danger/50' : 'border-grey-mid'}`}>
               <div className="flex items-center justify-between mb-1">
                 <span className="font-mono text-xs text-white uppercase">{li.item.name}</span>
-                <span className="font-mono text-[10px] text-grey-light">{li.item.category.name}</span>
+                <span className="font-mono text-xs text-grey-light">{li.item.category.name}</span>
               </div>
               <div className="flex items-center gap-4">
-                <span className="font-mono text-[10px] text-grey-light">EXPECTED: {li.expectedQuantity} {li.item.unit}</span>
+                <span className="font-mono text-xs text-grey-light">EXPECTED: {li.expectedQuantity} {li.item.unit}</span>
                 <div className="flex items-center gap-1">
                   <button onClick={() => updateCount(li.itemId, Math.max(0, li.countedQuantity - 1))}
                     className="w-7 h-7 bg-black border border-grey-mid text-white font-mono text-xs">−</button>
@@ -105,7 +105,7 @@ export function WorkerStocktakeClient() {
                     className="w-7 h-7 bg-black border border-grey-mid text-white font-mono text-xs">+</button>
                 </div>
                 {li.variance !== 0 && (
-                  <span className={`font-mono text-[10px] ${li.variance > 0 ? 'text-accent' : 'text-danger'}`}>
+                  <span className={`font-mono text-xs ${li.variance > 0 ? 'text-accent' : 'text-danger'}`}>
                     {li.variance > 0 ? '+' : ''}{li.variance}
                   </span>
                 )}
@@ -129,9 +129,9 @@ export function WorkerStocktakeClient() {
             className="bg-grey-dark border border-grey-mid p-3 cursor-pointer hover:border-white transition-colors">
             <div className="flex items-center justify-between">
               <span className="font-mono text-xs text-white">{r.date}</span>
-              <span className="font-mono text-[10px] text-grey-light">{r._count.lineItems} items</span>
+              <span className="font-mono text-xs text-grey-light">{r._count.lineItems} items</span>
             </div>
-            {r.notes && <p className="font-mono text-[10px] text-grey-light mt-1">{r.notes}</p>}
+            {r.notes && <p className="font-mono text-xs text-grey-light mt-1">{r.notes}</p>}
           </div>
         ))}
       </div>

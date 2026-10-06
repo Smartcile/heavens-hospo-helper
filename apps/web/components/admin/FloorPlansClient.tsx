@@ -116,7 +116,7 @@ export function FloorPlansClient({ role, venueId: sessionVenueId }: { role: stri
                   <div className="font-mono font-semibold text-sm uppercase text-white">{p.name}</div>
                   <div className="font-mono text-xs text-grey-light">/{p.slug}</div>
                 </div>
-                {p.isDefault && <span className="font-mono text-[10px] uppercase text-accent">DEFAULT</span>}
+                {p.isDefault && <span className="font-mono text-xs uppercase text-accent">DEFAULT</span>}
               </div>
               <div className="font-mono text-xs text-grey-light space-y-1">
                 <div>ROOM: {p.roomWidth} × {p.roomDepth} cm</div>

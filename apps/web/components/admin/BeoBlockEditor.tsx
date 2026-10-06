@@ -71,11 +71,11 @@ function RowsEditor({
     <div className="space-y-1">
       <div className="flex gap-1">
         {columns.map((c) => (
-          <span key={c.key} className="flex-1 font-mono text-[9px] uppercase text-grey-light">{c.label}</span>
+          <span key={c.key} className="flex-1 font-mono text-xs uppercase text-grey-light">{c.label}</span>
         ))}
         <span className="w-6" />
       </div>
-      {rows.length === 0 && <p className="font-mono text-[10px] text-grey-light">NO ROWS YET.</p>}
+      {rows.length === 0 && <p className="font-mono text-xs text-grey-light">NO ROWS YET.</p>}
       {rows.map((row, i) => (
         <div key={i} className="flex gap-1 items-center">
           {columns.map((c) => (
@@ -129,7 +129,7 @@ function ItemsEditor({
   }
   return (
     <div className="space-y-1">
-      {items.length === 0 && <p className="font-mono text-[10px] text-grey-light">NO ITEMS YET.</p>}
+      {items.length === 0 && <p className="font-mono text-xs text-grey-light">NO ITEMS YET.</p>}
       {items.map((it, i) => (
         <div key={i} className="flex gap-1 items-center">
           <div className="flex-1">
@@ -190,12 +190,12 @@ export function BeoBlockEditor({
     return <p className="font-mono text-xs text-danger">UNKNOWN BLOCK TYPE: {type}</p>
   }
   if (def.readOnly) {
-    return <p className="font-mono text-[10px] text-grey-light">THIS BLOCK IS AUTOMATIC AND READ-ONLY.</p>
+    return <p className="font-mono text-xs text-grey-light">THIS BLOCK IS AUTOMATIC AND READ-ONLY.</p>
   }
 
   const fields = hideBoundFields ? def.fields.filter((f) => !f.eventField) : def.fields
   if (fields.length === 0) {
-    return <p className="font-mono text-[10px] text-grey-light">NO CONFIGURABLE FIELDS — THE EVENT FILLS THIS IN.</p>
+    return <p className="font-mono text-xs text-grey-light">NO CONFIGURABLE FIELDS — THE EVENT FILLS THIS IN.</p>
   }
 
   return (
@@ -206,7 +206,7 @@ export function BeoBlockEditor({
 
         return (
           <div key={field.key}>
-            <label className="block font-mono text-[10px] uppercase text-grey-light mb-1">{field.label}</label>
+            <label className="block font-mono text-xs uppercase text-grey-light mb-1">{field.label}</label>
             {field.kind === 'text' && (
               <Input value={String(value ?? '')} placeholder={field.placeholder} disabled={disabled} onChange={(e) => set(e.target.value)} />
             )}

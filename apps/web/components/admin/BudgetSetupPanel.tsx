@@ -277,7 +277,7 @@ export function BudgetSetupPanel({
                     </div>
                     <div>
                       <div className="font-mono text-xs uppercase text-grey-light mb-0.5">VARIANCE</div>
-                      <div className={`font-mono text-sm ${budgetStats.variance === 0 ? 'text-success' : 'text-[#FACC15]'}`}>
+                      <div className={`font-mono text-sm ${budgetStats.variance === 0 ? 'text-success' : 'text-warning'}`}>
                         {budgetStats.variance >= 0 ? '+' : ''}{money(budgetStats.variance)}
                       </div>
                     </div>

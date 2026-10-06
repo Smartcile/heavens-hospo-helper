@@ -203,6 +203,14 @@ This is the intended way to use the worker screens and the BEO/events builder
 on the floor. Reach the app over your LAN (`http://<your-ip>:3000`) — an
 `https://` URL is required for some PWA features on iOS.
 
+### Dark & light themes
+
+The app ships two themes and remembers your choice. Use the **LIGHT MODE /
+DARK MODE** toggle in the admin sidebar footer (or the mobile top bar), and in the
+worker hamburger menu. Dark is the default; the light theme uses white surfaces
+with dark-blue accents and borders. The preference is stored per browser, so it
+never flashes the wrong theme on load.
+
 ---
 
 ## HOW IT ALL LINKS TOGETHER

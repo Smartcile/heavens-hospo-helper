@@ -258,7 +258,7 @@ export function NoticesClient({ role, sessionVenueId, defaultVenueId }: { role: 
             {form.audiences.length > 0 ? (
               <div className="flex flex-wrap gap-1.5">
                 {form.audiences.map((a) => (
-                  <span key={`${a.kind}:${a.targetId}`} className="inline-flex items-center gap-1.5 border border-grey-mid px-2 py-0.5 font-mono text-[10px] uppercase text-white">
+                  <span key={`${a.kind}:${a.targetId}`} className="inline-flex items-center gap-1.5 border border-grey-mid px-2 py-0.5 font-mono text-xs uppercase text-white">
                     <span className="text-grey-light">{a.kind}</span>
                     {audienceLabel(a)}
                     <button
@@ -272,7 +272,7 @@ export function NoticesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                 ))}
               </div>
             ) : (
-              <p className="font-mono text-[10px] uppercase text-grey-light">WHOLE VENUE — ADD TARGETS TO NARROW IT.</p>
+              <p className="font-mono text-xs uppercase text-grey-light">WHOLE VENUE — ADD TARGETS TO NARROW IT.</p>
             )}
             <AddAudience options={audienceOptions} onAdd={addAudience} />
           </div>

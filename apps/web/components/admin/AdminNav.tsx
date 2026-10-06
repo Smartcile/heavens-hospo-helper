@@ -6,6 +6,7 @@ import { signOut } from 'next-auth/react'
 import { useEffect, useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { VenueSwitcher } from '@/components/admin/VenueSwitcher'
+import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import version from '@/version.json'
 
 interface NavItem { href: string; label: string; exact?: boolean }
@@ -205,7 +206,8 @@ function Brand({ appName, role, venueId, defaultVenueId, availableVenueIds }: { 
 
 function SignOutButton() {
   return (
-    <div className="p-4 border-t border-grey-mid">
+    <div className="p-4 border-t border-grey-mid flex items-center justify-between gap-2">
+      <ThemeToggle />
       <button
         onClick={() => signOut({ callbackUrl: '/' })}
         className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors tracking-wider"
@@ -275,15 +277,18 @@ export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds, gra
           </svg>
         </button>
         <div className="font-mono font-bold text-sm uppercase tracking-widest text-white truncate">{appName}</div>
-        <button onClick={() => signOut({ callbackUrl: '/' })} className="font-mono text-[10px] uppercase tracking-wider text-grey-light hover:text-danger transition-colors px-1">
-          EXIT
-        </button>
+        <div className="flex items-center gap-3">
+          <ThemeToggle />
+          <button onClick={() => signOut({ callbackUrl: '/' })} className="font-mono text-xs uppercase tracking-wider text-grey-light hover:text-danger transition-colors px-1">
+            EXIT
+          </button>
+        </div>
       </header>
 
       {/* Mobile drawer */}
       {open && (
         <div className="md:hidden fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/70" onClick={() => setOpen(false)} aria-hidden />
+          <div className="absolute inset-0 bg-scrim" onClick={() => setOpen(false)} aria-hidden />
           <aside className="absolute left-0 top-0 h-full w-64 bg-grey-dark border-r border-grey-mid flex flex-col shadow-2xl">
             <Brand appName={appName} role={role} venueId={venueId} defaultVenueId={defaultVenueId} availableVenueIds={availableVenueIds} />
             <NavGroups groups={visibleGroups} pathname={pathname} location={location} openGroups={openGroups} toggleGroup={toggleGroup} onNavigate={() => setOpen(false)} expandOnly />

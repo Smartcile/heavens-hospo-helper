@@ -58,6 +58,20 @@ export async function scopedFolderId(folderId: unknown, venueId: string): Promis
   return folderId
 }
 
+/**
+ * Resolve a submitted sourceMenuId to a live menu in the guide's venue, or null.
+ * A stale/foreign/missing id clears the source rather than erroring.
+ */
+export async function scopedMenuId(menuId: unknown, venueId: string): Promise<string | null> {
+  if (typeof menuId !== 'string' || !menuId) return null
+  const menu = await prisma.menu.findUnique({
+    where: { id: menuId },
+    select: { venueId: true, deletedAt: true },
+  })
+  if (!menu || menu.deletedAt || menu.venueId !== venueId) return null
+  return menuId
+}
+
 /** Sanitised body HTML, or null when it carries no text. */
 export function cleanBodyHtml(raw: unknown): string | null {
   if (typeof raw !== 'string') return null

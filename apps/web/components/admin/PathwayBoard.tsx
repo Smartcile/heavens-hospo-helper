@@ -53,7 +53,7 @@ const STATUS_BORDER: Record<BoardStatus, string> = {
 }
 
 const CARD_BUTTON =
-  'nodrag nopan font-mono text-[9px] uppercase leading-none border border-grey-mid px-1 py-0.5 text-grey-light hover:text-white hover:border-white transition-colors'
+  'nodrag nopan font-mono text-xs uppercase leading-none border border-grey-mid px-1 py-0.5 text-grey-light hover:text-white hover:border-white transition-colors'
 
 function PathwayNodeCard({
   data,
@@ -75,16 +75,16 @@ function PathwayNodeCard({
     >
       <Handle type="target" position={Position.Left} style={{ background: '#2E2E2E', width: 7, height: 7 }} />
       <div className="flex items-center justify-between gap-1">
-        <span className="font-mono text-[9px] uppercase tracking-widest" style={{ color: accent }}>
+        <span className="font-mono text-xs uppercase tracking-widest" style={{ color: accent }}>
           {n.kind === 'CHECKLIST' ? 'LIST' : n.kind}
         </span>
-        <span className="font-mono text-[9px] text-grey-light">
+        <span className="font-mono text-xs text-grey-light">
           S{n.stage + 1} · {n.points}P
         </span>
       </div>
-      <div className="font-mono text-[11px] text-white leading-tight line-clamp-2">{n.title}</div>
+      <div className="font-mono text-xs text-white leading-tight line-clamp-2">{n.title}</div>
       {n.status && (
-        <div className="font-mono text-[9px] uppercase" style={{ color: STATUS_BORDER[n.status] }}>
+        <div className="font-mono text-xs uppercase" style={{ color: STATUS_BORDER[n.status] }}>
           {n.status}
         </div>
       )}

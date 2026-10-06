@@ -5,6 +5,7 @@ import { getActiveVenueId } from '@/lib/active-venue'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { DateInput } from '@/components/ui/DateInput'
 import { deliveryLineVerdict, vehicleVerdict, verdictLabel, type Verdict } from '@/lib/food-safety'
 import { cn } from '@/lib/utils'
 
@@ -228,12 +229,7 @@ export function DeliveriesClient({ role, sessionVenueId, defaultVenueId }: Deliv
           <p className="font-mono text-xs text-grey-light mt-0.5">SUPPLIER RECEIPTS — TEMPERATURE CHECKS</p>
         </div>
         <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-            className="bg-grey-dark border border-grey-mid text-white font-mono text-xs px-3 py-1.5 outline-none focus:border-white"
-          />
+          <DateInput value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="w-40" />
           {dateFilter && (
             <Button size="sm" variant="ghost" onClick={() => setDateFilter('')}>ALL DATES</Button>
           )}
@@ -255,20 +251,20 @@ export function DeliveriesClient({ role, sessionVenueId, defaultVenueId }: Deliv
               <div className="flex items-center justify-between flex-wrap gap-2 px-3 py-2 bg-grey-dark/30 border-b border-grey-mid">
                 <div className="flex items-center gap-3 flex-wrap">
                   <h3 className="font-mono text-xs uppercase tracking-wider text-white">{d.supplierName}</h3>
-                  <span className="font-mono text-[10px] text-grey-light">{fmtDate(d.deliveredAt)}</span>
-                  {d.invoiceRef && <span className="font-mono text-[10px] text-grey-light">INV {d.invoiceRef}</span>}
+                  <span className="font-mono text-xs text-grey-light">{fmtDate(d.deliveredAt)}</span>
+                  {d.invoiceRef && <span className="font-mono text-xs text-grey-light">INV {d.invoiceRef}</span>}
                   {d.receivedBy && (
-                    <span className="font-mono text-[10px] text-grey-light">RECEIVED BY {d.receivedBy.firstName} {d.receivedBy.lastName}</span>
+                    <span className="font-mono text-xs text-grey-light">RECEIVED BY {d.receivedBy.firstName} {d.receivedBy.lastName}</span>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
                   {d.vehicleTemp != null && (
-                    <span className={cn('font-mono text-[10px] border px-1.5 py-0.5', d.vehicleVerdict === 'PASS' ? 'text-success border-success/50' : d.vehicleVerdict === 'FAIL' ? 'text-danger border-danger/50' : 'text-grey-light border-grey-mid')}>
+                    <span className={cn('font-mono text-xs border px-1.5 py-0.5', d.vehicleVerdict === 'PASS' ? 'text-success border-success/50' : d.vehicleVerdict === 'FAIL' ? 'text-danger border-danger/50' : 'text-grey-light border-grey-mid')}>
                       VEHICLE {d.vehicleTemp}°C · {verdictLabel(d.vehicleVerdict as Verdict)}
                     </span>
                   )}
                   {failed.length > 0 && (
-                    <a href="/admin/compliance?tab=alerts" className="font-mono text-[10px] text-danger border border-danger/50 px-1.5 py-0.5">
+                    <a href="/admin/compliance?tab=alerts" className="font-mono text-xs text-danger border border-danger/50 px-1.5 py-0.5">
                       {failed.length} FAILED LINE{failed.length > 1 ? 'S' : ''}
                     </a>
                   )}
@@ -278,7 +274,7 @@ export function DeliveriesClient({ role, sessionVenueId, defaultVenueId }: Deliv
               </div>
               <table className="w-full table-fixed">
                 <thead>
-                  <tr className="border-b border-grey-mid font-mono text-[10px] uppercase text-grey-light tracking-wider">
+                  <tr className="border-b border-grey-mid font-mono text-xs uppercase text-grey-light tracking-wider">
                     <th className="text-left px-3 py-2 w-[34%]">ITEM</th>
                     <th className="text-left px-3 py-2 w-[12%]">QTY</th>
                     <th className="text-left px-3 py-2 w-[14%]">TEMP</th>
@@ -292,25 +288,25 @@ export function DeliveriesClient({ role, sessionVenueId, defaultVenueId }: Deliv
                     <tr key={i.id}>
                       <td className="px-3 py-2 font-mono text-xs text-white truncate">
                         {i.itemName}
-                        <span className="ml-2 text-[10px] text-grey-light">{i.storageType}</span>
+                        <span className="ml-2 text-xs text-grey-light">{i.storageType}</span>
                       </td>
                       <td className="px-3 py-2 font-mono text-xs text-grey-light">{i.qty != null ? `${i.qty} ${i.unit ?? ''}` : '—'}</td>
                       <td className="px-3 py-2 font-mono text-xs text-white">{i.temp != null ? `${i.temp}°C` : '—'}</td>
                       <td className="px-3 py-2">
-                        <span className={cn('font-mono text-[10px] border px-1.5 py-0.5', i.verdict === 'PASS' ? 'text-success border-success/50' : i.verdict === 'FAIL' ? 'text-danger border-danger/50' : 'text-grey-light border-grey-mid')}>
+                        <span className={cn('font-mono text-xs border px-1.5 py-0.5', i.verdict === 'PASS' ? 'text-success border-success/50' : i.verdict === 'FAIL' ? 'text-danger border-danger/50' : 'text-grey-light border-grey-mid')}>
                           {verdictLabel(i.verdict as Verdict)}
                         </span>
                       </td>
-                      <td className={cn('px-3 py-2 font-mono text-[10px] uppercase', i.disposition === 'REJECTED' ? 'text-danger' : 'text-grey-light')}>
+                      <td className={cn('px-3 py-2 font-mono text-xs uppercase', i.disposition === 'REJECTED' ? 'text-danger' : 'text-grey-light')}>
                         {i.disposition}
                       </td>
-                      <td className="px-3 py-2 font-mono text-[10px] text-grey-light truncate">{i.note ?? '—'}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-grey-light truncate">{i.note ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               {d.notes && (
-                <div className="px-3 py-2 border-t border-grey-mid font-mono text-[10px] text-grey-light">NOTES: {d.notes}</div>
+                <div className="px-3 py-2 border-t border-grey-mid font-mono text-xs text-grey-light">NOTES: {d.notes}</div>
               )}
             </div>
           )
@@ -356,12 +352,12 @@ export function DeliveriesClient({ role, sessionVenueId, defaultVenueId }: Deliv
                 <Input placeholder="SEARCH INVENTORY…" value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} />
                 {itemSearch.trim() !== '' && (
                   <div className="absolute top-full left-0 right-0 z-10 bg-grey-dark border border-grey-mid max-h-48 overflow-y-auto">
-                    {itemMatches.length === 0 && <div className="px-3 py-2 font-mono text-[10px] text-grey-light">NO MATCHES</div>}
+                    {itemMatches.length === 0 && <div className="px-3 py-2 font-mono text-xs text-grey-light">NO MATCHES</div>}
                     {itemMatches.map((c) => (
                       <button
                         key={c.id}
                         onClick={() => addLine(c)}
-                        className="w-full text-left px-3 py-2 font-mono text-[10px] text-white hover:bg-grey-mid flex items-center gap-2"
+                        className="w-full text-left px-3 py-2 font-mono text-xs text-white hover:bg-grey-mid flex items-center gap-2"
                       >
                         {c.name}
                         <span className="text-grey-light ml-auto">{c.storageType} · {c.unit}</span>

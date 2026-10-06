@@ -185,7 +185,7 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
                   onClick={() => setPositionIds(
                     positionIds.length === formPositions.length ? [] : formPositions.map((p) => p.id)
                   )}
-                  className="font-mono text-[10px] uppercase text-grey-light hover:text-white transition-colors"
+                  className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
                 >
                   {positionIds.length === formPositions.length ? 'CLEAR ALL' : 'SELECT ALL'}
                 </button>

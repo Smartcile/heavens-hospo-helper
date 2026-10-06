@@ -33,9 +33,9 @@ describe('SettingsClient tabs', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders all 8 tab labels with GENERAL active by default', () => {
+  it('renders all 9 tab labels with GENERAL active by default', () => {
     render(<SettingsClient {...props} />)
-    for (const label of ['GENERAL', 'STRUCTURE', 'FLOOR PLANS', 'UNITS OF MEASURE', 'SUPPLIERS', 'QR CODES', 'SYNC', 'FILES']) {
+    for (const label of ['GENERAL', 'STRUCTURE', 'FLOOR PLANS', 'UNITS OF MEASURE', 'SUPPLIERS', 'QR CODES', 'SYNC', 'SWIFT POS', 'FILES']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy()
     }
     expect(screen.getByText('INTEGRATIONS')).toBeTruthy()

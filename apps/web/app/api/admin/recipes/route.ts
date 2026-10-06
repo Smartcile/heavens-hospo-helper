@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { pushProduct } from '@/lib/woo-push'
 import { guardAccess } from '@/lib/permissions'
+import { checkRecipeLineUnits } from '@/lib/recipe-line-kinds.server'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -53,6 +54,9 @@ export async function POST(req: NextRequest) {
   if (!name?.trim()) {
     return NextResponse.json({ error: 'name is required' }, { status: 400 })
   }
+
+  const lineError = await checkRecipeLineUnits(lineItems)
+  if (lineError) return NextResponse.json({ error: lineError }, { status: 400 })
 
   const venueId = session.user.role === 'MANAGER' ? session.user.venueId : (bodyVenueId || session.user.venueId)
 

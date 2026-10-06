@@ -104,7 +104,7 @@ export function PipelinePanel({
         <div className="flex items-center gap-2 flex-wrap">
           <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>← PIPELINE</Button>
           <span className="font-mono text-xs uppercase text-white truncate">{selected.name}</span>
-          <span className="font-mono text-[10px] uppercase text-grey-light">{selected.status} · {dateKey(selected.eventDate)} · {selected.guestCount} PAX</span>
+          <span className="font-mono text-xs uppercase text-grey-light">{selected.status} · {dateKey(selected.eventDate)} · {selected.guestCount} PAX</span>
           <div className="flex-1" />
           <Button size="sm" variant="ghost" onClick={() => onOpenEvent(selected.id)}>OPEN BEO</Button>
           {([['FULL', 'BEO PDF'], ['KITCHEN', 'KITCHEN'], ['CLIENT', 'CLIENT']] as const).map(([variant, label]) => (
@@ -113,7 +113,7 @@ export function PipelinePanel({
               href={`/api/admin/events/${selected.id}/pdf?variant=${variant}`}
               target="_blank"
               rel="noreferrer"
-              className="font-mono text-[10px] uppercase tracking-wider border border-grey-mid text-white px-2 py-1 hover:border-white"
+              className="font-mono text-xs uppercase tracking-wider border border-grey-mid text-white px-2 py-1 hover:border-white"
             >
               {label}
             </a>
@@ -122,27 +122,27 @@ export function PipelinePanel({
 
         <div className="border border-grey-mid p-3">
           <div className="flex items-center gap-2 mb-3">
-            <span className="font-mono text-[10px] uppercase text-grey-light tracking-wider">FLOW</span>
-            <span className="font-mono text-[10px] uppercase text-white">{flow.areasFilled}/{flow.areasTotal} AREAS FILLED</span>
+            <span className="font-mono text-xs uppercase text-grey-light tracking-wider">FLOW</span>
+            <span className="font-mono text-xs uppercase text-white">{flow.areasFilled}/{flow.areasTotal} AREAS FILLED</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {flow.stages.map((stage) => (
               <div key={stage.key} className="border border-grey-mid">
-                <div className="px-2 py-1.5 border-b border-grey-mid bg-grey-dark/40 font-mono text-[10px] uppercase text-white tracking-wider">
+                <div className="px-2 py-1.5 border-b border-grey-mid bg-grey-dark/40 font-mono text-xs uppercase text-white tracking-wider">
                   {stage.label} · {stage.nodes.length}
                 </div>
                 <div className="p-2 space-y-1 min-h-[3rem]">
                   {stage.nodes.length === 0 && (
-                    <p className="font-mono text-[9px] uppercase text-grey-light py-2 text-center">EMPTY</p>
+                    <p className="font-mono text-xs uppercase text-grey-light py-2 text-center">EMPTY</p>
                   )}
                   {stage.nodes.map((n) => (
                     <div key={n.id} className="border border-grey-mid px-2 py-1.5 space-y-0.5">
                       <div className="flex items-center gap-2">
-                        <span className={`font-mono text-[10px] uppercase truncate ${n.filled ? 'text-white' : 'text-grey-light'}`}>{n.label}</span>
+                        <span className={`font-mono text-xs uppercase truncate ${n.filled ? 'text-white' : 'text-grey-light'}`}>{n.label}</span>
                         <div className="flex-1" />
-                        <span className="font-mono text-[8px] uppercase text-grey-light border border-grey-mid px-1">{n.kind}</span>
+                        <span className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1">{n.kind}</span>
                       </div>
-                      {n.detail && <div className="font-mono text-[9px] uppercase text-grey-light truncate">{n.detail}</div>}
+                      {n.detail && <div className="font-mono text-xs uppercase text-grey-light truncate">{n.detail}</div>}
                     </div>
                   ))}
                 </div>
@@ -159,9 +159,9 @@ export function PipelinePanel({
       <div className="flex items-center gap-2">
         <h1 className="font-mono text-xl font-bold uppercase tracking-widest text-white">PIPELINE</h1>
         <div className="flex-1" />
-        <span className="font-mono text-[10px] uppercase text-grey-light">{events.length} EVENT(S)</span>
+        <span className="font-mono text-xs uppercase text-grey-light">{events.length} EVENT(S)</span>
       </div>
-      <p className="font-mono text-[10px] uppercase text-grey-light">
+      <p className="font-mono text-xs uppercase text-grey-light">
         ENQUIRY → CONFIRMED → EVENT DAY. CLICK A CARD TO SEE ITS FLOW, PREP AND MOMENTS.
       </p>
       {error && <p className="font-mono text-xs text-danger uppercase">{error}</p>}
@@ -175,12 +175,12 @@ export function PipelinePanel({
             return (
               <div key={status} className="w-56 shrink-0 border border-grey-mid">
                 <div className="px-2 py-1.5 border-b border-grey-mid bg-grey-dark/40 flex items-center gap-2">
-                  <span className="font-mono text-[10px] uppercase text-white tracking-wider">{status}</span>
+                  <span className="font-mono text-xs uppercase text-white tracking-wider">{status}</span>
                   <div className="flex-1" />
-                  <span className="font-mono text-[9px] uppercase text-grey-light">{col.length}</span>
+                  <span className="font-mono text-xs uppercase text-grey-light">{col.length}</span>
                 </div>
                 <div className="p-2 space-y-2 min-h-[4rem]">
-                  {col.length === 0 && <p className="font-mono text-[9px] uppercase text-grey-light text-center py-2">—</p>}
+                  {col.length === 0 && <p className="font-mono text-xs uppercase text-grey-light text-center py-2">—</p>}
                   {col.map((e) => (
                     <button
                       key={e.id}
@@ -189,11 +189,11 @@ export function PipelinePanel({
                       onClick={() => { setError(''); setNames({}); setSelected(e) }}
                       className="w-full text-left border border-grey-mid hover:border-white transition-colors p-2 space-y-1"
                     >
-                      <span className="block font-mono text-[10px] uppercase text-white truncate">{e.name}</span>
-                      <span className="block font-mono text-[9px] uppercase text-grey-light">
+                      <span className="block font-mono text-xs uppercase text-white truncate">{e.name}</span>
+                      <span className="block font-mono text-xs uppercase text-grey-light">
                         {dateKey(e.eventDate)}{e.guestCount ? ` · ${e.guestCount} PAX` : ''}
                       </span>
-                      {e.eventType && <span className="block font-mono text-[9px] uppercase text-grey-light truncate">{e.eventType}</span>}
+                      {e.eventType && <span className="block font-mono text-xs uppercase text-grey-light truncate">{e.eventType}</span>}
                     </button>
                   ))}
                 </div>

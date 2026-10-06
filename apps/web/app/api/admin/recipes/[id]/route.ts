@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { pushProduct, pushProductDisconnect } from '@/lib/woo-push'
 import { syncMenuItemCategory } from '@/lib/menu-sync'
 import { guardAccess } from '@/lib/permissions'
+import { checkRecipeLineUnits } from '@/lib/recipe-line-kinds.server'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -28,6 +29,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (yieldUnitId !== undefined) data.yieldUnitId = yieldUnitId
   if (instructions !== undefined) data.instructions = instructions || null
   if (prepTime !== undefined) data.prepTime = prepTime ? parseInt(String(prepTime)) : null
+
+  if (lineItems !== undefined) {
+    const lineError = await checkRecipeLineUnits(lineItems)
+    if (lineError) return NextResponse.json({ error: lineError }, { status: 400 })
+  }
 
   const txResult = await prisma.$transaction(async (tx) => {
     const r = await tx.recipe.update({ where: { id: params.id }, data })

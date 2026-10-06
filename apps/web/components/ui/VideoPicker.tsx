@@ -48,13 +48,13 @@ export function VideoPicker({ value, onChange, label, className, disabled, endpo
 
   return (
     <div className={cn('space-y-2', className)}>
-      {label && <span className="font-mono text-[10px] uppercase text-grey-light tracking-wider">{label}</span>}
+      {label && <span className="font-mono text-xs uppercase text-grey-light tracking-wider">{label}</span>}
       {value && (
         <video src={value} controls muted playsInline className="block w-full max-w-[260px] border border-grey-mid" />
       )}
       <div className="flex items-center gap-2 flex-wrap">
         <label className={cn(
-          'cursor-pointer font-mono text-[10px] uppercase border border-grey-mid px-2 py-1.5 transition-colors',
+          'cursor-pointer font-mono text-xs uppercase border border-grey-mid px-2 py-1.5 transition-colors',
           disabled ? 'opacity-40 cursor-not-allowed' : 'text-grey-light hover:text-white hover:border-white',
         )}>
           {uploading ? 'COMPRESSING...' : value ? 'REPLACE VIDEO' : '+ ADD VIDEO'}
@@ -74,14 +74,14 @@ export function VideoPicker({ value, onChange, label, className, disabled, endpo
           <button
             type="button"
             onClick={() => onChange(null)}
-            className="font-mono text-[10px] uppercase text-grey-light hover:text-danger transition-colors"
+            className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors"
           >
             REMOVE
           </button>
         )}
-        {!disabled && <span className="font-mono text-[9px] text-grey-light/50">UP TO 200MB · COMPRESSED FOR PHONE</span>}
+        {!disabled && <span className="font-mono text-xs text-grey-light/50">UP TO 200MB · COMPRESSED FOR PHONE</span>}
       </div>
-      {error && <span className="font-mono text-[10px] text-danger">{error}</span>}
+      {error && <span className="font-mono text-xs text-danger">{error}</span>}
     </div>
   )
 }

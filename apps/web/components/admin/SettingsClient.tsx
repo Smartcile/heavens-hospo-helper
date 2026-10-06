@@ -16,6 +16,7 @@ import { UomsClient } from '@/app/admin/(protected)/uoms/UomsClient'
 import { SuppliersClient } from '@/app/admin/(protected)/suppliers/SuppliersClient'
 import { QRCodesClient } from '@/components/admin/QRCodesClient'
 import { SyncClient } from '@/app/admin/(protected)/sync/SyncClient'
+import { SwiftPosSalesClient } from '@/components/admin/SwiftPosSalesClient'
 
 interface Venue {
   id: string
@@ -536,13 +537,13 @@ export function SettingsClient({
           {role === 'ADMIN' && venues.length > 1 && (
             <Select label="Venue" value={wcVenueId} onChange={(e) => setWcVenueId(e.target.value)} options={venues.map((v) => ({ value: v.id, label: v.name }))} />
           )}
-          {wcReadOnly && <p className="font-mono text-xs text-[#FACC15]">READ-ONLY — WOOCOMMERCE IS MANAGED BY {wcSharedFrom ? venues.find((v) => v.id === wcSharedFrom)?.name ?? 'THE SOURCE VENUE' : 'ANOTHER VENUE'}</p>}
+          {wcReadOnly && <p className="font-mono text-xs text-warning">READ-ONLY — WOOCOMMERCE IS MANAGED BY {wcSharedFrom ? venues.find((v) => v.id === wcSharedFrom)?.name ?? 'THE SOURCE VENUE' : 'ANOTHER VENUE'}</p>}
           {wcManagedByPlugin && (
-            <div className={`border p-3 space-y-2 ${wcOverride ? 'border-[#FACC15]' : 'border-[#60A5FA]'}`}>
+            <div className={`border p-3 space-y-2 ${wcOverride ? 'border-warning' : 'border-info'}`}>
               <div className="font-mono text-xs uppercase tracking-wider text-white">
                 {wcOverride ? 'MANUAL OVERRIDE' : 'MANAGED BY PLUGIN'}
               </div>
-              <p className="font-mono text-[10px] text-grey-light leading-relaxed">
+              <p className="font-mono text-xs text-grey-light leading-relaxed">
                 {wcOverride
                   ? 'SAVING WILL DISCONNECT THE WORDPRESS PLUGIN\'S MANAGEMENT. THE PLUGIN CAN RE-CONNECT AT ANY TIME AND WILL TAKE OVER AGAIN.'
                   : `CREDENTIALS AND WEBHOOKS WERE SET UP BY THE HOSPO OPS WORDPRESS PLUGIN${wcPairedAt ? ` ON ${new Date(wcPairedAt).toLocaleString()}` : ''}. RE-CONNECT FROM THE PLUGIN TO ROTATE THEM.`}
@@ -567,7 +568,7 @@ export function SettingsClient({
               {wcActive ? 'ACTIVE' : 'INACTIVE'}
             </button>
             {wcLastSync && (
-              <span className="font-mono text-[10px] text-grey-light">
+              <span className="font-mono text-xs text-grey-light">
                 LAST SYNC: {new Date(wcLastSync).toLocaleString()}
               </span>
             )}
@@ -583,7 +584,7 @@ export function SettingsClient({
             </button>
             {wcShowMeta && (
               <div className="border-t border-grey-mid p-3 space-y-3">
-                <p className="font-mono text-[10px] text-grey-light leading-relaxed">
+                <p className="font-mono text-xs text-grey-light leading-relaxed">
                   DATE, TIME AND PARTY SIZE ARRIVE AS CUSTOM FIELDS ON THE ORDER. THE KEY
                   DEPENDS ON YOUR PLUGIN AND THE LABEL YOU GAVE THE FIELD — SO MAP THEM HERE
                   RATHER THAN RELYING ON A FIXED NAME. COMMA-SEPARATE SEVERAL KEYS TO TRY IN
@@ -598,7 +599,7 @@ export function SettingsClient({
                       placeholder={(wcMetaDefaults[f.key] ?? []).join(', ')}
                       disabled={wcReadOnly}
                     />
-                    <p className="font-mono text-[9px] text-grey-light mt-0.5">{f.hint}</p>
+                    <p className="font-mono text-xs text-grey-light mt-0.5">{f.hint}</p>
                   </div>
                 ))}
               </div>
@@ -607,12 +608,12 @@ export function SettingsClient({
           {/* External API keys */}
           <div className="border border-grey-mid p-3 space-y-2">
             <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">EXTERNAL API</h3>
-            <p className="font-mono text-[9px] text-grey-light">
+            <p className="font-mono text-xs text-grey-light">
               KEYS FOR EXTERNAL SYSTEMS (E.G. THE WORDPRESS BOOKING PLUGIN) TO READ THIS VENUE&apos;S SERVICES + AVAILABILITY AND CREATE BOOKINGS. THE KEY IS SHOWN ONCE — COPY IT NOW.
             </p>
             {extNewKey && (
-              <div className="border border-[#60A5FA] p-3 space-y-2">
-                <div className="font-mono text-[10px] text-white break-all">{extNewKey}</div>
+              <div className="border border-info p-3 space-y-2">
+                <div className="font-mono text-xs text-white break-all">{extNewKey}</div>
                 <Button size="sm" onClick={copyExtKey}>COPY KEY</Button>
               </div>
             )}
@@ -622,7 +623,7 @@ export function SettingsClient({
                   <div key={k.id} className="flex items-center justify-between gap-2 px-3 py-2">
                     <div>
                       <div className="font-mono text-xs text-white uppercase">{k.name}</div>
-                      <div className="font-mono text-[9px] text-grey-light">
+                      <div className="font-mono text-xs text-grey-light">
                         {k.masked}
                         {k.lastUsedAt ? ` · LAST USED ${k.lastUsedAt.slice(0, 10)}` : ' · NEVER USED'}
                       </div>
@@ -682,7 +683,7 @@ export function SettingsClient({
               <Button onClick={handleBackup} loading={backupLoading} size="sm" variant="ghost">DOWNLOAD BACKUP</Button>
               <label className="flex items-center gap-1 cursor-pointer">
                 <input type="checkbox" checked={includeUploads} onChange={(e) => setIncludeUploads(e.target.checked)} className="accent-white" />
-                <span className="font-mono text-[10px] uppercase text-grey-light">INCLUDE UPLOADED FILES</span>
+                <span className="font-mono text-xs uppercase text-grey-light">INCLUDE UPLOADED FILES</span>
               </label>
               {backupMessage && <span className="font-mono text-xs text-success">{backupMessage}</span>}
               {backupError && <span className="font-mono text-xs text-danger">{backupError}</span>}
@@ -755,7 +756,7 @@ export function SettingsClient({
             />
           )}
 
-          <p className="font-mono text-[10px] text-grey-light">
+          <p className="font-mono text-xs text-grey-light">
             {sharingEnabled
               ? 'OTHER VENUES CAN NOW USE THIS VENUE AS THEIR WOOCOMMERCE SOURCE. SET THE WOOCOMMERCE SOURCE ABOVE TO PULL PRODUCTS AND ORDERS FROM ANOTHER VENUE.'
               : 'TURN ON SHARING TO ALLOW OTHER VENUES TO PULL FROM THIS VENUE.'}
@@ -860,6 +861,7 @@ export function SettingsClient({
         {tab === 'suppliers' && <SuppliersClient />}
         {tab === 'qrcodes' && <QRCodesClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId ?? undefined} />}
         {tab === 'sync' && <SyncClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId ?? undefined} />}
+        {tab === 'swiftpos' && <SwiftPosSalesClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId ?? undefined} />}
         {tab === 'files' && role === 'ADMIN' && (
           <div className="max-w-4xl space-y-3">
             <h1 className="font-mono text-xl font-bold uppercase tracking-widest">FILE MANAGER</h1>

@@ -353,25 +353,25 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
                     {data?.dutiesRequired && <span className="w-1.5 h-1.5 bg-accent" title="Duties due" />}
                   </div>
                   {data?.shifts.slice(0, 3).map((s) => (
-                    <div key={s.id} className="font-mono text-[10px] text-success truncate leading-tight">
+                    <div key={s.id} className="font-mono text-xs text-success truncate leading-tight">
                       {s.startTime} {s.staffName.split(' ')[0]}
                     </div>
                   ))}
                   {data && data.shifts.length > 3 && (
-                    <div className="font-mono text-[10px] text-grey-light">+{data.shifts.length - 3}</div>
+                    <div className="font-mono text-xs text-grey-light">+{data.shifts.length - 3}</div>
                   )}
                   {data?.timeOff.map((t) => (
-                    <div key={t.id} className={`font-mono text-[10px] truncate leading-tight ${t.status === 'APPROVED' ? 'text-danger' : 'text-warning'}`}>
+                    <div key={t.id} className={`font-mono text-xs truncate leading-tight ${t.status === 'APPROVED' ? 'text-danger' : 'text-warning'}`}>
                       OFF {t.staffName.split(' ')[0]}{t.status === 'PENDING' ? '?' : ''}
                     </div>
                   ))}
                   {data?.events.slice(0, 2).map((ev) => (
-                    <div key={ev.id} className="font-mono text-[10px] text-accent truncate leading-tight">
+                    <div key={ev.id} className="font-mono text-xs text-accent truncate leading-tight">
                       ◆ {ev.time ? `${ev.time} ` : ''}{ev.title}
                     </div>
                   ))}
                   {data && data.events.length > 2 && (
-                    <div className="font-mono text-[10px] text-accent">+{data.events.length - 2} EVENT{data.events.length - 2 > 1 ? 'S' : ''}</div>
+                    <div className="font-mono text-xs text-accent">+{data.events.length - 2} EVENT{data.events.length - 2 > 1 ? 'S' : ''}</div>
                   )}
                 </button>
               )
@@ -421,20 +421,20 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
                     <div key={ev.id} className="border border-grey-mid p-2 space-y-1">
                       <div className="font-mono text-xs text-accent">◆ {ev.allDay ? 'ALL DAY' : ev.time} · {ev.title}</div>
                       {ev.location && <div className="font-mono text-xs text-grey-light">{ev.location}</div>}
-                      <div className="font-mono text-[10px] uppercase text-grey-light">{ev.source === 'GOOGLE' ? 'GOOGLE CALENDAR' : 'ICAL FEED'}</div>
+                      <div className="font-mono text-xs uppercase text-grey-light">{ev.source === 'GOOGLE' ? 'GOOGLE CALENDAR' : 'ICAL FEED'}</div>
                       <div className="flex items-center gap-2">
                         <select value={ev.floorPlanSlug ?? ''}
                           onChange={(e) => {
                             const fp = floorPlans.find((f) => f.slug === e.target.value)
                             linkEventToPlan(ev.id, e.target.value, fp?.name ?? '')
                           }}
-                          className="bg-grey-dark border border-grey-mid text-white font-mono text-[10px] p-1 flex-1">
+                          className="bg-grey-dark border border-grey-mid text-white font-mono text-xs p-1 flex-1">
                           <option value="">NO FLOOR PLAN</option>
                           {floorPlans.map((fp) => (
                             <option key={fp.slug} value={fp.slug}>{fp.name}</option>
                           ))}
                         </select>
-                        {ev.floorPlanSlug && <span className="font-mono text-[10px] text-success uppercase">LINKED</span>}
+                        {ev.floorPlanSlug && <span className="font-mono text-xs text-success uppercase">LINKED</span>}
                       </div>
                     </div>
                   ))}

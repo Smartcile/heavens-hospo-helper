@@ -6,10 +6,12 @@ import type { WorkerTaskView } from '@hospo-ops/types'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
+import { DateInput } from '@/components/ui/DateInput'
 import { Combobox } from '@/components/ui/Combobox'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { readingVerdict, criticalVerdict, describeBand } from '@/lib/food-safety'
 import { moveItem } from '@/lib/array'
+import { Panel } from '@/components/ui/Panel'
 
 type TaskState = WorkerTaskView
 type ModalTask = TaskState | null
@@ -435,9 +437,10 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   const renderTask = (t: TaskState) => {
     if (isEditMode) {
       return (
-        <div
+        <Panel
           key={t.id}
-          className="w-full text-left bg-grey-dark border border-grey-mid p-3 flex items-center gap-3"
+          padding="md"
+          className="w-full text-left flex items-center gap-3"
         >
           <div className={`w-2 h-2 flex-shrink-0 ${t.isCompleted ? 'bg-success' : 'bg-grey-mid'}`} />
           <div className="min-w-0 flex-1">
@@ -465,7 +468,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               DEL
             </button>
           </div>
-        </div>
+        </Panel>
       )
     }
     return (
@@ -515,11 +518,11 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           <div />
         </div>
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-6">
-          <div className="w-16 h-16 border-4 border-success flex items-center justify-center">
+          <Panel padding="none" className="w-16 h-16 border-4 border-success flex items-center justify-center">
             <svg className="w-8 h-8 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M5 13l4 4L19 7" />
             </svg>
-          </div>
+          </Panel>
           <div>
             <h1 className="font-mono text-2xl font-bold uppercase tracking-widest text-success">
               ALL DONE
@@ -569,7 +572,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
 
         {/* Quick task form */}
         {quickOpen && (
-          <div className="mt-3 border border-success/30 bg-grey-dark p-3 space-y-2">
+          <Panel padding="md" className="mt-3 border border-success/30 space-y-2">
             <h3 className="font-mono text-xs uppercase text-success tracking-wider">QUICK SIDE-WORK TASK</h3>
             <input
               value={quickTitle}
@@ -586,8 +589,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             />
             <div className="flex items-center gap-3 flex-wrap">
               <label className="flex items-center gap-2 font-mono text-xs text-grey-light">
-                <input type="date" value={quickDue} onChange={(e) => setQuickDue(e.target.value)}
-                  className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white" />
+                <DateInput value={quickDue} onChange={(e) => setQuickDue(e.target.value)} className="w-40" />
                 DUE DATE
               </label>
               <label className="flex items-center gap-2 font-mono text-xs text-grey-light cursor-pointer">
@@ -606,14 +608,14 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                 CANCEL
               </button>
             </div>
-          </div>
+          </Panel>
         )}
 
         {isEditMode && isAdminOrManager && (
-          <div className="mt-3 py-2 px-3 border border-warning text-warning font-mono text-xs uppercase tracking-widest flex items-center gap-2">
+          <Panel padding="none" className="mt-3 py-2 px-3 border border-warning text-warning font-mono text-xs uppercase tracking-widest flex items-center gap-2">
             <span className="inline-block w-2 h-2 bg-warning animate-pulse" />
             MANAGER EDIT MODE ACTIVE // ARMED
-          </div>
+          </Panel>
         )}
 
         {!isEditMode && (
@@ -651,7 +653,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           const isExpanded = expandedLists.has(lg.id)
           const extra = lg.tasks.length - maxVisible
           return (
-            <div key={lg.id} className="border border-grey-mid bg-grey-dark">
+            <Panel key={lg.id} padding="none">
               <div className="h-1.5 bg-grey-mid">
                 <div className="h-full bg-success transition-all duration-500" style={{ width: `${donePct}%` }} />
               </div>
@@ -704,7 +706,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                   </button>
                 )}
               </div>
-            </div>
+            </Panel>
           )
         })}
 
@@ -721,12 +723,12 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
         ))}
 
         {upcoming.length > 0 && (
-          <div className="border border-grey-mid p-3">
+          <Panel variant="outline" padding="md">
             <div className="font-mono text-xs uppercase tracking-wider text-grey-light mb-1">OPENS LATER</div>
             {upcoming.map((u) => (
               <div key={u.name} className="font-mono text-xs text-grey-light">{u.name}{u.time ? ` · FROM ${u.time}` : ''}</div>
             ))}
-          </div>
+          </Panel>
         )}
       </div>
 
@@ -738,15 +740,15 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           </div>
           <div className="space-y-1">
             {done.map((t) => (
-              <div key={t.id} className="bg-grey-dark border border-grey-mid p-3 flex items-center gap-3 opacity-60">
-                <div className="w-5 h-5 border-2 border-success bg-success flex items-center justify-center flex-shrink-0">
+              <Panel key={t.id} padding="md" className="flex items-center gap-3 opacity-60">
+                <Panel padding="none" className="w-5 h-5 border-2 border-success bg-success flex items-center justify-center flex-shrink-0">
                   <svg className="w-3 h-3 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M5 13l4 4L19 7" />
                   </svg>
-                </div>
+                </Panel>
                 <span className="font-mono text-xs uppercase text-success line-through min-w-0 truncate">{t.title}</span>
                 {t.completedByName && <span className="font-mono text-xs uppercase text-grey-light ml-auto flex-shrink-0">BY {t.completedByName}</span>}
-              </div>
+              </Panel>
             ))}
           </div>
         </div>
@@ -790,7 +792,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                   READING — {describeBand(activeTask, activeTask.readingUnit)}
                 </label>
                 {activeTask.linkedItemName && (
-                  <p className="font-mono text-[10px] text-grey-light uppercase">{activeTask.linkedItemName}</p>
+                  <p className="font-mono text-xs text-grey-light uppercase">{activeTask.linkedItemName}</p>
                 )}
                 <div className="flex items-stretch gap-2">
                   <input
@@ -825,7 +827,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                     ⚠ CRITICAL — OUTSIDE THE DANGER BAND. AN URGENT NOTICE GOES TO THE FLOOR.
                   </p>
                 )}
-                <p className="font-mono text-[10px] text-grey-light">
+                <p className="font-mono text-xs text-grey-light">
                   PASS = {describeBand(activeTask, activeTask.readingUnit)} · THE READING IS SHARED BY THE WHOLE FLOOR
                 </p>
               </div>
@@ -1094,7 +1096,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               <label className="font-mono text-xs uppercase text-grey-light tracking-wider">
                 Tasks ({clSelected.length})
               </label>
-              <div className="border border-grey-mid divide-y divide-grey-mid">
+              <Panel variant="outline" padding="none" className="divide-y divide-grey-mid">
                 {clSelected.length === 0 ? (
                   <div className="p-4 text-center font-mono text-xs text-grey-light">
                     NO TASKS SELECTED
@@ -1127,7 +1129,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                     )
                   })
                 )}
-              </div>
+              </Panel>
 
               <Combobox
                 options={editTasks.filter(et => !clSelected.includes(et.id)).map(et => ({ value: et.id, label: et.title, description: et.description }))}

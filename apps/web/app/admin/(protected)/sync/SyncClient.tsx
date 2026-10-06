@@ -178,13 +178,13 @@ export function SyncClient({ role, sessionVenueId, defaultVenueId }: { role: str
         {logs.length === 0 ? (
           <div className="p-8 text-center">
             <p className="font-mono text-xs text-grey-light uppercase">NO SYNC ACTIVITY YET</p>
-            <p className="font-mono text-[10px] text-grey-light mt-1">
+            <p className="font-mono text-xs text-grey-light mt-1">
               EVENTS APPEAR HERE WHEN PRODUCTS OR ORDERS SYNC WITH WOOCOMMERCE
             </p>
           </div>
         ) : (
           <div>
-            <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2 border-b border-grey-mid bg-grey-dark/30 font-mono text-[10px] uppercase text-grey-light">
+            <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2 border-b border-grey-mid bg-grey-dark/30 font-mono text-xs uppercase text-grey-light">
               <div className="col-span-2">TIME</div>
               <div className="col-span-2">DIRECTION</div>
               <div className="col-span-1">ENTITY</div>
@@ -200,17 +200,17 @@ export function SyncClient({ role, sessionVenueId, defaultVenueId }: { role: str
                     className="w-full grid grid-cols-1 md:grid-cols-12 gap-2 px-4 py-2 items-center font-mono text-left hover:bg-grey-mid/10"
                   >
                     <div className="md:col-span-2 flex items-center gap-2">
-                      <span className={`text-[10px] ${expanded ? 'text-white' : 'text-grey-light'}`}>{expanded ? '▾' : '▸'}</span>
-                      <span className="text-[10px] text-grey-light">{new Date(l.createdAt).toLocaleString()}</span>
+                      <span className={`text-xs ${expanded ? 'text-white' : 'text-grey-light'}`}>{expanded ? '▾' : '▸'}</span>
+                      <span className="text-xs text-grey-light">{new Date(l.createdAt).toLocaleString()}</span>
                     </div>
                     <div className="md:col-span-2">
-                      <span className="text-[10px] text-white uppercase">{DIRECTION_LABELS[l.direction] ?? l.direction}</span>
+                      <span className="text-xs text-white uppercase">{DIRECTION_LABELS[l.direction] ?? l.direction}</span>
                     </div>
                     <div className="md:col-span-1">
-                      <span className="text-[10px] text-grey-light uppercase">{l.entity}</span>
+                      <span className="text-xs text-grey-light uppercase">{l.entity}</span>
                     </div>
                     <div className="md:col-span-1">
-                      <span className={`text-[10px] uppercase border px-1.5 py-0.5 ${STATUS_STYLES[l.status] ?? ''}`}>
+                      <span className={`text-xs uppercase border px-1.5 py-0.5 ${STATUS_STYLES[l.status] ?? ''}`}>
                         {l.status}
                       </span>
                     </div>
@@ -222,17 +222,17 @@ export function SyncClient({ role, sessionVenueId, defaultVenueId }: { role: str
                   {/* Expanded: full event detail */}
                   {expanded && (
                     <div className="border-t border-grey-mid bg-grey-dark/40 px-6 py-3 space-y-2">
-                      <div className="flex flex-wrap gap-6 font-mono text-[10px] text-grey-light uppercase">
+                      <div className="flex flex-wrap gap-6 font-mono text-xs text-grey-light uppercase">
                         <span>EXTERNAL ID: {l.externalId ?? '—'}</span>
                         <span>EVENT ID: {l.id}</span>
                         <span>{new Date(l.createdAt).toLocaleString()}</span>
                       </div>
                       {l.detail != null ? (
-                        <pre className="font-mono text-[10px] text-white whitespace-pre-wrap break-all bg-black border border-grey-mid p-3 max-h-64 overflow-y-auto">
+                        <pre className="font-mono text-xs text-white whitespace-pre-wrap break-all bg-black border border-grey-mid p-3 max-h-64 overflow-y-auto">
                           {JSON.stringify(l.detail, null, 2)}
                         </pre>
                       ) : (
-                        <p className="font-mono text-[10px] text-grey-light uppercase">NO ADDITIONAL DETAIL RECORDED FOR THIS EVENT</p>
+                        <p className="font-mono text-xs text-grey-light uppercase">NO ADDITIONAL DETAIL RECORDED FOR THIS EVENT</p>
                       )}
                     </div>
                   )}

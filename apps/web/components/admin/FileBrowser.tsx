@@ -170,14 +170,14 @@ export function FileBrowser() {
         <button
           onClick={() => toggle(root, relPath)}
           className={cn(
-            'w-full flex items-center gap-2 px-2 py-1 text-left font-mono text-[11px] uppercase tracking-wider transition-colors',
+            'w-full flex items-center gap-2 px-2 py-1 text-left font-mono text-xs uppercase tracking-wider transition-colors',
             isRoot ? 'text-white' : 'text-grey-light hover:text-white',
           )}
           style={{ paddingLeft: `${pad}px` }}
         >
           <span className="text-grey-light w-3 shrink-0">{isLoading ? '…' : isOpen ? '▾' : '▸'}</span>
           <span className="truncate">{isRoot ? (ROOTS.find((r) => r.key === root)?.label ?? root) : entry!.name}</span>
-          <span className="ml-auto font-mono text-[9px] text-grey-light/70 shrink-0">
+          <span className="ml-auto font-mono text-xs text-grey-light/70 shrink-0">
             {isLoading ? 'LOADING' : isOpen && entries ? `${entries.length} ITEM${entries.length === 1 ? '' : 'S'}` : ''}
           </span>
         </button>
@@ -185,10 +185,10 @@ export function FileBrowser() {
         {isOpen && (
           <div className="border-l border-grey-mid ml-2.5">
             {isLoading && !entries && (
-              <p className="font-mono text-[10px] text-grey-light px-3 py-1" style={{ paddingLeft: `${16 + depth * 16}px` }}>LOADING...</p>
+              <p className="font-mono text-xs text-grey-light px-3 py-1" style={{ paddingLeft: `${16 + depth * 16}px` }}>LOADING...</p>
             )}
             {entries && entries.length === 0 && (
-              <p className="font-mono text-[10px] text-grey-light/60 px-3 py-1" style={{ paddingLeft: `${16 + depth * 16}px` }}>
+              <p className="font-mono text-xs text-grey-light/60 px-3 py-1" style={{ paddingLeft: `${16 + depth * 16}px` }}>
                 {root === 'backups' && relPath === ''
                   ? 'NO STORED ARCHIVES — USE BACKUP & RESTORE ABOVE TO DOWNLOAD ONE'
                   : 'EMPTY'}
@@ -227,19 +227,19 @@ export function FileBrowser() {
           <span
             key={c.text}
             className={cn(
-              'font-mono text-[9px] uppercase border px-1 py-0.5 shrink-0',
+              'font-mono text-xs uppercase border px-1 py-0.5 shrink-0',
               c.text === 'PHOTO' || c.text === 'LEGACY' || c.text === 'GUIDE' || c.text === 'INVENTORY' || c.text === 'MENU'
-                ? 'border-[#60A5FA]/60 text-[#60A5FA]'
-                : 'border-[#FACC15]/60 text-[#FACC15]',
+                ? 'border-info/60 text-info'
+                : 'border-warning/60 text-warning',
             )}
           >
             {c.text}{c.count > 1 ? ` ×${c.count}` : ''}
           </span>
         ))}
         <span className="ml-auto flex items-center gap-2 shrink-0">
-          <span className="font-mono text-[9px] text-grey-light/70">{formatSize(entry.size)}</span>
-          <span className="font-mono text-[9px] text-grey-light/70">{String(entry.mtime).slice(0, 10)}</span>
-          <span className="font-mono text-[9px] text-grey-light/60">▸</span>
+          <span className="font-mono text-xs text-grey-light/70">{formatSize(entry.size)}</span>
+          <span className="font-mono text-xs text-grey-light/70">{String(entry.mtime).slice(0, 10)}</span>
+          <span className="font-mono text-xs text-grey-light/60">▸</span>
         </span>
       </button>
     )
@@ -249,12 +249,12 @@ export function FileBrowser() {
     <div>
       <div className="border border-grey-mid">
         <div className="px-3 py-2 border-b border-grey-mid flex items-center justify-between gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-grey-light">
+          <span className="font-mono text-xs uppercase tracking-wider text-grey-light">
             CLICK A FOLDER TO OPEN IT — CLICK A FILE TO PREVIEW IT
           </span>
           <button
             onClick={refresh}
-            className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:text-white hover:border-white transition-colors"
+            className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:text-white hover:border-white transition-colors"
           >
             ↻ REFRESH
           </button>
@@ -263,12 +263,12 @@ export function FileBrowser() {
           {ROOTS.map((r) => (
             <div key={r.key}>
               {renderDir(r.key, '')}
-              <p className="font-mono text-[9px] text-grey-light/50 px-2 pb-1" style={{ paddingLeft: '26px' }}>{r.hint}</p>
+              <p className="font-mono text-xs text-grey-light/50 px-2 pb-1" style={{ paddingLeft: '26px' }}>{r.hint}</p>
             </div>
           ))}
         </div>
       </div>
-      {error && <p className="mt-2 font-mono text-[10px] text-danger">{error}</p>}
+      {error && <p className="mt-2 font-mono text-xs text-danger">{error}</p>}
 
       {preview && <FilePreviewModal file={preview} onClose={() => setPreview(null)} onDeleted={removeFromList} />}
     </div>
@@ -333,19 +333,19 @@ function FilePreviewModal({ file, onClose, onDeleted }: { file: PreviewFile; onC
       <div className="border border-grey-mid bg-grey-dark p-5 w-full max-w-3xl space-y-3 max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-2">
           <h2 className="font-mono text-sm uppercase tracking-widest text-white truncate">{file.name}</h2>
-          <span className="font-mono text-[10px] uppercase text-grey-light shrink-0">{(file.root === 'media' ? 'UPLOADS — MEDIA' : 'BACKUPS')}</span>
+          <span className="font-mono text-xs uppercase text-grey-light shrink-0">{(file.root === 'media' ? 'UPLOADS — MEDIA' : 'BACKUPS')}</span>
         </div>
 
         {/* Usage tags */}
         <div className="border border-grey-mid p-2.5 space-y-1.5">
-          <p className="font-mono text-[10px] uppercase text-grey-light tracking-wider">WHERE IT&apos;S USED</p>
+          <p className="font-mono text-xs uppercase text-grey-light tracking-wider">WHERE IT&apos;S USED</p>
           {usages.length === 0 ? (
-            <p className="font-mono text-[10px] text-success">NOT LINKED ANYWHERE — FREE TO DELETE</p>
+            <p className="font-mono text-xs text-success">NOT LINKED ANYWHERE — FREE TO DELETE</p>
           ) : (
             <div className="space-y-1">
               {usages.map((u) => (
                 <div key={`${u.kind}-${u.id}`} className="flex items-center gap-2 flex-wrap">
-                  <span className="font-mono text-[9px] uppercase border border-[#FACC15]/60 text-[#FACC15] px-1 py-0.5 shrink-0">{u.label}</span>
+                  <span className="font-mono text-xs uppercase border border-warning/60 text-warning px-1 py-0.5 shrink-0">{u.label}</span>
                   <span className="font-mono text-xs text-white truncate">{u.ref || '—'}</span>
                 </div>
               ))}
@@ -361,13 +361,13 @@ function FilePreviewModal({ file, onClose, onDeleted }: { file: PreviewFile; onC
           ) : previewUrl && ext === 'pdf' ? (
             <iframe src={previewUrl} title={file.name} className="w-full h-[45vh] bg-white" />
           ) : (
-            <p className="font-mono text-[10px] uppercase text-grey-light p-4">
+            <p className="font-mono text-xs uppercase text-grey-light p-4">
               {previewable ? 'LOADING PREVIEW...' : 'NO EMBEDDED PREVIEW FOR THIS FILE TYPE — USE DOWNLOAD'}
             </p>
           )}
         </div>
 
-        {deleteError && <p className="font-mono text-[10px] text-danger">{deleteError}</p>}
+        {deleteError && <p className="font-mono text-xs text-danger">{deleteError}</p>}
 
         <div className="border-t border-grey-mid pt-3 flex items-center gap-2 flex-wrap">
           {previewable && (
@@ -382,7 +382,7 @@ function FilePreviewModal({ file, onClose, onDeleted }: { file: PreviewFile; onC
           >
             {deleting ? 'DELETING' : 'DELETE'}
           </button>
-          <button onClick={onClose} className="ml-auto font-mono text-[10px] uppercase text-grey-light hover:text-white px-2 py-1">CLOSE</button>
+          <button onClick={onClose} className="ml-auto font-mono text-xs uppercase text-grey-light hover:text-white px-2 py-1">CLOSE</button>
         </div>
       </div>
     </div>

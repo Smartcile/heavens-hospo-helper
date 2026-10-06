@@ -105,7 +105,7 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 | Item | URL | What it does |
 |---|---|---|
 | **Floor Plans** | `/admin/settings?tab=floorplans` | To-scale venue editor (PixiJS canvas): walls, doors, section zones, tables. BASE layer + SETUPS (event layouts). Furniture from inventory palette, snapping, auto-join groups, BOM shortages, zone pax totals, undo/redo, PDF export. Lives as a tab of SETTINGS — `/admin/floorplan` redirects here |
-| **Settings** | `/admin/settings` | 9 tabs — GENERAL · VENUE SETUP · STRUCTURE · FLOOR PLANS · UNITS OF MEASURE · SUPPLIERS · QR CODES · SYNC · FILES (admin) (section 3) |
+| **Settings** | `/admin/settings` | 10 tabs — GENERAL · VENUE SETUP · STRUCTURE · FLOOR PLANS · UNITS OF MEASURE · SUPPLIERS · QR CODES · SYNC · SWIFT POS · FILES (admin) (section 3) |
 
 ---
 

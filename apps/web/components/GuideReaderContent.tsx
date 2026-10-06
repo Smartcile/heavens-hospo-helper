@@ -84,7 +84,7 @@ function StepGallery({ images, stepNumber, onOpen }: { images: string[]; stepNum
           </button>
         ))}
       </div>
-      <div className="absolute bottom-2 right-2 bg-black/70 border border-grey-mid px-2 py-0.5 font-mono text-[10px] text-white">
+      <div className="absolute bottom-2 right-2 bg-black/70 border border-grey-mid px-2 py-0.5 font-mono text-xs text-white">
         {current + 1} / {images.length}
       </div>
     </div>

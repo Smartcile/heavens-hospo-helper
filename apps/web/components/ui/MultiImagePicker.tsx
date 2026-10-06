@@ -101,7 +101,7 @@ export function MultiImagePicker({ value, onChange, label, className, disabled, 
 
   return (
     <div className={cn('space-y-2', className)} onPaste={handlePaste}>
-      {label && <span className="font-mono text-[10px] uppercase text-grey-light tracking-wider">{label}</span>}
+      {label && <span className="font-mono text-xs uppercase text-grey-light tracking-wider">{label}</span>}
       {value.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {value.map((url, i) => (
@@ -126,12 +126,12 @@ export function MultiImagePicker({ value, onChange, label, className, disabled, 
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={url} alt={`image ${i + 1}`} className="h-full w-full object-cover pointer-events-none" />
-              <span className="absolute bottom-0 left-0 bg-black/70 px-1 font-mono text-[9px] text-white">{i + 1}</span>
+              <span className="absolute bottom-0 left-0 bg-black/70 px-1 font-mono text-xs text-white">{i + 1}</span>
               {!disabled && value.length > 1 && (
                 <span
                   data-grip="1"
                   aria-label={`Reorder image ${i + 1}`}
-                  className="absolute top-0 left-0 cursor-grab touch-none bg-black/70 px-1 font-mono text-[10px] leading-none text-grey-light"
+                  className="absolute top-0 left-0 cursor-grab touch-none bg-black/70 px-1 font-mono text-xs leading-none text-grey-light"
                 >
                   ⠿
                 </span>
@@ -142,7 +142,7 @@ export function MultiImagePicker({ value, onChange, label, className, disabled, 
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => onChange(value.filter((_, idx) => idx !== i))}
                   aria-label={`Remove image ${i + 1}`}
-                  className="absolute -top-2 -right-2 h-5 w-5 border border-grey-mid bg-black font-mono text-[10px] leading-none text-grey-light hover:text-danger"
+                  className="absolute -top-2 -right-2 h-5 w-5 border border-grey-mid bg-black font-mono text-xs leading-none text-grey-light hover:text-danger"
                 >
                   ✕
                 </button>
@@ -153,7 +153,7 @@ export function MultiImagePicker({ value, onChange, label, className, disabled, 
       )}
       <div className="flex items-center gap-2 flex-wrap">
         <label className={cn(
-          'cursor-pointer font-mono text-[10px] uppercase border border-grey-mid px-2 py-1.5 transition-colors',
+          'cursor-pointer font-mono text-xs uppercase border border-grey-mid px-2 py-1.5 transition-colors',
           disabled ? 'opacity-40 cursor-not-allowed' : 'text-grey-light hover:text-white hover:border-white',
         )}>
           {uploading ? 'UPLOADING...' : '+ ADD IMAGES'}
@@ -170,9 +170,9 @@ export function MultiImagePicker({ value, onChange, label, className, disabled, 
             }}
           />
         </label>
-        {!disabled && <span className="font-mono text-[9px] text-grey-light/50">DRAG TO REORDER · OR PASTE (CTRL+V)</span>}
+        {!disabled && <span className="font-mono text-xs text-grey-light/50">DRAG TO REORDER · OR PASTE (CTRL+V)</span>}
       </div>
-      {error && <span className="font-mono text-[10px] text-danger">{error}</span>}
+      {error && <span className="font-mono text-xs text-danger">{error}</span>}
     </div>
   )
 }

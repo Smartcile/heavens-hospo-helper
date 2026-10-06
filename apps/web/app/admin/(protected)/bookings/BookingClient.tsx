@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
+import { Panel } from '@/components/ui/Panel'
 import { SearchSelect } from '@/components/ui/SearchSelect'
 import { pushToast } from '@/components/ui/Toast'
 import { DateNav } from '@/components/admin/DateNav'
@@ -625,7 +626,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
       </div>
 
       {/* Date bar — same navigation as the Orders page */}
-      <div className="border border-grey-mid p-3 flex items-start justify-between gap-4 flex-wrap">
+      <Panel variant="outline" padding="md" className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4 font-mono text-xs pt-2">
           {venues.length > 1 && (
             <Select label="VENUE" value={venueId} onChange={(e) => setVenueId(e.target.value)}
@@ -642,13 +643,13 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
           date={date}
           onChange={(d) => setDate(d)}
         />
-      </div>
+      </Panel>
 
       {viewMode === 'diary' && (<>
       {loading ? (
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
       ) : (
-        <div className="border border-grey-mid">
+        <Panel variant="outline" padding="none">
           {/* Diary header */}
           <div className="grid grid-cols-[80px_1fr] bg-grey-dark border-b border-grey-mid">
             <div className="px-3 py-2 font-mono text-xs uppercase text-grey-light tracking-wider">TIME</div>
@@ -688,12 +689,12 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-mono text-xs text-white font-bold truncate">{b.contactName}</span>
-                      <span className="font-mono text-[10px] uppercase shrink-0" style={{ color: STATUS_COLORS[b.status] || '#6B6B6B' }}>{b.status}</span>
+                      <span className="font-mono text-2xs uppercase shrink-0" style={{ color: STATUS_COLORS[b.status] || '#6B6B6B' }}>{b.status}</span>
                     </div>
-                    <div className="flex items-center gap-2 mt-0.5 font-mono text-[10px] text-grey-light">
+                    <div className="flex items-center gap-2 mt-0.5 font-mono text-2xs text-grey-light">
                       <button
                         onClick={(e) => { e.stopPropagation(); setCustomerDrawer({ name: b.contactName, phone: b.contactPhone, email: b.contactEmail }) }}
-                        className="font-mono text-[9px] uppercase text-grey-light hover:text-white border border-grey-mid px-1 py-0.5 shrink-0"
+                        className="font-mono text-2xs uppercase text-grey-light hover:text-white border border-grey-mid px-1 py-0.5 shrink-0"
                         title="VIEW CUSTOMER"
                       >CUSTOMER</button>
                       <span>{b.startTime}–{b.endTime} ({durationH}h)</span>
@@ -703,7 +704,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                       )}
                     </div>
                     {preOrderLines(b) && (
-                      <div className="mt-0.5 font-mono text-[9px] text-[#c4a530] truncate">
+                      <div className="mt-0.5 font-mono text-2xs text-gold truncate">
                         PRE-ORDER: {preOrderLines(b)!.join(', ')}
                       </div>
                     )}
@@ -712,7 +713,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
               })}
             </div>
           </div>
-        </div>
+        </Panel>
       )}</> )}
 
       {viewMode === 'table' && (() => {
@@ -755,7 +756,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
           <div className="space-y-3">
             {setups.length > 0 && (
               <div className="flex items-center gap-2">
-                <span className="font-mono text-[10px] uppercase text-grey-light tracking-wider">TABLE PLAN</span>
+                <span className="font-mono text-2xs uppercase text-grey-light tracking-wider">TABLE PLAN</span>
                 <select value={selectedSetupId} onChange={(e) => setSelectedSetupId(e.target.value)}
                   className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-hidden focus:border-white">
                   {setups.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -768,7 +769,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
               <>
               {services.some((s) => s.isActive) && (
                 <div className="flex items-center justify-between gap-4 flex-wrap">
-                  <div className="flex items-center gap-4 font-mono text-[9px] uppercase text-grey-light">
+                  <div className="flex items-center gap-4 font-mono text-2xs uppercase text-grey-light">
                     <span><span className="inline-block w-3 h-3 border border-success/50 bg-success/15 mr-1 align-middle" />AVAILABLE (SERVICE TIMES)</span>
                     <span><span className="inline-block w-3 h-3 border border-danger/40 mr-1 align-middle" style={{ backgroundImage: HATCH, backgroundColor: 'rgba(248,113,113,0.08)' }} />NO SERVICE — CANNOT BOOK</span>
                   </div>
@@ -777,14 +778,14 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                       type="checkbox"
                       checked={showEntireHours}
                       onChange={(e) => setShowEntireHours(e.target.checked)}
-                      className="accent-[#60A5FA]"
+                      className="accent-info"
                     />
-                    <span className="font-mono text-[9px] uppercase text-grey-light">SHOW ENTIRE OPENING HOURS</span>
+                    <span className="font-mono text-2xs uppercase text-grey-light">SHOW ENTIRE OPENING HOURS</span>
                   </label>
                 </div>
               )}
               {services.some((s) => s.isActive) && serviceWindows.length === 0 && (
-                <p className="font-mono text-[10px] uppercase text-danger">NO SERVICE RUNS ON THIS DATE — BOOKINGS ARE BLOCKED</p>
+                <p className="font-mono text-2xs uppercase text-danger">NO SERVICE RUNS ON THIS DATE — BOOKINGS ARE BLOCKED</p>
               )}
               {/* w-fit keeps the scroll container exactly the table's width —
                   a full-width container left the focused grid hugging the left
@@ -806,7 +807,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                               colSpan={(w.endMins - w.startMins) / 15}
                               className="border-b border-grey-mid border-r bg-success/15 px-1 py-0.5 text-center"
                             >
-                              <span className="font-mono text-[8px] uppercase tracking-wider text-success">
+                              <span className="font-mono text-2xs uppercase tracking-wider text-success">
                                 {w.names.length > 0 ? w.names.join(' / ') : 'SERVICE'} · {minsToTime(w.startMins)}–{minsToTime(w.endMins)}
                               </span>
                             </th>
@@ -815,7 +816,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                       </tr>
                     )}
                     <tr>
-                      <th className="border-b border-grey-mid border-r text-left px-2 py-1 font-mono text-[8px] uppercase text-grey-light tracking-wider sticky left-0 bg-grey-dark z-20" style={{ width: 110 }}>TABLE</th>
+                      <th className="border-b border-grey-mid border-r text-left px-2 py-1 font-mono text-2xs uppercase text-grey-light tracking-wider sticky left-0 bg-grey-dark z-20" style={{ width: 110 }}>TABLE</th>
                       {timeSlots2.map((slot, i) => {
                         const isHour = slot.endsWith(':00')
                         const isHalf = slot.endsWith(':30')
@@ -835,7 +836,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                       return Array.from(sectionGroups.entries()).map(([key, grp]) => (
                         <>
                           <tr key={`h-${key}`} className="bg-grey-dark/50">
-                            <td className="border-b border-grey-mid border-r px-2 py-0.5 font-mono text-[9px] font-bold uppercase text-grey-light sticky left-0 bg-grey-dark/50" style={grp.colour ? { color: grp.colour } : {}}>
+                            <td className="border-b border-grey-mid border-r px-2 py-0.5 font-mono text-2xs font-bold uppercase text-grey-light sticky left-0 bg-grey-dark/50" style={grp.colour ? { color: grp.colour } : {}}>
                               {grp.name} <span className="font-normal text-grey-light/60">({grp.dept.name})</span>
                             </td>
                             {timeSlots2.map((_, i) => <td key={i} className="border-b border-grey-mid/20" />)}
@@ -850,7 +851,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                             return (
                             <tr key={tbl.id} className="h-8" data-table-id={tbl.id}>
                               <td className="border-b border-grey-mid/30 border-r px-2 sticky left-0 bg-grey-dark">
-                                <span className="font-mono text-[10px] text-white truncate block" title={`${tbl.profile.name} · CAP ${tbl.profile.capacity}`}>{label}</span>
+                                <span className="font-mono text-2xs text-white truncate block" title={`${tbl.profile.name} · CAP ${tbl.profile.capacity}`}>{label}</span>
                               </td>
                               <td colSpan={totalSlots} className={`border-b border-grey-mid/30 relative`}
                                 style={{ padding: 0, backgroundImage: `repeating-linear-gradient(to right, rgba(46,46,46,0.12) 0px, rgba(46,46,46,0.12) 1px, transparent 1px, transparent ${slotW}px)` }}>
@@ -871,8 +872,8 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                                         onMouseDown={(e) => { e.stopPropagation(); setDragMoved(false); setMoveDrag({ bookingId: b.id, sourceTableId: tbl.id, startTime: b.startTime, endTime: b.endTime, partySize: b.partySize, contactName: b.contactName, status: b.status, startX: e.clientX, startY: e.clientY }) }}
                                         onClick={() => { const found = bookings.find((bk) => bk.id === b.id); if (found) openEdit(found) }}
                                         title={`${b.contactName} · ${b.partySize} PAX · ${b.startTime}-${b.endTime}${linkedLabels ? ' · ' + linkedLabels : ''}`}>
-                                        <span className="font-mono text-[8px] text-white truncate leading-none">{b.contactName} {b.partySize}p{linkedLabels ? <span className="text-grey-light/50 group-hover:text-grey-light transition-colors duration-300"> · {linkedLabels}</span> : null}</span>
-                                        {b.tableIds.length > 1 && <span className="font-mono text-[8px] text-grey-light/30 group-hover:text-grey-light ml-auto flex-shrink-0 pl-1 transition-colors duration-300">⟐</span>}
+                                        <span className="font-mono text-2xs text-white truncate leading-none">{b.contactName} {b.partySize}p{linkedLabels ? <span className="text-grey-light/50 group-hover:text-grey-light transition-colors duration-300"> · {linkedLabels}</span> : null}</span>
+                                        {b.tableIds.length > 1 && <span className="font-mono text-2xs text-grey-light/30 group-hover:text-grey-light ml-auto flex-shrink-0 pl-1 transition-colors duration-300">⟐</span>}
                                         <div className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/20"
                                           onMouseDown={(e) => { e.stopPropagation(); setResizeDrag({ bookingId: b.id, startX: e.clientX, originalEndTime: b.endTime }) }} />
                                       </div>
@@ -892,7 +893,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                                           border: `2px dashed ${STATUS_COLORS[moveDrag.status] || '#6B6B6B'}`,
                                           backgroundColor: (STATUS_COLORS[moveDrag.status] || '#6B6B6B') + '15',
                                         }}>
-                                        <span className="font-mono text-[8px] text-grey-light truncate leading-none">{moveDrag.contactName} {moveDrag.partySize}p</span>
+                                        <span className="font-mono text-2xs text-grey-light truncate leading-none">{moveDrag.contactName} {moveDrag.partySize}p</span>
                                       </div>
                                     )
                                   })()}
@@ -944,7 +945,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
       {viewMode === 'deleted' && (
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <p className="font-mono text-[10px] uppercase text-grey-light">SOFT-DELETED BOOKINGS — RECOVER AND RESEAT (AVAILABILITY RE-CHECKED ON RESTORE)</p>
+            <p className="font-mono text-2xs uppercase text-grey-light">SOFT-DELETED BOOKINGS — RECOVER AND RESEAT (AVAILABILITY RE-CHECKED ON RESTORE)</p>
             <span className="font-mono text-xs text-white">{deletedBookings.length} DELETED</span>
           </div>
           {deletedLoading ? (
@@ -952,22 +953,22 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
           ) : deletedBookings.length === 0 ? (
             <p className="border border-grey-mid p-4 font-mono text-xs text-grey-light">NO DELETED BOOKINGS</p>
           ) : (
-            <div className="border border-grey-mid divide-y divide-grey-mid">
+            <Panel variant="outline" padding="none" className="divide-y divide-grey-mid">
               {deletedBookings.map((b) => (
                 <div key={b.id} className="px-3 py-2 flex items-center gap-3 flex-wrap">
                   <div className="font-mono text-xs text-white w-24 shrink-0">{String(b.date).slice(0, 10)}</div>
-                  <div className="font-mono text-[10px] text-grey-light w-24 shrink-0">{b.startTime}–{b.endTime}</div>
+                  <div className="font-mono text-2xs text-grey-light w-24 shrink-0">{b.startTime}–{b.endTime}</div>
                   <div className="font-mono text-xs text-white uppercase flex-1 min-w-[120px] truncate">
                     {b.contactName} <span className="text-grey-light">· {b.partySize} PAX</span>
                   </div>
-                  <div className="font-mono text-[10px] text-grey-light uppercase">
+                  <div className="font-mono text-2xs text-grey-light uppercase">
                     {b.tables.length > 0 ? b.tables.map((t) => t.setupItem.assignedNumber || t.setupItem.label || '?').join(', ') : 'NO TABLES'}
                   </div>
-                  <span className="font-mono text-[9px] uppercase border border-grey-mid text-grey-light px-1">{b.source}</span>
+                  <span className="font-mono text-2xs uppercase border border-grey-mid text-grey-light px-1">{b.source}</span>
                   <Button size="sm" onClick={() => openRecover(b)}>RECOVER</Button>
                 </div>
               ))}
-            </div>
+            </Panel>
           )}
         </div>
       )}
@@ -1071,11 +1072,11 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 font-mono text-xs">
               <div>
-                <div className="text-grey-light uppercase text-[10px] mb-1">FROM</div>
+                <div className="text-grey-light uppercase text-2xs mb-1">FROM</div>
                 <div className="text-white">{timeChangeConfirm.originalStart} – {timeChangeConfirm.originalEnd}</div>
               </div>
               <div>
-                <div className="text-grey-light uppercase text-[10px] mb-1">TO</div>
+                <div className="text-grey-light uppercase text-2xs mb-1">TO</div>
                 <div className="text-success">{timeChangeConfirm.newStart} – {timeChangeConfirm.newEnd}</div>
               </div>
             </div>
@@ -1083,7 +1084,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
               const tgt = tableRows.find((r) => r.id === timeChangeConfirm.targetTableId)
               return (
                 <div className="font-mono text-xs">
-                  <div className="text-grey-light uppercase text-[10px] mb-1">TABLE</div>
+                  <div className="text-grey-light uppercase text-2xs mb-1">TABLE</div>
                   <div className="text-success">{tgt?.assignedNumber || tgt?.label || tgt?.profile?.name || timeChangeConfirm.targetTableId}</div>
                 </div>
               )
@@ -1112,23 +1113,23 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
             <Input label="EMAIL" value={formEmail} onChange={(e) => setFormEmail(e.target.value)} placeholder="john@example.com" />
           </div>
           {editing && editing.orders.length > 0 && (
-            <div className="border border-grey-mid p-2 space-y-1">
+            <Panel variant="outline" padding="xs" className="space-y-1">
               <div className="flex items-center justify-between gap-2">
-                <div className="font-mono text-[9px] uppercase text-grey-light">PRE-ORDER</div>
+                <div className="font-mono text-2xs uppercase text-grey-light">PRE-ORDER</div>
                 <Button size="sm" variant="ghost" onClick={() => openPreOrderEdit(editing.orders[0])}>EDIT PRE-ORDER</Button>
               </div>
               {editing.orders.map((o) => (
                 <div key={o.id} className="space-y-0.5">
                   {o.items.filter((i) => i.productName).map((i) => (
-                    <div key={`${o.id}-${i.productName}`} className="flex items-center justify-between gap-2 font-mono text-[10px] text-white">
+                    <div key={`${o.id}-${i.productName}`} className="flex items-center justify-between gap-2 font-mono text-2xs text-white">
                       <span className="truncate">{i.productName}{i.qty > 1 ? ` ×${i.qty}` : ''}</span>
-                      {i.allergenNote && <span className="font-mono text-[8px] text-danger border border-danger px-1 shrink-0">{i.allergenNote.toUpperCase()}</span>}
+                      {i.allergenNote && <span className="font-mono text-2xs text-danger border border-danger px-1 shrink-0">{i.allergenNote.toUpperCase()}</span>}
                     </div>
                   ))}
-                  {o.orderNumber && <div className="font-mono text-[9px] text-grey-light">ORDER {o.orderNumber}</div>}
+                  {o.orderNumber && <div className="font-mono text-2xs text-grey-light">ORDER {o.orderNumber}</div>}
                 </div>
               ))}
-            </div>
+            </Panel>
           )}
           {editing ? (
             <div className="grid grid-cols-3 gap-2">
@@ -1148,13 +1149,13 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
               options={[{ value: '', label: '— SELECT A SERVICE —' }, ...services.map((s) => ({ value: s.id, label: s.name }))]} />
           )}
           {!editing && formServiceId && (
-            <div className="border border-grey-mid p-2 space-y-1.5">
+            <Panel variant="outline" padding="xs" className="space-y-1.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-[9px] uppercase text-grey-light">AVAILABLE TIMES</span>
-                <span className="font-mono text-[10px] text-white">{formStartTime} – {formEndTime}</span>
+                <span className="font-mono text-2xs uppercase text-grey-light">AVAILABLE TIMES</span>
+                <span className="font-mono text-2xs text-white">{formStartTime} – {formEndTime}</span>
               </div>
               {timeBoxes.length === 0 ? (
-                <p className="font-mono text-[10px] uppercase text-danger">NO SERVICE RUNS ON THIS DATE — NO TIMES AVAILABLE</p>
+                <p className="font-mono text-2xs uppercase text-danger">NO SERVICE RUNS ON THIS DATE — NO TIMES AVAILABLE</p>
               ) : (
                 <div className="grid grid-cols-4 gap-1">
                   {timeBoxes.map((b) => {
@@ -1164,7 +1165,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                         key={b.startMins}
                         onClick={() => selectBox(b.startMins, b.endMins)}
                         title={`${minsToTime(b.startMins)} – ${minsToTime(b.endMins)}`}
-                        className={`font-mono text-[10px] uppercase py-1.5 border ${active ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid hover:border-white hover:text-white'}`}
+                        className={`font-mono text-2xs uppercase py-1.5 border ${active ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid hover:border-white hover:text-white'}`}
                       >
                         {minsToTime(b.startMins)}
                       </button>
@@ -1172,14 +1173,14 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                   })}
                 </div>
               )}
-            </div>
+            </Panel>
           )}
           {!editing && !formServiceId && (
-            <p className="font-mono text-[9px] text-grey-light">SELECT A SERVICE TO SEE ITS AVAILABLE TIMES — BOOKINGS REQUIRE A SERVICE.</p>
+            <p className="font-mono text-2xs text-grey-light">SELECT A SERVICE TO SEE ITS AVAILABLE TIMES — BOOKINGS REQUIRE A SERVICE.</p>
           )}
           <div className="grid grid-cols-2 gap-2">
             {services.length > 0 && (
-              <p className="font-mono text-[9px] text-grey-light -mt-1">
+              <p className="font-mono text-2xs text-grey-light -mt-1">
                 {formServiceId ? (services.find((s) => s.id === formServiceId)?.tablePlanSetup
                   ? 'USES THE SERVICE\u2019S TABLE PLAN FOR SEATING'
                   : 'NO TABLE PLAN ON THIS SERVICE — SEATS MANUALLY')
@@ -1192,10 +1193,10 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
             )}
           </div>
           {availMsg && (
-            <div className="border border-grey-mid px-3 py-1.5 font-mono text-[10px] uppercase"
+            <Panel variant="outline" padding="none" className="px-3 py-1.5 font-mono text-2xs uppercase"
               style={{ color: availMsg.includes('NOT') || availMsg.includes('NO ') ? '#F87171' : '#4ADE80' }}>
               {availMsg}
-            </div>
+            </Panel>
           )}
           {editing && (
             <Select label="STATUS" value={editing.status} onChange={(e) => updateStatus(editing.id, e.target.value)} options={STATUS_OPTIONS} />
@@ -1235,7 +1236,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                       const t = tableRows.find((r) => r.id === tid)
                       const label = t?.assignedNumber || t?.label || t?.profile?.name?.slice(0, 6) || tid.slice(0, 6)
                       return (
-                        <span key={tid} className="inline-flex items-center gap-1 border border-grey-mid px-2 py-0.5 font-mono text-[10px] text-white bg-grey-dark">
+                        <span key={tid} className="inline-flex items-center gap-1 border border-grey-mid px-2 py-0.5 font-mono text-2xs text-white bg-grey-dark">
                           {label}
                           <button onClick={() => setEditSelectedTableIds((prev) => prev.filter((id) => id !== tid))}
                             className="text-grey-light hover:text-danger ml-1 leading-none">&times;</button>
@@ -1276,7 +1277,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                     }
                     setEditSelectedTableIds(ids)
                   }}
-                    className="border border-grey-mid text-grey-light hover:text-white hover:border-white font-mono text-[10px] px-2 py-1.5 uppercase flex-shrink-0"
+                    className="border border-grey-mid text-grey-light hover:text-white hover:border-white font-mono text-2xs px-2 py-1.5 uppercase flex-shrink-0"
                     title="AUTO-SELECT TABLES">⟐</button>
                 </div>
               </div>
@@ -1318,7 +1319,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                       const t = tableRows.find((r) => r.id === tid)
                       const label = t?.assignedNumber || t?.label || t?.profile?.name?.slice(0, 6) || tid.slice(0, 6)
                       return (
-                        <span key={tid} className="inline-flex items-center gap-1 border border-grey-mid px-2 py-0.5 font-mono text-[10px] text-white bg-grey-dark">
+                        <span key={tid} className="inline-flex items-center gap-1 border border-grey-mid px-2 py-0.5 font-mono text-2xs text-white bg-grey-dark">
                           {label}
                           <button onClick={() => setCreateSelectedTableIds((prev) => prev.filter((id) => id !== tid))}
                             className="text-grey-light hover:text-danger ml-1 leading-none">&times;</button>
@@ -1359,7 +1360,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                     }
                     setCreateSelectedTableIds(ids)
                   }}
-                    className="border border-grey-mid text-grey-light hover:text-white hover:border-white font-mono text-[10px] px-2 py-1.5 uppercase flex-shrink-0"
+                    className="border border-grey-mid text-grey-light hover:text-white hover:border-white font-mono text-2xs px-2 py-1.5 uppercase flex-shrink-0"
                     title="AUTO-SELECT TABLES">⟐</button>
                 </div>
               </div>
@@ -1431,7 +1432,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                 </span>
               </div>
               {recoverTarget.orders.length > 0 && (
-                <p className="font-mono text-[9px] uppercase text-grey-light">
+                <p className="font-mono text-2xs uppercase text-grey-light">
                   LINKED ORDER{recoverTarget.orders.length > 1 ? 'S' : ''} RE-CONNECTS ON RESTORE
                 </p>
               )}
@@ -1441,7 +1442,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                     const t = recoverTableRows.find((r) => r.id === tid)
                     const label = t?.assignedNumber || t?.label || t?.profile?.name?.slice(0, 6) || tid.slice(0, 6)
                     return (
-                      <span key={tid} className={`inline-flex items-center gap-1 border px-2 py-0.5 font-mono text-[10px] bg-grey-dark ${conflictingIds.has(tid) ? 'border-danger text-danger' : 'border-grey-mid text-white'}`}>
+                      <span key={tid} className={`inline-flex items-center gap-1 border px-2 py-0.5 font-mono text-2xs bg-grey-dark ${conflictingIds.has(tid) ? 'border-danger text-danger' : 'border-grey-mid text-white'}`}>
                         {label}
                         <button onClick={() => setRecoverSelectedTableIds((prev) => prev.filter((id) => id !== tid))}
                           className="text-grey-light hover:text-danger ml-1 leading-none">&times;</button>
@@ -1482,17 +1483,17 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                   }
                   setRecoverSelectedTableIds(ids)
                 }}
-                  className="border border-grey-mid text-grey-light hover:text-white hover:border-white font-mono text-[10px] px-2 py-1.5 uppercase flex-shrink-0"
+                  className="border border-grey-mid text-grey-light hover:text-white hover:border-white font-mono text-2xs px-2 py-1.5 uppercase flex-shrink-0"
                   title="AUTO-SELECT TABLES">⟐</button>
               </div>
               {recoverSelectedTableIds.length === 0 ? (
-                <p className="font-mono text-[9px] uppercase text-grey-light">NO TABLES SELECTED — RESTORES WITHOUT SEATING</p>
+                <p className="font-mono text-2xs uppercase text-grey-light">NO TABLES SELECTED — RESTORES WITHOUT SEATING</p>
               ) : clashes.length > 0 ? (
-                <p className="border border-danger px-2 py-1.5 font-mono text-[10px] uppercase text-danger">
+                <p className="border border-danger px-2 py-1.5 font-mono text-2xs uppercase text-danger">
                   {clashes.length} TABLE(S) BOOKED AT THIS TIME — PICK OTHERS
                 </p>
               ) : (
-                <p className="border border-grey-mid px-2 py-1.5 font-mono text-[10px] uppercase text-success">
+                <p className="border border-grey-mid px-2 py-1.5 font-mono text-2xs uppercase text-success">
                   TABLES FREE — SAFE TO RESTORE
                 </p>
               )}
@@ -1510,16 +1511,16 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
         {preOrderEdit && (
           <div className="space-y-3">
             {preOrderEdit.orderNumber && (
-              <p className="font-mono text-[10px] text-grey-light">ORDER {preOrderEdit.orderNumber} — CHANGES SYNC BACK TO WOOCOMMERCE ON SAVE.</p>
+              <p className="font-mono text-2xs text-grey-light">ORDER {preOrderEdit.orderNumber} — CHANGES SYNC BACK TO WOOCOMMERCE ON SAVE.</p>
             )}
             {preOrderDraft.length === 0 ? (
               <p className="font-mono text-xs text-grey-light">NO LINE ITEMS</p>
             ) : (
-              <div className="divide-y divide-grey-mid border border-grey-mid">
+              <Panel variant="outline" padding="none" className="divide-y divide-grey-mid">
                 {preOrderDraft.map((l, i) => (
                   <div key={l.id} className="flex items-center gap-2 px-2 py-1.5">
                     <span className="flex-1 min-w-0 font-mono text-xs text-white uppercase truncate">{l.productName ?? '—'}</span>
-                    <span className="font-mono text-[10px] text-grey-light shrink-0">{l.unitPrice != null ? `$${l.unitPrice.toFixed(2)}` : ''}</span>
+                    <span className="font-mono text-2xs text-grey-light shrink-0">{l.unitPrice != null ? `$${l.unitPrice.toFixed(2)}` : ''}</span>
                     <input
                       type="number"
                       min="1"
@@ -1539,7 +1540,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
                     </button>
                   </div>
                 ))}
-              </div>
+              </Panel>
             )}
             <div className="flex gap-2 pt-1">
               <Button onClick={savePreOrder} loading={savingPreOrder} disabled={preOrderDraft.length === 0}>SAVE & SYNC</Button>

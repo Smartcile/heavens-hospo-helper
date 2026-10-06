@@ -271,7 +271,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
 
   // --- Derived ---
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
-  const selClass = (v: string) => v ? 'border-[#60A5FA]' : ''
+  const selClass = (v: string) => v ? 'border-info' : ''
   const filterDeptOptions = [{ value: '', label: 'ALL DEPARTMENTS' }, ...departments.filter((d) => !filterVenue || d.venueId === filterVenue).map((d) => ({ value: d.id, label: d.name }))]
   const formDeptOptions = [{ value: '', label: 'NO DEPARTMENT' }, ...departments.filter((d) => d.venueId === form.venueId).map((d) => ({ value: d.id, label: d.name }))]
   const formSectionOptions = [{ value: '', label: 'NO SECTION' }, ...sections.filter((s) => s.departmentId === form.departmentId).map((s) => ({ value: s.id, label: s.name }))]
@@ -362,8 +362,8 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           <div className="font-mono text-sm font-semibold uppercase text-white truncate">{t.title}</div>
           {t.description && <p className="font-mono text-xs text-grey-light truncate">{t.description}</p>}
           <div className="flex flex-wrap gap-1.5 mt-0.5 items-center">
-            <span className="font-mono text-[10px] uppercase text-grey-light border border-grey-mid px-1 py-0.5">{describeSchedule(t)}</span>
-            {labels.map((l) => <span key={l.text} className={`font-mono text-[10px] uppercase ${l.cls}`}>{l.text}</span>)}
+            <span className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1 py-0.5">{describeSchedule(t)}</span>
+            {labels.map((l) => <span key={l.text} className={`font-mono text-xs uppercase ${l.cls}`}>{l.text}</span>)}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -410,7 +410,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
             </div>
           </div>
 
-          {clEditing && <p className="font-mono text-[10px] uppercase text-accent">DRAG A TASK INTO THE CHECKLIST ON THE RIGHT →</p>}
+          {clEditing && <p className="font-mono text-xs uppercase text-accent">DRAG A TASK INTO THE CHECKLIST ON THE RIGHT →</p>}
 
           {loading ? (
             <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
@@ -426,13 +426,13 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                   </div>
                   {dg.sections.map((sg) => (
                     <div key={sg.id} className="space-y-1 pl-3 border-l border-grey-mid">
-                      <div className="font-mono text-[10px] uppercase tracking-wider text-accent">{sg.name}</div>
+                      <div className="font-mono text-xs uppercase tracking-wider text-accent">{sg.name}</div>
                       {sg.tasks.map(taskRow)}
                     </div>
                   ))}
                   {dg.loose.length > 0 && (
                     <div className="space-y-1 pl-3 border-l border-grey-mid">
-                      {dg.sections.length > 0 && <div className="font-mono text-[10px] uppercase tracking-wider text-grey-light">GENERAL (NO SECTION)</div>}
+                      {dg.sections.length > 0 && <div className="font-mono text-xs uppercase tracking-wider text-grey-light">GENERAL (NO SECTION)</div>}
                       {dg.loose.map(taskRow)}
                     </div>
                   )}
@@ -465,7 +465,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
               </div>
               <div>
                 <Input label="Appears from (time, optional)" type="time" value={clAppearFrom} onChange={(e) => setClAppearFrom(e.target.value)} />
-                <p className="font-mono text-[10px] uppercase text-grey-light mt-1">SHOWS ON THE FLOOR FROM THIS TIME &amp; STAYS UNTIL EVERY TASK IS DONE FOR THE DAY.</p>
+                <p className="font-mono text-xs uppercase text-grey-light mt-1">SHOWS ON THE FLOOR FROM THIS TIME &amp; STAYS UNTIL EVERY TASK IS DONE FOR THE DAY.</p>
               </div>
 
               <div className="space-y-1">
@@ -528,7 +528,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 <h2 className="font-mono text-sm uppercase tracking-widest text-grey-light">CHECKLISTS</h2>
                 <Button onClick={openChecklistCreate} size="sm">+ NEW CHECKLIST</Button>
               </div>
-              <p className="font-mono text-[10px] uppercase text-grey-light">CHECKLISTS REFERENCE LIVE TASKS — EDIT A TASK ONCE AND EVERY LIST UPDATES.</p>
+              <p className="font-mono text-xs uppercase text-grey-light">CHECKLISTS REFERENCE LIVE TASKS — EDIT A TASK ONCE AND EVERY LIST UPDATES.</p>
               {checklists.length === 0 ? (
                 <p className="font-mono text-xs text-grey-light">NO CHECKLISTS YET — CREATE ONE AND DRAG TASKS IN.</p>
               ) : (
@@ -556,10 +556,10 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
 
               {gatedLists.length > 0 && (
                 <div className="pt-2 space-y-2">
-                  <div className="font-mono text-[10px] uppercase tracking-widest text-grey-light">
+                  <div className="font-mono text-xs uppercase tracking-widest text-grey-light">
                     HIDDEN — NOT OPEN YET ({gatedLists.length})
                   </div>
-                  <p className="font-mono text-[10px] uppercase text-grey-light">
+                  <p className="font-mono text-xs uppercase text-grey-light">
                     THESE LISTS HAVE A &ldquo;FROM&rdquo; TIME LATER TODAY. ACTIVATE ONE TO SHOW IT ON THE FLOOR NOW — IT RESETS TOMORROW.
                   </p>
                   {gatedLists.map((c) => {
@@ -575,9 +575,9 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                           </div>
                         </div>
                         {active ? (
-                          <button onClick={() => toggleChecklistActivation(c, false)} className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white transition-colors flex-shrink-0">DEACTIVATE</button>
+                          <button onClick={() => toggleChecklistActivation(c, false)} className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white transition-colors flex-shrink-0">DEACTIVATE</button>
                         ) : (
-                          <button onClick={() => toggleChecklistActivation(c, true)} className="font-mono text-[10px] uppercase border border-success/40 px-2 py-1 text-success hover:bg-success hover:text-black transition-colors flex-shrink-0">ACTIVATE NOW</button>
+                          <button onClick={() => toggleChecklistActivation(c, true)} className="font-mono text-xs uppercase border border-success/40 px-2 py-1 text-success hover:bg-success hover:text-black transition-colors flex-shrink-0">ACTIVATE NOW</button>
                         )}
                       </div>
                     )
@@ -673,7 +673,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
 
       <Modal isOpen={pdfOpen} onClose={() => setPdfOpen(false)} title="DOWNLOAD CHECKLISTS (PDF)">
         <div className="space-y-3">
-          <p className="font-mono text-[10px] uppercase text-grey-light">PICK A CHECKLIST TO DOWNLOAD AS A PRINTABLE CHECKBOX PDF.</p>
+          <p className="font-mono text-xs uppercase text-grey-light">PICK A CHECKLIST TO DOWNLOAD AS A PRINTABLE CHECKBOX PDF.</p>
           {checklists.length === 0 ? (
             <p className="font-mono text-xs text-grey-light">NO CHECKLISTS YET.</p>
           ) : (

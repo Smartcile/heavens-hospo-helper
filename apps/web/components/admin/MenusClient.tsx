@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/Modal'
 import { pushToast } from '@/components/ui/Toast'
 import { describePaxRange } from '@/lib/menu-rules'
 import { getActiveVenueId } from '@/lib/active-venue'
+import { MenuItemServesEditor } from '@/components/admin/MenuItemServesEditor'
 
 interface MenuItemRef {
   id: string
@@ -68,6 +69,7 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [categorySearch, setCategorySearch] = useState('')
   const [newCatName, setNewCatName] = useState('')
   const [creatingCategory, setCreatingCategory] = useState(false)
+  const [servesItem, setServesItem] = useState<{ id: string; name: string } | null>(null)
 
   async function load() {
     setLoading(true)
@@ -323,7 +325,7 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
           CATEGORIES ({allItems.length} ITEMS)
         </button>
       </div>
-      <p className="font-mono text-[10px] text-grey-light -mt-2">
+      <p className="font-mono text-xs text-grey-light -mt-2">
         EACH MENU IS A WOOCOMMERCE CATEGORY — CREATED ON THE STORE WHEN SAVED. ADDING AN ITEM SETS ITS CATEGORY; REMOVING ONE UNCATEGORISES IT.
       </p>
 
@@ -341,7 +343,7 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
           {menus.length === 0 ? (
             <div className="border border-grey-mid p-8 text-center">
               <p className="font-mono text-xs text-grey-light uppercase">NO MENUS YET</p>
-              <p className="font-mono text-[10px] text-grey-light mt-1">
+              <p className="font-mono text-xs text-grey-light mt-1">
                 CREATE ONE FOR EACH SERVICE — OR LINK AN EXISTING STORE CATEGORY BELOW
               </p>
             </div>
@@ -360,17 +362,17 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
                   <span className="font-mono text-xs text-white uppercase truncate">{m.name}</span>
                   <div className="flex items-center gap-2 shrink-0">
                     {m.wooCategoryId && (
-                      <span className="font-mono text-[9px] text-[#c4a530] border border-[#c4a530] px-1">
+                      <span className="font-mono text-xs text-gold border border-gold px-1">
                         CAT: {wooCategories.find((c) => c.id === m.wooCategoryId)?.name ?? m.wooCategoryId}
                       </span>
                     )}
                     {range && (
-                      <span className="font-mono text-[9px] text-grey-light border border-grey-mid px-1">
+                      <span className="font-mono text-xs text-grey-light border border-grey-mid px-1">
                         {range}
                       </span>
                     )}
                     <span
-                      className={`font-mono text-[9px] uppercase border px-1 ${
+                      className={`font-mono text-xs uppercase border px-1 ${
                         m.isActive ? 'text-success border-success' : 'text-grey-light border-grey-mid'
                       }`}
                     >
@@ -378,7 +380,7 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
                     </span>
                   </div>
                 </div>
-                <p className="font-mono text-[10px] text-grey-light mt-1">
+                <p className="font-mono text-xs text-grey-light mt-1">
                   {m.items.length} ITEM{m.items.length === 1 ? '' : 'S'}
                   {m.description ? ` · ${m.description}` : ''}
                 </p>
@@ -394,7 +396,7 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
               <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">
                 UNLINKED WOO CATEGORIES ({unlinkedCats.length})
               </h3>
-              <p className="font-mono text-[9px] text-grey-light mt-0.5">
+              <p className="font-mono text-xs text-grey-light mt-0.5">
                 THESE EXIST ON YOUR STORE BUT HAVE NO MENU YET — LINK TO CREATE A MENU AND ATTACH ITS ITEMS.
               </p>
             </div>
@@ -402,7 +404,7 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
               <div key={c.id} className="border border-grey-mid p-3 flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <span className="font-mono text-xs text-white uppercase truncate">{c.name}</span>
-                  <span className="font-mono text-[10px] text-grey-light ml-2">{catItemCount(c.id)} ITEM{catItemCount(c.id) === 1 ? '' : 'S'}</span>
+                  <span className="font-mono text-xs text-grey-light ml-2">{catItemCount(c.id)} ITEM{catItemCount(c.id) === 1 ? '' : 'S'}</span>
                 </div>
                 <Button size="sm" variant="ghost" onClick={() => linkCategory(c)} loading={saving}>+ LINK</Button>
               </div>
@@ -423,7 +425,7 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
               CREATE
             </Button>
           </div>
-          <p className="font-mono text-[9px] text-grey-light mt-1">
+          <p className="font-mono text-xs text-grey-light mt-1">
             CREATES THE CATEGORY ON WOOCOMMERCE (OR MATCHES ONE BY NAME). LINK IT AS A MENU ABOVE.
           </p>
         </div>
@@ -451,7 +453,7 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
               ...wooCategories.map((c) => ({ value: c.id, label: c.name.toUpperCase() })),
             ]}
           />
-          <p className="font-mono text-[9px] text-grey-light mt-1">
+          <p className="font-mono text-xs text-grey-light mt-1">
             LOCAL ONLY NEVER TOUCHES THE STORE. CREATE NEW CATEGORY MAKES A WOOCOMMERCE CATEGORY NAMED AFTER THIS MENU. MULTIPLE MENUS CAN LINK TO THE SAME CATEGORY.
           </p>
         </div>
@@ -461,7 +463,7 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
             <Input label="MIN PAX" type="number" value={minPax} onChange={(e) => setMinPax(e.target.value)} placeholder="ANY" />
             <Input label="MAX PAX" type="number" value={maxPax} onChange={(e) => setMaxPax(e.target.value)} placeholder="ANY" />
           </div>
-          <p className="font-mono text-[9px] text-grey-light mt-1">
+          <p className="font-mono text-xs text-grey-light mt-1">
             HEADCOUNT RANGE THIS MENU IS OFFERED FOR. LEAVE BLANK FOR NO LIMIT.
           </p>
         </div>
@@ -480,13 +482,13 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
           <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">
             ITEMS ({lines.length})
           </h3>
-          <p className="font-mono text-[9px] text-grey-light">
+          <p className="font-mono text-xs text-grey-light">
             MIN/MAX APPLY ONLY WHEN THE ITEM IS ORDERED — A MINIMUM DOES NOT FORCE IT ONTO EVERY ORDER.
           </p>
 
           {lines.length > 0 && (
             <div className="space-y-1">
-              <div className="grid grid-cols-12 gap-2 font-mono text-[9px] uppercase text-grey-light">
+              <div className="grid grid-cols-12 gap-2 font-mono text-xs uppercase text-grey-light">
                 <div className="col-span-6">ITEM</div>
                 <div className="col-span-2">MIN</div>
                 <div className="col-span-2">MAX</div>
@@ -509,12 +511,21 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
                     placeholder="—"
                     className="col-span-2 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white text-right"
                   />
-                  <button
-                    onClick={() => setLines(lines.filter((x) => x.menuItemId !== l.menuItemId))}
-                    className="col-span-2 font-mono text-xs text-danger hover:bg-danger hover:text-black border border-danger px-1"
-                  >
-                    ✕
-                  </button>
+                  <div className="col-span-2 flex items-center gap-1">
+                    <button
+                      onClick={() => setServesItem({ id: l.menuItemId, name: l.name })}
+                      className="flex-1 font-mono text-xs uppercase border border-grey-mid px-1 py-1 text-grey-light hover:border-white hover:text-white transition-colors"
+                      title="How this item is consumed (the POS item link)"
+                    >
+                      SERVES
+                    </button>
+                    <button
+                      onClick={() => setLines(lines.filter((x) => x.menuItemId !== l.menuItemId))}
+                      className="font-mono text-xs text-danger hover:bg-danger hover:text-black border border-danger px-2 py-1"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -529,7 +540,7 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
           {itemSearch && (
             <div className="border border-grey-mid divide-y divide-grey-mid max-h-48 overflow-y-auto">
               {available.length === 0 ? (
-                <p className="font-mono text-[10px] text-grey-light p-2 uppercase">NO MATCHES</p>
+                <p className="font-mono text-xs text-grey-light p-2 uppercase">NO MATCHES</p>
               ) : (
                 available.map((i) => (
                   <button
@@ -553,6 +564,21 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
           )}
         </div>
       </div>
+    </Modal>
+
+    <Modal
+      isOpen={!!servesItem}
+      onClose={() => setServesItem(null)}
+      title={servesItem ? `SERVES — ${servesItem.name}` : 'SERVES'}
+      size="lg"
+    >
+      {servesItem && (
+        <MenuItemServesEditor
+          menuItemId={servesItem.id}
+          menuItemName={servesItem.name}
+          venueId={venueId}
+        />
+      )}
     </Modal>
     </div>
   )
@@ -609,7 +635,7 @@ function CategoryMenuView({
           <p className="font-mono text-xs text-grey-light uppercase">
             {filtered.length === 0 && items.length > 0 ? 'NO MATCHES' : 'NO ITEMS YET'}
           </p>
-          <p className="font-mono text-[10px] text-grey-light mt-1">
+          <p className="font-mono text-xs text-grey-light mt-1">
             {items.length === 0 ? 'PULL PRODUCTS FROM WOOCOMMERCE — THE MENU BUILDS ITSELF FROM THE CATEGORIES.' : ''}
           </p>
         </div>
@@ -623,12 +649,12 @@ function CategoryMenuView({
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="font-mono text-xs font-bold text-white uppercase tracking-wider truncate">{catName(key || null)}</span>
                   {syncedMenu && (
-                    <span className="font-mono text-[9px] text-success border border-success px-1 shrink-0">
+                    <span className="font-mono text-xs text-success border border-success px-1 shrink-0">
                       MENU{syncedMenu.isActive ? '' : ' (OFF)'}{menuRange ? ` · ${menuRange}` : ''}
                     </span>
                   )}
                 </div>
-                <span className="font-mono text-[10px] text-grey-light shrink-0">{groupItems.length} ITEM{groupItems.length === 1 ? '' : 'S'}</span>
+                <span className="font-mono text-xs text-grey-light shrink-0">{groupItems.length} ITEM{groupItems.length === 1 ? '' : 'S'}</span>
               </div>
             <div className="divide-y divide-grey-mid">
               {groupItems.map((i) => (
@@ -637,12 +663,12 @@ function CategoryMenuView({
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={i.imageUrl} alt="" className="w-8 h-8 object-cover border border-grey-mid shrink-0" />
                   ) : (
-                    <div className="w-8 h-8 border border-grey-mid shrink-0 flex items-center justify-center font-mono text-[9px] text-grey-light">—</div>
+                    <div className="w-8 h-8 border border-grey-mid shrink-0 flex items-center justify-center font-mono text-xs text-grey-light">—</div>
                   )}
                   <span className="font-mono text-xs text-white uppercase truncate flex-1 min-w-0">{i.name}</span>
                   <span className="font-mono text-xs text-grey-light shrink-0">${i.price.toFixed(2)}</span>
                   <span
-                    className={`font-mono text-[9px] uppercase border px-1 shrink-0 ${
+                    className={`font-mono text-xs uppercase border px-1 shrink-0 ${
                       i.isActive ? 'text-success border-success' : 'text-grey-light border-grey-mid'
                     }`}
                   >

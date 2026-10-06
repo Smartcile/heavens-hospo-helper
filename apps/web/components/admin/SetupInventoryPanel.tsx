@@ -27,21 +27,21 @@ export function SetupInventoryPanel({
       </div>
 
       {inactive ? (
-        <p className="font-mono text-[10px] text-grey-light uppercase">
+        <p className="font-mono text-xs text-grey-light uppercase">
           SELECT A SETUP TO CHECK INVENTORY
         </p>
       ) : shortages === null ? (
-        <p className="font-mono text-[10px] text-grey-light uppercase">
+        <p className="font-mono text-xs text-grey-light uppercase">
           CLICK CHECK TO RUN INVENTORY AUDIT
         </p>
       ) : shortages.length === 0 ? (
-        <p className="font-mono text-[10px] text-success uppercase">
+        <p className="font-mono text-xs text-success uppercase">
           ALL ITEMS SUFFICIENT
         </p>
       ) : (
         <div className="space-y-1.5">
           {shortages.map((s) => (
-            <div key={s.itemId} className="font-mono text-[10px]">
+            <div key={s.itemId} className="font-mono text-xs">
               <div className="text-danger uppercase">
                 {s.itemName} — {s.shortage} SHORT
               </div>

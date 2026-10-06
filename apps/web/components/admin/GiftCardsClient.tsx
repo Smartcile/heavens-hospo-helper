@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { ImagePicker } from '@/components/ui/ImagePicker'
+import { Panel } from '@/components/ui/Panel'
 import { GiftCardModal } from '@/components/admin/GiftCardModal'
 import { IssueGiftCardModal } from '@/components/admin/IssueGiftCardModal'
 
@@ -100,8 +101,8 @@ const AMOUNT_FORMAT_OPTIONS = [
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'text-grey-light',
-  ISSUED: 'text-[#60A5FA]',
-  SENT: 'text-[#FACC15]',
+  ISSUED: 'text-info',
+  SENT: 'text-warning',
   REDEEMED: 'text-success',
   VOIDED: 'text-danger',
   EXPIRED: 'text-danger',
@@ -593,78 +594,78 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="font-mono text-xl font-bold uppercase tracking-widest text-white">GIFT CARDS</h1>
-        <div className="flex border border-grey-mid">
+        <Panel variant="outline" padding="none" className="flex">
           <button onClick={() => setView('cards')} className={`font-mono text-xs uppercase px-4 py-2 tracking-wider transition-colors ${view === 'cards' ? 'bg-white text-black' : 'text-grey-light hover:text-white'}`}>
             CARDS ({cards.length})
           </button>
           <button onClick={() => setView('orders')} className={`font-mono text-xs uppercase px-4 py-2 tracking-wider transition-colors ${view === 'orders' ? 'bg-white text-black' : 'text-grey-light hover:text-white'}`}>
             GIFT ORDERS ({giftOrders.length})
           </button>
-        </div>
+        </Panel>
       </div>
 
       {view === 'orders' ? (
-        <div className="border border-grey-mid p-4 space-y-3">
+        <Panel variant="outline" padding="lg" className="space-y-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div>
               <h2 className="font-mono text-xs uppercase tracking-wider text-grey-light">GIFT-CATEGORY ORDERS</h2>
-              <p className="font-mono text-[9px] text-grey-light/60">EVERY SYNCED ORDER WITH GIFT-CARD LINES — LINE BREAKDOWN, STATUSES AND THE CARD(S) EACH ORDER LINKED TO.</p>
+              <p className="font-mono text-xs text-grey-light/60">EVERY SYNCED ORDER WITH GIFT-CARD LINES — LINE BREAKDOWN, STATUSES AND THE CARD(S) EACH ORDER LINKED TO.</p>
             </div>
             <Button size="sm" variant="ghost" onClick={() => { load(); }}>↻ REFRESH</Button>
           </div>
           {giftOrders.length === 0 ? (
-            <p className="font-mono text-[10px] text-grey-light uppercase">NO SYNCED GIFT ORDERS YET</p>
+            <p className="font-mono text-xs text-grey-light uppercase">NO SYNCED GIFT ORDERS YET</p>
           ) : (
-            <div className="border border-grey-mid divide-y divide-grey-mid max-h-[70vh] overflow-y-auto">
+            <Panel variant="outline" padding="none" className="divide-y divide-grey-mid max-h-[70vh] overflow-y-auto">
               {giftOrders.map((o) => {
                 const open = expandedOrderId === o.id
-                const statusColour = o.paymentStatus === 'PAID' ? 'text-success' : 'text-[#FACC15]'
+                const statusColour = o.paymentStatus === 'PAID' ? 'text-success' : 'text-warning'
                 return (
                   <div key={o.id} className={open ? 'bg-grey-dark/40' : ''}>
                     <button onClick={() => setExpandedOrderId(open ? null : o.id)} className="w-full text-left px-3 py-2 hover:bg-grey-dark/40 transition-colors">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-xs text-white">WOO #{o.orderNumber ?? o.wooOrderId}</span>
-                        <span className={`font-mono text-[10px] uppercase ${statusColour}`}>{o.paymentStatus ?? '—'}</span>
-                        <span className="font-mono text-[10px] uppercase text-grey-light">{o.status ?? ''} · {o.opStatus ?? ''}</span>
+                        <span className={`font-mono text-xs uppercase ${statusColour}`}>{o.paymentStatus ?? '—'}</span>
+                        <span className="font-mono text-xs uppercase text-grey-light">{o.status ?? ''} · {o.opStatus ?? ''}</span>
                         {o.cards.map((c) => (
-                          <span key={c.id} className="font-mono text-[10px] uppercase border border-[#60A5FA]/60 text-[#60A5FA] px-1.5 py-0.5">{c.number} · {c.status}</span>
+                          <span key={c.id} className="font-mono text-xs uppercase border border-info/60 text-info px-1.5 py-0.5">{c.number} · {c.status}</span>
                         ))}
                         <span className="ml-auto font-mono text-xs text-white shrink-0">
                           ${(o.giftTotal ?? 0).toFixed(2)} ({o.giftQty} CARD{o.giftQty === 1 ? '' : 'S'})
                         </span>
-                        <span className="font-mono text-[10px] text-grey-light/60 shrink-0">{open ? '▾' : '▸'}</span>
+                        <span className="font-mono text-xs text-grey-light/60 shrink-0">{open ? '▾' : '▸'}</span>
                       </div>
                     </button>
                     {open && (
                       <div className="px-4 pb-3 space-y-3">
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1">
-                          <div><div className="font-mono text-[9px] uppercase text-grey-light">ORDERED</div><div className="font-mono text-[11px] text-white">{String(o.createdAt).slice(0, 10)}</div></div>
-                          <div><div className="font-mono text-[9px] uppercase text-grey-light">CUSTOMER</div><div className="font-mono text-[11px] text-white truncate">{o.customerName ?? '—'}</div></div>
-                          <div><div className="font-mono text-[9px] uppercase text-grey-light">ORDER TOTAL</div><div className="font-mono text-[11px] text-white">{o.totalAmount != null ? `$${o.totalAmount.toFixed(2)}` : '—'}</div></div>
-                          <div><div className="font-mono text-[9px] uppercase text-grey-light">SERVICE</div><div className="font-mono text-[11px] text-white">{o.serviceDate ? `${o.serviceDate} ${o.serviceTime ?? ''}` : '—'}</div></div>
+                          <div><div className="font-mono text-xs uppercase text-grey-light">ORDERED</div><div className="font-mono text-xs text-white">{String(o.createdAt).slice(0, 10)}</div></div>
+                          <div><div className="font-mono text-xs uppercase text-grey-light">CUSTOMER</div><div className="font-mono text-xs text-white truncate">{o.customerName ?? '—'}</div></div>
+                          <div><div className="font-mono text-xs uppercase text-grey-light">ORDER TOTAL</div><div className="font-mono text-xs text-white">{o.totalAmount != null ? `$${o.totalAmount.toFixed(2)}` : '—'}</div></div>
+                          <div><div className="font-mono text-xs uppercase text-grey-light">SERVICE</div><div className="font-mono text-xs text-white">{o.serviceDate ? `${o.serviceDate} ${o.serviceTime ?? ''}` : '—'}</div></div>
                         </div>
-                        <div className="border border-grey-mid divide-y divide-grey-mid/60">
-                          <div className="px-2 py-1 grid grid-cols-[1fr_auto_auto] gap-3 font-mono text-[9px] uppercase text-grey-light">
+                        <Panel variant="outline" padding="none" className="divide-y divide-grey-mid/60">
+                          <div className="px-2 py-1 grid grid-cols-[1fr_auto_auto] gap-3 font-mono text-xs uppercase text-grey-light">
                             <span>GIFT LINE</span><span className="w-14 text-right">QTY</span><span className="w-16 text-right">TOTAL</span>
                           </div>
                           {o.lines.map((l, i) => (
                             <div key={i} className="px-2 py-1 grid grid-cols-[1fr_auto_auto] gap-3 items-center">
-                              <span className="font-mono text-[11px] text-white truncate">{l.productName ?? 'GIFT CARD'}</span>
-                              <span className="w-14 text-right font-mono text-[11px] text-grey-light">×{l.qty}</span>
-                              <span className="w-16 text-right font-mono text-[11px] text-white">${((l.qty ?? 0) * (l.unitPrice ?? 0)).toFixed(2)}</span>
+                              <span className="font-mono text-xs text-white truncate">{l.productName ?? 'GIFT CARD'}</span>
+                              <span className="w-14 text-right font-mono text-xs text-grey-light">×{l.qty}</span>
+                              <span className="w-16 text-right font-mono text-xs text-white">${((l.qty ?? 0) * (l.unitPrice ?? 0)).toFixed(2)}</span>
                             </div>
                           ))}
-                        </div>
+                        </Panel>
                         <div className="flex items-center gap-2 flex-wrap">
                           {o.cards.map((c) => (
                             <span key={c.id} className="inline-flex items-center gap-2 border border-grey-mid px-2 py-1">
-                              <span className="font-mono text-[11px] text-white">{c.number}</span>
-                              <span className="font-mono text-[9px] uppercase text-grey-light">{c.status}</span>
-                              <button onClick={() => setOpenCardId(c.id)} className="font-mono text-[10px] uppercase text-[#60A5FA] hover:text-white">OPEN</button>
+                              <span className="font-mono text-xs text-white">{c.number}</span>
+                              <span className="font-mono text-xs uppercase text-grey-light">{c.status}</span>
+                              <button onClick={() => setOpenCardId(c.id)} className="font-mono text-xs uppercase text-info hover:text-white">OPEN</button>
                             </span>
                           ))}
                           {o.cards.length === 0 && (
-                            <span className="font-mono text-[10px] text-grey-light uppercase">NO CARD LINKED — ORDER NOT YET PAID/CONFIRMED</span>
+                            <span className="font-mono text-xs text-grey-light uppercase">NO CARD LINKED — ORDER NOT YET PAID/CONFIRMED</span>
                           )}
                         </div>
                       </div>
@@ -672,16 +673,16 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                   </div>
                 )
               })}
-            </div>
+            </Panel>
           )}
-        </div>
+        </Panel>
       ) : (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column — Issue */}
         <div className="lg:col-span-4 space-y-4">
 
           {/* Issue Box */}
-          <div className="border border-grey-mid p-4 space-y-4">
+          <Panel variant="outline" padding="lg" className="space-y-4">
             <h2 className="font-mono text-xs uppercase text-grey-light tracking-wider">
               ISSUE GIFT CARD {draftCount > 0 && <span className="text-white">({draftCount} AVAILABLE)</span>}
             </h2>
@@ -689,12 +690,12 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
             <div className="flex items-center gap-3 flex-wrap">
               <span className="font-mono text-sm text-white">NEXT CARD: {nextDraft?.number ?? '—'}</span>
               {activeTemplate && (
-                <span className="font-mono text-[10px] uppercase border border-[#60A5FA] text-[#60A5FA] px-1.5 py-0.5">
+                <span className="font-mono text-xs uppercase border border-info text-info px-1.5 py-0.5">
                   TEMPLATE: {activeTemplate.name}
                 </span>
               )}
             </div>
-            <p className="font-mono text-[10px] text-grey-light leading-relaxed">
+            <p className="font-mono text-xs text-grey-light leading-relaxed">
               OPENS THE ISSUE POPUP — CUSTOMER DETAILS, AMOUNT, MESSAGE AND A PREVIEW OF THE CARD DESIGN BEFORE CONFIRMING.
               {!nextDraft && ' NO BLANK CARDS EXIST — ONE WILL BE PREMADE AUTOMATICALLY WHEN YOU ISSUE.'}
             </p>
@@ -703,7 +704,7 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                 ISSUE GIFT CARD
               </Button>
             </div>
-          </div>
+          </Panel>
 
           {/* Issue popup */}
           {issueOpen && (
@@ -717,29 +718,29 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
           )}
 
           {/* Pending payment orders — cash on delivery awaiting confirmation */}
-          <div className="border border-grey-mid p-4 space-y-3">
+          <Panel variant="outline" padding="lg" className="space-y-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <h2 className="font-mono text-xs uppercase text-grey-light tracking-wider">
                 PENDING PAYMENT ORDERS
               </h2>
               <div className="flex items-center gap-2">
                 {pendingOrders.length > 0 && (
-                  <span className="font-mono text-[10px] text-[#FACC15]">{pendingOrders.length} AWAITING CONFIRMATION</span>
+                  <span className="font-mono text-xs text-warning">{pendingOrders.length} AWAITING CONFIRMATION</span>
                 )}
-                <button onClick={refreshPending} disabled={pendingLoading} className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:text-white hover:border-white disabled:opacity-40">
+                <button onClick={refreshPending} disabled={pendingLoading} className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:text-white hover:border-white disabled:opacity-40">
                   {pendingLoading ? 'REFRESHING...' : '↻ REFRESH'}
                 </button>
               </div>
             </div>
             {pendingOrders.length === 0 ? (
-              <p className="font-mono text-[10px] text-grey-light uppercase">NONE — ALL GIFT ORDERS PAID</p>
+              <p className="font-mono text-xs text-grey-light uppercase">NONE — ALL GIFT ORDERS PAID</p>
             ) : (
-              <div className="border border-grey-mid divide-y divide-grey-mid max-h-[280px] overflow-y-auto">
+              <Panel variant="outline" padding="none" className="divide-y divide-grey-mid max-h-[280px] overflow-y-auto">
                 {pendingOrders.map((o) => (
                   <div key={o.wooOrderId} className="px-2 py-2 space-y-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-mono text-xs text-white">WOO #{o.number ?? o.wooOrderId}</span>
-                      <span className="font-mono text-[10px] uppercase text-[#FACC15] border border-[#FACC15]/50 px-1 py-0.5">
+                      <span className="font-mono text-xs uppercase text-warning border border-warning/50 px-1 py-0.5">
                         {String(o.status ?? '').toUpperCase().replace('-', ' ')} · UNPAID
                       </span>
                       <span className="ml-auto font-mono text-xs text-white shrink-0">
@@ -747,7 +748,7 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                       </span>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-[10px] text-grey-light truncate min-w-0 flex-1">
+                      <span className="font-mono text-xs text-grey-light truncate min-w-0 flex-1">
                         {o.customerName ?? '—'} · {String(o.createdAt).slice(0, 10)}{o.paymentMethodTitle ? ` · ${o.paymentMethodTitle}` : ''}
                       </span>
                       <Button size="sm" onClick={() => handleConfirmPayment(o)} disabled={confirmingId === o.wooOrderId}>
@@ -756,37 +757,37 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                     </div>
                   </div>
                 ))}
-              </div>
+              </Panel>
             )}
-            {pendingError && <p className="font-mono text-[10px] text-danger">{pendingError}</p>}
-            <p className="font-mono text-[9px] text-grey-light/60 leading-relaxed">
+            {pendingError && <p className="font-mono text-xs text-danger">{pendingError}</p>}
+            <p className="font-mono text-xs text-grey-light/60 leading-relaxed">
               LOADED LIVE FROM THE STORE — CASH ORDERS SIT HERE UNTIL YOU PRESS CONFIRM PAYMENT, WHICH RECORDS THE PAYMENT AND ISSUES THE GIFT CARD.
             </p>
-          </div>
+          </Panel>
 
           {/* Template Box */}
-          <div className="border border-grey-mid p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+          <Panel variant="outline" padding="lg" className="space-y-3" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h2 className="font-mono text-xs uppercase text-grey-light tracking-wider">
                 GIFT CARD TEMPLATE
               </h2>
               {activeTemplate && (
-                <span className="font-mono text-[10px] uppercase text-[#60A5FA]">
+                <span className="font-mono text-xs uppercase text-info">
                   ACTIVE: {activeTemplate.name}
                 </span>
               )}
             </div>
 
             {templates.map((t) => (
-              <div key={t.id} className="border border-grey-mid p-3 space-y-2">
+              <Panel key={t.id} variant="outline" padding="md" className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-mono text-xs text-white truncate">{t.name}</span>
                   <span className="flex items-center gap-1 shrink-0">
                     {t.isActive && (
-                      <span className="font-mono text-[10px] uppercase border border-[#60A5FA] text-[#60A5FA] px-1.5 py-0.5">ACTIVE</span>
+                      <span className="font-mono text-xs uppercase border border-info text-info px-1.5 py-0.5">ACTIVE</span>
                     )}
                     {!t.filePath && (
-                      <span className="font-mono text-[10px] uppercase border border-[#FACC15] text-[#FACC15] px-1.5 py-0.5" title="THE PDF WAS REMOVED — NEW CARDS USE THE BUILT-IN DESIGN">NO FILE</span>
+                      <span className="font-mono text-xs uppercase border border-warning text-warning px-1.5 py-0.5" title="THE PDF WAS REMOVED — NEW CARDS USE THE BUILT-IN DESIGN">NO FILE</span>
                     )}
                   </span>
                 </div>
@@ -796,7 +797,7 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                   {!t.isActive && (
                     <Button size="sm" variant="ghost" onClick={() => setActive(t)}>SET ACTIVE</Button>
                   )}
-                  <label className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1.5 text-grey-light hover:text-white hover:border-white transition-colors cursor-pointer" title="UPLOAD A NEW PDF ONTO THIS TEMPLATE — KEEPS NAME, MAPPING (ADAPTED TO THE NEW FIELDS) AND ACTIVE STATE">
+                  <label className="font-mono text-xs uppercase border border-grey-mid px-2 py-1.5 text-grey-light hover:text-white hover:border-white transition-colors cursor-pointer" title="UPLOAD A NEW PDF ONTO THIS TEMPLATE — KEEPS NAME, MAPPING (ADAPTED TO THE NEW FIELDS) AND ACTIVE STATE">
                     {t.filePath ? 'REPLACE FILE' : 'UPLOAD FILE'}
                     <input
                       type="file"
@@ -814,18 +815,18 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                   )}
                   <Button size="sm" variant="danger" onClick={() => handleDeleteTemplate(t)}>DELETE</Button>
                 </div>
-              </div>
+              </Panel>
             ))}
 
             <div className="border-t border-grey-mid pt-3 space-y-2">
-              <h3 className="font-mono text-[10px] uppercase text-grey-light tracking-wider">UPLOAD PDF TEMPLATE</h3>
+              <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">UPLOAD PDF TEMPLATE</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <Input value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="TEMPLATE NAME" />
                 <input
                   type="file"
                   accept="application/pdf,.pdf"
                   onChange={(e) => setTemplateFile(e.target.files?.[0] ?? null)}
-                  className="font-mono text-[10px] text-grey-light file:mr-2 file:px-2 file:py-1 file:bg-grey-dark file:border file:border-grey-mid file:text-white file:font-mono file:text-[10px] file:uppercase file:cursor-pointer"
+                  className="font-mono text-xs text-grey-light file:mr-2 file:px-2 file:py-1 file:bg-grey-dark file:border file:border-grey-mid file:text-white file:font-mono file:text-xs file:uppercase file:cursor-pointer"
                 />
               </div>
               <div className="flex items-center gap-2">
@@ -833,33 +834,33 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                   {uploading ? 'UPLOADING' : 'UPLOAD TEMPLATE'}
                 </Button>
                 {templateFile && (
-                  <span className="font-mono text-[10px] text-grey-light truncate">{templateFile.name}</span>
+                  <span className="font-mono text-xs text-grey-light truncate">{templateFile.name}</span>
                 )}
               </div>
               {templateError && <p className="font-mono text-xs text-danger">{templateError}</p>}
-              <p className="font-mono text-[10px] text-grey-light leading-relaxed">
+              <p className="font-mono text-xs text-grey-light leading-relaxed">
                 PDF MUST CONTAIN FILLABLE FORM FIELDS. AFTER UPLOAD, MAP EACH FIELD TO A GIFT CARD VALUE.
               </p>
             </div>
-          </div>
+          </Panel>
 
           {/* WooCommerce Sync Box */}
-          <div className="border border-grey-mid p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+          <Panel variant="outline" padding="lg" className="space-y-3" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h2 className="font-mono text-xs uppercase text-grey-light tracking-wider">
                 WOOCOMMERCE SYNC
               </h2>
               {categoryId ? (
-                <span className="font-mono text-[10px] uppercase border border-[#60A5FA] text-[#60A5FA] px-1.5 py-0.5">
+                <span className="font-mono text-xs uppercase border border-info text-info px-1.5 py-0.5">
                   CAT: {categoryName || categoryId}
                 </span>
               ) : (
-                <span className="font-mono text-[10px] uppercase text-grey-light">UNLINKED</span>
+                <span className="font-mono text-xs uppercase text-grey-light">UNLINKED</span>
               )}
             </div>
 
             {!hasIntegration && (
-              <p className="font-mono text-[10px] text-[#FACC15] uppercase leading-relaxed">
+              <p className="font-mono text-xs text-warning uppercase leading-relaxed">
                 NO ACTIVE WOOCOMMERCE INTEGRATION — LINK A CATEGORY IN SETTINGS → WOOCOMMERCE FIRST
               </p>
             )}
@@ -891,59 +892,59 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                 </Button>
               )}
             </div>
-            {syncMessage && <p className="font-mono text-[10px] text-success">{syncMessage}</p>}
-            {syncError && <p className="font-mono text-[10px] text-danger">{syncError}</p>}
+            {syncMessage && <p className="font-mono text-xs text-success">{syncMessage}</p>}
+            {syncError && <p className="font-mono text-xs text-danger">{syncError}</p>}
             {categoryError && <p className="font-mono text-xs text-danger">{categoryError}</p>}
 
             {/* Gift card products — created here, hidden from the food areas */}
             {categoryId && hasIntegration && (
               <div className="border-t border-grey-mid pt-3 space-y-3">
                 <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">GIFT CARD PRODUCT</h3>
-                <p className="font-mono text-[9px] text-grey-light leading-relaxed">
+                <p className="font-mono text-xs text-grey-light leading-relaxed">
                   ONE VARIABLE PRODUCT IN THE {categoryName ? `${categoryName} ` : ''}CATEGORY — ITS DENOMINATIONS ARE PICKED AT STORE CHECKOUT. HIDDEN FROM RECIPES, MENUS AND ORDER PICKERS; THIS PAGE OWNS IT.
                 </p>
 
                 {products.length > 0 && (
-                  <div className="border border-grey-mid divide-y divide-grey-mid">
+                  <Panel variant="outline" padding="none" className="divide-y divide-grey-mid">
                     {products.map((p) => (
                       <div key={p.id} className="px-2 py-1.5 flex items-center gap-2">
                         <span className="font-mono text-xs text-white truncate">{p.name}</span>
                         {p.isVariable ? (
                           <>
-                            <span className="font-mono text-[9px] uppercase border border-[#60A5FA]/60 text-[#60A5FA] px-1 py-0.5 shrink-0">
+                            <span className="font-mono text-xs uppercase border border-info/60 text-info px-1 py-0.5 shrink-0">
                               VARIABLE · {(p.variations ?? []).length} DENOMINATION{(p.variations ?? []).length === 1 ? '' : 'S'}
                             </span>
-                            <span className="font-mono text-[9px] text-grey-light shrink-0">
+                            <span className="font-mono text-xs text-grey-light shrink-0">
                               {(p.variations ?? []).map((v) => v.name).join(' / ')}
                             </span>
                           </>
                         ) : (
-                          <span className="font-mono text-[9px] uppercase border border-[#FACC15]/60 text-[#FACC15] px-1 py-0.5 shrink-0">SIMPLE — LEGACY</span>
+                          <span className="font-mono text-xs uppercase border border-warning/60 text-warning px-1 py-0.5 shrink-0">SIMPLE — LEGACY</span>
                         )}
                         {p.wooProductId && (
-                          <span className="font-mono text-[9px] uppercase text-[#60A5FA] border border-[#60A5FA]/50 px-1 py-0.5 shrink-0">WOO #{p.wooProductId}</span>
+                          <span className="font-mono text-xs uppercase text-info border border-info/50 px-1 py-0.5 shrink-0">WOO #{p.wooProductId}</span>
                         )}
                         <button
                           onClick={() => handleDeleteProduct(p)}
                           title={`DELETE ${p.name}`}
-                          className="ml-auto font-mono text-[10px] text-grey-light hover:text-danger shrink-0"
+                          className="ml-auto font-mono text-xs text-grey-light hover:text-danger shrink-0"
                         >
                           ✕
                         </button>
                       </div>
                     ))}
-                  </div>
+                  </Panel>
                 )}
 
                 {variableProduct ? (
-                  <div className="border border-grey-mid p-2.5 space-y-2">
+                  <Panel variant="outline" padding="sm" className="space-y-2">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                       <div>
-                        <label className="font-mono text-[9px] uppercase text-grey-light block mb-1">PRODUCT NAME</label>
+                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">PRODUCT NAME</label>
                         <Input value={productName} onChange={(e) => { setProductName(e.target.value); setProductDirty(true) }} />
                       </div>
                       <div>
-                        <label className="font-mono text-[9px] uppercase text-grey-light block mb-1">SHORT DESCRIPTION (STORE EXCERPT)</label>
+                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">SHORT DESCRIPTION (STORE EXCERPT)</label>
                         <Input value={productShortDesc} onChange={(e) => { setProductShortDesc(e.target.value); setProductDirty(true) }} />
                       </div>
                     </div>
@@ -952,7 +953,7 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                       value={productImageUrl}
                       onChange={(url) => { setProductImageUrl(url); setProductDirty(true) }}
                     />
-                    <p className="font-mono text-[9px] uppercase text-grey-light border-t border-grey-mid pt-2">DENOMINATIONS — BUYER PICKS ONE AT CHECKOUT</p>
+                    <p className="font-mono text-xs uppercase text-grey-light border-t border-grey-mid pt-2">DENOMINATIONS — BUYER PICKS ONE AT CHECKOUT</p>
                     {denoms.map((d, i) => (
                       <div key={i} className="flex items-center gap-2">
                         <span className="font-mono text-xs text-grey-light">$</span>
@@ -967,11 +968,11 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                           }}
                           className="text-right w-28"
                         />
-                        <span className="font-mono text-[10px] text-grey-light truncate">→ {d ? `$${d}` : '—'}</span>
+                        <span className="font-mono text-xs text-grey-light truncate">→ {d ? `$${d}` : '—'}</span>
                         <button
                           onClick={() => { setDenoms(denoms.filter((_, j) => j !== i)); setProductDirty(true) }}
                           title="REMOVE DENOMINATION"
-                          className="ml-auto font-mono text-[10px] text-grey-light hover:text-danger"
+                          className="ml-auto font-mono text-xs text-grey-light hover:text-danger"
                         >
                           ✕
                         </button>
@@ -989,12 +990,12 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                       <Button size="sm" onClick={handleSaveDenoms} disabled={savingDenoms || !productDirty || denoms.length === 0}>
                         {savingDenoms ? 'SYNCING' : 'SAVE PRODUCT CHANGES'}
                       </Button>
-                      {!productDirty && <span className="font-mono text-[9px] uppercase text-success">SYNCED</span>}
+                      {!productDirty && <span className="font-mono text-xs uppercase text-success">SYNCED</span>}
                     </div>
-                  </div>
+                  </Panel>
                 ) : (
                   <div className="space-y-2">
-                    <p className="font-mono text-[10px] text-grey-light uppercase">NO GIFT CARD PRODUCT YET — CREATE ONE (STARTS AT $50 / $100 / $150, EDIT AFTER)</p>
+                    <p className="font-mono text-xs text-grey-light uppercase">NO GIFT CARD PRODUCT YET — CREATE ONE (STARTS AT $50 / $100 / $150, EDIT AFTER)</p>
                     <div className="flex items-center gap-2 flex-wrap">
                       <Input value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="PRODUCT NAME (DEFAULT: GIFT CARD)" className="flex-1 min-w-[220px]" />
                       <Button size="sm" onClick={handleCreateProduct} disabled={savingProduct}>
@@ -1006,15 +1007,15 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                 {productError && <p className="font-mono text-xs text-danger">{productError}</p>}
               </div>
             )}
-            <p className="font-mono text-[10px] text-grey-light leading-relaxed">
+            <p className="font-mono text-xs text-grey-light leading-relaxed">
               PRODUCTS IN THIS CATEGORY AUTO-CREATE + ISSUE GIFT CARDS ON ORDER SYNC, AND THE STORE ORDER EMAILS CARRY THE PDF AUTOMATICALLY.
             </p>
-          </div>
+          </Panel>
         </div>
 
         {/* Right Column — Cards List */}
         <div className="lg:col-span-8">
-          <div className="border border-grey-mid p-4">
+          <Panel variant="outline" padding="lg">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-mono text-xs font-bold text-white uppercase">
                 CARDS ({cards.length})
@@ -1038,21 +1039,21 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                   {createOpen && (
                     <>
                       <div className="fixed inset-0 z-40" onClick={() => setCreateOpen(false)} aria-hidden />
-                      <div className="absolute right-0 mt-1 z-50 border border-grey-mid bg-grey-dark shadow-xl min-w-[150px]">
+                      <Panel padding="none" className="absolute right-0 mt-1 z-50 shadow-xl min-w-[150px]">
                         <button
                           onClick={() => handleCreateChosen('single')}
                           disabled={saving}
-                          className="w-full text-left px-3 py-2 font-mono text-[11px] uppercase tracking-wider text-grey-light hover:text-white hover:bg-black/40 disabled:opacity-40"
+                          className="w-full text-left px-3 py-2 font-mono text-xs uppercase tracking-wider text-grey-light hover:text-white hover:bg-black/40 disabled:opacity-40"
                         >
                           + SINGLE
                         </button>
                         <button
                           onClick={() => handleCreateChosen('bulk')}
-                          className="w-full text-left px-3 py-2 font-mono text-[11px] uppercase tracking-wider text-grey-light hover:text-white hover:bg-black/40"
+                          className="w-full text-left px-3 py-2 font-mono text-xs uppercase tracking-wider text-grey-light hover:text-white hover:bg-black/40"
                         >
                           BULK
                         </button>
-                      </div>
+                      </Panel>
                     </>
                   )}
                 </div>
@@ -1128,18 +1129,18 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                       <span className="font-mono text-xs text-white">{c.number}</span>
                       <span className="flex items-center gap-2">
                         {c.wooOrderNumber && (
-                          <span className="font-mono text-[10px] uppercase text-[#60A5FA]">WOO #{c.wooOrderNumber}</span>
+                          <span className="font-mono text-xs uppercase text-info">WOO #{c.wooOrderNumber}</span>
                         )}
-                        <span className={`font-mono text-xs border px-1.5 py-0.5 ${c.amount === 0 ? 'border-[#FACC15] text-[#FACC15]' : 'border-danger text-danger'}`}>
+                        <span className={`font-mono text-xs border px-1.5 py-0.5 ${c.amount === 0 ? 'border-warning text-warning' : 'border-danger text-danger'}`}>
                           ${c.amount.toFixed(2)}
                         </span>
                       </span>
                     </span>
                     <span className="flex items-center justify-between mt-0.5">
-                      <span className={`font-mono text-[10px] uppercase ${STATUS_COLORS[c.status] || 'text-grey-light'}`}>
+                      <span className={`font-mono text-xs uppercase ${STATUS_COLORS[c.status] || 'text-grey-light'}`}>
                         {c.status}
                       </span>
-                      <span className="font-sans text-[10px] text-grey-light truncate max-w-[200px]">
+                      <span className="font-sans text-xs text-grey-light truncate max-w-[200px]">
                         {c.customerName || (c.isInternal ? 'INTERNAL' : '')}
                       </span>
                     </span>
@@ -1150,7 +1151,7 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                 <p className="font-mono text-xs text-grey-light px-2 py-1">No gift cards. Click CREATE GIFT CARDS to make some.</p>
               )}
             </div>
-          </div>
+          </Panel>
         </div>
       </div>
       )}
@@ -1158,9 +1159,9 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
       {/* Bulk Create Modal */}
       {showBulk && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setShowBulk(false)}>
-          <div className="border border-grey-mid bg-grey-dark p-6 w-full max-w-sm space-y-4" onClick={(e) => e.stopPropagation()}>
+          <Panel padding="xl" className="w-full max-w-sm space-y-4" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-mono text-sm uppercase tracking-widest text-white">BULK CREATE</h2>
-            <p className="font-mono text-[10px] text-grey-light">NUMBERS 1–100 — THE LOWEST FREE ARE USED FIRST</p>
+            <p className="font-mono text-xs text-grey-light">NUMBERS 1–100 — THE LOWEST FREE ARE USED FIRST</p>
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <label className="font-mono text-xs uppercase text-grey-light block mb-1">COUNT</label>
@@ -1173,14 +1174,14 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setShowBulk(false)}>CANCEL</Button>
             </div>
-          </div>
+          </Panel>
         </div>
       )}
 
       {/* Field Mapping Modal */}
       {mappingTemplate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setMappingTemplate(null)}>
-          <div className="border border-grey-mid bg-grey-dark p-5 w-full max-w-6xl space-y-4 max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <Panel padding="lg" className="w-full max-w-6xl space-y-4 max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h2 className="font-mono text-sm uppercase tracking-widest text-white">FIELD MAPPING</h2>
               <span className="font-mono text-xs text-grey-light truncate">{mappingTemplate.name}</span>
@@ -1195,10 +1196,10 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                   </p>
                 )}
                 {mappingTemplate.fieldMapping.map((m, i) => (
-                  <div key={m.pdfField} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center border border-grey-mid p-2">
+                  <Panel key={m.pdfField} variant="outline" padding="xs" className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
                     <div className="md:col-span-4">
                       <div className="font-mono text-xs text-white truncate">{m.pdfField}</div>
-                      <div className="font-mono text-[10px] uppercase text-grey-light">{mappingTemplate.fields.find((f) => f.name === m.pdfField)?.type ?? ''}</div>
+                      <div className="font-mono text-xs uppercase text-grey-light">{mappingTemplate.fields.find((f) => f.name === m.pdfField)?.type ?? ''}</div>
                     </div>
                     <div className="md:col-span-5">
                       <select
@@ -1224,10 +1225,10 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                           ))}
                         </select>
                       ) : (
-                        <span className="font-mono text-[10px] uppercase text-grey-light">FORMAT: AUTO</span>
+                        <span className="font-mono text-xs uppercase text-grey-light">FORMAT: AUTO</span>
                       )}
                     </div>
-                  </div>
+                  </Panel>
                 ))}
 
                 {mappingError && <p className="font-mono text-xs text-danger">{mappingError}</p>}
@@ -1239,10 +1240,10 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
               </div>
 
               {/* Right — live preview of the filled sample card */}
-              <div className="border border-grey-mid flex flex-col min-h-[420px] min-w-0">
+              <Panel variant="outline" padding="none" className="flex flex-col min-h-[420px] min-w-0">
                 <div className="px-3 py-2 border-b border-grey-mid flex items-center justify-between gap-2">
                   <span className="font-mono text-xs uppercase tracking-widest text-white">LIVE PREVIEW</span>
-                  <span className="font-mono text-[9px] uppercase text-grey-light">REFRESHES AS YOU MAP</span>
+                  <span className="font-mono text-xs uppercase text-grey-light">REFRESHES AS YOU MAP</span>
                 </div>
                 {previewUrl ? (
                   <iframe
@@ -1252,16 +1253,16 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                   />
                 ) : (
                   <div className="flex-1 flex items-center justify-center p-4">
-                    <p className={`font-mono text-[10px] uppercase ${previewError ? 'text-danger' : 'text-grey-light'}`}>
+                    <p className={`font-mono text-xs uppercase ${previewError ? 'text-danger' : 'text-grey-light'}`}>
                       {mappingTemplate.filePath
                         ? (previewError || 'PREPARING PREVIEW...')
                         : 'NO PDF FILE — PREVIEW UNAVAILABLE'}
                     </p>
                   </div>
                 )}
-              </div>
+              </Panel>
             </div>
-          </div>
+          </Panel>
         </div>
       )}
 

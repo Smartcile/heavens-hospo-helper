@@ -43,7 +43,7 @@ function BlockView({
 
       {scalars.map(([key, value]) => (
         <div key={key} className="flex gap-2">
-          <span className="font-mono text-[10px] uppercase text-grey-light w-28 shrink-0">{fieldLabel(key)}</span>
+          <span className="font-mono text-xs uppercase text-grey-light w-28 shrink-0">{fieldLabel(key)}</span>
           <span className="font-mono text-xs text-white whitespace-pre-wrap">{String(value)}</span>
         </div>
       ))}
@@ -76,7 +76,7 @@ function BlockView({
       )}
 
       {scalars.length === 0 && (!items || items.length === 0) && (!rows || rows.length === 0) && (
-        <p className="font-mono text-[10px] uppercase text-grey-light">NOTHING SET YET.</p>
+        <p className="font-mono text-xs uppercase text-grey-light">NOTHING SET YET.</p>
       )}
     </div>
   )
@@ -160,7 +160,7 @@ export function EventShareClient({ token }: { token: string }) {
     <div className="min-h-screen bg-black">
       <div className="max-w-3xl mx-auto p-4 md:p-6 pb-[calc(1rem+env(safe-area-inset-bottom))] space-y-4">
         <div className="border border-grey-mid p-4 space-y-1">
-          <p className="font-mono text-[10px] uppercase text-grey-light tracking-widest">{view.venueName}</p>
+          <p className="font-mono text-xs uppercase text-grey-light tracking-widest">{view.venueName}</p>
           <h1 className="font-mono text-xl font-bold uppercase tracking-widest text-white">{view.name}</h1>
           <p className="font-mono text-xs uppercase text-grey-light">
             {view.eventDate}
@@ -169,7 +169,7 @@ export function EventShareClient({ token }: { token: string }) {
             {view.guestCount ? ` · ${view.guestCount} GUESTS` : ''}
             {view.diningStyle ? ` · ${view.diningStyle}` : ''}
           </p>
-          <p className="font-mono text-[10px] uppercase text-grey-light">
+          <p className="font-mono text-xs uppercase text-grey-light">
             STATUS: {view.status}
             {view.menuName ? ` · MENU: ${view.menuName}` : ''}
             {view.setupName ? ` · LAYOUT: ${view.setupName}` : ''}
@@ -190,15 +190,15 @@ export function EventShareClient({ token }: { token: string }) {
 
         <div className="border border-grey-mid p-4 grid grid-cols-3 gap-3">
           <div>
-            <div className="font-mono text-[10px] uppercase text-grey-light mb-0.5">SUBTOTAL</div>
+            <div className="font-mono text-xs uppercase text-grey-light mb-0.5">SUBTOTAL</div>
             <div className="font-mono text-sm text-white">{money(view.totals.subtotal)}</div>
           </div>
           <div>
-            <div className="font-mono text-[10px] uppercase text-grey-light mb-0.5">DEPOSIT</div>
+            <div className="font-mono text-xs uppercase text-grey-light mb-0.5">DEPOSIT</div>
             <div className="font-mono text-sm text-white">{money(view.totals.deposit)}</div>
           </div>
           <div>
-            <div className="font-mono text-[10px] uppercase text-grey-light mb-0.5">BALANCE</div>
+            <div className="font-mono text-xs uppercase text-grey-light mb-0.5">BALANCE</div>
             <div className={`font-mono text-sm ${view.totals.balance <= 0 ? 'text-success' : 'text-white'}`}>
               {money(view.totals.balance)}
             </div>
@@ -222,18 +222,18 @@ export function EventShareClient({ token }: { token: string }) {
           <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">REQUESTS & APPROVALS</h3>
 
           {view.requests.length === 0 && (
-            <p className="font-mono text-[10px] uppercase text-grey-light">NOTHING SENT YET.</p>
+            <p className="font-mono text-xs uppercase text-grey-light">NOTHING SENT YET.</p>
           )}
           {view.requests.map((r) => (
             <div key={r.id} className="border border-grey-mid p-2 space-y-1">
               <div className="flex items-center gap-2">
-                <span className="font-mono text-[9px] uppercase text-accent border border-accent px-1">{r.kind}</span>
-                <span className="font-mono text-[9px] uppercase text-grey-light border border-grey-mid px-1">{r.status}</span>
-                <span className="font-mono text-[9px] uppercase text-grey-light ml-auto">{r.createdAt.slice(0, 10)}</span>
+                <span className="font-mono text-xs uppercase text-accent border border-accent px-1">{r.kind}</span>
+                <span className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1">{r.status}</span>
+                <span className="font-mono text-xs uppercase text-grey-light ml-auto">{r.createdAt.slice(0, 10)}</span>
               </div>
               <p className="font-mono text-xs text-white whitespace-pre-wrap">{r.message}</p>
               {r.responseNote && (
-                <p className="font-mono text-[10px] uppercase text-grey-light">VENUE: {r.responseNote}</p>
+                <p className="font-mono text-xs uppercase text-grey-light">VENUE: {r.responseNote}</p>
               )}
             </div>
           ))}
@@ -245,11 +245,11 @@ export function EventShareClient({ token }: { token: string }) {
             </div>
 
             <div>
-              <label className="block font-mono text-[10px] uppercase text-grey-light mb-1">Your name</label>
+              <label className="block font-mono text-xs uppercase text-grey-light mb-1">Your name</label>
               <input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} placeholder="JANE SMITH" />
             </div>
             <div>
-              <label className="block font-mono text-[10px] uppercase text-grey-light mb-1">Request a change</label>
+              <label className="block font-mono text-xs uppercase text-grey-light mb-1">Request a change</label>
               <textarea
                 value={message}
                 rows={3}
@@ -269,8 +269,8 @@ export function EventShareClient({ token }: { token: string }) {
                 SEND REQUEST
               </Button>
             </div>
-            {error && <p className="font-mono text-[10px] uppercase text-danger">{error}</p>}
-            {sent && <p className="font-mono text-[10px] uppercase text-success">{sent}</p>}
+            {error && <p className="font-mono text-xs uppercase text-danger">{error}</p>}
+            {sent && <p className="font-mono text-xs uppercase text-success">{sent}</p>}
           </div>
         </div>
       </div>

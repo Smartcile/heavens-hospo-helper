@@ -54,7 +54,7 @@ describe('CustomerDrawer', () => {
     const onClose = vi.fn()
     render(<CustomerDrawer isOpen onClose={onClose} name="SUE LANE" />)
     await screen.findByText('SUE LANE')
-    fireEvent.click(document.querySelector('.bg-black\\/70')!)
+    fireEvent.click(document.querySelector('.bg-scrim')!)
     expect(onClose).toHaveBeenCalled()
   })
 })

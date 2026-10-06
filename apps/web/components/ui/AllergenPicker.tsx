@@ -91,7 +91,7 @@ export function AllergenPicker({ value, onChange, inherited, placeholder, classN
             return (
               <span
                 key={`inh-${a}`}
-                className="inline-flex items-center gap-1 font-mono text-[9px] uppercase px-1.5 py-0.5 border text-[#c4a530] border-[#c4a530]/50 bg-[#c4a530]/10"
+                className="inline-flex items-center gap-1 font-mono text-xs uppercase px-1.5 py-0.5 border text-gold border-gold/50 bg-gold/10"
                 title={source ? allergenTooltip(source) : ''}
               >
                 🔒 {a}
@@ -101,12 +101,12 @@ export function AllergenPicker({ value, onChange, inherited, placeholder, classN
           {selected.map((a) => (
             <span
               key={a}
-              className="inline-flex items-center gap-1 font-mono text-[9px] uppercase px-1.5 py-0.5 border text-[#c4a530] border-[#c4a530]"
+              className="inline-flex items-center gap-1 font-mono text-xs uppercase px-1.5 py-0.5 border text-gold border-gold"
             >
               {a}
               <button
                 onClick={() => remove(a)}
-                className="text-[#c4a530] hover:text-white ml-0.5"
+                className="text-gold hover:text-white ml-0.5"
               >
                 ×
               </button>

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { TimeInput } from '@/components/ui/TimeInput'
 import {
   allowedTypes,
   availabilityMeta,
@@ -140,7 +141,7 @@ export function WorkerAvailabilityClient() {
           {casual ? 'TAP THE DAYS YOU CAN WORK' : 'TAP THE DAYS YOU CANNOT WORK'}
         </p>
         {lockDays > 0 && (
-          <p className="font-mono text-[10px] text-warning mt-1 uppercase">
+          <p className="font-mono text-xs text-warning mt-1 uppercase">
             ▒ DAYS WITHIN {lockDays} DAYS CANNOT BE CHANGED
           </p>
         )}
@@ -157,7 +158,7 @@ export function WorkerAvailabilityClient() {
       <div className="p-4">
         <div className="grid grid-cols-7 gap-px bg-grey-mid border border-grey-mid">
           {WEEKDAY_HEADS.map((w) => (
-            <div key={w} className="bg-black py-1.5 text-center font-mono text-[10px] uppercase text-grey-light tracking-wider">{w}</div>
+            <div key={w} className="bg-black py-1.5 text-center font-mono text-xs uppercase text-grey-light tracking-wider">{w}</div>
           ))}
           {cells.map((c, i) => {
             if (!c.inMonth || !c.key) return <div key={`blank-${i}`} className="bg-black min-h-[52px]" />
@@ -178,7 +179,7 @@ export function WorkerAvailabilityClient() {
                   <span className={`mt-1 w-2 h-2 ${meta.dot}`} />
                 )}
                 {!entry?.isAllDay && entry?.startTime && entry?.endTime && (
-                  <span className="font-mono text-[8px] text-grey-light leading-none mt-0.5">{entry.startTime.slice(0, 5)}–{entry.endTime.slice(0, 5)}</span>
+                  <span className="font-mono text-xs text-grey-light leading-none mt-0.5">{entry.startTime.slice(0, 5)}–{entry.endTime.slice(0, 5)}</span>
                 )}
               </button>
             )
@@ -188,10 +189,10 @@ export function WorkerAvailabilityClient() {
         {/* Legend */}
         <div className="flex flex-wrap items-center gap-3 mt-3">
           {casual && (
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-success" /><span className="font-mono text-[10px] uppercase text-grey-light">Preferred</span></span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-success" /><span className="font-mono text-xs uppercase text-grey-light">Preferred</span></span>
           )}
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-danger" /><span className="font-mono text-[10px] uppercase text-grey-light">Unavailable</span></span>
-          <span className="flex items-center gap-1.5"><span className={`w-2 h-2 ${casual ? 'bg-warning' : 'bg-grey-mid'}`} /><span className="font-mono text-[10px] uppercase text-grey-light">{casual ? 'Unset' : 'Available'}</span></span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-danger" /><span className="font-mono text-xs uppercase text-grey-light">Unavailable</span></span>
+          <span className="flex items-center gap-1.5"><span className={`w-2 h-2 ${casual ? 'bg-warning' : 'bg-grey-mid'}`} /><span className="font-mono text-xs uppercase text-grey-light">{casual ? 'Unset' : 'Available'}</span></span>
         </div>
       </div>
 
@@ -224,24 +225,24 @@ export function WorkerAvailabilityClient() {
           {!isAllDay && (
             <div className="grid grid-cols-2 gap-2">
               <div className="flex flex-col gap-1">
-                <label className="font-mono text-xs uppercase text-grey-light">From</label>
-                <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="bg-black border border-grey-mid text-white font-mono text-sm px-2 py-2 outline-none focus:border-white" />
+                <label className="label">From</label>
+                <TimeInput value={startTime} onChange={(e) => setStartTime(e.target.value)} />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="font-mono text-xs uppercase text-grey-light">To</label>
-                <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="bg-black border border-grey-mid text-white font-mono text-sm px-2 py-2 outline-none focus:border-white" />
+                <label className="label">To</label>
+                <TimeInput value={endTime} onChange={(e) => setEndTime(e.target.value)} />
               </div>
             </div>
           )}
 
-          <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="NOTE (OPTIONAL)" className="w-full bg-black border border-grey-mid text-white font-sans text-sm px-3 py-2 outline-none focus:border-white placeholder:text-grey-light" />
+          <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="NOTE (OPTIONAL)" className="field" />
 
           <div className="flex flex-col gap-1">
             <label className="font-mono text-xs uppercase text-grey-light">
               Repeat — every {formatDateLong(selected).split(',')[0]}
             </label>
             <select value={occurrences} onChange={(e) => setOccurrences(Number(e.target.value))}
-              className="bg-black border border-grey-mid text-white font-mono text-sm px-2 py-2 outline-none focus:border-white">
+              className="field">
               {REPEAT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
@@ -259,7 +260,7 @@ export function WorkerAvailabilityClient() {
             )}
           </div>
           {selectedMeta && selectedHasEntry && (
-            <p className="font-mono text-[10px] text-grey-light uppercase">CURRENT: <span className={selectedMeta.badge.split(' ')[1]}>{selectedMeta.label}</span></p>
+            <p className="font-mono text-xs text-grey-light uppercase">CURRENT: <span className={selectedMeta.badge.split(' ')[1]}>{selectedMeta.label}</span></p>
           )}
         </div>
       ) : (

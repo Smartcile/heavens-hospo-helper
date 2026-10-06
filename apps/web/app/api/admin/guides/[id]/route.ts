@@ -17,6 +17,7 @@ import {
   guideStepsWrite,
   guideTypeValue,
   scopedFolderId,
+  scopedMenuId,
   stepsManageLinks,
   syncStepLinks,
   tableRowsWrite,
@@ -93,6 +94,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.bodyHtml !== undefined) updates.bodyHtml = cleanBodyHtml(body.bodyHtml)
   if (body.departmentId !== undefined) updates.departmentId = body.departmentId || null
   if (body.folderId !== undefined) updates.folderId = await scopedFolderId(body.folderId, existing.venueId)
+  if (body.sourceMenuId !== undefined) updates.sourceMenuId = await scopedMenuId(body.sourceMenuId, existing.venueId)
   if (body.isTracked !== undefined) updates.isTracked = !!body.isTracked
   if (body.isOnboarding !== undefined) updates.isOnboarding = !!body.isOnboarding
   if (body.requiresSignOff !== undefined) updates.requiresSignOff = !!body.requiresSignOff

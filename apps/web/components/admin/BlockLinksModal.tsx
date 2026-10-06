@@ -33,8 +33,8 @@ function TargetList({
   return (
     <div className="border border-grey-mid">
       <div className="px-2 py-1.5 border-b border-grey-mid bg-grey-dark/40 flex items-center gap-2">
-        <span className="font-mono text-[10px] uppercase text-white tracking-wider">{title}</span>
-        <span className="font-mono text-[9px] uppercase text-grey-light">{selected.size} SELECTED</span>
+        <span className="font-mono text-xs uppercase text-white tracking-wider">{title}</span>
+        <span className="font-mono text-xs uppercase text-grey-light">{selected.size} SELECTED</span>
       </div>
       <div className="p-2 space-y-1">
         <input
@@ -45,12 +45,12 @@ function TargetList({
         />
         <div className="max-h-40 overflow-y-auto space-y-0.5 pt-1">
           {shown.length === 0 ? (
-            <p className="font-mono text-[10px] uppercase text-grey-light py-2 text-center">NOTHING TO LINK.</p>
+            <p className="font-mono text-xs uppercase text-grey-light py-2 text-center">NOTHING TO LINK.</p>
           ) : (
             shown.map((o) => (
               <label key={o.id} className="flex items-center gap-2 px-1 py-1 hover:bg-grey-dark/40 cursor-pointer">
                 <input type="checkbox" checked={selected.has(o.id)} onChange={() => onToggle(o.id)} />
-                <span className="font-mono text-[10px] uppercase text-white truncate">{o.name}</span>
+                <span className="font-mono text-xs uppercase text-white truncate">{o.name}</span>
               </label>
             ))
           )}
@@ -142,7 +142,7 @@ export function BlockLinksModal({
   return (
     <Modal isOpen onClose={onClose} title={`REFERENCES — ${label}`} size="lg">
       <div className="space-y-3">
-        <p className="font-mono text-[10px] uppercase text-grey-light">
+        <p className="font-mono text-xs uppercase text-grey-light">
           THESE APPEAR AS A REFERENCE BUTTON WHILE SOMEONE FILLS THIS AREA.
         </p>
         {loading ? (

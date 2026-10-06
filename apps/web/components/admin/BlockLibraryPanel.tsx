@@ -236,7 +236,7 @@ export function BlockLibraryPanel({ sessionVenueId, defaultVenueId }: {
         <Button size="sm" onClick={openCreate}>+ NEW BLOCK</Button>
       </div>
 
-      <p className="font-mono text-[10px] uppercase text-grey-light">
+      <p className="font-mono text-xs uppercase text-grey-light">
         CUSTOM BLOCKS APPEAR IN THE BUILDER&apos;S LIBRARY ALONGSIDE THE BUILT-INS. BUILT-INS ARE FIXED IN CODE.
       </p>
 
@@ -259,10 +259,10 @@ export function BlockLibraryPanel({ sessionVenueId, defaultVenueId }: {
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-xs uppercase text-white truncate">{d.label}</span>
                       <div className="flex-1" />
-                      <span className="font-mono text-[9px] uppercase text-grey-light border border-grey-mid px-1">{d.group}</span>
+                      <span className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1">{d.group}</span>
                     </div>
-                    <div className="font-mono text-[9px] uppercase text-grey-light truncate">{d.key}</div>
-                    <div className="font-mono text-[9px] uppercase text-grey-light">
+                    <div className="font-mono text-xs uppercase text-grey-light truncate">{d.key}</div>
+                    <div className="font-mono text-xs uppercase text-grey-light">
                       {(Array.isArray(d.fields) ? d.fields : []).length} FIELD(S)
                       {linkCounts[d.key] ? ` · ${linkCounts[d.key]} REF` : ''}
                       {d.description ? ` · ${d.description}` : ''}
@@ -284,11 +284,11 @@ export function BlockLibraryPanel({ sessionVenueId, defaultVenueId }: {
               {BEO_BLOCKS.map((b) => (
                 <div key={b.type} className="border border-grey-mid p-2 space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-[10px] uppercase text-white truncate">{b.label}</span>
+                    <span className="font-mono text-xs uppercase text-white truncate">{b.label}</span>
                     <div className="flex-1" />
-                    <span className="font-mono text-[8px] uppercase text-grey-light border border-grey-mid px-1">BUILT-IN</span>
+                    <span className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1">BUILT-IN</span>
                   </div>
-                  <div className="font-mono text-[9px] uppercase text-grey-light truncate">
+                  <div className="font-mono text-xs uppercase text-grey-light truncate">
                     {b.description}
                     {linkCounts[b.type] ? ` · ${linkCounts[b.type]} REF` : ''}
                   </div>
@@ -317,7 +317,7 @@ export function BlockLibraryPanel({ sessionVenueId, defaultVenueId }: {
 
           <div className="border border-grey-mid p-3 space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="font-mono text-[10px] uppercase text-grey-light tracking-wider">FIELDS</h3>
+              <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">FIELDS</h3>
               <Button size="sm" variant="ghost" onClick={() => setFields((p) => [...p, emptyField()])}>+ ADD FIELD</Button>
             </div>
 
@@ -361,8 +361,8 @@ export function BlockLibraryPanel({ sessionVenueId, defaultVenueId }: {
                 {f.kind === 'select' && (
                   <div className="space-y-1 border-l border-grey-mid ml-2 pl-3">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-[9px] uppercase text-grey-light">OPTIONS</span>
-                      <button type="button" className="font-mono text-[9px] uppercase text-grey-light hover:text-white"
+                      <span className="font-mono text-xs uppercase text-grey-light">OPTIONS</span>
+                      <button type="button" className="font-mono text-xs uppercase text-grey-light hover:text-white"
                         onClick={() => patchField(i, { options: [...(f.options ?? []), { value: '', label: '' }] })}>+ OPTION</button>
                     </div>
                     {(f.options ?? []).map((o, oi) => (
@@ -389,8 +389,8 @@ export function BlockLibraryPanel({ sessionVenueId, defaultVenueId }: {
                 {f.kind === 'rows' && (
                   <div className="space-y-1 border-l border-grey-mid ml-2 pl-3">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-[9px] uppercase text-grey-light">COLUMNS</span>
-                      <button type="button" className="font-mono text-[9px] uppercase text-grey-light hover:text-white"
+                      <span className="font-mono text-xs uppercase text-grey-light">COLUMNS</span>
+                      <button type="button" className="font-mono text-xs uppercase text-grey-light hover:text-white"
                         onClick={() => patchField(i, { columns: [...(f.columns ?? []), { key: '', label: '', kind: 'text' }] })}>+ COLUMN</button>
                     </div>
                     {(f.columns ?? []).map((c, ci) => (

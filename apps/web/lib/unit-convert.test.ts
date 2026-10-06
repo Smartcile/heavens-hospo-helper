@@ -9,12 +9,18 @@ import {
   convertLine,
   convertQty,
   findKnownIngredient,
+  allowedKinds,
+  uomFitsItem,
+  uomsForItem,
+  resolveItemKind,
+  canonicalQty,
   METRIC_CUP_ML,
   METRIC_TBSP_ML,
   METRIC_TSP_ML,
   type UomLike,
   type ItemLike,
   type IngredientRefLike,
+  type KindedItemLike,
 } from '@/lib/unit-convert'
 
 const CUP: UomLike = { id: 'cup', name: 'CUP', baseUnit: 'mL', conversionRatio: 250, kind: 'VOLUME' }
@@ -209,5 +215,57 @@ describe('findKnownIngredient', () => {
     expect(findKnownIngredient('', REFS)).toBeNull()
     expect(findKnownIngredient('   ', REFS)).toBeNull()
     expect(findKnownIngredient('CAVIAR', REFS)).toBeNull()
+  })
+})
+
+describe('allowedKinds / uomFitsItem', () => {
+  const ALL: UomLike[] = [ML, CUP, GRAM, KG, EA, CASE12]
+
+  it('unrestricted when the item has no kind', () => {
+    expect([...allowedKinds(null)].sort()).toEqual(['COUNT', 'MASS', 'VOLUME'])
+    expect(uomsForItem(ALL, null)).toHaveLength(ALL.length)
+  })
+
+  it('a VOLUME item with a density may also use MASS (but not COUNT without a weight)', () => {
+    const gin: KindedItemLike = { kind: 'VOLUME', densityGramsPerMl: 0.94, weightPerUnitGrams: null }
+    expect(uomFitsItem(ML, gin)).toBe(true)
+    expect(uomFitsItem(GRAM, gin)).toBe(true)
+    expect(uomFitsItem(EA, gin)).toBe(false)
+  })
+
+  it('a COUNT item without bridges is COUNT only — the bottle case', () => {
+    const bottle: KindedItemLike = { kind: 'COUNT', densityGramsPerMl: null, weightPerUnitGrams: null }
+    expect(uomFitsItem(EA, bottle)).toBe(true)
+    expect(uomFitsItem(ML, bottle)).toBe(false) // a bottle cannot be measured in mL
+    expect(uomFitsItem(GRAM, bottle)).toBe(false)
+  })
+
+  it('a COUNT item with a unit weight may also use MASS', () => {
+    const egg: KindedItemLike = { kind: 'COUNT', densityGramsPerMl: null, weightPerUnitGrams: 50 }
+    expect(uomFitsItem(EA, egg)).toBe(true)
+    expect(uomFitsItem(GRAM, egg)).toBe(true)
+    expect(uomFitsItem(ML, egg)).toBe(false)
+  })
+
+  it('a MASS item with density and unit weight reaches all three', () => {
+    const flexible: KindedItemLike = { kind: 'MASS', densityGramsPerMl: 0.5, weightPerUnitGrams: 50 }
+    expect(uomsForItem(ALL, flexible)).toHaveLength(ALL.length)
+  })
+
+  it('canonicalQty reports grams for a bridged item, base units otherwise', () => {
+    // 2 CUP of a density item → grams (2 × 250 mL × 0.528)
+    expect(canonicalQty(2, CUP, FLOUR)).toBeCloseTo(264, 1)
+    // no density → base units (mL), i.e. 2 × 250
+    expect(canonicalQty(2, CUP, NO_DATA)).toBe(500)
+    // a straight base-unit item (EA)
+    expect(canonicalQty(3, EA, null)).toBe(3)
+  })
+
+  it('resolveItemKind matches a unit string by name then base unit', () => {
+    expect(resolveItemKind('ML', ALL)).toBe('VOLUME')
+    expect(resolveItemKind('25', ALL)).toBeNull() // no uom named/baseUnit "25"
+    const litre: UomLike = { id: 'l', name: 'LITRE', baseUnit: 'mL', conversionRatio: 1000, kind: 'VOLUME' }
+    expect(resolveItemKind('LITRE', [litre])).toBe('VOLUME')
+    expect(resolveItemKind('mL', [litre])).toBe('VOLUME') // falls back to baseUnit
   })
 })

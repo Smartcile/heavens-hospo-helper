@@ -63,7 +63,7 @@ export function ImagePicker({ value, onChange, label, className, disabled, endpo
   return (
     <div className={cn('flex items-center gap-3 flex-wrap', className)} onPaste={handlePaste}>
       {label && (
-        <span className="font-mono text-[10px] uppercase text-grey-light tracking-wider">{label}</span>
+        <span className="font-mono text-xs uppercase text-grey-light tracking-wider">{label}</span>
       )}
       {value ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -77,7 +77,7 @@ export function ImagePicker({ value, onChange, label, className, disabled, endpo
       ) : null}
       <div className="flex items-center gap-2 flex-wrap">
         <label className={cn(
-          'cursor-pointer font-mono text-[10px] uppercase border border-grey-mid px-2 py-1.5 transition-colors',
+          'cursor-pointer font-mono text-xs uppercase border border-grey-mid px-2 py-1.5 transition-colors',
           disabled ? 'opacity-40 cursor-not-allowed' : 'text-grey-light hover:text-white hover:border-white',
         )}>
           {uploading ? 'UPLOADING...' : value ? 'REPLACE IMAGE' : 'ADD IMAGE'}
@@ -97,16 +97,16 @@ export function ImagePicker({ value, onChange, label, className, disabled, endpo
           <button
             type="button"
             onClick={() => onChange(null)}
-            className="font-mono text-[10px] uppercase text-grey-light hover:text-danger transition-colors"
+            className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors"
           >
             REMOVE
           </button>
         )}
         {!disabled && (
-          <span className="font-mono text-[9px] text-grey-light/50 hidden sm:inline">OR PASTE (CTRL+V)</span>
+          <span className="font-mono text-xs text-grey-light/50 hidden sm:inline">OR PASTE (CTRL+V)</span>
         )}
       </div>
-      {error && <span className="font-mono text-[10px] text-danger">{error}</span>}
+      {error && <span className="font-mono text-xs text-danger">{error}</span>}
     </div>
   )
 }

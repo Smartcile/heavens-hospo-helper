@@ -405,7 +405,7 @@ export function ComplianceTasksClient({ role, sessionVenueId, defaultVenueId }: 
           <div className="flex items-baseline gap-2">
             <span className="font-mono text-2xl text-white">{data?.health.provedX ?? '–'}</span>
             <span className="font-mono text-sm text-grey-light">/ {data?.health.provedY ?? '–'}</span>
-            <span className="font-mono text-[10px] uppercase text-grey-light ml-auto">PASS IN LAST 7 DAYS</span>
+            <span className="font-mono text-xs uppercase text-grey-light ml-auto">PASS IN LAST 7 DAYS</span>
           </div>
         </div>
         <div className="border border-grey-mid p-3 space-y-2">
@@ -415,7 +415,7 @@ export function ComplianceTasksClient({ role, sessionVenueId, defaultVenueId }: 
               {data?.health.alertX ?? '–'}
             </span>
             <span className="font-mono text-sm text-grey-light">/ {data?.health.alertY ?? '–'}</span>
-            <span className="font-mono text-[10px] uppercase text-grey-light ml-auto">OPEN ALERTS</span>
+            <span className="font-mono text-xs uppercase text-grey-light ml-auto">OPEN ALERTS</span>
           </div>
         </div>
       </div>
@@ -435,7 +435,7 @@ export function ComplianceTasksClient({ role, sessionVenueId, defaultVenueId }: 
           </button>
         ))}
         <div className="ml-auto flex items-center gap-2">
-          <span className="font-mono text-[10px] uppercase text-grey-light">VIEW</span>
+          <span className="font-mono text-xs uppercase text-grey-light">VIEW</span>
           <button
             onClick={() => setView('table')}
             className={cn('px-2 py-1 font-mono text-xs border', view === 'table' ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid')}
@@ -484,7 +484,7 @@ export function ComplianceTasksClient({ role, sessionVenueId, defaultVenueId }: 
               </div>
               <table className="w-full table-fixed">
                 <thead>
-                  <tr className="border-b border-grey-mid font-mono text-[10px] uppercase text-grey-light tracking-wider">
+                  <tr className="border-b border-grey-mid font-mono text-xs uppercase text-grey-light tracking-wider">
                     <th className="text-left px-3 py-2 w-[30%]">NAME</th>
                     <th className="text-left px-3 py-2 w-[14%]">SCHEDULE</th>
                     <th className="text-left px-3 py-2 w-[12%]">STATUS</th>
@@ -505,38 +505,38 @@ export function ComplianceTasksClient({ role, sessionVenueId, defaultVenueId }: 
                           <div className="font-mono text-xs text-white truncate">
                             {t.title}
                             {t.completionType === 'READING' && (
-                              <span className="ml-2 text-[10px] text-grey-light">{describeBand(t, t.readingUnit)}</span>
+                              <span className="ml-2 text-xs text-grey-light">{describeBand(t, t.readingUnit)}</span>
                             )}
                           </div>
-                          <div className="font-mono text-[10px] text-grey-light truncate">
+                          <div className="font-mono text-xs text-grey-light truncate">
                             {t.linkedItem ? `LINKED: ${t.linkedItem.name}` : t.department?.name ?? 'NO DEPARTMENT'}
                           </div>
                         </td>
-                        <td className="px-3 py-2 font-mono text-[10px] text-grey-light">
+                        <td className="px-3 py-2 font-mono text-xs text-grey-light">
                           {describeSchedule(t)}
                         </td>
                         <td className="px-3 py-2">
                           {t.completionType === 'READING' && badge.total > 0 ? (
-                            <span className={cn('font-mono text-[10px] border px-1.5 py-0.5', badge.pass === badge.total ? 'text-success border-success/50' : 'text-danger border-danger/50')}>
+                            <span className={cn('font-mono text-xs border px-1.5 py-0.5', badge.pass === badge.total ? 'text-success border-success/50' : 'text-danger border-danger/50')}>
                               PASS: {badge.pass}/{badge.total}
                             </span>
                           ) : (
-                            <span className="font-mono text-[10px] text-grey-light">—</span>
+                            <span className="font-mono text-xs text-grey-light">—</span>
                           )}
                         </td>
                         <td className="px-3 py-2">
                           {t.openAlertCount > 0 ? (
                             <a
                               href="/admin/compliance?tab=alerts"
-                              className="font-mono text-[10px] text-danger border border-danger/50 px-1.5 py-0.5"
+                              className="font-mono text-xs text-danger border border-danger/50 px-1.5 py-0.5"
                             >
                               {t.openAlertCount} ALERT{t.openAlertCount > 1 ? 'S' : ''}
                             </a>
                           ) : (
-                            <span className="font-mono text-[10px] text-grey-light">—</span>
+                            <span className="font-mono text-xs text-grey-light">—</span>
                           )}
                         </td>
-                        <td className="px-3 py-2 font-mono text-[10px] text-grey-light">
+                        <td className="px-3 py-2 font-mono text-xs text-grey-light">
                           {lastCompleted(t) ?? 'NEVER'}
                         </td>
                         <td className="px-3 py-2">
@@ -579,26 +579,26 @@ export function ComplianceTasksClient({ role, sessionVenueId, defaultVenueId }: 
                   <div className="font-mono text-xs text-white leading-snug">
                     {t.title}
                     {t.completionType === 'READING' && (
-                      <div className="text-[10px] text-grey-light">{describeBand(t, t.readingUnit)}</div>
+                      <div className="text-xs text-grey-light">{describeBand(t, t.readingUnit)}</div>
                     )}
                   </div>
-                  <span className="font-mono text-[10px] text-grey-light shrink-0">{t.hsCategory ?? 'GENERAL'}</span>
+                  <span className="font-mono text-xs text-grey-light shrink-0">{t.hsCategory ?? 'GENERAL'}</span>
                 </div>
-                <div className="font-mono text-[10px] text-grey-light">
+                <div className="font-mono text-xs text-grey-light">
                   {t.linkedItem ? `LINKED: ${t.linkedItem.name}` : t.department?.name ?? 'NO DEPARTMENT'} · {describeSchedule(t)}
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   {t.completionType === 'READING' && badge.total > 0 ? (
-                    <span className={cn('font-mono text-[10px] border px-1.5 py-0.5', badge.pass === badge.total ? 'text-success border-success/50' : 'text-danger border-danger/50')}>
+                    <span className={cn('font-mono text-xs border px-1.5 py-0.5', badge.pass === badge.total ? 'text-success border-success/50' : 'text-danger border-danger/50')}>
                       PASS: {badge.pass}/{badge.total}
                     </span>
                   ) : null}
                   {t.openAlertCount > 0 && (
-                    <a href="/admin/compliance?tab=alerts" className="font-mono text-[10px] text-danger border border-danger/50 px-1.5 py-0.5">
+                    <a href="/admin/compliance?tab=alerts" className="font-mono text-xs text-danger border border-danger/50 px-1.5 py-0.5">
                       {t.openAlertCount} ALERT{t.openAlertCount > 1 ? 'S' : ''}
                     </a>
                   )}
-                  <span className="font-mono text-[10px] text-grey-light ml-auto">{lastCompleted(t) ?? 'NEVER COMPLETED'}</span>
+                  <span className="font-mono text-xs text-grey-light ml-auto">{lastCompleted(t) ?? 'NEVER COMPLETED'}</span>
                 </div>
                 <div className="flex items-center gap-1 pt-1 border-t border-grey-mid">
                   <Button size="sm" variant="ghost" onClick={() => openEdit(t)}>EDIT</Button>
@@ -652,12 +652,12 @@ export function ComplianceTasksClient({ role, sessionVenueId, defaultVenueId }: 
             {form.completionType === 'READING' && (
               <div className="border border-grey-mid p-3 space-y-3">
                 <div className="flex items-center gap-1 flex-wrap">
-                  <span className="font-mono text-[10px] uppercase text-grey-light mr-1">GFMP PRESET:</span>
+                  <span className="font-mono text-xs uppercase text-grey-light mr-1">GFMP PRESET:</span>
                   {GFMP_PRESETS.map((p) => (
                     <button
                       key={p.key}
                       onClick={() => applyPreset(p.key)}
-                      className="px-2 py-1 font-mono text-[10px] uppercase border border-grey-mid text-grey-light hover:text-white hover:border-white"
+                      className="px-2 py-1 font-mono text-xs uppercase border border-grey-mid text-grey-light hover:text-white hover:border-white"
                     >
                       {p.label}
                     </button>
@@ -670,7 +670,7 @@ export function ComplianceTasksClient({ role, sessionVenueId, defaultVenueId }: 
                   <Input label="CRITICAL MIN" aria-label="CRITICAL MIN" type="number" value={form.criticalMin} onChange={(e) => setForm({ ...form, criticalMin: e.target.value })} />
                   <Input label="CRITICAL MAX" aria-label="CRITICAL MAX" type="number" value={form.criticalMax} onChange={(e) => setForm({ ...form, criticalMax: e.target.value })} />
                 </div>
-                <p className="font-mono text-[10px] text-grey-light">
+                <p className="font-mono text-xs text-grey-light">
                   PASS = INSIDE MIN–MAX · OUTSIDE CRITICAL BAND = CRITICAL ALERT + URGENT NOTICE TO THE FLOOR
                 </p>
               </div>
@@ -686,12 +686,12 @@ export function ComplianceTasksClient({ role, sessionVenueId, defaultVenueId }: 
                 />
                 {itemSearch.trim() !== '' && (
                   <div className="absolute top-full left-0 right-0 z-10 bg-grey-dark border border-grey-mid max-h-48 overflow-y-auto">
-                    {itemMatches.length === 0 && <div className="px-3 py-2 font-mono text-[10px] text-grey-light">NO MATCHES</div>}
+                    {itemMatches.length === 0 && <div className="px-3 py-2 font-mono text-xs text-grey-light">NO MATCHES</div>}
                     {itemMatches.map((c) => (
                       <button
                         key={c.id}
                         onClick={() => handleItemLink(c.id)}
-                        className="w-full text-left px-3 py-2 font-mono text-[10px] text-white hover:bg-grey-mid flex items-center gap-2"
+                        className="w-full text-left px-3 py-2 font-mono text-xs text-white hover:bg-grey-mid flex items-center gap-2"
                       >
                         {c.name}
                         <span className="text-grey-light ml-auto">{c.storageType} · {c.unit}</span>
@@ -702,7 +702,7 @@ export function ComplianceTasksClient({ role, sessionVenueId, defaultVenueId }: 
                 {form.linkedItemId && (
                   <button
                     onClick={() => { setForm({ ...form, linkedItemId: '' }); setItemSearch('') }}
-                    className="mt-1 font-mono text-[10px] uppercase text-danger"
+                    className="mt-1 font-mono text-xs uppercase text-danger"
                   >
                     ✕ REMOVE LINK
                   </button>
@@ -756,7 +756,7 @@ export function ComplianceTasksClient({ role, sessionVenueId, defaultVenueId }: 
                     key={d}
                     onClick={() => toggleDay(d)}
                     className={cn(
-                      'w-8 h-8 font-mono text-[10px] border',
+                      'w-8 h-8 font-mono text-xs border',
                       form.scheduleDays.includes(d) ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid',
                     )}
                   >

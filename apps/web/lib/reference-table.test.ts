@@ -8,7 +8,10 @@ import {
   displayCellText,
   displayCellImage,
   columnIsEditable,
+  isDerivedColumn,
   isMenuField,
+  mergeMenuRows,
+  type ReferenceRowDraftLike,
   type ReferenceMenuItem,
 } from './reference-table'
 
@@ -19,6 +22,8 @@ const wine: ReferenceMenuItem = {
   description: 'Crisp, citrus-led.',
   imageUrl: '/uploads/wine.png',
   dietaryInfo: 'SULPHITES',
+  serveMethod: 'WINE',
+  serveSummary: 'GLASS · 150 ML / BOTTLE · 750 ML',
 }
 
 describe('sanitiseColumns', () => {
@@ -109,6 +114,56 @@ describe('displayCellImage', () => {
   it('uses the stored cell for a manual IMAGE column', () => {
     const col = { key: 'photo', label: 'PHOTO', type: 'IMAGE' as const }
     expect(displayCellImage({ menuItem: null, cells: { photo: '/x.png' } }, col)).toBe('/x.png')
+  })
+})
+
+describe('mergeMenuRows', () => {
+  const row = (menuItemId: string | null, extra: Partial<ReferenceRowDraftLike> = {}): ReferenceRowDraftLike => ({
+    id: null,
+    menuItemId,
+    cells: {},
+    ...extra,
+  })
+
+  it('appends a row for every menu item not already present, in menu order', () => {
+    const merged = mergeMenuRows([row('a', { id: 'r1', cells: { note: 'x' } })], ['a', 'b', 'c'])
+    expect(merged.map((r) => r.menuItemId)).toEqual(['a', 'b', 'c'])
+    expect(merged[0].cells).toEqual({ note: 'x' })
+    expect(merged[1]).toEqual({ id: null, menuItemId: 'b', cells: {} })
+  })
+
+  it('never removes or reorders existing rows — including off-menu ones', () => {
+    const merged = mergeMenuRows([row('off', { id: 'r1' }), row('a', { id: 'r2' })], ['a', 'b'])
+    expect(merged.map((r) => r.menuItemId)).toEqual(['off', 'a', 'b'])
+  })
+
+  it('returns the same array instance when there is nothing to add', () => {
+    const rows = [row('a', { id: 'r1' })]
+    expect(mergeMenuRows(rows, ['a'])).toBe(rows)
+    expect(mergeMenuRows(rows, [])).toBe(rows)
+  })
+
+  it('ignores blank ids and de-dupes an item listed twice', () => {
+    const merged = mergeMenuRows([], ['a', 'a', '', 'b'])
+    expect(merged.map((r) => r.menuItemId)).toEqual(['a', 'b'])
+  })
+})
+
+describe('serve columns', () => {
+  const method = { key: 'method', label: 'METHOD', type: 'METHOD' as const }
+  const size = { key: 'serve', label: 'SERVE', type: 'SERVE' as const }
+
+  it('reads METHOD / SERVE from the product\u2019s serves', () => {
+    const row = { menuItem: wine, cells: {} }
+    expect(displayCellText(row, method)).toBe('WINE')
+    expect(displayCellText(row, size)).toBe('GLASS · 150 ML / BOTTLE · 750 ML')
+    expect(displayCellText({ menuItem: null, cells: {} }, method)).toBeNull()
+  })
+
+  it('treats METHOD / SERVE as derived — not editable, never stored', () => {
+    expect(isDerivedColumn(method)).toBe(true)
+    expect(columnIsEditable(method)).toBe(false)
+    expect(sanitiseCells({ method: 'IGNORED', serve: 'IGNORED' }, [method, size])).toEqual({})
   })
 })
 

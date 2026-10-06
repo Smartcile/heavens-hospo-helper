@@ -303,7 +303,7 @@ export function WorkerGuideEditor({
                     <span className="font-mono text-xs text-white truncate">{t.title}</span>
                   </button>
                   {link && (
-                    <button type="button" onClick={() => toggleCompetency(t.id)} className={`font-mono text-[10px] uppercase border px-1.5 py-0.5 ${link.isRequiredForCompetency ? 'border-warning text-warning' : 'border-grey-mid text-grey-light'}`}>
+                    <button type="button" onClick={() => toggleCompetency(t.id)} className={`font-mono text-xs uppercase border px-1.5 py-0.5 ${link.isRequiredForCompetency ? 'border-warning text-warning' : 'border-grey-mid text-grey-light'}`}>
                       {link.isRequiredForCompetency ? 'REQUIRED' : 'REFERENCE'}
                     </button>
                   )}

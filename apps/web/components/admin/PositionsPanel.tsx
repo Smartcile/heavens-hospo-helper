@@ -89,7 +89,7 @@ export function PositionsPanel({ venueId }: { venueId: string }) {
     <div className="border border-grey-mid p-4 space-y-3">
       <div>
         <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">POSITIONS / ROLES</h3>
-        <p className="font-mono text-[10px] uppercase text-grey-light mt-0.5">
+        <p className="font-mono text-xs uppercase text-grey-light mt-0.5">
           A JOB TITLE, NOT A PLACE. LEAVE THE DEPARTMENT BLANK FOR ROLES THAT SPAN EVERYTHING.
         </p>
       </div>
@@ -104,17 +104,17 @@ export function PositionsPanel({ venueId }: { venueId: string }) {
             <div key={p.id} className="flex items-center justify-between gap-2 px-3 py-2">
               <div className="min-w-0">
                 <span className="font-mono text-xs uppercase text-white">{p.name}</span>
-                <span className="font-mono text-[10px] uppercase text-grey-light ml-2">
+                <span className="font-mono text-xs uppercase text-grey-light ml-2">
                   {(p.departmentIds?.length
                     ? p.departmentIds.map((id) => departments.find((d) => d.id === id)?.name ?? '?').join(', ')
                     : p.department?.name ?? 'ALL DEPARTMENTS')} · {p._count.staff} STAFF
                 </span>
                 {readiness[p.id] && (
                   <span
-                    className={`font-mono text-[10px] uppercase ml-2 ${
+                    className={`font-mono text-xs uppercase ml-2 ${
                       readiness[p.id].total > 0 && readiness[p.id].ready === readiness[p.id].total
                         ? 'text-success'
-                        : 'text-[#FACC15]'
+                        : 'text-warning'
                     }`}
                   >
                     {readiness[p.id].total === 0
@@ -124,7 +124,7 @@ export function PositionsPanel({ venueId }: { venueId: string }) {
                 )}
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                <span className="font-mono text-[10px] text-grey-light">$</span>
+                <span className="font-mono text-xs text-grey-light">$</span>
                 <input
                   type="number"
                   min="0"
@@ -135,7 +135,7 @@ export function PositionsPanel({ venueId }: { venueId: string }) {
                   className="w-20 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 text-right outline-none focus:border-white placeholder:text-grey-light"
                   title="Default rate for this role"
                 />
-                <span className="font-mono text-[10px] text-grey-light">/HR</span>
+                <span className="font-mono text-xs text-grey-light">/HR</span>
               </div>
               <div className="flex gap-3 shrink-0">
                 <button
@@ -161,14 +161,14 @@ export function PositionsPanel({ venueId }: { venueId: string }) {
           <Input label="New position" value={name} onChange={(e) => setName(e.target.value)} placeholder="BARTENDER" />
         </div>
         <div className="flex-1 min-w-[12rem]">
-          <label className="font-mono text-[10px] uppercase text-grey-light tracking-wider">Departments (optional — a role can span several)</label>
+          <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Departments (optional — a role can span several)</label>
           <div className="flex flex-wrap gap-1 mt-1">
             {departments.filter((d) => d.venueId === venueId).map((d) => (
               <button
                 key={d.id}
                 type="button"
                 onClick={() => setDepartmentIds((prev) => (prev.includes(d.id) ? prev.filter((x) => x !== d.id) : [...prev, d.id]))}
-                className={`font-mono text-[10px] uppercase px-2 py-1 border transition-colors ${departmentIds.includes(d.id) ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid hover:border-white hover:text-white'}`}
+                className={`font-mono text-xs uppercase px-2 py-1 border transition-colors ${departmentIds.includes(d.id) ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid hover:border-white hover:text-white'}`}
               >
                 {d.name}
               </button>

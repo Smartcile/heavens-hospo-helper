@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Badge } from '@/components/ui/Badge'
+import { DateInput } from '@/components/ui/DateInput'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { formatTime } from '@/lib/utils'
 
@@ -139,12 +140,7 @@ export function ReviewClient({ role, sessionVenueId, defaultVenueId }: { role: s
               <Select value={venueId} onChange={(e) => setVenueId(e.target.value)} options={venueOptions} />
             </div>
           )}
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="bg-grey-dark border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white"
-          />
+          <DateInput value={date} onChange={(e) => setDate(e.target.value)} className="w-44" />
         </div>
       </div>
 
