@@ -101,8 +101,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
   const [formShelfLifeDays, setFormShelfLifeDays] = useState('')
   const [formCanFreeze, setFormCanFreeze] = useState(false)
   const [formFreezerShelfLifeDays, setFormFreezerShelfLifeDays] = useState('')
-  const [formCountingUnitQty, setFormCountingUnitQty] = useState('')
-  const [formOrderingUnitQty, setFormOrderingUnitQty] = useState('')
+
 
   // Density (volume ↔ mass ↔ count conversion)
   const [formDensity, setFormDensity] = useState('')
@@ -819,17 +818,11 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                 <Select label="COUNTING UOM" value={formCountingUnitId} onChange={(e) => setFormCountingUnitId(e.target.value)}
                   options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
               </div>
-              <div className="col-span-1">
-                <Input label="QTY" type="number" step="0.01" value={formCountingUnitQty} onChange={(e) => setFormCountingUnitQty(e.target.value)} placeholder="1" />
-              </div>
               <div className="col-span-2">
                 <Select label="ORDERING UOM" value={formOrderingUnitId} onChange={(e) => setFormOrderingUnitId(e.target.value)}
                   options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
               </div>
-              <div className="col-span-1">
-                <Input label="QTY" type="number" step="0.01" value={formOrderingUnitQty} onChange={(e) => setFormOrderingUnitQty(e.target.value)} placeholder="1" />
-              </div>
-              <div className="col-span-3">
+              <div className="col-span-2">
                 <Input
                   label={`PAR LEVEL (${uoms.find((u) => u.id === formCountingUnitId)?.name ?? 'COUNTING UOM'})`}
                   type="number"

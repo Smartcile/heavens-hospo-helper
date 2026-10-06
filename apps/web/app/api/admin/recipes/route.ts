@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
         orderBy: { sortOrder: 'asc' },
       },
       menuItems: {
-        select: { id: true, price: true, wooProductId: true, wooCategoryId: true, imageUrl: true, shortDescription: true, isVariable: true, variations: true, dietaryInfo: true },
+        select: { id: true, price: true, wooProductId: true, wooCategoryId: true, imageUrl: true, shortDescription: true, isVariable: true, variations: true, dietaryInfo: true, swiftPosId: true },
         where: { deletedAt: null },
       },
     },
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
   const denied = await guardAccess(session, req, 'ops.recipes.create')
   if (denied) return denied
 
-  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, imageUrl, shortDescription, isVariable, variations, existingMenuItemId, dietaryInfo, venueId: bodyVenueId } = await req.json()
+  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, imageUrl, shortDescription, isVariable, variations, existingMenuItemId, dietaryInfo, swiftPosId, venueId: bodyVenueId } = await req.json()
   if (!name?.trim()) {
     return NextResponse.json({ error: 'name is required' }, { status: 400 })
   }
@@ -109,6 +109,7 @@ export async function POST(req: NextRequest) {
             isVariable: isVariable || false,
             variations: variations || null,
             dietaryInfo: dietaryInfo || null,
+            swiftPosId: swiftPosId || null,
           },
         })
       } else {
@@ -125,6 +126,7 @@ export async function POST(req: NextRequest) {
             isVariable: isVariable || false,
             variations: variations || null,
             dietaryInfo: dietaryInfo || null,
+            swiftPosId: swiftPosId || null,
           },
         })
       }

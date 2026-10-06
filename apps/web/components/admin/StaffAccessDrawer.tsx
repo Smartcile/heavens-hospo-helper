@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
-import { Drawer } from '@/components/ui/Drawer'
+import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import {
   PERMISSION_TREE,
@@ -150,7 +150,7 @@ export function StaffAccessDrawer({
   }
 
   return (
-    <Drawer isOpen onClose={onClose} title={`ACCESS — ${staffName}`} width="full">
+    <Modal isOpen onClose={onClose} title={`ACCESS — ${staffName}`} size="xl">
       {!data ? (
         <p className="font-mono text-xs text-grey-light loading-cursor">
           {error || 'LOADING'}
@@ -280,6 +280,6 @@ export function StaffAccessDrawer({
           </div>
         </div>
       )}
-    </Drawer>
+    </Modal>
   )
 }

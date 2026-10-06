@@ -20,9 +20,11 @@ interface Props {
   placeholder?: string
   className?: string
   footerAction?: { label: string; onClick: () => void }
+  /** Shown inside the open list when there is nothing to pick. */
+  emptyLabel?: string
 }
 
-export function SearchSelect({ options, groups, value, onChange, placeholder, className, footerAction }: Props) {
+export function SearchSelect({ options, groups, value, onChange, placeholder, className, footerAction, emptyLabel }: Props) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [highlightIdx, setHighlightIdx] = useState(0)
@@ -153,9 +155,9 @@ export function SearchSelect({ options, groups, value, onChange, placeholder, cl
           )}
         </div>
       )}
-      {open && query.trim() && filtered.length === 0 && !footerAction && (
+      {open && filtered.length === 0 && !footerAction && (query.trim() || emptyLabel) && (
         <div className="absolute top-full left-0 right-0 z-50 mt-1 border border-grey-mid bg-black p-3">
-          <p className="font-mono text-xs text-grey-light uppercase">NO RESULTS</p>
+          <p className="font-mono text-xs text-grey-light uppercase">{query.trim() ? 'NO RESULTS' : emptyLabel}</p>
         </div>
       )}
     </div>

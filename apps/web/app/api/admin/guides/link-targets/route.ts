@@ -124,7 +124,8 @@ export async function GET(req: NextRequest) {
     MENU: menus.map((m) => ({
       value: m.id,
       label: m.name,
-      itemIds: m.items.map((i) => i.menuItemId),
+      // Only product lines — a reference table sources MenuItems, not stock.
+      itemIds: m.items.map((i) => i.menuItemId).filter((id): id is string => !!id),
     })),
   })
 }

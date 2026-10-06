@@ -314,6 +314,7 @@ model Venue {
   beoTemplates        BeoTemplate[]
   beoBlockDefs        BeoBlockDef[]
   beoBlockLinks       BeoBlockLink[]
+  tipsPeriods         TipsPeriod[]
 }
 
 model Department {
@@ -2317,6 +2318,7 @@ model InventoryItem {
   hsTasks           Task[]       @relation("TaskLinkedItem")
   deliveryItems     DeliveryItem[]
   serves            MenuItemServe[]
+  menuLines         MenuMenuItem[]
 
   // --- Furniture relations ---
   chairItem       InventoryItem?     @relation("FurnitureChair", fields: [chairItemId], references: [id])
@@ -2870,6 +2872,7 @@ model Menu {
 
   venue  Venue          @relation(fields: [venueId], references: [id])
   items  MenuMenuItem[]
+  groups MenuGroup[]
   orders WooOrder[]
   events Event[]
   eventLinks EventMenu[]
@@ -2879,25 +2882,58 @@ model Menu {
   @@index([venueId])
 }
 
+// A grouping inside a menu — "TAP BEER", "PIZZA", "MAINS". Purely presentational:
+// it orders and labels the lines in the builder and on the printed menu. Groups
+// are children of the menu, so removing one drops its lines back to ungrouped.
+model MenuGroup {
+  id        String    @id @default(uuid())
+  menuId    String
+  name      String
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  menu  Menu           @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  items MenuMenuItem[]
+
+  @@index([menuId])
+}
+
+// One line on a menu. A line is EITHER a product (MenuItem) or a stock item
+// (InventoryItem) — beverages are usually stock. Product lines read their sizes
+// from MenuItem.variations (shared across menus); stock lines carry their own
+// `sizeOptions` (e.g. 150ML $8 / 500ML $12). `group` places the line under a
+// menu group; null = ungrouped.
 model MenuMenuItem {
-  id         String   @id @default(uuid())
-  menuId     String
-  menuItemId String
+  id              String   @id @default(uuid())
+  menuId          String
+  menuItemId      String?
+  inventoryItemId String?
+  groupId         String?
   // Per-item quantity limits, applied when the item is ordered at all.
   // minQty does NOT force the item onto every order — it is the minimum you
   // must take *if* you take any (e.g. a platter that only serves 20+).
-  minQty     Int?
-  maxQty     Int?
-  sortOrder  Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  minQty          Int?
+  maxQty          Int?
+  // Size/price options for stock lines: `[{ label, price }]`. Product lines
+  // leave this null and read the product's `variations` instead.
+  sizeOptions     Json?
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  menu     Menu     @relation(fields: [menuId], references: [id], onDelete: Cascade)
-  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  menu          Menu           @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  menuItem      MenuItem?      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  group         MenuGroup?     @relation(fields: [groupId], references: [id])
 
   @@unique([menuId, menuItemId])
+  @@unique([menuId, inventoryItemId])
   @@index([menuId])
   @@index([menuItemId])
+  @@index([inventoryItemId])
+  @@index([groupId])
 }
 
 // A named filter/grouping preset on the orders page. The renderer is fixed
@@ -3422,4 +3458,32 @@ model BeoChangeRequest {
 
   @@index([eventId])
   @@index([status])
+}
+
+// --- TIPS (staff tip pooling + period settlement) ---
+// One settlement period: the cash counted from the till (denomination → qty),
+// the EFTPOS/POS holding figure requested from finance, the date range it
+// covers, and one share row per person with their hours and share weighting.
+// The payout split is computed on read by `lib/tips.ts` and never stored — a
+// corrected hour or total immediately flows through and the reconciliation
+// check is always live. `shares` is a settlement snapshot (no cross-references),
+// so it is a JSON list rather than a child table.
+model TipsPeriod {
+  id         String   @id @default(uuid())
+  venueId    String
+  label      String? // e.g. "FEBRUARY 2026"
+  fromDate   DateTime @db.Date
+  toDate     DateTime @db.Date
+  cashCounts Json     @default("{}") // { "100": 5, "50": 1, ... } denomination → qty
+  posTotal   Float    @default(0) // EFTPOS / holding tips requested from finance
+  shares     Json     @default("[]") // [{ name, hours, shareWeight }]
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  deletedAt  DateTime?
+
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@index([venueId])
+  @@index([venueId, fromDate])
 }

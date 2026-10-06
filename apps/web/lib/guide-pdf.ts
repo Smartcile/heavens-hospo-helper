@@ -6,6 +6,7 @@ import { jsPDF } from 'jspdf'
 import path from 'node:path'
 import fs from 'node:fs'
 import { guideTypeLabel } from '@/lib/guide-types'
+import { pdfSafe } from '@/lib/pdf-safe'
 
 export interface GuidePdfLink {
   kind: string
@@ -71,23 +72,41 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
     }
   }
 
+  // A wrapped, margin-safe text block — the ONE place body copy is drawn, so a
+  // long paragraph always breaks at the right edge instead of running off.
+  const paragraph = (
+    text: string,
+    opts: { size: number; style: string; color: number; indent?: number; lead: number },
+  ) => {
+    doc.setFont('helvetica', opts.style)
+    doc.setFontSize(opts.size)
+    doc.setTextColor(opts.color)
+    const indent = opts.indent ?? 0
+    const lines = doc.splitTextToSize(text, innerW - indent) as string[]
+    for (const line of lines) {
+      ensure(opts.lead)
+      doc.text(line, margin + indent, y)
+      y += opts.lead
+    }
+  }
+
   // Header
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   doc.setTextColor(120)
-  doc.text(data.venueName.toUpperCase(), margin, y)
+  doc.text(pdfSafe(data.venueName).toUpperCase(), margin, y)
   y += 9
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(18)
   doc.setTextColor(0)
-  const titleLines = doc.splitTextToSize(data.title.toUpperCase(), innerW) as string[]
+  const titleLines = doc.splitTextToSize(pdfSafe(data.title).toUpperCase(), innerW) as string[]
   doc.text(titleLines, margin, y)
   y += titleLines.length * 7 + 2
 
   const meta = [
     guideTypeLabel(data.guideType),
-    data.category ? `CATEGORY: ${data.category.toUpperCase()}` : null,
+    data.category ? `CATEGORY: ${pdfSafe(data.category).toUpperCase()}` : null,
     data.requiresSignOff ? 'MANAGER SIGN-OFF REQUIRED' : 'SELF-COMPLETE',
   ]
     .filter(Boolean)
@@ -96,18 +115,14 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(8)
     doc.setTextColor(120)
-    doc.text(meta, margin, y)
+    doc.text(pdfSafe(meta), margin, y)
     y += 6
   }
 
   if (data.description) {
     ensure(10)
-    const descLines = doc.splitTextToSize(data.description, innerW) as string[]
-    doc.setFont('helvetica', 'italic')
-    doc.setFontSize(9)
-    doc.setTextColor(90)
-    doc.text(descLines, margin, y + 4)
-    y += 4 + descLines.length * 4.5
+    y += 4
+    paragraph(pdfSafe(data.description), { size: 9, style: 'italic', color: 90, lead: 4.5 })
   }
 
   y += 4
@@ -118,15 +133,7 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
 
   // Rich-text body (plain text) — instructions before any numbered steps.
   if (data.body) {
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9.5)
-    doc.setTextColor(30)
-    const bodyLines = doc.splitTextToSize(data.body, innerW) as string[]
-    for (const line of bodyLines) {
-      ensure(5)
-      doc.text(line, margin, y)
-      y += 4.8
-    }
+    paragraph(pdfSafe(data.body), { size: 9.5, style: 'normal', color: 30, lead: 4.8 })
     y += 6
   }
 
@@ -137,9 +144,13 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(11)
       doc.setTextColor(0)
-      const hLines = doc.splitTextToSize(item.heading.toUpperCase(), innerW) as string[]
-      doc.text(hLines, margin, y)
-      y += hLines.length * 5.5 + 1
+      const hLines = doc.splitTextToSize(pdfSafe(item.heading).toUpperCase(), innerW) as string[]
+      for (const line of hLines) {
+        ensure(6)
+        doc.text(line, margin, y)
+        y += 5.5
+      }
+      y += 1
     }
     if (item.imageDataUrl) {
       try {
@@ -158,7 +169,10 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
     doc.setFontSize(9)
     doc.setTextColor(60)
     for (const f of item.fields) {
-      const lines = doc.splitTextToSize(`${f.label.toUpperCase()}: ${f.value}`, innerW - 2) as string[]
+      const lines = doc.splitTextToSize(
+        `${pdfSafe(f.label).toUpperCase()}: ${pdfSafe(f.value)}`,
+        innerW - 2,
+      ) as string[]
       for (const line of lines) {
         ensure(5)
         doc.text(line, margin + 2, y)
@@ -176,44 +190,32 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
   // Steps
   for (let i = 0; i < data.steps.length; i++) {
     const s = data.steps[i]
-    ensure(12)
+    ensure(14)
+
+    const heading = `STEP ${i + 1}${s.heading ? ` — ${pdfSafe(s.heading).toUpperCase().trim()}` : ''}`
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(11)
     doc.setTextColor(0)
-    doc.text(`STEP ${i + 1}${s.heading ? ` — ${s.heading.toUpperCase()}` : ''}`, margin, y)
-    y += 6
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9.5)
-    doc.setTextColor(30)
-    const contentLines = doc.splitTextToSize(s.content, innerW) as string[]
-    for (const line of contentLines) {
-      ensure(5)
+    for (const line of doc.splitTextToSize(heading, innerW) as string[]) {
+      ensure(6)
       doc.text(line, margin, y)
-      y += 4.8
+      y += 5.5
+    }
+    y += 1
+
+    if (s.content.trim()) {
+      paragraph(pdfSafe(s.content).trim(), { size: 9.5, style: 'normal', color: 30, lead: 4.8 })
     }
 
     for (const l of s.links ?? []) {
-      ensure(8)
-      const label = `${LINK_LABEL[l.kind] ?? l.kind}: ${l.label}${l.note ? ` — ${l.note}` : ''}`
-      const linkLines = doc.splitTextToSize(label, innerW - 6) as string[]
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(8.5)
-      doc.setTextColor(80)
-      doc.text('▪', margin, y)
-      doc.text(linkLines, margin + 4, y)
-      y += linkLines.length * 4.2 + 1
+      const label = `- ${LINK_LABEL[l.kind] ?? l.kind}: ${pdfSafe(l.label)}${l.note ? ` (${pdfSafe(l.note)})` : ''}`
+      paragraph(label, { size: 8.5, style: 'normal', color: 80, indent: 3, lead: 4.2 })
     }
 
     if (s.videoUrl || s.videoPath) {
-      ensure(8)
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(8)
-      doc.setTextColor(80)
-      const vLabel = s.videoUrl ? `WATCH VIDEO: ${s.videoUrl}` : 'VIDEO — VIEW IN THE APP'
-      const vLines = doc.splitTextToSize(vLabel, innerW) as string[]
-      doc.text(vLines, margin, y)
-      y += vLines.length * 4 + 2
+      const vLabel = s.videoUrl ? `WATCH VIDEO: ${pdfSafe(s.videoUrl)}` : 'VIDEO — VIEW IN THE APP'
+      paragraph(vLabel, { size: 8, style: 'normal', color: 80, lead: 4 })
+      y += 2
     }
 
     const stepImages = s.imageDataUrls ?? (s.imageDataUrl ? [s.imageDataUrl] : [])
@@ -265,7 +267,7 @@ function stampFooter(doc: jsPDF, venueName: string) {
   const pages = doc.getNumberOfPages()
   for (let i = 1; i <= pages; i++) {
     doc.setPage(i)
-    doc.text(`HOSPO OPS — ${venueName.toUpperCase()}`, pageW / 2, footerY, { align: 'center' })
+    doc.text(`HOSPO OPS — ${pdfSafe(venueName).toUpperCase()}`, pageW / 2, footerY, { align: 'center' })
     doc.text(`${i} / ${pages}`, pageW / 2, footerY - 4, { align: 'center' })
   }
 }

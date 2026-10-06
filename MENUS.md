@@ -314,3 +314,53 @@ POS sale line ── InventoryCode ──► MenuItem.swiftPosId ──► serve
 > **Important:** SwiftPOS's own `RecipeTable` / `EJRecipeUsageTable` are **empty**,
 > so SwiftPOS does not supply recipe drawdown — consumption must be computed here
 > from our serve spec. Do not expect the POS to hand it over.
+
+---
+
+## 9 · The menu builder — groups, stock lines, sizes & live preview (built 2026-10-06)
+
+The Menus page was rebuilt from a modal into a **full-width builder** with a
+**live plain-text preview** on the right (the printed-menu look — groups, items
+and their size/price columns). See `components/admin/MenuBuilder.tsx` +
+`MenuPreview.tsx`.
+
+### Model
+
+- **`MenuGroup`** — a grouping *inside* a menu ("TAP BEER", "PIZZA"). Purely
+  presentational: it orders and labels the lines. Soft-deleted; removing one
+  un-groups its lines.
+- **`MenuMenuItem` is now polymorphic** — a line is EITHER a product
+  (`menuItemId`) OR a stock item (`inventoryItemId`), never both. This is what
+  lets a beverage bottle or a can of Coke go straight onto a menu. It also
+  carries `groupId` and, for **stock lines**, `sizeOptions` JSON
+  (`[{ label, price }]`).
+- **Product sizes live on the product** (`MenuItem.variations`, shared across
+  every menu it is on) — authored here or in the recipe editor, and pushed to
+  WooCommerce as variations. Stock-line sizes live on the line (`sizeOptions`).
+- Pure brain: **`lib/menu-lines.ts`** (`cleanSizes`, `variationSizes`,
+  `lineSizes`, `groupMenuLines`, `formatSizePrice`) — Prisma-free, shared by the
+  builder, the preview and the server. `lib/menu-lines.server.ts` holds the
+  `menuInclude` + `shapeMenuLine` read shape.
+
+### "ITEM LINKS" (was "LINK TO WOO")
+
+The recipe editor's `LINK TO WOO` section is renamed **ITEM LINKS** and now
+brackets the whole POS relationship in one place: the WooCommerce product
+(category, image, variable sizes), the **SwiftPOS code** (`MenuItem.swiftPosId`,
+now editable + saved through the recipe route) and the **serve spec**
+(`MenuItemServesEditor`) so consumption is authored where the product is.
+
+### Routes
+
+| Route | Methods | Purpose |
+|---|---|---|
+| `/api/admin/menus` | GET | Menus with groups + shaped lines (product **or** stock) |
+| `/api/admin/menus/[id]` | PUT | Save groups + lines (diffed by id; temp group ids resolved) |
+| `/api/admin/menus/options` | GET | Products **and** inventory for the builder's ADD ITEM search (one `ops.menus.view` guard) |
+| `/api/admin/menu-items/[id]/sizes` | PUT | Save a product's shared size/price options (merges `wooVariationId`, pushes) |
+
+### Inventory deep form
+
+The dead `QTY` inputs beside COUNTING UOM / ORDERING UOM were removed — the
+counting unit is canonical and only **PAR LEVEL** carries a number (in the
+counting unit).

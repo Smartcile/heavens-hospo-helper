@@ -10,13 +10,14 @@ import { Modal } from '@/components/ui/Modal'
 import { computeRecipeAllergens, type AllergenSource } from '@/lib/allergens'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { convertLine, convertQty, resolveItemKind, uomsForItem } from '@/lib/unit-convert'
+import { MenuItemServesEditor } from '@/components/admin/MenuItemServesEditor'
 
 interface Recipe {
   id: string; name: string; yieldQty: number; yieldUnitId: string; instructions: string | null
   prepTime: number | null; version: number; isActive: boolean
   yieldUnit?: { id: string; name: string }
   lineItems?: LineItem[]
-  menuItem?: { id: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: Variation[] | null; dietaryInfo: string | null } | null
+  menuItem?: { id: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: Variation[] | null; dietaryInfo: string | null; swiftPosId?: string | null } | null
 }
 
 interface LineItem {
@@ -38,7 +39,7 @@ interface PantryRef { id: string; name: string; densityGramsPerMl: number | null
 interface Variation { name: string; price: number; wooVariationId?: number }
 
 interface OrphanMenuItem {
-  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: Variation[] | null; dietaryInfo: string | null
+  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: Variation[] | null; dietaryInfo: string | null; swiftPosId?: string | null
 }
 
   function generateId() { return crypto.randomUUID() }
@@ -78,6 +79,8 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   const [formWooProductId, setFormWooProductId] = useState('')
   const [formWooCategories, setFormWooCategories] = useState<string[]>([])
   const [formExistingMenuItemId, setFormExistingMenuItemId] = useState<string | null>(null)
+  const [formMenuItemId, setFormMenuItemId] = useState<string | null>(null)
+  const [formSwiftPosId, setFormSwiftPosId] = useState('')
   const [formDietaryInfo, setFormDietaryInfo] = useState<string[]>([])
   const [allergenPopout, setAllergenPopout] = useState<{ allergen: string; source: string } | null>(null)
 
@@ -188,7 +191,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
     setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([])
     setFormDietaryInfo([]); setFormImageUrl(null); setFormShortDescription('')
     setFormIsVariable(false); setFormVariations([])
-    setFormExistingMenuItemId(null)
+    setFormExistingMenuItemId(null); setFormMenuItemId(null); setFormSwiftPosId('')
   }
 
   function populateForm(r: Recipe) {
@@ -217,10 +220,12 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
       setFormShortDescription(r.menuItem.shortDescription ?? '')
       setFormIsVariable(r.menuItem.isVariable ?? false)
       setFormVariations(r.menuItem.variations ?? [])
+      setFormMenuItemId(r.menuItem.id)
+      setFormSwiftPosId(r.menuItem.swiftPosId ?? '')
     } else {
     setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([])
     setFormDietaryInfo([]); setFormImageUrl(null); setFormShortDescription('')
-    setFormIsVariable(false); setFormVariations([])
+    setFormIsVariable(false); setFormVariations([]); setFormMenuItemId(null); setFormSwiftPosId('')
     }
   }
 
@@ -236,6 +241,8 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
     setFormIsVariable(o.isVariable ?? false)
     setFormVariations(o.variations ?? [])
     setFormExistingMenuItemId(o.id)
+    setFormMenuItemId(o.id)
+    setFormSwiftPosId(o.swiftPosId ?? '')
   }
 
   async function load() {
@@ -377,6 +384,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
       isVariable: linkToMenu ? formIsVariable : undefined,
       variations: linkToMenu ? (formVariations.length > 0 ? formVariations : null) : undefined,
       existingMenuItemId: formExistingMenuItemId || undefined,
+      swiftPosId: linkToMenu ? (formSwiftPosId || null) : undefined,
       dietaryInfo: formDietaryInfo.length > 0 ? formDietaryInfo.join(',') : null,
       ...(venueId ? { venueId } : {}),
     }
@@ -705,13 +713,13 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                   })()}
                 </div>
 
-                {/* Link to WooCommerce */}
+                {/* Item links — the product's POS/WooCommerce link and serve spec */}
                 <div className="border border-grey-mid p-3 space-y-3">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={linkToMenu} onChange={(e) => setLinkToMenu(e.target.checked)}
                       className="bg-black border border-grey-mid accent-white" />
-                    <span className="font-mono text-xs uppercase text-white">LINK TO WOO</span>
-                    {linkToMenu && <span className="font-mono text-xs text-grey-light">(APPEARS ON WOOCOMMERCE)</span>}
+                    <span className="font-mono text-xs uppercase text-white">ITEM LINKS</span>
+                    {linkToMenu && <span className="font-mono text-xs text-grey-light">(POS CODE · SERVES · WOOCOMMERCE)</span>}
                   </label>
                   {linkToMenu && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -722,6 +730,10 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                       <div>
                         <label className="font-mono text-xs uppercase text-grey-light block mb-1">WOO PRODUCT ID</label>
                         <Input value={formWooProductId} onChange={(e) => setFormWooProductId(e.target.value)} placeholder="AUTO-GENERATED ON SAVE" disabled={true} />
+                      </div>
+                      <div>
+                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">SWIFT POS CODE</label>
+                        <Input value={formSwiftPosId} onChange={(e) => setFormSwiftPosId(e.target.value)} placeholder="POS INVENTORY CODE" />
                       </div>
 
                       <div className="md:col-span-3">
@@ -802,6 +814,15 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                             </>
                           )}
                         </div>
+                      </div>
+
+                      <div className="md:col-span-3 border-t border-grey-mid pt-3">
+                        <label className="font-mono text-xs uppercase text-grey-light block mb-2">ITEM LINK — HOW SELLING THIS CONSUMES STOCK</label>
+                        {formMenuItemId ? (
+                          <MenuItemServesEditor menuItemId={formMenuItemId} menuItemName={formName} venueId={venueId ?? ''} />
+                        ) : (
+                          <p className="font-mono text-xs text-grey-light uppercase">SAVE FIRST TO SET THE ITEM LINK (SERVES, STOCK DRAWDOWN).</p>
+                        )}
                       </div>
                     </div>
                   )}

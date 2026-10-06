@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { ensureWooCategory } from '@/lib/woo-categories'
 import { guardAccess } from '@/lib/permissions'
+import { menuInclude, shapeMenuLine } from '@/lib/menu-lines.server'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -17,21 +18,13 @@ export async function GET(req: NextRequest) {
 
   const menus = await prisma.menu.findMany({
     where: { venueId, deletedAt: null },
-    include: {
-      items: {
-        where: { menuItem: { deletedAt: null } },
-        include: {
-          menuItem: {
-            select: { id: true, name: true, price: true, dietaryInfo: true, isActive: true },
-          },
-        },
-        orderBy: { sortOrder: 'asc' },
-      },
-    },
+    include: menuInclude,
     orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
   })
 
-  return NextResponse.json(menus)
+  return NextResponse.json(
+    menus.map((m) => ({ ...m, items: m.items.map(shapeMenuLine) })),
+  )
 }
 
 export async function POST(req: NextRequest) {

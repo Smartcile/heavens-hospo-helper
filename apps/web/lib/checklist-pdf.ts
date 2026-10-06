@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf'
+import { pdfSafe } from '@/lib/pdf-safe'
 
 export interface ChecklistPdfTask {
   title: string
@@ -26,17 +27,17 @@ export function generateChecklistPdf(data: ChecklistPdfData): jsPDF {
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   doc.setTextColor(120)
-  doc.text(data.venueName.toUpperCase(), margin, y)
+  doc.text(pdfSafe(data.venueName).toUpperCase(), margin, y)
   y += 9
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(18)
   doc.setTextColor(0)
-  doc.text(data.name.toUpperCase(), margin, y)
+  doc.text(pdfSafe(data.name).toUpperCase(), margin, y)
   y += 6
 
   if (data.description) {
-    const descLines = doc.splitTextToSize(data.description, innerW) as string[]
+    const descLines = doc.splitTextToSize(pdfSafe(data.description), innerW) as string[]
     doc.setFont('helvetica', 'italic')
     doc.setFontSize(9)
     doc.setTextColor(90)
@@ -73,7 +74,7 @@ export function generateChecklistPdf(data: ChecklistPdfData): jsPDF {
     doc.setLineWidth(0.3)
     doc.rect(margin, y - 3.5, 4, 4)
     const tag = t.sectionName ? `  (${t.sectionName})` : ''
-    const wrapped = doc.splitTextToSize(`${i + 1}. ${t.title}${tag}`, innerW - 8) as string[]
+    const wrapped = doc.splitTextToSize(pdfSafe(`${i + 1}. ${t.title}${tag}`), innerW - 8) as string[]
     doc.setFontSize(10)
     doc.setTextColor(0)
     doc.text(wrapped, margin + 7, y)
@@ -88,7 +89,7 @@ export function generateChecklistPdf(data: ChecklistPdfData): jsPDF {
   const pages = doc.getNumberOfPages()
   for (let i = 1; i <= pages; i++) {
     doc.setPage(i)
-    doc.text(`HOSPO OPS - ${data.venueName.toUpperCase()}`, pageW / 2, footerY, { align: 'center' })
+    doc.text(`HOSPO OPS - ${pdfSafe(data.venueName).toUpperCase()}`, pageW / 2, footerY, { align: 'center' })
     doc.text(`${i} / ${pages}`, pageW / 2, footerY - 4, { align: 'center' })
   }
 

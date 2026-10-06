@@ -7,7 +7,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
-import { Drawer } from '@/components/ui/Drawer'
+import { Modal } from '@/components/ui/Modal'
 import { PERMISSION_PRESETS, completeGrantSet } from '@/lib/permissions/registry'
 import { readinessLabel } from '@/lib/position-requirements'
 
@@ -143,7 +143,7 @@ export function RoleRequirementsDrawer({
   }
 
   return (
-    <Drawer isOpen onClose={onClose} title={`REQUIREMENTS — ${positionName}`} width="lg">
+    <Modal isOpen onClose={onClose} title={`REQUIREMENTS — ${positionName}`} size="xl">
       <div className="space-y-6">
         {/* REQUIRED SECTIONS */}
         <div className="border border-grey-mid p-3 space-y-2">
@@ -287,6 +287,6 @@ export function RoleRequirementsDrawer({
           <Button variant="ghost" onClick={onClose}>CLOSE</Button>
         </div>
       </div>
-    </Drawer>
+    </Modal>
   )
 }

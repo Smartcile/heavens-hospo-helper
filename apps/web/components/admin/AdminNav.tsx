@@ -32,6 +32,7 @@ const NAV_ITEM_AREAS: Record<string, string> = {
   '/admin/reports': 'performance',
   '/admin/budget': 'performance',
   '/admin/gift-cards': 'performance',
+  '/admin/tips': 'performance',
   '/admin/settings?tab=floorplans': 'floorplans',
 }
 
@@ -67,6 +68,7 @@ const NAV_GROUPS: NavGroup[] = [
   { label: 'Performance', href: '/admin/reports', items: [
     { href: '/admin/reports', label: 'Reports' },
     { href: '/admin/budget', label: 'Budget' },
+    { href: '/admin/tips', label: 'Tips' },
     { href: '/admin/gift-cards', label: 'Gift Cards' },
   ] },
   { label: 'Setup & config', href: '/admin/settings?tab=general', items: [

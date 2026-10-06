@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { prisma } from '@hospo-ops/db'
+import { prisma, Prisma } from '@hospo-ops/db'
 import { ensureWooCategory, renameWooCategory } from '@/lib/woo-categories'
 import { diffItemIds, syncMenuItemCategory } from '@/lib/menu-sync'
 import { guardAccess } from '@/lib/permissions'
+import { menuInclude, shapeMenuLine } from '@/lib/menu-lines.server'
+import { cleanSizes } from '@/lib/menu-lines'
 
 async function loadScoped(id: string, session: { user: { role: string; venueId: string } }) {
   const menu = await prisma.menu.findFirst({ where: { id, deletedAt: null } })
@@ -26,20 +28,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
   const menu = await prisma.menu.findUnique({
     where: { id: params.id },
-    include: {
-      items: {
-        where: { menuItem: { deletedAt: null } },
-        include: {
-          menuItem: {
-            select: { id: true, name: true, price: true, dietaryInfo: true, isActive: true },
-          },
-        },
-        orderBy: { sortOrder: 'asc' },
-      },
-    },
+    include: menuInclude,
   })
 
-  return NextResponse.json(menu)
+  return NextResponse.json(menu ? { ...menu, items: menu.items.map(shapeMenuLine) } : null)
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
@@ -80,73 +72,130 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
 
   /*
-   * `items` is a full replacement set when supplied — diffed rather than
-   * deleted-and-recreated so the junction ids (and any future references to
-   * them) survive an edit that only changes a limit. Items added to or
-   * removed from the menu get their WooCommerce category re-synced afterwards.
+   * `groups` and `items` are full replacement sets when supplied — diffed
+   * rather than deleted-and-recreated so junction ids survive an edit that
+   * only changes a limit. A line is a product (`menuItemId`) or a stock item
+   * (`inventoryItemId`); stock lines carry their own `sizeOptions`. Items added
+   * to or removed from the menu get their WooCommerce category re-synced.
    */
   const changedItemIds: string[] = []
-  if (Array.isArray(body.items)) {
-    const incoming = body.items as {
-      menuItemId: string
-      minQty?: unknown
-      maxQty?: unknown
-      sortOrder?: unknown
-    }[]
-
-    const prevIds = (await prisma.menuMenuItem.findMany({
-      where: { menuId: params.id },
-      select: { menuItemId: true },
-    })).map((e) => e.menuItemId)
+  if (Array.isArray(body.groups) || Array.isArray(body.items)) {
+    // Maps a group's real id (and any client-generated temp id) to its real id,
+    // so items saved in the same request can reference a brand-new group.
+    const groupKeyToId = new Map<string, string>()
 
     await prisma.$transaction(async (tx) => {
       if (Object.keys(data).length > 0) {
         await tx.menu.update({ where: { id: params.id }, data })
       }
 
-      const existing = await tx.menuMenuItem.findMany({
-        where: { menuId: params.id },
-        select: { id: true, menuItemId: true },
-      })
-      const existingByItem = new Map(existing.map((e) => [e.menuItemId, e.id]))
-      const keep = new Set<string>()
+      if (Array.isArray(body.groups)) {
+        const existingGroups = await tx.menuGroup.findMany({ where: { menuId: params.id } })
+        const byId = new Map(existingGroups.map((g) => [g.id, g]))
+        const keep = new Set<string>()
 
-      for (let i = 0; i < incoming.length; i++) {
-        const row = incoming[i]
-        if (!row?.menuItemId) continue
-        const min = toIntOrNull(row.minQty)
-        const max = toIntOrNull(row.maxQty)
-        const found = existingByItem.get(row.menuItemId)
+        for (let i = 0; i < body.groups.length; i++) {
+          const g = body.groups[i] as { id?: string; _clientId?: string; name?: unknown; sortOrder?: unknown }
+          const name = String(g.name ?? '').toUpperCase().trim()
+          if (!name) continue
+          const found = g.id ? byId.get(g.id) : undefined
+          if (found) {
+            await tx.menuGroup.update({
+              where: { id: found.id },
+              data: { name, sortOrder: toIntOrNull(g.sortOrder) ?? i, deletedAt: null },
+            })
+            keep.add(found.id)
+            groupKeyToId.set(found.id, found.id)
+            if (g._clientId) groupKeyToId.set(String(g._clientId), found.id)
+          } else {
+            const created = await tx.menuGroup.create({
+              data: { menuId: params.id, name, sortOrder: toIntOrNull(g.sortOrder) ?? i },
+            })
+            keep.add(created.id)
+            groupKeyToId.set(created.id, created.id)
+            if (g._clientId) groupKeyToId.set(String(g._clientId), created.id)
+          }
+        }
 
-        if (found) {
-          await tx.menuMenuItem.update({
-            where: { id: found },
-            data: { minQty: min, maxQty: max, sortOrder: toIntOrNull(row.sortOrder) ?? i },
-          })
-          keep.add(found)
-        } else {
-          const created = await tx.menuMenuItem.create({
-            data: {
-              menuId: params.id,
-              menuItemId: row.menuItemId,
-              minQty: min,
-              maxQty: max,
-              sortOrder: toIntOrNull(row.sortOrder) ?? i,
-            },
-          })
-          keep.add(created.id)
+        const removedGroups = existingGroups.filter((g) => !keep.has(g.id)).map((g) => g.id)
+        if (removedGroups.length > 0) {
+          await tx.menuGroup.updateMany({ where: { id: { in: removedGroups } }, data: { deletedAt: new Date() } })
+          await tx.menuMenuItem.updateMany({ where: { groupId: { in: removedGroups } }, data: { groupId: null } })
         }
       }
 
-      const remove = existing.filter((e) => !keep.has(e.id)).map((e) => e.id)
-      if (remove.length > 0) {
-        await tx.menuMenuItem.deleteMany({ where: { id: { in: remove } } })
+      if (Array.isArray(body.items)) {
+        const existing = await tx.menuMenuItem.findMany({
+          where: { menuId: params.id },
+          select: { id: true, menuItemId: true, inventoryItemId: true },
+        })
+        const byId = new Map(existing.map((e) => [e.id, e]))
+        const byMenuItem = new Map(existing.filter((e) => e.menuItemId).map((e) => [e.menuItemId as string, e]))
+        const byInv = new Map(existing.filter((e) => e.inventoryItemId).map((e) => [e.inventoryItemId as string, e]))
+        const keep = new Set<string>()
+
+        for (let i = 0; i < body.items.length; i++) {
+          const row = body.items[i] as {
+            id?: string
+            menuItemId?: unknown
+            inventoryItemId?: unknown
+            groupId?: unknown
+            minQty?: unknown
+            maxQty?: unknown
+            sortOrder?: unknown
+            sizeOptions?: unknown
+          }
+          const menuItemId = row.menuItemId ? String(row.menuItemId) : null
+          const inventoryItemId = row.inventoryItemId ? String(row.inventoryItemId) : null
+          if (!menuItemId && !inventoryItemId) continue
+          if (menuItemId && inventoryItemId) continue
+
+          const rawGroup = row.groupId ? String(row.groupId) : null
+          const groupId = rawGroup ? groupKeyToId.get(rawGroup) ?? rawGroup : null
+          // Only stock lines carry their own sizes; products read MenuItem.variations.
+          const sizeOptions: Prisma.InputJsonValue | typeof Prisma.DbNull =
+            !menuItemId && Array.isArray(row.sizeOptions)
+              ? (cleanSizes(row.sizeOptions) as unknown as Prisma.InputJsonValue)
+              : Prisma.DbNull
+
+          const found = row.id
+            ? byId.get(String(row.id))
+            : menuItemId
+              ? byMenuItem.get(menuItemId)
+              : byInv.get(inventoryItemId as string)
+
+          const line = {
+            menuItemId,
+            inventoryItemId,
+            groupId,
+            minQty: toIntOrNull(row.minQty),
+            maxQty: toIntOrNull(row.maxQty),
+            sizeOptions,
+            sortOrder: toIntOrNull(row.sortOrder) ?? i,
+          }
+
+          if (found) {
+            await tx.menuMenuItem.update({ where: { id: found.id }, data: line })
+            keep.add(found.id)
+          } else {
+            const created = await tx.menuMenuItem.create({ data: { ...line, menuId: params.id } })
+            keep.add(created.id)
+          }
+        }
+
+        const remove = existing.filter((e) => !keep.has(e.id)).map((e) => e.id)
+        if (remove.length > 0) {
+          await tx.menuMenuItem.deleteMany({ where: { id: { in: remove } } })
+        }
+
+        const prevMenuItemIds = existing.map((e) => e.menuItemId).filter((x): x is string => !!x)
+        const nextMenuItemIds = (body.items as { menuItemId?: unknown }[])
+          .map((r) => (r.menuItemId ? String(r.menuItemId) : ''))
+          .filter(Boolean)
+        const { added, removed } = diffItemIds(prevMenuItemIds, nextMenuItemIds)
+        changedItemIds.push(...added, ...removed)
       }
     })
-
-    // Sync categories for membership changes, outside the transaction.
-    const { added, removed } = diffItemIds(prevIds, incoming.map((r) => r.menuItemId).filter(Boolean))
-    changedItemIds.push(...added, ...removed)
   } else if (Object.keys(data).length > 0) {
     await prisma.menu.update({ where: { id: params.id }, data })
   }
@@ -171,9 +220,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   // A relink moves the menu's items to the new category on the store.
   if (categoryChanged) {
     const itemIds = (await prisma.menuMenuItem.findMany({
-      where: { menuId: params.id },
+      where: { menuId: params.id, menuItemId: { not: null } },
       select: { menuItemId: true },
     })).map((e) => e.menuItemId)
+      .filter((x): x is string => !!x)
     for (const itemId of itemIds) {
       await syncMenuItemCategory(itemId)
     }
@@ -185,20 +235,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   const updated = await prisma.menu.findUnique({
     where: { id: params.id },
-    include: {
-      items: {
-        where: { menuItem: { deletedAt: null } },
-        include: {
-          menuItem: {
-            select: { id: true, name: true, price: true, dietaryInfo: true, isActive: true },
-          },
-        },
-        orderBy: { sortOrder: 'asc' },
-      },
-    },
+    include: menuInclude,
   })
 
-  return NextResponse.json(updated)
+  return NextResponse.json(updated ? { ...updated, items: updated.items.map(shapeMenuLine) } : null)
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -211,9 +251,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (scoped.error) return scoped.error
 
   const itemIds = (await prisma.menuMenuItem.findMany({
-    where: { menuId: params.id },
+    where: { menuId: params.id, menuItemId: { not: null } },
     select: { menuItemId: true },
   })).map((e) => e.menuItemId)
+    .filter((x): x is string => !!x)
 
   await prisma.menu.update({
     where: { id: params.id },

@@ -66,4 +66,42 @@ describe('PositionsPanel', () => {
       })
     })
   })
+
+  it('edits a position to remove a department', async () => {
+    const position = {
+      id: 'p1', name: 'BARTENDER', colour: null, departmentId: 'd1', departmentIds: ['d1'],
+      hourlyRate: 25, department: { id: 'd1', name: 'FOH' }, _count: { staff: 0 },
+    }
+    const depts = [
+      { id: 'd1', name: 'FOH', venueId: 'v1' },
+      { id: 'd2', name: 'MANAGERS', venueId: 'v1' },
+    ]
+    globalThis.fetch = vi.fn((url: string, init?: RequestInit) => {
+      const json = (data: unknown) => Promise.resolve({ ok: true, json: () => Promise.resolve(data) } as Response)
+      const u = String(url)
+      if (u.startsWith('/api/admin/positions/readiness')) return json({})
+      if (u.startsWith('/api/admin/positions') && (init?.method === 'PUT')) return json({})
+      if (u.startsWith('/api/admin/positions')) return json([position])
+      if (u.startsWith('/api/admin/departments')) return json(depts)
+      return json(null)
+    }) as unknown as typeof fetch
+
+    render(<PositionsPanel venueId="v1" />)
+    await waitFor(() => expect(screen.getByText('BARTENDER')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('EDIT'))
+    // FOH is currently attached — the edit modal's chip is the last FOH button in
+    // the DOM (the create form also shows one); click it to remove the department.
+    fireEvent.click(screen.getAllByRole('button', { name: 'FOH' }).at(-1)!)
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      const put = calls.find(
+        (c) => (c[1] as { method?: string } | undefined)?.method === 'PUT' && String(c[0]).includes('/api/admin/positions/p1'),
+      )
+      expect(put).toBeTruthy()
+      expect(JSON.parse((put![1] as { body: string }).body).departmentIds).toEqual([])
+    })
+  })
 })

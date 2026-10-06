@@ -8,6 +8,7 @@
 
 import { jsPDF } from 'jspdf'
 import { blockDef, type BlockLibrary } from '@/lib/beo-blocks'
+import { pdfSafe } from '@/lib/pdf-safe'
 
 export type BeoPdfVariant = 'FULL' | 'CLIENT' | 'KITCHEN'
 
@@ -105,18 +106,18 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   doc.setTextColor(120)
-  doc.text(data.venueName.toUpperCase(), margin, y)
+  doc.text(pdfSafe(data.venueName).toUpperCase(), margin, y)
   y += 9
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)
   doc.setTextColor(0)
-  const titleLines = doc.splitTextToSize(VARIANT_TITLE[variant], innerW) as string[]
+  const titleLines = doc.splitTextToSize(pdfSafe(VARIANT_TITLE[variant]), innerW) as string[]
   doc.text(titleLines, margin, y)
   y += titleLines.length * 6.5
 
   doc.setFontSize(18)
-  const nameLines = doc.splitTextToSize(data.eventName.toUpperCase(), innerW) as string[]
+  const nameLines = doc.splitTextToSize(pdfSafe(data.eventName).toUpperCase(), innerW) as string[]
   doc.text(nameLines, margin, y)
   y += nameLines.length * 7 + 1
 
@@ -131,7 +132,7 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   doc.setTextColor(60)
-  doc.text(when, margin, y)
+  doc.text(pdfSafe(when), margin, y)
   y += 5
 
   doc.setFontSize(8)
@@ -141,12 +142,12 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
     data.menuName ? `MENU: ${data.menuName.toUpperCase()}` : null,
     data.setupName ? `LAYOUT: ${data.setupName.toUpperCase()}` : null,
   ].filter(Boolean).join(' · ')
-  doc.text(meta, margin, y)
+  doc.text(pdfSafe(meta), margin, y)
   y += 5
 
   if (!isKitchen && data.contactName) {
     const contact = [data.contactName, data.contactPhone, data.contactEmail].filter(Boolean).join(' · ')
-    const lines = doc.splitTextToSize(`CONTACT: ${contact}`, innerW) as string[]
+    const lines = doc.splitTextToSize(pdfSafe(`CONTACT: ${contact}`), innerW) as string[]
     doc.text(lines, margin, y)
     y += lines.length * 4
   }
@@ -164,7 +165,7 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
 
   for (const block of blocks) {
     const def = blockDef(block.type, library)
-    const label = (block.title?.trim() || def?.label || block.type).toUpperCase()
+    const label = pdfSafe(block.title?.trim() || def?.label || block.type).toUpperCase()
     const cfg = block.config ?? {}
 
     ensure(14)
@@ -186,7 +187,7 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(9.5)
       doc.setTextColor(30)
-      const lines = doc.splitTextToSize(`${fieldLabel}: ${value}`, innerW - 4) as string[]
+      const lines = doc.splitTextToSize(pdfSafe(`${fieldLabel}: ${value}`), innerW - 4) as string[]
       doc.text(lines, margin + 4, y)
       y += lines.length * 4.5
     }
@@ -197,7 +198,7 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(9.5)
         doc.setTextColor(30)
-        doc.text(`▪ ${nameOf(it.menuItemId)} × ${it.qty}`, margin + 4, y)
+        doc.text(pdfSafe(`▪ ${nameOf(it.menuItemId)} × ${it.qty}`), margin + 4, y)
         y += 4.5
       }
     }
@@ -212,7 +213,7 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(9.5)
         doc.setTextColor(30)
-        const lines = doc.splitTextToSize(`▪ ${parts.join(' — ')}`, innerW - 4) as string[]
+        const lines = doc.splitTextToSize(pdfSafe(`▪ ${parts.join(' — ')}`), innerW - 4) as string[]
         doc.text(lines, margin + 4, y)
         y += lines.length * 4.5
       }
@@ -235,7 +236,7 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
     doc.setTextColor(30)
     for (const line of data.totals.lines) {
       ensure(6)
-      doc.text(`▪ ${line.name} × ${line.qty}`, margin + 4, y)
+      doc.text(pdfSafe(`▪ ${line.name} × ${line.qty}`), margin + 4, y)
       if (showMoney) doc.text(money(line.total), pageW - margin, y, { align: 'right' })
       y += 4.5
     }
@@ -263,7 +264,7 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9.5)
     doc.setTextColor(30)
-    const lines = doc.splitTextToSize(data.notes, innerW) as string[]
+    const lines = doc.splitTextToSize(pdfSafe(data.notes), innerW) as string[]
     doc.text(lines, margin, y)
     y += lines.length * 4.5 + 4
   }
@@ -279,7 +280,7 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9.5)
     doc.setTextColor(30)
-    const lines = doc.splitTextToSize(data.internalNotes, innerW) as string[]
+    const lines = doc.splitTextToSize(pdfSafe(data.internalNotes), innerW) as string[]
     doc.text(lines, margin, y)
     y += lines.length * 4.5
   }
@@ -306,7 +307,7 @@ function stampFooter(doc: jsPDF, venueName: string) {
   const pages = doc.getNumberOfPages()
   for (let i = 1; i <= pages; i++) {
     doc.setPage(i)
-    doc.text(`HOSPO OPS — ${venueName.toUpperCase()}`, pageW / 2, footerY, { align: 'center' })
+    doc.text(`HOSPO OPS — ${pdfSafe(venueName).toUpperCase()}`, pageW / 2, footerY, { align: 'center' })
     doc.text(`${i} / ${pages}`, pageW / 2, footerY - 4, { align: 'center' })
   }
 }

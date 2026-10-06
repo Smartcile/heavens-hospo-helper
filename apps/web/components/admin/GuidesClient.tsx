@@ -1,13 +1,13 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
-import { Drawer } from '@/components/ui/Drawer'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
+import { AddSelect } from '@/components/ui/AddSelect'
 import { Combobox, ComboboxHandle } from '@/components/ui/Combobox'
 import { MultiImagePicker } from '@/components/ui/MultiImagePicker'
 import { VideoPicker } from '@/components/ui/VideoPicker'
@@ -127,65 +127,6 @@ function emptyStep(): Step {
   return { id: null, heading: '', content: '', imageUrls: [], videoUrl: '', videoPath: null, links: [] }
 }
 
-// Declared at module level so they aren't redefined on every parent render,
-// which would remount the inputs and lose focus mid-typing.
-function AddRow({
-  kinds, options, onAdd, addLabel, withQty,
-}: {
-  kinds: { value: string; label: string }[]
-  options: Record<string, Option[]>
-  onAdd: (kind: string, targetId: string, qty: number | null) => void
-  addLabel: string
-  withQty?: boolean
-}) {
-  const [kind, setKind] = useState(kinds[0].value)
-  const [targetId, setTargetId] = useState('')
-  const [qty, setQty] = useState('')
-
-  const opts = options[kind] ?? []
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <select
-        value={kind}
-        onChange={(e) => { setKind(e.target.value); setTargetId('') }}
-        className="bg-black border border-grey-mid text-white font-mono text-xs uppercase px-2 py-1.5 outline-none focus:border-white"
-      >
-        {kinds.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
-      </select>
-      <select
-        value={targetId}
-        onChange={(e) => setTargetId(e.target.value)}
-        className="flex-1 min-w-[10rem] bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
-      >
-        <option value="">{opts.length ? 'SELECT…' : 'NONE AVAILABLE'}</option>
-        {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-      {withQty && (
-        <input
-          type="number"
-          min={1}
-          value={qty}
-          onChange={(e) => setQty(e.target.value)}
-          placeholder="QTY"
-          className="w-16 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 text-right outline-none focus:border-white placeholder:text-grey-light"
-        />
-      )}
-      <button
-        type="button"
-        disabled={!targetId}
-        onClick={() => {
-          onAdd(kind, targetId, qty ? Number(qty) : null)
-          setTargetId(''); setQty('')
-        }}
-        className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors disabled:opacity-40"
-      >
-        {addLabel}
-      </button>
-    </div>
-  )
-}
-
 export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [guides, setGuides] = useState<Guide[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
@@ -227,6 +168,8 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [viewing, setViewing] = useState<GuideReaderGuide | null>(null)
   const [viewLoading, setViewLoading] = useState(false)
   const [pdfError, setPdfError] = useState('')
+  const [dragGuideId, setDragGuideId] = useState<string | null>(null)
+  const [dragOverFolder, setDragOverFolder] = useState<string | null>(null)
 
   function toggleSelected(id: string) {
     setSelectedIds((prev) => {
@@ -335,11 +278,38 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     load()
   }
 
+  // Drag a guide card onto a folder to file it. The card moves optimistically so
+  // the drop feels instant; a failed save rolls the whole list back.
+  async function moveGuideToFolder(guideId: string, targetFolderId: string | null) {
+    const guide = guides.find((g) => g.id === guideId)
+    if (!guide || (guide.folderId ?? null) === targetFolderId) {
+      setDragGuideId(null); setDragOverFolder(null)
+      return
+    }
+    const previous = guides
+    const key = targetFolderId ?? '__unfiled__'
+    setGuides((gs) => gs.map((g) => (g.id === guideId ? { ...g, folderId: targetFolderId } : g)))
+    setCollapsedFolders((prev) => { const next = new Set(prev); next.delete(key); return next })
+    setDragGuideId(null); setDragOverFolder(null)
+    try {
+      const r = await fetch(`/api/admin/guides/${guideId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId: targetFolderId }),
+      })
+      if (!r.ok) throw new Error('move failed')
+    } catch {
+      setGuides(previous)
+    }
+  }
+
   useEffect(() => { load() }, [])
 
-  // Everything a step or audience can point at, for the active venue.
-  useEffect(() => {
-    const vid = role === 'ADMIN' ? venueId : sessionVenueId
+  // Everything a step or audience can point at, for one venue. A named function
+  // (not just an effect) so a save can refresh it — a guide created in this
+  // session must appear in another guide's `+ LINK → GUIDE` picker immediately,
+  // without a full page reload.
+  const loadLinkTargets = useCallback((vid: string) => {
     if (!vid) return
     fetch(`/api/admin/guides/link-targets?venueId=${encodeURIComponent(vid)}`)
       .then((r) => (r.ok ? r.json() : null))
@@ -353,7 +323,11 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
         }
       })
       .catch(() => { /* picker just stays empty */ })
-  }, [role, venueId, sessionVenueId])
+  }, [])
+
+  useEffect(() => {
+    loadLinkTargets(role === 'ADMIN' ? venueId : sessionVenueId)
+  }, [role, venueId, sessionVenueId, loadLinkTargets])
 
   useEffect(() => {
     const vid = role === 'ADMIN' ? venueId : sessionVenueId
@@ -483,6 +457,9 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setSaving(false)
     if (!r.ok) { const d = await r.json(); setError(d.error ?? 'SAVE FAILED'); return }
     setOpen(false); load()
+    // A guide created or renamed just now must appear in other guides' `+ LINK →
+    // GUIDE` picker immediately — the initial fetch predates it.
+    loadLinkTargets(role === 'ADMIN' ? venueId : sessionVenueId)
   }
 
   async function handleDelete(g: Guide) {
@@ -531,6 +508,17 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     POSITION: filteredPositions.map((p) => ({ value: p.id, label: p.name })),
   }
 
+  // Reverse lookup — option value → the kind it belongs to — so the grouped
+  // add-pickers can add the right audience / link type from the chosen item.
+  const audienceKindByTarget = new Map<string, AudienceKind>()
+  for (const k of AUDIENCE_KINDS) {
+    for (const o of audienceOptions[k.value]) audienceKindByTarget.set(o.value, k.value)
+  }
+  const linkKindByTarget = new Map<string, LinkKind>()
+  for (const k of LINK_KINDS) {
+    for (const o of linkTargets[k.value] ?? []) linkKindByTarget.set(o.value, k.value)
+  }
+
   const audienceLabel = (a: Audience) =>
     audienceOptions[a.kind].find((o) => o.value === a.targetId)?.label ?? 'REMOVED'
 
@@ -568,7 +556,17 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   function renderGuideCard(g: Guide) {
     const isTable = g.guideType === 'PRODUCT_REFERENCE'
     return (
-      <div key={g.id} className={`bg-grey-dark border p-4 flex flex-col gap-2 ${g.status === 'DRAFT' ? 'border-yellow-700' : 'border-grey-mid'}`}>
+      <div
+        key={g.id}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData('text/guide-id', g.id)
+          e.dataTransfer.effectAllowed = 'move'
+          setDragGuideId(g.id)
+        }}
+        onDragEnd={() => { setDragGuideId(null); setDragOverFolder(null) }}
+        className={`bg-grey-dark border p-4 flex flex-col gap-2 transition-opacity ${g.status === 'DRAFT' ? 'border-yellow-700' : 'border-grey-mid'} ${dragGuideId === g.id ? 'opacity-50' : ''}`}
+      >
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-start gap-2 min-w-0">
             <input
@@ -643,6 +641,9 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
       </div>
 
       {pdfError && <p className="font-mono text-xs text-danger">{pdfError}</p>}
+      {showFolders && !loading && (
+        <p className="font-mono text-xs text-grey-light">TIP: DRAG A GUIDE CARD ONTO A FOLDER TO FILE IT.</p>
+      )}
 
       {loading ? (
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
@@ -658,7 +659,22 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
             const key = folder?.id ?? '__unfiled__'
             const collapsed = collapsedFolders.has(key)
             return (
-              <div key={key} className="space-y-3">
+              <div
+                key={key}
+                data-folder-key={key}
+                onDragOver={(e) => {
+                  if (!dragGuideId) return
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  setDragOverFolder(key)
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  const id = e.dataTransfer.getData('text/guide-id')
+                  if (id) moveGuideToFolder(id, folder?.id ?? null)
+                }}
+                className={`space-y-3 transition-colors ${dragOverFolder === key && dragGuideId ? 'ring-1 ring-white/40 bg-white/5' : ''}`}
+              >
                 <div className="flex items-center gap-2 border-b border-grey-mid pb-1">
                   <button
                     type="button"
@@ -681,7 +697,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                   </div>
                 )}
                 {!collapsed && groupGuides.length === 0 && (
-                  <p className="font-mono text-xs text-grey-light">EMPTY — MOVE A GUIDE HERE FROM ITS EDIT FORM.</p>
+                  <p className="font-mono text-xs text-grey-light">EMPTY — DRAG A GUIDE HERE, OR USE ITS EDIT FORM.</p>
                 )}
               </div>
             )
@@ -689,7 +705,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
         </div>
       )}
 
-      <Drawer isOpen={open} onClose={() => setOpen(false)} title={editing ? 'EDIT GUIDE' : 'NEW GUIDE'} width="lg">
+      <Modal isOpen={open} onClose={() => setOpen(false)} title={editing ? 'EDIT GUIDE' : 'NEW GUIDE'} size="xl">
         <div className="space-y-4">
           <Input label="Title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="HOW TO CLEAN THE COFFEE MACHINE" />
           <Textarea label="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} />
@@ -742,11 +758,15 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                 ))}
               </div>
             )}
-            <AddRow
-              kinds={AUDIENCE_KINDS}
-              options={audienceOptions}
-              addLabel="+ ADD"
-              onAdd={(kind, targetId) => addAudience(kind as AudienceKind, targetId)}
+            <AddSelect
+              groups={AUDIENCE_KINDS.map((k) => ({ label: k.label, options: audienceOptions[k.value] }))}
+              selected={audiences.map((a) => a.targetId)}
+              onAdd={(targetId) => {
+                const kind = audienceKindByTarget.get(targetId)
+                if (kind) addAudience(kind, targetId)
+              }}
+              placeholder="+ ADD DEPARTMENT / SECTION / ROLE"
+              emptyLabel="ALL ADDED"
             />
           </div>
 
@@ -842,10 +862,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
 
           {guideType !== 'PRODUCT_REFERENCE' && (
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Steps (optional)</label>
-              <button type="button" onClick={() => setSteps((p) => [...p, emptyStep()])} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">+ ADD STEP</button>
-            </div>
+            <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Steps (optional)</label>
             {steps.map((s, i) => (
               <div key={i} className="border border-grey-mid p-3 space-y-2">
                 <div className="flex items-center justify-between">
@@ -872,7 +889,6 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                           className="inline-flex items-center gap-1.5 border border-grey-mid px-2 py-0.5 font-mono text-xs uppercase text-white"
                         >
                           <span className="text-grey-light">{l.kind}</span>
-                          {l.qty && l.qty > 1 ? `${l.qty}× ` : ''}
                           {linkTargets[l.kind]?.find((o) => o.value === l.targetId)?.label
                             ?? l.target?.label
                             ?? 'REMOVED'}
@@ -887,20 +903,22 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                       ))}
                     </div>
                   )}
-                  <AddRow
-                    kinds={LINK_KINDS}
-                    options={linkTargets}
-                    addLabel="+ LINK"
-                    withQty
-                    onAdd={(kind, targetId, qty) => {
-                      const k = kind as LinkKind
-                      if (s.links.some((x) => x.kind === k && x.targetId === targetId)) return
-                      updateStepLinks(i, [...s.links, { kind: k, targetId, qty, note: null }])
+                  <AddSelect
+                    groups={LINK_KINDS.map((k) => ({ label: k.label, options: linkTargets[k.value] ?? [] }))}
+                    selected={s.links.map((l) => l.targetId)}
+                    onAdd={(targetId) => {
+                      const kind = linkKindByTarget.get(targetId)
+                      if (!kind) return
+                      if (s.links.some((x) => x.kind === kind && x.targetId === targetId)) return
+                      updateStepLinks(i, [...s.links, { kind, targetId, qty: null, note: null }])
                     }}
+                    placeholder="+ LINK A TOOL / TASK / LIST / GUIDE"
+                    emptyLabel="ALL LINKED"
                   />
                 </div>
               </div>
             ))}
+            <Button size="sm" variant="ghost" onClick={() => setSteps((p) => [...p, emptyStep()])}>+ ADD STEP</Button>
           </div>
           )}
 
@@ -910,7 +928,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
             <Button variant="ghost" onClick={() => setOpen(false)}>CANCEL</Button>
           </div>
         </div>
-      </Drawer>
+      </Modal>
 
       {/* Worker-view preview — the same reader a worker sees on the phone. */}
       <Modal isOpen={!!viewing} onClose={() => setViewing(null)} title={viewing?.title} size="lg">

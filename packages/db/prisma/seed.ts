@@ -1775,6 +1775,57 @@ async function main() {
     })
   }
 
+  // ─── Phase 12: Demo tips period (mock workbook data) ────────────────
+  // Mirrors mock_data/28022026 - Tips.xlsx: cash counted to $587.90 plus a
+  // $1,000 EFTPOS/POS holding figure → $1,587.90 accrued, split across 27
+  // staff with the workbook's share tiers. Demo-only and idempotent — the
+  // `update: {}` preserves any edits made through the TIPS page.
+  const mockTipsShares = [
+    { name: 'LIAM', hours: 705, shareWeight: 1 },
+    { name: 'SHAYLA', hours: 634, shareWeight: 1 },
+    { name: 'LUZ', hours: 487, shareWeight: 0.75 },
+    { name: 'OLIVIA', hours: 435, shareWeight: 0.75 },
+    { name: 'BETHANY', hours: 356, shareWeight: 0.5 },
+    { name: 'SOMER', hours: 287, shareWeight: 0.25 },
+    { name: 'ELLA', hours: 273, shareWeight: 0.25 },
+    { name: 'OLIVER', hours: 257, shareWeight: 0.25 },
+    { name: 'BRIDGET', hours: 243, shareWeight: 0.25 },
+    { name: 'GRACE', hours: 243, shareWeight: 0.25 },
+    { name: 'LOLA', hours: 204, shareWeight: 0.25 },
+    { name: 'HAYLEY', hours: 200, shareWeight: 0.25 },
+    { name: 'RUI', hours: 835, shareWeight: 0.2 },
+    { name: 'BEN', hours: 721, shareWeight: 0.2 },
+    { name: 'YUEYANG', hours: 604, shareWeight: 0.2 },
+    { name: 'RAMA', hours: 567, shareWeight: 0.2 },
+    { name: 'SEBASTIAN', hours: 558, shareWeight: 0.2 },
+    { name: 'MARK', hours: 529, shareWeight: 0.2 },
+    { name: 'NISHAL', hours: 502, shareWeight: 0.2 },
+    { name: 'JIANKUN', hours: 317, shareWeight: 0.2 },
+    { name: 'NEVE', hours: 176, shareWeight: 0.2 },
+    { name: 'MAIA', hours: 174, shareWeight: 0.2 },
+    { name: 'JOSIE', hours: 123, shareWeight: 0.2 },
+    { name: 'CAMPBELL', hours: 117, shareWeight: 0.1 },
+    { name: 'WILLIAM', hours: 104, shareWeight: 0.1 },
+    { name: 'SUMMER', hours: 83, shareWeight: 0.1 },
+    { name: 'MANOJ', hours: 81, shareWeight: 0.1 },
+  ]
+  const mockTipsCashCounts = { '100': 5, '50': 1, '20': 1, '10': 1, '5': 1, '2': 1, '0.5': 1, '0.2': 2 }
+  await prisma.tipsPeriod.upsert({
+    where: { id: d('00d900000001') },
+    update: {},
+    create: {
+      id: d('00d900000001'),
+      venueId: demoVenue.id,
+      label: 'FEBRUARY 2026 — MOCK',
+      fromDate: new Date('2025-11-01T00:00:00.000Z'),
+      toDate: new Date('2026-02-28T00:00:00.000Z'),
+      cashCounts: mockTipsCashCounts as Prisma.InputJsonValue,
+      posTotal: 1000,
+      shares: mockTipsShares as unknown as Prisma.InputJsonValue,
+      notes: 'MOCK DATA — from the 28/02/2026 tips workbook.',
+    },
+  })
+
   console.log('Seed complete.')
   console.log(`Demo venue: ${demoVenue.name} [isDemo=${demoVenue.isDemo}, isActive=${demoVenue.isActive}]`)
   console.log('')
@@ -1801,6 +1852,7 @@ async function main() {
   console.log(`  PATHWAYS: 2 published (FOH ONBOARDING ${PW_FOH.nodes.length} nodes, BOH ONBOARDING ${PW_BOH.nodes.length} nodes)`)
   console.log(`  GUIDE COMPLETIONS: ${guideCompletions.length} · ASSIGNMENTS: ${guideAssignments.length}`)
   console.log(`  EVENTS: 1 confirmed BEO (SMITH WEDDING, 5 blocks) · TEMPLATES: 2 (1 built-in) · 1 pending request`)
+  console.log(`  TIPS: 1 mock period (${mockTipsShares.length} staff, $1,587.90 accrued)`)
 }
 
 main()

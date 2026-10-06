@@ -358,6 +358,16 @@ export const PERMISSION_TREE: PermissionArea[] = [
           { key: 'redeem', label: 'REDEEM / VOID' },
         ],
       },
+      {
+        key: 'tips',
+        label: 'TIPS',
+        functions: [
+          { key: 'view', label: 'VIEW' },
+          { key: 'create', label: 'CREATE PERIOD' },
+          { key: 'edit', label: 'EDIT' },
+          { key: 'delete', label: 'DELETE' },
+        ],
+      },
     ],
   },
   {
@@ -480,6 +490,9 @@ export const PERMISSION_PRESETS: PermissionPreset[] = [
       keyFor('customers', 'customers', 'edit'),
       keyFor('team', 'clocks', 'view'),
       keyFor('floorplans', 'plans', 'view'),
+      keyFor('performance', 'tips', 'view'),
+      keyFor('performance', 'tips', 'create'),
+      keyFor('performance', 'tips', 'edit'),
       keyFor('notices', 'notices', 'view'),
       keyFor('notices', 'notices', 'post'),
     ],

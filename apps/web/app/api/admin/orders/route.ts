@@ -338,18 +338,20 @@ export async function POST(req: NextRequest) {
   if (body.menuId) {
     const menu = await prisma.menu.findFirst({
       where: { id: body.menuId, venueId, deletedAt: null },
-      include: { items: { include: { menuItem: { select: { name: true } } } } },
+      include: { items: { where: { menuItemId: { not: null } }, include: { menuItem: { select: { name: true } } } } },
     })
     if (!menu) return NextResponse.json({ error: 'Menu not found' }, { status: 404 })
 
     const violations = validateOrderAgainstMenu(
       { name: menu.name, minPax: menu.minPax, maxPax: menu.maxPax },
-      menu.items.map((i) => ({
-        menuItemId: i.menuItemId,
-        name: i.menuItem.name,
-        minQty: i.minQty,
-        maxQty: i.maxQty,
-      })),
+      menu.items
+        .filter((i) => i.menuItemId && i.menuItem)
+        .map((i) => ({
+          menuItemId: i.menuItemId as string,
+          name: i.menuItem!.name,
+          minQty: i.minQty,
+          maxQty: i.maxQty,
+        })),
       lines.map((l) => ({ menuItemId: l.menuItemId, qty: Number(l.qty) || 0 })),
       partySize,
     )

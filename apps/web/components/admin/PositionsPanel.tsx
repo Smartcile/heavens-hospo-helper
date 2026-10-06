@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { Modal } from '@/components/ui/Modal'
 import { RoleRequirementsDrawer } from '@/components/admin/RoleRequirementsDrawer'
 
 interface Position {
@@ -21,6 +22,33 @@ interface Position {
 }
 interface Department { id: string; name: string; venueId: string }
 
+/** Tappable department chips — click to toggle on/off (used by create + edit). */
+function DepartmentChips({ departments, venueId, selected, onToggle }: {
+  departments: Department[]
+  venueId: string
+  selected: string[]
+  onToggle: (id: string) => void
+}) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {departments.filter((d) => d.venueId === venueId).map((d) => (
+        <button
+          key={d.id}
+          type="button"
+          onClick={() => onToggle(d.id)}
+          className={`font-mono text-xs uppercase px-2 py-1 border transition-colors ${
+            selected.includes(d.id)
+              ? 'bg-white text-black border-white'
+              : 'text-grey-light border-grey-mid hover:border-white hover:text-white'
+          }`}
+        >
+          {d.name}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function PositionsPanel({ venueId }: { venueId: string }) {
   const [positions, setPositions] = useState<Position[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -32,6 +60,12 @@ export function PositionsPanel({ venueId }: { venueId: string }) {
   const [error, setError] = useState('')
   const [requirementsFor, setRequirementsFor] = useState<Position | null>(null)
   const [readiness, setReadiness] = useState<Record<string, { total: number; ready: number }>>({})
+  const [editing, setEditing] = useState<Position | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editDeptIds, setEditDeptIds] = useState<string[]>([])
+  const [editRate, setEditRate] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
 
   const load = useCallback(async () => {
     const [pR, dR, rR] = await Promise.all([
@@ -85,6 +119,37 @@ export function PositionsPanel({ venueId }: { venueId: string }) {
     load()
   }
 
+  function openEdit(p: Position) {
+    setEditing(p)
+    setEditName(p.name)
+    setEditDeptIds(p.departmentIds ?? [])
+    setEditRate(p.hourlyRate != null ? String(p.hourlyRate) : '')
+    setEditError('')
+  }
+
+  async function saveEdit() {
+    if (!editing) return
+    if (!editName.trim()) { setEditError('NAME IS REQUIRED'); return }
+    setEditSaving(true); setEditError('')
+    const r = await fetch(`/api/admin/positions/${editing.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: editName,
+        departmentIds: editDeptIds,
+        hourlyRate: editRate.trim() ? Number(editRate) : null,
+      }),
+    })
+    setEditSaving(false)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setEditError(d.error ?? 'COULD NOT SAVE')
+      return
+    }
+    setEditing(null)
+    load()
+  }
+
   return (
     <div className="border border-grey-mid p-4 space-y-3">
       <div>
@@ -102,7 +167,7 @@ export function PositionsPanel({ venueId }: { venueId: string }) {
         <div className="divide-y divide-grey-mid border border-grey-mid">
           {positions.map((p) => (
             <div key={p.id} className="flex items-center justify-between gap-2 px-3 py-2">
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <span className="font-mono text-xs uppercase text-white">{p.name}</span>
                 <span className="font-mono text-xs uppercase text-grey-light ml-2">
                   {(p.departmentIds?.length
@@ -139,6 +204,12 @@ export function PositionsPanel({ venueId }: { venueId: string }) {
               </div>
               <div className="flex gap-3 shrink-0">
                 <button
+                  onClick={() => openEdit(p)}
+                  className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+                >
+                  EDIT
+                </button>
+                <button
                   onClick={() => setRequirementsFor(p)}
                   className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
                 >
@@ -156,32 +227,54 @@ export function PositionsPanel({ venueId }: { venueId: string }) {
         </div>
       )}
 
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="flex-1 min-w-[10rem]">
-          <Input label="New position" value={name} onChange={(e) => setName(e.target.value)} placeholder="BARTENDER" />
+      <div className="border-t border-grey-mid pt-3 space-y-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex-1 min-w-[10rem]">
+            <Input label="New position" value={name} onChange={(e) => setName(e.target.value)} placeholder="BARTENDER" />
+          </div>
+          <div className="w-28">
+            <Input label="Rate $" type="number" min="0" step="0.01" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} placeholder="25.00" />
+          </div>
+          <Button size="sm" variant="ghost" onClick={create} loading={saving}>+ ADD</Button>
         </div>
-        <div className="flex-1 min-w-[12rem]">
+        <div>
           <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Departments (optional — a role can span several)</label>
-          <div className="flex flex-wrap gap-1 mt-1">
-            {departments.filter((d) => d.venueId === venueId).map((d) => (
-              <button
-                key={d.id}
-                type="button"
-                onClick={() => setDepartmentIds((prev) => (prev.includes(d.id) ? prev.filter((x) => x !== d.id) : [...prev, d.id]))}
-                className={`font-mono text-xs uppercase px-2 py-1 border transition-colors ${departmentIds.includes(d.id) ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid hover:border-white hover:text-white'}`}
-              >
-                {d.name}
-              </button>
-            ))}
+          <div className="mt-1">
+            <DepartmentChips
+              departments={departments}
+              venueId={venueId}
+              selected={departmentIds}
+              onToggle={(id) => setDepartmentIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))}
+            />
           </div>
         </div>
-        <div className="w-28">
-          <Input label="Rate $" type="number" min="0" step="0.01" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} placeholder="25.00" />
-        </div>
-        <Button size="sm" variant="ghost" onClick={create} loading={saving}>+ ADD</Button>
       </div>
 
       {error && <p className="font-mono text-xs text-danger">{error}</p>}
+
+      <Modal isOpen={!!editing} onClose={() => setEditing(null)} title={editing ? `EDIT POSITION — ${editing.name}` : 'EDIT POSITION'} size="lg">
+        <div className="space-y-4">
+          <Input label="Name" value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="BARTENDER" />
+          <div>
+            <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Departments (optional — tap to add or remove)</label>
+            <div className="mt-1">
+              <DepartmentChips
+                departments={departments}
+                venueId={venueId}
+                selected={editDeptIds}
+                onToggle={(id) => setEditDeptIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))}
+              />
+            </div>
+            <p className="font-mono text-xs uppercase text-grey-light mt-1">NO DEPARTMENT SELECTED = SPANS ALL DEPARTMENTS.</p>
+          </div>
+          <Input label="Rate $" type="number" min="0" step="0.01" value={editRate} onChange={(e) => setEditRate(e.target.value)} placeholder="25.00" />
+          {editError && <p className="font-mono text-xs text-danger">{editError}</p>}
+          <div className="flex gap-2 pt-2">
+            <Button onClick={saveEdit} loading={editSaving}>SAVE</Button>
+            <Button variant="ghost" onClick={() => setEditing(null)}>CANCEL</Button>
+          </div>
+        </div>
+      </Modal>
 
       {requirementsFor && (
         <RoleRequirementsDrawer

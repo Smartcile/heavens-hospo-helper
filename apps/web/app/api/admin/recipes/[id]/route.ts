@@ -22,7 +22,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, imageUrl, shortDescription, isVariable, variations, dietaryInfo } = await req.json()
+  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, imageUrl, shortDescription, isVariable, variations, dietaryInfo, swiftPosId } = await req.json()
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = String(name).toUpperCase().trim()
   if (yieldQty !== undefined) data.yieldQty = parseFloat(String(yieldQty)) || 1
@@ -82,6 +82,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
           deletedAt: wasDeleted ? null : undefined,
         }
         if (dietaryInfo !== undefined) menuData.dietaryInfo = dietaryInfo || null
+        if (swiftPosId !== undefined) menuData.swiftPosId = swiftPosId || null
         if (existing) {
           await tx.menuItem.update({ where: { id: existing.id }, data: menuData })
           revived = wasDeleted
@@ -120,7 +121,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
           orderBy: { sortOrder: 'asc' },
         },
         menuItems: {
-          select: { id: true, price: true, wooProductId: true, wooCategoryId: true, imageUrl: true, shortDescription: true, isVariable: true, variations: true, dietaryInfo: true },
+          select: { id: true, price: true, wooProductId: true, wooCategoryId: true, imageUrl: true, shortDescription: true, isVariable: true, variations: true, dietaryInfo: true, swiftPosId: true },
           where: { deletedAt: null },
         },
       },

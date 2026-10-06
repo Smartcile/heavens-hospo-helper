@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
-import { Drawer } from '@/components/ui/Drawer'
+import { Modal } from '@/components/ui/Modal'
 
 interface CustomerData {
   phone: string; name: string; email: string | null
@@ -50,7 +50,7 @@ export function CustomerDrawer({ isOpen, onClose, name, phone, email, venueId }:
   }, [isOpen, name, phone, venueId])
 
   return (
-    <Drawer isOpen={isOpen} onClose={onClose} title="CUSTOMER DETAILS" width="md">
+    <Modal isOpen={isOpen} onClose={onClose} title="CUSTOMER DETAILS" size="lg">
       <div className="space-y-4">
         {loading ? (
           <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
@@ -91,6 +91,6 @@ export function CustomerDrawer({ isOpen, onClose, name, phone, email, venueId }:
           </>
         )}
       </div>
-    </Drawer>
+    </Modal>
   )
 }
