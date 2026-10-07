@@ -37,6 +37,9 @@ export function GuideStepLinks({ links, variant = 'admin' }: { links: ResolvedSt
         {links.map((l) => {
           const accent = KIND_COLOUR[l.kind] ?? '#6B6B6B'
           const clickable = !l.target.missing
+          // The floor calls tools "items needed"; the admin editor keeps the
+          // TOOL / ITEM wording. Same for the PDF export.
+          const kindLabel = l.kind === 'ITEM' && variant === 'worker' ? 'ITEMS NEEDED' : STEP_LINK_LABEL[l.kind]
           return (
             <button
               key={l.id}
@@ -61,7 +64,7 @@ export function GuideStepLinks({ links, variant = 'admin' }: { links: ResolvedSt
                   className="font-mono text-xs uppercase tracking-widest"
                   style={{ color: l.target.missing ? '#F87171' : accent }}
                 >
-                  {STEP_LINK_LABEL[l.kind]}
+                  {kindLabel}
                 </div>
                 <div
                   className={`font-mono text-xs leading-tight truncate ${

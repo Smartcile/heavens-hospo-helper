@@ -40,8 +40,9 @@ export interface GuideReaderGuide {
 
 /**
  * Swipeable step photos. One image renders exactly as before (tap to zoom);
- * several become a snap-scrolling gallery with an "n / N" counter, so a step
- * can show a sequence of photos the way iFixit does.
+ * several become a snap-scrolling gallery with prev/next arrow buttons and an
+ * "n / N" counter, so a step can show a sequence of photos the way iFixit does
+ * and it is obvious on desktop that more photos exist.
  */
 function StepGallery({ images, stepNumber, onOpen }: { images: string[]; stepNumber: number; onOpen: (url: string) => void }) {
   const [current, setCurrent] = useState(0)
@@ -69,9 +70,16 @@ function StepGallery({ images, stepNumber, onOpen }: { images: string[]; stepNum
     setCurrent(Math.max(0, Math.min(images.length - 1, Math.round(el.scrollLeft / el.clientWidth))))
   }
 
+  function goTo(index: number) {
+    const el = scrollerRef.current
+    const next = Math.max(0, Math.min(images.length - 1, index))
+    setCurrent(next)
+    if (el) el.scrollLeft = next * el.clientWidth
+  }
+
   return (
     <div className="relative">
-      <div ref={scrollerRef} onScroll={onScroll} className="flex overflow-x-auto snap-x snap-mandatory">
+      <div ref={scrollerRef} onScroll={onScroll} className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth">
         {images.map((url, idx) => (
           <button
             key={url}
@@ -85,6 +93,24 @@ function StepGallery({ images, stepNumber, onOpen }: { images: string[]; stepNum
           </button>
         ))}
       </div>
+      <button
+        type="button"
+        onClick={() => goTo(current - 1)}
+        disabled={current === 0}
+        aria-label="Previous image"
+        className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/70 border border-grey-mid px-2.5 py-3 font-mono text-lg leading-none text-white transition-colors hover:border-white disabled:opacity-30 disabled:cursor-default"
+      >
+        ‹
+      </button>
+      <button
+        type="button"
+        onClick={() => goTo(current + 1)}
+        disabled={current === images.length - 1}
+        aria-label="Next image"
+        className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/70 border border-grey-mid px-2.5 py-3 font-mono text-lg leading-none text-white transition-colors hover:border-white disabled:opacity-30 disabled:cursor-default"
+      >
+        ›
+      </button>
       <div className="absolute bottom-2 right-2 bg-black/70 border border-grey-mid px-2 py-0.5 font-mono text-xs text-white">
         {current + 1} / {images.length}
       </div>

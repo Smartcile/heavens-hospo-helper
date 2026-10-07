@@ -353,9 +353,9 @@ line's unit auto-converts the quantity, so the recipe stays the same physically.
 explosions (inventory deduction) now sum in grams whenever the item has density data,
 so a recipe using both 1 CUP and 500 G of the same item adds correctly.
 
-**PANTRY BIBLE.** The known-ingredient library also lives in the inventory list as a
-**PANTRY BIBLE** section (OPS HUB → INVENTORY & STOCKTAKE → INVENTORY, bottom of the
-list) — every reference tagged `PANTRY BIBLE`, every regular stock item tagged
+**PANTRY BIBLE.** The known-ingredient library lives in its own **PANTRY BIBLE**
+tab (OPS HUB → INVENTORY & STOCKTAKE → PANTRY BIBLE) — searchable, every reference
+showing a `BUILT-IN` or `CUSTOM` badge, and every regular stock item tagged
 `CUSTOM`. Pantry references are **usable as recipe ingredients**: the recipe editor's
 ingredient search has a PANTRY BIBLE group, and pantry lines show a gold badge in the
 recipe. They carry density/unit-weight knowledge but no stock, so they never count

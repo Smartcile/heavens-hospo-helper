@@ -610,48 +610,6 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
             )
           })}
 
-          {/* Pantry Bible — the known-ingredient density library. These are
-              references for recipes (density / unit weight), not stock. */}
-          <Panel variant="outline" padding="none">
-            <div className="flex items-center">
-              <button onClick={() => toggleCollapse('PANTRY BIBLE')}
-                className="flex-1 flex items-center justify-between px-3 py-2 hover:bg-grey-mid/20 text-left">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs text-grey-light">{collapsed.has('PANTRY BIBLE') ? '▸' : '▾'}</span>
-                  <span className="font-mono text-xs font-bold text-white uppercase">PANTRY BIBLE</span>
-                  <span className="font-mono text-xs text-grey-light">({ingredientRefs.length})</span>
-                </div>
-              </button>
-              <button onClick={() => setShowRefPicker(true)}
-                className="font-mono text-xs uppercase text-grey-light hover:text-white px-3 py-2 border-l border-grey-mid">
-                LIBRARY
-              </button>
-            </div>
-            {!collapsed.has('PANTRY BIBLE') && (
-              <div className="border-t border-grey-mid">
-                <p className="font-mono text-xs text-grey-light px-3 pt-2">
-                  KNOWN INGREDIENTS WITH DENSITY / UNIT-WEIGHT — REFERENCE VALUES FOR RECIPES, NOT STOCK.
-                </p>
-                {ingredientRefs.length === 0 && <p className="font-mono text-xs text-grey-light px-3 py-3">No known ingredients.</p>}
-                <div className="divide-y divide-grey-mid/50 pb-1">
-                  {ingredientRefs.map((r) => (
-                    <div key={r.id} className="flex items-center gap-2 px-3 py-2">
-                      <div className="flex-1 min-w-0">
-                        <span className="font-mono text-xs text-white block truncate uppercase">
-                          {r.name}
-                          <span className="inline-block ml-1 font-mono text-xs text-gold border border-gold px-1 align-middle">PANTRY BIBLE</span>
-                        </span>
-                        <span className="block font-mono text-xs text-grey-light">
-                          {r.notes ?? (r.densityGramsPerMl != null ? `1 CUP ≈ ${Math.round(r.densityGramsPerMl * 250)}G` : r.weightPerUnitGrams != null ? `1 EA ≈ ${r.weightPerUnitGrams}G` : '')}
-                        </span>
-                      </div>
-                      <span className="font-mono text-xs text-grey-light shrink-0 uppercase">REFERENCE</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </Panel>
         </div>
 
         {/* Restore deleted items */}

@@ -59,7 +59,8 @@ describe('InventoryClient — density capture', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'FOOD' })).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'FOOD' }))
     await waitFor(() => expect(screen.getAllByText(/^FLOUR - 00/).length).toBeGreaterThan(0))
-    // The FOOD item row carries the CUSTOM badge; the pantry box row carries PANTRY BIBLE.
+    // The FOOD item row carries the CUSTOM badge (pantry refs live in their
+    // own tab now, so the item row is the only FLOUR - 00 on this page).
     const nameEl = screen.getAllByText(/^FLOUR - 00/).find((el) => el.textContent?.includes('CUSTOM'))
     const row = nameEl?.closest('div')?.parentElement
     expect(row).toBeTruthy()

@@ -18,7 +18,7 @@ describe('hub-tabs', () => {
     expect(OPS_SUB_TABS.bookings.map((s) => s.id)).toEqual(['diary', 'table', 'deleted'])
     expect(OPS_SUB_TABS.orders.map((s) => s.id)).toEqual(['all', 'service', 'kitchen', 'foh', 'production'])
     expect(OPS_SUB_TABS.orders.find((s) => s.id === 'all')?.title).toContain('EVERY SYNCED ORDER')
-    expect(OPS_SUB_TABS.inventory.map((s) => s.id)).toEqual(['inventory', 'stocktake'])
+    expect(OPS_SUB_TABS.inventory.map((s) => s.id)).toEqual(['inventory', 'pantry', 'stocktake'])
     expect(OPS_SUB_TABS.customers).toBeUndefined()
   })
 
@@ -50,6 +50,7 @@ describe('hub-tabs', () => {
     expect(resolveOps('orders', 'x')).toEqual({ area: 'orders', sub: 'service' })
     expect(resolveOps('menu', 'services')).toEqual({ area: 'menu', sub: 'services' })
     expect(resolveOps('inventory', 'stocktake')).toEqual({ area: 'inventory', sub: 'stocktake' })
+    expect(resolveOps('inventory', 'pantry')).toEqual({ area: 'inventory', sub: 'pantry' })
     expect(resolveOps('inventory', 'bogus')).toEqual({ area: 'inventory', sub: 'inventory' })
     expect(resolveOps('bookings', null)).toEqual({ area: 'bookings', sub: 'table' })
     expect(resolveOps('bookings', 'diary')).toEqual({ area: 'bookings', sub: 'diary' })

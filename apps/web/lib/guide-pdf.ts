@@ -6,12 +6,23 @@ import { jsPDF } from 'jspdf'
 import path from 'node:path'
 import fs from 'node:fs'
 import { guideTypeLabel } from '@/lib/guide-types'
+import { STEP_LINK_LABEL, type StepLinkKind } from '@/lib/guide-links'
 import { pdfSafe } from '@/lib/pdf-safe'
+import { storageRoot } from '@/lib/storage'
 
 export interface GuidePdfLink {
   kind: string
   label: string
+  /** Operator note; when absent the target's `sub` line is printed instead. */
   note: string | null
+  /** "2× T20 TORX" — legacy rows may carry a quantity. */
+  qty?: number | null
+  /** Secondary line from the target (storage path, department, yields…). */
+  sub?: string | null
+  /** Target thumbnail (equipment photo) as a data URL, filled by the route. */
+  imageDataUrl?: string | null
+  /** Target no longer exists — printed in red, like the reader. */
+  missing?: boolean
 }
 
 export interface GuidePdfStep {
@@ -43,18 +54,25 @@ export interface GuidePdfData {
   /** Plain-text form of the rich-text body (shown above the steps). */
   body?: string | null
   requiresSignOff?: boolean
+  /** Printed as a "REFERENCE — NOT TRACKED" badge when false (like the reader). */
+  isTracked?: boolean
   steps: GuidePdfStep[]
   /** Product-reference rows — rendered instead of steps when present. */
   table?: GuidePdfTableItem[] | null
 }
 
-const LINK_LABEL: Record<string, string> = {
-  ITEM: 'TOOL',
-  TASK: 'TASK',
-  CHECKLIST: 'LIST',
-  GUIDE: 'GUIDE',
-  SECTION: 'SECTION',
-  RECIPE: 'RECIPE',
+// Accent colours matching GuideStepLinks on screen.
+const LINK_ACCENT: Record<string, [number, number, number]> = {
+  ITEM: [96, 165, 250],
+  TASK: [120, 120, 120],
+  CHECKLIST: [74, 222, 128],
+  GUIDE: [249, 115, 22],
+  SECTION: [192, 132, 252],
+  RECIPE: [202, 165, 48],
+}
+
+function imageFormat(dataUrl: string): 'PNG' | 'JPEG' {
+  return /^data:image\/png/i.test(dataUrl) ? 'PNG' : 'JPEG'
 }
 
 function drawGuide(doc: jsPDF, data: GuidePdfData) {
@@ -90,6 +108,88 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
     }
   }
 
+  // One link rendered exactly like the reader card: accent bar, kind label,
+  // qty + target, note/sub, and the target's photo when it has one.
+  const drawLinkRow = (l: GuidePdfLink) => {
+    const accent = LINK_ACCENT[l.kind] ?? [130, 130, 130]
+    // Same wording as the worker reader: tools are "items needed" on the floor.
+    const kindText = pdfSafe(l.kind === 'ITEM' ? 'ITEMS NEEDED' : STEP_LINK_LABEL[l.kind as StepLinkKind] ?? l.kind)
+    const labelText = pdfSafe(`${l.qty && l.qty > 1 ? `${l.qty}x ` : ''}${l.label}`)
+    const subText = l.note ? l.note : l.sub
+
+    const imgSize = l.imageDataUrl ? 11 : 0
+    const textX = margin + 4 + (imgSize ? imgSize + 3 : 0)
+    const textW = pageW - margin - 4 - textX
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    const labelLines = doc.splitTextToSize(labelText, textW) as string[]
+    doc.setFontSize(8)
+    const subLines = subText ? (doc.splitTextToSize(pdfSafe(subText).toUpperCase(), textW) as string[]) : []
+
+    // Baselines relative to the box top: kind at 5.5, label at 10.1, then
+    // 4.0 per label line, then 3.4 per sub line — sized so the last line
+    // never spills past the bottom border.
+    const lastLabel = 10.1 + (labelLines.length - 1) * 4
+    const lastSub = subLines.length ? 10.1 + labelLines.length * 4 + subLines.length * 3.4 : 0
+    const rowH = Math.max(13, lastLabel + 2.5, lastSub + 2.5, imgSize + 4)
+
+    ensure(rowH + 2.5)
+
+    // The reader renders links as bordered cards with a coloured left edge;
+    // the PDF prints the same box so GUIDE / TOOL links read as items, not
+    // running text.
+    doc.setFillColor(248, 249, 250)
+    doc.setDrawColor(160, 166, 176)
+    doc.setLineWidth(0.25)
+    doc.rect(margin, y, innerW, rowH, 'FD')
+    doc.setFillColor(accent[0], accent[1], accent[2])
+    doc.rect(margin, y, 1.4, rowH, 'F')
+
+    if (l.imageDataUrl) {
+      try {
+        const img = doc.getImageProperties(l.imageDataUrl)
+        const scale = Math.min(imgSize / img.width, imgSize / img.height, 1)
+        const w = img.width * scale
+        const h = img.height * scale
+        const iy = y + (rowH - h) / 2
+        doc.addImage(l.imageDataUrl, imageFormat(l.imageDataUrl), margin + 3, iy, w, h)
+        doc.setDrawColor(200)
+        doc.setLineWidth(0.2)
+        doc.rect(margin + 3, iy, w, h, 'S')
+      } catch {
+        // Unreadable thumbnail — the text row still prints.
+      }
+    }
+
+    let ty = y + 5.5
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7)
+    doc.setTextColor(accent[0], accent[1], accent[2])
+    doc.text(kindText.toUpperCase(), textX, ty)
+    ty += 4.6
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    if (l.missing) doc.setTextColor(200, 40, 40)
+    else doc.setTextColor(20)
+    for (const line of labelLines) {
+      doc.text(line, textX, ty)
+      ty += 4
+    }
+
+    if (subLines.length) {
+      doc.setFontSize(8)
+      doc.setTextColor(110)
+      for (const line of subLines) {
+        ty += 3.4
+        doc.text(line, textX, ty)
+      }
+    }
+
+    y += rowH + 2.5
+  }
+
   // Header
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
@@ -107,6 +207,7 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
   const meta = [
     guideTypeLabel(data.guideType),
     data.category ? `CATEGORY: ${pdfSafe(data.category).toUpperCase()}` : null,
+    data.isTracked === false ? 'REFERENCE — NOT TRACKED' : null,
     data.requiresSignOff ? 'MANAGER SIGN-OFF REQUIRED' : 'SELF-COMPLETE',
   ]
     .filter(Boolean)
@@ -158,8 +259,11 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
         const scale = Math.min(45 / img.width, 45 / img.height, 1)
         const w = img.width * scale
         const h = img.height * scale
-        ensure(h + 4)
-        doc.addImage(item.imageDataUrl, 'JPEG', margin, y, w, h)
+        ensure(h + 5)
+        doc.addImage(item.imageDataUrl, imageFormat(item.imageDataUrl), margin, y, w, h)
+        doc.setDrawColor(190)
+        doc.setLineWidth(0.2)
+        doc.rect(margin, y, w, h, 'S')
         y += h + 3
       } catch {
         // Unreadable image — the fields still print.
@@ -208,8 +312,7 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
     }
 
     for (const l of s.links ?? []) {
-      const label = `- ${LINK_LABEL[l.kind] ?? l.kind}: ${pdfSafe(l.label)}${l.note ? ` (${pdfSafe(l.note)})` : ''}`
-      paragraph(label, { size: 8.5, style: 'normal', color: 80, indent: 3, lead: 4.2 })
+      drawLinkRow(l)
     }
 
     if (s.videoUrl || s.videoPath) {
@@ -219,23 +322,42 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
     }
 
     const stepImages = s.imageDataUrls ?? (s.imageDataUrl ? [s.imageDataUrl] : [])
-    for (const imgData of stepImages) {
+    for (let k = 0; k < stepImages.length; k++) {
+      const imgData = stepImages[k]
       try {
         const img = doc.getImageProperties(imgData)
         const maxW = innerW
-        const maxH = 60
+        const maxH = 70
         const scale = Math.min(maxW / img.width, maxH / img.height, 1)
         const w = img.width * scale
         const h = img.height * scale
-        ensure(h + 4)
-        doc.addImage(imgData, 'JPEG', margin, y, w, h)
+        const x = margin + (innerW - w) / 2
+        ensure(h + (stepImages.length > 1 ? 10 : 6))
+        if (stepImages.length > 1) {
+          doc.setFont('helvetica', 'normal')
+          doc.setFontSize(7)
+          doc.setTextColor(150)
+          doc.text(`PHOTO ${k + 1} / ${stepImages.length}`, margin, y)
+          y += 4
+        }
+        doc.addImage(imgData, imageFormat(imgData), x, y, w, h)
+        doc.setDrawColor(190)
+        doc.setLineWidth(0.2)
+        doc.rect(x, y, w, h, 'S')
         y += h + 6
       } catch {
         // Unreadable image data — the step text is the content, keep going.
       }
     }
 
-    y += 4
+    y += 2
+    if (i < data.steps.length - 1) {
+      ensure(8)
+      doc.setDrawColor(225)
+      doc.setLineWidth(0.2)
+      doc.line(margin, y, pageW - margin, y)
+      y += 7
+    }
   }
 }
 
@@ -286,21 +408,47 @@ export function guidePdfFilename(title: string): string {
   return `GUIDE - ${clean || 'PLAYBOOK'}.pdf`
 }
 
+const LOCAL_MIME: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+}
+
+/**
+ * Map an uploaded-file URL to its file on disk. Uploads serve from
+ * `/api/upload/<name>` and live on the UPLOAD_PATH storage root (a mounted
+ * volume in Docker) — NOT under public/, which is inside the image and wiped
+ * on redeploy. `/uploads/<name>` is the legacy URL shape and also resolves
+ * against the storage root.
+ */
+function storageFileForUrl(url: string): string | null {
+  for (const prefix of ['/api/upload/', '/uploads/']) {
+    if (!url.startsWith(prefix)) continue
+    const name = decodeURIComponent(url.slice(prefix.length))
+    if (!name || name.includes('/') || name.includes('\\') || name.includes('..')) return null
+    return path.join(storageRoot(), name)
+  }
+  return null
+}
+
 /**
  * Load a step image into a data URL for jsPDF. Local uploads are read from
- * disk; remote URLs are fetched with a short timeout. Returns null on any
- * failure — the PDF falls back to text only.
+ * the storage root; remote URLs are fetched with a short timeout. Returns
+ * null on any failure — the PDF falls back to text only.
  */
 export async function loadImageDataUrl(url: string | null | undefined): Promise<string | null> {
   if (!url) return null
+  if (url.startsWith('data:')) return url
   try {
-    if (url.startsWith('/')) {
-      const file = path.join(process.cwd(), 'public', url.replace(/^\//, ''))
+    const file = storageFileForUrl(url)
+    if (file) {
       const buf = await fs.promises.readFile(file)
       if (buf.byteLength > 2_000_000) return null
       const ext = path.extname(file).slice(1).toLowerCase()
-      const mime = ext === 'jpg' ? 'jpeg' : ext === 'svg' ? 'svg+xml' : ext || 'png'
-      return `data:image/${mime};base64,${buf.toString('base64')}`
+      return `data:${LOCAL_MIME[ext] ?? 'image/png'};base64,${buf.toString('base64')}`
     }
     if (url.startsWith('http://') || url.startsWith('https://')) {
       const ctrl = new AbortController()

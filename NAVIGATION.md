@@ -133,7 +133,7 @@ Flow order: **Sell → Seat → Serve → Stock**.
 | **BOOKINGS** | `/admin/ops?tab=bookings` | Table reservations. DIARY (timeline), TABLE (tables × time grid with service windows, click-to-create, drag-resize), DELETED (recover with reseat + clash guard). Booking cards have a CUSTOMER button → slide-out customer drawer. Creates calendar events |
 | **ORDERS** | `/admin/ops?tab=orders` | Date-driven orders. Views: ALL / SERVICE / KITCHEN / FOH / PRODUCTION. Filters, saved views, + NEW ORDER. Detail popout: contact (VIEW CUSTOMER → drawer), booking controls, progress buttons, payment, items, Woo status push |
 | **CUSTOMERS** | `/admin/ops?tab=customers` | Customer search by phone/name; detail opens the slide-out customer drawer (contact + booking history) |
-| **INVENTORY & STOCKTAKE** | `/admin/ops?tab=inventory` | INVENTORY: master-detail stock system (FOOD/BEVERAGE/OTHER categories, AVAIL = total − placed, deep fields, equipment tracking, furniture form, SHOW DELETED) + a read-only **PANTRY BIBLE** section listing the known-ingredient density library (gold `PANTRY BIBLE` tags; regular items are tagged `CUSTOM`). STOCKTAKE: create/count/variance/sign-off |
+| **INVENTORY & STOCKTAKE** | `/admin/ops?tab=inventory` | INVENTORY: master-detail stock system (FOOD/BEVERAGE/OTHER categories, AVAIL = total − placed, deep fields, equipment tracking, furniture form, SHOW DELETED; regular items tagged `CUSTOM`). PANTRY BIBLE: searchable known-ingredient density library with BUILT-IN / CUSTOM badges and delete for venue-owned rows. STOCKTAKE: create/count/variance/sign-off |
 
 All areas follow the sidebar's active venue; old standalone URLs redirect here
 keeping other query params.

@@ -15,6 +15,7 @@ import {
   guidePdfFilename,
   loadImageDataUrl,
   type GuidePdfData,
+  type GuidePdfLink,
 } from '@/lib/guide-pdf'
 
 // PDF export for a GROUP of guides — `?ids=a,b,c` (or every published guide
@@ -60,12 +61,23 @@ export async function GET(req: NextRequest) {
       const imageDataUrls = (await Promise.all(images.map((u) => loadImageDataUrl(u)))).filter(
         (d): d is string => !!d,
       )
+      const links: GuidePdfLink[] = await Promise.all(
+        resolved.map(async (l) => ({
+          kind: l.kind,
+          label: l.target.label,
+          note: l.note,
+          qty: l.qty,
+          sub: l.target.sub,
+          missing: l.target.missing,
+          imageDataUrl: await loadImageDataUrl(l.target.imageUrl),
+        })),
+      )
       steps.push({
         heading: s.heading,
         content: s.content,
         videoUrl: s.videoUrl,
         videoPath: s.videoPath,
-        links: resolved.map((l) => ({ kind: l.kind, label: l.target.label, note: l.note })),
+        links,
         imageDataUrls,
       })
     }
@@ -77,6 +89,7 @@ export async function GET(req: NextRequest) {
       guideType: g.guideType,
       body: richTextToPlainText(g.bodyHtml),
       requiresSignOff: g.requiresSignOff,
+      isTracked: g.isTracked,
       steps,
       table: await buildPdfTable(sanitiseColumns(g.tableColumns), g.tableRows),
     })

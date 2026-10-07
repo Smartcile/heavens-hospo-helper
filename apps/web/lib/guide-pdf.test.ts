@@ -1,6 +1,13 @@
-import { describe, it, expect } from 'vitest'
-import { generateGuidePdf, mergedGuidePdf, guidePdfToBuffer, guidePdfFilename } from './guide-pdf'
+import { describe, it, expect, afterEach } from 'vitest'
+import os from 'node:os'
+import path from 'node:path'
+import fs from 'node:fs'
+import { generateGuidePdf, mergedGuidePdf, guidePdfToBuffer, guidePdfFilename, loadImageDataUrl } from './guide-pdf'
 import type { GuidePdfData } from './guide-pdf'
+
+function pdfText(doc: ReturnType<typeof generateGuidePdf>): string {
+  return Buffer.from(guidePdfToBuffer(doc)).toString('latin1')
+}
 
 const baseData: GuidePdfData = {
   venueName: 'AKARANA EATERY',
@@ -45,6 +52,79 @@ describe('generateGuidePdf', () => {
       steps: [{ heading: null, content: 'TEXT ONLY', imageDataUrl: 'data:image/jpeg;base64,not-a-real-image' }],
     })
     expect(guidePdfToBuffer(doc).byteLength).toBeGreaterThan(100)
+  })
+
+  it('prints link boxes with kind, quantity, note and sub-line', () => {
+    const doc = generateGuidePdf({
+      ...baseData,
+      steps: [
+        {
+          heading: 'SET UP',
+          content: 'Gather the tools.',
+          links: [
+            { kind: 'ITEM', label: 'T20 TORX DRIVER', note: 'TOP SHELF', qty: 2 },
+            { kind: 'GUIDE', label: 'OPENING CHECKLIST', note: null, sub: 'FOOD SAFETY' },
+            { kind: 'TASK', label: 'TASK REMOVED', note: null, missing: true },
+          ],
+        },
+      ],
+    })
+    const raw = pdfText(doc)
+    expect(raw).toContain('ITEMS NEEDED')
+    expect(raw).toContain('2x T20 TORX DRIVER')
+    expect(raw).toContain('TOP SHELF')
+    expect(raw).toContain('GUIDE')
+    expect(raw).toContain('OPENING CHECKLIST')
+    expect(raw).toContain('FOOD SAFETY')
+    expect(raw).toContain('TASK REMOVED')
+  })
+
+  it('prints the reference-not-tracked badge like the reader', () => {
+    const raw = pdfText(generateGuidePdf({ ...baseData, isTracked: false }))
+    expect(raw).toContain('REFERENCE - NOT TRACKED')
+  })
+})
+
+describe('loadImageDataUrl', () => {
+  const originalUploadPath = process.env.UPLOAD_PATH
+  const dirs: string[] = []
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true })
+    if (originalUploadPath === undefined) delete process.env.UPLOAD_PATH
+    else process.env.UPLOAD_PATH = originalUploadPath
+  })
+
+  function tempUpload(file: string, bytes: Buffer): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'guide-pdf-'))
+    dirs.push(dir)
+    process.env.UPLOAD_PATH = dir
+    fs.writeFileSync(path.join(dir, file), bytes)
+    return dir
+  }
+
+  // 1×1 transparent PNG.
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  )
+
+  it('reads /api/upload files from the UPLOAD_PATH storage root (not public/)', async () => {
+    tempUpload('photo.png', PNG)
+    const data = await loadImageDataUrl('/api/upload/photo.png')
+    expect(data).toMatch(/^data:image\/png;base64,/)
+    expect(data).toContain(PNG.toString('base64'))
+  })
+
+  it('resolves legacy /uploads/ URLs against the storage root too', async () => {
+    tempUpload('legacy.jpg', PNG)
+    expect(await loadImageDataUrl('/uploads/legacy.jpg')).toMatch(/^data:image\/jpeg;base64,/)
+  })
+
+  it('returns null for a missing file and rejects path traversal', async () => {
+    tempUpload('photo.png', PNG)
+    expect(await loadImageDataUrl('/api/upload/nope.png')).toBeNull()
+    expect(await loadImageDataUrl('/api/upload/..%2Fsecret.png')).toBeNull()
   })
 })
 

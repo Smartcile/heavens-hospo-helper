@@ -114,6 +114,33 @@ describe('WorkerGuidesClient', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('pages a multi-image step with arrows, disabling the boundary direction', async () => {
+    const withImages = {
+      ...tracked,
+      steps: [{ ...tracked.steps[0], imageUrls: ['/uploads/a.png', '/uploads/b.png', '/uploads/c.png'] }],
+    }
+    globalThis.fetch = mockFetch({}, withImages)
+    render(<WorkerGuidesClient />)
+    fireEvent.click(await screen.findByText('FOOD SAFETY BASICS'))
+
+    const prev = (await screen.findByLabelText('Previous image')) as HTMLButtonElement
+    const next = screen.getByLabelText('Next image') as HTMLButtonElement
+    expect(screen.getByText('1 / 3')).toBeTruthy()
+    expect(prev.disabled).toBe(true)
+    expect(next.disabled).toBe(false)
+
+    fireEvent.click(next)
+    await waitFor(() => expect(screen.getByText('2 / 3')).toBeTruthy())
+    expect(prev.disabled).toBe(false)
+
+    fireEvent.click(next)
+    await waitFor(() => expect(screen.getByText('3 / 3')).toBeTruthy())
+    expect(next.disabled).toBe(true)
+
+    fireEvent.click(screen.getByLabelText('Previous image'))
+    await waitFor(() => expect(screen.getByText('2 / 3')).toBeTruthy())
+  })
+
   it('shows authoring controls only when the user can edit', async () => {
     globalThis.fetch = mockFetch({ canEdit: true, canPublish: true })
     render(<WorkerGuidesClient />)

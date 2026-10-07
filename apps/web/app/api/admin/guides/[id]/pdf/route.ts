@@ -15,6 +15,7 @@ import {
   guidePdfFilename,
   loadImageDataUrl,
   type GuidePdfData,
+  type GuidePdfLink,
 } from '@/lib/guide-pdf'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -46,12 +47,23 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     const imageDataUrls = (await Promise.all(images.map((u) => loadImageDataUrl(u)))).filter(
       (d): d is string => !!d,
     )
+    const links: GuidePdfLink[] = await Promise.all(
+      resolved.map(async (l) => ({
+        kind: l.kind,
+        label: l.target.label,
+        note: l.note,
+        qty: l.qty,
+        sub: l.target.sub,
+        missing: l.target.missing,
+        imageDataUrl: await loadImageDataUrl(l.target.imageUrl),
+      })),
+    )
     steps.push({
       heading: s.heading,
       content: s.content,
       videoUrl: s.videoUrl,
       videoPath: s.videoPath,
-      links: resolved.map((l) => ({ kind: l.kind, label: l.target.label, note: l.note })),
+      links,
       imageDataUrls,
     })
   }
@@ -69,6 +81,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     guideType: guide.guideType,
     body: richTextToPlainText(guide.bodyHtml),
     requiresSignOff: guide.requiresSignOff,
+    isTracked: guide.isTracked,
     steps,
     table,
   }

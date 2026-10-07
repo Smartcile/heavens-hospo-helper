@@ -28,6 +28,15 @@ describe('GuideStepLinks', () => {
     expect(screen.getByText('TOOL / ITEM')).toBeTruthy()
   })
 
+  it('calls tools "ITEMS NEEDED" on the worker variant only', () => {
+    const { rerender } = render(<GuideStepLinks links={[link()]} variant="worker" />)
+    expect(screen.getByText('ITEMS NEEDED')).toBeTruthy()
+    expect(screen.queryByText('TOOL / ITEM')).toBeNull()
+    rerender(<GuideStepLinks links={[link()]} variant="admin" />)
+    expect(screen.getByText('TOOL / ITEM')).toBeTruthy()
+    expect(screen.queryByText('ITEMS NEEDED')).toBeNull()
+  })
+
   it('shows a quantity prefix only above 1', () => {
     const { rerender } = render(<GuideStepLinks links={[link({ qty: 2 })]} />)
     expect(screen.getByText('2×')).toBeTruthy()
