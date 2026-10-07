@@ -9,6 +9,48 @@ interface Params {
   params: { id: string }
 }
 
+// Single checklist for the reference popup (name + ordered live tasks).
+export async function GET(req: NextRequest, { params }: Params) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.tasks.view')
+  if (denied) return denied
+
+  const c = await prisma.checklist.findFirst({
+    where: { id: params.id, deletedAt: null },
+    include: {
+      department: { select: { id: true, name: true } },
+      section: { select: { id: true, name: true } },
+      tasks: {
+        orderBy: { sortOrder: 'asc' },
+        include: {
+          task: {
+            select: {
+              id: true, title: true, completionType: true, scheduleType: true,
+              isActive: true, deletedAt: true,
+            },
+          },
+        },
+      },
+    },
+  })
+  if (!c) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (session.user.role === 'MANAGER' && c.venueId !== session.user.venueId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  return NextResponse.json({
+    id: c.id,
+    name: c.name,
+    description: c.description,
+    venueId: c.venueId,
+    department: c.department,
+    section: c.section,
+    appearFromTime: c.appearFromTime,
+    tasks: c.tasks.filter((ct) => ct.task && !ct.task.deletedAt).map((ct) => ct.task),
+  })
+}
+
 export async function PUT(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

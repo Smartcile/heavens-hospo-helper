@@ -3,14 +3,20 @@
 // The menu builder — groups of items on the left, a live plain-text preview on
 // the right. A line is a product (sizes read from MenuItem.variations, shared
 // across menus) or a stock item (sizes carried on the line). See MENUS.md.
+//
+// The item list is a flat, drag-reorderable list grouped under headers: drag a
+// row up/down to reorder, or onto a group header to re-file it. Each row shows
+// its list prices and COGS against the ex-GST price; EDIT opens a focused popup.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { pushToast } from '@/components/ui/Toast'
 import { MenuPreview } from '@/components/admin/MenuPreview'
-import { cleanSizes, variationSizes, type MenuShape, type MenuSize, type ShapedMenuLine } from '@/lib/menu-lines'
+import { MenuLineEditor } from '@/components/admin/MenuLineEditor'
+import { cleanSizes, variationSizes, formatSizePrice, type MenuShape, type ShapedMenuLine, type MenuLineDraft, type MenuGroupDraft } from '@/lib/menu-lines'
+import { priceExGst, grossMarginPct, type CogsResult } from '@/lib/menu-cogs'
 
 export interface MenuOptionProduct {
   id: string
@@ -30,33 +36,9 @@ export interface MenuOptionStock {
   category: { name: string; tab: string | null } | null
 }
 
-interface GroupDraft {
-  key: string
-  id?: string
-  name: string
-}
-
-interface LineDraft {
-  key: string
-  id?: string
-  kind: 'PRODUCT' | 'STOCK'
-  menuItemId?: string
-  inventoryItemId?: string
-  groupKey: string | null
-  name: string
-  price: number | null
-  dietaryInfo: string | null
-  isActive: boolean
-  unit: string | null
-  sizes: MenuSize[]
-  sizesDirty: boolean
-  minQty: string
-  maxQty: string
-}
-
 const uid = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `k${Math.random().toString(36).slice(2)}`)
 
-function toDraftLine(l: ShapedMenuLine, key: string): LineDraft {
+function toDraftLine(l: ShapedMenuLine, key: string): MenuLineDraft {
   return {
     key,
     id: l.id,
@@ -100,18 +82,21 @@ export function MenuBuilder({
   const isNew = !menu
   const [name, setName] = useState(menu?.name ?? '')
   const [description, setDescription] = useState(menu?.description ?? '')
+  const [paxEnabled, setPaxEnabled] = useState(!!menu && (menu.minPax != null || menu.maxPax != null))
   const [minPax, setMinPax] = useState(menu?.minPax?.toString() ?? '')
   const [maxPax, setMaxPax] = useState(menu?.maxPax?.toString() ?? '')
   const [isActive, setIsActive] = useState(menu?.isActive ?? true)
   const [categoryId, setCategoryId] = useState(menu?.wooCategoryId ?? '')
 
-  const [groups, setGroups] = useState<GroupDraft[]>(() => (menu?.groups ?? []).map((g) => ({ key: g.id, id: g.id, name: g.name })))
-  const [lines, setLines] = useState<LineDraft[]>(() => (menu?.items ?? []).map((l) => toDraftLine(l, uid())))
+  const [groups, setGroups] = useState<MenuGroupDraft[]>(() => (menu?.groups ?? []).map((g) => ({ key: g.id, id: g.id, name: g.name })))
+  const [lines, setLines] = useState<MenuLineDraft[]>(() => (menu?.items ?? []).map((l) => toDraftLine(l, uid())))
 
   const [search, setSearch] = useState('')
   const [addGroupKey, setAddGroupKey] = useState<string | null>(groups[0]?.key ?? null)
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
+  const [editingKey, setEditingKey] = useState<string | null>(null)
+  const [dragKey, setDragKey] = useState<string | null>(null)
+  const [cogs, setCogs] = useState<Record<string, CogsResult | null>>({})
 
   const groupOptions = [{ value: '', label: 'NO GROUP' }, ...groups.map((g) => ({ value: g.key, label: g.name || 'UNTITLED' }))]
 
@@ -126,10 +111,31 @@ export function MenuBuilder({
     }
   }, [search, products, inventory, lines])
 
+  // COGS is fetched lazily for the distinct products in the draft — only when
+  // that set changes, not on every keystroke.
+  const cogsKey = useMemo(
+    () => [...new Set(lines.map((l) => l.menuItemId).filter((x): x is string => !!x))].sort().join(','),
+    [lines],
+  )
+  useEffect(() => {
+    const ids = cogsKey ? cogsKey.split(',') : []
+    if (ids.length === 0) { setCogs({}); return }
+    let alive = true
+    fetch('/api/admin/menus/cogs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ menuItemIds: ids, ...(venueId ? { venueId } : {}) }),
+    })
+      .then((r) => (r.ok ? r.json() : { cogs: {} }))
+      .then((d) => { if (alive) setCogs((d.cogs ?? {}) as Record<string, CogsResult | null>) })
+      .catch(() => { /* COGS is best-effort */ })
+    return () => { alive = false }
+  }, [cogsKey, venueId])
+
   function addGroup() {
     setGroups((g) => [...g, { key: uid(), name: '' }])
   }
-  function patchGroup(key: string, patch: Partial<GroupDraft>) {
+  function patchGroup(key: string, patch: Partial<MenuGroupDraft>) {
     setGroups((g) => g.map((x) => (x.key === key ? { ...x, ...patch } : x)))
   }
   function moveGroup(i: number, dir: -1 | 1) {
@@ -147,7 +153,6 @@ export function MenuBuilder({
   }
 
   function addProduct(p: MenuOptionProduct) {
-    const sizes = variationSizes(p.variations)
     setLines((l) => [
       ...l,
       {
@@ -160,7 +165,7 @@ export function MenuBuilder({
         dietaryInfo: p.dietaryInfo,
         isActive: p.isActive,
         unit: null,
-        sizes,
+        sizes: variationSizes(p.variations),
         sizesDirty: false,
         minQty: '',
         maxQty: '',
@@ -191,48 +196,43 @@ export function MenuBuilder({
     setSearch('')
   }
 
-  function patchLine(key: string, patch: Partial<LineDraft>) {
+  function patchLine(key: string, patch: Partial<MenuLineDraft>) {
     setLines((l) => l.map((x) => (x.key === key ? { ...x, ...patch } : x)))
-  }
-  function moveLine(i: number, dir: -1 | 1) {
-    setLines((l) => {
-      const next = [...l]
-      const j = i + dir
-      if (j < 0 || j >= next.length) return l
-      ;[next[i], next[j]] = [next[j], next[i]]
-      return next
-    })
   }
   function removeLine(key: string) {
     setLines((l) => l.filter((x) => x.key !== key))
   }
-  function toggleExpanded(key: string) {
-    setExpanded((s) => {
-      const next = new Set(s)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
+
+  // Drop a line just before/after another — adopting the target's group.
+  function dropOnLine(targetKey: string, before: boolean) {
+    if (!dragKey || dragKey === targetKey) { setDragKey(null); return }
+    setLines((prev) => {
+      const from = prev.findIndex((l) => l.key === dragKey)
+      const target = prev.find((l) => l.key === targetKey)
+      if (from < 0 || !target) return prev
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      const movedLine: MenuLineDraft = { ...moved, groupKey: target.groupKey }
+      let to = next.findIndex((l) => l.key === targetKey)
+      if (!before) to += 1
+      next.splice(to, 0, movedLine)
       return next
     })
+    setDragKey(null)
   }
 
-  function setSize(lineKey: string, index: number, patch: Partial<MenuSize>) {
-    setLines((l) =>
-      l.map((x) => {
-        if (x.key !== lineKey) return x
-        const sizes = x.sizes.map((s, i) => (i === index ? { ...s, ...patch } : s))
-        return { ...x, sizes, sizesDirty: true }
-      }),
-    )
-  }
-  function addSize(lineKey: string, preset?: string) {
-    setLines((l) =>
-      l.map((x) => (x.key === lineKey ? { ...x, sizes: [...x.sizes, { label: preset ?? '', price: 0 }], sizesDirty: true } : x)),
-    )
-  }
-  function removeSize(lineKey: string, index: number) {
-    setLines((l) =>
-      l.map((x) => (x.key === lineKey ? { ...x, sizes: x.sizes.filter((_, i) => i !== index), sizesDirty: true } : x)),
-    )
+  // Drop onto a group header — re-file into that group (appended at the end).
+  function dropOnGroup(groupKey: string | null) {
+    if (!dragKey) return
+    setLines((prev) => {
+      const from = prev.findIndex((l) => l.key === dragKey)
+      if (from < 0) return prev
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.push({ ...moved, groupKey })
+      return next
+    })
+    setDragKey(null)
   }
 
   async function save() {
@@ -241,8 +241,8 @@ export function MenuBuilder({
       pushToast('MENU NAME IS REQUIRED', 'error')
       return
     }
-    const min = minPax === '' ? null : parseInt(minPax, 10)
-    const max = maxPax === '' ? null : parseInt(maxPax, 10)
+    const min = paxEnabled && minPax !== '' ? parseInt(minPax, 10) : null
+    const max = paxEnabled && maxPax !== '' ? parseInt(maxPax, 10) : null
     if (min != null && max != null && min > max) {
       pushToast('MIN PAX CANNOT EXCEED MAX PAX', 'error')
       return
@@ -338,6 +338,65 @@ export function MenuBuilder({
     unit: l.unit,
   }))
 
+  function priceText(l: MenuLineDraft): string {
+    if (l.sizes.length > 0) return l.sizes.map((s) => `${s.label} $${formatSizePrice(s.price)}`).join('  ·  ')
+    if (l.price != null) return `$${formatSizePrice(l.price)}`
+    return l.unit ?? '—'
+  }
+
+  function cogsText(l: MenuLineDraft): string | null {
+    if (l.kind !== 'PRODUCT' || !l.menuItemId) return null
+    const c = cogs[l.menuItemId]
+    if (!c) return null
+    const basePrice = l.price ?? l.sizes[0]?.price ?? null
+    const margin = basePrice != null ? grossMarginPct(c.cost, priceExGst(basePrice)) : null
+    return `COGS ${c.partial ? '~' : ''}$${c.cost.toFixed(2)}${margin != null ? ` · M ${margin.toFixed(0)}%` : ''}`
+  }
+
+  const editingLine = editingKey ? lines.find((l) => l.key === editingKey) ?? null : null
+
+  const renderLine = (l: MenuLineDraft) => {
+    const cogsLabel = cogsText(l)
+    return (
+      <div
+        key={l.key}
+        draggable
+        onDragStart={(e) => { setDragKey(l.key); e.dataTransfer.setData('text/plain', l.key); e.dataTransfer.effectAllowed = 'move' }}
+        onDragEnd={() => setDragKey(null)}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.stopPropagation()
+          e.preventDefault()
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+          dropOnLine(l.key, e.clientY < rect.top + rect.height / 2)
+        }}
+        className={`flex items-center gap-2 border-b border-grey-mid pl-4 pr-1 py-2 cursor-grab active:cursor-grabbing ${dragKey === l.key ? 'opacity-40' : ''}`}
+      >
+        <span className="font-mono text-sm text-grey-light select-none" aria-hidden>⠿</span>
+        <div className="min-w-0 flex-1">
+          <div className="font-mono text-sm uppercase text-white truncate">
+            {l.name}
+            {!l.isActive && <span className="text-grey-light"> · OFF</span>}
+          </div>
+          <div className="font-mono text-xs text-grey-light truncate">
+            {priceText(l)}
+            {cogsLabel && <span className="text-gold"> · {cogsLabel}</span>}
+          </div>
+        </div>
+        <button onClick={() => setEditingKey(l.key)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors shrink-0">EDIT</button>
+        <button
+          onClick={() => patchLine(l.key, { isActive: !l.isActive })}
+          className={`font-mono text-xs uppercase shrink-0 ${l.isActive ? 'text-success' : 'text-grey-light hover:text-white'}`}
+        >
+          {l.isActive ? 'ON' : 'OFF'}
+        </button>
+        <button onClick={() => removeLine(l.key)} className="font-mono text-xs text-grey-light hover:text-danger shrink-0 px-1">✕</button>
+      </div>
+    )
+  }
+
+  const ungrouped = lines.filter((l) => !l.groupKey)
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[1fr_24rem] gap-4">
       <div className="space-y-4 min-w-0">
@@ -348,12 +407,11 @@ export function MenuBuilder({
           >
             ← BACK TO MENUS
           </button>
-          <div className="flex items-center gap-2">
-            <Button size="sm" onClick={save} loading={saving}>SAVE MENU</Button>
-          </div>
+          <Button size="sm" onClick={save} loading={saving}>SAVE MENU</Button>
         </div>
 
-        <div className="border border-grey-mid p-4 space-y-3">
+        {/* Menu details */}
+        <div className="space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="md:col-span-2">
               <Input label="MENU NAME" value={name} onChange={(e) => setName(e.target.value.toUpperCase())} placeholder="BEVERAGE MENU" />
@@ -367,54 +425,40 @@ export function MenuBuilder({
                 {isActive ? 'ACTIVE' : 'INACTIVE'}
               </button>
             </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="md:col-span-2">
               <Input label="DESCRIPTION" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="OPTIONAL" />
             </div>
-            <div>
-              <Select
-                label="WOO CATEGORY"
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-                options={[
-                  { value: '', label: 'LOCAL ONLY' },
-                  { value: '__new__', label: 'CREATE NEW (MENU NAME)' },
-                  ...wooCategories.map((c) => ({ value: c.id, label: c.name.toUpperCase() })),
-                ]}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3 md:col-span-1">
-              <Input label="MIN PAX" type="number" value={minPax} onChange={(e) => setMinPax(e.target.value)} placeholder="ANY" />
-              <Input label="MAX PAX" type="number" value={maxPax} onChange={(e) => setMaxPax(e.target.value)} placeholder="ANY" />
-            </div>
+            <Select
+              label="WOO CATEGORY"
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              options={[
+                { value: '', label: 'LOCAL ONLY' },
+                { value: '__new__', label: 'CREATE NEW (MENU NAME)' },
+                ...wooCategories.map((c) => ({ value: c.id, label: c.name.toUpperCase() })),
+              ]}
+            />
+          </div>
+          <div className="flex items-end gap-3 flex-wrap">
+            <button
+              onClick={() => setPaxEnabled((v) => !v)}
+              className={`font-mono text-xs uppercase px-3 py-2 border ${paxEnabled ? 'border-info text-info' : 'border-grey-mid text-grey-light hover:border-white hover:text-white'}`}
+            >
+              PAX RANGE: {paxEnabled ? 'ON' : 'OFF'}
+            </button>
+            {paxEnabled && (
+              <>
+                <div className="w-28"><Input label="MIN PAX" type="number" value={minPax} onChange={(e) => setMinPax(e.target.value)} placeholder="ANY" /></div>
+                <div className="w-28"><Input label="MAX PAX" type="number" value={maxPax} onChange={(e) => setMaxPax(e.target.value)} placeholder="ANY" /></div>
+              </>
+            )}
           </div>
         </div>
 
-        {/* Groups */}
-        <div className="border border-grey-mid p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">GROUPS ({groups.length})</h3>
-            <Button size="sm" variant="ghost" onClick={addGroup}>+ ADD GROUP</Button>
-          </div>
-          {groups.length === 0 && (
-            <p className="font-mono text-xs text-grey-light">NO GROUPS — ITEMS APPEAR UNDER THE MENU. ADD GROUPS TO SECTION THE MENU (E.G. TAP BEER, PIZZA).</p>
-          )}
-          {groups.map((g, i) => (
-            <div key={g.key} className="flex items-center gap-2">
-              <span className="font-mono text-2xs text-grey-light w-5">{i + 1}</span>
-              <Input value={g.name} onChange={(e) => patchGroup(g.key, { name: e.target.value.toUpperCase() })} placeholder="GROUP NAME" />
-              <div className="flex items-center gap-1 shrink-0">
-                <button onClick={() => moveGroup(i, -1)} className="font-mono text-xs border border-grey-mid px-1.5 py-1 text-grey-light hover:border-white hover:text-white">↑</button>
-                <button onClick={() => moveGroup(i, 1)} className="font-mono text-xs border border-grey-mid px-1.5 py-1 text-grey-light hover:border-white hover:text-white">↓</button>
-                <button onClick={() => removeGroup(g.key)} className="font-mono text-xs text-danger border border-danger px-1.5 py-1 hover:bg-danger hover:text-black">✕</button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Items */}
-        <div className="border border-grey-mid p-4 space-y-3">
-          <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">ITEMS ({lines.length})</h3>
-
+        {/* Add item */}
+        <div className="space-y-2">
           <div className="flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1">
               <Input
@@ -460,103 +504,59 @@ export function MenuBuilder({
               <Select label="ADD TO GROUP" value={addGroupKey ?? ''} onChange={(e) => setAddGroupKey(e.target.value || null)} options={groupOptions} />
             </div>
           </div>
+        </div>
 
-          {lines.length === 0 ? (
+        {/* Groups + items */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">ITEMS ({lines.length})</h3>
+            <Button size="sm" variant="ghost" onClick={addGroup}>+ ADD GROUP</Button>
+          </div>
+
+          {lines.length === 0 && groups.length === 0 && (
             <p className="font-mono text-xs text-grey-light">NO ITEMS YET — SEARCH ABOVE TO ADD A PRODUCT OR STOCK ITEM.</p>
-          ) : (
-            <div className="space-y-2">
-              {lines.map((l, i) => {
-                const open = expanded.has(l.key)
-                return (
-                  <div key={l.key} className="border border-grey-mid">
-                    <div className="flex items-center gap-2 p-2 flex-wrap">
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button onClick={() => moveLine(i, -1)} className="font-mono text-xs border border-grey-mid px-1.5 py-1 text-grey-light hover:border-white hover:text-white">↑</button>
-                        <button onClick={() => moveLine(i, 1)} className="font-mono text-xs border border-grey-mid px-1.5 py-1 text-grey-light hover:border-white hover:text-white">↓</button>
-                      </div>
-                      <span className="font-mono text-2xs uppercase border border-grey-mid px-1 text-grey-light shrink-0">
-                        {l.kind === 'PRODUCT' ? 'PRODUCT' : 'STOCK'}
-                      </span>
-                      <span className="font-mono text-xs text-white uppercase truncate flex-1 min-w-0">{l.name}</span>
-                      <div className="w-40 shrink-0">
-                        <Select
-                          value={l.groupKey ?? ''}
-                          onChange={(e) => patchLine(l.key, { groupKey: e.target.value || null })}
-                          options={groupOptions}
-                        />
-                      </div>
-                      <button
-                        onClick={() => toggleExpanded(l.key)}
-                        className={`font-mono text-2xs uppercase border px-1.5 py-1 shrink-0 ${l.sizes.length ? 'border-gold text-gold' : 'border-grey-mid text-grey-light hover:border-white hover:text-white'}`}
-                      >
-                        SIZES{l.sizes.length ? ` (${l.sizes.length})` : ''}
-                      </button>
-                      {l.kind === 'PRODUCT' && l.menuItemId && (
-                        <button
-                          onClick={() => onOpenServes({ id: l.menuItemId!, name: l.name })}
-                          className="font-mono text-2xs uppercase border border-grey-mid px-1.5 py-1 text-grey-light hover:border-white hover:text-white shrink-0"
-                          title="How this product consumes stock (the item link)"
-                        >
-                          ITEM LINK
-                        </button>
-                      )}
-                      <button
-                        onClick={() => patchLine(l.key, { isActive: !l.isActive })}
-                        className={`font-mono text-2xs uppercase border px-1.5 py-1 shrink-0 ${l.isActive ? 'border-success text-success' : 'border-grey-mid text-grey-light'}`}
-                      >
-                        {l.isActive ? 'ON' : 'OFF'}
-                      </button>
-                      <button onClick={() => removeLine(l.key)} className="font-mono text-xs text-danger border border-danger px-1.5 py-1 hover:bg-danger hover:text-black shrink-0">✕</button>
-                    </div>
+          )}
 
-                    {open && (
-                      <div className="border-t border-grey-mid p-2 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono text-2xs uppercase text-grey-light">
-                            {l.kind === 'PRODUCT' ? 'SIZE OPTIONS — SHARED ON THE PRODUCT' : 'SIZE OPTIONS'}
-                          </span>
-                          <div className="flex items-center gap-1">
-                            {['150 ML', '500 ML', '750 ML'].map((p) => (
-                              <button key={p} onClick={() => addSize(l.key, p)} className="font-mono text-2xs uppercase border border-grey-mid px-1 py-0.5 text-grey-light hover:border-white hover:text-white">{`+${p}`}</button>
-                            ))}
-                            <button onClick={() => addSize(l.key)} className="font-mono text-2xs uppercase border border-gold text-gold px-1 py-0.5 hover:bg-gold hover:text-black">+ NEW VOLUME</button>
-                          </div>
-                        </div>
-                        {l.sizes.length === 0 ? (
-                          <p className="font-mono text-2xs text-grey-light">NO SIZES — A SINGLE PRICE APPLIES{l.kind === 'STOCK' ? ' (SET UNDER ITEM LINK)' : ''}.</p>
-                        ) : (
-                          <div className="space-y-1.5">
-                            {l.sizes.map((s, si) => (
-                              <div key={si} className="flex items-center gap-2">
-                                <input
-                                  value={s.label}
-                                  onChange={(e) => setSize(l.key, si, { label: e.target.value.toUpperCase() })}
-                                  placeholder="150 ML / LARGE"
-                                  className="flex-1 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-hidden focus:border-white placeholder:text-grey-light"
-                                />
-                                <span className="font-mono text-xs text-grey-light">$</span>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  value={s.price || ''}
-                                  onChange={(e) => setSize(l.key, si, { price: parseFloat(e.target.value) || 0 })}
-                                  placeholder="0.00"
-                                  className="w-24 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-hidden focus:border-white placeholder:text-grey-light text-right"
-                                />
-                                <button onClick={() => removeSize(l.key, si)} className="font-mono text-xs text-grey-light hover:text-danger">✕</button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div className="grid grid-cols-2 gap-2 pt-1">
-                          <Input label="MIN" type="number" value={l.minQty} onChange={(e) => patchLine(l.key, { minQty: e.target.value })} placeholder="—" />
-                          <Input label="MAX" type="number" value={l.maxQty} onChange={(e) => patchLine(l.key, { maxQty: e.target.value })} placeholder="—" />
-                        </div>
-                      </div>
-                    )}
+          {groups.map((g, i) => {
+            const groupLines = lines.filter((l) => l.groupKey === g.key)
+            return (
+              <div
+                key={g.key}
+                className="pt-2"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => { e.preventDefault(); dropOnGroup(g.key) }}
+              >
+                <div className="flex items-center gap-2 border-b-2 border-gold/60 pb-1">
+                  <span className="w-1.5 h-3 bg-gold shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <Input value={g.name} onChange={(e) => patchGroup(g.key, { name: e.target.value.toUpperCase() })} placeholder="GROUP NAME" />
                   </div>
-                )
-              })}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => moveGroup(i, -1)} className="font-mono text-xs border border-grey-mid px-1.5 py-1 text-grey-light hover:border-white hover:text-white">↑</button>
+                    <button onClick={() => moveGroup(i, 1)} className="font-mono text-xs border border-grey-mid px-1.5 py-1 text-grey-light hover:border-white hover:text-white">↓</button>
+                    <button onClick={() => removeGroup(g.key)} className="font-mono text-xs text-danger border border-danger px-1.5 py-1 hover:bg-danger hover:text-black">✕</button>
+                  </div>
+                </div>
+                {groupLines.length === 0 ? (
+                  <p className="font-mono text-xs text-grey-light pl-4 py-2">DRAG ITEMS HERE</p>
+                ) : (
+                  groupLines.map(renderLine)
+                )}
+              </div>
+            )
+          })}
+
+          {ungrouped.length > 0 && (
+            <div
+              className="pt-2"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => { e.preventDefault(); dropOnGroup(null) }}
+            >
+              <div className="flex items-center gap-2 border-b border-grey-mid pb-1">
+                <span className="w-1.5 h-3 bg-grey-mid shrink-0" />
+                <span className="font-mono text-xs uppercase tracking-wider text-grey-light">UNGROUPED</span>
+              </div>
+              {ungrouped.map(renderLine)}
             </div>
           )}
         </div>
@@ -572,6 +572,17 @@ export function MenuBuilder({
           <MenuPreview menuName={name} venueName={venueName} groups={groups.map((g) => ({ id: g.id ?? g.key, name: g.name || 'UNTITLED', sortOrder: 0 }))} lines={previewLines} />
         </div>
       </div>
+
+      {editingLine && (
+        <MenuLineEditor
+          line={editingLine}
+          groupOptions={groupOptions}
+          cogs={editingLine.menuItemId ? cogs[editingLine.menuItemId] ?? null : null}
+          onPatch={patchLine}
+          onOpenServes={onOpenServes}
+          onClose={() => setEditingKey(null)}
+        />
+      )}
     </div>
   )
 }

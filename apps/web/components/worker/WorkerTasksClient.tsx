@@ -12,6 +12,7 @@ import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { readingVerdict, criticalVerdict, describeBand } from '@/lib/food-safety'
 import { moveItem } from '@/lib/array'
 import { Panel } from '@/components/ui/Panel'
+import { useGuidePopup } from '@/components/GuidePopup'
 
 type TaskState = WorkerTaskView
 type ModalTask = TaskState | null
@@ -70,6 +71,7 @@ let inactivityTimer: ReturnType<typeof setTimeout> | null = null
 export function WorkerTasksClient({ role, sessionVenueId }: { role: string | null; sessionVenueId: string | null }) {
   const router = useRouter()
   const isAdminOrManager = role === 'ADMIN' || role === 'MANAGER'
+  const { requestGuide, nodes: guidePopupNodes } = useGuidePopup('worker')
 
   const [tasks, setTasks] = useState<TaskState[]>([])
   const [checklists, setChecklists] = useState<{ id: string; name: string; appearFromTime: string | null; activatedToday: boolean; taskIds: string[] }[]>([])
@@ -472,10 +474,13 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
       )
     }
     return (
-      <button
+      <div
         key={t.id}
+        role="button"
+        tabIndex={0}
         onClick={() => openTask(t)}
-        className="w-full text-left bg-grey-dark border border-grey-mid p-4 hover:border-white transition-colors active:bg-black"
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTask(t) } }}
+        className="w-full text-left bg-grey-dark border border-grey-mid p-4 hover:border-white transition-colors active:bg-black cursor-pointer"
       >
         <div className="flex items-start gap-3">
           <div className="w-5 h-5 border-2 border-grey-mid flex-shrink-0 mt-0.5" />
@@ -485,14 +490,22 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <CompletionTypeIcon type={t.completionType} />
               {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
-              {t.guide && <span className="font-mono text-xs text-grey-light">📖 GUIDE</span>}
+              {t.guide && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); requestGuide(t.guide!.id, t.guide!.title) }}
+                  className="font-mono text-xs text-info hover:text-white transition-colors"
+                >
+                  📖 GUIDE
+                </button>
+              )}
               {(t.rolledOverFrom || (t.isOneOff && t.dueDate && !t.isCompleted)) && (
                 <span className="font-mono text-xs text-warning uppercase">⚠ ROLLED OVER</span>
               )}
             </div>
           </div>
         </div>
-      </button>
+      </div>
     )
   }
 
@@ -675,8 +688,12 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               <div className="divide-y divide-grey-mid">
                 {lg.tasks.slice(0, maxVisible).map((t) => (
                   isEditMode ? renderTask(t) : (
-                    <button key={t.id} onClick={() => openTask(t)}
-                      className="w-full text-left bg-grey-dark p-3 hover:border-white transition-colors active:bg-black flex items-center gap-3 border-0 border-b border-grey-mid last:border-0">
+                    <div key={t.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openTask(t)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTask(t) } }}
+                      className="w-full text-left bg-grey-dark p-3 hover:border-white transition-colors active:bg-black flex items-center gap-3 border-0 border-b border-grey-mid last:border-0 cursor-pointer">
                       <div className="w-5 h-5 border-2 border-grey-mid flex-shrink-0" />
                       <div className="min-w-0 flex-1">
                         <div className="font-mono font-semibold text-sm uppercase text-white">{t.title}</div>
@@ -684,13 +701,21 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                           <CompletionTypeIcon type={t.completionType} />
                           {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
-                          {t.guide && <span className="font-mono text-xs text-grey-light">📖 GUIDE</span>}
+                          {t.guide && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); requestGuide(t.guide!.id, t.guide!.title) }}
+                              className="font-mono text-xs text-info hover:text-white transition-colors"
+                            >
+                              📖 GUIDE
+                            </button>
+                          )}
                           {(t.rolledOverFrom || (t.isOneOff && t.dueDate && !t.isCompleted)) && (
                             <span className="font-mono text-xs text-warning uppercase">⚠ ROLLED OVER</span>
                           )}
                         </div>
                       </div>
-                    </button>
+                    </div>
                   )
                 ))}
                 {extra > 0 && !isEditMode && (
@@ -778,7 +803,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               )}
               {activeTask.guide && (
                 <button
-                  onClick={() => router.push(`/w/guides?guide=${activeTask.guide!.id}`)}
+                  onClick={() => requestGuide(activeTask.guide!.id, activeTask.guide!.title)}
                   className="mt-3 inline-block font-mono text-xs uppercase border border-grey-mid px-3 py-2 text-white hover:border-white transition-colors"
                 >
                   VIEW GUIDE: {activeTask.guide.title}
@@ -1160,6 +1185,8 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           </div>
         </div>
       )}
+
+      {guidePopupNodes}
     </div>
   )
 }

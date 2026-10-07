@@ -8,6 +8,7 @@
 import { useRef, useState } from 'react'
 import { GuideStepLinks } from '@/components/GuideStepLinks'
 import { ReferenceTable, type ReferenceTableRow } from '@/components/ReferenceTable'
+import type { GuidePopupVariant } from '@/components/GuidePopup'
 import type { ResolvedStepLink } from '@/lib/guide-links'
 import { mergeStepImages } from '@/lib/guide-media'
 import type { ReferenceColumn } from '@/lib/reference-table'
@@ -91,7 +92,7 @@ function StepGallery({ images, stepNumber, onOpen }: { images: string[]; stepNum
   )
 }
 
-export function GuideReaderContent({ guide }: { guide: GuideReaderGuide }) {
+export function GuideReaderContent({ guide, variant = 'admin' }: { guide: GuideReaderGuide; variant?: GuidePopupVariant }) {
   const [lightbox, setLightbox] = useState<string | null>(null)
 
   return (
@@ -144,7 +145,7 @@ export function GuideReaderContent({ guide }: { guide: GuideReaderGuide }) {
                 ▶ WATCH VIDEO
               </a>
             )}
-            {s.links && s.links.length > 0 && <GuideStepLinks links={s.links} />}
+            {s.links && s.links.length > 0 && <GuideStepLinks links={s.links} variant={variant} />}
           </div>
         )
       })}

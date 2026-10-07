@@ -12,6 +12,7 @@ import { moveItem } from '@/lib/array'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { isActivatedOn, isChecklistHidden } from '@/lib/checklist-activation'
+import { useGuidePopup } from '@/components/GuidePopup'
 
 interface Task {
   id: string
@@ -32,7 +33,7 @@ interface Task {
   department: { id: string; name: string; colour: string | null } | null
   section: { id: string; name: string } | null
   requiredTraining: { moduleId: string; module?: { kind: string } }[]
-  taskGuides?: { guideId: string; isRequiredForCompetency: boolean }[]
+  taskGuides?: { guideId: string; isRequiredForCompetency: boolean; guide?: { id: string; title: string } | null }[]
   trainingModules?: { kind: string }[]
   _count?: { checklistLinks: number }
 }
@@ -94,6 +95,7 @@ const SCHEDULE_OPTIONS = [
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
 export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
+  const { requestGuide, nodes: guidePopupNodes } = useGuidePopup('admin')
   const [tasks, setTasks] = useState<Task[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -364,6 +366,16 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           <div className="flex flex-wrap gap-1.5 mt-0.5 items-center">
             <span className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1 py-0.5">{describeSchedule(t)}</span>
             {labels.map((l) => <span key={l.text} className={`font-mono text-xs uppercase ${l.cls}`}>{l.text}</span>)}
+            {(t.taskGuides ?? []).filter((g) => g.guide).map((g) => (
+              <button
+                key={g.guideId}
+                type="button"
+                onClick={() => requestGuide(g.guide!.id, g.guide!.title)}
+                className="font-mono text-xs uppercase text-info hover:text-white transition-colors max-w-[12rem] truncate"
+              >
+                📖 {g.guide!.title}
+              </button>
+            ))}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -609,7 +621,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
               options={guideOptions.map((g) => ({ value: g.id, label: g.title, description: g.description ?? undefined }))}
               selected={form.competencyGuideIds}
               onChange={(ids) => setForm({ ...form, competencyGuideIds: ids })}
-              onPreview={(id) => window.open(`/admin/guides?guide=${id}`, '_blank')}
+              onPreview={(id) => requestGuide(id, guideOptions.find((g) => g.id === id)?.title ?? null)}
               placeholder="Search guides..."
             />
           )}
@@ -693,6 +705,8 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           )}
         </div>
       </Modal>
+
+      {guidePopupNodes}
     </div>
   )
 }

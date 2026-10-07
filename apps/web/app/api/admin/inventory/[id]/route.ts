@@ -5,6 +5,31 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { cleanStorageLocations } from '@/lib/inventory-locations'
 
+// Single inventory item for the reference popup (photo, unit, cost, storage).
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.inventory.view')
+  if (denied) return denied
+
+  const item = await prisma.inventoryItem.findFirst({
+    where: { id: params.id, deletedAt: null },
+    include: {
+      category: { select: { id: true, name: true, tab: true } },
+      storageLocations: {
+        where: { deletedAt: null },
+        include: { section: { select: { name: true, department: { select: { name: true } } } } },
+      },
+    },
+  })
+  if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (session.user.role === 'MANAGER' && item.venueId !== session.user.venueId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  return NextResponse.json(item)
+}
+
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

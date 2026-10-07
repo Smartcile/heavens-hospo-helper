@@ -64,6 +64,32 @@ export interface ShapedMenuLine extends MenuLineLike {
   unit: string | null
 }
 
+/** A group as edited in the builder (client key + optional saved id). */
+export interface MenuGroupDraft {
+  key: string
+  id?: string
+  name: string
+}
+
+/** A line as edited in the builder — the read shape plus edit bookkeeping. */
+export interface MenuLineDraft {
+  key: string
+  id?: string
+  kind: MenuLineKind
+  menuItemId?: string
+  inventoryItemId?: string
+  groupKey: string | null
+  name: string
+  price: number | null
+  dietaryInfo: string | null
+  isActive: boolean
+  unit: string | null
+  sizes: MenuSize[]
+  sizesDirty: boolean
+  minQty: string
+  maxQty: string
+}
+
 /** A menu as returned by the admin menu routes (list + detail). */
 export interface MenuShape {
   id: string

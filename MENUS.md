@@ -357,6 +357,7 @@ now editable + saved through the recipe route) and the **serve spec**
 | `/api/admin/menus` | GET | Menus with groups + shaped lines (product **or** stock) |
 | `/api/admin/menus/[id]` | PUT | Save groups + lines (diffed by id; temp group ids resolved) |
 | `/api/admin/menus/options` | GET | Products **and** inventory for the builder's ADD ITEM search (one `ops.menus.view` guard) |
+| `/api/admin/menus/cogs` | POST | Batch COGS per product (`{ menuItemIds }` → `{ cogs }`) for the builder |
 | `/api/admin/menu-items/[id]/sizes` | PUT | Save a product's shared size/price options (merges `wooVariationId`, pushes) |
 
 ### Inventory deep form
@@ -364,3 +365,35 @@ now editable + saved through the recipe route) and the **serve spec**
 The dead `QTY` inputs beside COUNTING UOM / ORDERING UOM were removed — the
 counting unit is canonical and only **PAR LEVEL** carries a number (in the
 counting unit).
+
+---
+
+## 10 · Item-list redesign + COGS (built 2026-10-07)
+
+The builder was reworked into a **group → item list** with no nested box chrome:
+
+- **Flat sections, no blocks.** Menu name / status / description / Woo category
+  sit at the top with plain spacing; groups are a coloured header + indented item
+  rows. The old per-line bordered card and the inline SIZES sub-panel are gone.
+- **PAX is opt-in.** A `PAX RANGE: ON/OFF` toggle reveals MIN/MAX; off (the
+  default) stores `null`, `null`.
+- **Drag-and-drop.** Item rows are HTML5-draggable: drop on another row to
+  reorder (and adopt its group), or on a group header to re-file. `UNGROUPED`
+  is a drop target too. `↑`/`↓` still reorder groups.
+- **List prices + COGS per row.** Each product row shows its list prices and
+  `COGS $x.xx · M n%`; `EDIT` opens `MenuLineEditor` — a focused popup that
+  edits the fields the menu owns (price, sizes, min/max, group, active), shows
+  COGS vs the ex-GST price, and offers `ITEM LINK` (the serve spec).
+
+### COGS — `lib/menu-cogs.ts` + `lib/menu-cogs.server.ts`
+
+Pure brain + DB half. `costPrice` is taken as the price for **one
+`InventoryItem.unit`** (`$8.50 / KILOGRAM`, `$5.20 / LITRE`, `$0.45 / EACH`).
+`explodeRecipe` reports each ingredient canonically (GRAMS when the item has a
+density / unit-weight bridge, else the line dimension's base unit); the pure
+`costOfCanonicalQty` converts that to the item's cost unit (bridging through
+density / unit weight when the cost unit's dimension differs). A product with a
+linked **recipe** is costed per yield unit; otherwise its **first serve** (a
+stock pour or a recipe) is costed. `POST /api/admin/menus/cogs` batches it for
+the ids the builder is showing, so a menu page never explodes every recipe up
+front. `priceExGst` (15% NZ default) and `grossMarginPct` render the comparison.

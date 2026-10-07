@@ -152,7 +152,7 @@ function GuidesInner() {
         </div>
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 space-y-6">
-          <GuideReaderContent guide={active} />
+          <GuideReaderContent guide={active} variant="worker" />
           {error && <p className="font-mono text-xs text-danger">{error}</p>}
         </div>
 

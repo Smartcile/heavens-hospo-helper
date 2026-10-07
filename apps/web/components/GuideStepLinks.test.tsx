@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { GuideStepLinks } from '@/components/GuideStepLinks'
 import type { ResolvedStepLink } from '@/lib/guide-links'
 
@@ -94,5 +94,26 @@ describe('GuideStepLinks', () => {
     expect(screen.getByText('TASK')).toBeTruthy()
     expect(screen.getByText('CHECKLIST')).toBeTruthy()
     expect(screen.getByText('RECIPE')).toBeTruthy()
+  })
+
+  it('asks before opening a GUIDE link, then fetches the guide', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ title: 'FOOD SAFETY', steps: [] }),
+    } as Response)
+
+    render(
+      <GuideStepLinks
+        links={[link({ kind: 'GUIDE', targetId: 'g1', target: { id: 'g1', label: 'FOOD SAFETY', sub: null, imageUrl: null, missing: false } })]}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('FOOD SAFETY'))
+    expect(screen.getByText('OPEN IN A POPUP?')).toBeTruthy()
+    expect(spy).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('OPEN'))
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('/api/admin/guides/g1'))
+    spy.mockRestore()
   })
 })

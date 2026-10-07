@@ -39,7 +39,9 @@ export async function GET(req: NextRequest) {
       section: { select: { id: true, name: true } },
       sections: { select: { sectionId: true } },
       requiredTraining: { select: { moduleId: true, module: { select: { kind: true } } } },
-      taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
+      taskGuides: {
+        select: { guideId: true, isRequiredForCompetency: true, guide: { select: { id: true, title: true } } },
+      },
       trainingModules: { select: { kind: true } }, // modules whose how-to is this task
       _count: { select: { checklistLinks: true } },
     },
