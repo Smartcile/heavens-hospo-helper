@@ -2,270 +2,359 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { TimeInput } from '@/components/ui/TimeInput'
+import { Modal } from '@/components/ui/Modal'
+import { AvailabilityBar } from '@/components/availability/AvailabilityBar'
+import { AvailabilityDayEditor, type EditorDraft, type EditorSaveOptions } from '@/components/availability/AvailabilityDayEditor'
 import {
-  allowedTypes,
   availabilityMeta,
   availabilityState,
-  availabilityTimeLabel,
-  isCasual,
-  isDateLocked,
-  repeatWeekly,
+  canWorkerEditDate,
+  describeSeriesEnd,
+  describeWindows,
   type AvailabilityEntry,
-  type AvailabilityType,
+  type AvailabilityPreset,
+  type AvailabilityScope,
+  type AvailabilitySeries,
 } from '@/lib/availability'
 import {
   formatDateLong,
   firstOfMonthKey,
   keyOfDay,
+  mondayOf,
   MONTH_ABBR,
   monthGrid,
   parseDay,
+  shiftDay,
   shiftMonth,
+  weekKeys,
 } from '@/lib/date-nav'
 
 const WEEKDAY_HEADS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
-const REPEAT_OPTIONS = [
-  { value: 1, label: 'JUST THIS DAY' },
-  { value: 2, label: 'REPEAT WEEKLY ×2' },
-  { value: 3, label: 'REPEAT WEEKLY ×3' },
-  { value: 4, label: 'REPEAT WEEKLY ×4' },
-  { value: 6, label: 'REPEAT WEEKLY ×6' },
-  { value: 8, label: 'REPEAT WEEKLY ×8' },
-]
+const WEEKDAY_SHORT = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
+
+interface WorkerRequest {
+  id: string
+  date: string
+  scope: AvailabilityScope
+  action: 'SET' | 'CLEAR'
+}
+
+interface AvailabilityData {
+  employmentType: string | null
+  lockDays: number
+  today: string
+  presets: AvailabilityPreset[]
+  entries: AvailabilityEntry[]
+  series: AvailabilitySeries[]
+  requests: WorkerRequest[]
+}
 
 export function WorkerAvailabilityClient() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [employmentType, setEmploymentType] = useState<string | null>(null)
-  const [lockDays, setLockDays] = useState(0)
-  const [today, setToday] = useState(() => keyOfDay(new Date()))
-  const [entries, setEntries] = useState<AvailabilityEntry[]>([])
-
-  const todayDate = parseDay(today)
-  const [month, setMonth] = useState({ year: todayDate.getUTCFullYear(), month: todayDate.getUTCMonth() + 1 })
+  const [flash, setFlash] = useState('')
+  const [view, setView] = useState<'month' | 'week'>('month')
+  const [data, setData] = useState<AvailabilityData | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
 
-  // Editor state for the selected day.
-  const [type, setType] = useState<AvailabilityType>('UNAVAILABLE')
-  const [isAllDay, setIsAllDay] = useState(true)
-  const [startTime, setStartTime] = useState('17:00')
-  const [endTime, setEndTime] = useState('22:00')
-  const [notes, setNotes] = useState('')
-  const [occurrences, setOccurrences] = useState(1)
+  const [month, setMonth] = useState(() => {
+    const d = parseDay(keyOfDay(new Date()))
+    return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 }
+  })
+  const [weekStart, setWeekStart] = useState(() => mondayOf(keyOfDay(new Date())))
 
-  const casual = isCasual(employmentType)
   const monthKey = `${month.year}-${String(month.month).padStart(2, '0')}`
-  const cells = useMemo(() => monthGrid(month.year, month.month), [month])
-  const entryByDate = useMemo(() => {
-    const map = new Map<string, AvailabilityEntry>()
-    for (const e of entries) map.set(e.date, e)
-    return map
-  }, [entries])
+  const today = data?.today ?? keyOfDay(new Date())
+
+  const range = useMemo(() => {
+    if (view === 'week') return { start: weekStart, end: shiftDay(weekStart, 6) }
+    const lastDay = new Date(Date.UTC(month.year, month.month, 0)).getUTCDate()
+    return {
+      start: firstOfMonthKey(`${monthKey}-01`),
+      end: `${monthKey}-${String(lastDay).padStart(2, '0')}`,
+    }
+  }, [view, weekStart, monthKey, month.year, month.month])
 
   async function load() {
-    const start = firstOfMonthKey(`${monthKey}-01`)
-    const lastDay = new Date(Date.UTC(month.year, month.month, 0)).getUTCDate()
-    const end = `${monthKey}-${String(lastDay).padStart(2, '0')}`
-    const r = await fetch(`/api/worker/availability?start=${start}&end=${end}`)
+    const r = await fetch(`/api/worker/availability?start=${range.start}&end=${range.end}`)
     if (r.status === 401) { router.push('/w/login'); return }
-    const data = await r.json()
-    setEmploymentType(data.employmentType ?? null)
-    setLockDays(data.lockDays ?? 0)
-    setToday(data.today ?? keyOfDay(new Date()))
-    setEntries(data.entries ?? [])
+    const d = await r.json()
+    setData(d)
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [monthKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [range.start, range.end]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const entryByDate = useMemo(() => {
+    const map = new Map<string, AvailabilityEntry>()
+    for (const e of data?.entries ?? []) map.set(e.date, e)
+    return map
+  }, [data])
+
+  const requestDates = useMemo(() => new Set((data?.requests ?? []).map((r) => r.date)), [data])
+  const cells = useMemo(() => monthGrid(month.year, month.month), [month])
+  const weekDays = useMemo(() => (view === 'week' ? weekKeys(weekStart) : []), [view, weekStart])
 
   function pick(dateKey: string) {
-    if (isDateLocked(dateKey, lockDays, today)) return
+    const locked = !canWorkerEditDate(dateKey, data?.lockDays ?? 0, today)
+    if (locked) {
+      setFlash('THAT DAY IS IN THE PAST OR LOCKED — ASK A MANAGER')
+      return
+    }
     setSelected(dateKey)
     setError('')
-    const existing = entryByDate.get(dateKey)
-    setType(existing?.type ?? (casual ? 'PREFERRED' : 'UNAVAILABLE'))
-    setIsAllDay(existing?.isAllDay ?? true)
-    setStartTime(existing?.startTime ?? '17:00')
-    setEndTime(existing?.endTime ?? '22:00')
-    setNotes(existing?.notes ?? '')
-    setOccurrences(1)
+    setFlash('')
   }
 
-  async function save() {
+  function resultMessage(mode: string, skipped: number) {
+    if (mode === 'REQUEST') return 'EDIT REQUEST SENT — YOUR MANAGER WILL CONFIRM'
+    if (skipped > 0) return `SAVED · ${skipped} PROTECTED DAY${skipped === 1 ? '' : 'S'} LEFT UNCHANGED`
+    return 'SAVED'
+  }
+
+  async function save(draft: EditorDraft, options: EditorSaveOptions) {
     if (!selected) return
+    const entry = entryByDate.get(selected)
     setSaving(true); setError('')
     const r = await fetch('/api/worker/availability', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        dates: repeatWeekly(selected, occurrences),
-        type,
-        isAllDay,
-        startTime: isAllDay ? null : startTime,
-        endTime: isAllDay ? null : endTime,
-        notes: notes || null,
+        date: selected,
+        availability: {
+          isAllDay: draft.isAllDay,
+          type: draft.type,
+          windows: draft.windows,
+          timeOff: draft.timeOff,
+          notes: draft.notes,
+        },
+        repeat: options.repeat,
+        scope: options.scope,
+        seriesId: entry?.seriesId ?? null,
+        reason: options.reason,
       }),
     })
     setSaving(false)
-    if (!r.ok) { const d = await r.json(); setError(d.error ?? 'SAVE FAILED'); return }
+    if (!r.ok) { const d = await r.json().catch(() => ({})); setError((d.error ?? 'SAVE FAILED').toUpperCase()); return }
+    const out = await r.json()
     setSelected(null)
+    setFlash(resultMessage(out.mode, (out.skipped ?? []).length))
     load()
   }
 
-  async function clearDay() {
-    const existing = selected ? entryByDate.get(selected) : undefined
-    if (!existing) { setSelected(null); return }
+  async function clear(options: { scope: AvailabilityScope | null; reason: string | null }) {
+    if (!selected) return
+    const entry = entryByDate.get(selected)
     setSaving(true); setError('')
-    const r = await fetch(`/api/worker/availability/${existing.id}`, { method: 'DELETE' })
+    const r = await fetch('/api/worker/availability/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        date: selected,
+        scope: options.scope,
+        seriesId: entry?.seriesId ?? null,
+        reason: options.reason,
+      }),
+    })
     setSaving(false)
-    if (!r.ok) { setError('CLEAR FAILED'); return }
+    if (!r.ok) { const d = await r.json().catch(() => ({})); setError((d.error ?? 'CLEAR FAILED').toUpperCase()); return }
+    const out = await r.json()
     setSelected(null)
+    setFlash(resultMessage(out.mode, (out.skipped ?? []).length))
     load()
   }
 
-  if (loading) {
+  if (loading || !data) {
     return <div className="min-h-screen bg-black flex items-center justify-center"><p className="font-mono text-sm text-grey-light loading-cursor">LOADING</p></div>
   }
 
-  const selectedMeta = selected ? availabilityMeta(availabilityState(entryByDate.get(selected)), employmentType) : null
-  const selectedHasEntry = selected ? !!entryByDate.get(selected) : false
+  const selectedEntry = selected ? entryByDate.get(selected) ?? null : null
+  const selectedSeries = selectedEntry?.seriesId
+    ? data.series.find((s) => s.id === selectedEntry.seriesId) ?? null
+    : null
+  const casual = (data.employmentType ?? '').toUpperCase() === 'CASUAL'
 
   return (
     <div className="min-h-screen bg-black pb-10">
       <div className="px-4 pt-6 pb-4 border-b border-grey-mid">
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">MY AVAILABILITY</h1>
         <p className="font-mono text-xs text-grey-light mt-1 uppercase">
-          {casual ? 'TAP THE DAYS YOU CAN WORK' : 'TAP THE DAYS YOU CANNOT WORK'}
+          {casual ? 'TAP THE DAYS YOU CAN WORK' : 'TAP A DAY TO SET AVAILABLE / UNAVAILABLE TIMES'}
         </p>
-        {lockDays > 0 && (
+        {data.lockDays > 0 && (
           <p className="font-mono text-xs text-warning mt-1 uppercase">
-            ▒ DAYS WITHIN {lockDays} DAYS CANNOT BE CHANGED
+            ▒ DAYS WITHIN {data.lockDays} DAYS CANNOT BE CHANGED
           </p>
         )}
       </div>
 
-      {/* Month navigation */}
-      <div className="px-4 py-3 flex items-center justify-between border-b border-grey-mid">
-        <button onClick={() => setMonth(shiftMonth(month.year, month.month, -1))} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">&lt;</button>
-        <span className="font-mono text-sm text-white tracking-widest uppercase">{MONTH_ABBR[month.month - 1]} {month.year}</span>
-        <button onClick={() => setMonth(shiftMonth(month.year, month.month, 1))} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">&gt;</button>
+      {/* View toggle + navigation */}
+      <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-3 border-b border-grey-mid">
+        <div className="flex border border-grey-mid">
+          {(['month', 'week'] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`h-9 px-3 font-mono text-xs uppercase tracking-wider transition-colors ${
+                view === v ? 'bg-white text-black' : 'text-grey-light hover:text-white'
+              }`}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
+        {view === 'month' ? (
+          <div className="flex items-center gap-2">
+            <button onClick={() => setMonth(shiftMonth(month.year, month.month, -1))} className="font-mono text-xs text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">&lt;</button>
+            <span className="font-mono text-sm text-white tracking-widest uppercase">{MONTH_ABBR[month.month - 1]} {month.year}</span>
+            <button onClick={() => setMonth(shiftMonth(month.year, month.month, 1))} className="font-mono text-xs text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">&gt;</button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button onClick={() => setWeekStart(shiftDay(weekStart, -7))} className="font-mono text-xs text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">&lt;&lt;</button>
+            <button onClick={() => setWeekStart(mondayOf(today))} className="font-mono text-xs text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">TODAY</button>
+            <button onClick={() => setWeekStart(shiftDay(weekStart, 7))} className="font-mono text-xs text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">&gt;&gt;</button>
+          </div>
+        )}
       </div>
 
-      {/* Grid */}
-      <div className="p-4">
-        <div className="grid grid-cols-7 gap-px bg-grey-mid border border-grey-mid">
-          {WEEKDAY_HEADS.map((w) => (
-            <div key={w} className="bg-black py-1.5 text-center font-mono text-xs uppercase text-grey-light tracking-wider">{w}</div>
-          ))}
-          {cells.map((c, i) => {
-            if (!c.inMonth || !c.key) return <div key={`blank-${i}`} className="bg-black min-h-[52px]" />
-            const entry = entryByDate.get(c.key)
-            const meta = availabilityMeta(availabilityState(entry), employmentType)
-            const locked = isDateLocked(c.key, lockDays, today)
-            const isToday = c.key === today
-            const isSelected = c.key === selected
+      {flash && (
+        <p className="mx-4 mt-3 font-mono text-xs uppercase text-success border border-success/50 bg-success/10 px-3 py-2">{flash}</p>
+      )}
+
+      {/* Month grid */}
+      {view === 'month' && (
+        <div className="p-4">
+          <div className="grid grid-cols-7 gap-px bg-grey-mid border border-grey-mid">
+            {WEEKDAY_HEADS.map((w) => (
+              <div key={w} className="bg-black py-1.5 text-center font-mono text-2xs uppercase text-grey-light tracking-wider">{w}</div>
+            ))}
+            {cells.map((c, i) => {
+              if (!c.inMonth || !c.key) return <div key={`blank-${i}`} className="bg-black min-h-[64px]" />
+              const entry = entryByDate.get(c.key)
+              const editable = canWorkerEditDate(c.key, data.lockDays, today)
+              const meta = availabilityMeta(availabilityState(entry), data.employmentType)
+              const isToday = c.key === today
+              const requested = requestDates.has(c.key)
+              return (
+                <button
+                  key={c.key}
+                  onClick={() => pick(c.key)}
+                  disabled={!editable}
+                  className={`bg-black min-h-[64px] flex flex-col items-start pt-1.5 px-1 gap-0.5 transition-colors ${meta.tint} ${
+                    editable ? 'hover:ring-1 hover:ring-inset hover:ring-white' : 'opacity-40 cursor-not-allowed'
+                  }`}
+                >
+                  <span className={`font-mono text-2xs ${isToday ? 'text-accent font-bold' : 'text-white'}`}>{c.day}</span>
+                  {entry ? (
+                    <>
+                      <span className={`w-2 h-2 ${meta.dot}`} />
+                      <span className="font-mono text-2xs text-grey-light leading-tight">
+                        {describeWindows(entry.windows, entry.isAllDay, entry.type)}
+                      </span>
+                      <span className="flex flex-wrap gap-0.5">
+                        {entry.status === 'PENDING' && <span className="font-mono text-2xs text-warning leading-none">PENDING</span>}
+                        {entry.status === 'DECLINED' && <span className="font-mono text-2xs text-danger leading-none">DECLINED</span>}
+                        {entry.timeOff && <span className="font-mono text-2xs text-warning leading-none">TO</span>}
+                        {entry.seriesId && <span className="font-mono text-2xs text-accent leading-none">⟳</span>}
+                      </span>
+                    </>
+                  ) : (
+                    <span className={`mt-1 w-2 h-2 ${meta.dot}`} />
+                  )}
+                  {requested && <span className="font-mono text-2xs text-accent leading-none">REQ</span>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Week view */}
+      {view === 'week' && (
+        <div className="p-4 space-y-2">
+          {weekDays.map((d, di) => {
+            const entry = entryByDate.get(d)
+            const editable = canWorkerEditDate(d, data.lockDays, today)
+            const meta = availabilityMeta(availabilityState(entry), data.employmentType)
+            const isToday = d === today
+            const requested = requestDates.has(d)
+            const dObj = parseDay(d)
             return (
               <button
-                key={c.key}
-                onClick={() => pick(c.key)}
-                disabled={locked}
-                className={`bg-black min-h-[52px] flex flex-col items-center justify-start pt-1.5 px-0.5 transition-colors ${locked ? 'opacity-40 cursor-not-allowed' : 'hover:border-white'} ${meta.tint} ${isSelected ? 'ring-1 ring-inset ring-white' : ''}`}
+                key={d}
+                onClick={() => pick(d)}
+                disabled={!editable}
+                className={`w-full text-left border border-grey-mid p-3 space-y-2 ${meta.tint} ${
+                  editable ? 'hover:border-white' : 'opacity-40 cursor-not-allowed'
+                }`}
               >
-                <span className={`font-mono text-xs ${isToday ? 'text-accent font-bold' : 'text-white'}`}>{c.day}</span>
-                {!locked && (
-                  <span className={`mt-1 w-2 h-2 ${meta.dot}`} />
-                )}
-                {!entry?.isAllDay && entry?.startTime && entry?.endTime && (
-                  <span className="font-mono text-xs text-grey-light leading-none mt-0.5">{entry.startTime.slice(0, 5)}–{entry.endTime.slice(0, 5)}</span>
-                )}
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`font-mono text-xs uppercase ${isToday ? 'text-accent font-bold' : 'text-white'}`}>
+                    {WEEKDAY_SHORT[di]} {dObj.getUTCDate()} {MONTH_ABBR[dObj.getUTCMonth()]}
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    {requested && <span className="font-mono text-2xs uppercase text-accent">REQ</span>}
+                    {entry?.timeOff && <span className="font-mono text-2xs uppercase text-warning">TIME OFF</span>}
+                    {entry?.status === 'PENDING' && <span className="font-mono text-2xs uppercase text-warning">PENDING</span>}
+                    {entry?.status === 'DECLINED' && <span className="font-mono text-2xs uppercase text-danger">DECLINED</span>}
+                    <span className={`font-mono text-2xs uppercase ${meta.dot === 'bg-danger' ? 'text-danger' : meta.dot === 'bg-success' ? 'text-success' : 'text-grey-light'}`}>
+                      {meta.label}
+                    </span>
+                  </span>
+                </div>
+                <AvailabilityBar
+                  windows={entry?.windows ?? []}
+                  isAllDay={entry ? entry.isAllDay : false}
+                  type={entry?.type ?? 'AVAILABLE'}
+                />
+                <div className="font-mono text-2xs text-grey-light uppercase">
+                  {entry ? describeWindows(entry.windows, entry.isAllDay, entry.type) : 'NOT SET'}
+                  {entry?.seriesId ? ` · ${entry.seriesEndDate ? describeSeriesEnd(entry.seriesEndDate) : 'WEEKLY · NO END DATE'}` : ''}
+                </div>
               </button>
             )
           })}
         </div>
+      )}
 
-        {/* Legend */}
-        <div className="flex flex-wrap items-center gap-3 mt-3">
-          {casual && (
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-success" /><span className="font-mono text-xs uppercase text-grey-light">Preferred</span></span>
-          )}
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-danger" /><span className="font-mono text-xs uppercase text-grey-light">Unavailable</span></span>
-          <span className="flex items-center gap-1.5"><span className={`w-2 h-2 ${casual ? 'bg-warning' : 'bg-grey-mid'}`} /><span className="font-mono text-xs uppercase text-grey-light">{casual ? 'Unset' : 'Available'}</span></span>
-        </div>
+      {/* Legend */}
+      <div className="px-4 pb-4 flex flex-wrap items-center gap-3">
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-success" /><span className="font-mono text-2xs uppercase text-grey-light">Available</span></span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-danger" /><span className="font-mono text-2xs uppercase text-grey-light">Unavailable</span></span>
+        <span className="flex items-center gap-1.5"><span className={`w-2 h-2 ${casual ? 'bg-warning' : 'bg-grey-mid'}`} /><span className="font-mono text-2xs uppercase text-grey-light">{casual ? 'Unset' : 'Default'}</span></span>
+        <span className="font-mono text-2xs uppercase text-warning">PENDING = WAITING FOR A MANAGER</span>
+        <span className="font-mono text-2xs uppercase text-accent">⟳ = WEEKLY SERIES</span>
       </div>
 
+      <p className="px-4 font-mono text-2xs uppercase text-grey-light">
+        TIME OFF LIVES HERE: MARK THE DAYS UNAVAILABLE AND TICK “TIME OFF REQUEST”.
+      </p>
+
       {/* Editor */}
-      {selected ? (
-        <div className="mx-4 border border-grey-mid bg-grey-dark p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="font-mono text-xs uppercase text-white tracking-wider">{formatDateLong(selected)}</div>
-            <button onClick={() => setSelected(null)} className="font-mono text-xs uppercase text-grey-light hover:text-white">CLOSE</button>
-          </div>
-
-          <div className={`grid ${casual ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
-            {allowedTypes(employmentType).includes('PREFERRED') && (
-              <button onClick={() => setType('PREFERRED')}
-                className={`h-11 border font-mono text-xs uppercase tracking-wider transition-colors ${type === 'PREFERRED' ? 'bg-success text-black border-success' : 'border-grey-mid text-grey-light hover:border-success hover:text-success'}`}>
-                PREFERRED
-              </button>
-            )}
-            <button onClick={() => setType('UNAVAILABLE')}
-              className={`h-11 border font-mono text-xs uppercase tracking-wider transition-colors ${type === 'UNAVAILABLE' ? 'bg-danger text-black border-danger' : 'border-grey-mid text-grey-light hover:border-danger hover:text-danger'}`}>
-              UNAVAILABLE
-            </button>
-          </div>
-
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={isAllDay} onChange={(e) => setIsAllDay(e.target.checked)} className="accent-white" />
-            <span className="font-mono text-xs uppercase text-grey-light">All day</span>
-          </label>
-
-          {!isAllDay && (
-            <div className="grid grid-cols-2 gap-2">
-              <div className="flex flex-col gap-1">
-                <label className="label">From</label>
-                <TimeInput value={startTime} onChange={(e) => setStartTime(e.target.value)} />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="label">To</label>
-                <TimeInput value={endTime} onChange={(e) => setEndTime(e.target.value)} />
-              </div>
-            </div>
-          )}
-
-          <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="NOTE (OPTIONAL)" className="field" />
-
-          <div className="flex flex-col gap-1">
-            <label className="font-mono text-xs uppercase text-grey-light">
-              Repeat — every {formatDateLong(selected).split(',')[0]}
-            </label>
-            <select value={occurrences} onChange={(e) => setOccurrences(Number(e.target.value))}
-              className="field">
-              {REPEAT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </div>
-
-          {error && <p className="font-mono text-xs text-danger">{error}</p>}
-
-          <div className="flex gap-2">
-            <button onClick={save} disabled={saving} className="flex-1 h-12 bg-white text-black font-mono font-bold text-sm uppercase tracking-widest hover:bg-accent transition-colors disabled:opacity-40">
-              {saving ? 'SAVING_' : 'SAVE'}
-            </button>
-            {selectedHasEntry && (
-              <button onClick={clearDay} disabled={saving} className="h-12 px-4 border border-danger text-danger font-mono font-bold text-sm uppercase hover:bg-danger hover:text-black transition-colors disabled:opacity-40">
-                CLEAR
-              </button>
-            )}
-          </div>
-          {selectedMeta && selectedHasEntry && (
-            <p className="font-mono text-xs text-grey-light uppercase">CURRENT: <span className={selectedMeta.badge.split(' ')[1]}>{selectedMeta.label}</span></p>
-          )}
-        </div>
-      ) : (
-        <p className="mx-4 font-mono text-xs text-grey-light">SELECT A DAY TO SET YOUR AVAILABILITY.</p>
-      )}
+      <Modal
+        isOpen={!!selected}
+        onClose={() => { if (!saving) { setSelected(null); setError('') } }}
+        title={selected ? `AVAILABILITY — ${formatDateLong(selected)}` : 'AVAILABILITY'}
+        size="lg"
+      >
+        {selected && (
+          <AvailabilityDayEditor
+            key={selected}
+            dateKey={selected}
+            entry={selectedEntry}
+            series={selectedSeries}
+            presets={data.presets}
+            busy={saving}
+            error={error || null}
+            onSave={save}
+            onClear={clear}
+            onClose={() => { if (!saving) { setSelected(null); setError('') } }}
+          />
+        )}
+      </Modal>
     </div>
   )
 }

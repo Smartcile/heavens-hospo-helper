@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Input } from '@/components/ui/Input'
@@ -15,7 +16,6 @@ interface EventItem { id: string; title: string; time: string | null; allDay: bo
 
 interface FloorPlanLite { slug: string; name: string }
 interface DayData { shifts: ShiftItem[]; timeOff: TimeOffItem[]; events: EventItem[]; dutiesRequired: boolean }
-interface Pending { id: string; staffName: string; startDate: string; endDate: string; reason: string | null }
 
 interface Venue {
   id: string
@@ -42,7 +42,7 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
   const [month, setMonth] = useState(now.getMonth() + 1) // 1-12
   const [venueId, setVenueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [days, setDays] = useState<Record<string, DayData>>({})
-  const [pending, setPending] = useState<Pending[]>([])
+  const [pendingCount, setPendingCount] = useState(0)
   const [venues, setVenues] = useState<Venue[]>([])
   const [staff, setStaff] = useState<StaffLite[]>([])
   const [floorPlans, setFloorPlans] = useState<FloorPlanLite[]>([])
@@ -69,7 +69,7 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
     const r = await fetch(`/api/admin/calendar?${params}`)
     const data = await r.json()
     setDays(data.days ?? {})
-    setPending(data.pending ?? [])
+    setPendingCount(data.pendingCount ?? 0)
     setLastSyncedAt(data.lastSyncedAt ?? null)
     setLoading(false)
   }
@@ -168,15 +168,6 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
   }
   function nextMonth() {
     if (month === 12) { setYear(year + 1); setMonth(1) } else setMonth(month + 1)
-  }
-
-  async function reviewRequest(id: string, status: 'APPROVED' | 'DECLINED') {
-    await fetch(`/api/admin/timeoff/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    })
-    load()
   }
 
   async function addShift() {
@@ -283,27 +274,14 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
         </button>
       </div>
 
-      {/* Pending approvals */}
-      {pending.length > 0 && (
-        <div className="bg-grey-dark border border-grey-mid">
-          <div className="p-3 border-b border-grey-mid font-mono text-xs uppercase tracking-wider text-warning">
-            PENDING TIME-OFF REQUESTS ({pending.length})
-          </div>
-          <div className="divide-y divide-grey-mid">
-            {pending.map((p) => (
-              <div key={p.id} className="p-3 flex items-center justify-between gap-3 flex-wrap">
-                <div className="font-mono text-xs text-white">
-                  {p.staffName} · {new Date(p.startDate).toLocaleDateString('en-NZ')} – {new Date(p.endDate).toLocaleDateString('en-NZ')}
-                  {p.reason && <span className="text-grey-light"> · {p.reason}</span>}
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => reviewRequest(p.id, 'APPROVED')} className="font-mono text-xs uppercase text-success hover:opacity-80 transition-opacity">APPROVE</button>
-                  <button onClick={() => reviewRequest(p.id, 'DECLINED')} className="font-mono text-xs uppercase text-danger hover:opacity-80 transition-opacity">DECLINE</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* Pending approvals now live on the availability page */}
+      {pendingCount > 0 && (
+        <Link
+          href="/admin/team?tab=availability"
+          className="block bg-grey-dark border border-grey-mid p-3 font-mono text-xs uppercase tracking-wider text-warning hover:border-warning transition-colors"
+        >
+          {pendingCount} AVAILABILITY / TIME-OFF DAY{pendingCount === 1 ? '' : 'S'} AWAITING CONFIRMATION → REVIEW IN TEAM → AVAILABILITY
+        </Link>
       )}
 
       {/* Live floor */}

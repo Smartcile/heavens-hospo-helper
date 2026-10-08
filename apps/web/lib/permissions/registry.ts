@@ -215,6 +215,15 @@ export const PERMISSION_TREE: PermissionArea[] = [
         ],
       },
       {
+        key: 'availability',
+        label: 'AVAILABILITY',
+        functions: [
+          { key: 'view', label: 'VIEW' },
+          { key: 'edit', label: 'EDIT / OVERRIDE' },
+          { key: 'approve', label: 'CONFIRM / APPROVE' },
+        ],
+      },
+      {
         key: 'clocks',
         label: 'CLOCKS',
         functions: [
@@ -432,6 +441,9 @@ export const PERMISSION_PRESETS: PermissionPreset[] = [
       keyFor('team', 'roster', 'view'),
       keyFor('team', 'clocks', 'view'),
       keyFor('team', 'clocks', 'approve'),
+      keyFor('team', 'availability', 'view'),
+      keyFor('team', 'availability', 'edit'),
+      keyFor('team', 'availability', 'approve'),
       keyFor('compliance', 'tasks', 'view'),
       keyFor('compliance', 'alerts', 'view'),
       keyFor('floorplans', 'plans', 'view'),
@@ -489,6 +501,9 @@ export const PERMISSION_PRESETS: PermissionPreset[] = [
       keyFor('customers', 'customers', 'view'),
       keyFor('customers', 'customers', 'edit'),
       keyFor('team', 'clocks', 'view'),
+      keyFor('team', 'availability', 'view'),
+      keyFor('team', 'availability', 'edit'),
+      keyFor('team', 'availability', 'approve'),
       keyFor('floorplans', 'plans', 'view'),
       keyFor('performance', 'tips', 'view'),
       keyFor('performance', 'tips', 'create'),

@@ -70,6 +70,7 @@ export function resolveOps(
 export const TEAM_TABS: TabDef[] = [
   { id: 'staff', label: 'STAFF' },
   { id: 'roster', label: 'ROSTER' },
+  { id: 'availability', label: 'AVAILABILITY', title: 'CONFIRM DECLARED AVAILABILITY + TIME OFF' },
   { id: 'clocks', label: 'CLOCKS' },
   { id: 'payroll', label: 'PAYROLL' },
 ]

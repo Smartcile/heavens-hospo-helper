@@ -7,6 +7,7 @@
 
 import { useMemo } from 'react'
 import { ImagePicker } from '@/components/ui/ImagePicker'
+import { guideRowUsageKey, menuItemUsageKey } from '@/lib/image-annotations'
 import {
   MENU_FIELDS,
   MENU_FIELD_LABELS,
@@ -217,6 +218,7 @@ export function ReferenceTableEditor({
                             value={mi?.imageUrl ?? null}
                             disabled={!mi}
                             onChange={(url) => { if (row.menuItemId) onProductImageChange?.(row.menuItemId, url) }}
+                            usageKey={mi?.id ? menuItemUsageKey(mi.id) : undefined}
                           />
                           <span className="font-mono text-xs text-grey-light">
                             {mi ? 'SHARED WITH THE PRODUCT' : 'LINK A PRODUCT FIRST'}
@@ -227,7 +229,7 @@ export function ReferenceTableEditor({
                           {displayCellText({ menuItem: mi, cells: row.cells }, col) ?? '—'}
                         </span>
                       ) : col.type === 'IMAGE' ? (
-                        <ImagePicker value={row.cells[col.key] ?? null} onChange={(url) => setCell(i, col.key, url ?? '')} />
+                        <ImagePicker value={row.cells[col.key] ?? null} onChange={(url) => setCell(i, col.key, url ?? '')} usageKey={row.id ? guideRowUsageKey(row.id, col.key) : undefined} />
                       ) : col.type === 'SELECT' ? (
                         <select
                           value={row.cells[col.key] ?? ''}

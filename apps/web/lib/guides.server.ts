@@ -123,6 +123,7 @@ export function cleanLinks(links: GuideLinkInput[] | undefined) {
 /** Nested create for steps (guide POST). Links are created only when provided. */
 export function guideStepsCreate(steps: GuideStepInput[]) {
   return steps.map((s, i) => ({
+    ...(s.id ? { id: s.id } : {}),
     ...stepFields(s, i),
     ...(s.links !== undefined ? { links: { create: cleanLinks(s.links) } } : {}),
   }))
@@ -218,7 +219,7 @@ export function guideStepsWrite(steps: GuideStepInput[], existingIds: string[]) 
     create: steps
       .map((s, i) => ({ s, i }))
       .filter(({ s }) => !s.id || !existingIds.includes(s.id))
-      .map(({ s, i }) => stepFields(s, i)),
+      .map(({ s, i }) => ({ ...(s.id ? { id: s.id } : {}), ...stepFields(s, i) })),
   }
 }
 

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { prisma } from '@hospo-ops/db'
+import { prisma, Prisma } from '@hospo-ops/db'
+import { resolveAvailabilityPresets } from '@/lib/availability'
 
 interface Params {
   params: { id: string }
@@ -21,7 +22,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
 
   const body = await req.json()
-  const { name, address, timezone, isActive, loadedRosterUrl, googleCalendarUrl, icalFeedUrl, swiftPosBaseUrl, externalRefreshMinutes, availabilityLockDays, sharingEnabled, sharedWooVenueId } = body
+  const { name, address, timezone, isActive, loadedRosterUrl, googleCalendarUrl, icalFeedUrl, swiftPosBaseUrl, externalRefreshMinutes, availabilityLockDays, availabilityPresets, sharingEnabled, sharedWooVenueId } = body
 
   const data: Record<string, unknown> = {}
   // Integration settings — editable by an admin or the venue's own manager.
@@ -33,6 +34,11 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (externalRefreshMinutes !== undefined) data.externalRefreshMinutes = Number(externalRefreshMinutes) || 0
   // Roster availability cut-off (0 = no lock) — admin or the venue's manager.
   if (availabilityLockDays !== undefined) data.availabilityLockDays = Math.max(0, Math.floor(Number(availabilityLockDays) || 0))
+  // Morning/afternoon/evening quick-pick windows — validated against the
+  // 15-minute grid so a bad payload can never poison the worker editor.
+  if (availabilityPresets !== undefined) {
+    data.availabilityPresets = resolveAvailabilityPresets(availabilityPresets) as unknown as Prisma.InputJsonValue
+  }
   // Venue sharing settings
   if (sharingEnabled !== undefined) data.sharingEnabled = sharingEnabled
   if (sharedWooVenueId !== undefined) {

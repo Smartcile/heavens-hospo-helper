@@ -144,11 +144,35 @@ enum ShiftStatus {
 }
 
 // Staff availability for the roster planner. UNAVAILABLE is a hard block-out;
-// PREFERRED is a casual opting in to work. No row = DEFAULT (available for
-// FT/PT, unset/standby for casuals).
+// AVAILABLE is an explicit can-work declaration (PREFERRED is the legacy
+// casual opt-in, treated as AVAILABLE everywhere). No row = DEFAULT (available
+// for FT/PT, unset/standby for casuals). A day may carry several windows in
+// `StaffAvailability.segments` — `type` is the dominant / all-day state.
 enum AvailabilityType {
   UNAVAILABLE
   PREFERRED
+  AVAILABLE
+}
+
+// A declared availability day is confirmed by a manager. AVAILABLE-only days
+// are auto-approved; UNAVAILABLE windows and time-off requests go PENDING.
+enum AvailabilityStatus {
+  PENDING
+  APPROVED
+  DECLINED
+}
+
+// The reach of a worker's change to a weekly series.
+enum AvailabilityRequestScope {
+  THIS
+  FROM
+  ALL
+}
+
+enum AvailabilityRequestStatus {
+  PENDING
+  APPLIED
+  DISCARDED
 }
 
 // Time clock session approval — only APPROVED sessions count for payroll.
@@ -247,6 +271,9 @@ model Venue {
   // Roster availability cut-off: staff cannot add/edit availability on dates
   // within this many days of today. 0 = no lock.
   availabilityLockDays   Int       @default(0)
+  // Custom morning/afternoon/evening quick-pick windows for the worker
+  // availability editor: [{ key, label, startTime, endTime }]. Null = defaults.
+  availabilityPresets    Json?
   // Geo-fence for timeclock punches (centre point + allowed radius in metres).
   // Null means geo-fencing is off for this venue.
   geoLat                 Float?
@@ -974,29 +1001,70 @@ model TimeOffRequest {
   @@index([staffId])
 }
 
-// One staff member's declared availability for a single day. A day carries at
-// most one state (hence the unique key): UNAVAILABLE (hard block-out) or
-// PREFERRED (casual opting in). isAllDay true = the whole day; otherwise the
-// start/end "HH:mm" window is the availability (local time, like Shift).
+// One staff member's declared availability for a single day (unique per
+// staff/day). isAllDay true = the whole day takes `type`; otherwise `segments`
+// holds the day's 15-minute windows — [{ type: AVAILABLE|UNAVAILABLE,
+// startTime, endTime }] with "HH:mm" (or "24:00" end) local times. `type` /
+// `startTime` / `endTime` stay for legacy single-window rows and for quick
+// display (dominant state). A weekly series materialises one row per
+// occurrence sharing `seriesId`; `seriesEndDate` null with a seriesId = no end.
 model StaffAvailability {
-  id        String           @id @default(uuid())
-  staffId   String
-  venueId   String
-  date      DateTime         @db.Date
-  type      AvailabilityType
-  isAllDay  Boolean          @default(true)
-  startTime String? // "HH:mm" — null when all-day
-  endTime   String? // "HH:mm"
-  notes     String?
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
-  deletedAt DateTime?
+  id            String             @id @default(uuid())
+  staffId       String
+  venueId       String
+  date          DateTime           @db.Date
+  type          AvailabilityType
+  isAllDay      Boolean            @default(true)
+  startTime     String? // "HH:mm" — legacy single window
+  endTime       String? // "HH:mm"
+  segments      Json? // AvailabilityWindow[] when !isAllDay
+  // Manager confirmation of a block-out / time-off day.
+  status        AvailabilityStatus @default(APPROVED)
+  timeOff       Boolean            @default(false) // ticked "time off request"
+  reason        String? // worker's note on the request
+  reviewNote    String? // manager's note on approve/decline
+  reviewedById  String?
+  reviewedAt    DateTime?
+  // Weekly series membership (materialised occurrences share this id).
+  seriesId      String?
+  seriesEndDate DateTime?          @db.Date // last occurrence; null = no end
+  notes         String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  deletedAt     DateTime?
 
   staff Staff @relation(fields: [staffId], references: [id])
   venue Venue @relation(fields: [venueId], references: [id])
 
   @@unique([staffId, date])
   @@index([venueId, date])
+  @@index([seriesId])
+}
+
+// A worker's requested change to an APPROVED availability day or series. The
+// approved rows are left untouched until a manager applies or discards it from
+// the admin availability page. `payload` is the proposed availability (or null
+// for a clear), applied with the same scope rules the worker picked.
+model AvailabilityEditRequest {
+  id           String                    @id @default(uuid())
+  staffId      String
+  venueId      String
+  scope        AvailabilityRequestScope
+  date         DateTime                  @db.Date // anchor day of the change
+  seriesId     String?
+  action       String // 'SET' | 'CLEAR'
+  payload      Json?
+  reason       String?
+  status       AvailabilityRequestStatus @default(PENDING)
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  deletedAt    DateTime?
+
+  @@index([venueId, status])
+  @@index([staffId, date])
 }
 
 // ── TIME CLOCK + PAYROLL ──
@@ -1763,6 +1831,25 @@ model GuideStepLink {
 
   @@unique([stepId, kind, targetId])
   @@index([stepId])
+}
+
+// A non-destructive drawing / text layer over ONE image usage. The image file
+// is never touched — the layer is separate data that can be re-edited or
+// removed at any time. `usageKey` names the exact usage (e.g.
+// "guide-step:<stepId>"), so the same file can carry different notes in
+// different places; `imageUrl` distinguishes several photos within one usage.
+// `data` is lib/image-annotations.ts AnnotationData (shapes + texts).
+model ImageAnnotation {
+  id        String    @id @default(uuid())
+  usageKey  String
+  imageUrl  String
+  data      Json
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([usageKey, imageUrl])
+  @@index([usageKey])
 }
 
 // Who a guide auto-applies to. Replaces the single Guide.departmentId, which

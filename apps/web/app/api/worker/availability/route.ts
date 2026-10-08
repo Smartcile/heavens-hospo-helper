@@ -4,7 +4,15 @@ import { getWorkerSession } from '@/lib/worker-session'
 import { formatDateKey } from '@/lib/scheduling'
 import { getTodayDate } from '@/lib/utils'
 import { keyOfDay } from '@/lib/date-nav'
-import { allowedTypes, isDateLocked, isValidAvailabilityTime, minutesOfTime } from '@/lib/availability'
+import { resolveAvailabilityPresets } from '@/lib/availability'
+import {
+  loadPendingRequests,
+  loadSeriesSummaries,
+  mapAvailabilityEntry,
+  parseRepeat,
+  parseScope,
+  saveAvailability,
+} from '@/lib/availability.server'
 
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/
 
@@ -12,8 +20,9 @@ function venueTodayKey(timezone?: string | null): string {
   return formatDateKey(getTodayDate(timezone ?? undefined))
 }
 
-// The worker's own availability: employment type (so the UI knows whether they
-// opt in or block out), the venue's lock-out setting, and every entry in range.
+// The worker's own availability: employment type (drives the casual UNSET
+// hint), the venue's lock-out + quick-pick presets, every entry in range,
+// series summaries and any pending edit requests the worker has filed.
 export async function GET(req: NextRequest) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -24,121 +33,87 @@ export async function GET(req: NextRequest) {
   const start = new Date(`${startKey}T00:00:00Z`)
   const end = new Date(`${endKey}T23:59:59Z`)
 
-  const [staff, venue, entries] = await Promise.all([
+  const [staff, venue, rows] = await Promise.all([
     prisma.staff.findUnique({
       where: { id: session.staffId },
       select: { employmentType: true },
     }),
-    prisma.venue.findUnique({ where: { id: session.venueId }, select: { availabilityLockDays: true, timezone: true } }),
+    prisma.venue.findUnique({
+      where: { id: session.venueId },
+      select: { availabilityLockDays: true, timezone: true, availabilityPresets: true },
+    }),
     prisma.staffAvailability.findMany({
       where: { staffId: session.staffId, deletedAt: null, date: { gte: start, lte: end } },
       orderBy: { date: 'asc' },
     }),
   ])
 
+  const entries = rows.map(mapAvailabilityEntry)
+  const seriesIds = rows.map((r) => r.seriesId).filter((x): x is string => !!x)
+  const [series, requests] = await Promise.all([
+    loadSeriesSummaries([session.staffId], seriesIds),
+    loadPendingRequests(session.staffId, startKey, endKey),
+  ])
+
   return NextResponse.json({
     employmentType: staff?.employmentType ?? null,
     lockDays: venue?.availabilityLockDays ?? 0,
     today: venueTodayKey(venue?.timezone),
-    entries: entries.map((e) => ({
-      id: e.id,
-      date: formatDateKey(e.date),
-      type: e.type,
-      isAllDay: e.isAllDay,
-      startTime: e.startTime,
-      endTime: e.endTime,
-      notes: e.notes,
-    })),
+    presets: resolveAvailabilityPresets(venue?.availabilityPresets),
+    entries,
+    series,
+    requests,
   })
 }
 
-// Set the state for one or more days (a repeat-weekly save sends several
-// dates). Upsert keeps one row per staff/day, reviving a previously cleared day.
+// Save availability for a day / weekly series, or clear it. Changing a day
+// whose row a manager has APPROVED files an edit request instead of touching
+// it; past and locked days are protected server-side.
 export async function POST(req: NextRequest) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json()
-  const { dates, type, isAllDay, startTime, endTime, notes } = body as {
-    dates?: string[]
-    type?: string
-    isAllDay?: boolean
-    startTime?: string | null
-    endTime?: string | null
-    notes?: string | null
+  const body = await req.json().catch(() => null) as {
+    date?: string
+    availability?: unknown
+    repeat?: unknown
+    scope?: unknown
+    seriesId?: string | null
+    reason?: string | null
+  } | null
+
+  const dateKey = body?.date
+  if (!dateKey || !DATE_KEY.test(dateKey)) {
+    return NextResponse.json({ error: 'PICK A DAY' }, { status: 400 })
   }
 
-  if (!Array.isArray(dates) || dates.length === 0) {
-    return NextResponse.json({ error: 'PICK AT LEAST ONE DAY' }, { status: 400 })
-  }
-  if (dates.length > 60) {
-    return NextResponse.json({ error: 'TOO MANY DAYS AT ONCE (MAX 60)' }, { status: 400 })
-  }
-  if (dates.some((d) => !DATE_KEY.test(d))) {
-    return NextResponse.json({ error: 'INVALID DATE' }, { status: 400 })
-  }
-  if (type !== 'UNAVAILABLE' && type !== 'PREFERRED') {
-    return NextResponse.json({ error: 'INVALID AVAILABILITY TYPE' }, { status: 400 })
-  }
+  const venue = await prisma.venue.findUnique({
+    where: { id: session.venueId },
+    select: { availabilityLockDays: true, timezone: true },
+  })
 
-  const [staff, venue] = await Promise.all([
-    prisma.staff.findUnique({ where: { id: session.staffId }, select: { employmentType: true } }),
-    prisma.venue.findUnique({ where: { id: session.venueId }, select: { availabilityLockDays: true, timezone: true } }),
-  ])
-
-  if (!allowedTypes(staff?.employmentType).includes(type)) {
-    return NextResponse.json({ error: 'THIS EMPLOYMENT TYPE CANNOT SET A PREFERRED DAY' }, { status: 400 })
-  }
-
-  const allDay = isAllDay !== false
-  let s: string | null = null
-  let e: string | null = null
-  if (!allDay) {
-    if (!startTime || !endTime || !isValidAvailabilityTime(startTime) || !isValidAvailabilityTime(endTime)) {
-      return NextResponse.json({ error: 'START AND END TIMES ARE REQUIRED (HH:mm)' }, { status: 400 })
-    }
-    if (minutesOfTime(endTime) <= minutesOfTime(startTime)) {
-      return NextResponse.json({ error: 'END TIME MUST BE AFTER START TIME' }, { status: 400 })
-    }
-    s = startTime
-    e = endTime
-  }
-
-  const today = venueTodayKey(venue?.timezone)
-  const lockDays = venue?.availabilityLockDays ?? 0
-  if (dates.some((d) => isDateLocked(d, lockDays, today))) {
-    return NextResponse.json({ error: `AVAILABILITY IS LOCKED WITHIN ${lockDays} DAYS OF TODAY` }, { status: 400 })
-  }
-
-  const cleanNotes = notes?.trim() || null
-  const results = await Promise.all(
-    dates.map((d) =>
-      prisma.staffAvailability.upsert({
-        where: { staffId_date: { staffId: session.staffId, date: new Date(`${d}T00:00:00Z`) } },
-        update: { type, isAllDay: allDay, startTime: s, endTime: e, notes: cleanNotes, deletedAt: null },
-        create: {
-          staffId: session.staffId,
-          venueId: session.venueId,
-          date: new Date(`${d}T00:00:00Z`),
-          type,
-          isAllDay: allDay,
-          startTime: s,
-          endTime: e,
-          notes: cleanNotes,
-        },
-      }),
-    ),
+  const out = await saveAvailability(
+    {
+      staffId: session.staffId,
+      venueId: session.venueId,
+      dateKey,
+      raw: body?.availability,
+      repeat: parseRepeat(body?.repeat),
+      scope: parseScope(body?.scope),
+      seriesId: typeof body?.seriesId === 'string' && body.seriesId ? body.seriesId : null,
+      reason: typeof body?.reason === 'string' ? body.reason : null,
+    },
+    {
+      todayKey: venueTodayKey(venue?.timezone),
+      lockDays: venue?.availabilityLockDays ?? 0,
+      bypass: false,
+    },
   )
 
+  if ('error' in out) return NextResponse.json({ error: out.error }, { status: 400 })
   return NextResponse.json({
-    entries: results.map((r) => ({
-      id: r.id,
-      date: formatDateKey(r.date),
-      type: r.type,
-      isAllDay: r.isAllDay,
-      startTime: r.startTime,
-      endTime: r.endTime,
-      notes: r.notes,
-    })),
+    mode: out.mode,
+    requestId: out.mode === 'REQUEST' ? out.requestId : null,
+    skipped: out.skipped,
   })
 }

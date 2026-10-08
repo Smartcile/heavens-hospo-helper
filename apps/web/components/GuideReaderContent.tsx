@@ -8,8 +8,10 @@
 import { useRef, useState } from 'react'
 import { GuideStepLinks } from '@/components/GuideStepLinks'
 import { ReferenceTable, type ReferenceTableRow } from '@/components/ReferenceTable'
+import { AnnotatedImage } from '@/components/ui/AnnotatedImage'
 import type { GuidePopupVariant } from '@/components/GuidePopup'
 import type { ResolvedStepLink } from '@/lib/guide-links'
+import { annotationForUrl, type ImageAnnotationLayer } from '@/lib/image-annotations'
 import { mergeStepImages } from '@/lib/guide-media'
 import type { ReferenceColumn } from '@/lib/reference-table'
 import { sanitiseRichText } from '@/lib/rich-text'
@@ -24,6 +26,8 @@ export interface GuideReaderStep {
   videoUrl: string | null
   videoPath?: string | null
   links?: ResolvedStepLink[]
+  /** Per-usage annotation layers over this step's photos. */
+  imageAnnotations?: ImageAnnotationLayer[] | null
 }
 
 export interface GuideReaderGuide {
@@ -44,7 +48,7 @@ export interface GuideReaderGuide {
  * "n / N" counter, so a step can show a sequence of photos the way iFixit does
  * and it is obvious on desktop that more photos exist.
  */
-function StepGallery({ images, stepNumber, onOpen }: { images: string[]; stepNumber: number; onOpen: (url: string) => void }) {
+function StepGallery({ images, stepNumber, annotations, onOpen }: { images: string[]; stepNumber: number; annotations?: ImageAnnotationLayer[] | null; onOpen: (url: string) => void }) {
   const [current, setCurrent] = useState(0)
   const scrollerRef = useRef<HTMLDivElement>(null)
 
@@ -58,8 +62,13 @@ function StepGallery({ images, stepNumber, onOpen }: { images: string[]; stepNum
         aria-label={`View step ${stepNumber} image full size`}
         className="block w-full cursor-zoom-in"
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={images[0]} alt={`step ${stepNumber}`} className="block w-full h-auto max-w-full border border-grey-mid" />
+        <AnnotatedImage
+          src={images[0]}
+          alt={`step ${stepNumber}`}
+          annotations={annotationForUrl(annotations, images[0])}
+          className="block w-full"
+          imgClassName="block w-full h-auto max-w-full border border-grey-mid"
+        />
       </button>
     )
   }
@@ -88,8 +97,13 @@ function StepGallery({ images, stepNumber, onOpen }: { images: string[]; stepNum
             aria-label={`View step ${stepNumber} image ${idx + 1} full size`}
             className="w-full flex-shrink-0 snap-center cursor-zoom-in"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={url} alt={`step ${stepNumber} image ${idx + 1}`} className="block w-full h-auto max-w-full border border-grey-mid" />
+            <AnnotatedImage
+              src={url}
+              alt={`step ${stepNumber} image ${idx + 1}`}
+              annotations={annotationForUrl(annotations, url)}
+              className="block w-full"
+              imgClassName="block w-full h-auto max-w-full border border-grey-mid"
+            />
           </button>
         ))}
       </div>
@@ -154,7 +168,7 @@ export function GuideReaderContent({ guide, variant = 'admin' }: { guide: GuideR
               STEP {i + 1}{s.heading ? ` — ${s.heading}` : ''}
             </div>
             <p className="font-sans text-sm text-white whitespace-pre-wrap break-words">{s.content}</p>
-            <StepGallery images={images} stepNumber={i + 1} onOpen={setLightbox} />
+            <StepGallery images={images} stepNumber={i + 1} annotations={s.imageAnnotations} onOpen={setLightbox} />
             {s.videoPath && (
               <video
                 src={s.videoPath}
@@ -183,8 +197,14 @@ export function GuideReaderContent({ guide, variant = 'admin' }: { guide: GuideR
           onClick={() => setLightbox(null)}
           className="fixed inset-0 z-[60] bg-black/95 flex items-center justify-center p-2"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightbox} alt="" onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full object-contain" />
+          <div onClick={(e) => e.stopPropagation()} className="flex max-h-full max-w-full items-center justify-center">
+            <AnnotatedImage
+              src={lightbox}
+              alt=""
+              annotations={annotationForUrl(guide.steps.flatMap((s) => s.imageAnnotations ?? []), lightbox)}
+              imgClassName="max-h-full max-w-full object-contain"
+            />
+          </div>
           <button
             type="button"
             onClick={() => setLightbox(null)}

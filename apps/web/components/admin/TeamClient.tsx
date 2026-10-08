@@ -5,6 +5,7 @@ import { TEAM_TABS, resolveTab, hubUrl } from '@/lib/hub-tabs'
 import { LineTabs } from '@/components/admin/LineTabs'
 import { StaffClient } from '@/components/admin/StaffClient'
 import { RosterClient } from '@/components/admin/RosterClient'
+import { AvailabilityAdminClient } from '@/components/admin/AvailabilityAdminClient'
 import { ClocksClient } from '@/components/admin/ClocksClient'
 import { PayrollClient } from '@/components/admin/PayrollClient'
 
@@ -32,6 +33,7 @@ export function TeamClient({ role, sessionVenueId, defaultVenueId }: TeamClientP
       <div className="flex-1 p-4 md:p-6">
         {tab === 'staff' && <StaffClient {...venueProps} />}
         {tab === 'roster' && <RosterClient {...venueProps} />}
+        {tab === 'availability' && <AvailabilityAdminClient {...venueProps} />}
         {tab === 'clocks' && <ClocksClient {...venueProps} />}
         {tab === 'payroll' && <PayrollClient {...venueProps} />}
       </div>

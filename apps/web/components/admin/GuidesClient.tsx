@@ -17,6 +17,7 @@ import { ReferenceTableEditor, type ReferenceRowDraft, type ReferenceProductOpti
 import { getActiveVenueId } from '@/lib/active-venue'
 import { downloadFile } from '@/lib/download-file'
 import { mergeStepImages } from '@/lib/guide-media'
+import { guideStepUsageKey } from '@/lib/image-annotations'
 import { groupGuidesByFolder } from '@/lib/guide-folders'
 import { GUIDE_TYPES, GUIDE_TYPE_LABELS, guideTypeLabel } from '@/lib/guide-types'
 import { PRODUCT_REFERENCE_DEFAULT_COLUMNS, mergeMenuRows, sanitiseColumns, type ReferenceColumn, type ReferenceMenuItem } from '@/lib/reference-table'
@@ -124,7 +125,9 @@ interface TaskLite { id: string; title: string; venueId: string }
 interface Position { id: string; name: string; venueId: string }
 
 function emptyStep(): Step {
-  return { id: null, heading: '', content: '', imageUrls: [], videoUrl: '', videoPath: null, links: [] }
+  // Client-generated id so the step's photo annotations have a stable usage key
+  // before the guide is first saved; the server persists it verbatim.
+  return { id: crypto.randomUUID(), heading: '', content: '', imageUrls: [], videoUrl: '', videoPath: null, links: [] }
 }
 
 export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
@@ -873,7 +876,12 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                 </div>
                 <Input value={s.heading} onChange={(e) => updateStep(i, { heading: e.target.value })} placeholder="STEP HEADING (OPTIONAL)" />
                 <Textarea value={s.content} onChange={(e) => updateStep(i, { content: e.target.value })} placeholder="What to do in this step..." />
-                <MultiImagePicker label="Photos" value={s.imageUrls} onChange={(urls) => updateStep(i, { imageUrls: urls })} />
+                <MultiImagePicker
+                  label="Photos"
+                  value={s.imageUrls}
+                  onChange={(urls) => updateStep(i, { imageUrls: urls })}
+                  usageKey={s.id ? guideStepUsageKey(s.id) : undefined}
+                />
                 <VideoPicker label="Video" value={s.videoPath} onChange={(url) => updateStep(i, { videoPath: url })} />
                 <Input value={s.videoUrl} onChange={(e) => updateStep(i, { videoUrl: e.target.value })} placeholder="VIDEO LINK (YOUTUBE/VIMEO, OPTIONAL)" />
 

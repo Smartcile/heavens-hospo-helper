@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatBreaks } from '@/lib/breaks'
-import { DateInput } from '@/components/ui/DateInput'
 
 interface Shift {
   id: string
@@ -14,15 +14,6 @@ interface Shift {
   note: string | null
 }
 
-interface TimeOff {
-  id: string
-  startDate: string
-  endDate: string
-  reason: string | null
-  status: string
-  reviewNote: string | null
-}
-
 function fmt(date: string) {
   return new Date(date).toLocaleDateString('en-NZ', { weekday: 'short', day: '2-digit', month: 'short' })
 }
@@ -30,47 +21,17 @@ function fmt(date: string) {
 export function WorkerCalendarClient() {
   const router = useRouter()
   const [shifts, setShifts] = useState<Shift[]>([])
-  const [timeOff, setTimeOff] = useState<TimeOff[]>([])
-  const [firstName, setFirstName] = useState('')
   const [loading, setLoading] = useState(true)
-
-  const [start, setStart] = useState('')
-  const [end, setEnd] = useState('')
-  const [reason, setReason] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
-  const [showForm, setShowForm] = useState(false)
 
   async function load() {
     const r = await fetch('/api/worker/calendar')
     if (r.status === 401) { router.push('/w/login'); return }
     const data = await r.json()
     setShifts(data.shifts ?? [])
-    setTimeOff(data.timeOff ?? [])
-    setFirstName(data.firstName ?? '')
     setLoading(false)
   }
 
   useEffect(() => { load() }, [])
-
-  async function submitRequest() {
-    if (!start || !end) { setError('PICK START AND END DATES'); return }
-    setSubmitting(true); setError('')
-    const r = await fetch('/api/worker/timeoff', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ startDate: start, endDate: end, reason: reason || null }),
-    })
-    setSubmitting(false)
-    if (!r.ok) { const d = await r.json(); setError(d.error ?? 'FAILED'); return }
-    setStart(''); setEnd(''); setReason(''); setShowForm(false)
-    load()
-  }
-
-  async function cancelRequest(id: string) {
-    await fetch(`/api/worker/timeoff/${id}`, { method: 'DELETE' })
-    load()
-  }
 
   if (loading) {
     return <div className="min-h-screen bg-black flex items-center justify-center"><p className="font-mono text-sm text-grey-light loading-cursor">LOADING</p></div>
@@ -101,55 +62,13 @@ export function WorkerCalendarClient() {
         )}
       </div>
 
-      {/* Time off */}
-      <div className="px-4 py-4 space-y-2 border-t border-grey-mid">
-        <div className="flex items-center justify-between">
-          <div className="font-mono text-xs uppercase tracking-wider text-grey-light">TIME OFF</div>
-          <button onClick={() => setShowForm((v) => !v)} className="font-mono text-xs uppercase text-white hover:text-accent transition-colors">
-            {showForm ? 'CANCEL' : '+ REQUEST'}
-          </button>
-        </div>
-
-        {showForm && (
-          <div className="bg-grey-dark border border-grey-mid p-3 space-y-2">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="flex flex-col gap-1">
-                <label className="label">FROM</label>
-                <DateInput value={start} onChange={(e) => setStart(e.target.value)} />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="label">TO</label>
-                <DateInput value={end} onChange={(e) => setEnd(e.target.value)} />
-              </div>
-            </div>
-            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="REASON (OPTIONAL)" className="field" />
-            {error && <p className="font-mono text-xs text-danger">{error}</p>}
-            <button onClick={submitRequest} disabled={submitting} className="w-full h-12 bg-white text-black font-mono font-bold text-sm uppercase tracking-widest hover:bg-accent transition-colors disabled:opacity-40">
-              {submitting ? 'SENDING_' : 'SUBMIT REQUEST'}
-            </button>
+      <div className="px-4 py-4 border-t border-grey-mid">
+        <Link href="/w/availability" className="block bg-grey-dark border border-grey-mid p-3 hover:border-white transition-colors">
+          <div className="font-mono text-xs uppercase text-white">TIME OFF</div>
+          <div className="font-mono text-2xs uppercase text-grey-light mt-1">
+            MARK DAYS UNAVAILABLE AND TICK “TIME OFF REQUEST” ON MY AVAILABILITY →
           </div>
-        )}
-
-        {timeOff.length === 0 ? (
-          <p className="font-mono text-xs text-grey-light">NO TIME-OFF REQUESTS.</p>
-        ) : (
-          timeOff.map((t) => {
-            const color = t.status === 'APPROVED' ? 'text-success' : t.status === 'DECLINED' ? 'text-danger' : 'text-warning'
-            return (
-              <div key={t.id} className="bg-grey-dark border border-grey-mid p-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs text-white">{fmt(t.startDate)} – {fmt(t.endDate)}</span>
-                  <span className={`font-mono text-xs uppercase ${color}`}>{t.status}</span>
-                </div>
-                {t.reason && <p className="font-sans text-xs text-grey-light mt-1">{t.reason}</p>}
-                {t.reviewNote && <p className="font-mono text-xs text-grey-light mt-1">NOTE: {t.reviewNote}</p>}
-                {t.status === 'PENDING' && (
-                  <button onClick={() => cancelRequest(t.id)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors mt-2">CANCEL REQUEST</button>
-                )}
-              </div>
-            )
-          })
-        )}
+        </Link>
       </div>
     </div>
   )

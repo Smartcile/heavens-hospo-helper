@@ -7,6 +7,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { guideTypeLabel } from '@/lib/guide-types'
 import { STEP_LINK_LABEL, type StepLinkKind } from '@/lib/guide-links'
+import { arrowHead, type AnnotationData } from '@/lib/image-annotations'
 import { pdfSafe } from '@/lib/pdf-safe'
 import { storageRoot } from '@/lib/storage'
 
@@ -25,6 +26,12 @@ export interface GuidePdfLink {
   missing?: boolean
 }
 
+export interface GuidePdfStepImage {
+  dataUrl: string
+  /** The annotation layer for this photo (drawn over it), when it has one. */
+  annotations?: AnnotationData | null
+}
+
 export interface GuidePdfStep {
   heading: string | null
   content: string
@@ -35,6 +42,8 @@ export interface GuidePdfStep {
   imageDataUrl?: string | null
   /** Ordered step photos (data URLs, filled by the route). */
   imageDataUrls?: string[]
+  /** Ordered step photos with their annotation layers — preferred over the plain lists. */
+  images?: GuidePdfStepImage[]
   links?: GuidePdfLink[]
 }
 
@@ -73,6 +82,75 @@ const LINK_ACCENT: Record<string, [number, number, number]> = {
 
 function imageFormat(dataUrl: string): 'PNG' | 'JPEG' {
   return /^data:image\/png/i.test(dataUrl) ? 'PNG' : 'JPEG'
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex)
+  if (!m) return [239, 68, 68]
+  const n = parseInt(m[1], 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+/**
+ * Draw one annotation layer over an already-embedded photo. Geometry is stored
+ * as fractions of the image box, so it maps straight onto the printed rect.
+ */
+function drawPdfAnnotation(doc: jsPDF, data: AnnotationData, x: number, y: number, w: number, h: number) {
+  for (const s of data.shapes) {
+    const [r, g, b] = hexToRgb(s.color)
+    doc.setDrawColor(r, g, b)
+    doc.setFillColor(r, g, b)
+    doc.setLineWidth(Math.max(0.25, s.width * h))
+    doc.setLineCap('round')
+    doc.setLineJoin('round')
+
+    if (s.tool === 'pen' || s.tool === 'line') {
+      for (let i = 1; i < s.points.length; i++) {
+        doc.line(
+          x + s.points[i - 1].x * w,
+          y + s.points[i - 1].y * h,
+          x + s.points[i].x * w,
+          y + s.points[i].y * h,
+        )
+      }
+    } else if (s.tool === 'arrow') {
+      const [from, to] = s.points
+      const head = arrowHead(from, to, s.width * 4)
+      doc.line(x + from.x * w, y + from.y * h, x + to.x * w, y + to.y * h)
+      doc.triangle(
+        x + head[0].x * w, y + head[0].y * h,
+        x + head[1].x * w, y + head[1].y * h,
+        x + head[2].x * w, y + head[2].y * h,
+        'F',
+      )
+    } else {
+      const [a, b2] = s.points
+      doc.rect(
+        x + Math.min(a.x, b2.x) * w,
+        y + Math.min(a.y, b2.y) * h,
+        Math.abs(b2.x - a.x) * w,
+        Math.abs(b2.y - a.y) * h,
+        'S',
+      )
+    }
+  }
+
+  for (const t of data.texts) {
+    const [r, g, b] = hexToRgb(t.color)
+    const size = Math.max(5, Math.min(24, t.size * h * 2.8346)) // pt
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(size)
+    const text = pdfSafe(t.text)
+    const tx = x + t.x * w
+    const baseline = y + t.y * h
+    const tw = doc.getTextWidth(text)
+    const th = t.size * h
+    // A small white plate keeps the label readable on any photo.
+    doc.setFillColor(255, 255, 255)
+    doc.rect(tx - 0.6, baseline - th, tw + 1.2, th + 1, 'F')
+    doc.setTextColor(r, g, b)
+    doc.text(text, tx, baseline)
+  }
 }
 
 function drawGuide(doc: jsPDF, data: GuidePdfData) {
@@ -321,9 +399,16 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
       y += 2
     }
 
-    const stepImages = s.imageDataUrls ?? (s.imageDataUrl ? [s.imageDataUrl] : [])
+    const stepImages: GuidePdfStepImage[] =
+      s.images?.length
+        ? s.images
+        : s.imageDataUrls?.length
+          ? s.imageDataUrls.map((dataUrl) => ({ dataUrl }))
+          : s.imageDataUrl
+            ? [{ dataUrl: s.imageDataUrl }]
+            : []
     for (let k = 0; k < stepImages.length; k++) {
-      const imgData = stepImages[k]
+      const { dataUrl: imgData, annotations: layer } = stepImages[k]
       try {
         const img = doc.getImageProperties(imgData)
         const maxW = innerW
@@ -344,6 +429,9 @@ function drawGuide(doc: jsPDF, data: GuidePdfData) {
         doc.setDrawColor(190)
         doc.setLineWidth(0.2)
         doc.rect(x, y, w, h, 'S')
+        if (layer && (layer.shapes.length > 0 || layer.texts.length > 0)) {
+          drawPdfAnnotation(doc, layer, x, y, w, h)
+        }
         y += h + 6
       } catch {
         // Unreadable image data — the step text is the content, keep going.

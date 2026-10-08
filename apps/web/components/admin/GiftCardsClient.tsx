@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { ImagePicker } from '@/components/ui/ImagePicker'
+import { menuItemUsageKey } from '@/lib/image-annotations'
 import { Panel } from '@/components/ui/Panel'
 import { GiftCardModal } from '@/components/admin/GiftCardModal'
 import { IssueGiftCardModal } from '@/components/admin/IssueGiftCardModal'
@@ -952,6 +953,7 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                       label="PRODUCT IMAGE"
                       value={productImageUrl}
                       onChange={(url) => { setProductImageUrl(url); setProductDirty(true) }}
+                      usageKey={variableProduct.id ? menuItemUsageKey(variableProduct.id) : undefined}
                     />
                     <p className="font-mono text-xs uppercase text-grey-light border-t border-grey-mid pt-2">DENOMINATIONS — BUYER PICKS ONE AT CHECKOUT</p>
                     {denoms.map((d, i) => (

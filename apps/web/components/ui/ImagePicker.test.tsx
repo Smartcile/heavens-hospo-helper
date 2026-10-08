@@ -59,3 +59,55 @@ describe('ImagePicker', () => {
     expect(onChange).toHaveBeenCalledWith(null)
   })
 })
+
+describe('ImagePicker admin tools', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/auth/session')) return mockResponse({ user: { role: 'ADMIN' } })
+      if (url.includes('/api/admin/image-annotations')) return mockResponse([])
+      if (url.includes('/api/admin/media')) {
+        return mockResponse({ files: [{ name: 'pick.png', url: '/api/upload/pick.png', size: 1, mtime: '' }] })
+      }
+      return mockResponse({}, false)
+    })
+  })
+
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it('opens the image popup with annotate + library, and inserts from the library', async () => {
+    const onChange = vi.fn()
+    render(<ImagePicker value="/api/upload/keep.png" onChange={onChange} usageKey="menu-item:m1" />)
+
+    await waitFor(() => expect(screen.getByText('LIBRARY')).toBeTruthy())
+    fireEvent.click(screen.getByAltText('uploaded preview'))
+    await waitFor(() => expect(screen.getByText('✎ ANNOTATE')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('BROWSE LIBRARY'))
+    await waitFor(() => expect(screen.getByText('pick.png')).toBeTruthy())
+    fireEvent.click(screen.getByText('pick.png'))
+    fireEvent.click(screen.getByText('INSERT IMAGE'))
+    expect(onChange).toHaveBeenCalledWith('/api/upload/pick.png')
+  })
+
+  it('shows the annotation badge when the image has a layer', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/auth/session')) return mockResponse({ user: { role: 'ADMIN' } })
+      if (url.includes('/api/admin/image-annotations')) {
+        return mockResponse([
+          {
+            usageKey: 'menu-item:m1',
+            imageUrl: '/api/upload/keep.png',
+            data: { shapes: [{ tool: 'pen', color: '#EF4444', width: 0.008, points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }], texts: [] },
+          },
+        ])
+      }
+      return mockResponse({}, false)
+    })
+
+    render(<ImagePicker value="/api/upload/keep.png" onChange={() => {}} usageKey="menu-item:m1" />)
+    await waitFor(() => expect(screen.getByText('✎')).toBeTruthy())
+  })
+})

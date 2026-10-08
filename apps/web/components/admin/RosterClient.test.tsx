@@ -34,8 +34,12 @@ const availData = {
   blockedDays: {},
   availability: {
     st2: {
-      [monday]: { id: 'a1', type: 'PREFERRED', isAllDay: true, startTime: null, endTime: null, notes: null },
-      [shiftDay(monday, 1)]: { id: 'a2', type: 'UNAVAILABLE', isAllDay: false, startTime: '09:00', endTime: '17:00', notes: 'UNI' },
+      [monday]: { id: 'a1', type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null, windows: [], status: 'APPROVED', timeOff: false, notes: null },
+      [shiftDay(monday, 1)]: {
+        id: 'a2', type: 'UNAVAILABLE', isAllDay: false, startTime: '09:00', endTime: '17:00',
+        windows: [{ type: 'UNAVAILABLE', startTime: '09:00', endTime: '17:00' }],
+        status: 'PENDING', timeOff: false, notes: 'UNI',
+      },
     },
   },
   budgetedSalesByDate: {},
@@ -125,15 +129,15 @@ describe('RosterClient', () => {
     await waitFor(() => {
       expect(screen.getByText(/TAYLOR REED/)).toBeDefined()
     })
-    // PREFERRED on Monday, UNAVAILABLE on Tuesday, UNSET for the casual's other days.
-    expect(screen.getAllByText('PREFERRED').length).toBeGreaterThan(0)
+    // AVAILABLE on Monday, UNAVAILABLE on Tuesday, UNSET for the casual's other days.
+    expect(screen.getAllByText('AVAILABLE').length).toBeGreaterThan(0)
     expect(screen.getAllByText('UNAVAILABLE').length).toBeGreaterThan(0)
     expect(screen.getAllByText('UNSET').length).toBeGreaterThan(0)
-    // The FT default must NOT be labelled available on every cell.
-    expect(screen.queryByText('AVAILABLE')).toBeNull()
+    // A pending declaration carries its PENDING chip on the grid.
+    expect(screen.getAllByText('PENDING').length).toBeGreaterThan(0)
     // Legend.
     expect(screen.getByText('Unavailable')).toBeDefined()
-    expect(screen.getByText('Preferred')).toBeDefined()
+    expect(screen.getByText('Available')).toBeDefined()
     expect(screen.getByText(/Unset \(casual\)/)).toBeDefined()
   })
 })

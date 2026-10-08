@@ -12,6 +12,8 @@ import { ALLERGENS } from '@/lib/allergens'
 import { cupToDensity, findKnownIngredient } from '@/lib/unit-convert'
 import { buildDensityPrompt, parseDensityFromAnswer } from '@/lib/llm-prompt'
 import { FurnitureForm } from '@/components/admin/FurnitureForm'
+import { MultiImagePicker } from '@/components/ui/MultiImagePicker'
+import { inventoryItemUsageKey } from '@/lib/image-annotations'
 import { getActiveVenueId } from '@/lib/active-venue'
 import type { FurnitureView } from '@hospo-ops/types'
 
@@ -59,7 +61,6 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
   const [editingCat, setEditingCat] = useState<Category | null>(null)
   const [showDeleted, setShowDeleted] = useState(false)
   const [deletedItems, setDeletedItems] = useState<Item[]>([])
-  const [previewImage, setPreviewImage] = useState<string | null>(null)
   const [maintLogs, setMaintLogs] = useState<{ id: string; note: string; createdAt: string; staffName: string | null }[]>([])
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [showCatDropdown, setShowCatDropdown] = useState(false)
@@ -132,7 +133,6 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
   const [showEquipmentFields, setShowEquipmentFields] = useState(true)
   const [catShowDeep, setCatShowDeep] = useState(false)
   const [catShowEquip, setCatShowEquip] = useState(false)
-  const [formUploadingImg, setFormUploadingImg] = useState(false)
   const [sections, setSections] = useState<SectionLite[]>([])
   const [suppliers, setSuppliers] = useState<SupplierLite[]>([])
   const [menuItems, setMenuItems] = useState<{ id: string; name: string }[]>([])
@@ -285,15 +285,6 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
       return next
     })
   }, [loading])
-
-  async function uploadImage(file: File) {
-    setFormUploadingImg(true)
-    const form = new FormData()
-    form.append('file', file)
-    const r = await fetch('/api/admin/upload', { method: 'POST', body: form })
-    setFormUploadingImg(false)
-    if (r.ok) { const data = await r.json(); setFormImageUrls((prev) => [...prev, data.url]) }
-  }
 
   function cupWeightToDensity(v: string) {
     const g = parseFloat(v)
@@ -701,13 +692,6 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
         </div>
       </div>
 
-      <Modal isOpen={previewImage != null} onClose={() => setPreviewImage(null)} title="" size="lg">
-        {previewImage && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={previewImage} alt="Preview" className="w-full border border-grey-mid" />
-        )}
-      </Modal>
-
       <Modal isOpen={showCatModal} onClose={() => setShowCatModal(false)} title={editingCat ? 'EDIT CATEGORY' : 'NEW CATEGORY'} size="sm">
         <div className="space-y-3">
           <Input value={newCatName} onChange={(e) => setNewCatName(e.target.value.toUpperCase())} placeholder="CATEGORY NAME" />
@@ -908,41 +892,13 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                   {showEquipmentFields ? '▾ EQUIPMENT / TOOL TRACKING' : '▸ EQUIPMENT / TOOL TRACKING'}
                 </button>
                 {showEquipmentFields && (
-                  <div className="border-t border-grey-mid pt-3 space-y-3" onPaste={(e) => {
-                    const items = e.clipboardData?.items
-                    if (items) {
-                      for (const item of Array.from(items)) {
-                        if (item.type.startsWith('image/')) {
-                          const file = item.getAsFile()
-                          if (file) uploadImage(file)
-                          break
-                        }
-                      }
-                    }
-                  }}>
-                  <div className="flex items-center gap-2">
-                    <input id="inv-img-upload" type="file" accept="image/*" className="hidden"
-                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
-                    <button type="button" onClick={() => document.getElementById('inv-img-upload')?.click()}
-                      className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
-                      {formUploadingImg ? 'UPLOADING_' : 'ADD PHOTO'}
-                    </button>
-                    <span className="font-mono text-xs text-grey-light/50">OR PASTE IMAGE (CTRL+V)</span>
-                  </div>
-                  {formImageUrls.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {formImageUrls.map((url, i) => (
-                        <div key={i} className="relative group">
-                          <img src={url} alt={`photo ${i + 1}`} className="h-16 w-16 object-cover border border-grey-mid cursor-pointer"
-                            onClick={() => setPreviewImage(url)} />
-                          <button onClick={() => setFormImageUrls((prev) => prev.filter((_, idx) => idx !== i))}
-                            className="absolute -top-1 -right-1 w-4 h-4 bg-danger text-black font-mono text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <div className="border-t border-grey-mid pt-3 space-y-3">
+                  <MultiImagePicker
+                    label="PHOTOS"
+                    value={formImageUrls}
+                    onChange={setFormImageUrls}
+                    usageKey={selectedItem ? inventoryItemUsageKey(selectedItem.id) : undefined}
+                  />
                   <div className="grid grid-cols-6 gap-2">
                     <div className="col-span-3">
                       <Select label="SUPPLIER" value={formSupplierId} onChange={(e) => setFormSupplierId(e.target.value)}

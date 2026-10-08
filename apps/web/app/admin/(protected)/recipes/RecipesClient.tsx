@@ -10,6 +10,8 @@ import { Modal } from '@/components/ui/Modal'
 import { computeRecipeAllergens, type AllergenSource } from '@/lib/allergens'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { convertLine, convertQty, resolveItemKind, uomsForItem } from '@/lib/unit-convert'
+import { ImagePicker } from '@/components/ui/ImagePicker'
+import { menuItemUsageKey } from '@/lib/image-annotations'
 import { MenuItemServesEditor } from '@/components/admin/MenuItemServesEditor'
 
 interface Recipe {
@@ -86,10 +88,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
 
   // Image upload for linked Woo product
   const [formImageUrl, setFormImageUrl] = useState<string | null>(null)
-  const [imageUploading, setImageUploading] = useState(false)
-  const imageFileRef = useRef<HTMLInputElement | null>(null)
   const [formShortDescription, setFormShortDescription] = useState('')
-  const [previewImage, setPreviewImage] = useState<string | null>(null)
 
   // Add ingredient modal
   const [showAddIngredient, setShowAddIngredient] = useState(false)
@@ -134,18 +133,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   // Display mode: VOLUME (native units) or WEIGHT (grams) — display only,
   // stored qty + uomId stays authoritative.
   const [displayMode, setDisplayMode] = useState<'VOLUME' | 'WEIGHT'>('VOLUME')
-
-  async function uploadImage(file: File) {
-    setImageUploading(true)
-    const form = new FormData()
-    form.append('file', file)
-    const r = await fetch('/api/admin/upload', { method: 'POST', body: form })
-    setImageUploading(false)
-    if (r.ok) {
-      const data = await r.json()
-      setFormImageUrl(data.url)
-    }
-  }
 
   async function handleAddIngredient() {
     if (!newIngredientName.trim() || !newIngredientUomId || !newIngredientCatId) return
@@ -783,37 +770,12 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                       </div>
 
                       <div className="md:col-span-3">
-                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">PRODUCT IMAGE</label>
-                        <div className="flex items-center gap-2" onPaste={(e) => {
-                          const items = e.clipboardData?.items
-                          if (items) {
-                            for (const item of Array.from(items)) {
-                              if (item.type.startsWith('image/')) {
-                                const file = item.getAsFile()
-                                if (file) uploadImage(file)
-                                break
-                              }
-                            }
-                          }
-                        }}>
-                          <input ref={imageFileRef} type="file" accept="image/*" className="hidden"
-                            onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
-                          <button type="button" onClick={() => imageFileRef.current?.click()}
-                            className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors">
-                            {imageUploading ? 'UPLOADING_' : formImageUrl ? 'REPLACE IMAGE' : 'ADD IMAGE'}
-                          </button>
-                          <span className="font-mono text-xs text-grey-light/50 hidden sm:inline">OR PASTE (CTRL+V)</span>
-                          {formImageUrl && (
-                            <>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={formImageUrl} alt="product" className="h-10 w-10 object-cover border border-grey-mid cursor-pointer" onClick={() => setPreviewImage(formImageUrl)} />
-                              <button type="button" onClick={() => setFormImageUrl(null)}
-                                className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">
-                                REMOVE
-                              </button>
-                            </>
-                          )}
-                        </div>
+                        <ImagePicker
+                          label="PRODUCT IMAGE"
+                          value={formImageUrl}
+                          onChange={setFormImageUrl}
+                          usageKey={formExistingMenuItemId ? menuItemUsageKey(formExistingMenuItemId) : undefined}
+                        />
                       </div>
 
                       <div className="md:col-span-3 border-t border-grey-mid pt-3">
@@ -924,12 +886,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
             <Button variant="ghost" onClick={() => { setShowAddIngredient(false); setNewIngredientName(''); setNewIngredientUomId(''); setNewIngredientCatId('') }}>CANCEL</Button>
           </div>
         </div>
-      </Modal>
-
-      <Modal isOpen={previewImage != null} onClose={() => setPreviewImage(null)} title="" size="lg">
-        {previewImage && (
-          <img src={previewImage} alt="Product preview" className="w-full border border-grey-mid" />
-        )}
       </Modal>
     </div>
   )

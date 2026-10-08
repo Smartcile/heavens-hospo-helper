@@ -17,6 +17,12 @@ import { SuppliersClient } from '@/app/admin/(protected)/suppliers/SuppliersClie
 import { QRCodesClient } from '@/components/admin/QRCodesClient'
 import { SyncClient } from '@/app/admin/(protected)/sync/SyncClient'
 import { SwiftPosSalesClient } from '@/components/admin/SwiftPosSalesClient'
+import {
+  quarterHourEndOptions,
+  quarterHourOptions,
+  resolveAvailabilityPresets,
+  type AvailabilityPreset,
+} from '@/lib/availability'
 
 interface Venue {
   id: string
@@ -26,9 +32,13 @@ interface Venue {
   icalFeedUrl: string | null
   externalRefreshMinutes: number
   availabilityLockDays: number
+  availabilityPresets: unknown
   sharingEnabled: boolean
   sharedWooVenueId: string | null
 }
+
+const PRESET_START_OPTIONS = quarterHourOptions().map((t) => ({ value: t, label: t }))
+const PRESET_END_OPTIONS = quarterHourEndOptions().map((t) => ({ value: t, label: t }))
 
 const REFRESH_OPTIONS = [
   { value: '0', label: 'MANUAL ONLY' },
@@ -117,8 +127,9 @@ export function SettingsClient({
   const [intSaving, setIntSaving] = useState(false)
   const [intMessage, setIntMessage] = useState('')
 
-  // Roster availability cut-off
+  // Roster availability cut-off + quick-pick presets
   const [lockDays, setLockDays] = useState('0')
+  const [presets, setPresets] = useState<AvailabilityPreset[]>(() => resolveAvailabilityPresets(null))
   const [lockSaving, setLockSaving] = useState(false)
   const [lockMessage, setLockMessage] = useState('')
 
@@ -251,6 +262,7 @@ export function SettingsClient({
     setIcalUrl(v.icalFeedUrl ?? '')
     setRefresh(String(v.externalRefreshMinutes ?? 0))
     setLockDays(String(v.availabilityLockDays ?? 0))
+    setPresets(resolveAvailabilityPresets(v.availabilityPresets))
     setSharingEnabled(v.sharingEnabled ?? false)
     setSharedWooVenueId(v.sharedWooVenueId ?? '')
   }
@@ -349,7 +361,10 @@ export function SettingsClient({
     const r = await fetch(`/api/admin/venues/${venueId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ availabilityLockDays: Math.max(0, Math.floor(Number(lockDays) || 0)) }),
+      body: JSON.stringify({
+        availabilityLockDays: Math.max(0, Math.floor(Number(lockDays) || 0)),
+        availabilityPresets: presets,
+      }),
     })
     setLockSaving(false)
     if (r.ok) {
@@ -522,6 +537,31 @@ export function SettingsClient({
         </p>
         <div className="space-y-3">
           <Input label="Lock-out (days before today)" type="number" min="0" value={lockDays} onChange={(e) => setLockDays(e.target.value)} />
+
+          <div className="space-y-2">
+            <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">QUICK PICK PRESETS — MORNING / AFTERNOON / EVENING</div>
+            {presets.map((p, i) => (
+              <div key={p.key} className="flex items-center gap-2">
+                <span className="font-mono text-2xs uppercase text-white w-20">{p.label}</span>
+                <div className="flex-1">
+                  <Select
+                    value={p.startTime}
+                    onChange={(e) => setPresets(presets.map((x, j) => (j === i ? { ...x, startTime: e.target.value } : x)))}
+                    options={PRESET_START_OPTIONS}
+                  />
+                </div>
+                <span className="font-mono text-xs text-grey-light">–</span>
+                <div className="flex-1">
+                  <Select
+                    value={p.endTime}
+                    onChange={(e) => setPresets(presets.map((x, j) => (j === i ? { ...x, endTime: e.target.value } : x)))}
+                    options={PRESET_END_OPTIONS}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
           {lockMessage && <p className={`font-mono text-xs ${lockMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{lockMessage}</p>}
           <Button onClick={saveAvailabilityLock} loading={lockSaving} size="sm">SAVE</Button>
         </div>

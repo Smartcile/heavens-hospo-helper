@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
-import { dateKeysBetween } from '@/lib/calendar'
 import { formatDateKey } from '@/lib/scheduling'
+import { normaliseWindows } from '@/lib/availability'
 import { rosterWeekSummary, type RosterShift } from '@/lib/roster-math'
 import { resolveStaffRate } from '@/lib/staff-rate'
 import { guardAccess } from '@/lib/permissions'
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
   const start = new Date(`${startKey}T00:00:00Z`)
   const end = new Date(`${endKey}T23:59:59Z`)
 
-  const [staff, shifts, timeOff, availability, budgetDays] = await Promise.all([
+  const [staff, shifts, availability, budgetDays] = await Promise.all([
     prisma.staff.findMany({
       where: { venueId, deletedAt: null, isActive: true },
       select: {
@@ -50,16 +50,6 @@ export async function GET(req: NextRequest) {
       include: { position: { select: { name: true, colour: true } } },
       orderBy: { startTime: 'asc' },
     }),
-    prisma.timeOffRequest.findMany({
-      where: {
-        venueId,
-        deletedAt: null,
-        status: 'APPROVED',
-        endDate: { gte: start },
-        startDate: { lte: end },
-      },
-      select: { staffId: true, startDate: true, endDate: true },
-    }),
     prisma.staffAvailability.findMany({
       where: { venueId, deletedAt: null, date: { gte: start, lte: end } },
     }),
@@ -79,11 +69,12 @@ export async function GET(req: NextRequest) {
       .reduce((sum, a) => sum + a.amount, 0)
   }
 
-  // Approved time-off blocks out day cells per staff member.
+  // Approved time-off (the unified availability calendar) blocks day cells.
   const blockedDays: Record<string, string[]> = {} // staffId -> date keys
-  for (const t of timeOff) {
-    const keys = dateKeysBetween(t.startDate, t.endDate)
-    blockedDays[t.staffId] = [...(blockedDays[t.staffId] ?? []), ...keys]
+  for (const a of availability) {
+    if (!a.timeOff || a.status !== 'APPROVED') continue
+    const key = formatDateKey(a.date)
+    blockedDays[a.staffId] = [...(blockedDays[a.staffId] ?? []), key]
   }
 
   // Declared availability overlays the grid: staffId → dateKey → entry.
@@ -93,6 +84,9 @@ export async function GET(req: NextRequest) {
     isAllDay: boolean
     startTime: string | null
     endTime: string | null
+    windows: { type: string; startTime: string; endTime: string }[]
+    status: string
+    timeOff: boolean
     notes: string | null
   }>> = {}
   for (const a of availability) {
@@ -104,6 +98,9 @@ export async function GET(req: NextRequest) {
       isAllDay: a.isAllDay,
       startTime: a.startTime,
       endTime: a.endTime,
+      windows: a.isAllDay ? [] : normaliseWindows(a.segments ?? []),
+      status: a.status,
+      timeOff: a.timeOff,
       notes: a.notes,
     }
   }

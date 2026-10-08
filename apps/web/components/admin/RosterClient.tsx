@@ -9,7 +9,7 @@ import { getActiveVenueId } from '@/lib/active-venue'
 import { formatDateLong, keyOfDay, mondayOf, parseDay, shiftDay, weekKeys, type DateRange } from '@/lib/date-nav'
 import { colourForShift, rateForShift, rosterWeekSummary, staffWeekTotals, type RosterShift, type StaffRate } from '@/lib/roster-math'
 import { generateRosterPdf } from '@/lib/roster-pdf'
-import { availabilityMeta, availabilityState, conflictsWithShift, isCasual } from '@/lib/availability'
+import { availabilityMeta, availabilityState, conflictsWithShift, describeWindows, isCasual } from '@/lib/availability'
 
 interface RosterStaff {
   id: string
@@ -34,10 +34,13 @@ function ratesFor(staff: RosterStaff[]): StaffRate[] {
 
 interface RosterAvailability {
   id: string
-  type: 'UNAVAILABLE' | 'PREFERRED'
+  type: 'UNAVAILABLE' | 'PREFERRED' | 'AVAILABLE'
   isAllDay: boolean
   startTime: string | null
   endTime: string | null
+  windows: { type: 'AVAILABLE' | 'UNAVAILABLE'; startTime: string; endTime: string }[]
+  status: 'PENDING' | 'APPROVED' | 'DECLINED'
+  timeOff: boolean
   notes: string | null
 }
 
@@ -336,7 +339,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       {/* Availability legend */}
       <div className="flex flex-wrap items-center gap-4">
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-danger bg-danger/20" /><span className="font-mono text-2xs uppercase text-grey-light">Unavailable</span></span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-success bg-success/20" /><span className="font-mono text-2xs uppercase text-grey-light">Preferred</span></span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-success bg-success/20" /><span className="font-mono text-2xs uppercase text-grey-light">Available</span></span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-warning bg-warning/20" /><span className="font-mono text-2xs uppercase text-grey-light">Unset (casual)</span></span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-grey-mid bg-danger/5" /><span className="font-mono text-2xs uppercase text-grey-light">Time off</span></span>
         <span className="font-mono text-2xs uppercase text-grey-light">HOVER A BADGE FOR THE WINDOW · ASSIGNING UNAVAILABLE ASKS TO CONFIRM</span>
@@ -385,14 +388,20 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
                     return (
                       <div key={d} className={`border-b border-r ${GRID_LINE} ${compact ? 'min-h-[44px] p-0.5' : 'min-h-[72px] p-1'} relative ${blocked ? 'bg-danger/5' : meta.tint} ${blocked ? '' : 'hover:bg-black/20'}`} onClick={() => !blocked && openModal(s.id, d)}>
                         {showBadge && (
-                          <div className="absolute top-0.5 right-0.5 z-0 pointer-events-none">
+                          <div className="absolute top-0.5 right-0.5 z-0 pointer-events-none flex flex-col items-end gap-0.5">
                             <span
                               className={`font-mono text-2xs uppercase px-1 border ${meta.badge}`}
                               title={avail
-                                ? `${meta.label} · ${avail.isAllDay ? 'ALL DAY' : `${avail.startTime}–${avail.endTime}`}${avail.notes ? ` · ${avail.notes}` : ''}`
+                                ? `${meta.label} · ${describeWindows(avail.windows ?? [], avail.isAllDay, avail.type)}${avail.status !== 'APPROVED' ? ` · ${avail.status}` : ''}${avail.timeOff ? ' · TIME OFF' : ''}${avail.notes ? ` · ${avail.notes}` : ''}`
                                 : 'NO PREFERENCE LOGGED'}>
                               {meta.label}
                             </span>
+                            {avail?.status === 'PENDING' && (
+                              <span className="font-mono text-2xs uppercase px-1 border border-warning text-warning bg-black/50">PENDING</span>
+                            )}
+                            {avail?.timeOff && (
+                              <span className="font-mono text-2xs uppercase text-warning">TIME OFF</span>
+                            )}
                           </div>
                         )}
                         {blocked && (

@@ -28,7 +28,8 @@ with its default sub-tab, e.g. OPS HUB → Menu & Services → RECIPES); the
 │     CUSTOMERS         /admin/ops?tab=customers               │
 │     INVENTORY & STKTE /admin/ops?tab=inventory               │
 │ ▾ TEAM & EXECUTION (the "People")                             │
-│     ROSTER & PAY      /admin/team — STAFF·ROSTER·CLOCKS·PAY   │
+│     ROSTER & PAY      /admin/team — STAFF·ROSTER·AVAIL·CLOCKS │
+│                       ·PAYROLL                                │
 │     DAILY TASKS       /admin/execution — TASKS·REVIEW·FOLLOW-UP│
 │     TRAINING          /admin/training — PLAYBOOK·PATHWAYS    │
 │     NOTICES           /admin/notices                         │
@@ -49,7 +50,7 @@ with its default sub-tab, e.g. OPS HUB → Menu & Services → RECIPES); the
 | Item | URL | What it does |
 |---|---|---|
 | **Overview** | `/admin` | Landing page. Venue overview: today's due tasks, overdue/missed last 7 days, par-level alerts, stocktake pending, guides completion %, timeclock summary, orders/booking quick stats. Quick actions: + TASK, + STAFF, + QR CODE (jump to the hubs) |
-| **Calendar** | `/admin/calendar` | Month calendar combining staff shifts (roster) + time-off requests + calendar events. Manage shifts, approve/decline time off. Tabs: PLANNER (event calendar), LOADED ROSTER (iframe embed), EVENTS (Google Calendar embed). Syncs external feeds (.ics / Google) server-side. Shows NZ rest/meal break entitlements per shift |
+| **Calendar** | `/admin/calendar` | Month calendar combining staff shifts (roster) + approved time off + calendar events. Manage shifts; time-off/availability confirmations live in TEAM → AVAILABILITY (the calendar banners pending days with a link). Tabs: PLANNER (event calendar), LOADED ROSTER (iframe embed), EVENTS (Google Calendar embed). Syncs external feeds (.ics / Google) server-side. Shows NZ rest/meal break entitlements per shift |
 | **Kitchen** | `/w/kitchen` | Worker-side kitchen view opened from admin: today's order items grouped by table with allergy badges, prep totals grid, auto-refresh 15s |
 
 ### OPS HUB group
@@ -81,7 +82,7 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 
 | Item | URL | What it does |
 |---|---|---|
-| **Roster & Pay** | `/admin/team` | STAFF: staff directory + CRUD (role, email/PIN logins, employment, multi-venue, external IDs, GUIDES sign-off modal, ACCESS controls drawer — ADMIN grants a manager per-area access: RESTRICTED toggle, per-venue permission tree with presets). ROSTER: staff × 7-day shift grid with coloured blocks, PUBLISH/DRAFT weeks, cost vs budget footer, ANALYZE/VISUALIZE, PRINT. CLOCKS: per-day timeclock table with APPROVE/REJECT/EDIT, deleted clocks, edits audit, + ADD CLOCK. PAYROLL: NZ pay periods from APPROVED clocks, PAYE/ACC/KiwiSaver engine, PAYSLIP + CSV export, PUBLIC HOLIDAYS + ALT DAYS + SETTINGS tabs. **No in-page venue select** — switching venues is the sidebar `VenueSwitcher` (all four tabs re-read the `admin-active-venue` cookie) |
+| **Roster & Pay** | `/admin/team` | STAFF: staff directory + CRUD (role, email/PIN logins, employment, multi-venue, external IDs, GUIDES sign-off modal, ACCESS controls drawer — ADMIN grants a manager per-area access: RESTRICTED toggle, per-venue permission tree with presets). ROSTER: staff × 7-day shift grid with coloured blocks, PUBLISH/DRAFT weeks, cost vs budget footer, ANALYZE/VISUALIZE, PRINT. AVAILABILITY: confirm/decline declared unavailability + time off (PENDING queue grouped per series, TIME OFF flagged), resolve worker edit requests (APPLY/DISCARD), and a staff × week grid to override any day (past/locked/approved included, direct writes). CLOCKS: per-day timeclock table with APPROVE/REJECT/EDIT, deleted clocks, edits audit, + ADD CLOCK. PAYROLL: NZ pay periods from APPROVED clocks, PAYE/ACC/KiwiSaver engine, PAYSLIP + CSV export, PUBLIC HOLIDAYS + ALT DAYS + SETTINGS tabs. **No in-page venue select** — switching venues is the sidebar `VenueSwitcher` (all tabs re-read the `admin-active-venue` cookie) |
 | **Daily Tasks** | `/admin/execution` | TASKS: live tasks (Department → Section) + checklists (ordered live-task references) with PDF export; timed lists that aren't open yet sit at the bottom of the checklists panel under **HIDDEN — NOT OPEN YET** with **ACTIVATE NOW** (auto-resets next venue-day). REVIEW: end-of-day review per staff with notes + guide assignment. FOLLOW-UPS: competency/missed-task queue with RE-SCAN, sign-off/resolve |
 | **Training** | `/admin/training` | PLAYBOOK: SOP/guide library with DRAFT/PUBLISHED workflow, audiences (dept/section/position), steps + links, competency flags, live "ON THE WORKER PHONE" visibility readout. Editor is a full-height drawer. Per-card **VIEW** (popup preview identical to the worker reader) + ⬇ PDF (reliable fetch/blob download) + checkboxes for a merged bulk PDF (`?ids=a,b,c` or all published). PATHWAYS: onboarding/progression trees — BOARD drag-editor (cards carry ↑/↓ stage shift + ✕ delete, positions persist) + TREE outline (per-row ↑/↓ reorder, S−/S+ stage, inline EDIT, ✕ delete), prerequisites, points |
 | **Notices** | `/admin/notices` | Announcements to floor staff: priority levels, department targeting, acknowledgement tracking (GOT IT). Re-train notices auto-post here |
@@ -185,8 +186,8 @@ keeping other query params.
 | **Guides** | `/w/guides` | BIBLE (every applicable published guide — tracked ones are completable, untracked REFERENCE SOPs/FAQs/HOWTOs appear under "REFERENCE — READ ANY TIME" and open read-only; step reader shows linked tasks/tools/lists, MARK COMPLETE) + MY TREE (pathway progress, locked nodes readable but not bankable) |
 | **Kitchen** | `/w/kitchen` | Today's order items by table, allergy badges, prep totals. Auto-refresh 15s |
 | **Stocktake** | `/w/stocktake` | Assigned stocktakes: count list, submit IN_PROGRESS / COMPLETED |
-| **Calendar** | `/w/calendar` | My upcoming shifts + request/cancel time off |
-| **Availability** | `/w/availability` | Declare when I can work: tap a day → PREFERRED (casual opt-in) / UNAVAILABLE (block-out), all-day or a time window, repeat weekly; overlays the admin Roster Editor |
+| **Calendar** | `/w/calendar` | My upcoming (published) shifts + a pointer to the availability calendar |
+| **Availability** | `/w/availability` | Declare when I can work: MONTH grid + WEEK view, tap a day → AVAILABLE / UNAVAILABLE, all-day or multiple 15-minute windows (an AVAILABLE window auto-fills the rest of the day UNAVAILABLE), MORNING/AFTERNOON/EVENING quick picks, TIME OFF REQUEST tick, repeat weekly (end date/weeks or NO END DATE) and JUST THIS / FROM THIS DAY ONWARDS / ALL IN THE SERIES when editing a series. UNAVAILABLE + time off go PENDING for manager confirmation; approved or past days can only be changed by asking for an edit. Time off now lives here, not on the calendar |
 | **Floor Plan** | `/w/floorplan` | Read-only plan: zoom/pan, setup switcher, event-mode banner |
 | **Notices** | `/w/notices` | Announcements with GOT IT acknowledgement |
 | **Timeclock** | `/w/timeclock` | Clock in/out, breaks (NZ rules), today's hours, history |

@@ -6,6 +6,7 @@ import { guardAccess } from '@/lib/permissions'
 import { attachTargets, type StepLinkRow } from '@/lib/guide-links'
 import { buildTargetIndex } from '@/lib/guide-links.server'
 import { mergeStepImages } from '@/lib/guide-media'
+import { annotationForUrl, guideStepUsageKey, normaliseAnnotation, type ImageAnnotationLayer } from '@/lib/image-annotations'
 import { sanitiseColumns } from '@/lib/reference-table'
 import { buildPdfTable } from '@/lib/reference-table.server'
 import { richTextToPlainText } from '@/lib/rich-text'
@@ -40,13 +41,33 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const links = guide.steps.flatMap((s) => s.links as StepLinkRow[])
   const targetIndex = links.length ? await buildTargetIndex(links) : new Map<string, never>()
 
+  const annotationRows = guide.steps.length
+    ? await prisma.imageAnnotation.findMany({
+        where: { usageKey: { in: guide.steps.map((s) => guideStepUsageKey(s.id)) }, deletedAt: null },
+        select: { usageKey: true, imageUrl: true, data: true },
+      })
+    : []
+  const layersForStep = (stepId: string): ImageAnnotationLayer[] => {
+    const key = guideStepUsageKey(stepId)
+    return annotationRows
+      .filter((r) => r.usageKey === key)
+      .map((r) => ({ imageUrl: r.imageUrl, data: normaliseAnnotation(r.data) }))
+  }
+
   const steps: GuidePdfData['steps'] = []
   for (const s of guide.steps) {
     const resolved = attachTargets(s.links as StepLinkRow[], targetIndex)
     const images = mergeStepImages(s.imageUrls, s.imageUrl)
-    const imageDataUrls = (await Promise.all(images.map((u) => loadImageDataUrl(u)))).filter(
-      (d): d is string => !!d,
+    const layers = layersForStep(s.id)
+    const loaded = await Promise.all(
+      images.map(async (u) => ({
+        dataUrl: await loadImageDataUrl(u),
+        annotations: annotationForUrl(layers, u),
+      })),
     )
+    const stepImages = loaded
+      .filter((i) => !!i.dataUrl)
+      .map((i) => ({ dataUrl: i.dataUrl as string, annotations: i.annotations }))
     const links: GuidePdfLink[] = await Promise.all(
       resolved.map(async (l) => ({
         kind: l.kind,
@@ -64,7 +85,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       videoUrl: s.videoUrl,
       videoPath: s.videoPath,
       links,
-      imageDataUrls,
+      images: stepImages,
     })
   }
 

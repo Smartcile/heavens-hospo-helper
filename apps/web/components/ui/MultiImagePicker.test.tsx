@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MultiImagePicker } from './MultiImagePicker'
 
 function pointerEvent(type: string, props: Record<string, unknown>) {
@@ -56,5 +56,21 @@ describe('MultiImagePicker', () => {
   it('hides the remove control when disabled', () => {
     render(<MultiImagePicker value={['/a.png']} onChange={() => {}} disabled />)
     expect(screen.queryByLabelText('Remove image 1')).toBeNull()
+  })
+
+  it('opens the popup on a tap that does not drag (admin)', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/auth/session')) return { ok: true, json: async () => ({ user: { role: 'ADMIN' } }) } as Response
+      if (url.includes('/api/admin/image-annotations')) return { ok: true, json: async () => [] } as Response
+      return { ok: false, json: async () => null } as Response
+    })
+    render(<MultiImagePicker value={['/a.png']} onChange={() => {}} usageKey="guide-step:s1" />)
+
+    const tile = screen.getByAltText('image 1').parentElement as HTMLElement
+    fireEvent(tile, pointerEvent('pointerdown', { pointerType: 'touch', pointerId: 1, button: 0, clientX: 10, clientY: 10 }))
+    fireEvent(tile, pointerEvent('pointerup', { pointerId: 1, clientX: 10, clientY: 10 }))
+
+    await waitFor(() => expect(screen.getByText('✎ ANNOTATE')).toBeTruthy())
   })
 })

@@ -61,6 +61,13 @@ npm run db:migrate-step-links || echo "⚠ Step-link recovery failed (see error 
 npm run db:backfill-guide-audiences || echo "⚠ Guide audience backfill failed (see error above) — continuing to start the app."
 
 echo ""
+echo "▸ Moving legacy time-off requests onto the availability calendar (post-sync)..."
+# Time off now lives on StaffAvailability (timeOff flag). Each legacy request
+# becomes one all-day UNAVAILABLE row per date, then the request is
+# soft-deleted — idempotent, safe to re-run.
+npm run db:migrate-timeoff || echo "⚠ Time-off migration step failed (see error above) — continuing to start the app."
+
+echo ""
 echo "▸ Seeding database (safe to re-run)..."
 cd /app/packages/db
 npm run db:seed || echo "⚠ Seed step failed (see error above) — continuing to start the app."

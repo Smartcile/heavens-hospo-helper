@@ -11,6 +11,7 @@
     "db:migrate-budget": "tsx prisma/migrate-budget-day-allocations.ts",
     "db:migrate-guides": "tsx prisma/migrate-to-guides.ts",
     "db:migrate-step-links": "tsx prisma/migrate-step-links.ts",
+    "db:migrate-timeoff": "tsx prisma/migrate-timeoff-to-availability.ts",
     "db:backfill-guide-audiences": "tsx prisma/backfill-guide-audiences.ts",
     "db:backfill-orders": "tsx prisma/backfill-orders-phase1.ts",
     "db:migrate-furniture": "tsx prisma/migrate-furniture.ts",

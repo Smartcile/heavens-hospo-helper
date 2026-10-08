@@ -1,15 +1,22 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { moveItem } from '@/lib/array'
 import { nearestIndex } from '@/lib/reorder'
+import { useIsAdmin } from '@/lib/use-is-admin'
+import { ImagePreviewModal } from '@/components/ui/ImagePreviewModal'
+import { MediaLibraryModal } from '@/components/ui/MediaLibraryModal'
+import { annotationIsEmpty, type AnnotationData } from '@/lib/image-annotations'
 
-// Multiple-image upload with CHOOSE (multi-select) + PASTE (CTRL+V) and
-// drag-to-reorder thumbnails. Ordering works on desktop AND touch: a mouse can
-// drag the whole tile, while touch drags the ⠿ grip (which carries
-// `touch-action: none`, so swiping the grip reorders instead of scrolling the
-// page). Guide steps use it to hold an ordered photo sequence.
+// Multiple-image upload with CHOOSE (multi-select) + PASTE (CTRL+V),
+// drag-to-reorder thumbnails, a click-to-open preview popup (annotate / browse
+// library / remove) and a media library for reusing existing images.
+//
+// Ordering works on desktop AND touch: a mouse can drag the whole tile, while
+// touch drags the ⠿ grip (which carries `touch-action: none`, so swiping the
+// grip reorders instead of scrolling the page). A tap / click that doesn't
+// move opens the popup instead.
 
 interface MultiImagePickerProps {
   value: string[]
@@ -19,14 +26,37 @@ interface MultiImagePickerProps {
   disabled?: boolean
   /** Upload endpoint — admin by default; the worker editor passes /api/worker/upload. */
   endpoint?: string
+  /** Where these images live, e.g. `guide-step:<id>`. Enables annotation layers. */
+  usageKey?: string
 }
 
-export function MultiImagePicker({ value, onChange, label, className, disabled, endpoint = '/api/admin/upload' }: MultiImagePickerProps) {
+export function MultiImagePicker({ value, onChange, label, className, disabled, endpoint = '/api/admin/upload', usageKey }: MultiImagePickerProps) {
+  const isAdmin = useIsAdmin()
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const [annotations, setAnnotations] = useState<Record<string, AnnotationData>>({})
   const itemRefs = useRef<Array<HTMLDivElement | null>>([])
+  const downRef = useRef<{ x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    setAnnotations({})
+    if (!isAdmin || !usageKey) return () => { alive = false }
+    fetch(`/api/admin/image-annotations?usageKey=${encodeURIComponent(usageKey)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((rows) => {
+        if (!alive || !Array.isArray(rows)) return
+        const map: Record<string, AnnotationData> = {}
+        for (const r of rows as { imageUrl: string; data: AnnotationData }[]) map[r.imageUrl] = r.data
+        setAnnotations(map)
+      })
+      .catch(() => { /* no layers */ })
+    return () => { alive = false }
+  }, [isAdmin, usageKey])
 
   async function uploadFiles(files: File[]) {
     const images = files.filter((f) => f.type.startsWith('image/'))
@@ -91,9 +121,17 @@ export function MultiImagePicker({ value, onChange, label, className, disabled, 
     if (idx !== null) setOverIndex(idx)
   }
 
-  function endDrag() {
-    if (dragIndex !== null && overIndex !== null && overIndex !== dragIndex) {
+  function endDrag(e: React.PointerEvent, i: number) {
+    const start = downRef.current
+    downRef.current = null
+    const hasCoords = typeof e.clientX === 'number' && typeof e.clientY === 'number'
+    const moved = !!start && hasCoords && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 5
+    const reorder = dragIndex !== null && overIndex !== null && overIndex !== dragIndex
+    if (reorder && (moved || !hasCoords)) {
       onChange(moveItem(value, dragIndex, overIndex))
+    } else if (!reorder && !moved && !disabled && value[i]) {
+      // A click / tap that didn't travel opens the popup.
+      setPreviewUrl(value[i])
     }
     setDragIndex(null)
     setOverIndex(null)
@@ -109,14 +147,17 @@ export function MultiImagePicker({ value, onChange, label, className, disabled, 
               key={url}
               ref={(el) => { itemRefs.current[i] = el }}
               data-index={i}
-              onPointerDown={(e) => startDrag(e, i)}
+              onPointerDown={(e) => {
+                downRef.current = { x: e.clientX, y: e.clientY }
+                startDrag(e, i)
+              }}
               onPointerMove={moveDrag}
-              onPointerUp={endDrag}
-              onPointerCancel={endDrag}
-              title={disabled ? undefined : 'DRAG TO REORDER'}
+              onPointerUp={(e) => endDrag(e, i)}
+              onPointerCancel={(e) => endDrag(e, i)}
+              title={disabled ? undefined : 'CLICK TO OPEN · DRAG TO REORDER'}
               className={cn(
                 'relative h-16 w-16 border',
-                disabled ? '' : 'cursor-grab active:cursor-grabbing',
+                disabled ? '' : 'cursor-pointer active:cursor-grabbing',
                 dragIndex === i
                   ? 'opacity-40 border-white'
                   : overIndex === i && dragIndex !== null
@@ -125,8 +166,11 @@ export function MultiImagePicker({ value, onChange, label, className, disabled, 
               )}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={url} alt={`image ${i + 1}`} className="h-full w-full object-cover pointer-events-none" />
+              <img src={url} alt={`image ${i + 1}`} loading="lazy" className="h-full w-full object-cover pointer-events-none" />
               <span className="absolute bottom-0 left-0 bg-black/70 px-1 font-mono text-xs text-white">{i + 1}</span>
+              {annotations[url] && !annotationIsEmpty(annotations[url]) && (
+                <span className="absolute bottom-0 right-0 border-l border-t border-gold bg-black/70 px-1 font-mono text-xs leading-tight text-gold">✎</span>
+              )}
               {!disabled && value.length > 1 && (
                 <span
                   data-grip="1"
@@ -170,9 +214,39 @@ export function MultiImagePicker({ value, onChange, label, className, disabled, 
             }}
           />
         </label>
-        {!disabled && <span className="font-mono text-xs text-grey-light/50">DRAG TO REORDER · OR PASTE (CTRL+V)</span>}
+        {isAdmin && !disabled && (
+          <button
+            type="button"
+            onClick={() => setLibraryOpen(true)}
+            className="font-mono text-xs uppercase border border-grey-mid px-2 py-1.5 text-grey-light transition-colors hover:border-white hover:text-white"
+          >
+            LIBRARY
+          </button>
+        )}
+        {!disabled && <span className="font-mono text-xs text-grey-light/50">CLICK TO OPEN · DRAG TO REORDER · OR PASTE (CTRL+V)</span>}
       </div>
       {error && <span className="font-mono text-xs text-danger">{error}</span>}
+
+      {previewUrl && (
+        <ImagePreviewModal
+          imageUrl={previewUrl}
+          usageKey={usageKey}
+          canEdit={isAdmin}
+          annotation={annotations[previewUrl] ?? null}
+          onClose={() => setPreviewUrl(null)}
+          onRemove={() => onChange(value.filter((u) => u !== previewUrl))}
+          onBrowseLibrary={isAdmin ? () => { setPreviewUrl(null); setLibraryOpen(true) } : undefined}
+          onAnnotationSaved={(data) => setAnnotations((prev) => {
+            const next = { ...prev }
+            if (annotationIsEmpty(data)) delete next[previewUrl]
+            else next[previewUrl] = data
+            return next
+          })}
+        />
+      )}
+      {libraryOpen && (
+        <MediaLibraryModal onClose={() => setLibraryOpen(false)} onPick={(url) => onChange([...value, url])} />
+      )}
     </div>
   )
 }
