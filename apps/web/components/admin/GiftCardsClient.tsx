@@ -712,7 +712,8 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
             <IssueGiftCardModal
               cardId={nextDraft?.id ?? null}
               cardNumber={nextDraft?.number ?? '—'}
-              templatePreviewUrl={activeTemplate?.filePath ? `/api/admin/gift-card-templates/${activeTemplate.id}/preview` : null}
+              templates={templates}
+              activeTemplateId={activeTemplate?.id ?? null}
               onClose={() => setIssueOpen(false)}
               onIssued={() => { setIssueOpen(false); load() }}
             />

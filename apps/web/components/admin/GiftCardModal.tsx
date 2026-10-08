@@ -125,6 +125,8 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [templates, setTemplates] = useState<{ id: string; name: string; filePath: string | null; isActive: boolean }[]>([])
+  const [templateId, setTemplateId] = useState('')
 
   // Drafts for the editable fields.
   const [draft, setDraft] = useState({ customerName: '', customerEmail: '', amount: '', message: '', notes: '' })
@@ -135,7 +137,10 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
   const [replaceDraft, setReplaceDraft] = useState({ reason: '', customerName: '', customerEmail: '', amount: '', message: '' })
 
   const load = useCallback(async () => {
-    const r = await fetch(`/api/admin/gift-cards/${cardId}/detail`)
+    const [r, tR] = await Promise.all([
+      fetch(`/api/admin/gift-cards/${cardId}/detail`),
+      fetch('/api/admin/gift-card-templates'),
+    ])
     if (!r.ok) { setLoadError('COULD NOT LOAD THIS CARD'); return }
     const d: CardDetail = await r.json()
     setDetail(d)
@@ -146,6 +151,13 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
       message: d.card.message ?? '',
       notes: d.card.notes ?? '',
     })
+    if (tR.ok) {
+      const rows = await tR.json().catch(() => null)
+      if (Array.isArray(rows)) {
+        setTemplates(rows)
+        setTemplateId((prev) => prev || (rows.find((t) => t.isActive && t.filePath)?.id ?? rows.find((t) => t.filePath)?.id ?? ''))
+      }
+    }
   }, [cardId])
 
   useEffect(() => { load() }, [load])
@@ -188,6 +200,7 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
         amount,
         message: draft.message || null,
         isInternal: card.isInternal,
+        templateId: templateId || null,
       }),
     })
     if (r.ok) { setMessage('CARD ISSUED — PDF GENERATED'); onChanged(); load() }
@@ -324,6 +337,13 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
     })),
   ].sort((a, b) => (a.at < b.at ? 1 : -1))
 
+  const usableTemplates = templates.filter((t) => t.filePath)
+  const previewUrl = card?.pdfPath
+    ? `/api/admin/gift-cards/${card.id}/pdf?inline=1`
+    : templateId
+      ? `/api/admin/gift-card-templates/${templateId}/preview`
+      : null
+
   if (!detail && !loadError) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
@@ -353,9 +373,9 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0 flex-1 overflow-hidden">
           {/* Left — card details, statuses, notes */}
           <div className="space-y-3 overflow-y-auto pr-1">
-            <Panel padding="md" variant="outline">
+            <Panel padding="md" variant="outline" className="space-y-3">
               <p className="font-mono text-xs uppercase text-grey-light tracking-wider">CARD DETAILS</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="font-mono text-xs uppercase text-grey-light block mb-1">CUSTOMER NAME</label>
                   <Input value={draft.customerName} onChange={(e) => setDraft({ ...draft, customerName: e.target.value })} placeholder="CUSTOMER NAME" />
@@ -374,7 +394,23 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                 </div>
               </div>
               {card?.isInternal && <p className="font-mono text-xs text-warning">INTERNAL — PRINT LATER</p>}
-              <div className="flex items-center gap-2 flex-wrap">
+              {card?.status === 'DRAFT' && usableTemplates.length > 0 && (
+                <div>
+                  <label className="font-mono text-xs uppercase text-grey-light block mb-1">CARD TEMPLATE</label>
+                  <select
+                    value={templateId}
+                    onChange={(e) => setTemplateId(e.target.value)}
+                    className="field w-full"
+                  >
+                    {usableTemplates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}{t.isActive ? ' — ACTIVE' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="border-t border-grey-mid pt-3 flex items-center gap-2 flex-wrap">
                 <Button size="sm" onClick={saveDetails} disabled={saving}>{saving ? 'SAVING' : 'SAVE DETAILS'}</Button>
                 {card?.status === 'DRAFT' && (
                   <Button size="sm" onClick={issueCard} disabled={saving}>ISSUE + GENERATE PDF</Button>
@@ -428,11 +464,7 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                     className={`font-mono text-xs uppercase border px-2 py-1 transition-colors disabled:opacity-40 ${
                       s === card?.status
                         ? 'border-white text-white'
-                        : s === 'VOIDED' || s === 'EXPIRED'
-                          ? 'border-danger/60 text-danger hover:bg-danger hover:text-black'
-                          : s === 'REDEEMED'
-                            ? 'border-success/60 text-success hover:bg-success hover:text-black'
-                            : 'border-grey-mid text-grey-light hover:text-white'
+                        : 'border-grey-mid text-grey-light hover:border-white hover:text-white'
                     }`}
                   >
                     {s}
@@ -440,11 +472,8 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                 ))}
               </div>
             </Panel>
-          </div>
 
-          {/* Right — order */}
-          <div className="space-y-3 overflow-y-auto pr-1">
-            <Panel padding="md" variant="outline">
+            <Panel padding="md" variant="outline" className="space-y-2">
               <p className="font-mono text-xs uppercase text-grey-light tracking-wider">WOOCOMMERCE ORDER</p>
               {!card?.wooOrderId && !order && (
                 <p className="font-mono text-xs text-grey-light uppercase">NO LINKED ORDER — INTERNAL CARD (CREATED IN THE APP)</p>
@@ -454,7 +483,7 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
               )}
               {order && (
                 <>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                     <DetailRow label="ORDER" value={order.orderNumber ? `#${order.orderNumber}` : String(order.wooOrderId)} />
                     <DetailRow label="STORE STATUS" value={order.status ?? '—'} />
                     <DetailRow label="OPERATIONS" value={order.opStatus ?? '—'} />
@@ -483,6 +512,23 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                     ))}
                   </div>
                 </>
+              )}
+            </Panel>
+          </div>
+
+          {/* Right — the card itself, then everything that touched it */}
+          <div className="space-y-3 overflow-y-auto pr-1">
+            <Panel padding="md" variant="outline" className="space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className="font-mono text-xs uppercase text-grey-light tracking-wider">GIFT CARD PREVIEW</p>
+                <span className="font-mono text-2xs uppercase text-grey-light/70">{card?.pdfPath ? 'ISSUED PDF' : 'TEMPLATE SAMPLE'}</span>
+              </div>
+              {previewUrl ? (
+                <iframe src={previewUrl} title="GIFT CARD PREVIEW" className="w-full h-[46vh] bg-white border border-grey-mid" />
+              ) : (
+                <div className="flex items-center justify-center p-6 border border-grey-mid">
+                  <p className="font-mono text-xs uppercase text-grey-light">NO CUSTOM TEMPLATE — THE BUILT-IN CARD DESIGN WILL BE USED</p>
+                </div>
               )}
             </Panel>
 

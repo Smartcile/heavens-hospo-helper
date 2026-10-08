@@ -126,6 +126,7 @@ export interface ResolvedGuide {
   bodyHtml: string | null
   requiresSignOff: boolean
   isOnboarding: boolean
+  folderId: string | null
   source: GuideSource
   assignmentReason: string | null
   completed: boolean
@@ -307,6 +308,7 @@ export async function resolveStaffGuides(
       bodyHtml: g.bodyHtml,
       requiresSignOff: g.requiresSignOff,
       isOnboarding: g.isOnboarding,
+      folderId: g.folderId ?? null,
       source,
       assignmentReason: reasonMap.get(g.id) ?? null,
       completed: !!comp,
@@ -348,6 +350,7 @@ export async function resolveStaffGuides(
       bodyHtml: g.bodyHtml,
       requiresSignOff: g.requiresSignOff,
       isOnboarding: g.isOnboarding,
+      folderId: g.folderId ?? null,
       source,
       assignmentReason: reasonMap.get(g.id) ?? null,
       completed: false,

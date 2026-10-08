@@ -83,7 +83,10 @@ describe('AvailabilityAdminClient', () => {
 
     await screen.findAllByText('TAYLOR REED')
     fireEvent.click(screen.getAllByText('—')[0])
-    fireEvent.click(await screen.findByText('UNAVAILABLE'))
+    // The queue rows behind the modal also print "UNAVAILABLE" (labelled split
+    // rows) — the editor's is the button.
+    const unavailable = screen.getAllByText('UNAVAILABLE').find((el) => el.tagName === 'BUTTON')
+    fireEvent.click(unavailable as HTMLElement)
     fireEvent.click(screen.getByText('SAVE'))
 
     await waitFor(() => {

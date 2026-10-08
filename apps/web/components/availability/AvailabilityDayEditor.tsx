@@ -18,6 +18,7 @@ import {
   quarterHourOptions,
   removeWindow,
   seriesEndDateKey,
+  spliceWindow,
   statusMeta,
   weeksForSeries,
   windowsArePartition,
@@ -137,7 +138,13 @@ export function AvailabilityDayEditor({
 
   function setWindowAt(index: number, next: AvailabilityWindow) {
     if (minutesOfTime(next.endTime) <= minutesOfTime(next.startTime)) return
-    setWindows((prev) => addWindow(removeWindow(prev, index), next))
+    setWindows((prev) =>
+      windowsArePartition(prev)
+        // A partition edits by moving the boundary: the neighbouring window's
+        // edge follows, so the day never splits into an extra block.
+        ? spliceWindow(prev, index, next)
+        : addWindow(removeWindow(prev, index), next),
+    )
   }
 
   function toggleWindowType(index: number) {
@@ -250,7 +257,7 @@ export function AvailabilityDayEditor({
             ))}
           </div>
 
-          <AvailabilityBar windows={windows} isAllDay={false} type="AVAILABLE" />
+          <AvailabilityBar windows={windows} isAllDay={false} type="AVAILABLE" labelled showType />
 
           <div className="space-y-2">
             {windows.length === 0 && (

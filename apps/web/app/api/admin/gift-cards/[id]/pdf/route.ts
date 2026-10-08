@@ -20,10 +20,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   }
 
   const buffer = fs.readFileSync(card.pdfPath)
+  // `?inline=1` renders the PDF in an iframe (the card popup preview);
+  // the default stays an attachment download.
+  const inline = _req.nextUrl.searchParams.get('inline') === '1'
   return new NextResponse(buffer, {
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="Gift Card - ${card.number}.pdf"`,
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="Gift Card - ${card.number}.pdf"`,
     },
   })
 }

@@ -305,11 +305,15 @@ export function WorkerAvailabilityClient() {
                     </span>
                   </span>
                 </div>
-                <AvailabilityBar
-                  windows={entry?.windows ?? []}
-                  isAllDay={entry ? entry.isAllDay : false}
-                  type={entry?.type ?? 'AVAILABLE'}
-                />
+                {entry && (
+                  <AvailabilityBar
+                    windows={entry.windows}
+                    isAllDay={entry.isAllDay}
+                    type={entry.type}
+                    labelled
+                    showType
+                  />
+                )}
                 <div className="font-mono text-2xs text-grey-light uppercase">
                   {entry ? describeWindows(entry.windows, entry.isAllDay, entry.type) : 'NOT SET'}
                   {entry?.seriesId ? ` · ${entry.seriesEndDate ? describeSeriesEnd(entry.seriesEndDate) : 'WEEKLY · NO END DATE'}` : ''}

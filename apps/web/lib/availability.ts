@@ -325,6 +325,36 @@ export function addWindow(windows: AvailabilityWindow[], next: AvailabilityWindo
   return autoComplement([...trimmed, next])
 }
 
+/**
+ * Edit a window in a PARTITION (a list that covers the day, e.g. the
+ * 00:00–09:00 / 09:00–17:00 / 17:00–24:00 shape) by moving the boundary with
+ * it: pushing a boundary later pulls the neighbouring window's edge along, so
+ * the day stays one clean red/green run instead of sprouting a new little
+ * block. Only available for partitions — in a partial block-out the marks are
+ * independent and `addWindow` is the right operation.
+ */
+export function spliceWindow(
+  windows: AvailabilityWindow[],
+  index: number,
+  next: AvailabilityWindow,
+): AvailabilityWindow[] {
+  const clean = normaliseWindows(windows)
+  if (index < 0 || index >= clean.length) return addWindow(clean, next)
+  const old = clean[index]
+  if (minutesOfTime(next.endTime) <= minutesOfTime(next.startTime)) return clean
+
+  const updated = clean.map((w, i) => (i === index ? { ...next } : { ...w }))
+  const movedStart = minutesOfTime(next.startTime) !== minutesOfTime(old.startTime)
+  const movedEnd = minutesOfTime(next.endTime) !== minutesOfTime(old.endTime)
+  if (movedStart && index > 0) {
+    updated[index - 1] = { ...updated[index - 1], endTime: next.startTime }
+  }
+  if (movedEnd && index < updated.length - 1) {
+    updated[index + 1] = { ...updated[index + 1], startTime: next.endTime }
+  }
+  return normaliseWindows(autoComplement(normaliseWindows(updated)))
+}
+
 /** Remove a window by index (the rest keeps its shape — no re-complement). */
 export function removeWindow(windows: AvailabilityWindow[], index: number): AvailabilityWindow[] {
   return normaliseWindows(windows.filter((_, i) => i !== index))

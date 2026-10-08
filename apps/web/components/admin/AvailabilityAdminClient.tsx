@@ -229,7 +229,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <div className="flex-1"><AvailabilityBar windows={first.windows} isAllDay={first.isAllDay} type={first.type} /></div>
+                <div className="flex-1"><AvailabilityBar windows={first.windows} isAllDay={first.isAllDay} type={first.type} labelled showType /></div>
                 <span className="font-mono text-2xs uppercase text-grey-light">{describeWindows(first.windows, first.isAllDay, first.type)}</span>
               </div>
               {first.notes && <p className="font-mono text-2xs uppercase text-grey-light">NOTE: {first.notes}</p>}
@@ -306,7 +306,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
                     >
                       {entry ? (
                         <div className="space-y-1">
-                          <AvailabilityBar windows={entry.windows} isAllDay={entry.isAllDay} type={entry.type} height="h-2" />
+                          <AvailabilityBar windows={entry.windows} isAllDay={entry.isAllDay} type={entry.type} labelled />
                           <div className="flex flex-wrap gap-1 items-center">
                             {entry.status !== 'APPROVED' && (
                               <span className={`font-mono text-2xs uppercase border px-1 ${statusMeta(entry.status).badge}`}>{entry.status}</span>

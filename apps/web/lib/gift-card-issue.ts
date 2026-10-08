@@ -22,11 +22,19 @@ export interface GiftCardPdfSource {
   message?: string | null
   issuedAt?: Date | null
   createdAt?: Date | null
+  /** A specific template to use (the issue popup's picker). Falls back to the
+   *  venue's active template, then the built-in jsPDF design. */
+  templateId?: string | null
 }
 
-/** Build the PDF bytes for one card using the venue's active template. */
+/** Build the PDF bytes for one card using the chosen / active template. */
 export async function giftCardPdfBuffer(card: GiftCardPdfSource): Promise<Buffer> {
-  const template = await prisma.giftCardTemplate.findFirst({
+  const chosen = card.templateId
+    ? await prisma.giftCardTemplate.findFirst({
+        where: { id: card.templateId, venueId: card.venueId, deletedAt: null },
+      })
+    : null
+  const template = chosen ?? await prisma.giftCardTemplate.findFirst({
     where: { venueId: card.venueId, isActive: true, deletedAt: null },
   })
 

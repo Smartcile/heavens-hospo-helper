@@ -30,9 +30,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(guides)
   }
 
-  const [resolved, access] = await Promise.all([
+  const [resolved, access, folders] = await Promise.all([
     resolveStaffGuides(session.staffId, { includeSteps: true }),
     workerGuideAccess(session),
+    prisma.guideFolder.findMany({
+      where: { venueId: session.venueId, deletedAt: null },
+      select: { id: true, name: true, sortOrder: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    }),
   ])
   if (!resolved) return NextResponse.json({ error: 'Staff not found' }, { status: 404 })
 
@@ -47,6 +52,7 @@ export async function GET(req: NextRequest) {
     isOnboarding: g.isOnboarding,
     isTracked: true,
     source: g.source,
+    folderId: g.folderId,
     completed: g.completed,
     department: g.department,
     tableColumns: g.tableColumns,
@@ -58,6 +64,7 @@ export async function GET(req: NextRequest) {
     firstName: session.firstName,
     canEdit: access.canEdit,
     canPublish: access.canPublish,
+    folders,
     items: resolved.items.map(shape),
     // Untracked published guides — read-only reference documents in the BIBLE.
     reference: resolved.reference.map((g) => ({

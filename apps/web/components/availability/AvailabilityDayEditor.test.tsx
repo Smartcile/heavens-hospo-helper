@@ -103,4 +103,29 @@ describe('AvailabilityDayEditor', () => {
     fireEvent.click(screen.getByText('CLEAR'))
     expect(onClear).toHaveBeenCalledWith({ scope: 'ALL', reason: null })
   })
+
+  it('moves the neighbouring edge when a partition boundary is edited — no extra block', () => {
+    const { onSave } = renderEditor({
+      entry: entry({
+        type: 'AVAILABLE',
+        isAllDay: false,
+        windows: [
+          { type: 'UNAVAILABLE', startTime: '00:00', endTime: '09:00' },
+          { type: 'AVAILABLE', startTime: '09:00', endTime: '17:00' },
+          { type: 'UNAVAILABLE', startTime: '17:00', endTime: '24:00' },
+        ],
+      }),
+    })
+
+    // Third row's start select → push the unavailable block to 18:00.
+    const selects = screen.getAllByRole('combobox')
+    fireEvent.change(selects[4], { target: { value: '18:00' } })
+    fireEvent.click(screen.getByText('SAVE'))
+
+    expect(onSave.mock.calls[0][0].windows).toEqual([
+      { type: 'UNAVAILABLE', startTime: '00:00', endTime: '09:00' },
+      { type: 'AVAILABLE', startTime: '09:00', endTime: '18:00' },
+      { type: 'UNAVAILABLE', startTime: '18:00', endTime: '24:00' },
+    ])
+  })
 })

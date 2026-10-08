@@ -24,7 +24,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
   if (!card) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const { customerName, customerEmail, amount, message, isInternal } = await req.json()
+  const { customerName, customerEmail, amount, message, isInternal, templateId } = await req.json()
 
   if (!amount || amount <= 0) return NextResponse.json({ error: 'Amount is required' }, { status: 400 })
 
@@ -34,6 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     amount,
     customerName: customerName || null,
     message: message || null,
+    templateId: templateId || null,
   })
 
   const claimed = await prisma.giftCard.updateMany({

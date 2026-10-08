@@ -32,6 +32,7 @@ import {
   seriesEndDateKey,
   SERIES_HORIZON_WEEKS,
   snapWindow,
+  spliceWindow,
   statusMeta,
   summariseSeries,
   weeksForSeries,
@@ -305,6 +306,58 @@ describe('addWindow / removeWindow', () => {
   it('identifies a full partition', () => {
     expect(windowsArePartition([w('UNAVAILABLE', '12:00', '14:00')])).toBe(false)
     expect(windowsArePartition([w('AVAILABLE', '12:00', '14:00')])).toBe(true)
+  })
+})
+
+describe('spliceWindow', () => {
+  const partition = [
+    w('UNAVAILABLE', '00:00', '09:00'),
+    w('AVAILABLE', '09:00', '17:00'),
+    w('UNAVAILABLE', '17:00', '24:00'),
+  ]
+
+  it('moves the AVAILABLE edge when a neighbouring boundary is pushed later', () => {
+    // The reported bug: pushing the unavailable start to 18:00 must stretch the
+    // available block to 18:00 — not leave 17:00–18:00 as a new little block.
+    expect(spliceWindow(partition, 2, w('UNAVAILABLE', '18:00', '24:00'))).toEqual([
+      w('UNAVAILABLE', '00:00', '09:00'),
+      w('AVAILABLE', '09:00', '18:00'),
+      w('UNAVAILABLE', '18:00', '24:00'),
+    ])
+  })
+
+  it('pulls the previous edge along when a start is moved earlier', () => {
+    expect(spliceWindow(partition, 1, w('AVAILABLE', '07:00', '17:00'))).toEqual([
+      w('UNAVAILABLE', '00:00', '07:00'),
+      w('AVAILABLE', '07:00', '17:00'),
+      w('UNAVAILABLE', '17:00', '24:00'),
+    ])
+  })
+
+  it('stretches the last block when the available end moves later', () => {
+    const day = [
+      w('UNAVAILABLE', '00:00', '09:00'),
+      w('AVAILABLE', '09:00', '17:00'),
+      w('UNAVAILABLE', '17:00', '20:00'),
+      w('UNAVAILABLE', '20:00', '24:00'),
+    ]
+    expect(spliceWindow(day, 1, w('AVAILABLE', '09:00', '22:00'))).toEqual([
+      w('UNAVAILABLE', '00:00', '09:00'),
+      w('AVAILABLE', '09:00', '22:00'),
+      w('UNAVAILABLE', '22:00', '24:00'),
+    ])
+  })
+
+  it('fills the start of the day when the first edge moves later', () => {
+    expect(spliceWindow(partition, 1, w('AVAILABLE', '10:00', '17:00'))).toEqual([
+      w('UNAVAILABLE', '00:00', '10:00'),
+      w('AVAILABLE', '10:00', '17:00'),
+      w('UNAVAILABLE', '17:00', '24:00'),
+    ])
+  })
+
+  it('ignores an invalid edit', () => {
+    expect(spliceWindow(partition, 1, w('AVAILABLE', '17:00', '09:00'))).toEqual(partition)
   })
 })
 

@@ -182,8 +182,19 @@ describe('GiftCardModal replacement', () => {
     expect(screen.queryByRole('button', { name: 'DELETE' })).toBeNull()
   })
 
-  it('renders ORDER · APP history rows from the order history feed', async () => {
-    const withOrderHistory = {
+  it('shows the issued card PDF as an inline preview with the history underneath', async () => {
+    render(<GiftCardModal cardId="card-1" onClose={() => {}} onChanged={() => {}} />)
+
+    const frame = await screen.findByTitle('GIFT CARD PREVIEW') as HTMLIFrameElement
+    expect(frame.getAttribute('src')).toBe('/api/admin/gift-cards/card-1/pdf?inline=1')
+    expect(screen.getByText('ISSUED PDF')).toBeTruthy()
+
+    // History sits in the right-hand column below the preview.
+    const history = screen.getByText(/HISTORY — EVERYTHING/)
+    expect(frame.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('renders ORDER · APP history rows from the order history feed', async () => {    const withOrderHistory = {
       ...cardDetail,
       order: {
         ...cardDetail.order!,

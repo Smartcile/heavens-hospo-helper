@@ -57,6 +57,15 @@ function mockFetch(extra: Record<string, unknown> = {}, trackedOverride: unknown
   }) as unknown as typeof fetch
 }
 
+function pointerEvent(type: string, props: Record<string, unknown>) {
+  const e = new Event(type, { bubbles: true, cancelable: true })
+  Object.assign(e, props)
+  return e
+}
+
+const rect = (left: number, top: number, width: number, height: number): DOMRect =>
+  ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) } as DOMRect)
+
 describe('WorkerGuidesClient', () => {
   afterEach(() => { vi.restoreAllMocks() })
 
@@ -147,5 +156,99 @@ describe('WorkerGuidesClient', () => {
     expect(await screen.findByText('+ NEW')).toBeTruthy()
     fireEvent.click(await screen.findByText('FOOD SAFETY BASICS'))
     await waitFor(() => expect(screen.getByText('EDIT')).toBeTruthy())
+  })
+
+  it('groups the bible under bold collapsible folder headers', async () => {
+    const folders = [
+      { id: 'f1', name: 'BAR', sortOrder: 0 },
+      { id: 'f2', name: 'KITCHEN', sortOrder: 1 },
+    ]
+    globalThis.fetch = mockFetch({ folders }, { ...tracked, folderId: 'f2' })
+    render(<WorkerGuidesClient />)
+
+    const kitchen = await screen.findByRole('button', { name: /KITCHEN/ })
+    expect(kitchen.className).toContain('font-bold')
+    expect(kitchen.className).toContain('text-base')
+    // The reference guide is unfiled, so it lands in the UNFILED bucket.
+    expect(screen.getByRole('button', { name: /UNFILED/ })).toBeTruthy()
+    expect(screen.getByText('FOOD SAFETY BASICS')).toBeTruthy()
+
+    fireEvent.click(kitchen)
+    expect(screen.queryByText('FOOD SAFETY BASICS')).toBeNull()
+    expect(screen.getByText('HOW TO READ THE FRIDGE TEMP LOG')).toBeTruthy()
+  })
+
+  it('files a guide into a folder when its grip is dragged onto the folder', async () => {
+    const folders = [
+      { id: 'f1', name: 'BAR', sortOrder: 0 },
+      { id: 'f2', name: 'KITCHEN', sortOrder: 1 },
+    ]
+    const calls: { url: string; init?: RequestInit }[] = []
+    globalThis.fetch = vi.fn((url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init })
+      const json = (data: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(data) })
+      if (String(url).startsWith('/api/worker/guides')) return json({ firstName: 'ALEX', canEdit: true, folders, items: [tracked], reference: [reference] })
+      if (String(url).startsWith('/api/worker/pathway')) return json({ pathway: null })
+      return json({ ok: true })
+    }) as unknown as typeof fetch
+
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const key = (this as HTMLElement).dataset?.folderKey
+      if (key === 'f1') return rect(0, 0, 300, 150)
+      if (key === 'f2') return rect(0, 200, 300, 150)
+      return rect(0, 0, 0, 0)
+    })
+
+    render(<WorkerGuidesClient />)
+    await screen.findByText('FOOD SAFETY BASICS')
+
+    const grip = document.querySelector('[data-guide-grip="1"]') as HTMLElement
+    fireEvent(grip, pointerEvent('pointerdown', { pointerType: 'touch', pointerId: 1, button: 0, clientX: 10, clientY: 10 }))
+    fireEvent(grip, pointerEvent('pointermove', { pointerId: 1, clientX: 150, clientY: 275 }))
+    fireEvent(grip, pointerEvent('pointerup', { pointerId: 1, clientX: 150, clientY: 275 }))
+
+    await waitFor(() => {
+      const put = calls.find((c) => c.url === '/api/worker/guides/g1' && c.init?.method === 'PUT')
+      expect(put).toBeDefined()
+      expect(JSON.parse((put!.init as RequestInit).body as string)).toMatchObject({ folderId: 'f2' })
+    })
+  })
+
+  it('reorders folders when a folder grip is dragged onto another folder', async () => {
+    const folders = [
+      { id: 'f1', name: 'BAR', sortOrder: 0 },
+      { id: 'f2', name: 'KITCHEN', sortOrder: 1 },
+    ]
+    const calls: { url: string; init?: RequestInit }[] = []
+    globalThis.fetch = vi.fn((url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init })
+      const json = (data: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(data) })
+      if (String(url).startsWith('/api/worker/guides')) return json({ firstName: 'ALEX', canEdit: true, folders, items: [tracked], reference: [reference] })
+      if (String(url).startsWith('/api/worker/pathway')) return json({ pathway: null })
+      return json({ ok: true })
+    }) as unknown as typeof fetch
+
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const key = (this as HTMLElement).dataset?.folderHeader
+      if (key === 'f1') return rect(0, 0, 300, 40)
+      if (key === 'f2') return rect(0, 200, 300, 40)
+      return rect(0, 0, 0, 0)
+    })
+
+    render(<WorkerGuidesClient />)
+    await screen.findByRole('button', { name: /KITCHEN/ })
+
+    const grips = document.querySelectorAll('[data-folder-grip="1"]')
+    expect(grips.length).toBe(2)
+    const first = grips[0] as HTMLElement
+    fireEvent(first, pointerEvent('pointerdown', { pointerType: 'touch', pointerId: 1, button: 0, clientX: 10, clientY: 20 }))
+    fireEvent(first, pointerEvent('pointermove', { pointerId: 1, clientX: 150, clientY: 220 }))
+    fireEvent(first, pointerEvent('pointerup', { pointerId: 1, clientX: 150, clientY: 220 }))
+
+    await waitFor(() => {
+      const put = calls.find((c) => c.url === '/api/worker/guide-folders' && c.init?.method === 'PUT')
+      expect(put).toBeDefined()
+      expect(JSON.parse((put!.init as RequestInit).body as string)).toMatchObject({ orderedIds: ['f2', 'f1'] })
+    })
   })
 })

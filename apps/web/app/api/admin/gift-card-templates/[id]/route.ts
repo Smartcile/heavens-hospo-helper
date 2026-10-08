@@ -85,6 +85,21 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   })
   if (!template) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  await prisma.giftCardTemplate.update({ where: { id: params.id }, data: { deletedAt: new Date() } })
+  // Deleting the ACTIVE template promotes the newest remaining one, so
+  // issuing keeps using a venue template instead of silently reverting to
+  // the built-in design.
+  await prisma.$transaction(async (tx) => {
+    await tx.giftCardTemplate.update({ where: { id: params.id }, data: { deletedAt: new Date() } })
+    if (template.isActive) {
+      const next = await tx.giftCardTemplate.findFirst({
+        where: { venueId: session.user.venueId, deletedAt: null, id: { not: params.id } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      })
+      if (next) {
+        await tx.giftCardTemplate.update({ where: { id: next.id }, data: { isActive: true } })
+      }
+    }
+  })
   return NextResponse.json({ ok: true })
 }

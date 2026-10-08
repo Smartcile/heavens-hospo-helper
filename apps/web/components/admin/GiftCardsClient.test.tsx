@@ -574,8 +574,45 @@ describe('GiftCardsClient', () => {
     })
   })
 
-  it('SYNC WOOCOMMERCE pulls orders only (gift cards arrive, nothing else touched)', async () => {
-    const post = vi.fn()
+  it('lets the issue popup choose which template the card prints on', async () => {
+    const issue = vi.fn()
+    vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/admin/gift-cards/gc1/issue') && (init?.method ?? 'GET') === 'POST') {
+        issue(init)
+        return mockResponse({ ...card, status: 'ISSUED' })
+      }
+      if (url.includes('/api/admin/gift-cards/next-number')) {
+        return mockResponse({ draft: { id: 'gc1', number: '20260001' } })
+      }
+      if (url.includes('/api/admin/gift-card-templates')) return mockResponse([template])
+      if (url.includes('/api/admin/gift-cards?')) return mockResponse([card])
+      return mockResponse([])
+    })
+
+    render(<GiftCardsClient />)
+    const issueButtons = await screen.findAllByRole('button', { name: 'ISSUE GIFT CARD' })
+    fireEvent.click(issueButtons[0])
+
+    // The active template is preselected; BUILT-IN DESIGN is one switch away.
+    const select = await screen.findByLabelText('CARD TEMPLATE') as HTMLSelectElement
+    expect(select.value).toBe('tpl1')
+    expect(screen.getByRole('option', { name: /BUILT-IN DESIGN/ })).toBeTruthy()
+    expect(screen.getByRole('option', { name: /AKARANA CARD/ })).toBeTruthy()
+    fireEvent.change(select, { target: { value: '' } })
+
+    fireEvent.change(screen.getAllByRole('spinbutton')[0], { target: { value: '75' } })
+    const confirm = screen.getAllByRole('button', { name: 'ISSUE GIFT CARD' })
+    fireEvent.click(confirm[confirm.length - 1])
+
+    await waitFor(() => {
+      expect(issue).toHaveBeenCalledTimes(1)
+      const body = JSON.parse((issue.mock.calls[0][0].body as string) ?? '{}')
+      expect(body.templateId).toBeNull()
+    })
+  })
+
+  it('SYNC WOOCOMMERCE pulls orders only (gift cards arrive, nothing else touched)', async () => {    const post = vi.fn()
     vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('/api/admin/sync/pull-orders') && (init?.method ?? 'GET') === 'POST') {

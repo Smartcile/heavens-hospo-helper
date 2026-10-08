@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
       customerEmail: body.customerEmail ?? null,
       message: body.message ?? null,
       isInternal: !!body.isInternal,
+      templateId: body.templateId ?? null,
     })
     await logGiftCardEvent(card.id, 'ISSUED', `AMOUNT $${amount.toFixed(2)} — PDF GENERATED`)
     return NextResponse.json(card, { status: 201 })

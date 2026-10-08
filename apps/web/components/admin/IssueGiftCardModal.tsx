@@ -5,20 +5,33 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 
 // Issue popup: pick the details for the next blank card (mirrors the card
-// edit popup layout), see the active template's design as a preview, then
-// confirm. Issuing generates the PDF and marks the card ISSUED. When no draft
-// is passed (`cardId` null) the server premakes the next card automatically —
-// numbers only ever come from the premade series, never invented at issue time.
+// edit popup layout), choose WHICH template the card prints on, see it as a
+// preview, then confirm. Issuing generates the PDF and marks the card ISSUED.
+// When no draft is passed (`cardId` null) the server premakes the next card
+// automatically — numbers only ever come from the premade series, never
+// invented at issue time.
+
+interface TemplateOption {
+  id: string
+  name: string
+  filePath: string | null
+  isActive: boolean
+}
 
 interface IssueGiftCardModalProps {
   cardId: string | null
   cardNumber: string
-  templatePreviewUrl: string | null
+  templates: TemplateOption[]
+  activeTemplateId: string | null
   onClose: () => void
   onIssued: () => void
 }
 
-export function IssueGiftCardModal({ cardId, cardNumber, templatePreviewUrl, onClose, onIssued }: IssueGiftCardModalProps) {
+export function IssueGiftCardModal({ cardId, cardNumber, templates, activeTemplateId, onClose, onIssued }: IssueGiftCardModalProps) {
+  const usable = templates.filter((t) => t.filePath)
+  const [templateId, setTemplateId] = useState(
+    () => (activeTemplateId && usable.some((t) => t.id === activeTemplateId) ? activeTemplateId : usable[0]?.id ?? ''),
+  )
   const [customerName, setCustomerName] = useState('')
   const [customerEmail, setCustomerEmail] = useState('')
   const [amount, setAmount] = useState('')
@@ -41,6 +54,7 @@ export function IssueGiftCardModal({ cardId, cardNumber, templatePreviewUrl, onC
         amount: value,
         message: message || null,
         isInternal,
+        templateId: templateId || null,
       }),
     })
     if (r.ok) {
@@ -51,6 +65,8 @@ export function IssueGiftCardModal({ cardId, cardNumber, templatePreviewUrl, onC
       setSaving(false)
     }
   }
+
+  const previewUrl = templateId ? `/api/admin/gift-card-templates/${templateId}/preview` : null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
@@ -68,7 +84,7 @@ export function IssueGiftCardModal({ cardId, cardNumber, templatePreviewUrl, onC
           <div className="space-y-3 overflow-y-auto pr-1">
             <div className="border border-grey-mid p-3 space-y-3">
               <p className="font-mono text-xs uppercase text-grey-light tracking-wider">DETAILS</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="font-mono text-xs uppercase text-grey-light block mb-1">CUSTOMER NAME</label>
                   <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="CUSTOMER NAME" />
@@ -109,12 +125,26 @@ export function IssueGiftCardModal({ cardId, cardNumber, templatePreviewUrl, onC
 
           {/* Preview */}
           <div className="border border-grey-mid flex flex-col min-h-[360px] min-w-0">
-            <div className="px-3 py-2 border-b border-grey-mid flex items-center justify-between gap-2">
-              <span className="font-mono text-xs uppercase tracking-widest text-white">PREVIEW</span>
-              <span className="font-mono text-xs uppercase text-grey-light">SAMPLE — WHAT THE CARD LOOKS LIKE</span>
+            <div className="px-3 py-2 border-b border-grey-mid flex items-center gap-2">
+              <span className="font-mono text-xs uppercase tracking-widest text-white shrink-0">PREVIEW</span>
+              {usable.length > 0 ? (
+                <select
+                  value={templateId}
+                  onChange={(e) => setTemplateId(e.target.value)}
+                  className="field ml-auto min-w-0 max-w-[70%]"
+                  aria-label="CARD TEMPLATE"
+                >
+                  <option value="">BUILT-IN DESIGN</option>
+                  {usable.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}{t.isActive ? ' (ACTIVE)' : ''}</option>
+                  ))}
+                </select>
+              ) : (
+                <span className="font-mono text-xs uppercase text-grey-light ml-auto">SAMPLE — WHAT THE CARD LOOKS LIKE</span>
+              )}
             </div>
-            {templatePreviewUrl ? (
-              <iframe src={templatePreviewUrl} title="GIFT CARD TEMPLATE PREVIEW" className="w-full flex-1 bg-white min-h-0" />
+            {previewUrl ? (
+              <iframe src={previewUrl} title="GIFT CARD TEMPLATE PREVIEW" className="w-full flex-1 bg-white min-h-0" />
             ) : (
               <div className="flex-1 flex items-center justify-center p-4">
                 <p className="font-mono text-xs uppercase text-grey-light">

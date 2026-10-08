@@ -73,13 +73,20 @@ export async function POST(req: NextRequest) {
   await mkdir(TEMPLATE_DIR, { recursive: true })
   await writeFile(path.join(TEMPLATE_DIR, filename), buffer)
 
+  // The FIRST template a venue uploads becomes active automatically —
+  // otherwise issuing silently falls back to the built-in design until
+  // someone presses SET ACTIVE.
+  const activeCount = await prisma.giftCardTemplate.count({
+    where: { venueId: session.user.venueId, isActive: true, deletedAt: null },
+  })
+
   const template = await prisma.giftCardTemplate.create({
     data: {
       venueId: session.user.venueId,
       name: name || file.name,
       filePath: path.join(TEMPLATE_DIR, filename),
       fieldMapping: JSON.parse(JSON.stringify(proposeFieldMapping(fields))),
-      isActive: false,
+      isActive: activeCount === 0,
     },
   })
 

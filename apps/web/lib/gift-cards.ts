@@ -101,6 +101,8 @@ export interface IssueDetails {
   wooOrderId?: string | null
   replacesId?: string | null
   notes?: string | null
+  /** The template chosen in the issue popup — falls back to the active one. */
+  templateId?: string | null
 }
 
 export interface IssuedCard {
@@ -134,6 +136,7 @@ export async function issuePremade(venueId: string, details: IssueDetails): Prom
       amount: details.amount,
       customerName: details.customerName ?? null,
       message: details.message ?? null,
+      templateId: details.templateId ?? null,
     })
 
     const claimed = await prisma.giftCard.updateMany({

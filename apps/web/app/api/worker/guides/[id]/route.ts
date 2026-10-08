@@ -62,6 +62,21 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.isOnboarding !== undefined) updates.isOnboarding = !!body.isOnboarding
   if (body.requiresSignOff !== undefined) updates.requiresSignOff = !!body.requiresSignOff
 
+  // Filing a guide into a folder (the worker folder drag-and-drop) — the
+  // target must be one of THIS venue's live folders.
+  if (body.folderId !== undefined) {
+    if (body.folderId) {
+      const folder = await prisma.guideFolder.findFirst({
+        where: { id: String(body.folderId), venueId: session.venueId, deletedAt: null },
+        select: { id: true },
+      })
+      if (!folder) return NextResponse.json({ error: 'Folder not found' }, { status: 400 })
+      updates.folderId = folder.id
+    } else {
+      updates.folderId = null
+    }
+  }
+
   // Steps are diffed by id so ids (and any admin-authored step links) survive.
   let cleanSteps: GuideStepInput[] | null = null
   if (body.steps !== undefined) {
