@@ -66,6 +66,19 @@ describe('ImageAnnotator', () => {
     expect(data.texts[0]).toMatchObject({ text: 'CHECK THE SEAL', x: 0.25, y: 0.4 })
   })
 
+  it('draws the committed text as an on-screen SVG label', () => {
+    const { surface, container } = mount()
+    fireEvent.click(screen.getByText('TEXT'))
+    fireEvent(surface, pointerEvent('pointerdown', { pointerType: 'mouse', button: 0, clientX: 25, clientY: 40 }))
+    const input = screen.getByPlaceholderText('TYPE...')
+    fireEvent.change(input, { target: { value: 'CHECK THE SEAL' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    const label = container.querySelector('svg text')
+    expect(label).not.toBeNull()
+    expect(label!.textContent).toBe('CHECK THE SEAL')
+  })
+
   it('draws an arrow as a two-point shape', () => {
     const { surface, onSave } = mount()
     fireEvent.click(screen.getByText('ARROW'))
@@ -76,5 +89,38 @@ describe('ImageAnnotator', () => {
     const data = onSave.mock.calls[0][0]
     expect(data.shapes[0].tool).toBe('arrow')
     expect(data.shapes[0].points).toHaveLength(2)
+  })
+
+  it('selects a stroke and drags it to a new position', () => {
+    const { surface, onSave } = mount()
+    fireEvent(surface, pointerEvent('pointerdown', { pointerType: 'mouse', button: 0, clientX: 10, clientY: 10 }))
+    fireEvent(surface, pointerEvent('pointermove', { clientX: 60, clientY: 60 }))
+    fireEvent(surface, pointerEvent('pointerup', { clientX: 60, clientY: 60 }))
+
+    fireEvent.click(screen.getByText('SELECT'))
+    fireEvent(surface, pointerEvent('pointerdown', { pointerType: 'mouse', button: 0, clientX: 35, clientY: 35 }))
+    fireEvent(surface, pointerEvent('pointermove', { clientX: 45, clientY: 45 }))
+    fireEvent(surface, pointerEvent('pointerup', { clientX: 45, clientY: 45 }))
+
+    fireEvent.click(screen.getByText('SAVE LAYER'))
+    const data = onSave.mock.calls[0][0]
+    expect(data.shapes[0].points[0].x).toBeCloseTo(0.2, 5)
+    expect(data.shapes[0].points[0].y).toBeCloseTo(0.2, 5)
+  })
+
+  it('deletes the selected annotation with the Delete key', () => {
+    const { surface, onSave } = mount()
+    fireEvent(surface, pointerEvent('pointerdown', { pointerType: 'mouse', button: 0, clientX: 10, clientY: 10 }))
+    fireEvent(surface, pointerEvent('pointermove', { clientX: 60, clientY: 60 }))
+    fireEvent(surface, pointerEvent('pointerup', { clientX: 60, clientY: 60 }))
+
+    fireEvent.click(screen.getByText('SELECT'))
+    fireEvent(surface, pointerEvent('pointerdown', { pointerType: 'mouse', button: 0, clientX: 35, clientY: 35 }))
+    fireEvent(surface, pointerEvent('pointerup', { clientX: 35, clientY: 35 }))
+    expect(screen.getByText('DELETE')).toBeDefined()
+
+    fireEvent.keyDown(window, { key: 'Delete' })
+    fireEvent.click(screen.getByText('SAVE LAYER'))
+    expect(onSave.mock.calls[0][0].shapes).toHaveLength(0)
   })
 })

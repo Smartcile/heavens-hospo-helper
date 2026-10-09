@@ -1,11 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Panel } from '@/components/ui/Panel'
 import { getActiveVenueId } from '@/lib/active-venue'
+import { moveItem } from '@/lib/array'
+import { nearestIndex, type Rect } from '@/lib/reorder'
+import { collectPositions, groupByPosition as groupItemsByPosition, insertSubset } from '@/lib/staff-groups'
 
 interface Period {  id: string
   startDate: string
@@ -44,6 +47,7 @@ interface Entry {
     kiwiSaverRate: number | null
     studentLoan: boolean
     hourlyRate: number | null
+    positions?: { position: { id: string; name: string; colour: string | null } }[]
   }
 }
 
@@ -80,9 +84,16 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
   const [settings, setSettings] = useState<PayrollSettings | null>(null)
   const [holidays, setHolidays] = useState<Holiday[]>([])
   const [altDays, setAltDays] = useState<AltDay[]>([])
+  const [positions, setPositions] = useState<{ id: string; name: string; colour: string | null }[]>([])
   const [altFilter, setAltFilter] = useState<'0' | '1'>('0')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [groupByPosition, setGroupByPosition] = useState(true)
+  const [draggingGroup, setDraggingGroup] = useState<string | null>(null)
+  const [overGroup, setOverGroup] = useState<string | null>(null)
+  const groupHeaderRefs = useRef<Map<string, HTMLElement>>(new Map())
+  const groupDragRef = useRef<{ key: string; x: number; y: number; moved: boolean } | null>(null)
+  const overGroupRef = useRef<string | null>(null)
 
   // Create period
   const [showCreate, setShowCreate] = useState(false)
@@ -128,14 +139,114 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
     if (r.ok) setAltDays(d)
   }, [venueId, altFilter])
 
+  const loadPositions = useCallback(async () => {
+    if (!venueId) return
+    const r = await fetch(`/api/admin/positions?venueId=${venueId}`)
+    const d = await r.json().catch(() => null)
+    setPositions(Array.isArray(d) ? d : [])
+  }, [venueId])
+
   const loadAll = useCallback(async () => {
     setLoading(true); setError('')
-    await Promise.all([loadPeriods(), loadSettings(), loadHolidays(), loadAltDays()])
+    await Promise.all([loadPeriods(), loadSettings(), loadHolidays(), loadAltDays(), loadPositions()])
     setLoading(false)
-  }, [loadPeriods, loadSettings, loadHolidays, loadAltDays])
+  }, [loadPeriods, loadSettings, loadHolidays, loadAltDays, loadPositions])
 
   useEffect(() => { if (venueId) loadAll() }, [venueId, loadAll])
   useEffect(() => { if (venueId && tab === 'altdays') loadAltDays() }, [venueId, tab, loadAltDays])
+
+  // Position-grouped payroll entries (drag the headers to re-rank the roles;
+  // persisted on Position.sortOrder). Falls back to the positions on the rows
+  // when the positions endpoint isn't grantable for this manager.
+  const groupPositions = useMemo(
+    () => (positions.length > 0
+      ? positions
+      : collectPositions(entries, (e) => e.staff.positions?.map((p) => p.position))),
+    [positions, entries],
+  )
+
+  const entryGroups = useMemo(
+    () => groupItemsByPosition(entries, groupPositions, (e) => e.staff.positions?.map((p) => p.position.id)),
+    [entries, groupPositions],
+  )
+
+  const visibleGroupKeys = useMemo(
+    () => entryGroups.filter((g) => g.positionId).map((g) => g.key),
+    [entryGroups],
+  )
+
+  function collectGroupRects(): Rect[] {
+    return visibleGroupKeys
+      .map((k) => groupHeaderRefs.current.get(k))
+      .filter((el): el is HTMLElement => !!el)
+      .map((el) => {
+        const r = el.getBoundingClientRect()
+        return { left: r.left, top: r.top, width: r.width, height: r.height }
+      })
+  }
+
+  function onGroupPointerDown(e: React.PointerEvent, key: string) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    groupDragRef.current = { key, x: e.clientX, y: e.clientY, moved: false }
+    setDraggingGroup(key)
+    setError('')
+  }
+
+  function onGroupPointerMove(e: React.PointerEvent) {
+    const drag = groupDragRef.current
+    if (!drag) return
+    if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) drag.moved = true
+    if (!drag.moved) return
+    const idx = nearestIndex(collectGroupRects(), e.clientX, e.clientY)
+    const key = idx == null ? null : visibleGroupKeys[idx] ?? null
+    overGroupRef.current = key
+    setOverGroup(key)
+  }
+
+  function onGroupPointerUp() {
+    const drag = groupDragRef.current
+    groupDragRef.current = null
+    setDraggingGroup(null)
+    const target = overGroupRef.current
+    overGroupRef.current = null
+    setOverGroup(null)
+    if (!drag || !drag.moved || !target || target === drag.key) return
+    applyGroupOrder(drag.key, target)
+  }
+
+  function onGroupPointerCancel() {
+    groupDragRef.current = null
+    overGroupRef.current = null
+    setDraggingGroup(null)
+    setOverGroup(null)
+  }
+
+  // Move one visible group over another and persist the full position order
+  // (hidden positions keep their slots — `insertSubset`).
+  function applyGroupOrder(fromKey: string, toKey: string) {
+    const visibleBefore = groupPositions.filter((p) => visibleGroupKeys.includes(p.id)).map((p) => p.id)
+    const fi = visibleBefore.indexOf(fromKey)
+    const ti = visibleBefore.indexOf(toKey)
+    if (fi < 0 || ti < 0 || fi === ti) return
+    const visibleAfter = moveItem(visibleBefore, fi, ti)
+    const fullOrder = insertSubset(groupPositions.map((p) => p.id), visibleBefore, visibleAfter)
+    const byId = new Map(groupPositions.map((p) => [p.id, p]))
+    const next = fullOrder.map((id) => byId.get(id)).filter((p): p is { id: string; name: string; colour: string | null } => !!p)
+    const prev = positions
+    setPositions(next)
+    void fetch('/api/admin/positions/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ venueId, order: fullOrder }),
+    }).then(async (r) => {
+      if (r.ok) return
+      setPositions(prev)
+      const d = await r.json().catch(() => ({}))
+      setError((d.error ?? 'COULD NOT REORDER THE GROUPS').toUpperCase())
+    })
+  }
 
   async function createPeriod() {
     if (!newPeriod.startDate || !newPeriod.endDate) { setError('START AND END DATES ARE REQUIRED'); return }
@@ -233,6 +344,31 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
     { gross: 0, paye: 0, kiwi: 0, net: 0, cost: 0, hours: 0 }
   )
 
+  function renderEntryRow(e: Entry) {
+    return (
+      <tr key={e.id} className="hover:bg-black/20">
+        <td className="px-3 py-2">
+          <div className="font-mono text-xs text-white">{e.staff.firstName} {e.staff.lastName}</div>
+          <div className="font-mono text-xs text-grey-light">{e.staff.employmentType ?? '—'}{e.staff.taxCode ? ` · ${e.staff.taxCode}` : ''}</div>
+        </td>
+        <td className="px-3 py-2 font-mono text-xs text-grey-light">
+          {(e.ordinaryHours ?? 0).toFixed(2)} / {(e.overtimeHours ?? 0).toFixed(2)} / {(e.publicHolidayHours ?? 0).toFixed(2)}
+        </td>
+        <td className="px-3 py-2 font-mono text-xs text-white">{money(e.grossPay ?? e.totalPay)}</td>
+        <td className="px-3 py-2 font-mono text-xs text-grey-light">{money(e.holidayPay)}</td>
+        <td className="px-3 py-2 font-mono text-xs text-grey-light">{money(e.paye)}</td>
+        <td className="px-3 py-2 font-mono text-xs text-grey-light">{money(e.accLevy)}</td>
+        <td className="px-3 py-2 font-mono text-xs text-grey-light">{money(e.kiwiSaverEmployee)}</td>
+        <td className="px-3 py-2 font-mono text-xs text-grey-light">{money(e.studentLoan)}</td>
+        <td className="px-3 py-2 font-mono text-xs text-white">{money(e.netPay)}</td>
+        <td className="px-3 py-2 font-mono text-xs text-grey-light">{e.alternativeDaysOwed ?? 0}</td>
+        <td className="px-3 py-2">
+          <button onClick={() => setPayslip(e)} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-2 py-1 hover:text-white hover:border-white">PAYSLIP</button>
+        </td>
+      </tr>
+    )
+  }
+
   return (
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -286,7 +422,14 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
               </div>
 
               {openPeriod?.id === p.id && (
-                <div className="border-t border-grey-mid overflow-x-auto">
+                <div className="border-t border-grey-mid">
+                  <div className="px-3 py-2 border-b border-grey-mid">
+                    <button onClick={() => setGroupByPosition(!groupByPosition)} title="GROUP BY POSITION"
+                      className={`font-mono text-xs uppercase px-3 py-1.5 border transition-colors ${groupByPosition ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>
+                      GROUP
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto">
                   <table className="w-full text-left">
                     <thead>
                       <tr className="border-b border-grey-mid">
@@ -307,28 +450,36 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
                       {entries.length === 0 && (
                         <tr><td colSpan={11} className="px-3 py-3 font-mono text-xs text-grey-light">NO ENTRIES — CLOSE THE PERIOD TO CALCULATE.</td></tr>
                       )}
-                      {entries.map((e) => (
-                        <tr key={e.id} className="hover:bg-black/20">
-                          <td className="px-3 py-2">
-                            <div className="font-mono text-xs text-white">{e.staff.firstName} {e.staff.lastName}</div>
-                            <div className="font-mono text-xs text-grey-light">{e.staff.employmentType ?? '—'}{e.staff.taxCode ? ` · ${e.staff.taxCode}` : ''}</div>
-                          </td>
-                          <td className="px-3 py-2 font-mono text-xs text-grey-light">
-                            {(e.ordinaryHours ?? 0).toFixed(2)} / {(e.overtimeHours ?? 0).toFixed(2)} / {(e.publicHolidayHours ?? 0).toFixed(2)}
-                          </td>
-                          <td className="px-3 py-2 font-mono text-xs text-white">{money(e.grossPay ?? e.totalPay)}</td>
-                          <td className="px-3 py-2 font-mono text-xs text-grey-light">{money(e.holidayPay)}</td>
-                          <td className="px-3 py-2 font-mono text-xs text-grey-light">{money(e.paye)}</td>
-                          <td className="px-3 py-2 font-mono text-xs text-grey-light">{money(e.accLevy)}</td>
-                          <td className="px-3 py-2 font-mono text-xs text-grey-light">{money(e.kiwiSaverEmployee)}</td>
-                          <td className="px-3 py-2 font-mono text-xs text-grey-light">{money(e.studentLoan)}</td>
-                          <td className="px-3 py-2 font-mono text-xs text-white">{money(e.netPay)}</td>
-                          <td className="px-3 py-2 font-mono text-xs text-grey-light">{e.alternativeDaysOwed ?? 0}</td>
-                          <td className="px-3 py-2">
-                            <button onClick={() => setPayslip(e)} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-2 py-1 hover:text-white hover:border-white">PAYSLIP</button>
-                          </td>
-                        </tr>
-                      ))}
+                      {groupByPosition
+                        ? entryGroups.map((g) => (
+                            <Fragment key={g.key}>
+                              <tr
+                                ref={(el) => {
+                                  if (el) groupHeaderRefs.current.set(g.key, el)
+                                  else groupHeaderRefs.current.delete(g.key)
+                                }}
+                                className={`bg-black/30 ${draggingGroup === g.key ? 'opacity-40' : ''} ${overGroup === g.key && draggingGroup && draggingGroup !== g.key ? 'ring-1 ring-inset ring-white' : ''}`}
+                              >
+                                <td colSpan={11} className="px-3 py-1.5">
+                                  <div
+                                    className={`inline-flex items-center gap-2 ${g.positionId ? 'cursor-grab select-none' : ''}`}
+                                    onPointerDown={(e) => { if (g.positionId) onGroupPointerDown(e, g.key) }}
+                                    onPointerMove={g.positionId ? onGroupPointerMove : undefined}
+                                    onPointerUp={g.positionId ? onGroupPointerUp : undefined}
+                                    onPointerCancel={g.positionId ? onGroupPointerCancel : undefined}
+                                    style={g.positionId ? { touchAction: 'none' } : undefined}
+                                  >
+                                    {g.positionId && <span className="font-mono text-xs text-grey-light">⠿</span>}
+                                    {g.colour && <span className="w-2 h-2 shrink-0" style={{ backgroundColor: g.colour }} />}
+                                    <span className="font-mono text-2xs uppercase tracking-wider text-white">{g.label}</span>
+                                    <span className="font-mono text-2xs uppercase text-grey-light">{g.items.length}</span>
+                                  </div>
+                                </td>
+                              </tr>
+                              {g.items.map(renderEntryRow)}
+                            </Fragment>
+                          ))
+                        : entries.map(renderEntryRow)}
                       {entries.length > 0 && (
                         <tr className="border-t-2 border-grey-mid">
                           <td className="px-3 py-2 font-mono text-xs uppercase text-grey-light">TOTALS</td>
@@ -346,6 +497,7 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
                       )}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               )}
             </Panel>

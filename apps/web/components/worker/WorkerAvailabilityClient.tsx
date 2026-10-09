@@ -312,6 +312,7 @@ export function WorkerAvailabilityClient() {
                     type={entry.type}
                     labelled
                     showType
+                    series={entry.seriesId ? { endDate: entry.seriesEndDate } : null}
                   />
                 )}
                 <div className="font-mono text-2xs text-grey-light uppercase">

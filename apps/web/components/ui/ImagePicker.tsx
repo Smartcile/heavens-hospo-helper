@@ -6,6 +6,7 @@ import { useIsAdmin } from '@/lib/use-is-admin'
 import { ImagePreviewModal } from '@/components/ui/ImagePreviewModal'
 import { MediaLibraryModal } from '@/components/ui/MediaLibraryModal'
 import { annotationIsEmpty, type AnnotationData } from '@/lib/image-annotations'
+import { thumbUrl } from '@/lib/image-thumb'
 
 // Image upload with CHOOSE + PASTE (CTRL+V) and a media library. Clicking the
 // thumbnail opens a popup: view large, annotate (ADMIN — a removable drawing /
@@ -97,8 +98,10 @@ export function ImagePicker({ value, onChange, label, className, disabled, endpo
         <button type="button" onClick={() => setPreviewOpen(true)} title="OPEN" className="relative shrink-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={value}
+            src={thumbUrl(value, 160) ?? value}
             alt="uploaded preview"
+            loading="lazy"
+            decoding="async"
             className="block h-10 w-10 border border-grey-mid object-cover transition-colors hover:border-white"
           />
           {hasLayer && (

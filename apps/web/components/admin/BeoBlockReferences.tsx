@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { blockDef, type BlockLibrary } from '@/lib/beo-blocks'
 import { linkIdsFor } from '@/lib/beo-links'
+import { thumbUrl } from '@/lib/image-thumb'
 
 interface GuideRef {
   id: string
@@ -91,7 +92,7 @@ export function BeoBlockReferences({
                         <p className="font-mono text-xs text-grey-light whitespace-pre-wrap">{s.content}</p>
                         {s.imageUrl && (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={s.imageUrl} alt="" className="max-h-40 border border-grey-mid" />
+                          <img src={thumbUrl(s.imageUrl, 640) ?? s.imageUrl} alt="" loading="lazy" decoding="async" className="max-h-40 border border-grey-mid" />
                         )}
                         {s.videoUrl && (
                           <a href={s.videoUrl} target="_blank" rel="noreferrer" className="block font-mono text-xs uppercase text-accent underline">

@@ -4,8 +4,11 @@
 // top of an image. The strokes are stored as pure data (fractions of the image
 // box), NOT baked into the picture — the layer can be re-edited or removed and
 // the image underneath is never touched.
+//
+// SELECT lets you click an annotation, drag it around (clamped to the image)
+// and delete it — the move is one undo step.
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { AnnotationShapes } from '@/components/ui/AnnotatedImage'
@@ -13,19 +16,25 @@ import {
   annotationIsEmpty,
   clamp01Value,
   emptyAnnotation,
+  hitTestAnnotation,
   normaliseAnnotation,
+  removeAnnotation,
+  translateAnnotation,
   ANNOTATION_COLOURS,
   ANNOTATION_WIDTHS,
+  DEFAULT_ANNOTATION_SIZE,
   DEFAULT_ANNOTATION_WIDTH,
   type AnnotationData,
   type AnnotationPoint,
+  type AnnotationSelection,
   type AnnotationShape,
   type AnnotationTool,
 } from '@/lib/image-annotations'
 
-type Tool = AnnotationTool | 'text'
+type Tool = AnnotationTool | 'text' | 'select'
 
 const TOOLS: { id: Tool; label: string }[] = [
+  { id: 'select', label: 'SELECT' },
   { id: 'pen', label: 'PEN' },
   { id: 'line', label: 'LINE' },
   { id: 'arrow', label: 'ARROW' },
@@ -55,12 +64,16 @@ export function ImageAnnotator({
   const [textAt, setTextAt] = useState<AnnotationPoint | null>(null)
   const [textValue, setTextValue] = useState('')
   const [dims, setDims] = useState<{ w: number; h: number }>({ w: 1000, h: 1000 })
+  const [selected, setSelected] = useState<AnnotationSelection | null>(null)
+  const [dragging, setDragging] = useState(false)
   const surfaceRef = useRef<HTMLDivElement>(null)
   const drawingRef = useRef(false)
+  const moveRef = useRef<{ sel: AnnotationSelection; start: AnnotationPoint; origin: AnnotationData; moved: boolean } | null>(null)
 
   function commit(next: AnnotationData) {
     setHistory((h) => [...h.slice(-49), data])
     setData(next)
+    setSelected(null)
   }
 
   function undo() {
@@ -68,7 +81,23 @@ export function ImageAnnotator({
     if (!prev) return
     setHistory(history.slice(0, -1))
     setData(prev)
+    setSelected(null)
   }
+
+  // Delete the selected annotation (Delete / Backspace). Ignored while typing.
+  useEffect(() => {
+    if (!selected) return
+    const sel = selected
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+      e.preventDefault()
+      commit(removeAnnotation(data, sel))
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected, data]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function pointFrom(e: { clientX: number; clientY: number }): AnnotationPoint | null {
     const rect = surfaceRef.current?.getBoundingClientRect()
@@ -81,13 +110,31 @@ export function ImageAnnotator({
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (e.pointerType === 'mouse' && e.button !== 0) return
+    // Clicking into the text input must not reset it — the input lives on the
+    // surface, so its pointer events bubble here.
+    if ((e.target as HTMLElement).closest?.('input, textarea')) return
     const p = pointFrom(e)
     if (!p) return
+
+    if (tool === 'select') {
+      const hit = hitTestAnnotation(data, p, dims.w, dims.h)
+      setSelected(hit)
+      if (hit) {
+        moveRef.current = { sel: hit, start: p, origin: data, moved: false }
+        setDragging(true)
+        e.currentTarget.setPointerCapture?.(e.pointerId)
+      }
+      return
+    }
+
     if (tool === 'text') {
+      setSelected(null)
       setTextAt(p)
       setTextValue('')
       return
     }
+
+    setSelected(null)
     drawingRef.current = true
     e.currentTarget.setPointerCapture?.(e.pointerId)
     setDraft(
@@ -98,6 +145,17 @@ export function ImageAnnotator({
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const move = moveRef.current
+    if (move) {
+      const p = pointFrom(e)
+      if (!p) return
+      const dx = (p.x - move.start.x) * dims.w
+      const dy = (p.y - move.start.y) * dims.h
+      if (!move.moved && Math.hypot(dx, dy) > 2) move.moved = true
+      if (move.moved) setData(translateAnnotation(move.origin, move.sel, dx, dy, dims.w, dims.h))
+      return
+    }
+
     if (!drawingRef.current || !draft) return
     const p = pointFrom(e)
     if (!p) return
@@ -111,6 +169,14 @@ export function ImageAnnotator({
   }
 
   function onPointerUp() {
+    const move = moveRef.current
+    if (move) {
+      moveRef.current = null
+      setDragging(false)
+      if (move.moved) setHistory((h) => [...h.slice(-49), move.origin])
+      return
+    }
+
     if (!drawingRef.current || !draft) return
     drawingRef.current = false
     const valid =
@@ -126,7 +192,7 @@ export function ImageAnnotator({
     if (textAt && text) {
       commit({
         ...data,
-        texts: [...data.texts, { x: textAt.x, y: textAt.y, text, color: colour, size: Math.max(0.025, width * 5) }],
+        texts: [...data.texts, { x: textAt.x, y: textAt.y, text, color: colour, size: Math.max(DEFAULT_ANNOTATION_SIZE, width * 5) }],
       })
     }
     setTextAt(null)
@@ -144,7 +210,7 @@ export function ImageAnnotator({
             <button
               key={t.id}
               type="button"
-              onClick={() => { setTool(t.id); setTextAt(null) }}
+              onClick={() => { setTool(t.id); setTextAt(null); setSelected(null) }}
               className={cn(
                 'font-mono text-xs uppercase px-2 py-1.5 border border-grey-mid -ml-px first:ml-0 transition-colors',
                 tool === t.id ? 'bg-white text-black border-white' : 'text-grey-light hover:text-white',
@@ -188,6 +254,15 @@ export function ImageAnnotator({
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          {selected && (
+            <button
+              type="button"
+              onClick={() => commit(removeAnnotation(data, selected))}
+              className="font-mono text-xs uppercase border border-danger/60 px-2 py-1.5 text-danger hover:bg-danger hover:text-black transition-colors"
+            >
+              DELETE
+            </button>
+          )}
           <button
             type="button"
             onClick={undo}
@@ -216,7 +291,7 @@ export function ImageAnnotator({
         onPointerCancel={onPointerUp}
         className={cn(
           'relative select-none touch-none border border-grey-mid bg-black/40',
-          tool === 'text' ? 'cursor-text' : 'cursor-crosshair',
+          tool === 'text' ? 'cursor-text' : tool === 'select' ? (dragging ? 'cursor-grabbing' : 'cursor-default') : 'cursor-crosshair',
         )}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -230,7 +305,7 @@ export function ImageAnnotator({
           }}
           className="pointer-events-none block h-auto w-full"
         />
-        <AnnotationShapes data={data} draft={draft} width={dims.w} height={dims.h} />
+        <AnnotationShapes data={data} draft={draft} selection={selected} width={dims.w} height={dims.h} />
         {textAt && (
           <div className="absolute" style={{ left: `${textAt.x * 100}%`, top: `${textAt.y * 100}%` }}>
             <input
@@ -255,7 +330,7 @@ export function ImageAnnotator({
       {/* Actions */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-mono text-xs text-grey-light flex-1 min-w-[14rem]">
-          THE LAYER SAVES SEPARATELY — THE PHOTO IS NEVER CHANGED. CLEAR + SAVE REMOVES THE LAYER.
+          SELECT TAP → DRAG TO MOVE · DELETE KEY REMOVES. THE LAYER SAVES SEPARATELY — CLEAR + SAVE REMOVES THE LAYER.
         </p>
         <div className="flex items-center gap-2">
           <Button variant="ghost" onClick={onCancel}>CANCEL</Button>

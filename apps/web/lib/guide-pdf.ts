@@ -7,7 +7,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { guideTypeLabel } from '@/lib/guide-types'
 import { STEP_LINK_LABEL, type StepLinkKind } from '@/lib/guide-links'
-import { arrowHead, type AnnotationData } from '@/lib/image-annotations'
+import { isLightColour, plotArrow, type AnnotationData } from '@/lib/image-annotations'
 import { pdfSafe } from '@/lib/pdf-safe'
 import { storageRoot } from '@/lib/storage'
 
@@ -114,13 +114,14 @@ function drawPdfAnnotation(doc: jsPDF, data: AnnotationData, x: number, y: numbe
         )
       }
     } else if (s.tool === 'arrow') {
-      const [from, to] = s.points
-      const head = arrowHead(from, to, s.width * 4)
-      doc.line(x + from.x * w, y + from.y * h, x + to.x * w, y + to.y * h)
+      // Pixel-space geometry: shaft + head computed in the printed rect's units,
+      // so the head is not distorted by a non-square photo.
+      const { shaft, head } = plotArrow(s.points[0], s.points[1], w, h, s.width)
+      doc.line(x + shaft[0].x, y + shaft[0].y, x + shaft[1].x, y + shaft[1].y)
       doc.triangle(
-        x + head[0].x * w, y + head[0].y * h,
-        x + head[1].x * w, y + head[1].y * h,
-        x + head[2].x * w, y + head[2].y * h,
+        x + head[0].x, y + head[0].y,
+        x + head[1].x, y + head[1].y,
+        x + head[2].x, y + head[2].y,
         'F',
       )
     } else {
@@ -145,8 +146,10 @@ function drawPdfAnnotation(doc: jsPDF, data: AnnotationData, x: number, y: numbe
     const baseline = y + t.y * h
     const tw = doc.getTextWidth(text)
     const th = t.size * h
-    // A small white plate keeps the label readable on any photo.
-    doc.setFillColor(255, 255, 255)
+    // A readable plate behind the label — dark under light text (a white
+    // plate would swallow white labels), light under everything else.
+    if (isLightColour(t.color)) doc.setFillColor(10, 10, 10)
+    else doc.setFillColor(255, 255, 255)
     doc.rect(tx - 0.6, baseline - th, tw + 1.2, th + 1, 'F')
     doc.setTextColor(r, g, b)
     doc.text(text, tx, baseline)

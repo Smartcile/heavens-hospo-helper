@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { Modal } from '@/components/ui/Modal'
 import { TaskEditModal } from '@/components/admin/TaskEditModal'
 import { StaffEditModal } from '@/components/admin/StaffEditModal'
+import { thumbUrl } from '@/lib/image-thumb'
 
 const StructureGraph = dynamic(
   () => import('@/components/admin/StructureGraph').then((m) => m.StructureGraph),
@@ -307,7 +308,7 @@ export function StructureClient({ role }: { role: string }) {
                                                   <div key={inv.id} className="flex items-center gap-2 py-1 font-mono text-xs text-white">
                                                     {inv.imageUrls && Array.isArray(inv.imageUrls) && inv.imageUrls.length > 0 && (
                                                       // eslint-disable-next-line @next/next/no-img-element
-                                                      <img src={inv.imageUrls[0]} alt={inv.name} className="w-5 h-5 object-cover border border-grey-mid" />
+                                                      <img src={thumbUrl(inv.imageUrls[0], 96) ?? inv.imageUrls[0]} alt={inv.name} loading="lazy" decoding="async" className="w-5 h-5 object-cover border border-grey-mid" />
                                                     )}
                                                     <span>{inv.name}</span>
                                                     <span className="text-grey-light text-xs">{inv.unit} · QTY {inv.totalQty}</span>

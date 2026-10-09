@@ -51,8 +51,10 @@ export async function GET(req: NextRequest) {
   let entries: FileEntry[]
   try {
     const dirents = await readdir(target, { withFileTypes: true })
+    // Dot-entries are internal caches (e.g. .thumbs) — never user files.
+    const visible = dirents.filter((d) => !d.name.startsWith('.'))
     const listed = await Promise.all(
-      dirents.map(async (d) => {
+      visible.map(async (d) => {
         const full = path.join(target, d.name)
         const s = await stat(full)
         return {

@@ -6,7 +6,10 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { DateNav } from '@/components/admin/DateNav'
 import { getActiveVenueId } from '@/lib/active-venue'
+import { moveItem } from '@/lib/array'
 import { formatDateLong, keyOfDay, mondayOf, parseDay, shiftDay, weekKeys, type DateRange } from '@/lib/date-nav'
+import { nearestIndex, type Rect } from '@/lib/reorder'
+import { buildStaffGroups, insertSubset } from '@/lib/staff-groups'
 import { colourForShift, rateForShift, rosterWeekSummary, staffWeekTotals, type RosterShift, type StaffRate } from '@/lib/roster-math'
 import { generateRosterPdf } from '@/lib/roster-pdf'
 import { availabilityMeta, availabilityState, conflictsWithShift, describeWindows, isCasual } from '@/lib/availability'
@@ -75,6 +78,12 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [fullscreen, setFullscreen] = useState(false)
   const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable')
   const compact = density === 'compact'
+  const [groupByPosition, setGroupByPosition] = useState(true)
+  const [draggingGroup, setDraggingGroup] = useState<string | null>(null)
+  const [overGroup, setOverGroup] = useState<string | null>(null)
+  const groupHeaderRefs = useRef<Map<string, HTMLElement>>(new Map())
+  const groupDragRef = useRef<{ key: string; x: number; y: number; moved: boolean } | null>(null)
+  const overGroupRef = useRef<string | null>(null)
 
   // Shift modal
   const [modal, setModal] = useState<null | { shift: RosterShift | null; staffId: string; date: string }>(null)
@@ -90,10 +99,10 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const todayKey = keyOfDay(new Date())
 
   async function loadMeta() {
-    const [vR, pR] = await Promise.all([fetch('/api/admin/venues'), fetch('/api/admin/positions')])
+    const [vR, pR] = await Promise.all([fetch('/api/admin/venues'), fetch(`/api/admin/positions?venueId=${venueId}`)])
     const [vData, pData] = await Promise.all([vR.json(), pR.json()])
-    setVenues(vData)
-    setPositions(pData)
+    setVenues(Array.isArray(vData) ? vData : [])
+    setPositions(Array.isArray(pData) ? pData : [])
   }
 
   const load = useCallback(async () => {
@@ -108,7 +117,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setLoading(false)
   }, [venueId, weekStart, view])
 
-  useEffect(() => { loadMeta() }, [])
+  useEffect(() => { loadMeta() }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (venueId) load() }, [venueId, load])
 
   useEffect(() => {
@@ -125,6 +134,102 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       return true
     })
   }, [data, search, roleFilter])
+
+  // Position-grouped view (drag the headers to re-rank the roles; persisted on
+  // Position.sortOrder). `NO POSITION` keeps any unassigned staff at the bottom.
+  const staffGroups = useMemo(() => {
+    if (!data) return []
+    return buildStaffGroups(filteredStaff, positions)
+  }, [data, filteredStaff, positions])
+
+  const rowNumber = useMemo(() => {
+    const map = new Map<string, number>()
+    let n = 0
+    const all = groupByPosition ? staffGroups.flatMap((g) => g.items) : filteredStaff
+    for (const s of all) {
+      n += 1
+      map.set(s.id, n)
+    }
+    return map
+  }, [groupByPosition, staffGroups, filteredStaff])
+
+  const visibleGroupKeys = useMemo(
+    () => staffGroups.filter((g) => g.positionId).map((g) => g.key),
+    [staffGroups],
+  )
+
+  function collectGroupRects(): Rect[] {
+    return visibleGroupKeys
+      .map((k) => groupHeaderRefs.current.get(k))
+      .filter((el): el is HTMLElement => !!el)
+      .map((el) => {
+        const r = el.getBoundingClientRect()
+        return { left: r.left, top: r.top, width: r.width, height: r.height }
+      })
+  }
+
+  function onGroupPointerDown(e: React.PointerEvent, key: string) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    groupDragRef.current = { key, x: e.clientX, y: e.clientY, moved: false }
+    setDraggingGroup(key)
+    setError('')
+  }
+
+  function onGroupPointerMove(e: React.PointerEvent) {
+    const drag = groupDragRef.current
+    if (!drag) return
+    if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) drag.moved = true
+    if (!drag.moved) return
+    const idx = nearestIndex(collectGroupRects(), e.clientX, e.clientY)
+    const key = idx == null ? null : visibleGroupKeys[idx] ?? null
+    overGroupRef.current = key
+    setOverGroup(key)
+  }
+
+  function onGroupPointerUp() {
+    const drag = groupDragRef.current
+    groupDragRef.current = null
+    setDraggingGroup(null)
+    const target = overGroupRef.current
+    overGroupRef.current = null
+    setOverGroup(null)
+    if (!drag || !drag.moved || !target || target === drag.key) return
+    applyGroupOrder(drag.key, target)
+  }
+
+  function onGroupPointerCancel() {
+    groupDragRef.current = null
+    overGroupRef.current = null
+    setDraggingGroup(null)
+    setOverGroup(null)
+  }
+
+  // Move one visible group over another and persist the full position order
+  // (hidden positions keep their slots — `insertSubset`).
+  function applyGroupOrder(fromKey: string, toKey: string) {
+    const visibleBefore = positions.filter((p) => visibleGroupKeys.includes(p.id)).map((p) => p.id)
+    const fi = visibleBefore.indexOf(fromKey)
+    const ti = visibleBefore.indexOf(toKey)
+    if (fi < 0 || ti < 0 || fi === ti) return
+    const visibleAfter = moveItem(visibleBefore, fi, ti)
+    const fullOrder = insertSubset(positions.map((p) => p.id), visibleBefore, visibleAfter)
+    const byId = new Map(positions.map((p) => [p.id, p]))
+    const next = fullOrder.map((id) => byId.get(id)).filter((p): p is { id: string; name: string; colour: string | null } => !!p)
+    const prev = positions
+    setPositions(next)
+    void fetch('/api/admin/positions/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ venueId, order: fullOrder }),
+    }).then(async (r) => {
+      if (r.ok) return
+      setPositions(prev)
+      const d = await r.json().catch(() => ({}))
+      setError((d.error ?? 'COULD NOT REORDER THE GROUPS').toUpperCase())
+    })
+  }
 
   const totals = useMemo(() => {
     if (!data) return { byStaff: new Map<string, { hours: number; cost: number; shiftCount: number }>(), summary: { totalCost: 0, budgetedSales: 0, staffingRatio: 0, totalPaidHours: 0 } }
@@ -286,6 +391,77 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     })
   }, [data, weekDays])
 
+  function renderStaffRow(s: RosterStaff) {
+    const t = totals.byStaff.get(s.id)
+    const n = rowNumber.get(s.id) ?? 0
+    return (
+      <div key={s.id} className="contents">
+        {/* Staff cell — sticky left */}
+        <div className={`sticky left-0 z-10 bg-grey-dark border-b border-r ${GRID_LINE} ${compact ? 'px-2 py-1' : 'px-3 py-2'}`}>
+          <button onClick={() => openModal(s.id, weekDays[0])} className={`font-mono text-accent hover:text-white underline decoration-dotted underline-offset-2 ${compact ? 'text-2xs' : 'text-xs'}`}>
+            {n} — {s.firstName} {s.lastName}
+          </button>
+          <div className="font-mono text-2xs text-grey-light mt-0.5">
+            {t ? `${t.hours.toFixed(2)}HRS / $${t.cost.toFixed(2)}` : '0HRS / $0.00'}
+          </div>
+          {s.positions.length > 0 && (
+            <div className="font-mono text-2xs text-grey-light mt-0.5 truncate">{s.positions.map((p) => p.name).join(' · ')}</div>
+          )}
+        </div>
+        {weekDays.map((d) => {
+          const dayShifts = data!.shifts.filter((sh) => sh.staffId === s.id && sh.date === d)
+          const blocked = (data!.blockedDays[s.id] ?? []).includes(d)
+          const avail = data!.availability[s.id]?.[d]
+          const state = availabilityState(avail)
+          const meta = availabilityMeta(state, s.employmentType)
+          // FT/PT default is implied-available (no badge). A casual's
+          // UNSET only matters where they're not already rostered.
+          const showBadge = !blocked && (state !== 'DEFAULT' || (isCasual(s.employmentType) && dayShifts.length === 0))
+          return (
+            <div key={d} className={`border-b border-r ${GRID_LINE} ${compact ? 'min-h-[44px] p-0.5' : 'min-h-[72px] p-1'} relative ${blocked ? 'bg-danger/5' : meta.tint} ${blocked ? '' : 'hover:bg-black/20'}`} onClick={() => !blocked && openModal(s.id, d)}>
+              {showBadge && (
+                <div className="absolute top-0.5 right-0.5 z-0 pointer-events-none flex flex-col items-end gap-0.5">
+                  <span
+                    className={`font-mono text-2xs uppercase px-1 border ${meta.badge}`}
+                    title={avail
+                      ? `${meta.label} · ${describeWindows(avail.windows ?? [], avail.isAllDay, avail.type)}${avail.status !== 'APPROVED' ? ` · ${avail.status}` : ''}${avail.timeOff ? ' · TIME OFF' : ''}${avail.notes ? ` · ${avail.notes}` : ''}`
+                      : 'NO PREFERENCE LOGGED'}>
+                    {meta.label}
+                  </span>
+                  {avail?.status === 'PENDING' && (
+                    <span className="font-mono text-2xs uppercase px-1 border border-warning text-warning bg-black/50">PENDING</span>
+                  )}
+                  {avail?.timeOff && (
+                    <span className="font-mono text-2xs uppercase text-warning">TIME OFF</span>
+                  )}
+                </div>
+              )}
+              {blocked && (
+                <div className="absolute inset-0 flex items-center justify-center z-0 pointer-events-none">
+                  <span className="font-mono text-2xs uppercase text-danger tracking-widest bg-black/60 px-2 py-0.5">TIME OFF</span>
+                </div>
+              )}
+              <div className="space-y-1 relative z-10">
+                {dayShifts.map((sh) => (
+                  <div key={sh.id}
+                    onClick={(e) => { e.stopPropagation(); openModal(s.id, d, sh) }}
+                    className={`${compact ? 'px-1.5 py-0.5' : 'px-2 py-1'} cursor-pointer hover:opacity-80 transition-opacity`}
+                    style={{ backgroundColor: colourForShift(sh) }}>
+                    <div className="font-mono text-2xs font-bold text-white leading-tight">{sh.startTime} — {sh.endTime}</div>
+                    <div className="font-mono text-2xs text-white/90 leading-tight truncate">
+                      {sh.tag ?? sh.positionName ?? 'SHIFT'}{sh.breakMinutes ? ` · ${sh.breakMinutes}M BRK` : ''}
+                    </div>
+                    {sh.status === 'DRAFT' && <div className="font-mono text-2xs uppercase text-black/60 mt-0.5">DRAFT</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
     <div ref={rootRef} className="p-4 md:p-6 space-y-4 bg-black">
       <div className="space-y-3">
@@ -317,6 +493,10 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
               </button>
             ))}
           </div>
+          <button onClick={() => setGroupByPosition(!groupByPosition)} title="GROUP BY POSITION"
+            className={`font-mono text-xs uppercase px-3 py-1.5 border transition-colors ${groupByPosition ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>
+            GROUP
+          </button>
           <div className="w-40">
             <Select value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
@@ -360,75 +540,37 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
               </div>
             ))}
 
-            {filteredStaff.map((s, idx) => {
-              const t = totals.byStaff.get(s.id)
-              return (
-                <div key={s.id} className="contents">
-                  {/* Staff cell — sticky left */}
-                  <div className={`sticky left-0 z-10 bg-grey-dark border-b border-r ${GRID_LINE} ${compact ? 'px-2 py-1' : 'px-3 py-2'}`}>
-                    <button onClick={() => openModal(s.id, weekDays[0])} className={`font-mono text-accent hover:text-white underline decoration-dotted underline-offset-2 ${compact ? 'text-2xs' : 'text-xs'}`}>
-                      {idx + 1} — {s.firstName} {s.lastName}
-                    </button>
-                    <div className="font-mono text-2xs text-grey-light mt-0.5">
-                      {t ? `${t.hours.toFixed(2)}HRS / $${t.cost.toFixed(2)}` : '0HRS / $0.00'}
-                    </div>
-                    {s.positions.length > 0 && (
-                      <div className="font-mono text-2xs text-grey-light mt-0.5 truncate">{s.positions.map((p) => p.name).join(' · ')}</div>
-                    )}
-                  </div>
-                  {weekDays.map((d) => {
-                    const dayShifts = data.shifts.filter((sh) => sh.staffId === s.id && sh.date === d)
-                    const blocked = (data.blockedDays[s.id] ?? []).includes(d)
-                    const avail = data.availability[s.id]?.[d]
-                    const state = availabilityState(avail)
-                    const meta = availabilityMeta(state, s.employmentType)
-                    // FT/PT default is implied-available (no badge). A casual's
-                    // UNSET only matters where they're not already rostered.
-                    const showBadge = !blocked && (state !== 'DEFAULT' || (isCasual(s.employmentType) && dayShifts.length === 0))
-                    return (
-                      <div key={d} className={`border-b border-r ${GRID_LINE} ${compact ? 'min-h-[44px] p-0.5' : 'min-h-[72px] p-1'} relative ${blocked ? 'bg-danger/5' : meta.tint} ${blocked ? '' : 'hover:bg-black/20'}`} onClick={() => !blocked && openModal(s.id, d)}>
-                        {showBadge && (
-                          <div className="absolute top-0.5 right-0.5 z-0 pointer-events-none flex flex-col items-end gap-0.5">
-                            <span
-                              className={`font-mono text-2xs uppercase px-1 border ${meta.badge}`}
-                              title={avail
-                                ? `${meta.label} · ${describeWindows(avail.windows ?? [], avail.isAllDay, avail.type)}${avail.status !== 'APPROVED' ? ` · ${avail.status}` : ''}${avail.timeOff ? ' · TIME OFF' : ''}${avail.notes ? ` · ${avail.notes}` : ''}`
-                                : 'NO PREFERENCE LOGGED'}>
-                              {meta.label}
-                            </span>
-                            {avail?.status === 'PENDING' && (
-                              <span className="font-mono text-2xs uppercase px-1 border border-warning text-warning bg-black/50">PENDING</span>
-                            )}
-                            {avail?.timeOff && (
-                              <span className="font-mono text-2xs uppercase text-warning">TIME OFF</span>
-                            )}
-                          </div>
-                        )}
-                        {blocked && (
-                          <div className="absolute inset-0 flex items-center justify-center z-0 pointer-events-none">
-                            <span className="font-mono text-2xs uppercase text-danger tracking-widest bg-black/60 px-2 py-0.5">TIME OFF</span>
-                          </div>
-                        )}
-                        <div className="space-y-1 relative z-10">
-                          {dayShifts.map((sh) => (
-                            <div key={sh.id}
-                              onClick={(e) => { e.stopPropagation(); openModal(s.id, d, sh) }}
-                              className={`${compact ? 'px-1.5 py-0.5' : 'px-2 py-1'} cursor-pointer hover:opacity-80 transition-opacity`}
-                              style={{ backgroundColor: colourForShift(sh) }}>
-                              <div className="font-mono text-2xs font-bold text-white leading-tight">{sh.startTime} — {sh.endTime}</div>
-                              <div className="font-mono text-2xs text-white/90 leading-tight truncate">
-                                {sh.tag ?? sh.positionName ?? 'SHIFT'}{sh.breakMinutes ? ` · ${sh.breakMinutes}M BRK` : ''}
-                              </div>
-                              {sh.status === 'DRAFT' && <div className="font-mono text-2xs uppercase text-black/60 mt-0.5">DRAFT</div>}
-                            </div>
-                          ))}
-                        </div>
+            {groupByPosition
+              ? staffGroups.map((g) => (
+                  <div key={g.key} className="contents">
+                    <div
+                      ref={(el) => {
+                        if (el) groupHeaderRefs.current.set(g.key, el)
+                        else groupHeaderRefs.current.delete(g.key)
+                      }}
+                      style={{ gridColumn: '1 / -1' }}
+                      className={`border-b ${GRID_LINE} bg-grey-dark/60 ${
+                        draggingGroup === g.key ? 'opacity-40' : ''
+                      } ${overGroup === g.key && draggingGroup && draggingGroup !== g.key ? 'ring-1 ring-inset ring-white' : ''}`}
+                    >
+                      <div
+                        className={`sticky left-0 inline-flex items-center gap-2 ${compact ? 'px-2 py-1' : 'px-3 py-1.5'} ${g.positionId ? 'cursor-grab select-none' : ''}`}
+                        onPointerDown={(e) => { if (g.positionId) onGroupPointerDown(e, g.key) }}
+                        onPointerMove={g.positionId ? onGroupPointerMove : undefined}
+                        onPointerUp={g.positionId ? onGroupPointerUp : undefined}
+                        onPointerCancel={g.positionId ? onGroupPointerCancel : undefined}
+                        style={g.positionId ? { touchAction: 'none' } : undefined}
+                      >
+                        {g.positionId && <span className="font-mono text-xs text-grey-light">⠿</span>}
+                        {g.colour && <span className="w-2 h-2 shrink-0" style={{ backgroundColor: g.colour }} />}
+                        <span className="font-mono text-2xs uppercase tracking-wider text-white">{g.label}</span>
+                        <span className="font-mono text-2xs uppercase text-grey-light">{g.items.length}</span>
                       </div>
-                    )
-                  })}
-                </div>
-              )
-            })}
+                    </div>
+                    {g.items.map(renderStaffRow)}
+                  </div>
+                ))
+              : filteredStaff.map(renderStaffRow)}
           </div>
         </div>
       ) : (

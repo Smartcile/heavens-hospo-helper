@@ -35,10 +35,10 @@ const data = {
   },
 }
 
-function mockFetch() {
-  const spy = vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+function mockFetch(payload: unknown = data) {
+  const spy = vi.spyOn(global, 'fetch').mockImplementation(async (_url: unknown, init?: RequestInit) => {
     if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({ success: true }) } as Response
-    return { ok: true, status: 200, json: async () => data } as Response
+    return { ok: true, status: 200, json: async () => payload } as Response
   })
   return spy
 }
@@ -97,5 +97,63 @@ describe('AvailabilityAdminClient', () => {
       expect(body.staffId).toBe('st1')
       expect(body.availability.type).toBe('UNAVAILABLE')
     })
+  })
+
+  it('renders the shared DateNav range control and position group headers', async () => {
+    const grouped = {
+      ...data,
+      staff: [
+        { id: 'st1', firstName: 'TAYLOR', lastName: 'REED', employmentType: 'CASUAL', positions: [{ id: 'p1', name: 'MANAGER', colour: '#F00' }] },
+        { id: 'st2', firstName: 'ANN', lastName: 'LEE', employmentType: 'CASUAL', positions: [{ id: 'p2', name: 'SENIOR', colour: null }] },
+      ],
+      positions: [
+        { id: 'p1', name: 'MANAGER', colour: '#F00', sortOrder: 0 },
+        { id: 'p2', name: 'SENIOR', colour: null, sortOrder: 1 },
+      ],
+      queue: { pending: [], requests: [] },
+      entries: [],
+    }
+    mockFetch(grouped)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    // DateNav renders its SELECT trigger (same control as Orders/Roster).
+    expect(await screen.findByTitle('SELECT DATE')).toBeDefined()
+    expect(screen.getByText('MANAGER')).toBeDefined()
+    expect(screen.getByText('SENIOR')).toBeDefined()
+  })
+
+  it('pins a day and floats the available staff to the top', async () => {
+    const pinned = {
+      ...data,
+      staff: [
+        { id: 'st1', firstName: 'TAYLOR', lastName: 'REED', employmentType: 'CASUAL', positions: [] },
+        { id: 'st2', firstName: 'ANN', lastName: 'LEE', employmentType: 'CASUAL', positions: [] },
+      ],
+      positions: [],
+      entries: [
+        {
+          id: 'e1', staffId: 'st2', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+          seriesId: null, seriesEndDate: null,
+        },
+      ],
+      queue: { pending: [], requests: [] },
+    }
+    mockFetch(pinned)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    let names = screen.getAllByText(/TAYLOR REED|ANN LEE/).map((el) => el.textContent ?? '')
+    expect(names[names.length - 1]).toContain('ANN LEE')
+
+    // Clicking the day header pins it (ANN is green for Monday).
+    fireEvent.click(screen.getByText(/^MON \d+/))
+
+    await waitFor(() => {
+      names = screen.getAllByText(/TAYLOR REED|ANN LEE/).map((el) => el.textContent ?? '')
+      expect(names[0]).toContain('ANN LEE')
+      expect(names[names.length - 1]).toContain('TAYLOR REED')
+    })
+    expect(screen.getByText(/SHOWING STAFF AVAILABLE ON/)).toBeDefined()
   })
 })

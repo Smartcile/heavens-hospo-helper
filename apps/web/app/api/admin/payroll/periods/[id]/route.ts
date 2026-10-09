@@ -29,6 +29,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
           kiwiSaverRate: true,
           studentLoan: true,
           hourlyRate: true,
+          positions: { select: { position: { select: { id: true, name: true, colour: true } } } },
         },
       },
     },

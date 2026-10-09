@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { STEP_LINK_LABEL, type ResolvedStepLink } from '@/lib/guide-links'
+import { thumbUrl } from '@/lib/image-thumb'
 import type { GuidePopupVariant } from '@/components/GuidePopup'
 
 interface InventoryDetail {
@@ -94,7 +95,7 @@ export function ReferencePopup({
     <div className="space-y-4">
       {link.target.imageUrl && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={link.target.imageUrl} alt="" className="max-h-56 w-auto border border-grey-mid" />
+        <img src={thumbUrl(link.target.imageUrl, 640) ?? link.target.imageUrl} alt="" loading="lazy" decoding="async" className="max-h-56 w-auto border border-grey-mid" />
       )}
 
       {link.qty && link.qty > 1 && <Badge>{link.qty}×</Badge>}

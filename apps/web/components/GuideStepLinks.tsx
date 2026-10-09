@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { STEP_LINK_LABEL, type ResolvedStepLink } from '@/lib/guide-links'
 import { useGuidePopup, type GuidePopupVariant } from '@/components/GuidePopup'
 import { ReferencePopup } from '@/components/ReferencePopup'
+import { thumbUrl } from '@/lib/image-thumb'
 
 const KIND_COLOUR: Record<string, string> = {
   ITEM: '#60A5FA',
@@ -54,8 +55,10 @@ export function GuideStepLinks({ links, variant = 'admin' }: { links: ResolvedSt
               {l.target.imageUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={l.target.imageUrl}
+                  src={thumbUrl(l.target.imageUrl, 160) ?? l.target.imageUrl}
                   alt=""
+                  loading="lazy"
+                  decoding="async"
                   className="h-10 w-10 flex-shrink-0 object-cover border border-grey-mid"
                 />
               )}

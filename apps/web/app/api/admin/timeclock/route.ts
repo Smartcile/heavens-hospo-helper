@@ -10,7 +10,7 @@ const staffSelect = {
     firstName: true,
     lastName: true,
     department: { select: { name: true } },
-    positions: { select: { position: { select: { name: true, colour: true } } } },
+    positions: { select: { position: { select: { id: true, name: true, colour: true } } } },
   },
 }
 

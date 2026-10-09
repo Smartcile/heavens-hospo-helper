@@ -8,6 +8,7 @@ import { useIsAdmin } from '@/lib/use-is-admin'
 import { ImagePreviewModal } from '@/components/ui/ImagePreviewModal'
 import { MediaLibraryModal } from '@/components/ui/MediaLibraryModal'
 import { annotationIsEmpty, type AnnotationData } from '@/lib/image-annotations'
+import { thumbUrl } from '@/lib/image-thumb'
 
 // Multiple-image upload with CHOOSE (multi-select) + PASTE (CTRL+V),
 // drag-to-reorder thumbnails, a click-to-open preview popup (annotate / browse
@@ -166,7 +167,7 @@ export function MultiImagePicker({ value, onChange, label, className, disabled, 
               )}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={url} alt={`image ${i + 1}`} loading="lazy" className="h-full w-full object-cover pointer-events-none" />
+              <img src={thumbUrl(url, 192) ?? url} alt={`image ${i + 1}`} loading="lazy" decoding="async" className="h-full w-full object-cover pointer-events-none" />
               <span className="absolute bottom-0 left-0 bg-black/70 px-1 font-mono text-xs text-white">{i + 1}</span>
               {annotations[url] && !annotationIsEmpty(annotations[url]) && (
                 <span className="absolute bottom-0 right-0 border-l border-t border-gold bg-black/70 px-1 font-mono text-xs leading-tight text-gold">✎</span>

@@ -44,12 +44,23 @@ export async function GET(req: NextRequest) {
   const start = new Date(`${startKey}T00:00:00Z`)
   const end = new Date(`${endKey}T23:59:59Z`)
 
-  const [venue, staff, rows, pendingRows, requests] = await Promise.all([
+  const [venue, staff, positions, rows, pendingRows, requests] = await Promise.all([
     prisma.venue.findUnique({ where: { id: venueId }, select: { availabilityPresets: true } }),
     prisma.staff.findMany({
       where: { venueId, deletedAt: null, isActive: true },
-      select: { id: true, firstName: true, lastName: true, employmentType: true },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        employmentType: true,
+        positions: { select: { position: { select: { id: true, name: true, colour: true } } } },
+      },
       orderBy: { firstName: 'asc' },
+    }),
+    prisma.position.findMany({
+      where: { venueId, deletedAt: null, isActive: true },
+      select: { id: true, name: true, colour: true, sortOrder: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     }),
     prisma.staffAvailability.findMany({
       where: { venueId, deletedAt: null, date: { gte: start, lte: end } },
@@ -79,7 +90,13 @@ export async function GET(req: NextRequest) {
       firstName: s.firstName,
       lastName: s.lastName,
       employmentType: s.employmentType,
+      positions: s.positions.map((sp) => ({
+        id: sp.position.id,
+        name: sp.position.name,
+        colour: sp.position.colour,
+      })),
     })),
+    positions,
     entries: rows.map(mapAvailabilityEntry),
     series,
     presets: resolveAvailabilityPresets(venue?.availabilityPresets),

@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
+import { thumbUrl } from '@/lib/image-thumb'
 
 interface MediaFile {
   name: string
@@ -45,8 +46,9 @@ export function MediaLibraryModal({ onClose, onPick }: { onClose: () => void; on
         <div className="space-y-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={selected.url}
+            src={thumbUrl(selected.url, 1600) ?? selected.url}
             alt={selected.name}
+            decoding="async"
             className="mx-auto block max-h-[55vh] w-auto max-w-full border border-grey-mid object-contain"
           />
           <p className="break-all text-center font-mono text-xs text-grey-light">{selected.name}</p>
@@ -67,9 +69,10 @@ export function MediaLibraryModal({ onClose, onPick }: { onClose: () => void; on
               <button key={f.name} type="button" onClick={() => setSelected(f)} className="group text-left">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={f.url}
+                  src={thumbUrl(f.url, 480) ?? f.url}
                   alt={f.name}
                   loading="lazy"
+                  decoding="async"
                   className="h-24 w-full border border-grey-mid object-cover transition-colors group-hover:border-white"
                 />
                 <span className="mt-1 block truncate font-mono text-2xs text-grey-light group-hover:text-white" title={f.name}>

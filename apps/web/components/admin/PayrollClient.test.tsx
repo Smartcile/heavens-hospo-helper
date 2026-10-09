@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -7,23 +7,62 @@ vi.mock('next/navigation', () => ({
 
 import { PayrollClient } from '@/components/admin/PayrollClient'
 
-const period = { id: 'pp1', startDate: '2026-08-03', endDate: '2026-08-09', status: 'OPEN', paidAt: null, entryCount: 0 }
+const period = { id: 'pp1', startDate: '2026-08-03', endDate: '2026-08-09', status: 'OPEN', paidAt: null, entryCount: 1 }
 
-function mockFetch(responses: unknown[]) {
-  const spy = vi.spyOn(global, 'fetch')
-  let i = 0
-  spy.mockImplementation(async () => {
-    const r = responses[Math.min(i, responses.length - 1)]
-    i += 1
-    return { ok: true, json: async () => r } as Response
+const entry = {
+  id: 'pe1',
+  staffId: 's1',
+  totalHours: 8,
+  hourlyRate: 25,
+  totalPay: 200,
+  ordinaryHours: 8,
+  overtimeHours: 0,
+  publicHolidayHours: 0,
+  grossPay: 200,
+  holidayPay: 0,
+  annualLeaveAccruedHours: 0.61,
+  alternativeDaysOwed: 0,
+  paye: 30,
+  accLevy: 2.94,
+  kiwiSaverEmployee: 6,
+  kiwiSaverEmployer: 6,
+  studentLoan: 0,
+  netPay: 161.06,
+  employerCost: 206,
+  breakdown: null,
+  staff: {
+    firstName: 'LIAM',
+    lastName: 'HEAVEN',
+    employmentType: 'FULL_TIME',
+    taxCode: 'M',
+    kiwiSaverRate: 3,
+    studentLoan: false,
+    hourlyRate: 25,
+    positions: [{ position: { id: 'p1', name: 'BARISTA', colour: '#60A5FA' } }],
+  },
+}
+
+function mockFetch(routes: Record<string, unknown>) {
+  return vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown) => {
+    const u = String(url)
+    const hit = Object.entries(routes).find(([key]) => u.includes(key))
+    return { ok: true, json: async () => (hit ? hit[1] : []) } as Response
   })
 }
+
+const settings = { minimumWage: 23.5, accRate: 1.47, payFrequency: 'WEEKLY', kiwiSaverEmployerRate: 3, studentLoanRate: 12, holidayPayPct: 8, defaultTaxCode: 'M', overtimeEnabled: false, overtimeHoursPerWeek: 40, overtimeRate: 1.5 }
 
 describe('PayrollClient', () => {
   afterEach(() => { vi.restoreAllMocks() })
 
   it('renders heading, tabs and period list', async () => {
-    mockFetch([[period], {}, [], []]) // periods, settings, holidays, alt days
+    mockFetch({
+      '/api/admin/payroll/periods?venueId=': [period],
+      '/api/admin/payroll/settings': settings,
+      '/api/admin/public-holidays': [],
+      '/api/admin/payroll/alt-days': [],
+      '/api/admin/positions': [],
+    })
 
     render(<PayrollClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 
@@ -41,7 +80,13 @@ describe('PayrollClient', () => {
   })
 
   it('shows an empty state when there are no periods', async () => {
-    mockFetch([[], {}, [], []])
+    mockFetch({
+      '/api/admin/payroll/periods?venueId=': [],
+      '/api/admin/payroll/settings': settings,
+      '/api/admin/public-holidays': [],
+      '/api/admin/payroll/alt-days': [],
+      '/api/admin/positions': [],
+    })
 
     render(<PayrollClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 
@@ -51,7 +96,13 @@ describe('PayrollClient', () => {
   })
 
   it('renders the settings tab with wage and ACC fields', async () => {
-    mockFetch([[], {}, { minimumWage: 23.5, accRate: 1.47, payFrequency: 'WEEKLY', kiwiSaverEmployerRate: 3, studentLoanRate: 12, holidayPayPct: 8, defaultTaxCode: 'M', overtimeEnabled: false, overtimeHoursPerWeek: 40, overtimeRate: 1.5 }, []])
+    mockFetch({
+      '/api/admin/payroll/periods?venueId=': [],
+      '/api/admin/payroll/settings': settings,
+      '/api/admin/public-holidays': [],
+      '/api/admin/payroll/alt-days': [],
+      '/api/admin/positions': [],
+    })
 
     render(<PayrollClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 
@@ -62,5 +113,23 @@ describe('PayrollClient', () => {
       expect(screen.getByText('ACC Earner Levy (%)')).toBeDefined()
       expect(screen.getByText('Casual Holiday Pay (%)')).toBeDefined()
     })
+  })
+
+  it('groups the expanded period entries under position headers', async () => {
+    mockFetch({
+      '/api/admin/payroll/periods?venueId=': [period],
+      '/api/admin/payroll/periods/pp1': { period, entries: [entry] },
+      '/api/admin/payroll/settings': settings,
+      '/api/admin/public-holidays': [],
+      '/api/admin/payroll/alt-days': [],
+      '/api/admin/positions': [{ id: 'p1', name: 'BARISTA', colour: '#60A5FA' }],
+    })
+
+    render(<PayrollClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    fireEvent.click(await screen.findByText('ENTRIES'))
+    expect(await screen.findByText(/LIAM HEAVEN/)).toBeDefined()
+    expect(screen.getByText('BARISTA')).toBeDefined()
+    expect(screen.getByText('GROUP')).toBeDefined()
   })
 })

@@ -10,6 +10,7 @@ import { getActiveVenueId } from '@/lib/active-venue'
 import { MenuItemServesEditor } from '@/components/admin/MenuItemServesEditor'
 import { MenuBuilder, type MenuOptionProduct, type MenuOptionStock } from '@/components/admin/MenuBuilder'
 import type { MenuShape } from '@/lib/menu-lines'
+import { thumbUrl } from '@/lib/image-thumb'
 
 export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
   const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
@@ -370,7 +371,7 @@ function CategoryMenuView({
                   <div key={i.id} className="flex items-center gap-3 px-3 py-2">
                     {i.imageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={i.imageUrl} alt="" className="w-8 h-8 object-cover border border-grey-mid shrink-0" />
+                      <img src={thumbUrl(i.imageUrl, 96) ?? i.imageUrl} alt="" loading="lazy" decoding="async" className="w-8 h-8 object-cover border border-grey-mid shrink-0" />
                     ) : (
                       <div className="w-8 h-8 border border-grey-mid shrink-0 flex items-center justify-center font-mono text-xs text-grey-light">—</div>
                     )}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
@@ -139,5 +139,22 @@ describe('RosterClient', () => {
     expect(screen.getByText('Unavailable')).toBeDefined()
     expect(screen.getByText('Available')).toBeDefined()
     expect(screen.getByText(/Unset \(casual\)/)).toBeDefined()
+  })
+
+  it('groups staff under position headers and toggles the grouped view', async () => {
+    const positioned = {
+      ...data,
+      staff: [{ ...data.staff[0], positions: [{ id: 'p1', name: 'BARISTA', colour: '#60A5FA' }] }],
+    }
+    mockFetch([[], [{ id: 'p1', name: 'BARISTA', colour: '#60A5FA' }], positioned])
+
+    render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findByText(/LIAM HEAVEN/)
+    // Group header label + the staff cell's position line + the shift block.
+    expect(screen.getAllByText('BARISTA').length).toBe(3)
+
+    fireEvent.click(screen.getByText('GROUP'))
+    await waitFor(() => expect(screen.getAllByText('BARISTA').length).toBe(2))
   })
 })

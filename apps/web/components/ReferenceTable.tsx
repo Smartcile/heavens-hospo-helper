@@ -13,6 +13,7 @@ import {
   type ReferenceColumn,
   type ReferenceRowLike,
 } from '@/lib/reference-table'
+import { thumbUrl } from '@/lib/image-thumb'
 
 export interface ReferenceTableRow extends ReferenceRowLike {
   id: string
@@ -24,7 +25,7 @@ function CellValue({ row, col, onImage }: { row: ReferenceTableRow; col: Referen
     return (
       <button type="button" onClick={() => onImage(image)} className="block cursor-zoom-in" aria-label={`View ${col.label} image`}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={image} alt={col.label} className="h-16 w-16 object-cover border border-grey-mid" />
+        <img src={thumbUrl(image, 160) ?? image} alt={col.label} loading="lazy" decoding="async" className="h-16 w-16 object-cover border border-grey-mid" />
       </button>
     )
   }
@@ -121,7 +122,7 @@ export function ReferenceTable({ columns, rows }: { columns: ReferenceColumn[]; 
           className="fixed inset-0 z-[60] bg-black/95 flex items-center justify-center p-2"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightbox} alt="" onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full object-contain" />
+          <img src={thumbUrl(lightbox, 1600) ?? lightbox} alt="" decoding="async" onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full object-contain" />
           <button
             type="button"
             onClick={() => setLightbox(null)}
