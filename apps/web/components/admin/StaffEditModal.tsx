@@ -17,11 +17,11 @@ interface StaffData {
   taxCode: string | null; kiwiSaverRate: number | null; studentLoan: boolean
   swiftPosId: string | null; myHrId: string | null; loadedReportsId: string | null
   sections: { sectionId: string }[]
-  positions?: { positionId: string }[]
+  positions?: { positionId: string; hourlyRate: number | null }[]
   staffVenues: { venueId: string }[]
 }
 
-interface PositionOption { id: string; name: string; venueId: string }
+interface PositionOption { id: string; name: string; venueId: string; hourlyRate?: number | null }
 
 const ROLE_OPTIONS = [
   { value: 'STAFF', label: 'STAFF' },
@@ -49,6 +49,7 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
   const [sectionIds, setSectionIds] = useState<string[]>([])
   const [allPositions, setAllPositions] = useState<PositionOption[]>([])
   const [positionIds, setPositionIds] = useState<string[]>([])
+  const [positionRates, setPositionRates] = useState<Record<string, string>>({})
   const [venueIds, setVenueIds] = useState<string[]>([])
   const [pin, setPin] = useState('')
   const [password, setPassword] = useState('')
@@ -69,6 +70,11 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
       setStaff(s)
       setSectionIds((s.sections ?? []).map((x: { sectionId: string }) => x.sectionId))
       setPositionIds((s.positions ?? []).map((x: { positionId: string }) => x.positionId))
+      setPositionRates(Object.fromEntries(
+        (s.positions ?? [])
+          .filter((x: { hourlyRate: number | null }) => x.hourlyRate != null)
+          .map((x: { positionId: string; hourlyRate: number }) => [x.positionId, String(x.hourlyRate)]),
+      ))
       setAllPositions(Array.isArray(pos) ? pos : [])
       setVenueIds((s.staffVenues ?? []).map((x: { venueId: string }) => x.venueId))
       setVenues(Array.isArray(v) ? v : [])
@@ -108,7 +114,10 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
       taxCode: staff.taxCode || null, kiwiSaverRate: staff.kiwiSaverRate, studentLoan: staff.studentLoan,
       swiftPosId: staff.swiftPosId || null, myHrId: staff.myHrId || null, loadedReportsId: staff.loadedReportsId || null,
       sectionIds,
-      positionIds,
+      positions: positionIds.map((positionId) => ({
+        positionId,
+        hourlyRate: positionRates[positionId]?.trim() ? Number(positionRates[positionId]) : null,
+      })),
       venueIds,
     }
     if (pin) body.pin = pin
@@ -195,6 +204,30 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
                   <button key={p.id} type="button" onClick={() => togglePosition(p.id)} className={`font-mono text-xs px-2 py-1.5 border transition-colors ${positionIds.includes(p.id) ? 'bg-white text-black border-white' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>{p.name}</button>
                 ))}
               </div>
+              {positionIds.length > 0 && (
+                <div className="space-y-1.5 mt-2 border-t border-grey-mid pt-2">
+                  <div className="font-mono text-xs uppercase text-grey-light">Per-role rate (blank = role rate, then base)</div>
+                  {positionIds.map((pid) => {
+                    const p = formPositions.find((x) => x.id === pid)
+                    if (!p) return null
+                    return (
+                      <div key={pid} className="flex items-center gap-2">
+                        <span className="font-mono text-xs uppercase text-grey-light w-36 truncate" title={p.name}>{p.name}</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={positionRates[pid] ?? ''}
+                          onChange={(e) => setPositionRates((prev) => ({ ...prev, [pid]: e.target.value }))}
+                          placeholder={p.hourlyRate != null ? String(p.hourlyRate) : 'BASE'}
+                          className="w-24 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 text-right outline-none focus:border-white placeholder:text-grey-light"
+                        />
+                        <span className="font-mono text-xs text-grey-light">/HR</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
 

@@ -85,6 +85,32 @@ describe('WorkerAvailabilityClient', () => {
     expect(await screen.findByText(/EDIT REQUEST SENT/)).toBeDefined()
   })
 
+  it('lists pending requests and cancels one', async () => {
+    const withRequest = {
+      ...payload,
+      requests: [{ id: 'r1', date: todayKey, scope: 'THIS', action: 'CLEAR', seriesId: null }],
+    }
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      if (init?.method === 'DELETE') return { ok: true, status: 200, json: async () => ({ success: true }) } as Response
+      return { ok: true, status: 200, json: async () => withRequest } as Response
+    })
+
+    render(<WorkerAvailabilityClient />)
+    await screen.findByText('MY AVAILABILITY')
+
+    expect(screen.getByText('WAITING FOR A MANAGER')).toBeDefined()
+    // A CLEAR request reads as a cancel request to the worker.
+    expect(screen.getByText(/CANCEL · JUST THIS DAY/)).toBeDefined()
+    fireEvent.click(screen.getByText('CANCEL REQUEST'))
+
+    await waitFor(() => {
+      const del = spy.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'DELETE')
+      expect(del).toBeDefined()
+      expect(String(del![0])).toBe(`/api/worker/availability/requests/r1`)
+    })
+    expect(await screen.findByText(/REQUEST CANCELLED/)).toBeDefined()
+  })
+
   it('switches to the week view and shows each day as a track', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => payload } as Response)
 

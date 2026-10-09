@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { DateNav } from '@/components/admin/DateNav'
+import { StaffEditModal } from '@/components/admin/StaffEditModal'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { moveItem } from '@/lib/array'
 import { formatDateLong, keyOfDay, mondayOf, parseDay, shiftDay, weekKeys, type DateRange } from '@/lib/date-nav'
@@ -88,6 +89,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
   // Shift modal
   const [modal, setModal] = useState<null | { shift: RosterShift | null; staffId: string; date: string }>(null)
   const [form, setForm] = useState({ staffId: '', date: '', startTime: '09:00', endTime: '17:00', positionId: '', colour: '', tag: '', breakMinutes: '0', note: '' })
+  const [editStaffId, setEditStaffId] = useState<string | null>(null)
 
   // Analyze / Visualize modals
   const [showAnalyze, setShowAnalyze] = useState(false)
@@ -398,7 +400,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       <div key={s.id} className="contents">
         {/* Staff cell — sticky left */}
         <div className={`sticky left-0 z-10 bg-grey-dark border-b border-r ${GRID_LINE} ${compact ? 'px-2 py-1' : 'px-3 py-2'}`}>
-          <button onClick={() => openModal(s.id, weekDays[0])} className={`font-mono text-accent hover:text-white underline decoration-dotted underline-offset-2 ${compact ? 'text-2xs' : 'text-xs'}`}>
+          <button onClick={() => setEditStaffId(s.id)} title="EDIT STAFF" className={`font-mono text-accent hover:text-white underline decoration-dotted underline-offset-2 ${compact ? 'text-2xs' : 'text-xs'}`}>
             {n} — {s.firstName} {s.lastName}
           </button>
           <div className="font-mono text-2xs text-grey-light mt-0.5">
@@ -634,6 +636,16 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
             </div>
           </div>
         </div>
+      )}
+
+      {/* Staff editor — opened from the name in the grid */}
+      {editStaffId && (
+        <StaffEditModal
+          staffId={editStaffId}
+          role={role}
+          onClose={() => setEditStaffId(null)}
+          onSaved={() => { setEditStaffId(null); load() }}
+        />
       )}
 
       {/* Analyze modal — per-role totals */}

@@ -37,6 +37,7 @@ interface WorkerRequest {
   date: string
   scope: AvailabilityScope
   action: 'SET' | 'CLEAR'
+  seriesId: string | null
 }
 
 interface AvailabilityData {
@@ -108,10 +109,23 @@ export function WorkerAvailabilityClient() {
     setFlash('')
   }
 
-  function resultMessage(mode: string, skipped: number) {
-    if (mode === 'REQUEST') return 'EDIT REQUEST SENT — YOUR MANAGER WILL CONFIRM'
+  function resultMessage(mode: string, skipped: number, verb: 'SAVE' | 'CLEAR' = 'SAVE') {
+    if (mode === 'REQUEST') {
+      return verb === 'CLEAR'
+        ? 'CANCEL REQUEST SENT — YOUR MANAGER WILL CONFIRM'
+        : 'EDIT REQUEST SENT — YOUR MANAGER WILL CONFIRM'
+    }
     if (skipped > 0) return `SAVED · ${skipped} PROTECTED DAY${skipped === 1 ? '' : 'S'} LEFT UNCHANGED`
     return 'SAVED'
+  }
+
+  async function cancelRequest(id: string) {
+    setSaving(true); setError('')
+    const r = await fetch(`/api/worker/availability/requests/${id}`, { method: 'DELETE' })
+    setSaving(false)
+    if (!r.ok) { const d = await r.json().catch(() => ({})); setError((d.error ?? 'COULD NOT CANCEL THE REQUEST').toUpperCase()); return }
+    setFlash('REQUEST CANCELLED — YOUR MANAGER NO LONGER SEES IT')
+    load()
   }
 
   async function save(draft: EditorDraft, options: EditorSaveOptions) {
@@ -162,7 +176,7 @@ export function WorkerAvailabilityClient() {
     if (!r.ok) { const d = await r.json().catch(() => ({})); setError((d.error ?? 'CLEAR FAILED').toUpperCase()); return }
     const out = await r.json()
     setSelected(null)
-    setFlash(resultMessage(out.mode, (out.skipped ?? []).length))
+    setFlash(resultMessage(out.mode, (out.skipped ?? []).length, 'CLEAR'))
     load()
   }
 
@@ -222,6 +236,32 @@ export function WorkerAvailabilityClient() {
 
       {flash && (
         <p className="mx-4 mt-3 font-mono text-xs uppercase text-success border border-success/50 bg-success/10 px-3 py-2">{flash}</p>
+      )}
+
+      {/* Edit requests still waiting for a manager — cancellable here */}
+      {data.requests.length > 0 && (
+        <div className="mx-4 mt-3 border border-accent/50 bg-accent/5 p-3 space-y-2">
+          <h2 className="font-mono text-xs uppercase tracking-wider text-accent">WAITING FOR A MANAGER</h2>
+          {data.requests.map((req) => (
+            <div key={req.id} className="flex flex-wrap items-center justify-between gap-2 border border-grey-mid bg-black p-2">
+              <div>
+                <div className="font-mono text-xs text-white uppercase">{formatDateLong(req.date)}</div>
+                <div className="font-mono text-2xs uppercase text-grey-light">
+                  {req.action === 'CLEAR' ? 'CANCEL' : 'CHANGE'} · {req.scope === 'THIS' ? 'JUST THIS DAY' : req.scope === 'FROM' ? 'FROM THIS DAY' : 'ALL IN SERIES'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => cancelRequest(req.id)}
+                disabled={saving}
+                className="h-9 px-3 border border-danger text-danger font-mono text-xs uppercase hover:bg-danger hover:text-black transition-colors disabled:opacity-40"
+              >
+                CANCEL REQUEST
+              </button>
+            </div>
+          ))}
+          <p className="font-mono text-2xs uppercase text-grey-light">CANCELLING HERE WITHDRAWS THE REQUEST — YOUR APPROVED DAYS STAY AS THEY ARE.</p>
+        </div>
       )}
 
       {/* Month grid */}

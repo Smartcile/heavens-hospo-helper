@@ -113,7 +113,6 @@ export function AvailabilityDayEditor({
   )
   const [windows, setWindows] = useState<AvailabilityWindow[]>(entry && !entry.isAllDay ? entry.windows : [])
   const [timeOff, setTimeOff] = useState(entry?.timeOff ?? false)
-  const [notes, setNotes] = useState(entry?.notes ?? '')
   const [reason, setReason] = useState('')
   const [repeatOn, setRepeatOn] = useState(false)
   const [noEnd, setNoEnd] = useState(() => (series ? !series.endDate : false))
@@ -169,7 +168,7 @@ export function AvailabilityDayEditor({
       type,
       windows: isAllDay ? [] : windows,
       timeOff,
-      notes: notes.trim() || null,
+      notes: entry?.notes ?? null,
     }
     onSave(draft, {
       repeat: currentRepeat(),
@@ -308,24 +307,6 @@ export function AvailabilityDayEditor({
         </div>
       )}
 
-      {/* Time off request */}
-      <div className="border border-grey-mid p-3">
-        <ToggleCheck
-          checked={timeOff}
-          onChange={setTimeOff}
-          label="TIME OFF REQUEST"
-          hint="LABELS THIS AS LEAVE — YOUR MANAGER CHECKS IT FOR LEAVE PAY"
-        />
-      </div>
-
-      {/* Note */}
-      <input
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        placeholder="NOTE (OPTIONAL)"
-        className="field w-full"
-      />
-
       {/* Repeat */}
       <div className="border border-grey-mid p-3 space-y-3">
         {series ? (
@@ -413,6 +394,16 @@ export function AvailabilityDayEditor({
           </div>
         </div>
       )}
+
+      {/* Time off request */}
+      <div className="border border-grey-mid p-3">
+        <ToggleCheck
+          checked={timeOff}
+          onChange={setTimeOff}
+          label="TIME OFF REQUEST"
+          hint="LABELS THIS AS LEAVE — YOUR MANAGER CHECKS IT FOR LEAVE PAY"
+        />
+      </div>
 
       {/* Reason */}
       <input

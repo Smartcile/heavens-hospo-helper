@@ -99,6 +99,77 @@ describe('AvailabilityAdminClient', () => {
     })
   })
 
+  it('cancels a pending declaration from the queue without a verdict', async () => {
+    const spy = mockFetch()
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('CANCEL'))
+
+    await waitFor(() => {
+      const post = spy.mock.calls.find((c) => String(c[0]).includes('/api/admin/availability/review'))
+      expect(post).toBeDefined()
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body.action).toBe('DELETE')
+      expect(body.ids).toEqual(['p1'])
+    })
+  })
+
+  it('deletes an approved day from the override editor', async () => {
+    const withEntry = {
+      ...data,
+      entries: [
+        {
+          id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+          seriesId: null, seriesEndDate: null,
+        },
+      ],
+      queue: { pending: [], requests: [] },
+    }
+    const spy = mockFetch(withEntry)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('00:00–24:00'))
+    fireEvent.click(await screen.findByText('CLEAR'))
+
+    await waitFor(() => {
+      const post = spy.mock.calls.find((c) =>
+        String(c[0]).endsWith('/api/admin/availability/clear') && (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(post).toBeDefined()
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body.staffId).toBe('st1')
+      expect(body.date).toBe(monday)
+    })
+  })
+
+  it('opens the staff editor when a name in the grid is clicked', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown) => {
+      const u = String(url)
+      if (/\/api\/admin\/staff\/[^/]+$/.test(u)) {
+        return {
+          ok: true, status: 200, json: async () => ({
+            id: 'st1', firstName: 'TAYLOR', lastName: 'REED', email: null, role: 'STAFF', venueId: 'v1',
+            departmentId: null, hourlyRate: null, employmentType: 'CASUAL', taxCode: null, kiwiSaverRate: null,
+            studentLoan: false, swiftPosId: null, myHrId: null, loadedReportsId: null, sections: [], positions: [],
+            staffVenues: [],
+          }),
+        } as Response
+      }
+      if (u.includes('/api/admin/venues') || u.includes('/api/admin/departments') || u.includes('/api/admin/sections') || u.includes('/api/admin/positions')) {
+        return { ok: true, status: 200, json: async () => [] } as Response
+      }
+      return { ok: true, status: 200, json: async () => data } as Response
+    })
+
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    const nameButtons = await screen.findAllByTitle('EDIT STAFF')
+    fireEvent.click(nameButtons[0])
+    expect(await screen.findByText('EDIT STAFF')).toBeDefined()
+  })
+
   it('renders the shared DateNav range control and position group headers', async () => {
     const grouped = {
       ...data,
@@ -122,14 +193,14 @@ describe('AvailabilityAdminClient', () => {
     expect(screen.getByText('SENIOR')).toBeDefined()
   })
 
-  it('pins a day and floats the available staff to the top', async () => {
+  it('pins a day, keeps the position groups and floats the available staff within each', async () => {
     const pinned = {
       ...data,
       staff: [
-        { id: 'st1', firstName: 'TAYLOR', lastName: 'REED', employmentType: 'CASUAL', positions: [] },
-        { id: 'st2', firstName: 'ANN', lastName: 'LEE', employmentType: 'CASUAL', positions: [] },
+        { id: 'st1', firstName: 'TAYLOR', lastName: 'REED', employmentType: 'CASUAL', positions: [{ id: 'p1', name: 'MANAGER', colour: null }] },
+        { id: 'st2', firstName: 'ANN', lastName: 'LEE', employmentType: 'CASUAL', positions: [{ id: 'p1', name: 'MANAGER', colour: null }] },
       ],
-      positions: [],
+      positions: [{ id: 'p1', name: 'MANAGER', colour: null, sortOrder: 0 }],
       entries: [
         {
           id: 'e1', staffId: 'st2', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
@@ -155,5 +226,7 @@ describe('AvailabilityAdminClient', () => {
       expect(names[names.length - 1]).toContain('TAYLOR REED')
     })
     expect(screen.getByText(/SHOWING STAFF AVAILABLE ON/)).toBeDefined()
+    // The position grouping survives the pin.
+    expect(screen.getByText('MANAGER')).toBeDefined()
   })
 })

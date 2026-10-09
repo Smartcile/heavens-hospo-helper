@@ -141,6 +141,32 @@ describe('RosterClient', () => {
     expect(screen.getByText(/Unset \(casual\)/)).toBeDefined()
   })
 
+  it('opens the staff editor when the name is clicked', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown) => {
+      const u = String(url)
+      if (/\/api\/admin\/staff\/[^/]+$/.test(u)) {
+        return {
+          ok: true, json: async () => ({
+            id: 'st1', firstName: 'LIAM', lastName: 'HEAVEN', email: null, role: 'STAFF', venueId: 'v1',
+            departmentId: null, hourlyRate: null, employmentType: 'FULL_TIME', taxCode: null, kiwiSaverRate: null,
+            studentLoan: false, swiftPosId: null, myHrId: null, loadedReportsId: null, sections: [], positions: [],
+            staffVenues: [],
+          }),
+        } as Response
+      }
+      if (u.includes('/api/admin/venues') || u.includes('/api/admin/departments') || u.includes('/api/admin/sections') || u.includes('/api/admin/positions')) {
+        return { ok: true, json: async () => [] } as Response
+      }
+      return { ok: true, json: async () => data } as Response
+    })
+
+    render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findByText(/LIAM HEAVEN/)
+    fireEvent.click(screen.getByTitle('EDIT STAFF'))
+    expect(await screen.findByText('EDIT STAFF')).toBeDefined()
+  })
+
   it('groups staff under position headers and toggles the grouped view', async () => {
     const positioned = {
       ...data,

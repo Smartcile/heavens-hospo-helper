@@ -24,10 +24,12 @@ vi.mock('@hospo-ops/db', () => ({ prisma: db, Prisma: { DbNull: null } }))
 
 import {
   buildAvailabilityPayload,
+  cancelPendingAvailability,
   clearAvailability,
   planClear,
   planSet,
   saveAvailability,
+  withdrawEditRequest,
   type AvailabilityPayload,
 } from '@/lib/availability.server'
 import { SERIES_HORIZON_WEEKS } from '@/lib/availability'
@@ -218,5 +220,48 @@ describe('saveAvailability approval rules', () => {
     const plan = db.availabilityEditRequest.create.mock.calls[0][0].data.payload
     expect(plan.action).toBe('CLEAR')
     expect(plan.removeDates).toEqual(['2026-10-15'])
+  })
+})
+
+describe('cancelPendingAvailability / withdrawEditRequest', () => {
+  it('cancels pending declarations by id', async () => {
+    db.staffAvailability.updateMany.mockResolvedValueOnce({ count: 2 })
+    const count = await cancelPendingAvailability({ venueId: 'v1', ids: ['a1', 'a2'] })
+
+    expect(count).toBe(2)
+    const call = db.staffAvailability.updateMany.mock.calls[0][0]
+    expect(call.where).toMatchObject({ id: { in: ['a1', 'a2'] }, venueId: 'v1', deletedAt: null, status: 'PENDING' })
+    expect(call.data.deletedAt).toBeInstanceOf(Date)
+  })
+
+  it('cancels a whole pending series when no ids are given', async () => {
+    db.staffAvailability.updateMany.mockResolvedValueOnce({ count: 3 })
+    const count = await cancelPendingAvailability({ venueId: 'v1', staffId: 'st1', seriesId: 's1' })
+
+    expect(count).toBe(3)
+    expect(db.staffAvailability.updateMany.mock.calls[0][0].where)
+      .toMatchObject({ seriesId: 's1', staffId: 'st1', status: 'PENDING' })
+  })
+
+  it('cancels nothing without an id or a series target', async () => {
+    expect(await cancelPendingAvailability({ venueId: 'v1' })).toBe(0)
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('withdraws the worker\'s own pending request', async () => {
+    db.availabilityEditRequest.findUnique.mockResolvedValueOnce({ id: 'r1', staffId: 'st1', status: 'PENDING', deletedAt: null })
+    expect(await withdrawEditRequest('r1', 'st1')).toBe(true)
+    const data = db.availabilityEditRequest.update.mock.calls[0][0].data
+    expect(data.status).toBe('DISCARDED')
+    expect(data.deletedAt).toBeInstanceOf(Date)
+  })
+
+  it('refuses another worker\'s request or an already-resolved one', async () => {
+    db.availabilityEditRequest.findUnique.mockResolvedValueOnce({ id: 'r1', staffId: 'st2', status: 'PENDING', deletedAt: null })
+    expect(await withdrawEditRequest('r1', 'st1')).toBe(false)
+
+    db.availabilityEditRequest.findUnique.mockResolvedValueOnce({ id: 'r1', staffId: 'st1', status: 'APPLIED', deletedAt: null })
+    expect(await withdrawEditRequest('r1', 'st1')).toBe(false)
+    expect(db.availabilityEditRequest.update).not.toHaveBeenCalled()
   })
 })

@@ -62,16 +62,28 @@ describe('AvailabilityDayEditor', () => {
     ])
   })
 
-  it('ticks time off and passes the note through', () => {
+  it('ticks time off just before the manager note and sends the reason', () => {
     const { onSave } = renderEditor()
 
     fireEvent.click(screen.getByText('TIME OFF REQUEST'))
-    fireEvent.change(screen.getByPlaceholderText('NOTE (OPTIONAL)'), { target: { value: 'FAMILY WEDDING' } })
+    // The old separate note area is gone — the manager note is the one note.
+    expect(screen.queryByPlaceholderText('NOTE (OPTIONAL)')).toBeNull()
+    const off = screen.getByText('TIME OFF REQUEST')
+    const note = screen.getByPlaceholderText('NOTE FOR THE MANAGER (OPTIONAL)')
+    expect(off.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.change(note, { target: { value: 'FAMILY WEDDING' } })
     fireEvent.click(screen.getByText('SAVE'))
 
     const draft = onSave.mock.calls[0][0]
     expect(draft.timeOff).toBe(true)
-    expect(draft.notes).toBe('FAMILY WEDDING')
+    expect(onSave.mock.calls[0][1].reason).toBe('FAMILY WEDDING')
+  })
+
+  it('preserves an existing stored note when saving', () => {
+    const { onSave } = renderEditor({ entry: entry({ notes: 'UNI ON TUESDAYS' }) })
+
+    fireEvent.click(screen.getByText('SAVE'))
+    expect(onSave.mock.calls[0][0].notes).toBe('UNI ON TUESDAYS')
   })
 
   it('offers the series scopes and passes the chosen one', () => {

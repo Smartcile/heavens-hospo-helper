@@ -40,7 +40,7 @@
   --font-sans: 'Inter', system-ui, sans-serif;
 
   /* One extra named step below `text-xs` for genuinely dense UI (data grids).
-     Anything smaller is not allowed — see the design contract in CLAUDE.md. */
+     Anything smaller is not allowed — see the design contract in AGENTS.md. */
   --text-2xs: 0.6875rem; /* 11px */
   --text-2xs--line-height: 0.875rem;
 
@@ -152,7 +152,7 @@ label {
 /* ── Component contract ───────────────────────────────────────────────────
    These are the ONLY sanctioned building blocks. Prefer the React primitives
    (Button, Input, Select, Textarea, Panel) which consume these classes, so the
-   spec lives in exactly one place. See the design contract in CLAUDE.md.
+   spec lives in exactly one place. See the design contract in AGENTS.md.
    ─────────────────────────────────────────────────────────────────────────── */
 @layer components {
   /* Text field / select / textarea — one shared control spec. */

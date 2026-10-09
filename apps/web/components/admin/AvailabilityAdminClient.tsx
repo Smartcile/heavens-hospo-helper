@@ -16,6 +16,7 @@ import { DateNav } from '@/components/admin/DateNav'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { AvailabilityBar } from '@/components/availability/AvailabilityBar'
 import { AvailabilityDayEditor, type EditorDraft, type EditorSaveOptions } from '@/components/availability/AvailabilityDayEditor'
+import { StaffEditModal } from '@/components/admin/StaffEditModal'
 import { moveItem } from '@/lib/array'
 import { dateKeysBetween } from '@/lib/calendar'
 import { formatDateLong, keyOfDay, mondayOf, parseDay, shiftDay, type DateRange } from '@/lib/date-nav'
@@ -103,6 +104,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [editor, setEditor] = useState<{ staffId: string; date: string } | null>(null)
+  const [editStaffId, setEditStaffId] = useState<string | null>(null)
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [pinnedDay, setPinnedDay] = useState<string | null>(null)
   const [groupByPosition, setGroupByPosition] = useState(true)
@@ -151,8 +153,16 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
     return buildStaffGroups(data.staff, positions)
   }, [data, positions])
 
-  // A pinned day is a temporary custom view: the grouped layout is suspended
-  // and every person available that day floats to the top of the list.
+  // A pinned day floats the people available that day to the top of their
+  // position group — the grouping itself stays put.
+  const displayGroups = useMemo(() => {
+    if (!pinnedDay) return groups
+    return groups.map((g) => ({
+      ...g,
+      items: sortByPinnedAvailability(g.items, (s) => isAvailableOn(s.id, pinnedDay)),
+    }))
+  }, [groups, pinnedDay, entryIndex]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const ungroupedStaff = useMemo(() => {
     if (!data) return []
     if (!pinnedDay) return data.staff
@@ -256,7 +266,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
     return s ? `${s.firstName} ${s.lastName}` : 'STAFF'
   }
 
-  async function review(kind: 'ids' | 'series', ids: string[], staffId: string, seriesId: string | null, action: 'APPROVE' | 'DECLINE', noteKey: string) {
+  async function review(kind: 'ids' | 'series', ids: string[], staffId: string, seriesId: string | null, action: 'APPROVE' | 'DECLINE' | 'DELETE', noteKey: string) {
     setBusy(true)
     const body: Record<string, unknown> = { venueId, action, reviewNote: notes[noteKey] ?? null }
     if (kind === 'series' && seriesId) { body.seriesId = seriesId; body.staffId = staffId }
@@ -333,9 +343,16 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
   function renderStaffRow(s: AdminStaff) {
     return (
       <div key={s.id} className="contents">
-        <div className="sticky left-0 z-10 bg-grey-dark border-b border-r border-grey-mid px-3 py-2">
-          <div className="font-mono text-xs text-white uppercase truncate">{s.firstName} {s.lastName}</div>
-          <div className="font-mono text-2xs text-grey-light uppercase">{s.employmentType ?? ''}</div>
+        <div className="sticky left-0 z-10 bg-grey-dark border-b border-r border-grey-mid">
+          <button
+            type="button"
+            onClick={() => setEditStaffId(s.id)}
+            title="EDIT STAFF"
+            className="w-full text-left px-3 py-2 hover:bg-black/30 transition-colors"
+          >
+            <div className="font-mono text-xs text-white uppercase truncate underline decoration-dotted underline-offset-2">{s.firstName} {s.lastName}</div>
+            <div className="font-mono text-2xs text-grey-light uppercase">{s.employmentType ?? ''}</div>
+          </button>
         </div>
         {days.map((d) => {
           const entry = entryFor(s.id, d)
@@ -433,6 +450,9 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
                   className="h-9 px-3 bg-success text-black font-mono text-xs uppercase font-bold hover:opacity-80 disabled:opacity-40">CONFIRM</button>
                 <button disabled={busy} onClick={() => review(first.seriesId ? 'series' : 'ids', rows.map((r) => r.id!).filter(Boolean), first.staffId ?? '', first.seriesId, 'DECLINE', key)}
                   className="h-9 px-3 border border-danger text-danger font-mono text-xs uppercase hover:bg-danger hover:text-black disabled:opacity-40">DECLINE</button>
+                <button disabled={busy} onClick={() => review(first.seriesId ? 'series' : 'ids', rows.map((r) => r.id!).filter(Boolean), first.staffId ?? '', first.seriesId, 'DELETE', key)}
+                  title="CANCEL THIS DECLARATION WITHOUT APPROVING OR DECLINING"
+                  className="h-9 px-3 border border-grey-mid text-grey-light font-mono text-xs uppercase hover:border-danger hover:text-danger disabled:opacity-40">CANCEL</button>
               </div>
             </div>
           )
@@ -517,8 +537,8 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
               )
             })}
 
-            {groupByPosition && !pinnedDay
-              ? groups.map((g) => (
+            {groupByPosition
+              ? displayGroups.map((g) => (
                   <div key={g.key} className="contents">
                     <div
                       ref={(el) => {
@@ -577,6 +597,16 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
           />
         )}
       </Modal>
+
+      {/* Staff editor — opened from the name in the grid */}
+      {editStaffId && (
+        <StaffEditModal
+          staffId={editStaffId}
+          role={role}
+          onClose={() => setEditStaffId(null)}
+          onSaved={() => { setEditStaffId(null); load() }}
+        />
+      )}
     </div>
   )
 }
