@@ -80,6 +80,8 @@ export async function POST(req: NextRequest) {
     category,
     guideType,
     bodyHtml,
+    pdfPath,
+    pdfUrl,
     departmentId,
     folderId,
     sourceMenuId,
@@ -98,6 +100,8 @@ export async function POST(req: NextRequest) {
     category?: string
     guideType?: string | null
     bodyHtml?: string | null
+    pdfPath?: string | null
+    pdfUrl?: string | null
     departmentId?: string | null
     folderId?: string | null
     sourceMenuId?: string | null
@@ -134,6 +138,8 @@ export async function POST(req: NextRequest) {
       category: category ? String(category).toUpperCase().trim() : null,
       guideType: guideTypeValue(guideType),
       bodyHtml: cleanBodyHtml(bodyHtml),
+      pdfPath: pdfPath ? String(pdfPath).trim() : null,
+      pdfUrl: pdfUrl ? String(pdfUrl).trim() : null,
       venueId: scopedVenueId,
       departmentId: departmentId || null,
       folderId: await scopedFolderId(folderId, scopedVenueId),

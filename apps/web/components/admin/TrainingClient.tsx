@@ -5,6 +5,7 @@ import { TRAINING_TABS, resolveTab, hubUrl } from '@/lib/hub-tabs'
 import { LineTabs } from '@/components/admin/LineTabs'
 import { GuidesClient } from '@/components/admin/GuidesClient'
 import { PathwaysClient } from '@/components/admin/PathwaysClient'
+import { TrainingStatusClient } from '@/components/admin/TrainingStatusClient'
 
 interface TrainingClientProps {
   role: string
@@ -30,6 +31,7 @@ export function TrainingClient({ role, sessionVenueId, defaultVenueId }: Trainin
       <div className="flex-1 p-4 md:p-6">
         {tab === 'playbook' && <GuidesClient {...venueProps} />}
         {tab === 'pathways' && <PathwaysClient {...venueProps} />}
+        {tab === 'status' && <TrainingStatusClient {...venueProps} />}
       </div>
     </div>
   )

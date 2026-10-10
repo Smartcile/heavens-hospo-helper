@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   PRODUCT_REFERENCE_DEFAULT_COLUMNS,
+  formatEquipment,
   sanitiseColumns,
   sanitiseCells,
   formatMoney,
@@ -11,6 +12,7 @@ import {
   isDerivedColumn,
   isMenuField,
   mergeMenuRows,
+  type MenuField,
   type ReferenceRowDraftLike,
   type ReferenceMenuItem,
 } from './reference-table'
@@ -22,6 +24,10 @@ const wine: ReferenceMenuItem = {
   description: 'Crisp, citrus-led.',
   imageUrl: '/uploads/wine.png',
   dietaryInfo: 'SULPHITES',
+  tastingNotes: 'CITRUS, MINERAL',
+  vintage: '2024',
+  howToServe: 'CHILLED, POUR 150ML',
+  equipment: '1x WINE GLASS, 1x CHILLER',
   serveMethod: 'WINE',
   serveSummary: 'GLASS · 150 ML / BOTTLE · 750 ML',
 }
@@ -66,16 +72,28 @@ describe('sanitiseColumns', () => {
 })
 
 describe('sanitiseCells', () => {
-  const cols = sanitiseColumns(PRODUCT_REFERENCE_DEFAULT_COLUMNS)
+  // The defaults are now fully derived; manual-column behaviour is tested with
+  // explicit manual columns.
+  const manualCols = sanitiseColumns([
+    { key: 'equipment', label: 'EQUIPMENT', type: 'TEXT' },
+    { key: 'tasting', label: 'TASTING', type: 'LONG_TEXT' },
+    { key: 'price', label: 'PRICE', type: 'MENU_FIELD', menuField: 'PRICE' },
+  ])
 
   it('stores manual columns and drops derived ones', () => {
-    const cells = sanitiseCells({ equipment: ' WINE GLASS ', tasting: 'OAKY', price: 'ignored' }, cols)
+    const cells = sanitiseCells({ equipment: ' WINE GLASS ', tasting: 'OAKY', price: 'ignored' }, manualCols)
     expect(cells).toEqual({ equipment: 'WINE GLASS', tasting: 'OAKY' })
   })
 
   it('joins arrays and ignores unknown keys', () => {
-    const cells = sanitiseCells({ equipment: ['A', 'B'], nope: 'x' }, cols)
+    const cells = sanitiseCells({ equipment: ['A', 'B'], nope: 'x' }, manualCols)
     expect(cells).toEqual({ equipment: 'A, B' })
+  })
+
+  it('never stores a derived default column', () => {
+    const cols = sanitiseColumns(PRODUCT_REFERENCE_DEFAULT_COLUMNS)
+    const cells = sanitiseCells({ equipment: 'WINE GLASS', tasting: 'OAKY', price: '$9' }, cols)
+    expect(cells).toEqual({})
   })
 })
 
@@ -96,11 +114,35 @@ describe('menuFieldValue / displayCellText', () => {
   })
 
   it('reads derived columns from the product, manual from cells', () => {
-    const price = PRODUCT_REFERENCE_DEFAULT_COLUMNS[1]
-    const equipment = PRODUCT_REFERENCE_DEFAULT_COLUMNS[3]
-    const row = { menuItem: wine, cells: { equipment: 'TUMBLER' } }
-    expect(displayCellText(row, price)).toBe('$14.00')
-    expect(displayCellText(row, equipment)).toBe('TUMBLER')
+    const col = (field: MenuField) => ({ key: field, label: field, type: 'MENU_FIELD' as const, menuField: field })
+    expect(displayCellText({ menuItem: wine, cells: {} }, col('PRICE'))).toBe('$14.00')
+    expect(displayCellText({ menuItem: wine, cells: {} }, col('TASTING_NOTES'))).toBe('CITRUS, MINERAL')
+    expect(displayCellText({ menuItem: wine, cells: {} }, col('VINTAGE'))).toBe('2024')
+    expect(displayCellText({ menuItem: wine, cells: {} }, col('HOW_TO_SERVE'))).toBe('CHILLED, POUR 150ML')
+    expect(displayCellText({ menuItem: wine, cells: {} }, col('EQUIPMENT'))).toBe('1x WINE GLASS, 1x CHILLER')
+    expect(displayCellText({ menuItem: null, cells: {} }, col('EQUIPMENT'))).toBeNull()
+    const manual = { key: 'equipment', label: 'EQUIPMENT', type: 'TEXT' as const }
+    expect(displayCellText({ menuItem: wine, cells: { equipment: 'TUMBLER' } }, manual)).toBe('TUMBLER')
+  })
+
+  it('flags every new derived field as derived, never editable', () => {
+    const cols = sanitiseColumns(PRODUCT_REFERENCE_DEFAULT_COLUMNS)
+    const derived = cols.filter((c) => isDerivedColumn(c)).map((c) => c.key)
+    expect(derived).toEqual(expect.arrayContaining(['equipment', 'tasting', 'vintage', 'how_to_serve']))
+    for (const key of ['equipment', 'tasting', 'vintage', 'how_to_serve']) {
+      expect(columnIsEditable(cols.find((c) => c.key === key)!)).toBe(false)
+    }
+  })
+})
+
+describe('formatEquipment', () => {
+  it('summarises links with quantities', () => {
+    expect(formatEquipment([{ name: 'WINE GLASS' }, { name: 'DECANTER', qty: 2 }])).toBe('WINE GLASS, 2x DECANTER')
+  })
+
+  it('returns null for empty or nameless links', () => {
+    expect(formatEquipment([])).toBeNull()
+    expect(formatEquipment([{ name: '' }])).toBeNull()
   })
 })
 

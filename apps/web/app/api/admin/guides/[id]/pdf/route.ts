@@ -14,10 +14,12 @@ import {
   generateGuidePdf,
   guidePdfToBuffer,
   guidePdfFilename,
+  loadGuideAttachmentBuffer,
   loadImageDataUrl,
   type GuidePdfData,
   type GuidePdfLink,
 } from '@/lib/guide-pdf'
+import { mergePdfBuffers } from '@/lib/gift-card-template'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -107,8 +109,18 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     table,
   }
 
-  const buffer = guidePdfToBuffer(generateGuidePdf(data))
-  return new NextResponse(buffer, {
+  let buffer: Buffer = Buffer.from(guidePdfToBuffer(generateGuidePdf(data)))
+  // A guide-level PDF attachment is appended after the generated pages, so the
+  // download is the whole guide: steps + the source document.
+  const attachment = await loadGuideAttachmentBuffer(guide.pdfPath)
+  if (attachment) {
+    try {
+      buffer = await mergePdfBuffers([buffer, attachment])
+    } catch {
+      // Corrupt/protected attachment — keep the generated PDF.
+    }
+  }
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="${guidePdfFilename(guide.title)}"`,

@@ -67,7 +67,7 @@ function nearestKey(refs: Record<string, HTMLElement | null>, x: number, y: numb
   return idx === null ? null : keys[idx]
 }
 
-function GuidesInner() {
+function GuidesInner({ role }: { role: string }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [items, setItems] = useState<GuideItem[]>([])
@@ -433,9 +433,19 @@ function GuidesInner() {
                 : `${done} OF ${items.length} COMPLETE`}
             </p>
           </div>
-          {canEdit && (
-            <button onClick={() => setEditor({ id: null })} className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors">+ NEW</button>
-          )}
+          <div className="flex items-center gap-2">
+            {(role === 'ADMIN' || role === 'MANAGER') && (
+              <a
+                href="/admin/training?tab=status"
+                className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors"
+              >
+                TRAINING STATUS →
+              </a>
+            )}
+            {canEdit && (
+              <button onClick={() => setEditor({ id: null })} className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors">+ NEW</button>
+            )}
+          </div>
         </div>
 
         {pathway && tab === 'tree' ? (
@@ -563,10 +573,10 @@ function GuidesInner() {
   )
 }
 
-export function WorkerGuidesClient() {
+export function WorkerGuidesClient({ role = 'STAFF' }: { role?: string }) {
   return (
     <Suspense fallback={<div className="min-h-screen bg-black flex items-center justify-center"><p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p></div>}>
-      <GuidesInner />
+      <GuidesInner role={role} />
     </Suspense>
   )
 }

@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "node ../../scripts/bump-version.mjs",
+    "predev": "node ../../scripts/copy-pdf-worker.mjs",
+    "prebuild": "node ../../scripts/bump-version.mjs && node ../../scripts/copy-pdf-worker.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
@@ -28,6 +29,7 @@
     "next-auth": "^4.24.0",
     "nodemailer": "^9.0.3",
     "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38",
     "qrcode": "^1.5.4",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",

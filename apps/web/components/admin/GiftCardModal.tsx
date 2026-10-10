@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Panel } from '@/components/ui/Panel'
+import { PdfCanvasViewer } from '@/components/ui/PdfCanvasViewer'
 
 // Gift card popup: click any card in the list. Left = the card itself (edit
 // details, status actions, private notes, PDF/email); right = the
@@ -524,7 +525,9 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                 <span className="font-mono text-2xs uppercase text-grey-light/70">{card?.pdfPath ? 'ISSUED PDF' : 'TEMPLATE SAMPLE'}</span>
               </div>
               {previewUrl ? (
-                <iframe src={previewUrl} title="GIFT CARD PREVIEW" className="w-full h-[46vh] bg-white border border-grey-mid" />
+                <div className="h-[46vh] border border-grey-mid flex flex-col">
+                  <PdfCanvasViewer url={previewUrl} title="GIFT CARD PREVIEW" />
+                </div>
               ) : (
                 <div className="flex items-center justify-center p-6 border border-grey-mid">
                   <p className="font-mono text-xs uppercase text-grey-light">NO CUSTOM TEMPLATE — THE BUILT-IN CARD DESIGN WILL BE USED</p>

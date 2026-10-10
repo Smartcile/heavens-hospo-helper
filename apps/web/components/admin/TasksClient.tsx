@@ -394,9 +394,9 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
         <Button variant="ghost" size="sm" onClick={() => setPdfOpen(true)}>⬇ PDF</Button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" style={{ height: 'calc(100vh - 10rem)', overflow: 'hidden' }}>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         {/* LEFT — tasks grouped by department → section */}
-        <div className="space-y-4 overflow-y-auto pr-2">
+        <div className="space-y-4 pr-2">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <h2 className="font-mono text-sm uppercase tracking-widest text-grey-light">TASKS</h2>
             <Button onClick={openCreate} size="sm">+ NEW TASK</Button>

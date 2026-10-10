@@ -34,6 +34,10 @@ export interface ReferenceProductOption {
   description: string | null
   imageUrl: string | null
   dietaryInfo: string | null
+  tastingNotes?: string | null
+  vintage?: string | null
+  howToServe?: string | null
+  equipment?: string | null
   serveMethod?: string | null
   serveSummary?: string | null
 }
@@ -85,6 +89,10 @@ export function ReferenceTableEditor({
       description: p.description,
       imageUrl: p.imageUrl,
       dietaryInfo: p.dietaryInfo,
+      tastingNotes: p.tastingNotes ?? null,
+      vintage: p.vintage ?? null,
+      howToServe: p.howToServe ?? null,
+      equipment: p.equipment ?? null,
       serveMethod: p.serveMethod ?? null,
       serveSummary: p.serveSummary ?? null,
     }

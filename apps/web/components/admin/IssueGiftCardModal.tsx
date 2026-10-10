@@ -1,8 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { PdfCanvasViewer } from '@/components/ui/PdfCanvasViewer'
+import { formatDate } from '@/lib/utils'
 
 // Issue popup: pick the details for the next blank card (mirrors the card
 // edit popup layout), choose WHICH template the card prints on, see it as a
@@ -16,6 +18,7 @@ interface TemplateOption {
   name: string
   filePath: string | null
   isActive: boolean
+  fieldMapping?: { pdfField: string; dataKey: string; format?: string }[] | null
 }
 
 interface IssueGiftCardModalProps {
@@ -28,7 +31,7 @@ interface IssueGiftCardModalProps {
 }
 
 export function IssueGiftCardModal({ cardId, cardNumber, templates, activeTemplateId, onClose, onIssued }: IssueGiftCardModalProps) {
-  const usable = templates.filter((t) => t.filePath)
+  const usable = useMemo(() => templates.filter((t) => t.filePath), [templates])
   const [templateId, setTemplateId] = useState(
     () => (activeTemplateId && usable.some((t) => t.id === activeTemplateId) ? activeTemplateId : usable[0]?.id ?? ''),
   )
@@ -39,6 +42,8 @@ export function IssueGiftCardModal({ cardId, cardNumber, templates, activeTempla
   const [isInternal, setIsInternal] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const previewSeq = useRef(0)
 
   async function issue() {
     const value = parseFloat(amount)
@@ -66,7 +71,48 @@ export function IssueGiftCardModal({ cardId, cardNumber, templates, activeTempla
     }
   }
 
-  const previewUrl = templateId ? `/api/admin/gift-card-templates/${templateId}/preview` : null
+  // Live preview of the card WITH the data being typed (debounced). The
+  // endpoint merges partial values over its sample data.
+  useEffect(() => {
+    const template = usable.find((t) => t.id === templateId)
+    if (!template) {
+      setPreviewUrl(null)
+      return
+    }
+    const seq = ++previewSeq.current
+    const timer = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/admin/gift-card-templates/${template.id}/preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fieldMapping: template.fieldMapping ?? [],
+            values: {
+              number: cardNumber,
+              amount,
+              customerName,
+              issueDate: formatDate(new Date()),
+              message,
+            },
+          }),
+        })
+        if (seq !== previewSeq.current) return
+        if (!r.ok) {
+          setPreviewUrl(null)
+          return
+        }
+        const blob = await r.blob()
+        if (seq !== previewSeq.current) return
+        setPreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev)
+          return URL.createObjectURL(blob)
+        })
+      } catch {
+        if (seq === previewSeq.current) setPreviewUrl(null)
+      }
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [templateId, cardNumber, customerName, amount, message, usable])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
@@ -144,7 +190,7 @@ export function IssueGiftCardModal({ cardId, cardNumber, templates, activeTempla
               )}
             </div>
             {previewUrl ? (
-              <iframe src={previewUrl} title="GIFT CARD TEMPLATE PREVIEW" className="w-full flex-1 bg-white min-h-0" />
+              <PdfCanvasViewer url={previewUrl} title="GIFT CARD PREVIEW" />
             ) : (
               <div className="flex-1 flex items-center justify-center p-4">
                 <p className="font-mono text-xs uppercase text-grey-light">

@@ -80,8 +80,16 @@ const LINK_ACCENT: Record<string, [number, number, number]> = {
   RECIPE: [202, 165, 48],
 }
 
-function imageFormat(dataUrl: string): 'PNG' | 'JPEG' {
-  return /^data:image\/png/i.test(dataUrl) ? 'PNG' : 'JPEG'
+type PdfImageFormat = 'PNG' | 'JPEG' | 'WEBP' | 'GIF'
+
+function imageFormat(dataUrl: string): PdfImageFormat {
+  const m = /^data:image\/(png|jpe?g|webp|gif)/i.exec(dataUrl)
+  if (!m) return 'JPEG'
+  const kind = m[1].toLowerCase()
+  if (kind === 'png') return 'PNG'
+  if (kind === 'webp') return 'WEBP'
+  if (kind === 'gif') return 'GIF'
+  return 'JPEG'
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -485,6 +493,21 @@ function stampFooter(doc: jsPDF, venueName: string) {
   }
 }
 
+/**
+ * Read an uploaded guide-level PDF from the storage root for merging into the
+ * generated guide PDF. Returns null when absent or unreadable.
+ */
+export async function loadGuideAttachmentBuffer(url: string | null | undefined): Promise<Buffer | null> {
+  if (!url) return null
+  try {
+    const file = storageFileForUrl(url)
+    if (file) return await fs.promises.readFile(file)
+  } catch {
+    // Missing file — the generated PDF still downloads.
+  }
+  return null
+}
+
 export function guidePdfToBuffer(doc: jsPDF): ArrayBuffer {
   return doc.output('arraybuffer')
 }
@@ -525,6 +548,34 @@ function storageFileForUrl(url: string): string | null {
   return null
 }
 
+/** Embed directly up to this size; anything bigger is re-encoded first. */
+const MAX_DIRECT_EMBED_BYTES = 3_500_000
+/** Hard ceiling when sharp is unavailable — better a big PDF than a missing photo. */
+const MAX_SOURCE_BYTES = 15_000_000
+
+/**
+ * Turn an image buffer into an embeddable data URL. Large photos are
+ * downscaled and re-encoded to JPEG with sharp so they are never silently
+ * dropped (the old 2 MB cap) and don't bloat the PDF.
+ */
+async function embedImageBuffer(buf: Buffer, mime: string): Promise<string | null> {
+  if (buf.byteLength <= MAX_DIRECT_EMBED_BYTES) {
+    return `data:${mime};base64,${buf.toString('base64')}`
+  }
+  try {
+    const sharp = (await import('sharp')).default
+    const out = await sharp(buf)
+      .rotate()
+      .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 78, mozjpeg: true })
+      .toBuffer()
+    return `data:image/jpeg;base64,${out.toString('base64')}`
+  } catch {
+    if (buf.byteLength <= MAX_SOURCE_BYTES) return `data:${mime};base64,${buf.toString('base64')}`
+    return null
+  }
+}
+
 /**
  * Load a step image into a data URL for jsPDF. Local uploads are read from
  * the storage root; remote URLs are fetched with a short timeout. Returns
@@ -537,9 +588,8 @@ export async function loadImageDataUrl(url: string | null | undefined): Promise<
     const file = storageFileForUrl(url)
     if (file) {
       const buf = await fs.promises.readFile(file)
-      if (buf.byteLength > 2_000_000) return null
       const ext = path.extname(file).slice(1).toLowerCase()
-      return `data:${LOCAL_MIME[ext] ?? 'image/png'};base64,${buf.toString('base64')}`
+      return embedImageBuffer(buf, LOCAL_MIME[ext] ?? 'image/png')
     }
     if (url.startsWith('http://') || url.startsWith('https://')) {
       const ctrl = new AbortController()
@@ -548,9 +598,8 @@ export async function loadImageDataUrl(url: string | null | undefined): Promise<
         const r = await fetch(url, { signal: ctrl.signal })
         if (!r.ok) return null
         const buf = Buffer.from(await r.arrayBuffer())
-        if (buf.byteLength > 2_000_000) return null
         const type = r.headers.get('content-type')?.split(';')[0] ?? 'image/jpeg'
-        return `data:${type};base64,${buf.toString('base64')}`
+        return embedImageBuffer(buf, type)
       } finally {
         clearTimeout(t)
       }

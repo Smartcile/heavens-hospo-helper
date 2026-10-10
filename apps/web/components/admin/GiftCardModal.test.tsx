@@ -185,8 +185,8 @@ describe('GiftCardModal replacement', () => {
   it('shows the issued card PDF as an inline preview with the history underneath', async () => {
     render(<GiftCardModal cardId="card-1" onClose={() => {}} onChanged={() => {}} />)
 
-    const frame = await screen.findByTitle('GIFT CARD PREVIEW') as HTMLIFrameElement
-    expect(frame.getAttribute('src')).toBe('/api/admin/gift-cards/card-1/pdf?inline=1')
+    const frame = await screen.findByTitle('GIFT CARD PREVIEW')
+    expect(frame.getAttribute('data-pdf-src')).toBe('/api/admin/gift-cards/card-1/pdf?inline=1')
     expect(screen.getByText('ISSUED PDF')).toBeTruthy()
 
     // History sits in the right-hand column below the preview.

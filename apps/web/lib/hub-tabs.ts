@@ -84,6 +84,7 @@ export const EXECUTION_TABS: TabDef[] = [
 export const TRAINING_TABS: TabDef[] = [
   { id: 'playbook', label: 'PLAYBOOK' },
   { id: 'pathways', label: 'PATHWAYS' },
+  { id: 'status', label: 'STATUS' },
 ]
 
 export const SETTINGS_TABS: TabDef[] = [

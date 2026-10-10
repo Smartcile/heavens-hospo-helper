@@ -19,7 +19,16 @@ export type ReferenceColumnType =
   | 'IMAGE'
   | 'SELECT'
 
-export type MenuField = 'NAME' | 'PRICE' | 'DESCRIPTION' | 'IMAGE' | 'DIETARY'
+export type MenuField =
+  | 'NAME'
+  | 'PRICE'
+  | 'DESCRIPTION'
+  | 'IMAGE'
+  | 'DIETARY'
+  | 'TASTING_NOTES'
+  | 'VINTAGE'
+  | 'HOW_TO_SERVE'
+  | 'EQUIPMENT'
 
 export const REFERENCE_COLUMN_TYPES: ReferenceColumnType[] = [
   'MENU_ITEM',
@@ -33,7 +42,7 @@ export const REFERENCE_COLUMN_TYPES: ReferenceColumnType[] = [
   'SELECT',
 ]
 
-export const MENU_FIELDS: MenuField[] = ['NAME', 'PRICE', 'DESCRIPTION', 'IMAGE', 'DIETARY']
+export const MENU_FIELDS: MenuField[] = ['NAME', 'PRICE', 'DESCRIPTION', 'IMAGE', 'DIETARY', 'TASTING_NOTES', 'VINTAGE', 'HOW_TO_SERVE', 'EQUIPMENT']
 
 export const REFERENCE_COLUMN_TYPE_LABELS: Record<ReferenceColumnType, string> = {
   MENU_ITEM: 'LINKED PRODUCT',
@@ -58,6 +67,10 @@ export const MENU_FIELD_LABELS: Record<MenuField, string> = {
   DESCRIPTION: 'DESCRIPTION',
   IMAGE: 'IMAGE',
   DIETARY: 'ALLERGENS / DIETARY',
+  TASTING_NOTES: 'TASTING NOTES',
+  VINTAGE: 'VINTAGE / YEAR',
+  HOW_TO_SERVE: 'HOW TO SERVE',
+  EQUIPMENT: 'GLASSWARE / EQUIPMENT',
 }
 
 export type ColumnWidth = 'S' | 'M' | 'L'
@@ -82,9 +95,23 @@ export interface ReferenceMenuItem {
   description: string | null
   imageUrl: string | null
   dietaryInfo: string | null
+  /** Product detail fields (see MenuItem in schema). */
+  tastingNotes?: string | null
+  vintage?: string | null
+  howToServe?: string | null
+  /** Equipment links, already summarised ("1x WINE GLASS, 1x DECANTER"). */
+  equipment?: string | null
   /** Derived from the product's serves (see lib/menu-serves.ts). */
   serveMethod?: string | null
   serveSummary?: string | null
+}
+
+/** Summary of a product's equipment links, in link order. */
+export function formatEquipment(links: { name: string; qty?: number | null }[]): string | null {
+  const parts = links
+    .filter((l) => l.name)
+    .map((l) => `${l.qty && l.qty > 1 ? `${l.qty}x ` : ''}${l.name}`)
+  return parts.length ? parts.join(', ') : null
 }
 
 export interface ReferenceRowLike {
@@ -114,10 +141,11 @@ export const PRODUCT_REFERENCE_DEFAULT_COLUMNS: ReferenceColumn[] = [
   { key: 'item', label: 'ITEM', type: 'MENU_ITEM', width: 'L' },
   { key: 'price', label: 'PRICE', type: 'MENU_FIELD', menuField: 'PRICE', width: 'S' },
   { key: 'description', label: 'DESCRIPTION', type: 'MENU_FIELD', menuField: 'DESCRIPTION', width: 'L' },
-  { key: 'equipment', label: 'GLASSWARE / EQUIPMENT', type: 'TEXT', width: 'M' },
-  { key: 'serve_measure', label: 'SERVE MEASURE', type: 'TEXT', width: 'S' },
-  { key: 'how_to_serve', label: 'HOW TO SERVE', type: 'LONG_TEXT', width: 'L' },
-  { key: 'tasting', label: 'TASTING PROFILE', type: 'LONG_TEXT', width: 'L' },
+  { key: 'equipment', label: 'GLASSWARE / EQUIPMENT', type: 'MENU_FIELD', menuField: 'EQUIPMENT', width: 'M' },
+  { key: 'serve_measure', label: 'SERVE MEASURE', type: 'SERVE', width: 'S' },
+  { key: 'how_to_serve', label: 'HOW TO SERVE', type: 'MENU_FIELD', menuField: 'HOW_TO_SERVE', width: 'L' },
+  { key: 'tasting', label: 'TASTING PROFILE', type: 'MENU_FIELD', menuField: 'TASTING_NOTES', width: 'L' },
+  { key: 'vintage', label: 'VINTAGE / YEAR', type: 'MENU_FIELD', menuField: 'VINTAGE', width: 'S' },
   { key: 'image', label: 'IMAGE', type: 'MENU_FIELD', menuField: 'IMAGE', width: 'M' },
 ]
 
@@ -222,6 +250,14 @@ export function menuFieldValue(menuItem: ReferenceMenuItem | null | undefined, f
       return menuItem.dietaryInfo || null
     case 'IMAGE':
       return menuItem.imageUrl || null
+    case 'TASTING_NOTES':
+      return menuItem.tastingNotes || null
+    case 'VINTAGE':
+      return menuItem.vintage || null
+    case 'HOW_TO_SERVE':
+      return menuItem.howToServe || null
+    case 'EQUIPMENT':
+      return menuItem.equipment || null
   }
 }
 

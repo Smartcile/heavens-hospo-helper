@@ -76,6 +76,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'fieldMapping must be an array' }, { status: 400 })
   }
 
+  // Optional card values so the issue popup can preview what is being typed;
+  // anything missing falls back to the sample block.
+  const raw = body?.values ?? {}
+  const parsedAmount = raw.amount === '' || raw.amount == null ? NaN : parseFloat(String(raw.amount))
+  const values = {
+    number: typeof raw.number === 'string' && raw.number.trim() ? raw.number.trim() : '20260001',
+    amount: Number.isFinite(parsedAmount) ? parsedAmount : 50,
+    customerName:
+      typeof raw.customerName === 'string' && raw.customerName.trim()
+        ? raw.customerName.trim()
+        : 'SAMPLE CUSTOMER',
+    issueDate: typeof raw.issueDate === 'string' && raw.issueDate.trim() ? raw.issueDate : formatDate(new Date()),
+    message:
+      typeof raw.message === 'string' && raw.message.trim()
+        ? raw.message
+        : 'Something special just for you - see you soon!',
+  }
+
   let fieldNames = new Set<string>()
   try {
     const fields = await discoverPdfFields(readFileSync(template.filePath as string))
@@ -102,13 +120,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const buffer = await fillGiftCardTemplate(
     readFileSync(template.filePath as string),
     fieldMapping as GiftCardFieldMapping[],
-    {
-      number: '20260001',
-      amount: 50,
-      customerName: 'SAMPLE CUSTOMER',
-      issueDate: formatDate(new Date()),
-      message: 'Something special just for you - see you soon!',
-    },
+    values,
   )
   return pdfResponse(buffer)
 }

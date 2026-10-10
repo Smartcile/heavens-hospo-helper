@@ -6,6 +6,7 @@ import { MultiImagePicker } from '@/components/ui/MultiImagePicker'
 import { VideoPicker } from '@/components/ui/VideoPicker'
 import { mergeStepImages } from '@/lib/guide-media'
 import { GUIDE_TYPES, GUIDE_TYPE_LABELS } from '@/lib/guide-types'
+import { moveItem } from '@/lib/array'
 
 interface GuideStep {
   id?: string
@@ -87,6 +88,7 @@ export function WorkerGuideEditor({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState<FormState>(blankForm)
+  const [stepDragIdx, setStepDragIdx] = useState<number | null>(null)
   const [options, setOptions] = useState<EditorOptions>({ departments: [], tasks: [] })
   const [taskSearch, setTaskSearch] = useState('')
 
@@ -272,12 +274,32 @@ export function WorkerGuideEditor({
             <button type="button" onClick={() => set('steps', [...form.steps, emptyStep()])} className="font-mono text-xs uppercase text-white hover:text-accent">+ ADD STEP</button>
           </div>
           {form.steps.map((s, i) => (
-            <div key={i} className="border border-grey-mid p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-xs text-grey-light">STEP {i + 1}</span>
-                {form.steps.length > 1 && (
-                  <button type="button" onClick={() => set('steps', form.steps.filter((_, idx) => idx !== i))} className="font-mono text-xs uppercase text-danger hover:opacity-80">DEL</button>
-                )}
+            <div
+              key={i}
+              className="border border-grey-mid p-3 space-y-2"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => {
+                if (stepDragIdx === null || stepDragIdx === i) return
+                set('steps', moveItem(form.steps, stepDragIdx, i))
+                setStepDragIdx(null)
+              }}
+            >
+              <div
+                draggable
+                onDragStart={(e) => { setStepDragIdx(i); e.dataTransfer.effectAllowed = 'move' }}
+                onDragEnd={() => setStepDragIdx(null)}
+                className="flex items-center justify-between cursor-grab active:cursor-grabbing"
+              >
+                <span className="font-mono text-xs text-grey-light flex items-center gap-1.5">
+                  <span aria-hidden className="text-grey-mid">⠿</span> STEP {i + 1}
+                </span>
+                <div className="flex items-center gap-3">
+                  <button type="button" disabled={i === 0} onClick={() => set('steps', moveItem(form.steps, i, i - 1))} className="font-mono text-xs text-grey-light hover:text-white disabled:opacity-30" title="Move up">↑</button>
+                  <button type="button" disabled={i === form.steps.length - 1} onClick={() => set('steps', moveItem(form.steps, i, i + 1))} className="font-mono text-xs text-grey-light hover:text-white disabled:opacity-30" title="Move down">↓</button>
+                  {form.steps.length > 1 && (
+                    <button type="button" onClick={() => set('steps', form.steps.filter((_, idx) => idx !== i))} className="font-mono text-xs uppercase text-danger hover:opacity-80">DEL</button>
+                  )}
+                </div>
               </div>
               <input value={s.heading} onChange={(e) => updateStep(i, { heading: e.target.value })} placeholder="STEP HEADING (OPTIONAL)" className={FIELD} />
               <textarea value={s.content} onChange={(e) => updateStep(i, { content: e.target.value })} rows={3} placeholder="What to do..." className={`${FIELD} font-sans`} />

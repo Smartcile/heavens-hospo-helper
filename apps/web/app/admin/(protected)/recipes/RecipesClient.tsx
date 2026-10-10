@@ -13,13 +13,15 @@ import { convertLine, convertQty, resolveItemKind, uomsForItem } from '@/lib/uni
 import { ImagePicker } from '@/components/ui/ImagePicker'
 import { menuItemUsageKey } from '@/lib/image-annotations'
 import { MenuItemServesEditor } from '@/components/admin/MenuItemServesEditor'
+import { MenuItemEquipmentEditor } from '@/components/admin/MenuItemEquipmentEditor'
+import { missingProductFields } from '@/lib/recipe-import'
 
 interface Recipe {
   id: string; name: string; yieldQty: number; yieldUnitId: string; instructions: string | null
   prepTime: number | null; version: number; isActive: boolean
   yieldUnit?: { id: string; name: string }
   lineItems?: LineItem[]
-  menuItem?: { id: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: Variation[] | null; dietaryInfo: string | null; swiftPosId?: string | null } | null
+  menuItem?: { id: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: Variation[] | null; dietaryInfo: string | null; swiftPosId?: string | null; tastingNotes?: string | null; vintage?: string | null; howToServe?: string | null } | null
 }
 
 interface LineItem {
@@ -41,7 +43,7 @@ interface PantryRef { id: string; name: string; densityGramsPerMl: number | null
 interface Variation { name: string; price: number; wooVariationId?: number }
 
 interface OrphanMenuItem {
-  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: Variation[] | null; dietaryInfo: string | null; swiftPosId?: string | null
+  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: Variation[] | null; dietaryInfo: string | null; swiftPosId?: string | null; tastingNotes?: string | null; vintage?: string | null; howToServe?: string | null
 }
 
   function generateId() { return crypto.randomUUID() }
@@ -68,6 +70,8 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   const [isCreating, setIsCreating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [recipeSearch, setRecipeSearch] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
+  const [importSearch, setImportSearch] = useState('')
 
   const [formName, setFormName] = useState('')
   const [formYieldQty, setFormYieldQty] = useState('1')
@@ -89,6 +93,11 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   // Image upload for linked Woo product
   const [formImageUrl, setFormImageUrl] = useState<string | null>(null)
   const [formShortDescription, setFormShortDescription] = useState('')
+
+  // Product detail fields (feed the training / reference guides)
+  const [formTastingNotes, setFormTastingNotes] = useState('')
+  const [formVintage, setFormVintage] = useState('')
+  const [formHowToServe, setFormHowToServe] = useState('')
 
   // Add ingredient modal
   const [showAddIngredient, setShowAddIngredient] = useState(false)
@@ -177,6 +186,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
     setNewItemId(''); setNewItemQty('1'); setNewItemUomId('')
     setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([])
     setFormDietaryInfo([]); setFormImageUrl(null); setFormShortDescription('')
+    setFormTastingNotes(''); setFormVintage(''); setFormHowToServe('')
     setFormIsVariable(false); setFormVariations([])
     setFormExistingMenuItemId(null); setFormMenuItemId(null); setFormSwiftPosId('')
   }
@@ -205,6 +215,9 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
       setFormDietaryInfo(r.menuItem.dietaryInfo ? r.menuItem.dietaryInfo.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
       setFormImageUrl(r.menuItem.imageUrl ?? null)
       setFormShortDescription(r.menuItem.shortDescription ?? '')
+      setFormTastingNotes(r.menuItem.tastingNotes ?? '')
+      setFormVintage(r.menuItem.vintage ?? '')
+      setFormHowToServe(r.menuItem.howToServe ?? '')
       setFormIsVariable(r.menuItem.isVariable ?? false)
       setFormVariations(r.menuItem.variations ?? [])
       setFormMenuItemId(r.menuItem.id)
@@ -212,6 +225,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
     } else {
     setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([])
     setFormDietaryInfo([]); setFormImageUrl(null); setFormShortDescription('')
+    setFormTastingNotes(''); setFormVintage(''); setFormHowToServe('')
     setFormIsVariable(false); setFormVariations([]); setFormMenuItemId(null); setFormSwiftPosId('')
     }
   }
@@ -225,6 +239,9 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
     setFormDietaryInfo(o.dietaryInfo ? o.dietaryInfo.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
     setFormImageUrl(o.imageUrl ?? null)
     setFormShortDescription(o.shortDescription ?? '')
+    setFormTastingNotes(o.tastingNotes ?? '')
+    setFormVintage(o.vintage ?? '')
+    setFormHowToServe(o.howToServe ?? '')
     setFormIsVariable(o.isVariable ?? false)
     setFormVariations(o.variations ?? [])
     setFormExistingMenuItemId(o.id)
@@ -373,6 +390,9 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
       existingMenuItemId: formExistingMenuItemId || undefined,
       swiftPosId: linkToMenu ? (formSwiftPosId || null) : undefined,
       dietaryInfo: formDietaryInfo.length > 0 ? formDietaryInfo.join(',') : null,
+      tastingNotes: linkToMenu ? (formTastingNotes || null) : undefined,
+      vintage: linkToMenu ? (formVintage || null) : undefined,
+      howToServe: linkToMenu ? (formHowToServe || null) : undefined,
       ...(venueId ? { venueId } : {}),
     }
     if (isCreating) {
@@ -415,7 +435,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   })()
 
   const filteredRecipes = recipes.filter(r => !recipeSearch || r.name.includes(recipeSearch))
-  const filteredOrphans = orphanItems.filter(o => !recipeSearch || o.name.includes(recipeSearch))
+  const importList = orphanItems.filter(o => !importSearch || o.name.includes(importSearch))
 
   // A menu's category id resolves to its name — the local, always-available
   // source. Store categories are a fallback; a raw id means the id doesn't
@@ -436,13 +456,20 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
 
   return (
     <div className="space-y-4">
-      <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">RECIPES & MENU ITEMS</h1>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">RECIPES & MENU ITEMS</h1>
+        {orphanItems.length > 0 && (
+          <Button variant="ghost" size="sm" onClick={() => { setImportSearch(''); setImportOpen(true) }}>
+            ⬇ IMPORT PRODUCTS ({orphanItems.length})
+          </Button>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-3">
           <ListBox
             title="ITEMS"
-            count={recipes.length + orphanItems.length}
+            count={recipes.length}
             action={<Button size="sm" onClick={() => { setSelectedId(null); setIsCreating(true); resetForm() }}>+ ADD</Button>}
           >
             <div className="p-2">
@@ -474,20 +501,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                   </div>
                 </ListRow>
               ))}
-              {filteredOrphans.length > 0 && filteredRecipes.length > 0 && (
-                <div className="px-3 py-1">
-                  <span className="font-mono text-xs text-warning uppercase">NEEDS RECIPE</span>
-                </div>
-              )}
-              {filteredOrphans.map((o) => (
-                <ListRow key={o.id} onClick={() => populateOrphan(o)}>
-                  <div className="min-w-0 flex-1">
-                    <span className="block truncate font-mono text-xs uppercase text-gold">{o.name}</span>
-                    <span className="block text-xs text-grey-light">IMPORTED · ${o.price.toFixed(2)}</span>
-                  </div>
-                </ListRow>
-              ))}
-              {filteredRecipes.length === 0 && filteredOrphans.length === 0 && (
+              {filteredRecipes.length === 0 && (
                 <p className="font-mono text-xs text-grey-light px-3 py-2">No recipes yet.</p>
               )}
             </div>
@@ -732,6 +746,27 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                       </div>
 
                       <div className="md:col-span-3">
+                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">TASTING NOTES</label>
+                        <textarea value={formTastingNotes} onChange={(e) => setFormTastingNotes(e.target.value)}
+                          placeholder="CRISP, CITRUS, MINERAL FINISH…"
+                          rows={3}
+                          className="w-full bg-black border border-grey-mid text-white font-sans text-sm px-3 py-2 outline-none focus:border-white placeholder:text-grey-light resize-y" />
+                      </div>
+
+                      <div>
+                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">VINTAGE / YEAR</label>
+                        <Input value={formVintage} onChange={(e) => setFormVintage(e.target.value.toUpperCase())} placeholder="2024 / NV" />
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">HOW TO SERVE</label>
+                        <textarea value={formHowToServe} onChange={(e) => setFormHowToServe(e.target.value)}
+                          placeholder="CHILLED, POUR 150ML, GARNISH WITH LIME…"
+                          rows={2}
+                          className="w-full bg-black border border-grey-mid text-white font-sans text-sm px-3 py-2 outline-none focus:border-white placeholder:text-grey-light resize-y" />
+                      </div>
+
+                      <div className="md:col-span-3">
                         <label className="flex items-center gap-2">
                           <input type="checkbox" checked={formIsVariable} onChange={(e) => { setFormIsVariable(e.target.checked); if (!e.target.checked) setFormVariations([]) }}
                             className="bg-black border border-grey-mid accent-white" />
@@ -784,6 +819,15 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                           <MenuItemServesEditor menuItemId={formMenuItemId} menuItemName={formName} venueId={venueId ?? ''} />
                         ) : (
                           <p className="font-mono text-xs text-grey-light uppercase">SAVE FIRST TO SET THE ITEM LINK (SERVES, STOCK DRAWDOWN).</p>
+                        )}
+                      </div>
+
+                      <div className="md:col-span-3 border-t border-grey-mid pt-3">
+                        <label className="font-mono text-xs uppercase text-grey-light block mb-2">EQUIPMENT — WHAT IT IS SERVED IN / WITH</label>
+                        {formMenuItemId ? (
+                          <MenuItemEquipmentEditor menuItemId={formMenuItemId} venueId={venueId} />
+                        ) : (
+                          <p className="font-mono text-xs text-grey-light uppercase">SAVE FIRST TO LINK EQUIPMENT (GLASSWARE, TOOLS).</p>
                         )}
                       </div>
                     </div>
@@ -884,6 +928,49 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
               {addingIngredient ? 'CREATING...' : 'CREATE'}
             </Button>
             <Button variant="ghost" onClick={() => { setShowAddIngredient(false); setNewIngredientName(''); setNewIngredientUomId(''); setNewIngredientCatId('') }}>CANCEL</Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={importOpen} onClose={() => setImportOpen(false)} title={`IMPORT PRODUCTS (${orphanItems.length})`} size="lg">
+        <div className="space-y-3">
+          <p className="font-mono text-xs text-grey-light uppercase">
+            PRODUCTS SYNCED FROM WOOCOMMERCE WITH NO RECIPE YET. PICK ONE TO BUILD ITS RECIPE — MISSING FIELDS ARE FLAGGED IN RED.
+          </p>
+          <Input value={importSearch} onChange={(e) => setImportSearch(e.target.value.toUpperCase())} placeholder="SEARCH PRODUCTS..." />
+          <div className="divide-y divide-grey-mid border border-grey-mid max-h-[55vh] overflow-y-auto">
+            {importList.length === 0 ? (
+              <p className="font-mono text-xs text-grey-light px-3 py-2">NO MATCHING PRODUCTS.</p>
+            ) : (
+              importList.map((o) => {
+                const gaps = missingProductFields(o)
+                return (
+                  <button
+                    key={o.id}
+                    onClick={() => { populateOrphan(o); setImportOpen(false) }}
+                    className="w-full text-left px-3 py-2.5 hover:bg-black/40 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-xs uppercase text-gold truncate">{o.name}</span>
+                      <span className="font-mono text-xs text-grey-light shrink-0">
+                        ${o.price.toFixed(2)}{o.wooProductId ? ` · WOO #${o.wooProductId}` : ''}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {gaps.length === 0 ? (
+                        <span className="font-mono text-xs uppercase border border-success/60 text-success px-1.5 py-0.5">READY — FIELDS COMPLETE</span>
+                      ) : (
+                        gaps.map((g) => (
+                          <span key={g.key} className="font-mono text-xs uppercase border border-danger/60 text-danger px-1.5 py-0.5">
+                            {g.label} NEEDED
+                          </span>
+                        ))
+                      )}
+                    </div>
+                  </button>
+                )
+              })
+            )}
           </div>
         </div>
       </Modal>

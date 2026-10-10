@@ -335,7 +335,7 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
           <table className="w-full border border-grey-mid">
             <thead>
               <tr className="border-b border-grey-mid">
-                {['NAME', 'ROLE', 'VENUE', 'DEPARTMENT', 'STATUS', 'ACTIONS'].map((h) => (
+                {['NAME', 'SOFTWARE ROLE', 'POSITIONS', 'VENUE', 'DEPARTMENT', 'STATUS', 'ACTIONS'].map((h) => (
                   <th key={h} className="px-4 py-2 font-mono text-xs uppercase text-grey-light text-left">
                     {h}
                   </th>
@@ -345,7 +345,7 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
             <tbody className="divide-y divide-grey-mid">
               {staff.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-4 font-mono text-xs text-grey-light">
+                  <td colSpan={7} className="px-4 py-4 font-mono text-xs text-grey-light">
                     NO STAFF FOUND.
                   </td>
                 </tr>
@@ -356,13 +356,19 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
                       {s.lastName}, {s.firstName}
                     </td>
                     <td className="px-4 py-2.5">
+                      <Badge variant={s.role === 'ADMIN' ? 'warning' : 'default'}>{s.role}</Badge>
+                    </td>
+                    <td className="px-4 py-2.5">
                       <div className="flex flex-wrap items-center gap-1">
-                        <Badge variant={s.role === 'ADMIN' ? 'warning' : 'default'}>{s.role}</Badge>
-                        {(s.positions ?? []).map((p) => (
-                          <span key={p.positionId} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1.5 py-0.5">
-                            {p.position.name}
-                          </span>
-                        ))}
+                        {(s.positions ?? []).length === 0 ? (
+                          <span className="font-mono text-xs text-grey-light">—</span>
+                        ) : (
+                          (s.positions ?? []).map((p) => (
+                            <span key={p.positionId} className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1.5 py-0.5">
+                              {p.position.name}
+                            </span>
+                          ))
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-2.5 font-mono text-xs text-grey-light">{s.venue.name}</td>
@@ -420,7 +426,7 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
 
           {isAdmin && (
             <Select
-              label="Role"
+              label="Software Role"
               value={form.role}
               onChange={(e) => setForm({ ...form, role: e.target.value })}
               options={ROLE_OPTIONS}
@@ -445,7 +451,7 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
           {formPositions.length > 0 && (
             <div className="flex flex-col gap-1">
               <label className="font-mono text-xs uppercase text-grey-light tracking-wider">
-                Roles{form.departmentId ? ' in this department' : ''} (optional)
+                Positions{form.departmentId ? ' in this department' : ''} (optional)
               </label>
               <div className="flex flex-wrap gap-1">
                 {formPositions.map((p) => (
@@ -466,7 +472,7 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
               {form.positionIds.length > 0 && (
                 <div className="space-y-1.5 mt-2 border-t border-grey-mid pt-2">
                   <div className="font-mono text-xs uppercase text-grey-light">
-                    Per-role rate (blank = role rate, then base rate)
+                    Per-position rate (blank = position rate, then base rate)
                   </div>
                   {form.positionIds.map((pid) => {
                     const p = positions.find((x) => x.id === pid)
@@ -490,7 +496,7 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 </div>
               )}
               <p className="font-mono text-xs text-grey-light">
-                ONE PERSON CAN HOLD SEVERAL ROLES. ROLES DRIVE GUIDE REQUIREMENTS AND PAY RATES.
+                ONE PERSON CAN HOLD SEVERAL POSITIONS. POSITIONS DRIVE GUIDE REQUIREMENTS AND PAY RATES.
               </p>
             </div>
           )}

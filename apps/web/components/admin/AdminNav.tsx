@@ -206,16 +206,38 @@ function Brand({ appName, role, venueId, defaultVenueId, availableVenueIds }: { 
   )
 }
 
+// Signing out of the admin panel also ends the worker session (and vice versa
+// from the worker UI), per the "log out of one = logged out of both" rule.
+async function signOutBoth() {
+  try { await fetch('/api/worker/logout', { method: 'POST' }) } catch { /* cookie clear is best-effort */ }
+  await signOut({ callbackUrl: '/' })
+}
+
+// Admin/manager → worker view: mints a worker session for the signed-in staff
+// member (no PIN needed) and lands on the worker dashboard.
+async function switchToWorkerView() {
+  const r = await fetch('/api/worker/switch', { method: 'POST' })
+  if (r.ok) window.location.href = '/w/dashboard'
+}
+
 function SignOutButton() {
   return (
-    <div className="p-4 border-t border-grey-mid flex items-center justify-between gap-2">
-      <ThemeToggle />
+    <div className="p-4 border-t border-grey-mid space-y-3">
       <button
-        onClick={() => signOut({ callbackUrl: '/' })}
-        className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors tracking-wider"
+        onClick={switchToWorkerView}
+        className="w-full font-mono text-xs uppercase border border-grey-mid px-2 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors tracking-wider"
       >
-        SIGN OUT
+        WORKER VIEW →
       </button>
+      <div className="flex items-center justify-between gap-2">
+        <ThemeToggle />
+        <button
+          onClick={signOutBoth}
+          className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors tracking-wider"
+        >
+          SIGN OUT
+        </button>
+      </div>
     </div>
   )
 }
@@ -281,7 +303,7 @@ export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds, gra
         <div className="font-mono font-bold text-sm uppercase tracking-widest text-white truncate">{appName}</div>
         <div className="flex items-center gap-3">
           <ThemeToggle />
-          <button onClick={() => signOut({ callbackUrl: '/' })} className="font-mono text-xs uppercase tracking-wider text-grey-light hover:text-danger transition-colors px-1">
+          <button onClick={signOutBoth} className="font-mono text-xs uppercase tracking-wider text-grey-light hover:text-danger transition-colors px-1">
             EXIT
           </button>
         </div>

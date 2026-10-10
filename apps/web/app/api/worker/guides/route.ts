@@ -48,6 +48,8 @@ export async function GET(req: NextRequest) {
     category: g.category,
     guideType: g.guideType,
     bodyHtml: g.bodyHtml,
+    pdfPath: g.pdfPath,
+    pdfUrl: g.pdfUrl,
     requiresSignOff: g.requiresSignOff,
     isOnboarding: g.isOnboarding,
     isTracked: true,

@@ -257,7 +257,7 @@ export function BudgetPageClient({
 
   return (
     <div className="p-6 space-y-6">
-      <BudgetMonthSelector year={year} month={month} variant="compact" role={role} venues={venues} selectedVenueId={selectedVenueId} onVenueChange={handleVenueChange} />
+      <BudgetMonthSelector year={year} month={month} role={role} venues={venues} selectedVenueId={selectedVenueId} onVenueChange={handleVenueChange} />
       {loading ? (
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
       ) : (

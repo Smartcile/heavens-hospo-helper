@@ -36,6 +36,9 @@ export interface GuideReaderGuide {
   category: string | null
   guideType: string | null
   bodyHtml: string | null
+  /** Guide-level documents: pdfPath = uploaded (served URL), pdfUrl = external. */
+  pdfPath?: string | null
+  pdfUrl?: string | null
   isTracked: boolean
   tableColumns?: ReferenceColumn[] | null
   tableRows?: ReferenceTableRow[] | null
@@ -154,6 +157,31 @@ export function GuideReaderContent({ guide, variant = 'admin' }: { guide: GuideR
           className="font-sans text-sm text-white leading-relaxed [&_h1]:text-lg [&_h1]:font-bold [&_h1]:my-2 [&_h2]:text-base [&_h2]:font-bold [&_h2]:my-2 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_a]:underline"
           dangerouslySetInnerHTML={{ __html: sanitiseRichText(guide.bodyHtml) }}
         />
+      )}
+
+      {(guide.pdfPath || guide.pdfUrl) && (
+        <div className="flex flex-wrap gap-2">
+          {guide.pdfPath && (
+            <a
+              href={guide.pdfPath}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block font-mono text-xs uppercase border border-grey-mid px-3 py-2 text-white hover:border-white transition-colors"
+            >
+              📄 OPEN GUIDE PDF
+            </a>
+          )}
+          {guide.pdfUrl && (
+            <a
+              href={guide.pdfUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block font-mono text-xs uppercase border border-grey-mid px-3 py-2 text-white hover:border-white transition-colors"
+            >
+              🔗 OPEN EXTERNAL PDF
+            </a>
+          )}
+        </div>
       )}
 
       {guide.tableColumns && guide.tableColumns.length > 0 && (

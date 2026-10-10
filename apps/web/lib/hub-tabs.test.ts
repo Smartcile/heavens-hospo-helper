@@ -25,7 +25,7 @@ describe('hub-tabs', () => {
   it('the three team hubs have their tab sets', () => {
     expect(TEAM_TABS.map((t) => t.id)).toEqual(['staff', 'roster', 'availability', 'clocks', 'payroll'])
     expect(EXECUTION_TABS.map((t) => t.id)).toEqual(['tasks', 'review', 'followups'])
-    expect(TRAINING_TABS.map((t) => t.id)).toEqual(['playbook', 'pathways'])
+    expect(TRAINING_TABS.map((t) => t.id)).toEqual(['playbook', 'pathways', 'status'])
     // FLOOR PLANS is grant-gated and FILES is admin-only — SettingsClient hides both.
     expect(SETTINGS_TABS.map((t) => t.id)).toEqual(['general', 'venue', 'structure', 'floorplans', 'uoms', 'suppliers', 'qrcodes', 'sync', 'swiftpos', 'files'])
   })

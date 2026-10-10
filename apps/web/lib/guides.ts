@@ -124,6 +124,9 @@ export interface ResolvedGuide {
   category: string | null
   guideType: string | null
   bodyHtml: string | null
+  /** Guide-level documents: uploaded (served URL) + external link. */
+  pdfPath: string | null
+  pdfUrl: string | null
   requiresSignOff: boolean
   isOnboarding: boolean
   folderId: string | null
@@ -306,6 +309,8 @@ export async function resolveStaffGuides(
       category: g.category,
       guideType: g.guideType,
       bodyHtml: g.bodyHtml,
+      pdfPath: g.pdfPath,
+      pdfUrl: g.pdfUrl,
       requiresSignOff: g.requiresSignOff,
       isOnboarding: g.isOnboarding,
       folderId: g.folderId ?? null,
@@ -348,6 +353,8 @@ export async function resolveStaffGuides(
       category: g.category,
       guideType: g.guideType,
       bodyHtml: g.bodyHtml,
+      pdfPath: g.pdfPath,
+      pdfUrl: g.pdfUrl,
       requiresSignOff: g.requiresSignOff,
       isOnboarding: g.isOnboarding,
       folderId: g.folderId ?? null,

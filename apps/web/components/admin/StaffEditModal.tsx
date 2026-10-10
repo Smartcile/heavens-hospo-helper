@@ -146,7 +146,7 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
             <Input label="Last Name" value={staff.lastName} onChange={(e) => patch({ lastName: e.target.value })} placeholder="SMITH" />
           </div>
           {isAdmin && (
-            <Select label="Role" value={staff.role} onChange={(e) => patch({ role: e.target.value })} options={ROLE_OPTIONS} />
+            <Select label="Software Role" value={staff.role} onChange={(e) => patch({ role: e.target.value })} options={ROLE_OPTIONS} />
           )}
           {isAdmin && (
             <Select label="Venue" value={staff.venueId} onChange={(e) => patch({ venueId: e.target.value, departmentId: '' })} options={venues.map((v) => ({ value: v.id, label: v.name }))} placeholder="SELECT VENUE" />
@@ -206,7 +206,7 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
               </div>
               {positionIds.length > 0 && (
                 <div className="space-y-1.5 mt-2 border-t border-grey-mid pt-2">
-                  <div className="font-mono text-xs uppercase text-grey-light">Per-role rate (blank = role rate, then base)</div>
+                  <div className="font-mono text-xs uppercase text-grey-light">Per-position rate (blank = position rate, then base)</div>
                   {positionIds.map((pid) => {
                     const p = formPositions.find((x) => x.id === pid)
                     if (!p) return null

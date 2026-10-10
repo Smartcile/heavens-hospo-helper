@@ -8,6 +8,7 @@ import { menuItemUsageKey } from '@/lib/image-annotations'
 import { Panel } from '@/components/ui/Panel'
 import { GiftCardModal } from '@/components/admin/GiftCardModal'
 import { IssueGiftCardModal } from '@/components/admin/IssueGiftCardModal'
+import { PdfCanvasViewer } from '@/components/ui/PdfCanvasViewer'
 
 interface GiftCard {
   id: string
@@ -1249,11 +1250,7 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                   <span className="font-mono text-xs uppercase text-grey-light">REFRESHES AS YOU MAP</span>
                 </div>
                 {previewUrl ? (
-                  <iframe
-                    src={previewUrl}
-                    title="GIFT CARD PREVIEW"
-                    className="w-full flex-1 bg-white min-h-0"
-                  />
+                  <PdfCanvasViewer url={previewUrl} title="GIFT CARD PREVIEW" />
                 ) : (
                   <div className="flex-1 flex items-center justify-center p-4">
                     <p className={`font-mono text-xs uppercase ${previewError ? 'text-danger' : 'text-grey-light'}`}>

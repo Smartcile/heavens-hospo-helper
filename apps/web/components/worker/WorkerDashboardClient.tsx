@@ -25,7 +25,7 @@ interface DashData {
 
 let inactivityTimer: ReturnType<typeof setTimeout> | null = null
 
-export function WorkerDashboardClient() {
+export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
   const router = useRouter()
   const [data, setData] = useState<DashData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -107,7 +107,13 @@ export function WorkerDashboardClient() {
   useEffect(() => { load() }, [])
 
   async function handleSignOut() {
-    await fetch('/api/worker/logout', { method: 'POST' })
+    // Explicit sign-out ends BOTH sessions (admin too) — the inactivity timer
+    // below only clears the worker cookie.
+    await fetch('/api/worker/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ all: true }),
+    })
     router.push('/w/login')
   }
 
@@ -186,12 +192,22 @@ export function WorkerDashboardClient() {
             </h1>
             <p className="font-mono text-xs text-grey-light mt-0.5 uppercase">TAP A SECTION TO OPEN</p>
           </div>
-          <button
-            onClick={handleSignOut}
-            className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors px-2 py-1"
-          >
-            SIGN OUT
-          </button>
+          <div className="flex items-center gap-2">
+            {(role === 'ADMIN' || role === 'MANAGER') && (
+              <a
+                href="/admin"
+                className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white transition-colors"
+              >
+                ADMIN →
+              </a>
+            )}
+            <button
+              onClick={handleSignOut}
+              className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors px-2 py-1"
+            >
+              SIGN OUT
+            </button>
+          </div>
         </div>
       </div>
 

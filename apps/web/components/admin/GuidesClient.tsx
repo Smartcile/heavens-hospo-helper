@@ -15,6 +15,7 @@ import { RichTextEditor } from '@/components/ui/RichTextEditor'
 import { GuideReaderContent, type GuideReaderGuide } from '@/components/GuideReaderContent'
 import { ReferenceTableEditor, type ReferenceRowDraft, type ReferenceProductOption } from '@/components/admin/ReferenceTableEditor'
 import { getActiveVenueId } from '@/lib/active-venue'
+import { moveItem } from '@/lib/array'
 import { downloadFile } from '@/lib/download-file'
 import { mergeStepImages } from '@/lib/guide-media'
 import { guideStepUsageKey } from '@/lib/image-annotations'
@@ -85,6 +86,8 @@ interface Guide {
   category: string | null
   guideType: string | null
   bodyHtml: string | null
+  pdfPath?: string | null
+  pdfUrl?: string | null
   venueId: string
   departmentId: string | null
   folderId: string | null
@@ -147,6 +150,9 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [category, setCategory] = useState('')
   const [guideType, setGuideType] = useState('HOW_TO')
   const [bodyHtml, setBodyHtml] = useState('')
+  const [pdfPath, setPdfPath] = useState<string | null>(null)
+  const [pdfUrl, setPdfUrl] = useState('')
+  const [pdfUploading, setPdfUploading] = useState(false)
   const [departmentId, setDepartmentId] = useState('')
   const [folderId, setFolderId] = useState('')
   const [isTracked, setIsTracked] = useState(true)
@@ -156,6 +162,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [linkedTaskIds, setLinkedTaskIds] = useState<string[]>([])
   const [competencyTaskIds, setCompetencyTaskIds] = useState<string[]>([])
   const [steps, setSteps] = useState<Step[]>([emptyStep()])
+  const [stepDragIdx, setStepDragIdx] = useState<number | null>(null)
   const [tableColumns, setTableColumns] = useState<ReferenceColumn[]>([])
   const [tableRows, setTableRows] = useState<ReferenceRowDraft[]>([])
   const [productOptions, setProductOptions] = useState<ReferenceProductOption[]>([])
@@ -359,6 +366,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setEditing(null)
     setTitle(''); setDescription(''); setCategory('')
     setGuideType('HOW_TO'); setBodyHtml('')
+    setPdfPath(null); setPdfUrl('')
     setDepartmentId(''); setFolderId(''); setIsTracked(true); setIsOnboarding(false); setRequiresSignOff(false)
     setLinkedTaskIds([]); setCompetencyTaskIds([])
     setSteps([emptyStep()]); setTableColumns([]); setTableRows([]); setSourceMenuId(''); setAudiences([])
@@ -370,6 +378,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setEditing(g)
     setTitle(g.title); setDescription(g.description ?? ''); setCategory(g.category ?? '')
     setGuideType(g.guideType ?? ''); setBodyHtml(g.bodyHtml ?? '')
+    setPdfPath(g.pdfPath ?? null); setPdfUrl(g.pdfUrl ?? '')
     setDepartmentId(g.departmentId ?? ''); setFolderId(g.folderId ?? ''); setSourceMenuId(g.sourceMenuId ?? '')
     setIsTracked(g.isTracked); setIsOnboarding(g.isOnboarding); setRequiresSignOff(g.requiresSignOff)
     setVenueId(g.venueId)
@@ -409,6 +418,24 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setSteps((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)))
   }
 
+  async function uploadPdf(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!editing) { setError('SAVE THE GUIDE FIRST, THEN ATTACH A PDF'); return }
+    setPdfUploading(true); setError('')
+    const fd = new FormData()
+    fd.append('file', file)
+    const r = await fetch(`/api/admin/guides/${editing.id}/attachment`, { method: 'POST', body: fd })
+    if (r.ok) {
+      const d = await r.json()
+      setPdfPath(d.url)
+    } else {
+      setError('PDF UPLOAD FAILED')
+    }
+    setPdfUploading(false)
+  }
+
   async function handleSave() {
     if (!title.trim()) { setError('TITLE IS REQUIRED'); return }
 
@@ -427,6 +454,8 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
       title, description, category,
       guideType: guideType || null,
       bodyHtml: bodyHtml || null,
+      pdfPath: pdfPath || null,
+      pdfUrl: pdfUrl || null,
       venueId: role === 'ADMIN' ? venueId : undefined,
       departmentId: departmentId || null,
       folderId: folderId || null,
@@ -835,6 +864,49 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
             <RichTextEditor value={bodyHtml} onChange={setBodyHtml} placeholder="Write basic instructions here…" />
           </div>
 
+          <div className="border border-grey-mid p-3 space-y-2">
+            <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Guide PDF (whole document)</label>
+            <p className="font-mono text-xs uppercase text-grey-light leading-tight">
+              UPLOAD A PDF TO ATTACH IT TO THIS GUIDE — IT IS APPENDED TO THE GUIDE PDF DOWNLOAD. OR PASTE A LINK TO A PDF HOSTED ELSEWHERE.
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className={`font-mono text-xs uppercase border px-3 py-1.5 transition-colors ${editing ? 'border-grey-mid text-grey-light hover:border-white hover:text-white cursor-pointer' : 'border-grey-mid text-grey-light opacity-40'}`}>
+                {pdfUploading ? 'UPLOADING…' : '⬆ UPLOAD PDF'}
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  disabled={!editing || pdfUploading}
+                  onChange={uploadPdf}
+                  className="hidden"
+                />
+              </label>
+              {!editing && <span className="font-mono text-xs uppercase text-grey-light">SAVE THE GUIDE FIRST TO ATTACH A PDF</span>}
+              {pdfPath && (
+                <>
+                  <a href={pdfPath} target="_blank" rel="noopener noreferrer" className="font-mono text-xs uppercase text-info hover:text-white transition-colors">
+                    OPEN UPLOADED PDF ↗
+                  </a>
+                  <button type="button" onClick={() => setPdfPath(null)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">
+                    REMOVE
+                  </button>
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                value={pdfUrl}
+                onChange={(e) => setPdfUrl(e.target.value.trim())}
+                placeholder="https://example.com/document.pdf"
+                className="flex-1 bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light"
+              />
+              {pdfUrl && (
+                <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="font-mono text-xs uppercase text-info hover:text-white transition-colors shrink-0">
+                  OPEN ↗
+                </a>
+              )}
+            </div>
+          </div>
+
           {guideType === 'PRODUCT_REFERENCE' && (
             <div className="space-y-2">
               <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Reference table</label>
@@ -867,12 +939,32 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
           <div className="space-y-2">
             <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Steps (optional)</label>
             {steps.map((s, i) => (
-              <div key={i} className="border border-grey-mid p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs text-grey-light">STEP {i + 1}</span>
-                  {steps.length > 1 && (
-                    <button type="button" onClick={() => setSteps((p) => p.filter((_, idx) => idx !== i))} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">DEL</button>
-                  )}
+              <div
+                key={i}
+                className="border border-grey-mid p-3 space-y-2"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => {
+                  if (stepDragIdx === null || stepDragIdx === i) return
+                  setSteps((p) => moveItem(p, stepDragIdx, i))
+                  setStepDragIdx(null)
+                }}
+              >
+                <div
+                  draggable
+                  onDragStart={(e) => { setStepDragIdx(i); e.dataTransfer.effectAllowed = 'move' }}
+                  onDragEnd={() => setStepDragIdx(null)}
+                  className="flex items-center justify-between cursor-grab active:cursor-grabbing"
+                >
+                  <span className="font-mono text-xs text-grey-light flex items-center gap-1.5">
+                    <span aria-hidden className="text-grey-mid">⠿</span> STEP {i + 1}
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <button type="button" disabled={i === 0} onClick={() => setSteps((p) => moveItem(p, i, i - 1))} className="font-mono text-xs text-grey-light hover:text-white disabled:opacity-30" title="Move up">↑</button>
+                    <button type="button" disabled={i === steps.length - 1} onClick={() => setSteps((p) => moveItem(p, i, i + 1))} className="font-mono text-xs text-grey-light hover:text-white disabled:opacity-30" title="Move down">↓</button>
+                    {steps.length > 1 && (
+                      <button type="button" onClick={() => setSteps((p) => p.filter((_, idx) => idx !== i))} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">DEL</button>
+                    )}
+                  </div>
                 </div>
                 <Input value={s.heading} onChange={(e) => updateStep(i, { heading: e.target.value })} placeholder="STEP HEADING (OPTIONAL)" />
                 <Textarea value={s.content} onChange={(e) => updateStep(i, { content: e.target.value })} placeholder="What to do in this step..." />

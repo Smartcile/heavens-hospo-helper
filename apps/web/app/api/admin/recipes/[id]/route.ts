@@ -22,7 +22,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, imageUrl, shortDescription, isVariable, variations, dietaryInfo, swiftPosId } = await req.json()
+  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, imageUrl, shortDescription, isVariable, variations, dietaryInfo, swiftPosId, tastingNotes, vintage, howToServe } = await req.json()
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = String(name).toUpperCase().trim()
   if (yieldQty !== undefined) data.yieldQty = parseFloat(String(yieldQty)) || 1
@@ -83,6 +83,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         }
         if (dietaryInfo !== undefined) menuData.dietaryInfo = dietaryInfo || null
         if (swiftPosId !== undefined) menuData.swiftPosId = swiftPosId || null
+        if (tastingNotes !== undefined) menuData.tastingNotes = tastingNotes || null
+        if (vintage !== undefined) menuData.vintage = vintage ? String(vintage).trim() : null
+        if (howToServe !== undefined) menuData.howToServe = howToServe || null
         if (existing) {
           await tx.menuItem.update({ where: { id: existing.id }, data: menuData })
           revived = wasDeleted
@@ -121,7 +124,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
           orderBy: { sortOrder: 'asc' },
         },
         menuItems: {
-          select: { id: true, price: true, wooProductId: true, wooCategoryId: true, imageUrl: true, shortDescription: true, isVariable: true, variations: true, dietaryInfo: true, swiftPosId: true },
+          select: { id: true, price: true, wooProductId: true, wooCategoryId: true, imageUrl: true, shortDescription: true, isVariable: true, variations: true, dietaryInfo: true, swiftPosId: true, tastingNotes: true, vintage: true, howToServe: true },
           where: { deletedAt: null },
         },
       },

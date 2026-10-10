@@ -6,6 +6,7 @@ import { prisma } from '@hospo-ops/db'
 import {
   displayCellImage,
   displayCellText,
+  formatEquipment,
   type ReferenceColumn,
   type ReferenceMenuItem,
 } from '@/lib/reference-table'
@@ -31,6 +32,14 @@ export async function loadMenuItemIndex(
       description: true,
       imageUrl: true,
       dietaryInfo: true,
+      tastingNotes: true,
+      vintage: true,
+      howToServe: true,
+      // Equipment links drive the derived EQUIPMENT column.
+      inventoryLinks: {
+        where: { deletedAt: null },
+        select: { qty: true, inventoryItem: { select: { name: true } } },
+      },
       // Serves drive the derived METHOD / SERVE columns.
       serves: {
         where: { deletedAt: null },
@@ -56,6 +65,10 @@ export async function loadMenuItemIndex(
         description: r.description,
         imageUrl: r.imageUrl,
         dietaryInfo: r.dietaryInfo,
+        tastingNotes: r.tastingNotes,
+        vintage: r.vintage,
+        howToServe: r.howToServe,
+        equipment: formatEquipment(r.inventoryLinks.map((l) => ({ name: l.inventoryItem.name, qty: l.qty }))),
         serveMethod: summariseMethods(r.serves),
         serveSummary: summariseServes(r.serves),
       },

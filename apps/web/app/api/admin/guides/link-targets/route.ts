@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { summariseMethods, summariseServes } from '@/lib/menu-serves'
+import { formatEquipment } from '@/lib/reference-table'
 
 // Everything a guide step can link to, for one venue, in one round trip.
 // The editor needs six different option lists; fetching them separately would
@@ -62,6 +63,13 @@ export async function GET(req: NextRequest) {
         description: true,
         imageUrl: true,
         dietaryInfo: true,
+        tastingNotes: true,
+        vintage: true,
+        howToServe: true,
+        inventoryLinks: {
+          where: { deletedAt: null },
+          select: { qty: true, inventoryItem: { select: { name: true } } },
+        },
         serves: {
           where: { deletedAt: null },
           orderBy: { sortOrder: 'asc' },
@@ -117,6 +125,10 @@ export async function GET(req: NextRequest) {
       description: m.description,
       imageUrl: m.imageUrl,
       dietaryInfo: m.dietaryInfo,
+      tastingNotes: m.tastingNotes,
+      vintage: m.vintage,
+      howToServe: m.howToServe,
+      equipment: formatEquipment(m.inventoryLinks.map((l) => ({ name: l.inventoryItem.name, qty: l.qty }))),
       serveMethod: summariseMethods(m.serves),
       serveSummary: summariseServes(m.serves),
     })),

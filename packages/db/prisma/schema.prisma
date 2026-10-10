@@ -407,6 +407,9 @@ model Staff {
   hourlyRate      Float? // pay rate per hour
   employmentType  String? // FULL_TIME | PART_TIME | CASUAL
   defaultVenueId  String? // admin's preferred default venue across all modules
+  // Dashboard customisation: `{ order: string[], hidden: string[] }` of widget
+  // ids — drag-to-reorder + show/hide on /admin. Null = default layout.
+  dashboardLayout Json?
   // --- NZ payroll (PAYE) fields ---
   taxCode         String? // M | S | SB | SH | ST | CAE (+ SL variants). Null = venue default.
   kiwiSaverRate   Float? // 3 | 4 | 6 | 8 | 10 — null = not enrolled
@@ -1674,6 +1677,11 @@ model Guide {
   // Optional rich-text "document" body (sanitised HTML), rendered above steps.
   // Lets a manager capture a quick How-To before breaking it into steps.
   bodyHtml        String?
+  // Guide-level documents — a whole-guide PDF alongside the steps.
+  // pdfPath = uploaded file (served URL under /api/upload), merged into the
+  // guide PDF download; pdfUrl = external link to view from another source.
+  pdfPath         String?
+  pdfUrl          String?
   venueId         String
   departmentId    String?
   // Which playbook folder this guide sits in. Flat (one level); null = UNFILED.
@@ -2750,6 +2758,12 @@ model MenuItem {
   isVariable       Boolean   @default(false)
   variations       Json?
   dietaryInfo      String?
+  // Product/training reference detail — authored on the product (Recipes)
+  // or from a menu line, surfaced in PRODUCT_REFERENCE guides as derived
+  // columns (tasting notes, vintage, how to serve, equipment links).
+  tastingNotes     String?
+  vintage          String?
+  howToServe       String?
   isActive         Boolean   @default(true)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
@@ -2776,7 +2790,12 @@ model MenuItemInventoryItem {
   id              String   @id @default(uuid())
   menuItemId      String
   inventoryItemId String
+  // Equipment link fields — "the glass this wine is served in". Acts like a
+  // guide step link: optional qty + note per linked stock item.
+  qty             Int?
+  note            String?
   createdAt       DateTime @default(now())
+  deletedAt       DateTime?
 
   menuItem      MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)

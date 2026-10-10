@@ -5,6 +5,29 @@ import { prisma } from '@hospo-ops/db'
 import { pushProduct } from '@/lib/woo-push'
 import { guardAccess } from '@/lib/permissions'
 
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'ops.menus.view')
+  if (denied) return denied
+
+  const item = await prisma.menuItem.findFirst({
+    where: { id: params.id, deletedAt: null },
+    include: {
+      recipe: { select: { id: true, name: true } },
+      inventoryLinks: {
+        where: { deletedAt: null },
+        select: { qty: true, inventoryItem: { select: { id: true, name: true, unit: true } } },
+      },
+    },
+  })
+  if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (session.user.role === 'MANAGER' && item.venueId !== session.user.venueId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  return NextResponse.json(item)
+}
+
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -20,7 +43,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, recipeId, price, wooProductId, wooCategoryId, imageUrl, shortDescription, isVariable, variations, description } = await req.json()
+  const { name, recipeId, price, wooProductId, wooCategoryId, imageUrl, shortDescription, isVariable, variations, description, tastingNotes, vintage, howToServe } = await req.json()
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = String(name).toUpperCase().trim()
   if (recipeId !== undefined) data.recipeId = recipeId
@@ -32,6 +55,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (isVariable !== undefined) data.isVariable = isVariable
   if (variations !== undefined) data.variations = variations
   if (description !== undefined) data.description = description || null
+  if (tastingNotes !== undefined) data.tastingNotes = tastingNotes || null
+  if (vintage !== undefined) data.vintage = vintage ? String(vintage).trim() : null
+  if (howToServe !== undefined) data.howToServe = howToServe || null
 
   const updated = await prisma.menuItem.update({
     where: { id: params.id },

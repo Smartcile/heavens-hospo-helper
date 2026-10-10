@@ -107,6 +107,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
     updates.category = body.category ? String(body.category).toUpperCase().trim() : null
   if (body.guideType !== undefined) updates.guideType = guideTypeValue(body.guideType)
   if (body.bodyHtml !== undefined) updates.bodyHtml = cleanBodyHtml(body.bodyHtml)
+  if (body.pdfUrl !== undefined) updates.pdfUrl = body.pdfUrl ? String(body.pdfUrl).trim() : null
+  if (body.pdfPath !== undefined) updates.pdfPath = body.pdfPath ? String(body.pdfPath).trim() : null
   if (body.departmentId !== undefined) updates.departmentId = body.departmentId || null
   if (body.folderId !== undefined) updates.folderId = await scopedFolderId(body.folderId, existing.venueId)
   if (body.sourceMenuId !== undefined) updates.sourceMenuId = await scopedMenuId(body.sourceMenuId, existing.venueId)

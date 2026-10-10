@@ -14,10 +14,12 @@ import {
   mergedGuidePdf,
   guidePdfToBuffer,
   guidePdfFilename,
+  loadGuideAttachmentBuffer,
   loadImageDataUrl,
   type GuidePdfData,
   type GuidePdfLink,
 } from '@/lib/guide-pdf'
+import { mergePdfBuffers } from '@/lib/gift-card-template'
 
 // PDF export for a GROUP of guides — `?ids=a,b,c` (or every published guide
 // for the venue when ids is omitted). One merged PDF, each guide on its own
@@ -117,8 +119,16 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  const buffer = guidePdfToBuffer(mergedGuidePdf(guides[0].venue.name, pages))
-  return new NextResponse(buffer, {
+  // One PDF for the whole selection, then any guide-level attachments appended
+  // after the generated pages (in guide order).
+  const master = Buffer.from(guidePdfToBuffer(mergedGuidePdf(guides[0].venue.name, pages)))
+  const attachments: Buffer[] = []
+  for (const g of guides) {
+    const attachment = await loadGuideAttachmentBuffer(g.pdfPath)
+    if (attachment) attachments.push(attachment)
+  }
+  const buffer = attachments.length ? await mergePdfBuffers([master, ...attachments]) : master
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="${guidePdfFilename(`PLAYBOOK - ${guides.length} GUIDES`)}"`,

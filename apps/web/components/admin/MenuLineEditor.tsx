@@ -4,10 +4,12 @@
 // (price, sizes, min/max, group, active) and shows COGS against the ex-GST price.
 // Heavy product/recipe and stock details stay on their own pages via ITEM LINK.
 
+import { useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
+import { MenuItemDetailsModal } from '@/components/admin/MenuItemDetailsModal'
 import { type MenuLineDraft, type MenuSize } from '@/lib/menu-lines'
 import { priceExGst, grossMarginPct, type CogsResult } from '@/lib/menu-cogs'
 
@@ -21,6 +23,7 @@ export interface MenuLineEditorProps {
 }
 
 export function MenuLineEditor({ line, groupOptions, cogs, onPatch, onOpenServes, onClose }: MenuLineEditorProps) {
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const basePrice = line.price ?? line.sizes[0]?.price ?? null
   const exGst = basePrice != null ? priceExGst(basePrice) : null
   const margin = cogs && exGst != null ? grossMarginPct(cogs.cost, exGst) : null
@@ -151,6 +154,16 @@ export function MenuLineEditor({ line, groupOptions, cogs, onPatch, onOpenServes
                 ITEM LINK
               </button>
             )}
+            {line.kind === 'PRODUCT' && line.menuItemId && (
+              <button
+                type="button"
+                onClick={() => setDetailsOpen(true)}
+                className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white"
+                title="Tasting notes, vintage, how to serve, equipment"
+              >
+                PRODUCT INFO
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs uppercase text-grey-light">{line.sizes.length} size{line.sizes.length === 1 ? '' : 's'}</span>
@@ -158,6 +171,13 @@ export function MenuLineEditor({ line, groupOptions, cogs, onPatch, onOpenServes
           </div>
         </div>
       </div>
+      {detailsOpen && line.menuItemId && (
+        <MenuItemDetailsModal
+          menuItemId={line.menuItemId}
+          menuItemName={line.name}
+          onClose={() => setDetailsOpen(false)}
+        />
+      )}
     </Modal>
   )
 }

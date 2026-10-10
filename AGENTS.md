@@ -1421,12 +1421,11 @@ Weighted multi-category monthly budget tool with department-linked breakdowns.
 - `POST /api/admin/budget/sync-breakdowns` — receives `{ venueId, sourceCategories }`, iterates all periods for venue, upserts categories by name match, soft-deletes unmatched
 
 **Components:**
-- `BudgetMonthSelector` — dual variant: `grid` (12-month 3×4 CSS grid + year toggle for `/admin/budget`) and `compact` (slim `[←] MON YEAR [→]` + `VIEW ALL MONTHS` button for `/admin/budget/[year]/[month]`). Venue selector at top, auto-defaults to first venue for admins.
+- `BudgetMonthSelector` — DateNav-styled month bar (`<< YEAR · < MONTH · THIS MONTH · MONTH > · YEAR >>`) for `/admin/budget/[year]/[month]`. The old 12-month grid landing is gone; `/admin/budget` redirects to the current month. Venue selector inline, auto-defaults to first venue for admins.
 - `BudgetSetupPanel` — 2-column dashboard: left = ALLOCATION (total budget, REVENUE locked at 100%, indented breakdown rows with department Select + `VENUE` option, auto-REMAINDER read-only row, progress bar); right = DAILY WEIGHTING (MON-SUN with 100% validation bar) + SUMMARY (TARGET/ALLOCATED/VARIANCE stats + GENERATE/SAVE/DELETE buttons). `↻ SYNC BREAKDOWNS` pushes categories to all venue months. Has a top tab bar — **ALLOCATION** (this panel) / **P&L LINES** (see below).
 - `BudgetLinesPanel` + `BudgetImportModal` — see "P&L budget lines" below.
 - `BudgetDailyGrid` — ISO week grouping into `lg:grid-cols-2` card grid. Week headers show date range + summed total. Single editable REVENUE input per day (no NOTE). Inline read-only breakdown text `BEV: $945 | REM: $2,205`. State lifted to parent — edits update `allocations` → stats recompute in SUMMARY panel.
 - `BudgetPageClient` — state coordinator. Computes `budgetStats` from `allocations` state. Manages venue selection, API load/save/delete/generate/sync flows.
-- `BudgetLandingClient` — client wrapper for landing page, fetches venues, renders grid variant.
 
 ### P&L budget lines (built 2026-08)
 
@@ -2147,10 +2146,77 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
 ### Kitchen Worker View (`/w/kitchen`)
 `GET /api/worker/kitchen` (JWT via `jose`) returns today's order items grouped by table with dietary badges, unassigned items section, and prep totals grid. Auto-refreshes every 15s. The worker dashboard has a KITCHEN tile (the old `WorkerHamburgerMenu.tsx` is **dead code** — no longer imported anywhere). Admin nav has KITCHEN under Dashboard. Groundwork for future live service mode: `KitchenStatus` enum (PENDING/COOKING/READY/SERVED) on `WooOrderItem.kitchenStatus`.
 
+## 2026-10-10 UI/UX PASS (all built)
+
+- **Tasks & Checklists scroll fix.** `TasksClient` no longer clips the two-column
+  grid to `calc(100vh - 10rem)` + `overflow: hidden` — the page scrolls normally
+  and the sticky checklist panel keeps its own internal scroll, so long lists
+  (16+ steps) always reach SAVE on desktop and mobile.
+- **Guide PDF multi-image / large-image fix.** `lib/guide-pdf.ts` `imageFormat`
+  now detects WEBP/GIF (jsPDF was being told everything non-PNG was JPEG, so
+  those photos silently vanished); `loadImageDataUrl` no longer drops files
+  over the old 2MB cap — big images are re-encoded to JPEG via `sharp`.
+  Guide-level PDF attachments are merged into downloads (`mergePdfBuffers`).
+- **Customisable dashboard.** `DashboardClient` renders a registry of widgets
+  (`lib/dashboard-widgets.ts`: SUMMARY, ATTENTION, PROGRESS, BOOKINGS, ORDERS,
+  EVENTS, TRAINING, STOCK, FOOD_SAFETY, LIVE_FLOOR, MISSED, RECENT,
+  BY_DEPARTMENT) with drag-to-reorder and show/hide in CUSTOMIZE mode, saved
+  per staff in `Staff.dashboardLayout Json?` via `GET/PUT /api/admin/dashboard/layout`.
+  Extra data comes from `GET /api/admin/dashboard/widgets` (today's bookings/
+  orders, upcoming events, open HsAlerts, clocked-in count, training summary).
+- **Budget opens on the current month.** `/admin/budget` redirects to
+  `/admin/budget/[year]/[month]`; the 12-month landing (`BudgetLandingClient`)
+  is deleted. `BudgetMonthSelector` is now a DateNav-styled month bar
+  (`<< YEAR · < MONTH · THIS MONTH · MONTH > · YEAR >>`) — no grid.
+- **Recipes: Woo imports moved behind a popup.** The recipe list only shows
+  local recipes; `⬇ IMPORT PRODUCTS (n)` opens a modal of Woo-synced products
+  with missing fields flagged red (`lib/recipe-import.ts` `missingProductFields`).
+  Picking one opens the new-recipe editor pre-filled (existing `populateOrphan`).
+- **Product detail fields + equipment links.** `MenuItem.tastingNotes`,
+  `vintage`, `howToServe` + `MenuItemInventoryItem.qty/note/deletedAt` (the
+  long-orphaned model is now live). Edited from the Recipes page ITEM LINKS
+  block and from a menu line via PRODUCT INFO (`MenuItemDetailsModal` +
+  `MenuItemEquipmentEditor`, routes `GET/PUT /api/admin/menu-items/[id]/equipment`).
+  Product-reference tables gain derived MENU_FIELD columns TASTING_NOTES /
+  VINTAGE / HOW_TO_SERVE / EQUIPMENT (defaults updated).
+- **Guide-level PDF + external URL.** `Guide.pdfPath` (uploaded via
+  `POST /api/admin/guides/[id]/attachment`, merged into the guide PDF download)
+  and `Guide.pdfUrl` (external link). Both surface in the admin editor and the
+  worker/admin reader (`GuideReaderContent`).
+- **Gift-card live preview in a chrome-free viewer.** `POST
+  .../gift-card-templates/[id]/preview` accepts `values` so the issue popup
+  previews the data being typed (debounced). All gift-card previews render in
+  `components/ui/PdfCanvasViewer` (pdf.js, no toolbar; scroll, ctrl+wheel
+  zoom, drag-pan; worker at `public/pdf.worker.min.mjs`, copied by
+  `scripts/copy-pdf-worker.mjs` on predev/prebuild). New dep: `pdfjs-dist`.
+- **Seamless admin ⇄ worker switching.** `POST /api/worker/switch` mints a
+  worker session for the signed-in admin/manager (no PIN); AdminNav has
+  WORKER VIEW →, the worker dashboard has ADMIN → for managers. Explicit
+  sign-out clears BOTH sessions (admin sign-out also calls `/api/worker/logout`;
+  the worker dashboard posts `{ all: true }`), while the worker inactivity
+  timers still clear only the worker cookie.
+- **Landing page.** Worker-first full-screen entry; the admin email/password
+  form now lives behind a discreet `ADMIN LOGIN` button in a modal.
+- **Staff: Software Role vs Positions.** Form labels and the staff table now
+  separate `SOFTWARE ROLE` (ADMIN/MANAGER/STAFF) from `POSITIONS`.
+- **Training STATUS tab + board.** `TRAINING_TABS` gains STATUS;
+  `TrainingStatusClient` shows every active staff member's required/missing/
+  stale-guide counts and open follow-ups as GREEN (good) / YELLOW (bits to
+  work on) / RED (retraining or overdue), grouped ON SHIFT TODAY then NOT ON
+  SHIFT. Data from `GET /api/admin/training/status` backed by
+  `lib/training-status.server.ts` (pure rules + sort in
+  `lib/training-status.ts`). Managers get a TRAINING STATUS → button on the
+  worker `/w/guides` header.
+- **Notices grouping.** Worker notices split into PINNED (top) / unread /
+  READ / ACKNOWLEDGED (bottom group) via `lib/notice-groups.ts`.
+- **Drag-reorder lists.** Guide steps reorder by drag or ↑/↓ in both editors
+  (admin `GuidesClient`, worker `WorkerGuideEditor`).
+
 ## FUTURE INTEGRATION STUBS
 
 | Stub | Location | Phase |
 |---|---|---|
+| Passkeys / WebAuthn login | Admin + worker login upgrade (alongside email/password + PIN) | 2 |
 | SwiftPOS staff sync | `Staff.swiftPosId` field | 2 |
 | Push notifications | Not yet wired | 2 |
 | S3 file uploads | `UPLOAD_PROVIDER=s3` env var stub | 2 |
@@ -2216,6 +2282,10 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/booth-trace.ts` — `traceBoothPerimeter` | ✅ |
 | `lib/breaks.ts` — `nzBreakEntitlement`, `shiftHours`, `formatBreaks` | ✅ |
 | `lib/budget-math.ts` — `generateDailyBudgetsNormalized`, `computeBreakdowns` | ✅ |
+| `lib/dashboard-widgets.ts` — registry, `parseDashboardLayout`, `moveWidget`, `visibleWidgets` | ✅ (6 tests) |
+| `lib/training-status.ts` — `trainingLevel`, `sortTrainingRows` | ✅ (5 tests) |
+| `lib/notice-groups.ts` — `groupWorkerNotices` | ✅ (4 tests) |
+| `lib/recipe-import.ts` — `missingProductFields` | ✅ (3 tests) |
 | `lib/budget-lines-import.ts` — `parsePnlRows`, `findMonthRow`, `assignParentIndexes`, `monthYearForName`, `buildLineTree`, `treeTotal` | ✅ (18 tests) |
 | `lib/calendar.ts` — `monthDays`, `isValidTime`, `dateKeysBetween` | ✅ |
 | `lib/checklist-pdf.ts` — `generateChecklistPdf` (A4 printable checkbox list), `checklistPdfToBuffer` | ✅ (4 tests) |
@@ -2279,6 +2349,7 @@ pushing, run: `npm run lint && npm run test`.
 | `AdminNav.test.tsx` — renders nav groups | ✅ |
 | `FloorPlanEditor.tsx` — 30+ hooks, useMemo, loading gate | ✅ |
 | `BudgetPageClient.tsx` — useCallback + useEffect chain | ✅ |
+| `PdfCanvasViewer.tsx` — pdf.js viewer source + error fallback | ✅ (1 test) |
 | `BudgetLinesPanel.tsx` — tree render, totals, add/import flows | ✅ (5 tests) |
 | `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |

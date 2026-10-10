@@ -5,6 +5,7 @@ import { signIn } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { Modal } from '@/components/ui/Modal'
 
 export default function Home() {
   const router = useRouter()
@@ -12,6 +13,7 @@ export default function Home() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [adminOpen, setAdminOpen] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -35,11 +37,11 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-black flex flex-col md:flex-row">
-      {/* Left — Venue / Worker */}
+    <div className="min-h-screen bg-black flex flex-col">
+      {/* Worker login — the only visible entry */}
       <button
         onClick={() => router.push('/w/login')}
-        className="group flex-1 flex flex-col items-center justify-center p-8 border-b md:border-b-0 md:border-r border-grey-mid hover:bg-grey-dark transition-colors min-h-[40vh] md:min-h-screen"
+        className="group flex-1 flex flex-col items-center justify-center p-8 hover:bg-grey-dark transition-colors"
       >
         <h2 className="font-mono text-3xl font-bold uppercase tracking-widest text-white">
           VENUE
@@ -52,54 +54,51 @@ export default function Home() {
         </span>
       </button>
 
-      {/* Right — Admin login */}
-      <div className="flex-1 flex items-center justify-center p-8 min-h-[50vh] md:min-h-screen">
-        <div className="w-full max-w-sm">
-          <div className="mb-8">
-            <h2 className="font-mono text-2xl font-bold uppercase tracking-widest text-white">
-              ADMIN PANEL
-            </h2>
-            <p className="font-mono text-xs text-grey-light mt-1 uppercase tracking-wider">
-              SIGN IN TO MANAGE
-            </p>
-          </div>
+      {/* Admin login lives behind a discreet button */}
+      <div className="border-t border-grey-mid p-4 flex justify-center">
+        <button
+          onClick={() => setAdminOpen(true)}
+          className="font-mono text-xs uppercase tracking-widest text-grey-light hover:text-white transition-colors"
+        >
+          ADMIN LOGIN
+        </button>
+      </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <Input
-              label="Email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@venue.com"
-              required
-              autoComplete="email"
-            />
-            <Input
-              label="Password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-              autoComplete="current-password"
-            />
+      <Modal isOpen={adminOpen} onClose={() => setAdminOpen(false)} title="ADMIN LOGIN" size="md">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Input
+            label="Email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="admin@venue.com"
+            required
+            autoComplete="email"
+          />
+          <Input
+            label="Password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            required
+            autoComplete="current-password"
+          />
 
-            {error && (
-              <div className="border-l-4 border-l-danger pl-3 py-1">
-                <p className="font-mono text-xs text-danger">{error}</p>
-              </div>
-            )}
+          {error && (
+            <div className="border-l-4 border-l-danger pl-3 py-1">
+              <p className="font-mono text-xs text-danger">{error}</p>
+            </div>
+          )}
 
-            <Button type="submit" loading={loading} className="w-full justify-center">
-              SIGN IN
-            </Button>
-          </form>
-
-          <p className="mt-6 font-mono text-xs text-grey-light">
+          <Button type="submit" loading={loading} className="w-full justify-center">
+            SIGN IN
+          </Button>
+          <p className="font-mono text-xs text-grey-light">
             USE YOUR ADMIN EMAIL + PASSWORD TO ACCESS THE PANEL.
           </p>
-        </div>
-      </div>
+        </form>
+      </Modal>
     </div>
   )
 }
