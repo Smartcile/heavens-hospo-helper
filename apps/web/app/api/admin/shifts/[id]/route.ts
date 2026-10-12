@@ -55,6 +55,13 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   const existing = await prisma.shift.findUnique({ where: { id: params.id } })
   if (!existing || existing.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  await prisma.shift.update({ where: { id: params.id }, data: { deletedAt: new Date() } })
+  await prisma.$transaction([
+    prisma.shift.update({ where: { id: params.id }, data: { deletedAt: new Date() } }),
+    // An event shift that came from a claim: deleting it re-lists the seat.
+    prisma.openShift.updateMany({
+      where: { filledShiftId: params.id, deletedAt: null },
+      data: { status: 'OPEN', filledById: null, filledShiftId: null },
+    }),
+  ])
   return NextResponse.json({ success: true })
 }

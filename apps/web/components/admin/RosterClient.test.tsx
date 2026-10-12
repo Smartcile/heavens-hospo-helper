@@ -183,4 +183,28 @@ describe('RosterClient', () => {
     fireEvent.click(screen.getByText('GROUP'))
     await waitFor(() => expect(screen.getAllByText('BARISTA').length).toBe(2))
   })
+
+  it('switches between the staff roster and the event roster', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown) => {
+      const u = String(url)
+      if (u.includes('/api/admin/event-roster')) {
+        return { ok: true, json: async () => ({ feeds: [], events: [], queue: [], positions: [], lastSyncedAt: null }) } as Response
+      }
+      if (u.includes('/api/admin/venues') || u.includes('/api/admin/positions')) {
+        return { ok: true, json: async () => [] } as Response
+      }
+      return { ok: true, json: async () => data } as Response
+    })
+
+    render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findByText(/LIAM HEAVEN/)
+
+    fireEvent.click(screen.getByText('EVENTS'))
+    expect(await screen.findByText('↻ SYNC CALENDARS')).toBeDefined()
+    expect(await screen.findByText('NO EVENTS IMPORTED FOR THIS RANGE.')).toBeDefined()
+
+    fireEvent.click(screen.getByText('STAFF'))
+    await waitFor(() => expect(screen.getByText(/LIAM HEAVEN/)).toBeDefined())
+  })
 })

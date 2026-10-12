@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { DateNav } from '@/components/admin/DateNav'
+import { EventRosterPanel } from '@/components/admin/EventRosterPanel'
 import { StaffEditModal } from '@/components/admin/StaffEditModal'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { moveItem } from '@/lib/array'
@@ -69,6 +70,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [venues, setVenues] = useState<Venue[]>([])
   const [positions, setPositions] = useState<{ id: string; name: string; colour: string | null }[]>([])
   const [weekStart, setWeekStart] = useState(() => mondayOf(keyOfDay(new Date())))
+  const [tab, setTab] = useState<'staff' | 'events'>('staff')
   const [view, setView] = useState<'week' | 'day'>('week')
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
@@ -468,7 +470,17 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     <div ref={rootRef} className="p-4 md:p-6 space-y-4 bg-black">
       <div className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 className="font-mono text-xl font-bold uppercase tracking-widest">ROSTER EDITOR</h1>
+          <div>
+            <h1 className="font-mono text-xl font-bold uppercase tracking-widest">ROSTER EDITOR</h1>
+            <div className="flex gap-1 mt-2">
+              {(['staff', 'events'] as const).map((t) => (
+                <button key={t} onClick={() => setTab(t)}
+                  className={`font-mono text-xs uppercase px-3 py-1.5 border transition-colors ${tab === t ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>
+                  {t === 'staff' ? 'STAFF' : 'EVENTS'}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="text-right">
             <DateNav
               date={weekStart}
@@ -478,6 +490,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
           </div>
         </div>
 
+        {tab === 'staff' && (
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex gap-1">
             {(['day', 'week'] as const).map((v) => (
@@ -514,7 +527,13 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
             {publishedStatus === 'PUBLISHED' ? '✔ PUBLISHED' : publishedStatus === 'MIXED' ? '● MIXED' : 'PUBLISH'}
           </Button>
         </div>
+        )}
       </div>
+
+      {tab === 'events' ? (
+        <EventRosterPanel venueId={venueId} weekStart={weekStart} weekDays={weekDays} />
+      ) : (
+        <>
 
       {error && <p className="font-mono text-xs text-danger">{error}</p>}
 
@@ -695,6 +714,8 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   )

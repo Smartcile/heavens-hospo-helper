@@ -22,8 +22,24 @@ export async function GET() {
     take: 60,
   })
 
+  // Count of listed shifts this worker can pick up (dashboard tile badge).
+  const positions = await prisma.staffPosition.findMany({
+    where: { staffId: session.staffId },
+    select: { positionId: true },
+  })
+  const openShiftCount = await prisma.openShift.count({
+    where: {
+      venueId: session.venueId,
+      deletedAt: null,
+      status: 'OPEN',
+      date: { gte: today },
+      OR: [{ positionId: null }, { positionId: { in: positions.map((p) => p.positionId) } }],
+    },
+  })
+
   return NextResponse.json({
     firstName: session.firstName,
+    openShiftCount,
     shifts: shifts.map((s) => ({
       id: s.id,
       date: s.date,

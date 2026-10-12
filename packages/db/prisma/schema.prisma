@@ -143,6 +143,24 @@ enum ShiftStatus {
   PUBLISHED
 }
 
+// An event shift listed for staff to pick up (FIND STAFF on the event roster).
+// OPEN while claimable; FILLED once a claim is approved; CANCELLED by a manager.
+enum OpenShiftStatus {
+  OPEN
+  FILLED
+  CANCELLED
+}
+
+// A worker's claim on an open shift seat. PENDING until a manager approves
+// (which creates a DRAFT roster Shift) or declines. WITHDRAWN = worker backed
+// out before review; the row is kept as history and revived on a re-claim.
+enum OpenShiftClaimStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  WITHDRAWN
+}
+
 // Staff availability for the roster planner. UNAVAILABLE is a hard block-out;
 // AVAILABLE is an explicit can-work declaration (PREFERRED is the legacy
 // casual opt-in, treated as AVAILABLE everywhere). No row = DEFAULT (available
@@ -298,6 +316,10 @@ model Venue {
   staffAvailabilities StaffAvailability[]
   notices             Notice[]
   calendarEvents      CalendarEvent[]
+  calendarFeeds       CalendarFeed[]
+  eventStaffing       EventStaffing[]
+  openShifts          OpenShift[]
+  openShiftClaims     OpenShiftClaim[]
   sections            Section[]
   followUps           FollowUp[]
   checklists          Checklist[]
@@ -443,6 +465,8 @@ model Staff {
   resolvedAlerts       HsAlert[]
   receivedDeliveries   Delivery[]
   permissions          StaffPermission[]
+  openShiftsFilled     OpenShift[]      @relation("OpenShiftFilledBy")
+  openShiftClaims      OpenShiftClaim[]
 }
 
 // A single granted function within the permission tree (area → sub-area →
@@ -908,9 +932,11 @@ model Shift {
 // An event imported from an external calendar feed (Google Calendar / any iCal).
 // Keyed by (venueId, source, uid) so re-syncing UPDATES the same row instead of
 // duplicating; events that vanish from the feed are soft-deleted on next sync.
+// `feedId` maps the event to the room whose calendar it came from.
 model CalendarEvent {
   id            String         @id @default(uuid())
   venueId       String
+  feedId        String? // the room feed this event came from (null = legacy/manual)
   source        CalendarSource @default(ICAL)
   uid           String // stable id from the feed (per-occurrence for recurring)
   title         String
@@ -926,13 +952,134 @@ model CalendarEvent {
   updatedAt     DateTime       @updatedAt
   deletedAt     DateTime?
 
-  venue     Venue      @relation(fields: [venueId], references: [id])
+  venue     Venue            @relation(fields: [venueId], references: [id])
+  feed      CalendarFeed?    @relation(fields: [feedId], references: [id])
   wooOrders WooOrder[]
   bookings  Booking[]
   events    Event[]
+  staffing  EventStaffing[]
+  openShifts OpenShift[]
 
   @@unique([venueId, source, uid])
   @@index([venueId, startsAt])
+  @@index([feedId])
+}
+
+// A room's calendar feed — each event space has its own Google/iCal feed, so
+// imported events group by room on the event roster. Optionally linked to the
+// room's floor plan, which auto-points imported events at the right layout.
+model CalendarFeed {
+  id           String         @id @default(uuid())
+  venueId      String
+  name         String // room name, ALL CAPS
+  url          String // .ics URL (or a Google embed link — expanded on save)
+  source       CalendarSource @default(ICAL)
+  colour       String?
+  floorPlanId  String?
+  sortOrder    Int            @default(0)
+  isActive     Boolean        @default(true)
+  lastSyncedAt DateTime?
+  notes        String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  deletedAt    DateTime?
+
+  venue     Venue           @relation(fields: [venueId], references: [id])
+  floorPlan FloorPlan?      @relation(fields: [floorPlanId], references: [id])
+  events    CalendarEvent[]
+
+  @@index([venueId])
+  @@index([venueId, sortOrder])
+}
+
+// A required role on a calendar event: position × headcount × times. Written by
+// the event roster editor; FIND STAFF expands each line into `count` OpenShift
+// seats for workers to claim.
+model EventStaffing {
+  id              String   @id @default(uuid())
+  venueId         String
+  calendarEventId String
+  positionId      String?
+  label           String? // free-text role when no Position is configured
+  count           Int      @default(1)
+  startTime       String // "HH:mm"
+  endTime         String // "HH:mm"
+  breakMinutes    Int      @default(0)
+  note            String?
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  venue         Venue         @relation(fields: [venueId], references: [id])
+  calendarEvent CalendarEvent @relation(fields: [calendarEventId], references: [id])
+  position      Position?     @relation(fields: [positionId], references: [id])
+  openShifts    OpenShift[]
+
+  @@index([calendarEventId])
+  @@index([venueId])
+}
+
+// One claimable seat created by FIND STAFF. Workers whose positions match see
+// it on /w/shifts and claim it; an approved claim creates a DRAFT roster Shift
+// and fills the seat.
+model OpenShift {
+  id              String          @id @default(uuid())
+  venueId         String
+  calendarEventId String?
+  staffingId      String?
+  positionId      String?
+  label           String? // free-text role when no Position
+  date            DateTime        @db.Date
+  startTime       String // "HH:mm"
+  endTime         String // "HH:mm"
+  breakMinutes    Int             @default(0)
+  note            String?
+  status          OpenShiftStatus @default(OPEN)
+  filledById      String?
+  filledShiftId   String? // the Shift created when a claim was approved
+  createdById     String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  deletedAt       DateTime?
+
+  venue         Venue          @relation(fields: [venueId], references: [id])
+  calendarEvent CalendarEvent? @relation(fields: [calendarEventId], references: [id])
+  staffing      EventStaffing? @relation(fields: [staffingId], references: [id])
+  position      Position?      @relation(fields: [positionId], references: [id])
+  filledBy      Staff?         @relation("OpenShiftFilledBy", fields: [filledById], references: [id])
+  claims        OpenShiftClaim[]
+
+  @@index([venueId, date])
+  @@index([status])
+  @@index([calendarEventId])
+}
+
+// A worker's claim on an OpenShift seat. PENDING until a manager approves
+// (creates the roster Shift and fills the seat) or declines. Withdrawn claims
+// stay as history; re-claiming revives the row.
+model OpenShiftClaim {
+  id           String               @id @default(uuid())
+  openShiftId  String
+  staffId      String
+  venueId      String
+  status       OpenShiftClaimStatus @default(PENDING)
+  note         String?
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  shiftId      String? // the roster Shift created on approval
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  deletedAt    DateTime?
+
+  openShift OpenShift @relation(fields: [openShiftId], references: [id])
+  staff     Staff     @relation(fields: [staffId], references: [id])
+  venue     Venue     @relation(fields: [venueId], references: [id])
+
+  @@unique([openShiftId, staffId])
+  @@index([staffId, status])
+  @@index([venueId, status])
 }
 
 model Booking {
@@ -1512,6 +1659,8 @@ model Position {
   pathways   Pathway[]
   shifts     Shift[]
   timeClocks TimeClock[]
+  eventStaffing EventStaffing[]
+  openShifts    OpenShift[]
   // What someone in this role must know: extra required guides, sections they
   // must be fully trained in, and default access grants.
   guideRequirements   PositionGuideRequirement[]
@@ -2020,6 +2169,7 @@ model FloorPlan {
   elements          FloorPlanElement[]
   setups            FloorPlanSetup[]
   sectionBoundaries SectionBoundary[]
+  calendarFeeds     CalendarFeed[]
 
   @@unique([venueId, slug])
   @@index([venueId])

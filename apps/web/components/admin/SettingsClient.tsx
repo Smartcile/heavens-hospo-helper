@@ -37,6 +37,26 @@ interface Venue {
   sharedWooVenueId: string | null
 }
 
+interface RoomFeed {
+  id: string
+  name: string
+  url: string
+  source: 'GOOGLE' | 'ICAL'
+  colour: string | null
+  floorPlanId: string | null
+  floorPlanName: string | null
+  sortOrder: number
+  isActive: boolean
+  lastSyncedAt: string | null
+  notes: string | null
+}
+
+interface FloorPlanOption {
+  id: string
+  name: string
+  slug: string
+}
+
 const PRESET_START_OPTIONS = quarterHourOptions().map((t) => ({ value: t, label: t }))
 const PRESET_END_OPTIONS = quarterHourEndOptions().map((t) => ({ value: t, label: t }))
 
@@ -121,11 +141,16 @@ export function SettingsClient({
   const [venues, setVenues] = useState<Venue[]>([])
   const [venueId, setVenueId] = useState(sessionVenueId)
   const [loadedUrl, setLoadedUrl] = useState('')
-  const [googleUrl, setGoogleUrl] = useState('')
-  const [icalUrl, setIcalUrl] = useState('')
   const [refresh, setRefresh] = useState('0')
   const [intSaving, setIntSaving] = useState(false)
   const [intMessage, setIntMessage] = useState('')
+  // Room calendars — one feed row per event space.
+  const [feeds, setFeeds] = useState<RoomFeed[]>([])
+  const [floorPlanOptions, setFloorPlanOptions] = useState<FloorPlanOption[]>([])
+  const [feedBusy, setFeedBusy] = useState(false)
+  const [feedMessage, setFeedMessage] = useState('')
+  const [newFeedName, setNewFeedName] = useState('')
+  const [newFeedUrl, setNewFeedUrl] = useState('')
 
   // Roster availability cut-off + quick-pick presets
   const [lockDays, setLockDays] = useState('0')
@@ -258,8 +283,6 @@ export function SettingsClient({
   function applyVenue(v: Venue) {
     setVenueId(v.id)
     setLoadedUrl(v.loadedRosterUrl ?? '')
-    setGoogleUrl(v.googleCalendarUrl ?? '')
-    setIcalUrl(v.icalFeedUrl ?? '')
     setRefresh(String(v.externalRefreshMinutes ?? 0))
     setLockDays(String(v.availabilityLockDays ?? 0))
     setPresets(resolveAvailabilityPresets(v.availabilityPresets))
@@ -270,6 +293,104 @@ export function SettingsClient({
   function onPickVenue(id: string) {
     const v = venues.find((x) => x.id === id)
     if (v) applyVenue(v)
+  }
+
+  useEffect(() => {
+    if (venueId) void loadFeeds(venueId)
+  }, [venueId])
+
+  async function loadFeeds(id: string) {
+    const r = await fetch(`/api/admin/calendar-feeds?venueId=${id}`)
+    if (!r.ok) {
+      setFeeds([])
+      setFloorPlanOptions([])
+      return
+    }
+    const d = await r.json()
+    setFeeds(d.feeds ?? [])
+    setFloorPlanOptions(d.floorPlans ?? [])
+  }
+
+  function patchFeed(id: string, patch: Partial<RoomFeed>) {
+    setFeeds((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)))
+  }
+
+  async function addFeed() {
+    if (!venueId) return
+    if (!newFeedName.trim() || !newFeedUrl.trim()) {
+      setFeedMessage('ROOM NAME AND CALENDAR LINK ARE REQUIRED')
+      return
+    }
+    setFeedBusy(true)
+    setFeedMessage('')
+    const r = await fetch('/api/admin/calendar-feeds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ venueId, name: newFeedName, url: newFeedUrl }),
+    })
+    const d = await r.json().catch(() => ({}))
+    setFeedBusy(false)
+    if (!r.ok) {
+      setFeedMessage((d.error ?? 'ADD FAILED').toUpperCase())
+      return
+    }
+    setNewFeedName('')
+    setNewFeedUrl('')
+    setFeedMessage('ROOM ADDED — SYNC CALENDARS ON THE ROSTER PAGE TO IMPORT IT')
+    void loadFeeds(venueId)
+  }
+
+  async function saveFeed(feed: RoomFeed) {
+    setFeedBusy(true)
+    setFeedMessage('')
+    const r = await fetch(`/api/admin/calendar-feeds/${feed.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: feed.name,
+        url: feed.url,
+        colour: feed.colour,
+        floorPlanId: feed.floorPlanId,
+        isActive: feed.isActive,
+      }),
+    })
+    const d = await r.json().catch(() => ({}))
+    setFeedBusy(false)
+    if (!r.ok) {
+      setFeedMessage((d.error ?? 'SAVE FAILED').toUpperCase())
+      return
+    }
+    setFeedMessage('SAVED')
+    void loadFeeds(venueId)
+  }
+
+  async function removeFeed(id: string) {
+    if (!confirm('REMOVE THIS ROOM? ITS IMPORTED EVENTS DISAPPEAR FROM THE EVENT ROSTER.')) return
+    setFeedBusy(true)
+    setFeedMessage('')
+    const r = await fetch(`/api/admin/calendar-feeds/${id}`, { method: 'DELETE' })
+    setFeedBusy(false)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setFeedMessage((d.error ?? 'REMOVE FAILED').toUpperCase())
+      return
+    }
+    void loadFeeds(venueId)
+  }
+
+  async function moveFeed(id: string, dir: -1 | 1) {
+    const index = feeds.findIndex((f) => f.id === id)
+    const target = index + dir
+    if (index < 0 || target < 0 || target >= feeds.length) return
+    const next = [...feeds]
+    const [row] = next.splice(index, 1)
+    next.splice(target, 0, row)
+    setFeeds(next)
+    await fetch('/api/admin/calendar-feeds/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ venueId, orderedIds: next.map((f) => f.id) }),
+    })
   }
 
   async function generateExtKey() {
@@ -345,7 +466,7 @@ export function SettingsClient({
     const r = await fetch(`/api/admin/venues/${venueId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ loadedRosterUrl: loadedUrl, googleCalendarUrl: googleUrl, icalFeedUrl: icalUrl, externalRefreshMinutes: Number(refresh) }),
+      body: JSON.stringify({ loadedRosterUrl: loadedUrl, externalRefreshMinutes: Number(refresh) }),
     })
     setIntSaving(false)
     if (r.ok) {
@@ -514,14 +635,77 @@ export function SettingsClient({
       <div className="max-w-2xl border-l-4 border-l-white pl-4">
         <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">INTEGRATIONS</h2>
         <p className="font-mono text-xs text-grey-light mb-3">
-          GOOGLE CALENDAR + ANY ICAL FEED ARE IMPORTED ONTO THE PLANNER (RE-SYNCED ON THE INTERVAL — CHANGED EVENTS UPDATE, REMOVED ONES DROP OFF, NO DOUBLE-UPS). THE LOADED LINK STAYS A LIVE EMBED TAB.
+          EACH EVENT SPACE (ROOM) HAS ITS OWN CALENDAR FEED. IMPORTED EVENTS APPEAR ON THE ROSTER&apos;S EVENTS TAB, GROUPED BY ROOM (RE-SYNCED ON THE INTERVAL — CHANGED EVENTS UPDATE, REMOVED ONES DROP OFF, NO DOUBLE-UPS). THE LOADED LINK STAYS A LIVE EMBED TAB.
         </p>
         <div className="space-y-3">
           {role === 'ADMIN' && venues.length > 1 && (
             <Select label="Venue" value={venueId} onChange={(e) => onPickVenue(e.target.value)} options={venues.map((v) => ({ value: v.id, label: v.name }))} />
           )}
-          <Textarea label="Google Calendar — embed link (shown as EVENTS tab + imported to planner)" value={googleUrl} onChange={(e) => setGoogleUrl(e.target.value)} placeholder="https://calendar.google.com/calendar/embed?src=..." />
-          <Textarea label="iCal feed (.ics) — imported to planner (e.g. a roster 'subscribe to calendar' link)" value={icalUrl} onChange={(e) => setIcalUrl(e.target.value)} placeholder="https://…/basic.ics  or  webcal://…" />
+
+          {/* Room calendars */}
+          <div className="space-y-2">
+            <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">ROOM CALENDARS — ONE PER EVENT SPACE</div>
+            {feeds.length === 0 && (
+              <p className="font-mono text-2xs uppercase text-grey-light">NO ROOM CALENDARS YET — ADD THE FIRST ONE BELOW.</p>
+            )}
+            {feeds.map((f, i) => (
+              <div key={f.id} className="border border-grey-mid p-2 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="w-40">
+                    <Input value={f.name} onChange={(e) => patchFeed(f.id, { name: e.target.value })} placeholder="ROOM NAME" />
+                  </div>
+                  <input
+                    type="color"
+                    value={f.colour || '#0E7490'}
+                    onChange={(e) => patchFeed(f.id, { colour: e.target.value })}
+                    title="ROOM COLOUR"
+                    className="w-10 h-8 bg-black border border-grey-mid"
+                  />
+                  <div className="flex-1 min-w-40">
+                    <Select
+                      value={f.floorPlanId ?? ''}
+                      onChange={(e) => patchFeed(f.id, { floorPlanId: e.target.value || null })}
+                      options={[{ value: '', label: 'NO LAYOUT LINK' }, ...floorPlanOptions.map((p) => ({ value: p.id, label: p.name }))]}
+                    />
+                  </div>
+                  <span className="font-mono text-2xs uppercase text-grey-light">{f.source}</span>
+                  <div className="flex items-center gap-1 ml-auto">
+                    <button onClick={() => moveFeed(f.id, -1)} disabled={i === 0} className="font-mono text-xs text-grey-light border border-grey-mid px-2 py-1 hover:border-white hover:text-white disabled:opacity-30">↑</button>
+                    <button onClick={() => moveFeed(f.id, 1)} disabled={i === feeds.length - 1} className="font-mono text-xs text-grey-light border border-grey-mid px-2 py-1 hover:border-white hover:text-white disabled:opacity-30">↓</button>
+                    <Button size="sm" variant="danger" onClick={() => removeFeed(f.id)}>✕</Button>
+                  </div>
+                </div>
+                <Input value={f.url} onChange={(e) => patchFeed(f.id, { url: e.target.value })} placeholder="https://…/basic.ics  or  calendar embed link  or  webcal://…" />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono text-2xs uppercase text-grey-light">
+                    {f.lastSyncedAt ? `SYNCED ${new Date(f.lastSyncedAt).toLocaleString('en-NZ')}` : 'NOT YET SYNCED'}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={() => saveFeed(f)} loading={feedBusy}>SAVE ROOM</Button>
+                </div>
+              </div>
+            ))}
+
+            <div className="border border-grey-mid p-2 space-y-2">
+              <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">+ ADD ROOM</div>
+              <div className="flex flex-wrap gap-2">
+                <div className="w-40">
+                  <Input label="Room name" value={newFeedName} onChange={(e) => setNewFeedName(e.target.value)} placeholder="E.G. TE KAWAU ROOM" />
+                </div>
+                <div className="flex-1 min-w-48">
+                  <Input label="Calendar link" value={newFeedUrl} onChange={(e) => setNewFeedUrl(e.target.value)} placeholder="GOOGLE EMBED / .ICS / webcal://" />
+                </div>
+                <div className="flex items-end">
+                  <Button size="sm" variant="ghost" onClick={addFeed} loading={feedBusy}>ADD ROOM</Button>
+                </div>
+              </div>
+              <p className="font-mono text-2xs uppercase text-grey-light">
+                A GOOGLE EMBED LINK WITH MULTIPLE src CALENDARS CREATES ONE ROOM PER CALENDAR (RENAME THEM ABOVE).
+              </p>
+            </div>
+
+            {feedMessage && <p className={`font-mono text-xs ${feedMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{feedMessage}</p>}
+          </div>
+
           <Textarea label="Loaded roster — public link (live embed tab only)" value={loadedUrl} onChange={(e) => setLoadedUrl(e.target.value)} placeholder="https://loadedhub.com/App/PublicRoster#/roster/..." />
           <Select label="Auto-refresh / re-sync interval" value={refresh} onChange={(e) => setRefresh(e.target.value)} options={REFRESH_OPTIONS} />
           {intMessage && <p className={`font-mono text-xs ${intMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{intMessage}</p>}

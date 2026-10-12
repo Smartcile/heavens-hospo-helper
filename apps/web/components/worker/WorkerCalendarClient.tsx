@@ -62,11 +62,17 @@ export function WorkerCalendarClient() {
         )}
       </div>
 
-      <div className="px-4 py-4 border-t border-grey-mid">
+      <div className="px-4 py-4 border-t border-grey-mid space-y-2">
         <Link href="/w/availability" className="block bg-grey-dark border border-grey-mid p-3 hover:border-white transition-colors">
           <div className="font-mono text-xs uppercase text-white">TIME OFF</div>
           <div className="font-mono text-2xs uppercase text-grey-light mt-1">
             MARK DAYS UNAVAILABLE AND TICK “TIME OFF REQUEST” ON MY AVAILABILITY →
+          </div>
+        </Link>
+        <Link href="/w/shifts" className="block bg-grey-dark border border-grey-mid p-3 hover:border-white transition-colors">
+          <div className="font-mono text-xs uppercase text-white">AVAILABLE SHIFTS</div>
+          <div className="font-mono text-2xs uppercase text-grey-light mt-1">
+            PICK UP EVENT SHIFTS FOR YOUR ROLES →
           </div>
         </Link>
       </div>

@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
-type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events'
+type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'shifts' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events'
 
 interface DashData {
   firstName: string
@@ -13,6 +13,7 @@ interface DashData {
   unackedNotices: number
   unreadNotices: number
   upcomingShifts: number
+  openShifts: number
   trainingDone: number
   trainingTotal: number
   sopCount: number
@@ -92,6 +93,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
       unackedNotices: notices.unackedRequired ?? 0,
       unreadNotices: notices.items?.length ?? 0,
       upcomingShifts: (cal.shifts ?? []).length,
+      openShifts: cal.openShiftCount ?? 0,
       trainingDone: guideItems.filter((t: { completed: boolean }) => t.completed).length,
       trainingTotal: guideItems.length,
       // Points earned on their pathway — 0 when no pathway targets them.
@@ -266,6 +268,20 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           'text-grey-light',
           'border-grey-mid',
           () => setView('availability')
+        )}
+
+        {card(
+          'AVAILABLE SHIFTS',
+          data && data.openShifts > 0
+            ? `${data.openShifts} SHIFT${data.openShifts !== 1 ? 'S' : ''} TO PICK UP`
+            : 'NO SHIFTS TO PICK UP',
+          <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="square" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+          </svg>,
+          (data?.openShifts ?? 0) > 0 ? `${data?.openShifts} NEW` : null,
+          'text-accent',
+          (data?.openShifts ?? 0) > 0 ? 'border-accent' : 'border-grey-mid',
+          () => setView('shifts')
         )}
 
         {card(

@@ -68,6 +68,13 @@ echo "▸ Moving legacy time-off requests onto the availability calendar (post-s
 npm run db:migrate-timeoff || echo "⚠ Time-off migration step failed (see error above) — continuing to start the app."
 
 echo ""
+echo "▸ Moving legacy Google/iCal venue URLs onto room calendar feeds (post-sync)..."
+# Each event space now has its own CalendarFeed row so the event roster can
+# group imported events by room. Venues that already have feeds are skipped and
+# the legacy venue columns are left untouched (still the sync fallback).
+npm run db:migrate-calendar-feeds || echo "⚠ Calendar-feed migration step failed (see error above) — continuing to start the app."
+
+echo ""
 echo "▸ Seeding database (safe to re-run)..."
 cd /app/packages/db
 npm run db:seed || echo "⚠ Seed step failed (see error above) — continuing to start the app."
