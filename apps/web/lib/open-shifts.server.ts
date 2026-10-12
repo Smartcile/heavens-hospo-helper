@@ -292,6 +292,7 @@ export async function reviewOpenShiftClaim(input: {
         venueId: input.venueId,
         departmentId: fresh.position?.departmentId ?? staff.departmentId ?? null,
         positionId: fresh.positionId,
+        calendarEventId: fresh.calendarEventId,
         date: fresh.date,
         startTime: fresh.startTime,
         endTime: fresh.endTime,

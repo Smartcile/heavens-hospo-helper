@@ -14,7 +14,7 @@
 import { shiftDay } from '@/lib/date-nav'
 
 export type AvailabilityType = 'UNAVAILABLE' | 'PREFERRED' | 'AVAILABLE'
-export type AvailabilityState = 'UNAVAILABLE' | 'AVAILABLE' | 'DEFAULT'
+export type AvailabilityState = 'UNAVAILABLE' | 'AVAILABLE' | 'PARTIAL' | 'DEFAULT'
 export type AvailabilityWindowType = 'AVAILABLE' | 'UNAVAILABLE'
 export type AvailabilityStatus = 'PENDING' | 'APPROVED' | 'DECLINED'
 export type AvailabilityScope = 'THIS' | 'FROM' | 'ALL'
@@ -83,7 +83,10 @@ export function isCasual(employmentType: string | null | undefined): boolean {
 }
 
 /** The logical state for a day from its (optional) entry. A DECLINED request is
- *  not in force — it reads as DEFAULT (with the badge shown separately). */
+ *  not in force — it reads as DEFAULT (with the badge shown separately).
+ *  Windowed days are judged by their FREE time: all day free = AVAILABLE, no
+ *  free time = UNAVAILABLE, some free time = PARTIAL ("can work the morning,
+ *  not the night" must never read as a blanket unavailable). */
 export function availabilityState(entry: {
   type?: AvailabilityType
   isAllDay?: boolean
@@ -99,7 +102,12 @@ export function availabilityState(entry: {
   }
   const windows = entryWindows(entry)
   if (windows.length === 0) return 'DEFAULT'
-  return windows.some((w) => w.type === 'UNAVAILABLE') ? 'UNAVAILABLE' : 'AVAILABLE'
+  const free = freeWindows(entry)
+  if (free.length === 0) return 'UNAVAILABLE'
+  if (free.length === 1 && minutesOfTime(free[0].startTime) === 0 && minutesOfTime(free[0].endTime) === MINUTES_PER_DAY) {
+    return 'AVAILABLE'
+  }
+  return 'PARTIAL'
 }
 
 /** A stored entry's windows — explicit `windows`, or the legacy single window. */
@@ -155,6 +163,9 @@ export function availabilityMeta(
 ): AvailabilityMeta {
   if (state === 'UNAVAILABLE') {
     return { label: 'UNAVAILABLE', badge: 'border-danger text-danger', tint: 'bg-danger/10', dot: 'bg-danger' }
+  }
+  if (state === 'PARTIAL') {
+    return { label: 'SPLIT', badge: 'border-warning text-warning', tint: 'bg-warning/10', dot: 'bg-warning' }
   }
   if (state === 'AVAILABLE') {
     return { label: 'AVAILABLE', badge: 'border-success text-success', tint: 'bg-success/10', dot: 'bg-success' }
@@ -376,6 +387,116 @@ export function describeWindows(windows: AvailabilityWindow[], isAllDay: boolean
   const first = formatWindow(windows[0])
   if (windows.length === 1) return first
   return `${first} +${windows.length - 1}`
+}
+
+// ── Free-time windows ─────────────────────────────────────────────────────
+
+interface MinuteInterval {
+  start: number
+  end: number
+}
+
+function subtractInterval(list: MinuteInterval[], cut: MinuteInterval): MinuteInterval[] {
+  const out: MinuteInterval[] = []
+  for (const iv of list) {
+    if (cut.end <= iv.start || cut.start >= iv.end) {
+      out.push(iv)
+      continue
+    }
+    if (cut.start > iv.start) out.push({ start: iv.start, end: cut.start })
+    if (cut.end < iv.end) out.push({ start: cut.end, end: iv.end })
+  }
+  return out
+}
+
+function mergeIntervals(list: MinuteInterval[]): MinuteInterval[] {
+  const sorted = [...list].sort((a, b) => a.start - b.start)
+  const out: MinuteInterval[] = []
+  for (const iv of sorted) {
+    const last = out[out.length - 1]
+    if (last && iv.start <= last.end) last.end = Math.max(last.end, iv.end)
+    else out.push({ ...iv })
+  }
+  return out
+}
+
+/**
+ * The day's genuinely free windows. A partition day (any AVAILABLE window)
+ * frees exactly those windows; a block-out day (UNAVAILABLE-only) frees the
+ * whole day minus the blocked windows. No free time = [].
+ */
+export function freeWindows(entry: {
+  type?: AvailabilityType
+  isAllDay?: boolean
+  startTime?: string | null
+  endTime?: string | null
+  windows?: AvailabilityWindow[] | null
+}): AvailabilityWindow[] {
+  if (entry.isAllDay !== false) {
+    return entry.type === 'UNAVAILABLE' ? [] : [{ type: 'AVAILABLE', startTime: '00:00', endTime: '24:00' }]
+  }
+  const windows = entryWindows(entry)
+  if (windows.length === 0) {
+    return entry.type === 'UNAVAILABLE' ? [] : [{ type: 'AVAILABLE', startTime: '00:00', endTime: '24:00' }]
+  }
+  const available = windows.filter((w) => w.type === 'AVAILABLE')
+  let free: MinuteInterval[] =
+    available.length > 0
+      ? mergeIntervals(available.map((w) => ({ start: minutesOfTime(w.startTime), end: minutesOfTime(w.endTime) })))
+      : [{ start: 0, end: MINUTES_PER_DAY }]
+  for (const block of windows.filter((w) => w.type === 'UNAVAILABLE')) {
+    free = subtractInterval(free, { start: minutesOfTime(block.startTime), end: minutesOfTime(block.endTime) })
+  }
+  return mergeIntervals(free).map((iv) => ({
+    type: 'AVAILABLE' as const,
+    startTime: fromMinutes(iv.start),
+    endTime: fromMinutes(iv.end),
+  }))
+}
+
+/** Free windows still ahead of `minutes` — the "today" evaluation (past
+ *  windows are history; the window containing now is clipped to now). */
+export function freeWindowsFrom(
+  entry: {
+    type?: AvailabilityType
+    isAllDay?: boolean
+    startTime?: string | null
+    endTime?: string | null
+    windows?: AvailabilityWindow[] | null
+  },
+  minutes: number,
+): AvailabilityWindow[] {
+  const out: AvailabilityWindow[] = []
+  for (const w of freeWindows(entry)) {
+    const end = minutesOfTime(w.endTime)
+    if (end <= minutes) continue
+    out.push({
+      type: 'AVAILABLE',
+      startTime: fromMinutes(Math.max(minutesOfTime(w.startTime), minutes)),
+      endTime: w.endTime,
+    })
+  }
+  return out
+}
+
+/** True when any free time is left after `minutes` (free NOW). */
+export function isFreeAt(entry: Parameters<typeof freeWindows>[0], minutes: number): boolean {
+  return freeWindowsFrom(entry, minutes).length > 0
+}
+
+/** "FREE ALL DAY" / "FREE 07:00–12:00" / "FREE 07:00–12:00 +1" / "NO FREE TIME".
+ *  Pass `minutes` to evaluate only what is left today. */
+export function describeFreeWindows(
+  entry: Parameters<typeof freeWindows>[0],
+  minutes?: number,
+): string {
+  const free = typeof minutes === 'number' ? freeWindowsFrom(entry, minutes) : freeWindows(entry)
+  if (free.length === 0) return 'NO FREE TIME'
+  if (free.length === 1 && minutesOfTime(free[0].startTime) === 0 && minutesOfTime(free[0].endTime) === MINUTES_PER_DAY) {
+    return 'FREE ALL DAY'
+  }
+  const first = formatWindow(free[0])
+  return free.length === 1 ? `FREE ${first}` : `FREE ${first} +${free.length - 1}`
 }
 
 // ── Conflicts + locks ─────────────────────────────────────────────────────

@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { staffId, date, startTime, endTime, departmentId, positionId, colour, tag, breakMinutes, status, note } = body as {
+  const { staffId, date, startTime, endTime, departmentId, positionId, colour, tag, breakMinutes, status, note, calendarEventId } = body as {
     staffId: string
     date: string
     startTime: string
@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
     breakMinutes?: number
     status?: string
     note?: string
+    calendarEventId?: string | null
   }
 
   if (!staffId || !date || !startTime || !endTime) {
@@ -41,12 +42,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  if (calendarEventId) {
+    const event = await prisma.calendarEvent.findFirst({
+      where: { id: calendarEventId, venueId: staff.venueId, deletedAt: null },
+      select: { id: true },
+    })
+    if (!event) return NextResponse.json({ error: 'Unknown event' }, { status: 400 })
+  }
+
   const shift = await prisma.shift.create({
     data: {
       staffId,
       venueId: staff.venueId,
       departmentId: departmentId ?? staff.departmentId ?? null,
       positionId: positionId || null,
+      calendarEventId: calendarEventId || null,
       colour: colour || null,
       tag: tag?.trim() || null,
       breakMinutes: Math.max(0, Math.round(Number(breakMinutes) || 0)),

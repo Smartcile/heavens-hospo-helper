@@ -16,6 +16,7 @@ export interface RosterShift {
   positionId?: string | null
   positionName?: string | null
   positionColour?: string | null
+  calendarEventId?: string | null
   status?: string
 }
 

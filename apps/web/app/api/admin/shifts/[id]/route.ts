@@ -36,6 +36,18 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.date !== undefined) updates.date = new Date(body.date)
   if (body.departmentId !== undefined) updates.departmentId = body.departmentId || null
   if (body.positionId !== undefined) updates.positionId = body.positionId || null
+  if (body.calendarEventId !== undefined) {
+    if (body.calendarEventId) {
+      const event = await prisma.calendarEvent.findFirst({
+        where: { id: body.calendarEventId, venueId: existing.venueId, deletedAt: null },
+        select: { id: true },
+      })
+      if (!event) return NextResponse.json({ error: 'Unknown event' }, { status: 400 })
+      updates.calendarEventId = body.calendarEventId
+    } else {
+      updates.calendarEventId = null
+    }
+  }
   if (body.colour !== undefined) updates.colour = body.colour || null
   if (body.tag !== undefined) updates.tag = body.tag?.trim() || null
   if (body.breakMinutes !== undefined) updates.breakMinutes = Math.max(0, Math.round(Number(body.breakMinutes) || 0))

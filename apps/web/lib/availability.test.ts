@@ -7,14 +7,18 @@ import {
   canWorkerEditDate,
   conflictsWithShift,
   DEFAULT_AVAILABILITY_PRESETS,
+  describeFreeWindows,
   describeSeriesEnd,
   describeWindows,
   entryWindows,
   formatWindow,
+  freeWindows,
+  freeWindowsFrom,
   fromMinutes,
   initialStatus,
   isCasual,
   isDateLocked,
+  isFreeAt,
   isPastDate,
   isQuarterTime,
   isValidAvailabilityTime,
@@ -87,14 +91,53 @@ describe('availabilityState', () => {
     expect(availabilityState({ type: 'PREFERRED', isAllDay: true })).toBe('AVAILABLE')
   })
 
-  it('maps windowed entries by dominance', () => {
-    expect(availabilityState({ isAllDay: false, windows: [w('AVAILABLE', '07:00', '15:00')] })).toBe('AVAILABLE')
-    expect(availabilityState({ isAllDay: false, windows: [w('AVAILABLE', '07:00', '15:00'), w('UNAVAILABLE', '15:00', '24:00')] })).toBe('UNAVAILABLE')
+  it('judges windowed entries by their free time, not by "any blocked window"', () => {
+    // Free all day.
+    expect(availabilityState({ isAllDay: false, windows: [w('AVAILABLE', '00:00', '24:00')] })).toBe('AVAILABLE')
+    // Free part of the day — morning only must not read as blanket UNAVAILABLE.
+    expect(availabilityState({ isAllDay: false, windows: [w('AVAILABLE', '07:00', '15:00'), w('UNAVAILABLE', '15:00', '24:00')] })).toBe('PARTIAL')
+    // A block-out leaves the rest of the day free.
+    expect(availabilityState({ isAllDay: false, windows: [w('UNAVAILABLE', '12:00', '24:00')] })).toBe('PARTIAL')
+    // Blocked all day.
+    expect(availabilityState({ isAllDay: false, windows: [w('UNAVAILABLE', '00:00', '24:00')] })).toBe('UNAVAILABLE')
     expect(availabilityState({ isAllDay: false, windows: [] })).toBe('DEFAULT')
   })
 
   it('a DECLINED request is not in force', () => {
     expect(availabilityState({ type: 'UNAVAILABLE', isAllDay: true, status: 'DECLINED' })).toBe('DEFAULT')
+  })
+})
+
+describe('freeWindows / freeWindowsFrom / describeFreeWindows', () => {
+  it('frees exactly the AVAILABLE windows on a partition day', () => {
+    expect(freeWindows({ isAllDay: false, windows: [w('AVAILABLE', '07:00', '12:00'), w('UNAVAILABLE', '12:00', '24:00')] }))
+      .toEqual([w('AVAILABLE', '07:00', '12:00')])
+  })
+
+  it('frees the whole day minus the blocked windows on a block-out day', () => {
+    expect(freeWindows({ isAllDay: false, windows: [w('UNAVAILABLE', '12:00', '17:00')] }))
+      .toEqual([w('AVAILABLE', '00:00', '12:00'), w('AVAILABLE', '17:00', '24:00')])
+  })
+
+  it('reports no free time for a fully blocked day', () => {
+    expect(freeWindows({ isAllDay: false, windows: [w('UNAVAILABLE', '00:00', '24:00')] })).toEqual([])
+    expect(freeWindows({ type: 'UNAVAILABLE', isAllDay: true })).toEqual([])
+  })
+
+  it('clips to the current time for today', () => {
+    const morning = { isAllDay: false, windows: [w('AVAILABLE', '07:00', '12:00'), w('UNAVAILABLE', '12:00', '24:00')] }
+    expect(freeWindowsFrom(morning, 9 * 60)).toEqual([w('AVAILABLE', '09:00', '12:00')])
+    expect(freeWindowsFrom(morning, 14 * 60)).toEqual([])
+    expect(isFreeAt(morning, 9 * 60)).toBe(true)
+    expect(isFreeAt(morning, 14 * 60)).toBe(false)
+    expect(describeFreeWindows(morning, 9 * 60)).toBe('FREE 09:00–12:00')
+    expect(describeFreeWindows(morning, 14 * 60)).toBe('NO FREE TIME')
+  })
+
+  it('summarises free windows in one line', () => {
+    expect(describeFreeWindows({ type: 'AVAILABLE', isAllDay: true })).toBe('FREE ALL DAY')
+    expect(describeFreeWindows({ isAllDay: false, windows: [w('AVAILABLE', '07:00', '12:00'), w('UNAVAILABLE', '12:00', '24:00')] })).toBe('FREE 07:00–12:00')
+    expect(describeFreeWindows({ isAllDay: false, windows: [w('UNAVAILABLE', '12:00', '14:00')] })).toBe('FREE 00:00–12:00 +1')
   })
 })
 
@@ -135,6 +178,12 @@ describe('availabilityMeta / statusMeta', () => {
   it('colours unavailable red and available green', () => {
     expect(availabilityMeta('UNAVAILABLE', 'CASUAL').badge).toContain('danger')
     expect(availabilityMeta('AVAILABLE', 'CASUAL').badge).toContain('success')
+  })
+
+  it('flags a split day amber', () => {
+    const meta = availabilityMeta('PARTIAL', 'CASUAL')
+    expect(meta.label).toBe('SPLIT')
+    expect(meta.badge).toContain('warning')
   })
 
   it('flags a casual default as an UNSET warning, but a FT default as fine', () => {

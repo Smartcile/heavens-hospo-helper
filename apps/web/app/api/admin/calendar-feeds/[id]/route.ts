@@ -40,6 +40,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const body = (await req.json().catch(() => null)) as {
     name?: string
     url?: string
+    areaId?: string | null
     colour?: string | null
     floorPlanId?: string | null
     isActive?: boolean
@@ -70,6 +71,19 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (body.colour !== undefined) data.colour = body.colour?.trim() || null
   if (body.notes !== undefined) data.notes = body.notes?.trim() || null
   if (body.isActive !== undefined) data.isActive = !!body.isActive
+
+  if (body.areaId !== undefined) {
+    if (body.areaId) {
+      const area = await prisma.area.findFirst({
+        where: { id: body.areaId, venueId: feed.venueId, deletedAt: null },
+        select: { id: true },
+      })
+      if (!area) return NextResponse.json({ error: 'UNKNOWN AREA' }, { status: 400 })
+      data.areaId = body.areaId
+    } else {
+      data.areaId = null
+    }
+  }
 
   if (body.floorPlanId !== undefined) {
     if (body.floorPlanId) {

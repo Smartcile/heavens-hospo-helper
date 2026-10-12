@@ -129,9 +129,12 @@ describe('RosterClient', () => {
     await waitFor(() => {
       expect(screen.getByText(/TAYLOR REED/)).toBeDefined()
     })
-    // AVAILABLE on Monday, UNAVAILABLE on Tuesday, UNSET for the casual's other days.
+    // AVAILABLE on Monday; the Tuesday block-out leaves the rest of the day
+    // free, so it reads SPLIT (not a blanket UNAVAILABLE); UNSET for the
+    // casual's other days.
     expect(screen.getAllByText('AVAILABLE').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('UNAVAILABLE').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('SPLIT').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/FREE /).length).toBeGreaterThan(0)
     expect(screen.getAllByText('UNSET').length).toBeGreaterThan(0)
     // A pending declaration carries its PENDING chip on the grid.
     expect(screen.getAllByText('PENDING').length).toBeGreaterThan(0)
@@ -139,6 +142,24 @@ describe('RosterClient', () => {
     expect(screen.getByText('Unavailable')).toBeDefined()
     expect(screen.getByText('Available')).toBeDefined()
     expect(screen.getByText(/Unset \(casual\)/)).toBeDefined()
+    expect(screen.getByText(/Split \(part of day\)/)).toBeDefined()
+  })
+
+  it('pins a day and floats people who are free that day to the top', async () => {
+    mockFetch([[], [], availData])
+
+    render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findByText(/TAYLOR REED/)
+    const names = () => screen.getAllByText(/LIAM HEAVEN|TAYLOR REED/).map((el) => el.textContent ?? '')
+    // Data order first: LIAM leads.
+    expect(names()[0]).toContain('LIAM')
+
+    // Pin Monday — Taylor (available that day) floats above Liam (no entry).
+    const pins = screen.getAllByTitle('PIN THIS DAY — FLOAT WHO IS FREE TO THE TOP')
+    fireEvent.click(pins[0])
+    await waitFor(() => expect(screen.getByText('PINNED')).toBeDefined())
+    expect(names()[0]).toContain('TAYLOR')
   })
 
   it('opens the staff editor when the name is clicked', async () => {
@@ -188,7 +209,7 @@ describe('RosterClient', () => {
     vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown) => {
       const u = String(url)
       if (u.includes('/api/admin/event-roster')) {
-        return { ok: true, json: async () => ({ feeds: [], events: [], queue: [], positions: [], lastSyncedAt: null }) } as Response
+        return { ok: true, json: async () => ({ areas: [], events: [], queue: [], positions: [], lastSyncedAt: null }) } as Response
       }
       if (u.includes('/api/admin/venues') || u.includes('/api/admin/positions')) {
         return { ok: true, json: async () => [] } as Response
@@ -202,9 +223,64 @@ describe('RosterClient', () => {
 
     fireEvent.click(screen.getByText('EVENTS'))
     expect(await screen.findByText('↻ SYNC CALENDARS')).toBeDefined()
-    expect(await screen.findByText('NO EVENTS IMPORTED FOR THIS RANGE.')).toBeDefined()
+    expect(await screen.findByText('+ NEW EVENT')).toBeDefined()
+    // The same staff grid is shared — the person and their shift stay visible.
+    expect(screen.getByText(/LIAM HEAVEN/)).toBeDefined()
+    expect(screen.getByText(/07:00 — 16:00/)).toBeDefined()
 
     fireEvent.click(screen.getByText('STAFF'))
-    await waitFor(() => expect(screen.getByText(/LIAM HEAVEN/)).toBeDefined())
+    await waitFor(() => expect(screen.queryByText('↻ SYNC CALENDARS')).toBeNull())
+    expect(screen.getByText(/LIAM HEAVEN/)).toBeDefined()
+  })
+
+  it('overlays the day\'s events as chips in the day headers and opens the staffing modal', async () => {
+    const eventData = {
+      areas: [{ id: 'ar1', name: 'MEETING ROOM 1', colour: '#60A5FA', capacity: 12, floorPlanSlug: null, floorPlanName: null }],
+      events: [
+        {
+          id: 'ev1', areaId: 'ar1', feedId: null, title: 'BOARD MEETING', description: null,
+          location: 'MEETING ROOM 1', source: 'MANUAL',
+          startsAt: `${monday}T10:00:00.000Z`, endsAt: `${monday}T12:00:00.000Z`,
+          allDay: false, pax: 8, pdfPath: null, pdfUrl: null, floorPlanSlug: null, floorPlanName: null,
+          staffing: [
+            { id: 'sl1', positionId: 'p1', positionName: 'BARISTA', positionColour: '#60A5FA', label: null, count: 1, startTime: '09:00', endTime: '13:00', breakMinutes: 0, note: null, sortOrder: 0 },
+          ],
+          openShifts: [],
+          shifts: [
+            { id: 'shx', staffId: 'st1', staffName: 'LIAM HEAVEN', positionName: 'BARISTA', positionColour: null, date: monday, startTime: '09:00', endTime: '13:00', breakMinutes: 0, tag: 'EVENT', status: 'DRAFT', fromClaim: true },
+          ],
+        },
+      ],
+      queue: [],
+      positions: [{ id: 'p1', name: 'BARISTA', colour: '#60A5FA' }],
+      lastSyncedAt: null,
+    }
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown) => {
+      const u = String(url)
+      if (u.includes('/api/admin/event-roster')) {
+        return { ok: true, json: async () => eventData } as Response
+      }
+      if (u.includes('/api/admin/venues') || u.includes('/api/admin/positions')) {
+        return { ok: true, json: async () => [] } as Response
+      }
+      return { ok: true, json: async () => data } as Response
+    })
+
+    render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+    await screen.findByText(/LIAM HEAVEN/)
+
+    fireEvent.click(screen.getByText('EVENTS'))
+
+    // Chip in Monday's header: time + title + area + pax.
+    expect(await screen.findByText('10:00 BOARD MEETING')).toBeDefined()
+    expect(screen.getByText(/MEETING ROOM 1 · 8 PAX/)).toBeDefined()
+
+    fireEvent.click(screen.getByText('10:00 BOARD MEETING'))
+    expect(await screen.findByText('REQUIRED STAFF')).toBeDefined()
+    expect(screen.getByText('ROSTERED SHIFTS (1)')).toBeDefined()
+    expect(screen.getByText('CLAIMED')).toBeDefined()
+    expect(screen.getByText(/LIAM HEAVEN · 09:00–13:00/)).toBeDefined()
+    // Manual events can be edited straight from the staffing modal.
+    expect(screen.getByText('EDIT EVENT')).toBeDefined()
   })
 })

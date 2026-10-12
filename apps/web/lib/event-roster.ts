@@ -1,20 +1,11 @@
-// Event-roster grid logic — pure, Prisma-free. Groups imported CalendarEvents
-// into room rows (one per CalendarFeed) across the week, with an "OTHER
-// EVENTS" row for events that belong to no room (manual BEO pushes, legacy
-// imports).
+// Event overlay helpers — pure, Prisma-free. Resolves which Area an event
+// belongs to (its own areaId, else a name match on the event's LOCATION, else
+// the area whose floor plan the event points at) and buckets events per day
+// for the roster's day-header event chips.
 
 import { dateKeysBetween } from '@/lib/calendar'
 
-export const OTHER_ROOM_KEY = '__other__'
-
-export interface RosterRoom {
-  id: string
-  name: string
-  colour: string | null
-  floorPlanSlug: string | null
-}
-
-export interface RosterFeedLike {
+export interface RosterAreaLike {
   id: string
   name: string
   colour: string | null
@@ -23,7 +14,7 @@ export interface RosterFeedLike {
 
 export interface RosterEventLike {
   id: string
-  feedId: string | null
+  areaId: string | null
   location: string | null
   floorPlanSlug: string | null
   startsAt: Date
@@ -41,28 +32,28 @@ export function formatEventTime(event: { startsAt: Date; allDay: boolean }): str
 }
 
 /**
- * Which room an event belongs to: its feed, else the feed whose name matches
- * the event's LOCATION, else the feed whose floor plan the event points at,
- * else the shared "other" row.
+ * The area an event belongs to: its explicit areaId, else the area whose name
+ * matches the event's LOCATION, else the area whose floor plan the event points
+ * at, else null (rendered as "OTHER" by the caller).
  */
-export function roomKeyForEvent(
-  event: Pick<RosterEventLike, 'feedId' | 'location' | 'floorPlanSlug'>,
-  feeds: RosterFeedLike[],
-): string {
-  if (event.feedId) {
-    const byId = feeds.find((f) => f.id === event.feedId)
-    if (byId) return byId.id
+export function resolveAreaForEvent(
+  event: Pick<RosterEventLike, 'areaId' | 'location' | 'floorPlanSlug'>,
+  areas: RosterAreaLike[],
+): RosterAreaLike | null {
+  if (event.areaId) {
+    const byId = areas.find((a) => a.id === event.areaId)
+    if (byId) return byId
   }
   const loc = event.location?.trim().toUpperCase()
   if (loc) {
-    const byName = feeds.find((f) => f.name.trim().toUpperCase() === loc)
-    if (byName) return byName.id
+    const byName = areas.find((a) => a.name.trim().toUpperCase() === loc)
+    if (byName) return byName
   }
   if (event.floorPlanSlug) {
-    const byPlan = feeds.find((f) => f.floorPlanSlug === event.floorPlanSlug)
-    if (byPlan) return byPlan.id
+    const byPlan = areas.find((a) => a.floorPlanSlug === event.floorPlanSlug)
+    if (byPlan) return byPlan
   }
-  return OTHER_ROOM_KEY
+  return null
 }
 
 /**
@@ -83,53 +74,34 @@ export function eventDayKeysInRange(
   return dateKeysBetween(start, end).filter((k) => k >= startKey && k <= endKey)
 }
 
-export interface RoomGrid<T> {
-  rooms: RosterRoom[]
-  /** roomKey -> dayKey -> events (sorted by start time, then title). */
-  cells: Record<string, Record<string, T[]>>
+export interface DayEvent<T> {
+  event: T
+  area: RosterAreaLike | null
 }
 
-/** Top-level grid builder: feeds become rows; unmatched events go to "other". */
-export function buildRoomGrid<T extends RosterEventLike>(
-  feeds: RosterFeedLike[],
+/**
+ * Bucket events by day key with their resolved area, each day sorted by start
+ * time then title. Out-of-range days are dropped.
+ */
+export function eventsByDay<T extends RosterEventLike>(
   events: T[],
+  areas: RosterAreaLike[],
   startKey: string,
   endKey: string,
-): RoomGrid<T> {
-  const rooms: RosterRoom[] = feeds.map((f) => ({
-    id: f.id,
-    name: f.name,
-    colour: f.colour,
-    floorPlanSlug: f.floorPlanSlug,
-  }))
-
-  const cells: Record<string, Record<string, T[]>> = {}
-  const ensure = (roomKey: string, dayKey: string) => {
-    cells[roomKey] ??= {}
-    cells[roomKey][dayKey] ??= []
-    return cells[roomKey][dayKey]
-  }
-
-  let otherUsed = false
+): Record<string, DayEvent<T>[]> {
+  const cells: Record<string, DayEvent<T>[]> = {}
   for (const event of events) {
-    const roomKey = roomKeyForEvent(event, feeds)
-    if (roomKey === OTHER_ROOM_KEY) otherUsed = true
+    const area = resolveAreaForEvent(event, areas)
     for (const dayKey of eventDayKeysInRange(event, startKey, endKey)) {
-      ensure(roomKey, dayKey).push(event)
+      ;(cells[dayKey] ??= []).push({ event, area })
     }
   }
-
-  const sortCell = (list: T[]) =>
+  for (const list of Object.values(cells)) {
     list.sort(
-      (a, b) => a.startsAt.getTime() - b.startsAt.getTime() || a.title.localeCompare(b.title),
+      (a, b) =>
+        a.event.startsAt.getTime() - b.event.startsAt.getTime() ||
+        a.event.title.localeCompare(b.event.title),
     )
-  for (const room of Object.values(cells)) {
-    for (const list of Object.values(room)) sortCell(list)
   }
-
-  if (otherUsed) {
-    rooms.push({ id: OTHER_ROOM_KEY, name: 'OTHER EVENTS', colour: null, floorPlanSlug: null })
-  }
-
-  return { rooms, cells }
+  return cells
 }

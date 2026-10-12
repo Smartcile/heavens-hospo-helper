@@ -1,22 +1,21 @@
 import { describe, it, expect } from 'vitest'
 import {
-  OTHER_ROOM_KEY,
   formatEventTime,
-  roomKeyForEvent,
+  resolveAreaForEvent,
   eventDayKeysInRange,
-  buildRoomGrid,
-  type RosterFeedLike,
+  eventsByDay,
+  type RosterAreaLike,
   type RosterEventLike,
 } from '@/lib/event-roster'
 
-const feeds: RosterFeedLike[] = [
-  { id: 'feed-1', name: 'TE KAWAU ROOM', colour: null, floorPlanSlug: 'te-kawau' },
-  { id: 'feed-2', name: 'RANGITOTO ROOM', colour: null, floorPlanSlug: null },
+const areas: RosterAreaLike[] = [
+  { id: 'area-1', name: 'TE KAWAU ROOM', colour: null, floorPlanSlug: 'te-kawau' },
+  { id: 'area-2', name: 'RANGITOTO ROOM', colour: null, floorPlanSlug: null },
 ]
 
 function event(partial: Partial<RosterEventLike> & { id: string }): RosterEventLike {
   return {
-    feedId: null,
+    areaId: null,
     location: null,
     floorPlanSlug: null,
     startsAt: new Date('2025-11-15T09:00:00Z'),
@@ -34,21 +33,21 @@ describe('formatEventTime', () => {
   })
 })
 
-describe('roomKeyForEvent', () => {
-  it('uses the feed first', () => {
-    expect(roomKeyForEvent({ feedId: 'feed-2', location: null, floorPlanSlug: null }, feeds)).toBe('feed-2')
+describe('resolveAreaForEvent', () => {
+  it('prefers the explicit areaId', () => {
+    expect(resolveAreaForEvent({ areaId: 'area-2', location: null, floorPlanSlug: null }, areas)?.id).toBe('area-2')
   })
 
-  it('matches LOCATION against feed names', () => {
-    expect(roomKeyForEvent({ feedId: null, location: 'Te Kawau Room', floorPlanSlug: null }, feeds)).toBe('feed-1')
+  it('matches LOCATION against area names', () => {
+    expect(resolveAreaForEvent({ areaId: null, location: 'Te Kawau Room', floorPlanSlug: null }, areas)?.id).toBe('area-1')
   })
 
   it('matches the floor plan slug', () => {
-    expect(roomKeyForEvent({ feedId: null, location: null, floorPlanSlug: 'te-kawau' }, feeds)).toBe('feed-1')
+    expect(resolveAreaForEvent({ areaId: null, location: null, floorPlanSlug: 'te-kawau' }, areas)?.id).toBe('area-1')
   })
 
-  it('falls back to OTHER', () => {
-    expect(roomKeyForEvent({ feedId: 'gone', location: null, floorPlanSlug: null }, feeds)).toBe(OTHER_ROOM_KEY)
+  it('returns null for unmatched events', () => {
+    expect(resolveAreaForEvent({ areaId: 'gone', location: null, floorPlanSlug: null }, areas)).toBeNull()
   })
 })
 
@@ -81,29 +80,36 @@ describe('eventDayKeysInRange', () => {
   })
 })
 
-describe('buildRoomGrid', () => {
-  it('groups events by room and day, sorted by start time', () => {
-    const grid = buildRoomGrid(
-      feeds,
+describe('eventsByDay', () => {
+  it('buckets by day with resolved areas, sorted by start time', () => {
+    const cells = eventsByDay(
       [
-        event({ id: 'e2', feedId: 'feed-1', startsAt: new Date('2025-11-15T14:00:00Z') }),
-        event({ id: 'e1', feedId: 'feed-1', startsAt: new Date('2025-11-15T08:00:00Z') }),
+        event({ id: 'e2', areaId: 'area-1', startsAt: new Date('2025-11-15T14:00:00Z') }),
+        event({ id: 'e1', areaId: 'area-1', startsAt: new Date('2025-11-15T08:00:00Z') }),
         event({ id: 'e3', location: 'Rangitoto Room' }),
       ],
+      areas,
       '2025-11-10',
       '2025-11-16',
     )
-    expect(grid.rooms.map((r) => r.id)).toEqual(['feed-1', 'feed-2'])
-    expect(grid.cells['feed-1']['2025-11-15'].map((e) => e.id)).toEqual(['e1', 'e2'])
-    expect(grid.cells['feed-2']['2025-11-15'].map((e) => e.id)).toEqual(['e3'])
+    expect(cells['2025-11-15'].map((d) => d.event.id)).toEqual(['e1', 'e3', 'e2'])
+    expect(cells['2025-11-15'][0].area?.id).toBe('area-1')
+    expect(cells['2025-11-15'][1].area?.id).toBe('area-2')
   })
 
-  it('adds the OTHER row only when an event is unmatched', () => {
-    const noOther = buildRoomGrid(feeds, [event({ id: 'e1', feedId: 'feed-1' })], '2025-11-10', '2025-11-16')
-    expect(noOther.rooms.map((r) => r.id)).toEqual(['feed-1', 'feed-2'])
+  it('leaves unmatched events with a null area', () => {
+    const cells = eventsByDay([event({ id: 'e9' })], areas, '2025-11-10', '2025-11-16')
+    expect(cells['2025-11-15']).toHaveLength(1)
+    expect(cells['2025-11-15'][0].area).toBeNull()
+  })
 
-    const withOther = buildRoomGrid(feeds, [event({ id: 'e9' })], '2025-11-10', '2025-11-16')
-    expect(withOther.rooms.map((r) => r.id)).toEqual(['feed-1', 'feed-2', OTHER_ROOM_KEY])
-    expect(withOther.cells[OTHER_ROOM_KEY]['2025-11-15'].map((e) => e.id)).toEqual(['e9'])
+  it('spreads multi-day events across their days', () => {
+    const cells = eventsByDay(
+      [event({ id: 'e1', startsAt: new Date('2025-11-14T15:00:00Z'), endsAt: new Date('2025-11-16T10:00:00Z') })],
+      areas,
+      '2025-11-14',
+      '2025-11-16',
+    )
+    expect(Object.keys(cells).sort()).toEqual(['2025-11-14', '2025-11-15', '2025-11-16'])
   })
 })

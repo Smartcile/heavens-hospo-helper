@@ -75,6 +75,13 @@ echo "▸ Moving legacy Google/iCal venue URLs onto room calendar feeds (post-sy
 npm run db:migrate-calendar-feeds || echo "⚠ Calendar-feed migration step failed (see error above) — continuing to start the app."
 
 echo ""
+echo "▸ Linking room feeds to first-class Areas (post-sync)..."
+# Each live CalendarFeed gets its own Area (name/colour/floor-plan copied) and
+# imported events inherit their feed's area, so the event roster groups by area
+# and a space can exist without a calendar. Idempotent.
+npm run db:migrate-areas || echo "⚠ Area migration step failed (see error above) — continuing to start the app."
+
+echo ""
 echo "▸ Seeding database (safe to re-run)..."
 cd /app/packages/db
 npm run db:seed || echo "⚠ Seed step failed (see error above) — continuing to start the app."

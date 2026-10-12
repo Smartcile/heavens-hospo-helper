@@ -39,6 +39,7 @@ interface Venue {
 
 interface RoomFeed {
   id: string
+  areaId: string | null
   name: string
   url: string
   source: 'GOOGLE' | 'ICAL'
@@ -49,6 +50,17 @@ interface RoomFeed {
   isActive: boolean
   lastSyncedAt: string | null
   notes: string | null
+}
+
+interface RoomArea {
+  id: string
+  name: string
+  colour: string | null
+  capacity: number | null
+  floorPlanId: string | null
+  sortOrder: number
+  notes: string | null
+  feedCount: number
 }
 
 interface FloorPlanOption {
@@ -146,11 +158,18 @@ export function SettingsClient({
   const [intMessage, setIntMessage] = useState('')
   // Room calendars — one feed row per event space.
   const [feeds, setFeeds] = useState<RoomFeed[]>([])
+  const [areas, setAreas] = useState<RoomArea[]>([])
   const [floorPlanOptions, setFloorPlanOptions] = useState<FloorPlanOption[]>([])
   const [feedBusy, setFeedBusy] = useState(false)
   const [feedMessage, setFeedMessage] = useState('')
   const [newFeedName, setNewFeedName] = useState('')
   const [newFeedUrl, setNewFeedUrl] = useState('')
+  const [areaBusy, setAreaBusy] = useState(false)
+  const [areaMessage, setAreaMessage] = useState('')
+  const [newAreaName, setNewAreaName] = useState('')
+  const [newAreaCapacity, setNewAreaCapacity] = useState('')
+  const [newAreaFloorPlanId, setNewAreaFloorPlanId] = useState('')
+  const [newAreaUrl, setNewAreaUrl] = useState('')
 
   // Roster availability cut-off + quick-pick presets
   const [lockDays, setLockDays] = useState('0')
@@ -303,11 +322,13 @@ export function SettingsClient({
     const r = await fetch(`/api/admin/calendar-feeds?venueId=${id}`)
     if (!r.ok) {
       setFeeds([])
+      setAreas([])
       setFloorPlanOptions([])
       return
     }
     const d = await r.json()
     setFeeds(d.feeds ?? [])
+    setAreas(d.areas ?? [])
     setFloorPlanOptions(d.floorPlans ?? [])
   }
 
@@ -349,6 +370,7 @@ export function SettingsClient({
       body: JSON.stringify({
         name: feed.name,
         url: feed.url,
+        areaId: feed.areaId,
         colour: feed.colour,
         floorPlanId: feed.floorPlanId,
         isActive: feed.isActive,
@@ -390,6 +412,92 @@ export function SettingsClient({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ venueId, orderedIds: next.map((f) => f.id) }),
+    })
+  }
+
+  function patchArea(id: string, patch: Partial<RoomArea>) {
+    setAreas((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)))
+  }
+
+  async function addArea() {
+    if (!venueId) return
+    if (!newAreaName.trim()) { setAreaMessage('AREA NAME IS REQUIRED'); return }
+    setAreaBusy(true)
+    setAreaMessage('')
+    const r = await fetch('/api/admin/areas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        venueId,
+        name: newAreaName,
+        capacity: newAreaCapacity.trim() || null,
+        floorPlanId: newAreaFloorPlanId || null,
+        url: newAreaUrl.trim() || null,
+      }),
+    })
+    const d = await r.json().catch(() => ({}))
+    setAreaBusy(false)
+    if (!r.ok) {
+      setAreaMessage((d.error ?? 'ADD FAILED').toUpperCase())
+      return
+    }
+    setNewAreaName('')
+    setNewAreaCapacity('')
+    setNewAreaFloorPlanId('')
+    setNewAreaUrl('')
+    setAreaMessage('AREA ADDED')
+    void loadFeeds(venueId)
+  }
+
+  async function saveArea(area: RoomArea) {
+    setAreaBusy(true)
+    setAreaMessage('')
+    const r = await fetch(`/api/admin/areas/${area.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: area.name,
+        colour: area.colour,
+        capacity: area.capacity,
+        floorPlanId: area.floorPlanId,
+      }),
+    })
+    const d = await r.json().catch(() => ({}))
+    setAreaBusy(false)
+    if (!r.ok) {
+      setAreaMessage((d.error ?? 'SAVE FAILED').toUpperCase())
+      return
+    }
+    setAreaMessage('SAVED')
+    void loadFeeds(venueId)
+  }
+
+  async function removeArea(id: string) {
+    if (!confirm('REMOVE THIS AREA? ITS CALENDARS BECOME UNASSIGNED AND KEEP SYNCING; ITS EVENTS STAY BUT FALL BACK TO "OTHER".')) return
+    setAreaBusy(true)
+    setAreaMessage('')
+    const r = await fetch(`/api/admin/areas/${id}`, { method: 'DELETE' })
+    setAreaBusy(false)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setAreaMessage((d.error ?? 'REMOVE FAILED').toUpperCase())
+      return
+    }
+    void loadFeeds(venueId)
+  }
+
+  async function moveArea(id: string, dir: -1 | 1) {
+    const index = areas.findIndex((a) => a.id === id)
+    const target = index + dir
+    if (index < 0 || target < 0 || target >= areas.length) return
+    const next = [...areas]
+    const [row] = next.splice(index, 1)
+    next.splice(target, 0, row)
+    setAreas(next)
+    await fetch('/api/admin/areas/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ venueId, order: next.map((a) => a.id) }),
     })
   }
 
@@ -635,16 +743,101 @@ export function SettingsClient({
       <div className="max-w-2xl border-l-4 border-l-white pl-4">
         <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">INTEGRATIONS</h2>
         <p className="font-mono text-xs text-grey-light mb-3">
-          EACH EVENT SPACE (ROOM) HAS ITS OWN CALENDAR FEED. IMPORTED EVENTS APPEAR ON THE ROSTER&apos;S EVENTS TAB, GROUPED BY ROOM (RE-SYNCED ON THE INTERVAL — CHANGED EVENTS UPDATE, REMOVED ONES DROP OFF, NO DOUBLE-UPS). THE LOADED LINK STAYS A LIVE EMBED TAB.
+          AREAS ARE YOUR EVENT SPACES (MEETING ROOMS, FUNCTION ROOMS). EACH AREA CAN LINK TO A FLOOR PLAN AND, OPTIONALLY, ONE OR MORE CALENDAR FEEDS — IMPORTED EVENTS ARE GROUPED BY AREA ON THE ROSTER&apos;S EVENTS TAB (RE-SYNCED ON THE INTERVAL — CHANGED EVENTS UPDATE, REMOVED ONES DROP OFF, NO DOUBLE-UPS). THE LOADED LINK STAYS A LIVE EMBED TAB.
         </p>
         <div className="space-y-3">
           {role === 'ADMIN' && venues.length > 1 && (
             <Select label="Venue" value={venueId} onChange={(e) => onPickVenue(e.target.value)} options={venues.map((v) => ({ value: v.id, label: v.name }))} />
           )}
 
+          {/* Areas */}
+          <div className="space-y-2">
+            <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">AREAS — EVENT SPACES (CALENDAR OPTIONAL)</div>
+            {areas.length === 0 && (
+              <p className="font-mono text-2xs uppercase text-grey-light">NO AREAS YET — ADD THE FIRST ONE BELOW.</p>
+            )}
+            {areas.map((a, i) => (
+              <div key={a.id} className="border border-grey-mid p-2 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="w-40">
+                    <Input value={a.name} onChange={(e) => patchArea(a.id, { name: e.target.value })} placeholder="AREA NAME" />
+                  </div>
+                  <input
+                    type="color"
+                    value={a.colour || '#0E7490'}
+                    onChange={(e) => patchArea(a.id, { colour: e.target.value })}
+                    title="AREA COLOUR"
+                    className="w-10 h-8 bg-black border border-grey-mid"
+                  />
+                  <div className="w-24">
+                    <Input
+                      type="number"
+                      min="0"
+                      value={a.capacity ?? ''}
+                      onChange={(e) => patchArea(a.id, { capacity: e.target.value.trim() === '' ? null : Number(e.target.value) })}
+                      placeholder="PAX MAX"
+                    />
+                  </div>
+                  <div className="flex-1 min-w-40">
+                    <Select
+                      value={a.floorPlanId ?? ''}
+                      onChange={(e) => patchArea(a.id, { floorPlanId: e.target.value || null })}
+                      options={[{ value: '', label: 'NO LAYOUT LINK' }, ...floorPlanOptions.map((p) => ({ value: p.id, label: p.name }))]}
+                    />
+                  </div>
+                  <span className="font-mono text-2xs uppercase text-grey-light">
+                    {a.feedCount} CALENDAR{a.feedCount === 1 ? '' : 'S'}
+                  </span>
+                  <div className="flex items-center gap-1 ml-auto">
+                    <button onClick={() => moveArea(a.id, -1)} disabled={i === 0} className="font-mono text-xs text-grey-light border border-grey-mid px-2 py-1 hover:border-white hover:text-white disabled:opacity-30">↑</button>
+                    <button onClick={() => moveArea(a.id, 1)} disabled={i === areas.length - 1} className="font-mono text-xs text-grey-light border border-grey-mid px-2 py-1 hover:border-white hover:text-white disabled:opacity-30">↓</button>
+                    <Button size="sm" variant="danger" onClick={() => removeArea(a.id)}>✕</Button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-2xs uppercase text-grey-light">
+                    {a.capacity !== null ? `CAPACITY ${a.capacity} PAX · OVER-CAPACITY PACKS WARN ON THE EVENT FORM` : 'NO CAPACITY SET'}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={() => saveArea(a)} loading={areaBusy}>SAVE AREA</Button>
+                </div>
+              </div>
+            ))}
+
+            <div className="border border-grey-mid p-2 space-y-2">
+              <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">+ ADD AREA</div>
+              <div className="flex flex-wrap gap-2">
+                <div className="w-40">
+                  <Input label="Area name" value={newAreaName} onChange={(e) => setNewAreaName(e.target.value)} placeholder="E.G. MEETING ROOM 1" />
+                </div>
+                <div className="w-24">
+                  <Input label="Pax max" type="number" min="0" value={newAreaCapacity} onChange={(e) => setNewAreaCapacity(e.target.value)} placeholder="OPTIONAL" />
+                </div>
+                <div className="w-44">
+                  <Select
+                    label="Floor plan"
+                    value={newAreaFloorPlanId}
+                    onChange={(e) => setNewAreaFloorPlanId(e.target.value)}
+                    options={[{ value: '', label: 'NO LAYOUT LINK' }, ...floorPlanOptions.map((p) => ({ value: p.id, label: p.name }))]}
+                  />
+                </div>
+                <div className="flex-1 min-w-48">
+                  <Input label="Calendar link (optional)" value={newAreaUrl} onChange={(e) => setNewAreaUrl(e.target.value)} placeholder="GOOGLE EMBED / .ICS / webcal://" />
+                </div>
+                <div className="flex items-end">
+                  <Button size="sm" variant="ghost" onClick={addArea} loading={areaBusy}>ADD AREA</Button>
+                </div>
+              </div>
+              <p className="font-mono text-2xs uppercase text-grey-light">
+                AN AREA NEEDS NO CALENDAR — LINK ONE NOW OR LATER. A MULTI-CALENDAR GOOGLE EMBED CREATES ONE FEED PER CALENDAR.
+              </p>
+            </div>
+
+            {areaMessage && <p className={`font-mono text-xs ${areaMessage === 'SAVED' || areaMessage === 'AREA ADDED' ? 'text-success' : 'text-danger'}`}>{areaMessage}</p>}
+          </div>
+
           {/* Room calendars */}
           <div className="space-y-2">
-            <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">ROOM CALENDARS — ONE PER EVENT SPACE</div>
+            <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">CALENDAR FEEDS — ASSIGN EACH TO AN AREA</div>
             {feeds.length === 0 && (
               <p className="font-mono text-2xs uppercase text-grey-light">NO ROOM CALENDARS YET — ADD THE FIRST ONE BELOW.</p>
             )}
@@ -661,6 +854,13 @@ export function SettingsClient({
                     title="ROOM COLOUR"
                     className="w-10 h-8 bg-black border border-grey-mid"
                   />
+                  <div className="w-40">
+                    <Select
+                      value={f.areaId ?? ''}
+                      onChange={(e) => patchFeed(f.id, { areaId: e.target.value || null })}
+                      options={[{ value: '', label: 'UNASSIGNED' }, ...areas.map((a) => ({ value: a.id, label: a.name }))]}
+                    />
+                  </div>
                   <div className="flex-1 min-w-40">
                     <Select
                       value={f.floorPlanId ?? ''}

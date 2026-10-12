@@ -29,6 +29,7 @@ interface RoomFeed {
   name: string
   source: CalendarSource
   url: string
+  areaId: string | null
   floorPlanSlug: string | null
   floorPlanName: string | null
 }
@@ -43,18 +44,26 @@ async function loadFeeds(venue: VenueForSync): Promise<RoomFeed[]> {
   const rows = await prisma.calendarFeed.findMany({
     where: { venueId: venue.id, deletedAt: null, isActive: true },
     orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-    include: { floorPlan: { select: { slug: true, name: true } } },
+    include: {
+      floorPlan: { select: { slug: true, name: true } },
+      area: { select: { id: true, floorPlan: { select: { slug: true, name: true } } } },
+    },
   })
 
   if (rows.length > 0) {
-    return rows.map((f) => ({
-      id: f.id,
-      name: f.name,
-      source: f.source,
-      url: f.url,
-      floorPlanSlug: f.floorPlan?.slug ?? null,
-      floorPlanName: f.floorPlan?.name ?? null,
-    }))
+    return rows.map((f) => {
+      // The area's floor plan is the source of truth when the feed is linked.
+      const plan = f.area?.floorPlan ?? f.floorPlan
+      return {
+        id: f.id,
+        name: f.name,
+        source: f.source,
+        url: f.url,
+        areaId: f.areaId,
+        floorPlanSlug: plan?.slug ?? null,
+        floorPlanName: plan?.name ?? null,
+      }
+    })
   }
 
   // Legacy fallback: the venue's two single-URL fields.
@@ -63,6 +72,7 @@ async function loadFeeds(venue: VenueForSync): Promise<RoomFeed[]> {
     name: `LEGACY FEED ${i + 1}`,
     source: f.source,
     url: f.url,
+    areaId: null,
     floorPlanSlug: null,
     floorPlanName: null,
   }))

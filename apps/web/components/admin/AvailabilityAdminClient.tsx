@@ -26,6 +26,7 @@ import {
   availabilityState,
   describeSeriesEnd,
   describeWindows,
+  isFreeAt,
   statusMeta,
   type AvailabilityEntry,
   type AvailabilityPayloadLike,
@@ -145,8 +146,20 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
   const entryFor = (staffId: string, date: string) =>
     entryIndex.get(`${staffId}:${date}`) ?? null
 
-  const isAvailableOn = (staffId: string, day: string) =>
-    availabilityState(entryIndex.get(`${staffId}:${day}`)) === 'AVAILABLE'
+  // A pinned day floats people with free time to the top: free all day, free
+  // part of the day (SPLIT), or — for today — still free after the current
+  // time, so an availability window that has already passed doesn't count.
+  const isAvailableOn = (staffId: string, day: string) => {
+    const entry = entryIndex.get(`${staffId}:${day}`)
+    if (!entry) return false
+    const state = availabilityState(entry)
+    if (state === 'DEFAULT') return false
+    if (day === today) {
+      const now = new Date()
+      return isFreeAt(entry, now.getHours() * 60 + now.getMinutes())
+    }
+    return state !== 'UNAVAILABLE'
+  }
 
   const groups = useMemo(() => {
     if (!data) return []

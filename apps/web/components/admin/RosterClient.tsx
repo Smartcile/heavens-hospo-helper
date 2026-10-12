@@ -5,16 +5,28 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { DateNav } from '@/components/admin/DateNav'
-import { EventRosterPanel } from '@/components/admin/EventRosterPanel'
+import { EventStaffingModal, EventClaimsModal } from '@/components/admin/EventStaffingModal'
+import { CalendarEventFormModal } from '@/components/admin/CalendarEventFormModal'
 import { StaffEditModal } from '@/components/admin/StaffEditModal'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { moveItem } from '@/lib/array'
 import { formatDateLong, keyOfDay, mondayOf, parseDay, shiftDay, weekKeys, type DateRange } from '@/lib/date-nav'
+import { eventsByDay, formatEventTime } from '@/lib/event-roster'
+import { seatFillStatus } from '@/lib/open-shifts'
+import { useEventRoster } from '@/lib/use-event-roster'
 import { nearestIndex, type Rect } from '@/lib/reorder'
-import { buildStaffGroups, insertSubset } from '@/lib/staff-groups'
+import { buildStaffGroups, insertSubset, sortByPinnedAvailability } from '@/lib/staff-groups'
 import { colourForShift, rateForShift, rosterWeekSummary, staffWeekTotals, type RosterShift, type StaffRate } from '@/lib/roster-math'
 import { generateRosterPdf } from '@/lib/roster-pdf'
-import { availabilityMeta, availabilityState, conflictsWithShift, describeWindows, isCasual } from '@/lib/availability'
+import {
+  availabilityMeta,
+  availabilityState,
+  conflictsWithShift,
+  describeFreeWindows,
+  describeWindows,
+  freeWindowsFrom,
+  isCasual,
+} from '@/lib/availability'
 
 interface RosterStaff {
   id: string
@@ -65,6 +77,16 @@ const WEEKDAY = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
 // One border colour for every grid line, so rows/columns read clearly.
 const GRID_LINE = 'border-grey-light/50'
 
+function utcDayKey(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+}
+
+/** Minutes since local midnight — "today" availability is judged from now. */
+function nowMinutes(): number {
+  const n = new Date()
+  return n.getHours() * 60 + n.getMinutes()
+}
+
 export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
   const [venueId, setVenueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [venues, setVenues] = useState<Venue[]>([])
@@ -82,6 +104,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable')
   const compact = density === 'compact'
   const [groupByPosition, setGroupByPosition] = useState(true)
+  const [pinnedDay, setPinnedDay] = useState<string | null>(null)
   const [draggingGroup, setDraggingGroup] = useState<string | null>(null)
   const [overGroup, setOverGroup] = useState<string | null>(null)
   const groupHeaderRefs = useRef<Map<string, HTMLElement>>(new Map())
@@ -90,17 +113,39 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
 
   // Shift modal
   const [modal, setModal] = useState<null | { shift: RosterShift | null; staffId: string; date: string }>(null)
-  const [form, setForm] = useState({ staffId: '', date: '', startTime: '09:00', endTime: '17:00', positionId: '', colour: '', tag: '', breakMinutes: '0', note: '' })
+  const [form, setForm] = useState({ staffId: '', date: '', startTime: '09:00', endTime: '17:00', positionId: '', colour: '', tag: '', breakMinutes: '0', note: '', calendarEventId: '' })
   const [editStaffId, setEditStaffId] = useState<string | null>(null)
 
   // Analyze / Visualize modals
   const [showAnalyze, setShowAnalyze] = useState(false)
   const [showVisualize, setShowVisualize] = useState(false)
 
+  // Events tab (same staff grid + event chips in the day headers)
+  const [openEventId, setOpenEventId] = useState<string | null>(null)
+  const [editEventId, setEditEventId] = useState<string | null>(null)
+  const [createEventOpen, setCreateEventOpen] = useState(false)
+  const [showQueue, setShowQueue] = useState(false)
+
   const rootRef = useRef<HTMLDivElement>(null)
 
   const weekDays = useMemo(() => (view === 'week' ? weekKeys(weekStart) : [weekStart]), [view, weekStart])
   const todayKey = keyOfDay(new Date())
+  const rangeEnd = useMemo(() => shiftDay(weekStart, view === 'week' ? 6 : 0), [weekStart, view])
+
+  // Events data loads only on the EVENTS tab (chips overlay the staff grid).
+  const eventRoster = useEventRoster(venueId, weekStart, rangeEnd, tab === 'events')
+  const eventCells = useMemo(
+    () => (eventRoster.data ? eventsByDay(eventRoster.data.events, eventRoster.data.areas, weekStart, rangeEnd) : {}),
+    [eventRoster.data, weekStart, rangeEnd],
+  )
+  const openEvent = openEventId ? eventRoster.data?.events.find((e) => e.id === openEventId) ?? null : null
+  const listedSeats = useMemo(
+    () =>
+      eventRoster.data
+        ? eventRoster.data.events.reduce((n, e) => n + e.openShifts.filter((s) => s.status !== 'CANCELLED').length, 0)
+        : 0,
+    [eventRoster.data],
+  )
 
   async function loadMeta() {
     const [vR, pR] = await Promise.all([fetch('/api/admin/venues'), fetch(`/api/admin/positions?venueId=${venueId}`)])
@@ -146,16 +191,45 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     return buildStaffGroups(filteredStaff, positions)
   }, [data, filteredStaff, positions])
 
+  // Pinning a day (click its header) floats people with free time that day to
+  // the top of their group — split days included; for today only the time still
+  // ahead counts, so a morning window doesn't float at 3pm.
+  const freeOnPinnedDay = useCallback(
+    (staffId: string) => {
+      if (!pinnedDay || !data) return false
+      const entry = data.availability[staffId]?.[pinnedDay]
+      if (!entry) return false
+      const state = availabilityState(entry)
+      if (state === 'DEFAULT') return false
+      if (pinnedDay === todayKey) return freeWindowsFrom(entry, nowMinutes()).length > 0
+      return state !== 'UNAVAILABLE'
+    },
+    [pinnedDay, data, todayKey],
+  )
+
+  const displayGroups = useMemo(
+    () =>
+      pinnedDay
+        ? staffGroups.map((g) => ({ ...g, items: sortByPinnedAvailability(g.items, (s) => freeOnPinnedDay(s.id)) }))
+        : staffGroups,
+    [staffGroups, pinnedDay, freeOnPinnedDay],
+  )
+
+  const displayStaff = useMemo(
+    () => (pinnedDay ? sortByPinnedAvailability(filteredStaff, (s) => freeOnPinnedDay(s.id)) : filteredStaff),
+    [filteredStaff, pinnedDay, freeOnPinnedDay],
+  )
+
   const rowNumber = useMemo(() => {
     const map = new Map<string, number>()
     let n = 0
-    const all = groupByPosition ? staffGroups.flatMap((g) => g.items) : filteredStaff
+    const all = groupByPosition ? displayGroups.flatMap((g) => g.items) : displayStaff
     for (const s of all) {
       n += 1
       map.set(s.id, n)
     }
     return map
-  }, [groupByPosition, staffGroups, filteredStaff])
+  }, [groupByPosition, displayGroups, displayStaff])
 
   const visibleGroupKeys = useMemo(
     () => staffGroups.filter((g) => g.positionId).map((g) => g.key),
@@ -289,7 +363,8 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       tag: shift.tag ?? '',
       breakMinutes: String(shift.breakMinutes ?? 0),
       note: '',
-    } : { staffId, date, startTime: '09:00', endTime: '17:00', positionId: '', colour: '', tag: '', breakMinutes: '0', note: '' })
+      calendarEventId: shift.calendarEventId ?? '',
+    } : { staffId, date, startTime: '09:00', endTime: '17:00', positionId: '', colour: '', tag: '', breakMinutes: '0', note: '', calendarEventId: '' })
     setError('')
   }
 
@@ -328,6 +403,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       tag: form.tag || null,
       breakMinutes: Number(form.breakMinutes) || 0,
       note: form.note || null,
+      calendarEventId: form.calendarEventId || null,
     }
     const r = modal?.shift
       ? await fetch(`/api/admin/shifts/${modal.shift.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -342,6 +418,20 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     if (!confirm('DELETE THIS SHIFT?')) return
     await fetch(`/api/admin/shifts/${id}`, { method: 'DELETE' })
     setModal(null)
+    load()
+  }
+
+  async function reviewQueueClaim(claimId: string, action: 'APPROVE' | 'DECLINE') {
+    setBusy(true); setError('')
+    const r = await fetch(`/api/admin/open-shift-claims/${claimId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    })
+    const d = await r.json().catch(() => ({}))
+    setBusy(false)
+    if (!r.ok) { setError((d.error ?? 'FAILED').toUpperCase()); return }
+    eventRoster.reload()
     load()
   }
 
@@ -418,6 +508,11 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
           const avail = data!.availability[s.id]?.[d]
           const state = availabilityState(avail)
           const meta = availabilityMeta(state, s.employmentType)
+          // Today is judged from the current time — a window that has passed
+          // doesn't count as available.
+          const isToday = d === todayKey
+          const freeText = avail && state !== 'DEFAULT' ? describeFreeWindows(avail, isToday ? nowMinutes() : undefined) : null
+          const noFreeLeft = isToday && state === 'PARTIAL' && freeText === 'NO FREE TIME'
           // FT/PT default is implied-available (no badge). A casual's
           // UNSET only matters where they're not already rostered.
           const showBadge = !blocked && (state !== 'DEFAULT' || (isCasual(s.employmentType) && dayShifts.length === 0))
@@ -426,12 +521,17 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
               {showBadge && (
                 <div className="absolute top-0.5 right-0.5 z-0 pointer-events-none flex flex-col items-end gap-0.5">
                   <span
-                    className={`font-mono text-2xs uppercase px-1 border ${meta.badge}`}
+                    className={`font-mono text-2xs uppercase px-1 border ${noFreeLeft ? 'border-danger text-danger' : meta.badge}`}
                     title={avail
-                      ? `${meta.label} · ${describeWindows(avail.windows ?? [], avail.isAllDay, avail.type)}${avail.status !== 'APPROVED' ? ` · ${avail.status}` : ''}${avail.timeOff ? ' · TIME OFF' : ''}${avail.notes ? ` · ${avail.notes}` : ''}`
+                      ? `${meta.label} · ${freeText}${avail.status !== 'APPROVED' ? ` · ${avail.status}` : ''}${avail.timeOff ? ' · TIME OFF' : ''}${avail.notes ? ` · ${avail.notes}` : ''}`
                       : 'NO PREFERENCE LOGGED'}>
-                    {meta.label}
+                    {noFreeLeft ? 'NO FREE LEFT' : meta.label}
                   </span>
+                  {state === 'PARTIAL' && avail && (
+                    <span className="font-mono text-2xs uppercase px-1 border border-warning/50 text-warning bg-black/50">
+                      {freeText}
+                    </span>
+                  )}
                   {avail?.status === 'PENDING' && (
                     <span className="font-mono text-2xs uppercase px-1 border border-warning text-warning bg-black/50">PENDING</span>
                   )}
@@ -490,7 +590,6 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
           </div>
         </div>
 
-        {tab === 'staff' && (
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex gap-1">
             {(['day', 'week'] as const).map((v) => (
@@ -526,24 +625,38 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
             loading={busy}>
             {publishedStatus === 'PUBLISHED' ? '✔ PUBLISHED' : publishedStatus === 'MIXED' ? '● MIXED' : 'PUBLISH'}
           </Button>
+          {tab === 'events' && (
+            <>
+              <Button size="sm" variant="ghost" onClick={eventRoster.syncNow} loading={eventRoster.syncing}>↻ SYNC CALENDARS</Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowQueue(true)}>
+                CLAIMS{eventRoster.data && eventRoster.data.queue.length > 0 ? ` (${eventRoster.data.queue.length})` : ''}
+              </Button>
+              <Button size="sm" onClick={() => setCreateEventOpen(true)}>+ NEW EVENT</Button>
+              <span className="font-mono text-2xs uppercase text-grey-light">
+                {listedSeats > 0 ? `${listedSeats} LISTED SHIFT${listedSeats === 1 ? '' : 'S'} THIS WEEK` : 'NO LISTED SHIFTS THIS WEEK'}
+              </span>
+              <span className="font-mono text-2xs uppercase text-grey-light ml-auto">
+                {eventRoster.data?.lastSyncedAt ? `SYNCED ${new Date(eventRoster.data.lastSyncedAt).toLocaleString('en-NZ')}` : 'NOT YET SYNCED'}
+              </span>
+            </>
+          )}
         </div>
-        )}
       </div>
 
-      {tab === 'events' ? (
-        <EventRosterPanel venueId={venueId} weekStart={weekStart} weekDays={weekDays} />
-      ) : (
-        <>
+      {tab === 'events' && (eventRoster.error || error) && (
+        <p className="font-mono text-xs text-danger">{(eventRoster.error || error).toUpperCase()}</p>
+      )}
 
-      {error && <p className="font-mono text-xs text-danger">{error}</p>}
+      {error && tab === 'staff' && <p className="font-mono text-xs text-danger">{error}</p>}
 
       {/* Availability legend */}
       <div className="flex flex-wrap items-center gap-4">
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-danger bg-danger/20" /><span className="font-mono text-2xs uppercase text-grey-light">Unavailable</span></span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-success bg-success/20" /><span className="font-mono text-2xs uppercase text-grey-light">Available</span></span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-warning bg-warning/20" /><span className="font-mono text-2xs uppercase text-grey-light">Split (part of day)</span></span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-warning bg-warning/20" /><span className="font-mono text-2xs uppercase text-grey-light">Unset (casual)</span></span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 border border-grey-mid bg-danger/5" /><span className="font-mono text-2xs uppercase text-grey-light">Time off</span></span>
-        <span className="font-mono text-2xs uppercase text-grey-light">HOVER A BADGE FOR THE WINDOW · ASSIGNING UNAVAILABLE ASKS TO CONFIRM</span>
+        <span className="font-mono text-2xs uppercase text-grey-light">HOVER A BADGE FOR FREE TIME · CLICK A DAY HEADER TO FLOAT WHO IS FREE TO THE TOP</span>
       </div>
 
       {/* Grid */}
@@ -555,14 +668,47 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
             {/* Header row */}
             <div className={`sticky top-0 left-0 z-20 bg-black border-b-2 border-r ${GRID_LINE} font-mono text-2xs uppercase text-white ${compact ? 'px-2 py-1' : 'px-3 py-2'}`}>TEAM</div>
             {weekDays.map((d, di) => (
-              <div key={d} className={`sticky top-0 z-10 bg-black border-b-2 border-r ${GRID_LINE} ${compact ? 'px-2 py-1' : 'px-3 py-2'} ${d === todayKey ? 'border-l-2 border-l-accent' : ''}`}>
-                <div className="font-mono text-2xs uppercase text-white">{WEEKDAY[di]} {parseDay(d).getUTCDate()}</div>
-                {d === todayKey && <div className="font-mono text-2xs uppercase text-accent">TODAY</div>}
+              <div key={d} className={`sticky top-0 z-10 bg-black border-b-2 border-r ${GRID_LINE} ${compact ? 'px-2 py-1' : 'px-3 py-2'} ${d === todayKey ? 'border-l-2 border-l-accent' : ''} ${pinnedDay === d ? 'ring-1 ring-inset ring-accent' : ''}`}>
+                <button
+                  type="button"
+                  onClick={() => setPinnedDay((prev) => (prev === d ? null : d))}
+                  title={pinnedDay === d ? 'UNPIN THIS DAY' : 'PIN THIS DAY — FLOAT WHO IS FREE TO THE TOP'}
+                  className="w-full text-left"
+                >
+                  <div className="font-mono text-2xs uppercase text-white">{WEEKDAY[di]} {parseDay(d).getUTCDate()}</div>
+                  {d === todayKey && <div className="font-mono text-2xs uppercase text-accent">TODAY</div>}
+                  {pinnedDay === d && <div className="font-mono text-2xs uppercase text-accent">PINNED</div>}
+                </button>
+                {tab === 'events' && (eventCells[d] ?? []).length > 0 && (
+                  <div className="mt-1 space-y-0.5">
+                    {(eventCells[d] ?? []).map(({ event, area }) => {
+                      const fill = seatFillStatus(event.openShifts)
+                      return (
+                        <button
+                          key={event.id}
+                          onClick={() => setOpenEventId(event.id)}
+                          title={[event.title, area?.name, typeof event.pax === 'number' ? `${event.pax} PAX` : null].filter(Boolean).join(' · ')}
+                          className="block w-full text-left border border-grey-mid bg-black/40 hover:border-white px-1 py-0.5 transition-colors"
+                          style={area?.colour ? { borderLeft: `3px solid ${area.colour}` } : undefined}
+                        >
+                          <div className="font-mono text-2xs font-bold text-white truncate leading-tight">
+                            {formatEventTime(event)} {event.title}
+                          </div>
+                          <div className="font-mono text-2xs text-grey-light truncate leading-tight">
+                            {area?.name ?? 'OTHER'}
+                            {typeof event.pax === 'number' ? ` · ${event.pax} PAX` : ''}
+                            {fill.total > 0 ? ` · ${fill.filled}/${fill.total}` : ''}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             ))}
 
             {groupByPosition
-              ? staffGroups.map((g) => (
+              ? displayGroups.map((g) => (
                   <div key={g.key} className="contents">
                     <div
                       ref={(el) => {
@@ -591,7 +737,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
                     {g.items.map(renderStaffRow)}
                   </div>
                 ))
-              : filteredStaff.map(renderStaffRow)}
+              : displayStaff.map(renderStaffRow)}
           </div>
         </div>
       ) : (
@@ -628,6 +774,17 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
               value={form.staffId}
               onChange={(e) => setForm({ ...form, staffId: e.target.value })}
               options={[{ value: '', label: 'SELECT STAFF' }, ...(data?.staff ?? []).map(s => ({ value: s.id, label: `${s.firstName} ${s.lastName}` }))]} />
+            {tab === 'events' && eventRoster.data && (
+              <Select label="Event (optional)"
+                value={form.calendarEventId}
+                onChange={(e) => setForm({ ...form, calendarEventId: e.target.value })}
+                options={[
+                  { value: '', label: 'NO EVENT' },
+                  ...eventRoster.data.events
+                    .filter((e) => !modal.date || utcDayKey(e.startsAt) === modal.date)
+                    .map((e) => ({ value: e.id, label: `${e.title} · ${formatEventTime(e)}` })),
+                ]} />
+            )}
             <div className="grid grid-cols-2 gap-3">
               <Input label="Start" type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} />
               <Input label="End" type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} />
@@ -715,7 +872,37 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
           </div>
         </div>
       )}
-        </>
+
+      {/* Event staffing — opened from the EVENTS tab chips */}
+      {openEvent && (
+        <EventStaffingModal
+          key={openEvent.id}
+          venueId={venueId}
+          event={openEvent}
+          positions={eventRoster.data?.positions ?? positions}
+          onClose={() => setOpenEventId(null)}
+          onSaved={() => { eventRoster.reload(); load() }}
+          onEdit={() => { setEditEventId(openEvent.id); setOpenEventId(null) }}
+        />
+      )}
+
+      {showQueue && (
+        <EventClaimsModal
+          queue={eventRoster.data?.queue ?? []}
+          busy={busy}
+          onReview={reviewQueueClaim}
+          onClose={() => setShowQueue(false)}
+        />
+      )}
+
+      {(createEventOpen || editEventId) && (
+        <CalendarEventFormModal
+          venueId={venueId}
+          eventId={editEventId}
+          defaultDate={weekStart}
+          onClose={() => { setCreateEventOpen(false); setEditEventId(null) }}
+          onSaved={() => { setCreateEventOpen(false); setEditEventId(null); eventRoster.reload() }}
+        />
       )}
     </div>
   )

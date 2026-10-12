@@ -317,6 +317,7 @@ model Venue {
   notices             Notice[]
   calendarEvents      CalendarEvent[]
   calendarFeeds       CalendarFeed[]
+  areas               Area[]
   eventStaffing       EventStaffing[]
   openShifts          OpenShift[]
   openShiftClaims     OpenShiftClaim[]
@@ -907,6 +908,7 @@ model Shift {
   venueId      String
   departmentId String?
   positionId   String? // the job role this shift covers (drives block colour/label)
+  calendarEventId String? // event this shift is rostered for (set on claim approval / manual link)
   date         DateTime    @db.Date
   startTime    String // "09:00"
   endTime      String // "17:00"
@@ -924,9 +926,39 @@ model Shift {
   venue      Venue       @relation(fields: [venueId], references: [id])
   department Department? @relation(fields: [departmentId], references: [id])
   position   Position?   @relation(fields: [positionId], references: [id])
+  calendarEvent CalendarEvent? @relation(fields: [calendarEventId], references: [id])
 
   @@index([venueId, date])
   @@index([staffId, date])
+  @@index([calendarEventId])
+}
+
+// A physical space in the venue — "MEETING ROOM 1", "FUNCTION ROOM". Created in
+// Venue Setup, it exists whether or not it has a calendar: zero or more
+// CalendarFeeds attach to it (CalendarFeed.areaId), a floor plan auto-points
+// events at the right layout, and manual CalendarEvents bind straight to it.
+// The event roster groups imported + manual events by Area.
+model Area {
+  id          String   @id @default(uuid())
+  venueId     String
+  name        String // ALL CAPS
+  colour      String?
+  floorPlanId String?
+  capacity    Int? // soft max pax — the event form warns when exceeded
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  venue     Venue           @relation(fields: [venueId], references: [id])
+  floorPlan FloorPlan?      @relation(fields: [floorPlanId], references: [id])
+  feeds     CalendarFeed[]
+  events    CalendarEvent[]
+
+  @@index([venueId])
+  @@index([venueId, sortOrder])
 }
 
 // An event imported from an external calendar feed (Google Calendar / any iCal).
@@ -937,6 +969,7 @@ model CalendarEvent {
   id            String         @id @default(uuid())
   venueId       String
   feedId        String? // the room feed this event came from (null = legacy/manual)
+  areaId        String? // the area this event belongs to (manual events set it directly)
   source        CalendarSource @default(ICAL)
   uid           String // stable id from the feed (per-occurrence for recurring)
   title         String
@@ -945,6 +978,9 @@ model CalendarEvent {
   startsAt      DateTime
   endsAt        DateTime?
   allDay        Boolean        @default(false)
+  pax           Int? // expected headcount (manual events; imported feeds rarely carry it)
+  pdfUrl        String? // external document link
+  pdfPath       String? // uploaded PDF (/api/upload/<file>)
   floorPlanSlug String? // links event to a specific floor plan layout
   floorPlanName String? // display name for the banner
   lastSyncedAt  DateTime       @default(now())
@@ -954,15 +990,18 @@ model CalendarEvent {
 
   venue     Venue            @relation(fields: [venueId], references: [id])
   feed      CalendarFeed?    @relation(fields: [feedId], references: [id])
+  area      Area?            @relation(fields: [areaId], references: [id])
   wooOrders WooOrder[]
   bookings  Booking[]
   events    Event[]
   staffing  EventStaffing[]
   openShifts OpenShift[]
+  shifts    Shift[]
 
   @@unique([venueId, source, uid])
   @@index([venueId, startsAt])
   @@index([feedId])
+  @@index([areaId])
 }
 
 // A room's calendar feed — each event space has its own Google/iCal feed, so
@@ -971,6 +1010,7 @@ model CalendarEvent {
 model CalendarFeed {
   id           String         @id @default(uuid())
   venueId      String
+  areaId       String? // the area this calendar belongs to (null = unassigned/legacy)
   name         String // room name, ALL CAPS
   url          String // .ics URL (or a Google embed link — expanded on save)
   source       CalendarSource @default(ICAL)
@@ -985,10 +1025,12 @@ model CalendarFeed {
   deletedAt    DateTime?
 
   venue     Venue           @relation(fields: [venueId], references: [id])
+  area      Area?           @relation(fields: [areaId], references: [id])
   floorPlan FloorPlan?      @relation(fields: [floorPlanId], references: [id])
   events    CalendarEvent[]
 
   @@index([venueId])
+  @@index([areaId])
   @@index([venueId, sortOrder])
 }
 
@@ -2170,6 +2212,7 @@ model FloorPlan {
   setups            FloorPlanSetup[]
   sectionBoundaries SectionBoundary[]
   calendarFeeds     CalendarFeed[]
+  areas             Area[]
 
   @@unique([venueId, slug])
   @@index([venueId])

@@ -57,7 +57,7 @@ hospo-ops/
 ├── packages/
 │   ├── db/                         # Prisma 7 schema + PG adapter + seed
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma       # 132 models (as of 2026-10)
+│   │   │   ├── schema.prisma       # 133 models (as of 2026-10)
 │   │   │   ├── seed.ts             # Idempotent demo/sample data
 │   │   │   ├── migrate-*.ts        # One-off migrations wired into docker-entrypoint.sh
 │   │   │   └── migrations/         # Legacy 0_init migration (kept for reference)
@@ -136,7 +136,8 @@ On container start, `apps/web/docker-entrypoint.sh` runs, in order:
 BudgetDayAllocation shape) → `prisma db push --accept-data-loss` (with a
 `--force-reset` fallback for ancient DBs) → `db:migrate-furniture` →
 `db:migrate-uom` → `db:migrate-step-links` + `db:backfill-guide-audiences` →
-`db:migrate-timeoff` → `db:seed` (idempotent) → `next start -H 0.0.0.0 -p 3000`.
+`db:migrate-timeoff` → `db:migrate-calendar-feeds` → `db:migrate-areas` →
+`db:seed` (idempotent) → `next start -H 0.0.0.0 -p 3000`.
 Every migration step is non-fatal (`|| echo …`) except the db push reset. No
 manual migrate/seed step is needed.
 
@@ -175,7 +176,8 @@ cd packages/db && npx prisma studio
 **One-off migration/backfill scripts** (idempotent; wired into
 `docker-entrypoint.sh` unless noted): `db:migrate-budget`,
 `db:migrate-furniture`, `db:migrate-uom`, `db:migrate-step-links`,
-`db:backfill-guide-audiences`, `db:migrate-timeoff`. Manual/dev-only:
+`db:backfill-guide-audiences`, `db:migrate-timeoff`, `db:migrate-calendar-feeds`,
+`db:migrate-areas`. Manual/dev-only:
 `db:migrate-to-guides` (not wired — the legacy Training models now only exist
 to keep old deployments migratable), `db:backfill-orders`,
 `db:mock-furniture`, `db:mock-menu`, `db:verify-furniture`.
@@ -514,8 +516,14 @@ CLOCKS · PAYROLL** (`lib/hub-tabs.ts` `TEAM_TABS`). `/admin/staff`, `/admin/ros
 (PREFERRED = legacy casual opt-in), `timeOff` flag, `status PENDING | APPROVED |
 DECLINED`, optional `seriesId`/`seriesEndDate` for weekly repeats (materialised
 one row per occurrence, 104-week horizon when "no end"). Pure logic in
-`lib/availability.ts` (59 tests — window algebra, `autoComplement` = anything
-not AVAILABLE is UNAVAILABLE, series helpers, presets); Prisma work in
+`lib/availability.ts` (65 tests — window algebra, `autoComplement` = anything
+not AVAILABLE is UNAVAILABLE, free-window algebra (`freeWindows` /
+`freeWindowsFrom` / `describeFreeWindows`), series helpers, presets). **A day's
+state is judged by FREE time**: `availabilityState` returns `AVAILABLE` (free
+all day), `PARTIAL` ("SPLIT" — free part of the day; a morning-only day must
+never read as a blanket unavailable) or `UNAVAILABLE` (no free time), and the
+admin availability pin + roster overlays count PARTIAL as available — for
+today, only the free time still ahead of the current clock. Prisma work in
 `lib/availability.server.ts` (18 tests — plan→execute model). Workers declare at
 `/w/availability` (`WorkerAvailabilityClient` + shared
 `components/availability/`). AVAILABLE-only days auto-approve and stay editable;
@@ -526,45 +534,63 @@ review grid. Routes: `/api/admin/availability` (+ `/clear`, `/review`,
 `/requests/[id]`), `/api/worker/availability` (+ `/clear`, `/[id]`,
 `/requests/[id]`). Guards: `team.availability.view|edit|approve`.
 
-**Roster** — `/admin/team?tab=roster` (`RosterClient`, 7 tests): week/day grid,
+**Roster** — `/admin/team?tab=roster` (`RosterClient`, 10 tests): week/day grid,
 staff grouped by derived Position (drag headers; persisted `Position.sortOrder`),
 DRAFT/MIXED/PUBLISHED week status (`ShiftStatus`; only PUBLISHED shifts reach
 workers) with bulk publish via `POST /api/admin/roster/publish`, shift modal
-(role/colour/tag/break/note), soft warnings for availability conflict + role
-readiness (never blocking), PDF export (`lib/roster-pdf.ts`), and a footer
-showing paid hours/cost vs budgeted REVENUE (staffing ratio — `lib/roster-math.ts`,
-14 tests; `lib/staff-rate.ts` resolves StaffPosition → Position → Staff rate).
-Routes: `GET /api/admin/roster`, `POST /api/admin/roster/publish`,
-`POST/PUT/DELETE /api/admin/shifts(+/[id])`.
+(role/colour/tag/break/note/optional linked event), soft warnings for
+availability conflict + role readiness (never blocking), PDF export
+(`lib/roster-pdf.ts`), and a footer showing paid hours/cost vs budgeted REVENUE
+(staffing ratio — `lib/roster-math.ts`, 14 tests; `lib/staff-rate.ts` resolves
+StaffPosition → Position → Staff rate). Availability overlays show SPLIT days
+with their free windows; **click a day header to pin it** — people with free
+time that day float to the top of their group (`sortByPinnedAvailability`), and
+for today only the time still ahead counts. Routes: `GET /api/admin/roster`,
+`POST /api/admin/roster/publish`, `POST/PUT/DELETE /api/admin/shifts(+/[id])`.
 
-**Event staffing + open shifts (built 2026-10).** The ROSTER tab has a
-**STAFF / EVENTS toggle**. EVENTS shows the venue's event spaces (rooms) as rows
-× the week's days as columns (`EventRosterPanel`, `lib/event-roster.ts` pure grid
-builder, 10 tests). Rooms are `CalendarFeed` rows — one iCal/Google feed per
-event space, managed in Settings → Integrations (list UI: name, colour, optional
-floor-plan link, up/down order; a multi-`src` Google embed expands to one room
-per calendar at save). `external-sync.ts` iterates feeds (per-feed upsert +
-per-feed sweep; legacy venue `googleCalendarUrl`/`icalFeedUrl` still used when a
-venue has no feeds, migrated into feeds by `db:migrate-calendar-feeds`), stamps
-`CalendarFeed.lastSyncedAt`, attaches `CalendarEvent.feedId`, and copies the
-feed's floor plan onto imported events so the worker floor plan auto-switches.
-Grid grouping: `feedId` → LOCATION matching a room name → floor-plan slug →
-trailing OTHER EVENTS row.
+**Areas + event staffing + open shifts (built 2026-10, reworked 2026-10).**
+`Area` is a physical event space (name, colour, optional floor-plan link,
+optional capacity, order, notes) that **exists without a calendar**: zero or
+more `CalendarFeed` rows attach via `CalendarFeed.areaId`. Areas are created in
+Settings → GENERAL → INTEGRATIONS (`/api/admin/areas` CRUD + `/reorder`), where
+each feed row also picks its area; a multi-`src` Google embed still expands to
+one feed per calendar. `db:migrate-areas` (wired into `docker-entrypoint.sh`
+after db push) creates one area per existing feed and backfills
+`CalendarEvent.areaId`; `external-sync.ts` stamps `areaId` on imported events
+and prefers the area's floor plan, so the worker floor plan auto-switches.
 
-Ticking an event opens its requirement editor: `EventStaffing` lines (position
-or free-text label, count 1–50, times, break, note). **FIND STAFF** confirms and
-creates `OpenShift` seats (one row per headcount, `expandSeats` in
-`lib/open-shifts.ts`, 12 tests). Workers with a matching position (or seats with
-no role) see them on `/w/shifts` (`WorkerShiftsClient`) — month grid with
-per-day counts + week list, availability-conflict warnings, CLAIM with an
-optional note (`OpenShiftClaim` PENDING). Managers review claims in the EVENTS
-tab (seat rows + a venue-wide CLAIMS queue) — APPROVE creates the DRAFT roster
-`Shift` (tag EVENT, position/department/colour from the role) and declines the
-other claims on that seat; DECLINE just closes the claim. Deleting the rostered
-shift re-lists the seat. Worker schema/lib tests: `lib/open-shifts.server.ts`
-(19 tests). Guard: `team.roster.view|edit|approve` (approve = claims). The
-worker `GET /api/worker/calendar` also returns `openShiftCount` for the
-dashboard PICK UP SHIFTS tile.
+The ROSTER tab's **STAFF / EVENTS toggle** renders the **same interactive staff
+grid** for both tabs — EVENTS only adds event chips to the day headers
+(time · title · area · pax · fill count; click one to open the staffing modal)
+plus SYNC CALENDARS / CLAIMS / + NEW EVENT in the toolbar. Manual events are
+`CalendarEvent` rows (`source: MANUAL`) created/edited from the shared
+`CalendarEventFormModal` (Calendar PLANNER day modal and the roster), with
+title, description, area, date/time (an end at/before the start rolls to the
+next day), all-day, pax (over-capacity is a warning, never a block), external
+PDF link + uploaded PDF (`/api/admin/calendar-events/[id]/attachment`, same
+storage pattern as guide attachments), and required-staff lines. APIs:
+`POST /api/admin/calendar-events`, `GET/PUT/DELETE
+/api/admin/calendar-events/[id]` (PUT/DELETE are manual-only — imported events
+are read-only; edit them in the source calendar). The Calendar PLANNER day
+modal also keeps the imported-event floor-plan link.
+
+Clicking an event chip opens `EventStaffingModal`: requirement lines
+(`EventStaffing` — position or free-text label, count 1–50, times, break, note;
+`StaffingLinesEditor` is shared with the event form), **FIND STAFF** (confirms
+and creates `OpenShift` seats, one row per headcount — `expandSeats` in
+`lib/open-shifts.ts`, 12 tests), the listed seats with their claims
+(APPROVE/DECLINE), and **ROSTERED SHIFTS** — every `Shift` with
+`calendarEventId` set, badged CLAIMED (came from an approved claim) or ASSIGNED
+(manual link; the shift modal has an EVENT select on the EVENTS tab), with who
+holds it and DRAFT/PUBLISHED status. `reviewOpenShiftClaim` stamps
+`calendarEventId` on the created DRAFT shift. Workers with a matching position
+(or seats with no role) see claimable seats on `/w/shifts`
+(`WorkerShiftsClient`), CLAIM with an optional note (`OpenShiftClaim`
+PENDING). Deleting the rostered shift re-lists the seat. Worker schema/lib
+tests: `lib/open-shifts.server.ts` (19 tests). Guard:
+`team.roster.view|edit|approve` (approve = claims). The worker
+`GET /api/worker/calendar` also returns `openShiftCount` for the dashboard PICK
+UP SHIFTS tile. Manual-event pax/PDF/description detail stays manager-side.
 
 **Clocks** — `TimeClock` (+ `TimeClockBreak`, `TimeClockEdit` audit rows) with
 optional per-shift `positionId`, geo fields (`clockInLat/Lon`, `geoValid` via
@@ -1840,7 +1866,7 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 
 ## ERP & WOOCOMMERCE (BUILT 2026-07)
 
-### Schema: 132 models (as of 2026-10)
+### Schema: 133 models (as of 2026-10)
 Core ERP models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`,
 `RecipeLineItem` (recursive BOM), `IngredientReference` (Pantry Bible),
 `WooIntegration`, `MenuItem` (+ `MenuItemServe`, `MenuItemVenue`), `Menu`,
@@ -2346,7 +2372,9 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/beo-links.ts` / `beo-pdf.ts` — link grouping / BEO PDF variants | ✅ (8 + 11) |
 | `lib/event-flow.ts` / `event-pricing.ts` / `event-share.ts` | ✅ (6 + 10 + 8) |
 | `lib/service-schedule.ts` / `service-windows.ts` / `service-seating.ts` | ✅ (19 + 20 + 11) |
-| `lib/availability.ts` / `availability.server.ts` — window algebra + plan→execute | ✅ (59 + 18) |
+| `lib/availability.ts` / `availability.server.ts` — window algebra, free-window state (PARTIAL) + plan→execute | ✅ (65 + 18) |
+| `lib/event-roster.ts` — area resolution + per-day event buckets | ✅ (11 tests) |
+| `lib/manual-event.ts` — validation, UTC date/time mapping, capacity check | ✅ (9 tests) |
 | `lib/calendar-feeds.ts` — feed URL expansion, room naming | ✅ (9 tests) |
 | `lib/open-shifts.ts` / `open-shifts.server.ts` — seat expansion, claimable rules, find/claim/approve/cancel | ✅ (12 + 19 tests) |
 | `lib/event-roster.ts` — room/day grid, multi-day + all-day mapping, room matching | ✅ (10 tests) |
@@ -2403,8 +2431,10 @@ pushing, run: `npm run lint && npm run test`.
 | `WorkerGuidesClient.tsx` — BIBLE / MY TREE, folder grouping, edit gating | ✅ (11 tests) |
 | `EventBuilder.tsx` / `PipelinePanel.tsx` / `EnquiriesPanel.tsx` — BEO builder, pipeline board, intake | ✅ (5 + 2 + 4) |
 | `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 7 + 5 + 8) |
-| `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (7 + 5 + 4) |
-| `EventRosterPanel.tsx` — room grid, requirements, FIND STAFF confirm, claims review | ✅ (5 tests) |
+| `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (10 + 5 + 4) |
+| `StaffingLinesEditor.tsx` — payload mapping, unnamed-row filter, rows, remove | ✅ (5 tests) |
+| `EventStaffingModal.tsx` — event info, linked shifts CLAIMED/ASSIGNED, listed-seat lock, FIND STAFF, claims review | ✅ (5 tests) |
+| `CalendarEventFormModal.tsx` — create + staffing POST, capacity warning, edit load/PUT | ✅ (2 tests) |
 | `WorkerShiftsClient.tsx` — pickup grid, claim/withdraw, conflict warning, confirmed panel | ✅ (5 tests) |
 | `StaffAccessDrawer.tsx` / `OpsClient.tsx` / `MenusClient` builder components | ✅ (4 + 7 + tested) |
 | `EventShareClient.tsx` / `WorkerEventsClient.tsx` / `WorkerTimeclockClient.tsx` | ✅ (4 + tested) |

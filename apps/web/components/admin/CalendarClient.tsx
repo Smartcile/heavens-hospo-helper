@@ -7,12 +7,31 @@ import { Select } from '@/components/ui/Select'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
+import { CalendarEventFormModal } from '@/components/admin/CalendarEventFormModal'
 import { formatBreaks } from '@/lib/breaks'
 import { getActiveVenueId } from '@/lib/active-venue'
 
 interface ShiftItem { id: string; staffId: string; staffName: string; departmentName: string | null; startTime: string; endTime: string }
 interface TimeOffItem { id: string; staffId: string; staffName: string; status: string }
-interface EventItem { id: string; title: string; time: string | null; allDay: boolean; location: string | null; source: string; floorPlanSlug?: string | null; floorPlanName?: string | null }
+interface EventItem {
+  id: string
+  title: string
+  description: string | null
+  time: string | null
+  allDay: boolean
+  location: string | null
+  source: string
+  areaId: string | null
+  areaName: string | null
+  areaColour: string | null
+  pax: number | null
+  pdfPath: string | null
+  pdfUrl: string | null
+  startsAt: string
+  endsAt: string | null
+  floorPlanSlug?: string | null
+  floorPlanName?: string | null
+}
 
 interface FloorPlanLite { slug: string; name: string }
 interface DayData { shifts: ShiftItem[]; timeOff: TimeOffItem[]; events: EventItem[]; dutiesRequired: boolean }
@@ -61,6 +80,8 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
   const [newEnd, setNewEnd] = useState('17:00')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [editEventId, setEditEventId] = useState<string | null>(null)
+  const [createEventOpen, setCreateEventOpen] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -189,6 +210,19 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
     load()
   }
 
+  async function deleteEvent(id: string) {
+    if (!confirm('DELETE THIS EVENT? LISTED SHIFTS ARE PULLED.')) return
+    setBusy(true); setError('')
+    const r = await fetch(`/api/admin/calendar-events/${id}`, { method: 'DELETE' })
+    setBusy(false)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setError((d.error ?? 'DELETE FAILED').toUpperCase())
+      return
+    }
+    load()
+  }
+
   const daysInMonth = new Date(year, month, 0).getDate()
   const firstDow = new Date(year, month - 1, 1).getDay()
   const cells: (number | null)[] = [...Array(firstDow).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)]
@@ -199,6 +233,8 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
     .filter((s) => !venueId || s.venueId === venueId)
     .map((s) => ({ value: s.id, label: `${s.firstName} ${s.lastName}` }))
   const openDayData = openDay ? days[openDay] : null
+  // Events need a concrete venue — hidden while an admin views ALL VENUES.
+  const canCreateEvent = !!venueId
 
   // Venue whose external embeds we show (manager's own, or the admin's selection).
   const embedVenue = venues.find((v) => v.id === (venueId || (role === 'MANAGER' ? venueId : ''))) ?? (venues.length === 1 ? venues[0] : undefined)
@@ -265,13 +301,23 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
         <span className="font-mono text-xs text-grey-light uppercase">
           {lastSyncedAt ? `IMPORTED EVENTS LAST SYNCED ${new Date(lastSyncedAt).toLocaleString('en-NZ')}` : 'IMPORTED EVENTS — NOT YET SYNCED'}
         </span>
-        <button
-          onClick={() => syncNow(false)}
-          disabled={syncing}
-          className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors disabled:opacity-40"
-        >
-          {syncing ? 'SYNCING_' : 'SYNC NOW'}
-        </button>
+        <div className="flex items-center gap-2">
+          {canCreateEvent && (
+            <button
+              onClick={() => setCreateEventOpen(true)}
+              className="font-mono text-xs uppercase border border-white bg-white text-black px-3 py-1.5 hover:opacity-80 transition-colors"
+            >
+              + NEW EVENT
+            </button>
+          )}
+          <button
+            onClick={() => syncNow(false)}
+            disabled={syncing}
+            className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors disabled:opacity-40"
+          >
+            {syncing ? 'SYNCING_' : 'SYNC NOW'}
+          </button>
+        </div>
       </div>
 
       {/* Pending approvals now live on the availability page */}
@@ -391,34 +437,84 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
               )}
             </div>
 
-            {openDayData && openDayData.events.length > 0 && (
-              <div>
-                <div className="font-mono text-xs uppercase tracking-wider text-grey-light mb-2">EVENTS</div>
-                <div className="space-y-1">
-                  {openDayData.events.map((ev) => (
-                    <div key={ev.id} className="border border-grey-mid p-2 space-y-1">
-                      <div className="font-mono text-xs text-accent">◆ {ev.allDay ? 'ALL DAY' : ev.time} · {ev.title}</div>
-                      {ev.location && <div className="font-mono text-xs text-grey-light">{ev.location}</div>}
-                      <div className="font-mono text-xs uppercase text-grey-light">{ev.source === 'GOOGLE' ? 'GOOGLE CALENDAR' : 'ICAL FEED'}</div>
-                      <div className="flex items-center gap-2">
-                        <select value={ev.floorPlanSlug ?? ''}
-                          onChange={(e) => {
-                            const fp = floorPlans.find((f) => f.slug === e.target.value)
-                            linkEventToPlan(ev.id, e.target.value, fp?.name ?? '')
-                          }}
-                          className="bg-grey-dark border border-grey-mid text-white font-mono text-xs p-1 flex-1">
-                          <option value="">NO FLOOR PLAN</option>
-                          {floorPlans.map((fp) => (
-                            <option key={fp.slug} value={fp.slug}>{fp.name}</option>
-                          ))}
-                        </select>
-                        {ev.floorPlanSlug && <span className="font-mono text-xs text-success uppercase">LINKED</span>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="font-mono text-xs uppercase tracking-wider text-grey-light">EVENTS</div>
+                {canCreateEvent && (
+                  <button
+                    onClick={() => setCreateEventOpen(true)}
+                    className="font-mono text-2xs uppercase text-accent hover:text-white transition-colors"
+                  >
+                    + NEW EVENT
+                  </button>
+                )}
               </div>
-            )}
+              {!openDayData || openDayData.events.length === 0 ? (
+                <p className="font-mono text-xs text-grey-light">NO EVENTS.</p>
+              ) : (
+                <div className="space-y-1">
+                  {openDayData.events.map((ev) => {
+                    const manual = ev.source === 'MANUAL'
+                    const pdf = ev.pdfPath || ev.pdfUrl
+                    return (
+                      <div key={ev.id} className="border border-grey-mid p-2 space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-mono text-xs text-accent truncate">
+                            ◆ {ev.allDay ? 'ALL DAY' : ev.time} · {ev.title}
+                          </div>
+                          {manual ? (
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button onClick={() => { setEditEventId(ev.id); setOpenDay(null) }} className="font-mono text-2xs uppercase text-grey-light hover:text-white transition-colors">EDIT</button>
+                              <button onClick={() => deleteEvent(ev.id)} className="font-mono text-2xs uppercase text-grey-light hover:text-danger transition-colors">DEL</button>
+                            </div>
+                          ) : (
+                            <span className="font-mono text-2xs uppercase text-grey-light shrink-0">
+                              {ev.source === 'GOOGLE' ? 'GOOGLE' : 'ICAL'}
+                            </span>
+                          )}
+                        </div>
+                        {(ev.areaName || ev.location) && (
+                          <div className="font-mono text-xs text-grey-light">
+                            {ev.areaName && <span style={ev.areaColour ? { color: ev.areaColour } : undefined}>{ev.areaName}</span>}
+                            {ev.areaName && ev.location && ev.location !== ev.areaName ? ' · ' : ''}
+                            {ev.location && ev.location !== ev.areaName ? ev.location : ''}
+                          </div>
+                        )}
+                        {(typeof ev.pax === 'number' || pdf) && (
+                          <div className="flex items-center gap-3">
+                            {typeof ev.pax === 'number' && (
+                              <span className="font-mono text-2xs uppercase text-grey-light">{ev.pax} PAX</span>
+                            )}
+                            {pdf && (
+                              <a href={pdf} target="_blank" rel="noreferrer" className="font-mono text-2xs uppercase text-accent hover:text-white">
+                                📄 PDF ↗
+                              </a>
+                            )}
+                          </div>
+                        )}
+                        {ev.description && <p className="font-mono text-2xs text-grey-light">{ev.description}</p>}
+                        {!manual && (
+                          <div className="flex items-center gap-2">
+                            <select value={ev.floorPlanSlug ?? ''}
+                              onChange={(e) => {
+                                const fp = floorPlans.find((f) => f.slug === e.target.value)
+                                linkEventToPlan(ev.id, e.target.value, fp?.name ?? '')
+                              }}
+                              className="bg-grey-dark border border-grey-mid text-white font-mono text-xs p-1 flex-1">
+                              <option value="">NO FLOOR PLAN</option>
+                              {floorPlans.map((fp) => (
+                                <option key={fp.slug} value={fp.slug}>{fp.name}</option>
+                              ))}
+                            </select>
+                            {ev.floorPlanSlug && <span className="font-mono text-xs text-success uppercase">LINKED</span>}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
 
             {openDayData && openDayData.timeOff.length > 0 && (
               <div>
@@ -447,6 +543,16 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
           </div>
         )}
       </Modal>
+
+      {(createEventOpen || editEventId) && (
+        <CalendarEventFormModal
+          venueId={venueId}
+          eventId={editEventId}
+          defaultDate={openDay ?? undefined}
+          onClose={() => { setCreateEventOpen(false); setEditEventId(null) }}
+          onSaved={() => { setCreateEventOpen(false); setEditEventId(null); load() }}
+        />
+      )}
     </div>
   )
 }

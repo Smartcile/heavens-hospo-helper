@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
   if (!venueId) return NextResponse.json({ error: 'venueId is required' }, { status: 400 })
   if (!canUseVenue(session, venueId)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const [feeds, floorPlans] = await Promise.all([
+  const [feeds, floorPlans, areas] = await Promise.all([
     prisma.calendarFeed.findMany({
       where: { venueId, deletedAt: null },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
@@ -38,12 +38,18 @@ export async function GET(req: NextRequest) {
       select: { id: true, name: true, slug: true },
       orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
     }),
+    prisma.area.findMany({
+      where: { venueId, deletedAt: null },
+      select: { id: true, name: true, colour: true, capacity: true, floorPlanId: true, sortOrder: true, notes: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    }),
   ])
 
   return NextResponse.json({
     venueId,
     feeds: feeds.map((f) => ({
       id: f.id,
+      areaId: f.areaId,
       name: f.name,
       url: f.url,
       source: f.source,
@@ -56,6 +62,16 @@ export async function GET(req: NextRequest) {
       notes: f.notes,
     })),
     floorPlans,
+    areas: areas.map((a) => ({
+      id: a.id,
+      name: a.name,
+      colour: a.colour,
+      capacity: a.capacity,
+      floorPlanId: a.floorPlanId,
+      sortOrder: a.sortOrder,
+      notes: a.notes,
+      feedCount: feeds.filter((f) => f.areaId === a.id).length,
+    })),
   })
 }
 
@@ -71,6 +87,7 @@ export async function POST(req: NextRequest) {
     venueId?: string
     name?: string
     url?: string
+    areaId?: string | null
     colour?: string | null
     floorPlanId?: string | null
     notes?: string | null
@@ -99,6 +116,14 @@ export async function POST(req: NextRequest) {
     if (!plan) return NextResponse.json({ error: 'UNKNOWN FLOOR PLAN' }, { status: 400 })
   }
 
+  if (body?.areaId) {
+    const area = await prisma.area.findFirst({
+      where: { id: body.areaId, venueId, deletedAt: null },
+      select: { id: true },
+    })
+    if (!area) return NextResponse.json({ error: 'UNKNOWN AREA' }, { status: 400 })
+  }
+
   const last = await prisma.calendarFeed.findFirst({
     where: { venueId },
     orderBy: { sortOrder: 'desc' },
@@ -111,6 +136,7 @@ export async function POST(req: NextRequest) {
       prisma.calendarFeed.create({
         data: {
           venueId,
+          areaId: body?.areaId || null,
           name: draft.name,
           url: draft.url,
           source: draft.source,

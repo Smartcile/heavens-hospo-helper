@@ -118,6 +118,7 @@ export async function GET(req: NextRequest) {
     positionId: s.positionId,
     positionName: s.position?.name ?? null,
     positionColour: s.position?.colour ?? null,
+    calendarEventId: s.calendarEventId,
   }))
 
   // Role-resolved rates for the labour-cost footer.
