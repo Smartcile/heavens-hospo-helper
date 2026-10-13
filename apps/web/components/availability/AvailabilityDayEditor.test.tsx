@@ -129,6 +129,22 @@ describe('AvailabilityDayEditor', () => {
     expect(screen.getByText(/ENDS 15 OCT 2026/)).toBeDefined()
   })
 
+  it('blocks JUST THIS DAY while a series end change is armed', () => {
+    const { onSave } = renderEditor({ entry: entry({ seriesId: 's1', status: 'APPROVED' }), series })
+
+    fireEvent.click(screen.getByText('CHANGE SERIES END'))
+    const thisDay = screen.getByText('JUST THIS DAY').closest('button') as HTMLButtonElement
+    expect(thisDay.disabled).toBe(true)
+    // The scope auto-moves to FROM so the end change can actually apply.
+    fireEvent.click(screen.getByText('SAVE (ASKS A MANAGER)'))
+    expect(onSave.mock.calls[0][1].scope).toBe('FROM')
+  })
+
+  it('explains that JUST THIS DAY detaches from the series', () => {
+    renderEditor({ entry: entry({ seriesId: 's1' }), series })
+    expect(screen.getByText(/LEAVES THE SERIES/)).toBeDefined()
+  })
+
   it('moves the neighbouring edge when a partition boundary is edited — no extra block', () => {
     const { onSave } = renderEditor({
       entry: entry({

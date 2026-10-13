@@ -516,25 +516,46 @@ CLOCKS · PAYROLL** (`lib/hub-tabs.ts` `TEAM_TABS`). `/admin/staff`, `/admin/ros
 (PREFERRED = legacy casual opt-in), `timeOff` flag, `status PENDING | APPROVED |
 DECLINED`, optional `seriesId`/`seriesEndDate` for weekly repeats (materialised
 one row per occurrence, 104-week horizon when "no end"). Pure logic in
-`lib/availability.ts` (65 tests — window algebra, `autoComplement` = anything
+`lib/availability.ts` (70 tests — window algebra, `autoComplement` = anything
 not AVAILABLE is UNAVAILABLE, free-window algebra (`freeWindows` /
-`freeWindowsFrom` / `describeFreeWindows`), series helpers, presets). **A day's
+`freeWindowsFrom` / `describeFreeWindows`), series helpers, presets, the weekly
+request cut-off helpers). **A day's
 state is judged by FREE time**: `availabilityState` returns `AVAILABLE` (free
 all day), `PARTIAL` ("SPLIT" — free part of the day; a morning-only day must
 never read as a blanket unavailable) or `UNAVAILABLE` (no free time), and the
 admin availability pin + roster overlays count PARTIAL as available — for
 today, only the free time still ahead of the current clock. Prisma work in
-`lib/availability.server.ts` (18 tests — plan→execute model). Workers declare at
+`lib/availability.server.ts` (23 tests — plan→execute model, cut-off gate). Workers declare at
 `/w/availability` (`WorkerAvailabilityClient` + shared
 `components/availability/`). AVAILABLE-only days auto-approve and stay editable;
 any change/clear touching an APPROVED UNAVAILABLE/time-off row is stored as an
 `AvailabilityEditRequest` (scope THIS/FROM/ALL) for a manager to APPLY or
-DISCARD. `/admin/team?tab=availability` (`AvailabilityAdminClient`) is the
+DISCARD. A **THIS** edit on a series day **detaches** it: the row is written
+with `seriesId: null` as a standalone day, so later FROM/ALL changes to the
+series no longer override it (detaching the final occurrence re-pins the
+remaining series end via `AvailabilityPlan.syncSeriesId`). `/admin/team?tab=availability` (`AvailabilityAdminClient`) is the
 review grid. Routes: `/api/admin/availability` (+ `/clear`, `/review`,
 `/requests/[id]`), `/api/worker/availability` (+ `/clear`, `/[id]`,
 `/requests/[id]`). Guards: `team.availability.view|edit|approve`.
 
-**Roster** — `/admin/team?tab=roster` (`RosterClient`, 10 tests): week/day grid,
+**Weekly request cut-off** — `Venue.availabilityCutoff Json?`
+(`{ day: 0-6 (Sun-Sat), time: "HH:mm" }`), set in Settings → GENERAL →
+ROSTER AVAILABILITY. For each roster week the deadline is the chosen weekday +
+time in the week *before*; once it passes, a worker's save/clear for that week
+files an `AvailabilityEditRequest` even when no protected row is touched
+(auto-approval stops). Pure helpers `parseAvailabilityCutoff` /
+`cutoffDeadlineKey` / `isPastCutoff` / `describeAvailabilityCutoff` + the
+`planPastCutoff` gate check (gate carries `cutoff` + venue-local `nowMinutes`).
+The worker GET returns `cutoff` and the phone shows a deadline banner. Admin
+writes bypass it.
+
+**Drag-fill** — every day with an entry carries a corner handle on the admin
+grid and both worker views. Dragging it copies that day's settings across a day
+range (same person) by looping `POST /api/{admin,worker}/availability` per
+target day; worker targets past the cut-off/lock come back as requests, which
+the flash summarises. Rectangle hit-testing is the shared `lib/cell-fill.ts`.
+
+**Roster** — `/admin/team?tab=roster` (`RosterClient`, 13 tests): week/day grid,
 staff grouped by derived Position (drag headers; persisted `Position.sortOrder`),
 DRAFT/MIXED/PUBLISHED week status (`ShiftStatus`; only PUBLISHED shifts reach
 workers) with bulk publish via `POST /api/admin/roster/publish`, shift modal
@@ -545,7 +566,15 @@ availability conflict + role readiness (never blocking), PDF export
 StaffPosition → Position → Staff rate). Availability overlays show SPLIT days
 with their free windows; **click a day header to pin it** — people with free
 time that day float to the top of their group (`sortByPinnedAvailability`), and
-for today only the time still ahead counts. Routes: `GET /api/admin/roster`,
+for today only the time still ahead counts. Every shift block carries a
+**drag-fill handle** (top-right, appears on hover) — drag it to copy the shift
+across days and down/up staff rows in one gesture (time-off cells are skipped;
+blocked targets are silently left alone). The block itself is draggable onto
+another person/day to **move** the shift — `PUT /api/admin/shifts/[id]` now
+accepts `staffId` (venue-checked, and the department follows the new person).
+Creating a shift defaults Role to the person's top-ranked Position; editing
+loads the shift's own role and note (the roster payload now carries `note`).
+Rectangle math in `lib/cell-fill.ts`. Routes: `GET /api/admin/roster`,
 `POST /api/admin/roster/publish`, `POST/PUT/DELETE /api/admin/shifts(+/[id])`.
 
 **Areas + event staffing + open shifts (built 2026-10, reworked 2026-10).**
@@ -583,11 +612,17 @@ and creates `OpenShift` seats, one row per headcount — `expandSeats` in
 `calendarEventId` set, badged CLAIMED (came from an approved claim) or ASSIGNED
 (manual link; the shift modal has an EVENT select on the EVENTS tab), with who
 holds it and DRAFT/PUBLISHED status. `reviewOpenShiftClaim` stamps
-`calendarEventId` on the created DRAFT shift. Workers with a matching position
+`calendarEventId` on the created DRAFT shift and fills the seat. **Manual
+roster links consume seats too**: creating/editing a shift with an event
+(`syncShiftSeatLinks`) fills a matching OPEN seat (`fillSeatForShift` — exact
+time + role first, then role, then time, then any); deleting it or clearing the
+event link releases the seat (`releaseSeatForShift` declines its APPROVED claim
+so the worker can re-claim), and moving the shift to another person updates the
+seat holder. Workers with a matching position
 (or seats with no role) see claimable seats on `/w/shifts`
 (`WorkerShiftsClient`), CLAIM with an optional note (`OpenShiftClaim`
-PENDING). Deleting the rostered shift re-lists the seat. Worker schema/lib
-tests: `lib/open-shifts.server.ts` (19 tests). Guard:
+PENDING). Worker schema/lib
+tests: `lib/open-shifts.server.ts` (27 tests). Guard:
 `team.roster.view|edit|approve` (approve = claims). The worker
 `GET /api/worker/calendar` also returns `openShiftCount` for the dashboard PICK
 UP SHIFTS tile. Manual-event pax/PDF/description detail stays manager-side.
@@ -2267,6 +2302,35 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
 - **Drag-reorder lists.** Guide steps reorder by drag or ↑/↓ in both editors
   (admin `GuidesClient`, worker `WorkerGuideEditor`).
 
+## 2026-10-13 ROSTER + AVAILABILITY PASS (all built)
+
+- **Drag-fill handles** on every shift block and availability day cell — drag
+  the corner arrow to copy the shift/settings across cells (roster: days +
+  staff rows; availability: days for the same person, admin and worker views).
+  Shared `lib/cell-fill.ts` rectangle helper; roster copies skip time-off cells.
+- **Drag shifts onto other people** — a shift block can be dropped on another
+  staff row/day to move it; `PUT /api/admin/shifts/[id]` accepts `staffId`.
+- **Role auto-fill** — the shift modal seeds Role from the person's top-ranked
+  Position (and loads the shift's stored role + note when editing).
+- **Open-shift ↔ roster sync** — manually assigning a shift to an event consumes
+  a seat (`fillSeatForShift`); deleting or unlinking the shift re-lists it and
+  resets the APPROVED claim so the worker can re-claim.
+- **Availability weekly request cut-off** — `Venue.availabilityCutoff` (weekday +
+  time) flips a week's worker changes from auto-approval to edit requests once
+  the deadline passes; edited in Settings → GENERAL → ROSTER AVAILABILITY with
+  a worker deadline banner.
+- **DateNav** — quick links are mode-aware (day shows DAY/WEEK, week shows
+  WEEK/MONTH, month steps months) and emit whole periods — clicking WEEK no
+  longer collapses the view to a single day. The SELECT popover opens in the
+  mode currently displayed (week stays week).
+- **Series day detach** — choosing JUST THIS DAY on a series occurrence breaks
+  that day out of the series (standalone row), so later FROM/ALL series changes
+  don't override it; later series changes skip it. The editor says so inline.
+- **Series end preview** — changing a no-end series to a fixed end with FROM
+  scope now previews the resulting `ENDS dd MON yyyy` date, as a new series does.
+  While CHANGE SERIES END is armed, JUST THIS DAY is disabled and the scope
+  auto-moves to FROM — a single-day edit cannot carry an end change.
+
 ## FUTURE INTEGRATION STUBS
 
 | Stub | Location | Phase |
@@ -2302,7 +2366,7 @@ regression test. No test, no merge.
 **Config:** `apps/web/vitest.config.ts`, setup via `apps/web/vitest-setup.ts`
 **Location:** test files live alongside components (e.g. `FloorPlanEditor.test.tsx`
 next to `FloorPlanEditor.tsx`).
-**Scale (2026-10):** ~186 test files / ~1,700 cases across `lib` and components.
+**Scale (2026-10):** ~190 test files / ~1,775 cases across `lib` and components.
 
 ```bash
 npm run test          # runs all tests once (also: npm run test in root via turbo)
@@ -2334,6 +2398,7 @@ pushing, run: `npm run lint && npm run test`.
 | Target | Coverage |
 |---|---|
 | `lib/array.ts` — `moveItem` | ✅ |
+| `lib/cell-fill.ts` — `fillRect`, `fillTargets`, `inFillRect` (drag-fill rectangles) | ✅ (8 tests) |
 | `lib/booth-trace.ts` — `traceBoothPerimeter` | ✅ |
 | `lib/breaks.ts` — `nzBreakEntitlement`, `shiftHours`, `formatBreaks` | ✅ |
 | `lib/budget-math.ts` — `generateDailyBudgetsNormalized`, `computeBreakdowns` | ✅ |
@@ -2372,7 +2437,7 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/beo-links.ts` / `beo-pdf.ts` — link grouping / BEO PDF variants | ✅ (8 + 11) |
 | `lib/event-flow.ts` / `event-pricing.ts` / `event-share.ts` | ✅ (6 + 10 + 8) |
 | `lib/service-schedule.ts` / `service-windows.ts` / `service-seating.ts` | ✅ (19 + 20 + 11) |
-| `lib/availability.ts` / `availability.server.ts` — window algebra, free-window state (PARTIAL) + plan→execute | ✅ (65 + 18) |
+| `lib/availability.ts` / `availability.server.ts` — window algebra, free-window state (PARTIAL) + plan→execute + weekly cut-off gate + series-day detach | ✅ (70 + 27) |
 | `lib/event-roster.ts` — area resolution + per-day event buckets | ✅ (11 tests) |
 | `lib/manual-event.ts` — validation, UTC date/time mapping, capacity check | ✅ (9 tests) |
 | `lib/calendar-feeds.ts` — feed URL expansion, room naming | ✅ (9 tests) |
@@ -2413,6 +2478,7 @@ pushing, run: `npm run lint && npm run test`.
 | `BudgetLinesPanel.tsx` — tree render, totals, add/import flows | ✅ (5 tests) |
 | `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |
+| `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (19 tests) |
 | `WorkerTasksClient.tsx` — dual early-return paths | ✅ |
 | `FloorplanInspector.tsx` — presets, sliders, booth capacity | ✅ |
 | `FloorplanToolbar.tsx` — zoom, DIM toggle | ✅ |
@@ -2430,8 +2496,8 @@ pushing, run: `npm run lint && npm run test`.
 | `ReferenceTableEditor.tsx` — column kinds, derived cells, row editing | ✅ (5 tests) |
 | `WorkerGuidesClient.tsx` — BIBLE / MY TREE, folder grouping, edit gating | ✅ (11 tests) |
 | `EventBuilder.tsx` / `PipelinePanel.tsx` / `EnquiriesPanel.tsx` — BEO builder, pipeline board, intake | ✅ (5 + 2 + 4) |
-| `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 7 + 5 + 8) |
-| `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (10 + 5 + 4) |
+| `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 10 + 7 + 9) |
+| `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (13 + 5 + 4) |
 | `StaffingLinesEditor.tsx` — payload mapping, unnamed-row filter, rows, remove | ✅ (5 tests) |
 | `EventStaffingModal.tsx` — event info, linked shifts CLAIMED/ASSIGNED, listed-seat lock, FIND STAFF, claims review | ✅ (5 tests) |
 | `CalendarEventFormModal.tsx` — create + staffing POST, capacity warning, edit load/PUT | ✅ (2 tests) |

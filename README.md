@@ -380,6 +380,13 @@ module's daily REVENUE allocations), STAFFING RATIO and TOTAL PAID HOURS; ANALYZ
 VISUALIZE open per-role and per-day breakdowns. Approved time-off requests visibly
 block day cells so nobody gets rostered onto their day off.
 
+Every shift block has a small **drag-copy handle** in its corner — drag it across days
+(or down onto other staff) to repeat the shift in one gesture — and the block itself can
+be **dragged onto another person or day** to move it. New shifts default the role to the
+person's main position. Workers set their availability from their phone, and a
+configurable **weekly request deadline** (Settings → General → Roster Availability) can
+flip changes made after the deadline into manager requests instead of auto-approving.
+
 **Payroll** (`/admin/team?tab=payroll`) — create pay periods (weekly / fortnightly / monthly),
 then **CLOSE PERIOD** runs the built-in NZ statutory engine over approved clocks:
 PAYE income tax (progressive brackets, tax-code aware M/S/SB/SH/ST/CAE + student loan

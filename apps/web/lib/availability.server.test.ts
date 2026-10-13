@@ -157,6 +157,68 @@ describe('planSet / planClear', () => {
   })
 })
 
+describe('series day detach (THIS scope)', () => {
+  const fixture = [
+    { date: day('2026-10-01'), seriesEndDate: day('2026-10-22') },
+    { date: day('2026-10-08'), seriesEndDate: day('2026-10-22') },
+    { date: day('2026-10-15'), seriesEndDate: day('2026-10-22') },
+    { date: day('2026-10-22'), seriesEndDate: day('2026-10-22') },
+  ]
+
+  it('plans a THIS edit as a standalone row', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce(fixture)
+    const out = await planSet(
+      { staffId: 'st1', dateKey: '2026-10-08', payload, repeat: null, scope: 'THIS', seriesId: 's1' },
+      gate,
+    )
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.plan.writeDates).toEqual(['2026-10-08'])
+    expect(out.plan.seriesId).toBeNull()
+    expect(out.plan.seriesEndDate).toBeNull()
+    expect(out.plan.syncSeriesId).toBe('s1')
+    expect(out.plan.syncSeriesEnd).toBe(false)
+  })
+
+  it('re-pins the series end when the final occurrence detaches', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce(fixture)
+    const out = await planSet(
+      { staffId: 'st1', dateKey: '2026-10-22', payload, repeat: null, scope: 'THIS', seriesId: 's1' },
+      gate,
+    )
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.plan.syncSeriesId).toBe('s1')
+    expect(out.plan.syncSeriesEnd).toBe(true)
+  })
+
+  it('does not re-pin an open-ended series when its last occurrence detaches', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([
+      { date: day('2026-10-01'), seriesEndDate: null },
+      { date: day('2026-10-08'), seriesEndDate: null },
+    ])
+    const out = await planSet(
+      { staffId: 'st1', dateKey: '2026-10-08', payload, repeat: null, scope: 'THIS', seriesId: 's1' },
+      gate,
+    )
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.plan.syncSeriesEnd).toBe(false)
+  })
+
+  it('a THIS save writes the row without the series link', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce(fixture)
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-08', raw: payload, repeat: null, scope: 'THIS', seriesId: 's1', reason: null },
+      gate,
+    )
+    expect(out).toMatchObject({ mode: 'SAVED' })
+    const data = db.staffAvailability.updateMany.mock.calls[0][0].data
+    expect(data.seriesId).toBeNull()
+    expect(data.seriesEndDate).toBeNull()
+  })
+})
+
 describe('saveAvailability approval rules', () => {
   it('files an edit request when an APPROVED day is touched', async () => {
     db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])

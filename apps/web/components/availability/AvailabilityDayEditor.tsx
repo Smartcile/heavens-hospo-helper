@@ -323,7 +323,11 @@ export function AvailabilityDayEditor({
               checked={changeSeriesEnd}
               onChange={(v) => {
                 setChangeSeriesEnd(v)
-                if (v && series.endDate) setWeeks(weeksForSeries(scope === 'FROM' ? dateKey : series.startDate, series.endDate))
+                if (v) {
+                  const nextScope = scope === 'THIS' ? 'FROM' : scope
+                  setScope(nextScope)
+                  if (series.endDate) setWeeks(weeksForSeries(nextScope === 'FROM' ? dateKey : series.startDate, series.endDate))
+                }
               }}
               label="CHANGE SERIES END"
             />
@@ -377,24 +381,36 @@ export function AvailabilityDayEditor({
               ['THIS', 'JUST THIS DAY'],
               ['FROM', 'FROM THIS DAY ONWARDS'],
               ['ALL', 'ALL IN THE SERIES'],
-            ] as [AvailabilityScope, string][]).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => {
-                  setScope(key)
-                  if (changeSeriesEnd && series.endDate) {
-                    setWeeks(weeksForSeries(key === 'FROM' ? dateKey : series.startDate, series.endDate))
-                  }
-                }}
-                className={`h-12 border font-mono text-2xs uppercase leading-tight px-1 transition-colors ${
-                  scope === key ? 'bg-white text-black border-white' : 'border-grey-mid text-grey-light hover:border-white hover:text-white'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+            ] as [AvailabilityScope, string][]).map(([key, label]) => {
+              const endChange = key === 'THIS' && changeSeriesEnd
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={endChange}
+                  title={endChange ? 'A SERIES END CHANGE NEEDS FROM OR ALL' : undefined}
+                  onClick={() => {
+                    setScope(key)
+                    if (changeSeriesEnd && series.endDate) {
+                      setWeeks(weeksForSeries(key === 'FROM' ? dateKey : series.startDate, series.endDate))
+                    }
+                  }}
+                  className={`h-12 border font-mono text-2xs uppercase leading-tight px-1 transition-colors ${
+                    endChange
+                      ? 'border-grey-mid text-grey-mid opacity-40 cursor-not-allowed'
+                      : scope === key ? 'bg-white text-black border-white' : 'border-grey-mid text-grey-light hover:border-white hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              )
+            })}
           </div>
+          {scope === 'THIS' && !changeSeriesEnd && (
+            <p className="font-mono text-2xs uppercase text-grey-mid">
+              JUST THIS DAY LEAVES THE SERIES — LATER SERIES CHANGES WON&apos;T TOUCH IT.
+            </p>
+          )}
         </div>
       )}
 

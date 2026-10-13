@@ -47,6 +47,10 @@ export interface AvailabilityPlan {
   writeDates: string[]
   removeDates: string[]
   seriesId: string | null
+  /** The series whose remaining rows are re-pinned when `syncSeriesEnd` is set.
+   *  Only differs from `seriesId` when a THIS edit detaches a day — the written
+   *  rows leave the series, but the old series' end may still need shrinking. */
+  syncSeriesId: string | null
   seriesEndDate: string | null
   /** Update every row of the series to the plan's end date after writing. */
   syncSeriesEnd: boolean
@@ -206,16 +210,20 @@ export async function planSet(
     const storedEnd = rows.find((r) => r.seriesEndDate)?.seriesEndDate
     const currentEnd = storedEnd ? formatDateKey(storedEnd) : null
     const scope = input.scope ?? 'THIS'
+    // A THIS edit on a series occurrence detaches the day: it is written as a
+    // standalone row so later FROM/ALL changes to the series no longer touch it.
+    const detach = scope === 'THIS'
 
     let writeDates = scope === 'THIS' ? [dateKey] : scope === 'FROM' ? dates.filter((d) => d >= dateKey) : dates
     if (writeDates.length === 0) return { ok: false, error: 'NO DAYS IN RANGE' }
 
-    const seriesId = input.seriesId
-    let seriesEndDate = currentEnd
+    const seriesId = detach ? null : input.seriesId
+    let seriesEndDate = detach ? null : currentEnd
     let syncSeriesEnd = false
+    let syncSeriesId: string | null = null
     const removeSet = new Set<string>()
 
-    if (scope !== 'THIS' && input.repeat) {
+    if (!detach && input.repeat) {
       const start = scope === 'FROM' ? dateKey : dates[0]
       const occurrenceDates = occurrencesForRepeat(start, input.repeat)
       seriesEndDate = 'noEnd' in input.repeat ? null : seriesEndDateKey(start, input.repeat.weeks)
@@ -226,6 +234,12 @@ export async function planSet(
         if (!keep.has(d)) removeSet.add(d)
       }
       syncSeriesEnd = true
+    }
+
+    if (detach) {
+      syncSeriesId = input.seriesId
+      // Detaching the final occurrence of a fixed-end series shrinks the end.
+      syncSeriesEnd = dateKey === dates[dates.length - 1] && !!currentEnd
     }
 
     if (!gate.bypass) {
@@ -252,6 +266,7 @@ export async function planSet(
         writeDates,
         removeDates: [...removeSet],
         seriesId,
+        syncSeriesId,
         seriesEndDate,
         syncSeriesEnd,
       },
@@ -276,6 +291,7 @@ export async function planSet(
         writeDates: occurrenceDates,
         removeDates: [],
         seriesId: randomUUID(),
+        syncSeriesId: null,
         seriesEndDate: end,
         syncSeriesEnd: false,
       },
@@ -297,6 +313,7 @@ export async function planSet(
       writeDates: [dateKey],
       removeDates: [],
       seriesId: null,
+      syncSeriesId: null,
       seriesEndDate: null,
       syncSeriesEnd: false,
     },
@@ -341,6 +358,7 @@ export async function planClear(
         writeDates: [],
         removeDates,
         seriesId: input.seriesId,
+        syncSeriesId: null,
         seriesEndDate: null,
         // A FROM clear turns the remainder of an open series finite.
         syncSeriesEnd: scope !== 'THIS',
@@ -362,6 +380,7 @@ export async function planClear(
       writeDates: [],
       removeDates: [input.dateKey],
       seriesId: null,
+      syncSeriesId: null,
       seriesEndDate: null,
       syncSeriesEnd: false,
     },
@@ -460,16 +479,17 @@ async function applyRemovals(tx: Prisma.TransactionClient, staffId: string, plan
       data: { deletedAt: new Date() },
     })
   }
-  if (plan.syncSeriesEnd && plan.seriesId) {
+  const seriesForSync = plan.syncSeriesId ?? plan.seriesId
+  if (plan.syncSeriesEnd && seriesForSync) {
     const remaining = await tx.staffAvailability.findMany({
-      where: { staffId, seriesId: plan.seriesId, deletedAt: null },
+      where: { staffId, seriesId: seriesForSync, deletedAt: null },
       select: { date: true },
       orderBy: { date: 'asc' },
     })
     if (remaining.length > 0) {
       const end = formatDateKey(remaining[remaining.length - 1].date)
       await tx.staffAvailability.updateMany({
-        where: { staffId, seriesId: plan.seriesId, deletedAt: null },
+        where: { staffId, seriesId: seriesForSync, deletedAt: null },
         data: { seriesEndDate: utcDay(end) },
       })
     }
