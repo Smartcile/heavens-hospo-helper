@@ -18,6 +18,7 @@ import { AvailabilityBar } from '@/components/availability/AvailabilityBar'
 import { AvailabilityDayEditor, type EditorDraft, type EditorSaveOptions } from '@/components/availability/AvailabilityDayEditor'
 import { StaffEditModal } from '@/components/admin/StaffEditModal'
 import { moveItem } from '@/lib/array'
+import { fillRect, fillTargets, inFillRect } from '@/lib/cell-fill'
 import { dateKeysBetween } from '@/lib/calendar'
 import { formatDateLong, keyOfDay, mondayOf, parseDay, shiftDay, type DateRange } from '@/lib/date-nav'
 import { nearestIndex, type Rect } from '@/lib/reorder'
@@ -115,6 +116,10 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
   const groupHeaderRefs = useRef<Map<string, HTMLElement>>(new Map())
   const groupDragRef = useRef<{ key: string; x: number; y: number; moved: boolean } | null>(null)
   const overGroupRef = useRef<string | null>(null)
+
+  // Drag-fill — copy one day's settings across the row.
+  const [fill, setFill] = useState<{ staffId: string; from: number; to: number } | null>(null)
+  const fillRef = useRef<{ staffId: string; from: number; to: number; x: number; y: number; moved: boolean } | null>(null)
 
   const days = useMemo(
     () => dateKeysBetween(new Date(`${range.start}T00:00:00Z`), new Date(`${range.end}T00:00:00Z`)),
@@ -306,6 +311,75 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
     load()
   }
 
+  function cellColFromPoint(x: number, y: number): number | null {
+    const el = typeof document !== 'undefined' ? document.elementFromPoint?.(x, y) ?? null : null
+    const cell = (el as HTMLElement | null)?.closest?.('[data-fill-col]') as HTMLElement | null
+    if (!cell) return null
+    const col = Number(cell.dataset.fillCol)
+    return Number.isFinite(col) ? col : null
+  }
+
+  function onFillPointerDown(e: React.PointerEvent, staffId: string, from: number) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    e.stopPropagation()
+    e.preventDefault()
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    fillRef.current = { staffId, from, to: from, x: e.clientX, y: e.clientY, moved: false }
+    setFill({ staffId, from, to: from })
+  }
+
+  function onFillPointerMove(e: React.PointerEvent) {
+    const drag = fillRef.current
+    if (!drag) return
+    if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) drag.moved = true
+    if (!drag.moved) return
+    const col = cellColFromPoint(e.clientX, e.clientY)
+    if (col == null) return
+    drag.to = col
+    setFill({ staffId: drag.staffId, from: drag.from, to: col })
+  }
+
+  function onFillPointerUp() {
+    const drag = fillRef.current
+    fillRef.current = null
+    setFill(null)
+    if (!drag || !drag.moved) return
+    const targets = fillTargets({ row: 0, col: drag.from }, fillRect({ row: 0, col: drag.from }, { row: 0, col: drag.to }))
+    const sourceDate = days[drag.from]
+    const targetDates = targets.map((t) => days[t.col]).filter((d): d is string => !!d)
+    if (!sourceDate || targetDates.length === 0) return
+    void copyDays(drag.staffId, sourceDate, targetDates)
+  }
+
+  function onFillPointerCancel() {
+    fillRef.current = null
+    setFill(null)
+  }
+
+  async function copyDays(staffId: string, sourceDate: string, dates: string[]) {
+    const entry = entryFor(staffId, sourceDate)
+    if (!entry) return
+    const source = {
+      isAllDay: entry.isAllDay,
+      type: entry.type,
+      windows: entry.windows,
+      timeOff: entry.timeOff,
+      notes: entry.notes,
+    }
+    setBusy(true); setError('')
+    const results = await Promise.all(dates.map((date) =>
+      fetch('/api/admin/availability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ venueId, staffId, date, availability: source, repeat: null, scope: null, seriesId: null }),
+      }),
+    ))
+    setBusy(false)
+    const failed = results.filter((r) => !r.ok).length
+    if (failed) setError(`${failed} DAY${failed === 1 ? '' : 'S'} FAILED TO COPY`)
+    load()
+  }
+
   async function save(staffId: string, date: string, draft: EditorDraft, options: EditorSaveOptions) {
     const entry = entryFor(staffId, date)
     setBusy(true); setError('')
@@ -367,14 +441,18 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
             <div className="font-mono text-2xs text-grey-light uppercase">{s.employmentType ?? ''}</div>
           </button>
         </div>
-        {days.map((d) => {
+        {days.map((d, di) => {
           const entry = entryFor(s.id, d)
+          const inFill = fill && fill.staffId === s.id
+            ? inFillRect({ row: 0, col: di }, fillRect({ row: 0, col: fill.from }, { row: 0, col: fill.to }))
+            : false
           return (
             <button
               key={d}
               type="button"
+              data-fill-col={di}
               onClick={() => setEditor({ staffId: s.id, date: d })}
-              className={`border-b border-r border-grey-mid min-h-[64px] p-1.5 text-left hover:bg-black/30 transition-colors flex flex-col ${entry ? '' : 'bg-black/10'}`}
+              className={`group/day relative border-b border-r border-grey-mid min-h-[64px] p-1.5 text-left hover:bg-black/30 transition-colors flex flex-col ${entry ? '' : 'bg-black/10'} ${inFill ? 'ring-1 ring-inset ring-accent/70 bg-accent/10' : ''}`}
             >
               {entry ? (
                 <div className="flex-1 flex flex-col min-h-0 gap-1">
@@ -395,6 +473,20 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
                 </div>
               ) : (
                 <span className="font-mono text-2xs uppercase text-grey-mid">—</span>
+              )}
+              {entry && (
+                <span
+                  title="DRAG TO COPY THIS DAY"
+                  onPointerDown={(e) => onFillPointerDown(e, s.id, di)}
+                  onPointerMove={onFillPointerMove}
+                  onPointerUp={onFillPointerUp}
+                  onPointerCancel={onFillPointerCancel}
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute top-0.5 right-0.5 z-20 flex h-3.5 w-3.5 items-center justify-center border border-white/80 bg-black/70 font-mono text-2xs leading-none text-white cursor-copy opacity-0 transition-opacity group-hover/day:opacity-100"
+                  style={{ touchAction: 'none' }}
+                >
+                  ⤡
+                </span>
               )}
             </button>
           )

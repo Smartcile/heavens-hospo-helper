@@ -223,6 +223,55 @@ describe('saveAvailability approval rules', () => {
   })
 })
 
+describe('weekly request cut-off', () => {
+  const cutoffGate = { ...gate, cutoff: { day: 4, time: '17:00' }, nowMinutes: 10 * 60 }
+
+  it('files a request for a week past its cut-off even with no approved rows', async () => {
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-11', raw: payload, repeat: null, scope: null, seriesId: null, reason: null },
+      cutoffGate,
+    )
+    expect(out).toMatchObject({ mode: 'REQUEST', requestId: 'req1' })
+    expect(db.availabilityEditRequest.create).toHaveBeenCalledTimes(1)
+    expect(db.staffAvailability.findMany).not.toHaveBeenCalled()
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('still writes a week before its cut-off', async () => {
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: payload, repeat: null, scope: null, seriesId: null, reason: null },
+      cutoffGate,
+    )
+    expect(out).toMatchObject({ mode: 'SAVED' })
+    expect(db.availabilityEditRequest.create).not.toHaveBeenCalled()
+  })
+
+  it('flips to request mode once the deadline time passes', async () => {
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: { isAllDay: true, type: 'AVAILABLE' }, repeat: null, scope: null, seriesId: null, reason: null },
+      { ...cutoffGate, nowMinutes: 18 * 60 },
+    )
+    expect(out).toMatchObject({ mode: 'REQUEST' })
+  })
+
+  it('files a clear request for a day past its cut-off', async () => {
+    const out = await clearAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-11', scope: null, seriesId: null, reason: null },
+      cutoffGate,
+    )
+    expect(out).toMatchObject({ mode: 'REQUEST' })
+    expect(db.availabilityEditRequest.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('admin bypass ignores the cut-off', async () => {
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-11', raw: payload, repeat: null, scope: null, seriesId: null, reason: null },
+      { ...adminGate, cutoff: { day: 4, time: '17:00' }, nowMinutes: 18 * 60 },
+    )
+    expect(out).toMatchObject({ mode: 'SAVED' })
+  })
+})
+
 describe('cancelPendingAvailability / withdrawEditRequest', () => {
   it('cancels pending declarations by id', async () => {
     db.staffAvailability.updateMany.mockResolvedValueOnce({ count: 2 })

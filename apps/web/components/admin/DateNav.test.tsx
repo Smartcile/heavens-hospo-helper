@@ -20,11 +20,58 @@ describe('DateNav', () => {
     expect(onChange).toHaveBeenCalledWith('2026-08-10', { start: '2026-08-10', end: '2026-08-10' })
   })
 
-  it('shifts a week with the << WEEK link', () => {
+  it('opens the whole previous week with the << WEEK link', () => {
     const onChange = vi.fn()
     render(<DateNav date="2026-08-09" onChange={onChange} />)
     fireEvent.click(screen.getByText('<< WEEK'))
-    expect(onChange).toHaveBeenCalledWith('2026-08-02', { start: '2026-08-02', end: '2026-08-02' })
+    expect(onChange).toHaveBeenCalledWith('2026-07-27', { start: '2026-07-27', end: '2026-08-02' })
+  })
+
+  it('in week mode shows WEEK + MONTH nav and steps whole weeks', () => {
+    const onChange = vi.fn()
+    render(
+      <DateNav
+        date="2026-08-10"
+        range={{ start: '2026-08-10', end: '2026-08-16' }}
+        onChange={onChange}
+      />,
+    )
+    expect(screen.getByText('<< MONTH')).toBeTruthy()
+    expect(screen.getByText('< WEEK')).toBeTruthy()
+    expect(screen.getByText('WEEK >')).toBeTruthy()
+    expect(screen.getByText('MONTH >>')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('WEEK >'))
+    expect(onChange).toHaveBeenCalledWith('2026-08-17', { start: '2026-08-17', end: '2026-08-23' })
+  })
+
+  it('in week mode the MONTH links open the whole month', () => {
+    const onChange = vi.fn()
+    render(
+      <DateNav
+        date="2026-08-10"
+        range={{ start: '2026-08-10', end: '2026-08-16' }}
+        onChange={onChange}
+      />,
+    )
+    fireEvent.click(screen.getByText('<< MONTH'))
+    expect(onChange).toHaveBeenCalledWith('2026-07-01', { start: '2026-07-01', end: '2026-07-31' })
+    fireEvent.click(screen.getByText('MONTH >>'))
+    expect(onChange).toHaveBeenCalledWith('2026-09-01', { start: '2026-09-01', end: '2026-09-30' })
+  })
+
+  it('in month mode steps whole months', () => {
+    const onChange = vi.fn()
+    render(
+      <DateNav
+        date="2026-08-01"
+        range={{ start: '2026-08-01', end: '2026-08-31' }}
+        onChange={onChange}
+      />,
+    )
+    expect(screen.queryByText('<< MONTH')).toBeNull()
+    fireEvent.click(screen.getByText('MONTH >'))
+    expect(onChange).toHaveBeenCalledWith('2026-09-01', { start: '2026-09-01', end: '2026-09-30' })
   })
 
   it('opens the popover on SELECT showing three months and applies a picked day', () => {
@@ -162,6 +209,39 @@ describe('DateNav', () => {
     fireEvent.click(screen.getByText('SELECT'))
     expect(screen.getByText('AUG 10, 2026')).toBeTruthy()
     expect(screen.getByText('AUG 16, 2026')).toBeTruthy()
+  })
+
+  it('reopens in the mode that is already displayed', () => {
+    const onChange = vi.fn()
+    render(
+      <DateNav
+        date="2026-08-10"
+        range={{ start: '2026-08-10', end: '2026-08-16' }}
+        onChange={onChange}
+      />,
+    )
+    fireEvent.click(screen.getByText('SELECT'))
+    // The WEEK tab is preselected — no need to click it again before picking.
+    expect(screen.getByText('WEEK').className).toContain('bg-white')
+    fireEvent.click(screen.getAllByText('14')[0])
+    fireEvent.click(screen.getByText('APPLY'))
+    expect(onChange).toHaveBeenCalledWith('2026-08-10', { start: '2026-08-10', end: '2026-08-16' })
+  })
+
+  it('reopens in MONTH mode for a displayed month range', () => {
+    const onChange = vi.fn()
+    render(
+      <DateNav
+        date="2026-08-01"
+        range={{ start: '2026-08-01', end: '2026-08-31' }}
+        onChange={onChange}
+      />,
+    )
+    fireEvent.click(screen.getByText('SELECT'))
+    expect(screen.getByText('MONTH').className).toContain('bg-white')
+    fireEvent.click(screen.getAllByText('14')[0])
+    fireEvent.click(screen.getByText('APPLY'))
+    expect(onChange).toHaveBeenCalledWith('2026-08-01', { start: '2026-08-01', end: '2026-08-31' })
   })
 
   it('shows the single long date when a day range is applied', () => {

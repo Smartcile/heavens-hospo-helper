@@ -4,7 +4,7 @@ const { db } = vi.hoisted(() => {
   const db = {
     calendarEvent: { findFirst: vi.fn() },
     eventStaffing: { updateMany: vi.fn(), create: vi.fn() },
-    openShift: { count: vi.fn(), createMany: vi.fn(), findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    openShift: { count: vi.fn(), createMany: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     openShiftClaim: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     position: { count: vi.fn() },
     staffPosition: { findMany: vi.fn() },
@@ -26,6 +26,9 @@ import {
   withdrawOpenShiftClaim,
   reviewOpenShiftClaim,
   cancelOpenShift,
+  fillSeatForShift,
+  releaseSeatForShift,
+  syncShiftSeatLinks,
 } from '@/lib/open-shifts.server'
 
 const futureDay = () => new Date(Date.UTC(2030, 0, 15))
@@ -38,6 +41,8 @@ beforeEach(() => {
   db.eventStaffing.create.mockResolvedValue({})
   db.openShift.count.mockResolvedValue(0)
   db.openShift.createMany.mockResolvedValue({ count: 0 })
+  db.openShift.findMany.mockResolvedValue([])
+  db.openShift.updateMany.mockResolvedValue({ count: 0 })
   db.position.count.mockResolvedValue(1)
   db.staffPosition.findMany.mockResolvedValue([{ positionId: 'pos1' }])
   db.venue.findFirst.mockResolvedValue({ timezone: 'Pacific/Auckland' })
@@ -254,5 +259,103 @@ describe('cancelOpenShift', () => {
     expect(res).toEqual({ ok: true })
     expect(db.openShift.update).toHaveBeenCalledWith({ where: { id: 'os1' }, data: { status: 'CANCELLED' } })
     expect(db.openShiftClaim.updateMany).toHaveBeenCalled()
+  })
+})
+
+describe('fillSeatForShift', () => {
+  const shift = {
+    id: 'sh1',
+    venueId: 'v1',
+    calendarEventId: 'ev1',
+    positionId: 'pos1',
+    staffId: 'st1',
+    date: futureDay(),
+    startTime: '17:00',
+    endTime: '23:00',
+  }
+
+  it('no-ops without an event link', async () => {
+    expect(await fillSeatForShift({ ...shift, calendarEventId: null })).toBeNull()
+    expect(db.openShift.findMany).not.toHaveBeenCalled()
+  })
+
+  it('no-ops when no seats are open', async () => {
+    db.openShift.findMany.mockResolvedValue([])
+    expect(await fillSeatForShift(shift)).toBeNull()
+    expect(db.openShift.update).not.toHaveBeenCalled()
+  })
+
+  it('prefers an exact time + role match and fills it', async () => {
+    db.openShift.findMany.mockResolvedValue([
+      { id: 'os2', positionId: 'pos1', startTime: '09:00', endTime: '15:00' },
+      { id: 'os1', positionId: 'pos1', startTime: '17:00', endTime: '23:00' },
+    ])
+    expect(await fillSeatForShift(shift)).toBe('os1')
+    expect(db.openShift.update).toHaveBeenCalledWith({
+      where: { id: 'os1' },
+      data: { status: 'FILLED', filledById: 'st1', filledShiftId: 'sh1' },
+    })
+  })
+
+  it('falls back to the first open seat when nothing matches', async () => {
+    db.openShift.findMany.mockResolvedValue([
+      { id: 'os9', positionId: 'pos2', startTime: '09:00', endTime: '15:00' },
+    ])
+    expect(await fillSeatForShift(shift)).toBe('os9')
+  })
+})
+
+describe('releaseSeatForShift', () => {
+  it('declines the approved claim and re-opens the seat', async () => {
+    db.openShift.updateMany.mockResolvedValue({ count: 1 })
+    expect(await releaseSeatForShift('sh1')).toBe(1)
+    expect(db.openShiftClaim.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { shiftId: 'sh1', status: 'APPROVED', deletedAt: null },
+      data: expect.objectContaining({ status: 'DECLINED' }),
+    }))
+    expect(db.openShift.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { filledShiftId: 'sh1', deletedAt: null },
+      data: { status: 'OPEN', filledById: null, filledShiftId: null },
+    }))
+  })
+})
+
+describe('syncShiftSeatLinks', () => {
+  const shift = {
+    id: 'sh1',
+    venueId: 'v1',
+    calendarEventId: 'ev1',
+    positionId: null,
+    staffId: 'st1',
+    date: futureDay(),
+    startTime: '10:00',
+    endTime: '12:00',
+  }
+
+  it('releases the old seat and fills one on a new event', async () => {
+    db.openShift.findMany.mockResolvedValue([{ id: 'os5', positionId: null, startTime: '10:00', endTime: '12:00' }])
+    await syncShiftSeatLinks({ shift: { ...shift, calendarEventId: 'ev2' }, previousEventId: 'ev1' })
+    expect(db.openShift.updateMany).toHaveBeenCalled()
+    expect(db.openShift.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'os5' },
+      data: expect.objectContaining({ filledShiftId: 'sh1' }),
+    }))
+  })
+
+  it('keeps the link and updates the holder on a person-only change', async () => {
+    await syncShiftSeatLinks({ shift: { ...shift, staffId: 'st2' }, previousEventId: 'ev1' })
+    expect(db.openShift.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { filledShiftId: 'sh1', deletedAt: null },
+      data: { status: 'FILLED', filledById: 'st2' },
+    }))
+    expect(db.openShift.update).not.toHaveBeenCalled()
+  })
+
+  it('releases the seat when the event link is cleared', async () => {
+    await syncShiftSeatLinks({ shift: { ...shift, calendarEventId: null }, previousEventId: 'ev1' })
+    expect(db.openShift.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { filledShiftId: 'sh1', deletedAt: null },
+    }))
+    expect(db.openShift.findMany).not.toHaveBeenCalled()
   })
 })

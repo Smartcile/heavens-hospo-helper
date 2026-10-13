@@ -18,9 +18,12 @@ import { QRCodesClient } from '@/components/admin/QRCodesClient'
 import { SyncClient } from '@/app/admin/(protected)/sync/SyncClient'
 import { SwiftPosSalesClient } from '@/components/admin/SwiftPosSalesClient'
 import {
+  AVAILABILITY_WEEKDAYS,
   quarterHourEndOptions,
   quarterHourOptions,
   resolveAvailabilityPresets,
+  parseAvailabilityCutoff,
+  describeAvailabilityCutoff,
   type AvailabilityPreset,
 } from '@/lib/availability'
 
@@ -32,6 +35,7 @@ interface Venue {
   icalFeedUrl: string | null
   externalRefreshMinutes: number
   availabilityLockDays: number
+  availabilityCutoff: unknown
   availabilityPresets: unknown
   sharingEnabled: boolean
   sharedWooVenueId: string | null
@@ -173,6 +177,9 @@ export function SettingsClient({
 
   // Roster availability cut-off + quick-pick presets
   const [lockDays, setLockDays] = useState('0')
+  const [cutoffOn, setCutoffOn] = useState(false)
+  const [cutoffDay, setCutoffDay] = useState('4')
+  const [cutoffTime, setCutoffTime] = useState('17:00')
   const [presets, setPresets] = useState<AvailabilityPreset[]>(() => resolveAvailabilityPresets(null))
   const [lockSaving, setLockSaving] = useState(false)
   const [lockMessage, setLockMessage] = useState('')
@@ -304,6 +311,10 @@ export function SettingsClient({
     setLoadedUrl(v.loadedRosterUrl ?? '')
     setRefresh(String(v.externalRefreshMinutes ?? 0))
     setLockDays(String(v.availabilityLockDays ?? 0))
+    const cutoff = parseAvailabilityCutoff(v.availabilityCutoff)
+    setCutoffOn(!!cutoff)
+    setCutoffDay(String(cutoff?.day ?? 4))
+    setCutoffTime(cutoff?.time ?? '17:00')
     setPresets(resolveAvailabilityPresets(v.availabilityPresets))
     setSharingEnabled(v.sharingEnabled ?? false)
     setSharedWooVenueId(v.sharedWooVenueId ?? '')
@@ -592,6 +603,7 @@ export function SettingsClient({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         availabilityLockDays: Math.max(0, Math.floor(Number(lockDays) || 0)),
+        availabilityCutoff: cutoffOn ? { day: Number(cutoffDay), time: cutoffTime } : null,
         availabilityPresets: presets,
       }),
     })
@@ -921,6 +933,42 @@ export function SettingsClient({
         </p>
         <div className="space-y-3">
           <Input label="Lock-out (days before today)" type="number" min="0" value={lockDays} onChange={(e) => setLockDays(e.target.value)} />
+
+          <div className="border border-grey-mid p-3 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">Weekly request deadline</div>
+              <button
+                onClick={() => setCutoffOn(!cutoffOn)}
+                className={`font-mono text-xs uppercase px-3 py-1.5 border ${cutoffOn ? 'border-success text-success' : 'border-grey-mid text-grey-light'}`}
+              >
+                {cutoffOn ? 'ON' : 'OFF'}
+              </button>
+            </div>
+            <p className="font-mono text-2xs uppercase text-grey-light">
+              AFTER THIS DEADLINE, WORKER CHANGES FOR THE COMING ROSTER WEEK ARE SENT TO YOU AS REQUESTS INSTEAD OF AUTO-APPROVING.
+            </p>
+            {cutoffOn && (
+              <div className="grid grid-cols-2 gap-3">
+                <Select
+                  label="Deadline day"
+                  value={cutoffDay}
+                  onChange={(e) => setCutoffDay(e.target.value)}
+                  options={AVAILABILITY_WEEKDAYS.map((d, i) => ({ value: String(i), label: d }))}
+                />
+                <Select
+                  label="Deadline time"
+                  value={cutoffTime}
+                  onChange={(e) => setCutoffTime(e.target.value)}
+                  options={PRESET_START_OPTIONS}
+                />
+              </div>
+            )}
+            {cutoffOn && (
+              <p className="font-mono text-2xs uppercase text-white">
+                CHANGES AFTER {describeAvailabilityCutoff({ day: Number(cutoffDay), time: cutoffTime })} NEED MANAGER APPROVAL.
+              </p>
+            )}
+          </div>
 
           <div className="space-y-2">
             <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">QUICK PICK PRESETS — MORNING / AFTERNOON / EVENING</div>

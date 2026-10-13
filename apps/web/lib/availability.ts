@@ -11,7 +11,7 @@
 // server (authoritative validation), so the worker calendar and the admin
 // overlay can never disagree about what a colour means.
 
-import { shiftDay } from '@/lib/date-nav'
+import { mondayOf, shiftDay } from '@/lib/date-nav'
 
 export type AvailabilityType = 'UNAVAILABLE' | 'PREFERRED' | 'AVAILABLE'
 export type AvailabilityState = 'UNAVAILABLE' | 'AVAILABLE' | 'PARTIAL' | 'DEFAULT'
@@ -544,6 +544,53 @@ export function canWorkerEditDate(dateKey: string, lockDays: number, todayKey: s
 export function isDateLocked(dateKey: string, lockDays: number, todayKey: string): boolean {
   if (!lockDays || lockDays <= 0) return false
   return dateKey < shiftDay(todayKey, lockDays)
+}
+
+// ── Weekly request cut-off ────────────────────────────────────────────────
+
+export interface AvailabilityCutoff {
+  day: number // 0 = Sunday … 6 = Saturday
+  time: string // "HH:mm"
+}
+
+export const AVAILABILITY_WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'] as const
+
+/** Validate + normalise a venue's cut-off payload. Null = no cut-off. */
+export function parseAvailabilityCutoff(raw: unknown): AvailabilityCutoff | null {
+  if (!raw || typeof raw !== 'object') return null
+  const row = raw as { day?: unknown; time?: unknown }
+  const day = Math.floor(Number(row.day))
+  if (!Number.isFinite(day) || day < 0 || day > 6) return null
+  if (typeof row.time !== 'string' || !isQuarterTime(row.time)) return null
+  return { day, time: row.time }
+}
+
+/**
+ * The deadline for a date's roster week: the most recent occurrence of the
+ * cut-off weekday before that week's Monday. Changes for the week auto-approve
+ * until this moment, then become manager requests.
+ */
+export function cutoffDeadlineKey(dateKey: string, cutoff: AvailabilityCutoff): string {
+  const monday = mondayOf(dateKey)
+  const offset = ((cutoff.day - 1) % 7 + 7) % 7
+  return shiftDay(monday, -7 + offset)
+}
+
+/** True once the deadline for `dateKey`'s week has passed. */
+export function isPastCutoff(
+  dateKey: string,
+  cutoff: AvailabilityCutoff,
+  nowKey: string,
+  nowMinutes: number,
+): boolean {
+  const deadline = cutoffDeadlineKey(dateKey, cutoff)
+  if (nowKey !== deadline) return nowKey > deadline
+  return nowMinutes >= minutesOfTime(cutoff.time)
+}
+
+/** "THURSDAY 17:00" — the settings + worker hint label. */
+export function describeAvailabilityCutoff(cutoff: AvailabilityCutoff): string {
+  return `${AVAILABILITY_WEEKDAYS[cutoff.day]} ${cutoff.time}`
 }
 
 // ── Weekly series ─────────────────────────────────────────────────────────

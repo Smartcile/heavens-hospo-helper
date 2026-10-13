@@ -4,9 +4,12 @@ import {
   autoComplement,
   availabilityMeta,
   availabilityState,
+  AVAILABILITY_WEEKDAYS,
   canWorkerEditDate,
   conflictsWithShift,
+  cutoffDeadlineKey,
   DEFAULT_AVAILABILITY_PRESETS,
+  describeAvailabilityCutoff,
   describeFreeWindows,
   describeSeriesEnd,
   describeWindows,
@@ -19,6 +22,7 @@ import {
   isCasual,
   isDateLocked,
   isFreeAt,
+  isPastCutoff,
   isPastDate,
   isQuarterTime,
   isValidAvailabilityTime,
@@ -27,6 +31,7 @@ import {
   needsApproval,
   normaliseWindows,
   occurrencesForRepeat,
+  parseAvailabilityCutoff,
   presetWindow,
   quarterHourEndOptions,
   quarterHourOptions,
@@ -534,5 +539,43 @@ describe('venue presets', () => {
   it('turns a preset into an available window', () => {
     expect(presetWindow({ key: 'MORNING', label: 'MORNING', startTime: '07:00', endTime: '12:00' }))
       .toEqual({ type: 'AVAILABLE', startTime: '07:00', endTime: '12:00' })
+  })
+})
+
+describe('weekly request cut-off', () => {
+  it('parses only a valid weekday + quarter-hour time', () => {
+    expect(parseAvailabilityCutoff({ day: 4, time: '17:00' })).toEqual({ day: 4, time: '17:00' })
+    expect(parseAvailabilityCutoff({ day: 0, time: '00:00' })).toEqual({ day: 0, time: '00:00' })
+    expect(parseAvailabilityCutoff({ day: 7, time: '17:00' })).toBeNull()
+    expect(parseAvailabilityCutoff({ day: -1, time: '17:00' })).toBeNull()
+    expect(parseAvailabilityCutoff({ day: 2, time: '17:10' })).toBeNull()
+    expect(parseAvailabilityCutoff({ day: 2, time: 'nope' })).toBeNull()
+    expect(parseAvailabilityCutoff(null)).toBeNull()
+    expect(parseAvailabilityCutoff('THURSDAY')).toBeNull()
+  })
+
+  it('deadline is the cut-off weekday in the week before', () => {
+    const cutoff = { day: 4, time: '17:00' }
+    expect(cutoffDeadlineKey('2026-10-19', cutoff)).toBe('2026-10-15')
+    expect(cutoffDeadlineKey('2026-10-25', cutoff)).toBe('2026-10-15')
+    expect(cutoffDeadlineKey('2026-10-26', cutoff)).toBe('2026-10-22')
+  })
+
+  it('a Sunday cut-off lands on the Sunday before the week', () => {
+    expect(cutoffDeadlineKey('2026-10-19', { day: 0, time: '12:00' })).toBe('2026-10-18')
+  })
+
+  it('request mode starts at the deadline day + time', () => {
+    const cutoff = { day: 4, time: '17:00' }
+    expect(isPastCutoff('2026-10-19', cutoff, '2026-10-15', 16 * 60)).toBe(false)
+    expect(isPastCutoff('2026-10-19', cutoff, '2026-10-15', 17 * 60)).toBe(true)
+    expect(isPastCutoff('2026-10-19', cutoff, '2026-10-16', 0)).toBe(true)
+    expect(isPastCutoff('2026-10-19', cutoff, '2026-10-14', 0)).toBe(false)
+    expect(isPastCutoff('2026-10-26', cutoff, '2026-10-16', 0)).toBe(false)
+  })
+
+  it('describes the cut-off for settings and hints', () => {
+    expect(describeAvailabilityCutoff({ day: 4, time: '17:00' })).toBe('THURSDAY 17:00')
+    expect(AVAILABILITY_WEEKDAYS[0]).toBe('SUNDAY')
   })
 })

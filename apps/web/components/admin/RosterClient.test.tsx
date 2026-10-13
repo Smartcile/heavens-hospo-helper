@@ -54,10 +54,14 @@ function mockFetch(responses: unknown[]) {
     i += 1
     return { ok: true, json: async () => r } as Response
   })
+  return spy
 }
 
 describe('RosterClient', () => {
-  afterEach(() => { vi.restoreAllMocks() })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint
+  })
 
   it('renders the roster grid with staff, shift blocks and summary footer', async () => {
     mockFetch([[], [], data]) // venues, positions, roster
@@ -231,6 +235,71 @@ describe('RosterClient', () => {
     fireEvent.click(screen.getByText('STAFF'))
     await waitFor(() => expect(screen.queryByText('↻ SYNC CALENDARS')).toBeNull())
     expect(screen.getByText(/LIAM HEAVEN/)).toBeDefined()
+  })
+
+  it('prefills the role with the person\'s default position when creating a shift', async () => {
+    mockFetch([[], [{ id: 'p1', name: 'BARISTA', colour: '#60A5FA' }], data])
+
+    render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+    await screen.findByText(/LIAM HEAVEN/)
+
+    const emptyCell = document.querySelector('[data-fill-row="0"][data-fill-col="1"]') as HTMLElement
+    fireEvent.click(emptyCell)
+    await screen.findByText(/NEW SHIFT/)
+    const roleSelect = screen.getByText('Role').parentElement?.querySelector('select') as HTMLSelectElement
+    expect(roleSelect.value).toBe('p1')
+  })
+
+  it('drags a shift onto another person and moves it', async () => {
+    const twoStaff = {
+      ...data,
+      staff: [
+        data.staff[0],
+        { id: 'st2', firstName: 'TAYLOR', lastName: 'REED', hourlyRate: 22, employmentType: 'FULL_TIME', departmentName: 'FOH', positions: [] },
+      ],
+    }
+    const spy = mockFetch([[], [], twoStaff])
+
+    render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+    await screen.findByText(/TAYLOR REED/)
+
+    const block = screen.getByText(/07:00 — 16:00/).parentElement as HTMLElement
+    const target = document.querySelector('[data-fill-row="1"][data-fill-col="0"]') as HTMLElement
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target })
+
+    fireEvent(block, new MouseEvent('pointerdown', { bubbles: true, clientX: 10, clientY: 10 }))
+    fireEvent(block, new MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 60 }))
+    fireEvent(block, new MouseEvent('pointerup', { bubbles: true, clientX: 60, clientY: 60 }))
+
+    await waitFor(() => {
+      const put = spy.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'PUT')
+      expect(put).toBeDefined()
+      const body = JSON.parse((put![1] as RequestInit).body as string)
+      expect(body.staffId).toBe('st2')
+      expect(body.date).toBe(monday)
+    })
+  })
+
+  it('drag-fills the shift across days from the corner handle', async () => {
+    const spy = mockFetch([[], [], data])
+
+    render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+    await screen.findByText(/07:00 — 16:00/)
+
+    const handle = screen.getByTitle('DRAG TO COPY THIS SHIFT')
+    const target = document.querySelector('[data-fill-row="0"][data-fill-col="2"]') as HTMLElement
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target })
+
+    fireEvent(handle, new MouseEvent('pointerdown', { bubbles: true, clientX: 10, clientY: 10 }))
+    fireEvent(handle, new MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 60 }))
+    fireEvent(handle, new MouseEvent('pointerup', { bubbles: true, clientX: 60, clientY: 60 }))
+
+    await waitFor(() => {
+      const posts = spy.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST')
+      const dates = posts.map((p) => JSON.parse((p[1] as RequestInit).body as string).date)
+      expect(dates).toContain(shiftDay(monday, 1))
+      expect(dates).toContain(shiftDay(monday, 2))
+    })
   })
 
   it('overlays the day\'s events as chips in the day headers and opens the staffing modal', async () => {

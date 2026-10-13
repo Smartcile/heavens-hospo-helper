@@ -331,11 +331,14 @@ export function AvailabilityDayEditor({
               <div className="space-y-2">
                 <ToggleCheck checked={noEnd} onChange={setNoEnd} label="NO END DATE" hint="REPEATS WEEKLY FOREVER (MATERIALISED 2 YEARS AHEAD)" />
                 {!noEnd && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-2xs uppercase text-grey-light">{scope === 'FROM' ? 'FOR' : 'TOTAL'}</span>
                     <button type="button" onClick={() => setWeeks((n) => Math.max(1, n - 1))} className="w-9 h-9 border border-grey-mid font-mono text-sm text-white hover:border-white">−</button>
                     <span className="font-mono text-sm text-white w-16 text-center">{weeks} WEEK{weeks === 1 ? '' : 'S'}</span>
                     <button type="button" onClick={() => setWeeks((n) => Math.min(260, n + 1))} className="w-9 h-9 border border-grey-mid font-mono text-sm text-white hover:border-white">+</button>
+                    <span className="font-mono text-2xs uppercase text-grey-light">
+                      {describeSeriesEnd(seriesEndDateKey(scope === 'FROM' ? dateKey : series.startDate, weeks))}
+                    </span>
                   </div>
                 )}
                 <p className="font-mono text-2xs uppercase text-grey-mid">APPLIES WHEN YOU PICK FROM / ALL BELOW.</p>

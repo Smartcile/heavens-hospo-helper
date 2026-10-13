@@ -16,11 +16,13 @@ import {
   autoComplement,
   canWorkerEditDate,
   initialStatus,
+  isPastCutoff,
   normaliseWindows,
   occurrencesForRepeat,
   repeatWeekly,
   seriesEndDateKey,
   SERIES_HORIZON_WEEKS,
+  type AvailabilityCutoff,
   type AvailabilityEntry,
   type AvailabilityScope,
   type AvailabilityStatus,
@@ -55,6 +57,10 @@ export interface AvailabilityGate {
   lockDays: number
   /** Admin/manager backend: skip the past/lock and approval protections. */
   bypass: boolean
+  /** Weekly request cut-off — changes for a week past its deadline file a request. */
+  cutoff?: AvailabilityCutoff | null
+  /** Venue-local minutes since midnight, for the cut-off deadline. */
+  nowMinutes?: number
 }
 
 export type PlanOutcome =
@@ -382,6 +388,14 @@ async function rowsTouchedByPlan(staffId: string, plan: AvailabilityPlan) {
   })
 }
 
+/** True when any date a plan touches is past its week's request cut-off. */
+export function planPastCutoff(plan: AvailabilityPlan, gate: AvailabilityGate): boolean {
+  if (!gate.cutoff) return false
+  return [...plan.writeDates, ...plan.removeDates].some((d) =>
+    isPastCutoff(d, gate.cutoff as AvailabilityCutoff, gate.todayKey, gate.nowMinutes ?? 0),
+  )
+}
+
 function sharedRowData(payload: AvailabilityPayload, seriesId: string | null, seriesEndDate: string | null, status: AvailabilityStatus) {
   return {
     type: payload.type,
@@ -517,6 +531,10 @@ export async function saveAvailability(input: SaveInput, gate: AvailabilityGate)
   if (!planned.ok) return { error: planned.error }
 
   if (!gate.bypass && planned.plan.writeDates.length + planned.plan.removeDates.length > 0) {
+    if (planPastCutoff(planned.plan, gate)) {
+      const requestId = await storeRequest(input, planned.plan)
+      return { mode: 'REQUEST', requestId, skipped: planned.skipped }
+    }
     const approved = await rowsTouchedByPlan(input.staffId, planned.plan)
     if (approved.length > 0) {
       const requestId = await storeRequest(input, planned.plan)
@@ -540,6 +558,10 @@ export async function clearAvailability(
   if (!planned.ok) return { error: planned.error }
 
   if (!gate.bypass && planned.plan.removeDates.length > 0) {
+    if (planPastCutoff(planned.plan, gate)) {
+      const requestId = await storeRequest(input, planned.plan)
+      return { mode: 'REQUEST', requestId, skipped: planned.skipped }
+    }
     const approved = await rowsTouchedByPlan(input.staffId, planned.plan)
     if (approved.length > 0) {
       const requestId = await storeRequest(input, planned.plan)

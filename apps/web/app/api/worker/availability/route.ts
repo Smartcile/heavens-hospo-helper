@@ -4,7 +4,7 @@ import { getWorkerSession } from '@/lib/worker-session'
 import { formatDateKey } from '@/lib/scheduling'
 import { getTodayDate } from '@/lib/utils'
 import { keyOfDay } from '@/lib/date-nav'
-import { resolveAvailabilityPresets } from '@/lib/availability'
+import { resolveAvailabilityPresets, parseAvailabilityCutoff } from '@/lib/availability'
 import {
   loadPendingRequests,
   loadSeriesSummaries,
@@ -18,6 +18,21 @@ const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/
 
 function venueTodayKey(timezone?: string | null): string {
   return formatDateKey(getTodayDate(timezone ?? undefined))
+}
+
+function venueNow(timezone?: string | null): { key: string; minutes: number } {
+  const now = new Date()
+  const tz = timezone || 'Pacific/Auckland'
+  const dateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
+  const timeFmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false })
+  const p = dateFmt.formatToParts(now)
+  const t = timeFmt.formatToParts(now)
+  const y = p.find((x) => x.type === 'year')?.value
+  const m = p.find((x) => x.type === 'month')?.value
+  const d = p.find((x) => x.type === 'day')?.value
+  const hh = Number(t.find((x) => x.type === 'hour')?.value ?? '0') % 24
+  const mm = Number(t.find((x) => x.type === 'minute')?.value ?? '0')
+  return { key: `${y}-${m}-${d}`, minutes: hh * 60 + mm }
 }
 
 // The worker's own availability: employment type (drives the casual UNSET
@@ -40,7 +55,7 @@ export async function GET(req: NextRequest) {
     }),
     prisma.venue.findUnique({
       where: { id: session.venueId },
-      select: { availabilityLockDays: true, timezone: true, availabilityPresets: true },
+      select: { availabilityLockDays: true, availabilityCutoff: true, timezone: true, availabilityPresets: true },
     }),
     prisma.staffAvailability.findMany({
       where: { staffId: session.staffId, deletedAt: null, date: { gte: start, lte: end } },
@@ -58,6 +73,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     employmentType: staff?.employmentType ?? null,
     lockDays: venue?.availabilityLockDays ?? 0,
+    cutoff: parseAvailabilityCutoff(venue?.availabilityCutoff),
     today: venueTodayKey(venue?.timezone),
     presets: resolveAvailabilityPresets(venue?.availabilityPresets),
     entries,
@@ -89,8 +105,9 @@ export async function POST(req: NextRequest) {
 
   const venue = await prisma.venue.findUnique({
     where: { id: session.venueId },
-    select: { availabilityLockDays: true, timezone: true },
+    select: { availabilityLockDays: true, availabilityCutoff: true, timezone: true },
   })
+  const now = venueNow(venue?.timezone)
 
   const out = await saveAvailability(
     {
@@ -104,8 +121,10 @@ export async function POST(req: NextRequest) {
       reason: typeof body?.reason === 'string' ? body.reason : null,
     },
     {
-      todayKey: venueTodayKey(venue?.timezone),
+      todayKey: now.key,
       lockDays: venue?.availabilityLockDays ?? 0,
+      cutoff: parseAvailabilityCutoff(venue?.availabilityCutoff),
+      nowMinutes: now.minutes,
       bypass: false,
     },
   )

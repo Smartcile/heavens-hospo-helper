@@ -121,4 +121,22 @@ describe('WorkerAvailabilityClient', () => {
     expect(await screen.findByText('ALL DAY')).toBeDefined()
     expect(screen.getByText('TODAY')).toBeDefined()
   })
+
+  it('shows the weekly request deadline when the venue sets one', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({ ...payload, cutoff: { day: 4, time: '17:00' } }),
+    } as Response)
+
+    render(<WorkerAvailabilityClient />)
+    expect(await screen.findByText(/THURSDAY 17:00/)).toBeDefined()
+  })
+
+  it('shows the copy handle on a filled editable day', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => payload } as Response)
+
+    render(<WorkerAvailabilityClient />)
+    await screen.findByText('MY AVAILABILITY')
+    expect(screen.getByTitle('DRAG TO COPY THIS DAY')).toBeDefined()
+  })
 })

@@ -116,6 +116,19 @@ describe('AvailabilityDayEditor', () => {
     expect(onClear).toHaveBeenCalledWith({ scope: 'ALL', reason: null })
   })
 
+  it('shows the resulting end date when putting an end on a no-end series', () => {
+    const openSeries: AvailabilitySeries = { id: 's2', startDate: '2026-10-06', endDate: null, count: 104 }
+    renderEditor({ entry: entry({ seriesId: 's2', status: 'APPROVED' }), series: openSeries })
+
+    fireEvent.click(screen.getByText('CHANGE SERIES END'))
+    // Untick NO END DATE → the stepper appears with a concrete end date.
+    fireEvent.click(screen.getByRole('checkbox', { name: /NO END DATE/ }))
+    fireEvent.click(screen.getByText('FROM THIS DAY ONWARDS'))
+
+    // 2026-10-08 + 2 weekly occurrences → ENDS 15 OCT 2026.
+    expect(screen.getByText(/ENDS 15 OCT 2026/)).toBeDefined()
+  })
+
   it('moves the neighbouring edge when a partition boundary is edited — no extra block', () => {
     const { onSave } = renderEditor({
       entry: entry({

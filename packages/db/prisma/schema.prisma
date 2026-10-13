@@ -289,6 +289,10 @@ model Venue {
   // Roster availability cut-off: staff cannot add/edit availability on dates
   // within this many days of today. 0 = no lock.
   availabilityLockDays   Int       @default(0)
+  // Weekly request deadline: { day: 0-6 (Sun-Sat), time: "HH:mm" }. After that
+  // moment, worker changes for the coming roster week file a manager request
+  // instead of auto-approving. Null = no deadline.
+  availabilityCutoff     Json?
   // Custom morning/afternoon/evening quick-pick windows for the worker
   // availability editor: [{ key, label, startTime, endTime }]. Null = defaults.
   availabilityPresets    Json?

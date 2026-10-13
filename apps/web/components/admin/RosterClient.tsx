@@ -10,12 +10,13 @@ import { CalendarEventFormModal } from '@/components/admin/CalendarEventFormModa
 import { StaffEditModal } from '@/components/admin/StaffEditModal'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { moveItem } from '@/lib/array'
+import { fillRect, fillTargets, inFillRect, type FillCell } from '@/lib/cell-fill'
 import { formatDateLong, keyOfDay, mondayOf, parseDay, shiftDay, weekKeys, type DateRange } from '@/lib/date-nav'
 import { eventsByDay, formatEventTime } from '@/lib/event-roster'
 import { seatFillStatus } from '@/lib/open-shifts'
 import { useEventRoster } from '@/lib/use-event-roster'
 import { nearestIndex, type Rect } from '@/lib/reorder'
-import { buildStaffGroups, insertSubset, sortByPinnedAvailability } from '@/lib/staff-groups'
+import { buildStaffGroups, insertSubset, sortByPinnedAvailability, topPositionId } from '@/lib/staff-groups'
 import { colourForShift, rateForShift, rosterWeekSummary, staffWeekTotals, type RosterShift, type StaffRate } from '@/lib/roster-math'
 import { generateRosterPdf } from '@/lib/roster-pdf'
 import {
@@ -110,6 +111,15 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const groupHeaderRefs = useRef<Map<string, HTMLElement>>(new Map())
   const groupDragRef = useRef<{ key: string; x: number; y: number; moved: boolean } | null>(null)
   const overGroupRef = useRef<string | null>(null)
+
+  // Shift drag — move a block onto another staff/day, or fill-copy from the corner handle.
+  const [draggingShiftId, setDraggingShiftId] = useState<string | null>(null)
+  const [shiftDrop, setShiftDrop] = useState<FillCell | null>(null)
+  const [fill, setFill] = useState<{ shift: RosterShift; from: FillCell; to: FillCell } | null>(null)
+  const shiftDragRef = useRef<{ shift: RosterShift; from: FillCell; x: number; y: number; moved: boolean } | null>(null)
+  const shiftDropRef = useRef<FillCell | null>(null)
+  const fillRef = useRef<{ shift: RosterShift; from: FillCell; to: FillCell; x: number; y: number; moved: boolean } | null>(null)
+  const suppressShiftClickRef = useRef(false)
 
   // Shift modal
   const [modal, setModal] = useState<null | { shift: RosterShift | null; staffId: string; date: string }>(null)
@@ -220,16 +230,16 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     [filteredStaff, pinnedDay, freeOnPinnedDay],
   )
 
+  const rowStaff = useMemo(
+    () => (groupByPosition ? displayGroups.flatMap((g) => g.items) : displayStaff),
+    [groupByPosition, displayGroups, displayStaff],
+  )
+
   const rowNumber = useMemo(() => {
     const map = new Map<string, number>()
-    let n = 0
-    const all = groupByPosition ? displayGroups.flatMap((g) => g.items) : displayStaff
-    for (const s of all) {
-      n += 1
-      map.set(s.id, n)
-    }
+    rowStaff.forEach((s, i) => map.set(s.id, i + 1))
     return map
-  }, [groupByPosition, displayGroups, displayStaff])
+  }, [rowStaff])
 
   const visibleGroupKeys = useMemo(
     () => staffGroups.filter((g) => g.positionId).map((g) => g.key),
@@ -309,6 +319,139 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     })
   }
 
+  function cellFromPoint(x: number, y: number): FillCell | null {
+    const el = typeof document !== 'undefined' ? document.elementFromPoint?.(x, y) ?? null : null
+    const cell = (el as HTMLElement | null)?.closest?.('[data-fill-row]') as HTMLElement | null
+    if (!cell) return null
+    const row = Number(cell.dataset.fillRow)
+    const col = Number(cell.dataset.fillCol)
+    if (!Number.isFinite(row) || !Number.isFinite(col)) return null
+    return { row, col }
+  }
+
+  function onShiftPointerDown(e: React.PointerEvent, shift: RosterShift, from: FillCell) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    suppressShiftClickRef.current = false
+    shiftDragRef.current = { shift, from, x: e.clientX, y: e.clientY, moved: false }
+  }
+
+  function onShiftPointerMove(e: React.PointerEvent) {
+    const drag = shiftDragRef.current
+    if (!drag) return
+    if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) drag.moved = true
+    if (!drag.moved) return
+    suppressShiftClickRef.current = true
+    setDraggingShiftId(drag.shift.id)
+    const cell = cellFromPoint(e.clientX, e.clientY)
+    shiftDropRef.current = cell
+    setShiftDrop(cell)
+  }
+
+  function onShiftPointerUp() {
+    const drag = shiftDragRef.current
+    const drop = shiftDropRef.current
+    shiftDragRef.current = null
+    shiftDropRef.current = null
+    setDraggingShiftId(null)
+    setShiftDrop(null)
+    if (!drag || !drag.moved || !drop) return
+    if (drop.row === drag.from.row && drop.col === drag.from.col) return
+    void moveShift(drag.shift, drop)
+  }
+
+  function onShiftPointerCancel() {
+    shiftDragRef.current = null
+    shiftDropRef.current = null
+    setDraggingShiftId(null)
+    setShiftDrop(null)
+  }
+
+  function onFillPointerDown(e: React.PointerEvent, shift: RosterShift, from: FillCell) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    e.stopPropagation()
+    e.preventDefault()
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    fillRef.current = { shift, from, to: from, x: e.clientX, y: e.clientY, moved: false }
+    setFill({ shift, from, to: from })
+  }
+
+  function onFillPointerMove(e: React.PointerEvent) {
+    const drag = fillRef.current
+    if (!drag) return
+    if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) drag.moved = true
+    if (!drag.moved) return
+    const cell = cellFromPoint(e.clientX, e.clientY)
+    if (!cell) return
+    drag.to = cell
+    setFill({ shift: drag.shift, from: drag.from, to: cell })
+  }
+
+  function onFillPointerUp() {
+    const drag = fillRef.current
+    fillRef.current = null
+    setFill(null)
+    if (!drag || !drag.moved) return
+    const targets = fillTargets(drag.from, fillRect(drag.from, drag.to))
+    if (targets.length > 0) void copyShifts(drag.shift, targets)
+  }
+
+  function onFillPointerCancel() {
+    fillRef.current = null
+    setFill(null)
+  }
+
+  async function copyShifts(shift: RosterShift, targets: FillCell[]) {
+    const copies = targets
+      .map((c) => ({ staff: rowStaff[c.row], date: weekDays[c.col] }))
+      .filter((x): x is { staff: RosterStaff; date: string } => !!x.staff && !!x.date)
+      .filter((x) => !(data?.blockedDays[x.staff.id] ?? []).includes(x.date))
+      .filter((x) => !(x.staff.id === shift.staffId && x.date === shift.date))
+    if (copies.length === 0) return
+    setBusy(true); setError('')
+    const body = {
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      positionId: shift.positionId ?? null,
+      colour: shift.colour ?? null,
+      tag: shift.tag ?? null,
+      breakMinutes: shift.breakMinutes ?? 0,
+      note: shift.note ?? null,
+      calendarEventId: shift.calendarEventId ?? null,
+    }
+    const results = await Promise.all(copies.map((x) =>
+      fetch('/api/admin/shifts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, staffId: x.staff.id, date: x.date }),
+      }),
+    ))
+    setBusy(false)
+    const failed = results.filter((r) => !r.ok).length
+    if (failed) setError(`${failed} SHIFT${failed === 1 ? '' : 'S'} FAILED TO COPY`)
+    load()
+  }
+
+  async function moveShift(shift: RosterShift, target: FillCell) {
+    const staff = rowStaff[target.row]
+    const date = weekDays[target.col]
+    if (!staff || !date) return
+    setBusy(true); setError('')
+    const r = await fetch(`/api/admin/shifts/${shift.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ staffId: staff.id, date }),
+    })
+    setBusy(false)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setError((d.error ?? 'COULD NOT MOVE THE SHIFT').toUpperCase())
+      return
+    }
+    load()
+  }
+
   const totals = useMemo(() => {
     if (!data) return { byStaff: new Map<string, { hours: number; cost: number; shiftCount: number }>(), summary: { totalCost: 0, budgetedSales: 0, staffingRatio: 0, totalPaidHours: 0 } }
     const byStaff = staffWeekTotals(data.shifts, ratesFor(data.staff))
@@ -351,6 +494,11 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     load()
   }
 
+  function defaultPositionFor(staffId: string): string {
+    const member = data?.staff.find((x) => x.id === staffId)
+    return topPositionId(member?.positions ?? [], positions.map((p) => p.id)) ?? ''
+  }
+
   function openModal(staffId: string, date: string, shift: RosterShift | null = null) {
     setModal({ shift, staffId, date })
     setForm(shift ? {
@@ -358,13 +506,13 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       date: shift.date,
       startTime: shift.startTime,
       endTime: shift.endTime,
-      positionId: '',
+      positionId: shift.positionId ?? defaultPositionFor(shift.staffId),
       colour: shift.colour ?? '',
       tag: shift.tag ?? '',
       breakMinutes: String(shift.breakMinutes ?? 0),
-      note: '',
+      note: shift.note ?? '',
       calendarEventId: shift.calendarEventId ?? '',
-    } : { staffId, date, startTime: '09:00', endTime: '17:00', positionId: '', colour: '', tag: '', breakMinutes: '0', note: '', calendarEventId: '' })
+    } : { staffId, date, startTime: '09:00', endTime: '17:00', positionId: defaultPositionFor(staffId), colour: '', tag: '', breakMinutes: '0', note: '', calendarEventId: '' })
     setError('')
   }
 
@@ -488,6 +636,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
   function renderStaffRow(s: RosterStaff) {
     const t = totals.byStaff.get(s.id)
     const n = rowNumber.get(s.id) ?? 0
+    const ri = n - 1
     return (
       <div key={s.id} className="contents">
         {/* Staff cell — sticky left */}
@@ -502,7 +651,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
             <div className="font-mono text-2xs text-grey-light mt-0.5 truncate">{s.positions.map((p) => p.name).join(' · ')}</div>
           )}
         </div>
-        {weekDays.map((d) => {
+        {weekDays.map((d, di) => {
           const dayShifts = data!.shifts.filter((sh) => sh.staffId === s.id && sh.date === d)
           const blocked = (data!.blockedDays[s.id] ?? []).includes(d)
           const avail = data!.availability[s.id]?.[d]
@@ -516,8 +665,12 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
           // FT/PT default is implied-available (no badge). A casual's
           // UNSET only matters where they're not already rostered.
           const showBadge = !blocked && (state !== 'DEFAULT' || (isCasual(s.employmentType) && dayShifts.length === 0))
+          const dropTarget = shiftDrop?.row === ri && shiftDrop?.col === di
+          const inFill = fill ? inFillRect({ row: ri, col: di }, fillRect(fill.from, fill.to)) : false
           return (
-            <div key={d} className={`border-b border-r ${GRID_LINE} ${compact ? 'min-h-[44px] p-0.5' : 'min-h-[72px] p-1'} relative ${blocked ? 'bg-danger/5' : meta.tint} ${blocked ? '' : 'hover:bg-black/20'}`} onClick={() => !blocked && openModal(s.id, d)}>
+            <div key={d} data-fill-row={ri} data-fill-col={di}
+              className={`border-b border-r ${GRID_LINE} ${compact ? 'min-h-[44px] p-0.5' : 'min-h-[72px] p-1'} relative ${blocked ? 'bg-danger/5' : meta.tint} ${blocked ? '' : 'hover:bg-black/20'} ${dropTarget ? 'ring-2 ring-inset ring-accent' : ''} ${inFill ? 'ring-1 ring-inset ring-accent/70 bg-accent/10' : ''}`}
+              onClick={() => { if (suppressShiftClickRef.current) { suppressShiftClickRef.current = false; return } if (!blocked) openModal(s.id, d) }}>
               {showBadge && (
                 <div className="absolute top-0.5 right-0.5 z-0 pointer-events-none flex flex-col items-end gap-0.5">
                   <span
@@ -548,14 +701,33 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
               <div className="space-y-1 relative z-10">
                 {dayShifts.map((sh) => (
                   <div key={sh.id}
-                    onClick={(e) => { e.stopPropagation(); openModal(s.id, d, sh) }}
-                    className={`${compact ? 'px-1.5 py-0.5' : 'px-2 py-1'} cursor-pointer hover:opacity-80 transition-opacity`}
-                    style={{ backgroundColor: colourForShift(sh) }}>
+                    onPointerDown={(e) => onShiftPointerDown(e, sh, { row: ri, col: di })}
+                    onPointerMove={onShiftPointerMove}
+                    onPointerUp={onShiftPointerUp}
+                    onPointerCancel={onShiftPointerCancel}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (suppressShiftClickRef.current) { suppressShiftClickRef.current = false; return }
+                      openModal(s.id, d, sh)
+                    }}
+                    className={`group/shift relative ${compact ? 'px-1.5 py-0.5' : 'px-2 py-1'} cursor-grab hover:opacity-80 transition-opacity ${draggingShiftId === sh.id ? 'opacity-40' : ''}`}
+                    style={{ backgroundColor: colourForShift(sh), touchAction: 'none' }}>
                     <div className="font-mono text-2xs font-bold text-white leading-tight">{sh.startTime} — {sh.endTime}</div>
                     <div className="font-mono text-2xs text-white/90 leading-tight truncate">
                       {sh.tag ?? sh.positionName ?? 'SHIFT'}{sh.breakMinutes ? ` · ${sh.breakMinutes}M BRK` : ''}
                     </div>
                     {sh.status === 'DRAFT' && <div className="font-mono text-2xs uppercase text-black/60 mt-0.5">DRAFT</div>}
+                    <span
+                      title="DRAG TO COPY THIS SHIFT"
+                      onPointerDown={(e) => onFillPointerDown(e, sh, { row: ri, col: di })}
+                      onPointerMove={onFillPointerMove}
+                      onPointerUp={onFillPointerUp}
+                      onPointerCancel={onFillPointerCancel}
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute -top-1 -right-1 z-10 flex h-3.5 w-3.5 items-center justify-center border border-white/80 bg-black/70 font-mono text-2xs leading-none text-white cursor-copy opacity-0 transition-opacity group-hover/shift:opacity-100"
+                      style={{ touchAction: 'none' }}>
+                      ⤡
+                    </span>
                   </div>
                 ))}
               </div>

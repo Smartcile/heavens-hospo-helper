@@ -114,6 +114,7 @@ export async function GET(req: NextRequest) {
     breakMinutes: s.breakMinutes,
     colour: s.colour,
     tag: s.tag,
+    note: s.note,
     status: s.status,
     positionId: s.positionId,
     positionName: s.position?.name ?? null,

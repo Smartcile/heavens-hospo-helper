@@ -10,6 +10,7 @@
 //   cancelOpenShift    — pull an un-filled seat
 
 import { prisma } from '@hospo-ops/db'
+import type { Prisma } from '@hospo-ops/db'
 import { formatDateKey } from '@/lib/scheduling'
 import { getTodayDate } from '@/lib/utils'
 import { expandSeats, validateStaffingLine, type StaffingLineInput } from '@/lib/open-shifts'
@@ -360,11 +361,87 @@ export async function cancelOpenShift(
   return { ok: true }
 }
 
-/** Re-open a seat when its resulting roster shift is deleted from the roster. */
-export async function reopenSeatForDeletedShift(shiftId: string): Promise<number> {
-  const res = await prisma.openShift.updateMany({
+/** Re-open a seat when its resulting roster shift is removed or unlinked. */
+export async function releaseSeatForShift(
+  shiftId: string,
+  db: Pick<Prisma.TransactionClient, 'openShift' | 'openShiftClaim'> = prisma,
+): Promise<number> {
+  await db.openShiftClaim.updateMany({
+    where: { shiftId, status: 'APPROVED', deletedAt: null },
+    data: { status: 'DECLINED', reviewNote: 'ROSTERED SHIFT REMOVED', reviewedAt: new Date() },
+  })
+  const res = await db.openShift.updateMany({
     where: { filledShiftId: shiftId, deletedAt: null },
     data: { status: 'OPEN', filledById: null, filledShiftId: null },
   })
   return res.count
+}
+
+interface ShiftForSeats {
+  id: string
+  venueId: string
+  calendarEventId: string | null
+  positionId: string | null
+  staffId: string
+  date: Date
+  startTime: string
+  endTime: string
+}
+
+/**
+ * A manually rostered event shift consumes an open seat on the same event and
+ * day. Prefers an exact time + role match, then role, then time, then any.
+ */
+export async function fillSeatForShift(
+  shift: ShiftForSeats,
+  db: Pick<Prisma.TransactionClient, 'openShift'> = prisma,
+): Promise<string | null> {
+  if (!shift.calendarEventId) return null
+  const seats = await db.openShift.findMany({
+    where: {
+      calendarEventId: shift.calendarEventId,
+      venueId: shift.venueId,
+      date: shift.date,
+      status: 'OPEN',
+      deletedAt: null,
+    },
+    select: { id: true, positionId: true, startTime: true, endTime: true },
+    orderBy: { createdAt: 'asc' },
+  })
+  if (seats.length === 0) return null
+  const exact = (s: { startTime: string; endTime: string }) =>
+    s.startTime === shift.startTime && s.endTime === shift.endTime
+  const best =
+    seats.find((s) => exact(s) && s.positionId === shift.positionId) ??
+    seats.find((s) => s.positionId === shift.positionId) ??
+    seats.find((s) => exact(s)) ??
+    seats[0]
+  await db.openShift.update({
+    where: { id: best.id },
+    data: { status: 'FILLED', filledById: shift.staffId, filledShiftId: shift.id },
+  })
+  return best.id
+}
+
+/**
+ * Reconcile seats after a shift create/update: an event change releases the old
+ * seat (pending/approved claims included) and fills one on the new event; a
+ * person change keeps the link and updates who holds it.
+ */
+export async function syncShiftSeatLinks(input: {
+  shift: ShiftForSeats
+  previousEventId: string | null
+}): Promise<void> {
+  const { shift, previousEventId } = input
+  const eventChanged = (previousEventId ?? null) !== (shift.calendarEventId ?? null)
+  if (eventChanged) {
+    await releaseSeatForShift(shift.id)
+    if (shift.calendarEventId) await fillSeatForShift(shift)
+    return
+  }
+  if (!shift.calendarEventId) return
+  await prisma.openShift.updateMany({
+    where: { filledShiftId: shift.id, deletedAt: null },
+    data: { status: 'FILLED', filledById: shift.staffId },
+  })
 }

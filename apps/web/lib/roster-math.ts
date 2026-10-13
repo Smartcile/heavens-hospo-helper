@@ -13,6 +13,7 @@ export interface RosterShift {
   breakMinutes?: number // rostered unpaid break
   colour?: string | null
   tag?: string | null
+  note?: string | null
   positionId?: string | null
   positionName?: string | null
   positionColour?: string | null

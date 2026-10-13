@@ -5,7 +5,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
 import { AvailabilityAdminClient } from '@/components/admin/AvailabilityAdminClient'
 import { DEFAULT_AVAILABILITY_PRESETS } from '@/lib/availability'
-import { keyOfDay, mondayOf } from '@/lib/date-nav'
+import { keyOfDay, mondayOf, shiftDay } from '@/lib/date-nav'
 
 const monday = mondayOf(keyOfDay(new Date()))
 
@@ -44,7 +44,10 @@ function mockFetch(payload: unknown = data) {
 }
 
 describe('AvailabilityAdminClient', () => {
-  afterEach(() => { vi.restoreAllMocks() })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint
+  })
 
   it('lists pending declarations and confirms them by id', async () => {
     const spy = mockFetch()
@@ -228,5 +231,40 @@ describe('AvailabilityAdminClient', () => {
     expect(screen.getByText(/SHOWING STAFF AVAILABLE ON/)).toBeDefined()
     // The position grouping survives the pin.
     expect(screen.getByText('MANAGER')).toBeDefined()
+  })
+
+  it('drag-fills a day across the row from the corner handle', async () => {
+    const withEntry = {
+      ...data,
+      entries: [
+        {
+          id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+          seriesId: null, seriesEndDate: null,
+        },
+      ],
+      queue: { pending: [], requests: [] },
+    }
+    const spy = mockFetch(withEntry)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    const handle = await screen.findByTitle('DRAG TO COPY THIS DAY')
+    const target = document.querySelector('[data-fill-col="1"]') as HTMLElement
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target })
+
+    fireEvent(handle, new MouseEvent('pointerdown', { bubbles: true, clientX: 10, clientY: 10 }))
+    fireEvent(handle, new MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 60 }))
+    fireEvent(handle, new MouseEvent('pointerup', { bubbles: true, clientX: 60, clientY: 60 }))
+
+    await waitFor(() => {
+      const post = spy.mock.calls.find((c) =>
+        String(c[0]).endsWith('/api/admin/availability') && (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(post).toBeDefined()
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body.staffId).toBe('st1')
+      expect(body.date).toBe(shiftDay(monday, 1))
+      expect(body.availability.type).toBe('AVAILABLE')
+    })
   })
 })

@@ -1,14 +1,16 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Modal } from '@/components/ui/Modal'
 import { AvailabilityBar } from '@/components/availability/AvailabilityBar'
 import { AvailabilityDayEditor, type EditorDraft, type EditorSaveOptions } from '@/components/availability/AvailabilityDayEditor'
+import { fillRect, fillTargets, inFillRect } from '@/lib/cell-fill'
 import {
   availabilityMeta,
   availabilityState,
   canWorkerEditDate,
+  describeAvailabilityCutoff,
   describeSeriesEnd,
   describeWindows,
   type AvailabilityEntry,
@@ -43,6 +45,7 @@ interface WorkerRequest {
 interface AvailabilityData {
   employmentType: string | null
   lockDays: number
+  cutoff?: { day: number; time: string } | null
   today: string
   presets: AvailabilityPreset[]
   entries: AvailabilityEntry[]
@@ -59,6 +62,10 @@ export function WorkerAvailabilityClient() {
   const [view, setView] = useState<'month' | 'week'>('month')
   const [data, setData] = useState<AvailabilityData | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
+
+  // Drag-fill — copy one day's settings across following days.
+  const [fill, setFill] = useState<{ from: number; to: number } | null>(null)
+  const fillRef = useRef<{ from: number; to: number; x: number; y: number; moved: boolean } | null>(null)
 
   const [month, setMonth] = useState(() => {
     const d = parseDay(keyOfDay(new Date()))
@@ -117,6 +124,91 @@ export function WorkerAvailabilityClient() {
     }
     if (skipped > 0) return `SAVED · ${skipped} PROTECTED DAY${skipped === 1 ? '' : 'S'} LEFT UNCHANGED`
     return 'SAVED'
+  }
+
+  function keyAtIndex(i: number): string | null {
+    if (view === 'month') {
+      const c = cells[i]
+      return c && c.inMonth && c.key ? c.key : null
+    }
+    return weekDays[i] ?? null
+  }
+
+  function cellColFromPoint(x: number, y: number): number | null {
+    const el = typeof document !== 'undefined' ? document.elementFromPoint?.(x, y) ?? null : null
+    const cell = (el as HTMLElement | null)?.closest?.('[data-fill-col]') as HTMLElement | null
+    if (!cell) return null
+    const col = Number(cell.dataset.fillCol)
+    return Number.isFinite(col) ? col : null
+  }
+
+  function onFillPointerDown(e: React.PointerEvent, from: number) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    e.stopPropagation()
+    e.preventDefault()
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    fillRef.current = { from, to: from, x: e.clientX, y: e.clientY, moved: false }
+    setFill({ from, to: from })
+  }
+
+  function onFillPointerMove(e: React.PointerEvent) {
+    const drag = fillRef.current
+    if (!drag) return
+    if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) drag.moved = true
+    if (!drag.moved) return
+    const col = cellColFromPoint(e.clientX, e.clientY)
+    if (col == null) return
+    drag.to = col
+    setFill({ from: drag.from, to: col })
+  }
+
+  function onFillPointerUp() {
+    const drag = fillRef.current
+    fillRef.current = null
+    setFill(null)
+    if (!drag || !drag.moved) return
+    const targets = fillTargets({ row: 0, col: drag.from }, fillRect({ row: 0, col: drag.from }, { row: 0, col: drag.to }))
+    const sourceKey = keyAtIndex(drag.from)
+    const targetKeys = targets.map((t) => keyAtIndex(t.col)).filter((k): k is string => !!k)
+    if (!sourceKey || targetKeys.length === 0) return
+    void copyDays(sourceKey, targetKeys)
+  }
+
+  function onFillPointerCancel() {
+    fillRef.current = null
+    setFill(null)
+  }
+
+  async function copyDays(sourceKey: string, dates: string[]) {
+    const entry = entryByDate.get(sourceKey)
+    if (!entry) return
+    const source = {
+      isAllDay: entry.isAllDay,
+      type: entry.type,
+      windows: entry.windows,
+      timeOff: entry.timeOff,
+      notes: entry.notes,
+    }
+    setSaving(true); setError('')
+    const results = await Promise.all(dates.map((date) =>
+      fetch('/api/worker/availability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, availability: source, repeat: null, scope: null, seriesId: null, reason: null }),
+      }),
+    ))
+    setSaving(false)
+    const failed = results.filter((r) => !r.ok).length
+    if (failed) {
+      setError(`${failed} DAY${failed === 1 ? '' : 'S'} FAILED TO COPY`)
+      return
+    }
+    const outs = await Promise.all(results.map((r) => r.json().catch(() => ({}))))
+    const requested = outs.filter((o) => o.mode === 'REQUEST').length
+    setFlash(requested > 0
+      ? `${dates.length} DAY${dates.length === 1 ? '' : 'S'} COPIED · ${requested} SENT FOR MANAGER APPROVAL`
+      : `${dates.length} DAY${dates.length === 1 ? '' : 'S'} COPIED`)
+    load()
   }
 
   async function cancelRequest(id: string) {
@@ -202,6 +294,11 @@ export function WorkerAvailabilityClient() {
             ▒ DAYS WITHIN {data.lockDays} DAYS CANNOT BE CHANGED
           </p>
         )}
+        {data.cutoff && (
+          <p className="font-mono text-xs text-warning mt-1 uppercase">
+            ▒ AFTER {describeAvailabilityCutoff(data.cutoff)} EACH WEEK, CHANGES FOR THE COMING WEEK NEED MANAGER APPROVAL
+          </p>
+        )}
       </div>
 
       {/* View toggle + navigation */}
@@ -278,14 +375,16 @@ export function WorkerAvailabilityClient() {
               const meta = availabilityMeta(availabilityState(entry), data.employmentType)
               const isToday = c.key === today
               const requested = requestDates.has(c.key)
+              const inFill = fill ? inFillRect({ row: 0, col: i }, fillRect({ row: 0, col: fill.from }, { row: 0, col: fill.to })) : false
               return (
                 <button
                   key={c.key}
+                  data-fill-col={i}
                   onClick={() => pick(c.key)}
                   disabled={!editable}
-                  className={`bg-black min-h-[64px] flex flex-col items-start pt-1.5 px-1 gap-0.5 transition-colors ${meta.tint} ${
+                  className={`group/day relative bg-black min-h-[64px] flex flex-col items-start pt-1.5 px-1 gap-0.5 transition-colors ${meta.tint} ${
                     editable ? 'hover:ring-1 hover:ring-inset hover:ring-white' : 'opacity-40 cursor-not-allowed'
-                  }`}
+                  } ${inFill ? 'ring-1 ring-inset ring-accent/70' : ''}`}
                 >
                   <span className={`font-mono text-2xs ${isToday ? 'text-accent font-bold' : 'text-white'}`}>{c.day}</span>
                   {entry ? (
@@ -305,6 +404,20 @@ export function WorkerAvailabilityClient() {
                     <span className={`mt-1 w-2 h-2 ${meta.dot}`} />
                   )}
                   {requested && <span className="font-mono text-2xs text-accent leading-none">REQ</span>}
+                  {entry && editable && (
+                    <span
+                      title="DRAG TO COPY THIS DAY"
+                      onPointerDown={(e) => onFillPointerDown(e, i)}
+                      onPointerMove={onFillPointerMove}
+                      onPointerUp={onFillPointerUp}
+                      onPointerCancel={onFillPointerCancel}
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute top-0.5 right-0.5 z-20 flex h-3.5 w-3.5 items-center justify-center border border-white/80 bg-black/70 font-mono text-2xs leading-none text-white cursor-copy opacity-60"
+                      style={{ touchAction: 'none' }}
+                    >
+                      ⤡
+                    </span>
+                  )}
                 </button>
               )
             })}
@@ -322,14 +435,16 @@ export function WorkerAvailabilityClient() {
             const isToday = d === today
             const requested = requestDates.has(d)
             const dObj = parseDay(d)
+            const inFill = fill ? inFillRect({ row: 0, col: di }, fillRect({ row: 0, col: fill.from }, { row: 0, col: fill.to })) : false
             return (
               <button
                 key={d}
+                data-fill-col={di}
                 onClick={() => pick(d)}
                 disabled={!editable}
-                className={`w-full text-left border border-grey-mid p-3 space-y-2 ${meta.tint} ${
+                className={`group/day relative w-full text-left border border-grey-mid p-3 space-y-2 ${meta.tint} ${
                   editable ? 'hover:border-white' : 'opacity-40 cursor-not-allowed'
-                }`}
+                } ${inFill ? 'ring-1 ring-inset ring-accent/70' : ''}`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className={`font-mono text-xs uppercase ${isToday ? 'text-accent font-bold' : 'text-white'}`}>
@@ -359,6 +474,20 @@ export function WorkerAvailabilityClient() {
                   {entry ? describeWindows(entry.windows, entry.isAllDay, entry.type) : 'NOT SET'}
                   {entry?.seriesId ? ` · ${entry.seriesEndDate ? describeSeriesEnd(entry.seriesEndDate) : 'WEEKLY · NO END DATE'}` : ''}
                 </div>
+                {entry && editable && (
+                  <span
+                    title="DRAG TO COPY THIS DAY"
+                    onPointerDown={(e) => onFillPointerDown(e, di)}
+                    onPointerMove={onFillPointerMove}
+                    onPointerUp={onFillPointerUp}
+                    onPointerCancel={onFillPointerCancel}
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute top-2 right-2 z-20 flex h-4 w-4 items-center justify-center border border-white/80 bg-black/70 font-mono text-2xs leading-none text-white cursor-copy"
+                    style={{ touchAction: 'none' }}
+                  >
+                    ⤡
+                  </span>
+                )}
               </button>
             )
           })}

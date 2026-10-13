@@ -31,6 +31,14 @@ interface DateNavProps {
   onChange: (date: string, range: DateRange) => void
 }
 
+/** The quick-nav granularity: what the current selection is. */
+function activeModeOf(range: DateRange | undefined): DateMode {
+  if (!range || range.start === range.end) return 'DAY'
+  if (range.start === mondayOf(range.start) && range.end === shiftDay(range.start, 6)) return 'WEEK'
+  if (range.start === firstOfMonthKey(range.start) && range.end === endOfMonthKey(range.start)) return 'MONTH'
+  return 'CUSTOM'
+}
+
 export function DateNav({ date, range, onChange }: DateNavProps) {
   const [open, setOpen] = useState(false)
   const [anchor, setAnchor] = useState<{ year: number; month: number }>(monthOf(date))
@@ -44,18 +52,61 @@ export function DateNav({ date, range, onChange }: DateNavProps) {
     return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 }
   }
 
-  function emit(key: string, range: DateRange) {
-    onChange(key, range)
+  function emitDay(key: string) {
+    onChange(key, { start: key, end: key })
+  }
+
+  function emitWeek(key: string) {
+    const monday = mondayOf(key)
+    onChange(monday, { start: monday, end: shiftDay(monday, 6) })
+  }
+
+  function emitMonth(key: string) {
+    const start = firstOfMonthKey(key)
+    onChange(start, { start, end: endOfMonthKey(start) })
+  }
+
+  function shiftMonths(key: string, delta: number): string {
+    const d = parseDay(key)
+    const t = shiftMonth(d.getUTCFullYear(), d.getUTCMonth() + 1, delta)
+    const last = new Date(Date.UTC(t.year, t.month, 0)).getUTCDate()
+    const day = Math.min(d.getUTCDate(), last)
+    return `${t.year}-${String(t.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  }
+
+  const activeMode = activeModeOf(range)
+  const navUnits = activeMode === 'WEEK'
+    ? { outer: 'MONTH' as const, inner: 'WEEK' as const }
+    : activeMode === 'MONTH'
+      ? { outer: null, inner: 'MONTH' as const }
+      : { outer: 'WEEK' as const, inner: 'DAY' as const }
+
+  function goInner(dir: -1 | 1) {
+    if (navUnits.inner === 'WEEK') return emitWeek(shiftDay(date, dir * 7))
+    if (navUnits.inner === 'MONTH') return emitMonth(shiftMonths(date, dir))
+    emitDay(shiftDay(date, dir))
+  }
+
+  function goOuter(dir: -1 | 1) {
+    if (navUnits.outer === 'MONTH') return emitMonth(shiftMonths(date, dir))
+    if (navUnits.outer === 'WEEK') return emitWeek(shiftDay(date, dir * 7))
   }
 
   function openPopover() {
     setAnchor(monthOf(date))
-    if (range && range.start !== range.end) {
-      setMode('CUSTOM')
+    const current = activeModeOf(range)
+    setMode(current)
+    if (current === 'CUSTOM' && range) {
       setStart(range.start)
       setEnd(range.end)
+    } else if (current === 'WEEK') {
+      const monday = mondayOf(date)
+      setStart(monday)
+      setEnd(shiftDay(monday, 6))
+    } else if (current === 'MONTH') {
+      setStart(firstOfMonthKey(date))
+      setEnd(endOfMonthKey(date))
     } else {
-      setMode('DAY')
       setStart(date)
       setEnd(date)
     }
@@ -155,21 +206,25 @@ export function DateNav({ date, range, onChange }: DateNavProps) {
         </span>
       </button>
       <div className="mt-1 flex items-center gap-4 justify-end">
-        <button className={NAV_LINK} onClick={() => emit(shiftDay(date, -7), { start: shiftDay(date, -7), end: shiftDay(date, -7) })}>
-          &lt;&lt; WEEK
-        </button>
-        <button className={NAV_LINK} onClick={() => emit(shiftDay(date, -1), { start: shiftDay(date, -1), end: shiftDay(date, -1) })}>
-          &lt; DAY
+        {navUnits.outer && (
+          <button className={NAV_LINK} onClick={() => goOuter(-1)}>
+            &lt;&lt; {navUnits.outer}
+          </button>
+        )}
+        <button className={NAV_LINK} onClick={() => goInner(-1)}>
+          &lt; {navUnits.inner}
         </button>
         <button className={`${NAV_LINK} text-white`} onClick={openPopover}>
           SELECT
         </button>
-        <button className={NAV_LINK} onClick={() => emit(shiftDay(date, 1), { start: shiftDay(date, 1), end: shiftDay(date, 1) })}>
-          DAY &gt;
+        <button className={NAV_LINK} onClick={() => goInner(1)}>
+          {navUnits.inner} &gt;
         </button>
-        <button className={NAV_LINK} onClick={() => emit(shiftDay(date, 7), { start: shiftDay(date, 7), end: shiftDay(date, 7) })}>
-          WEEK &gt;&gt;
-        </button>
+        {navUnits.outer && (
+          <button className={NAV_LINK} onClick={() => goOuter(1)}>
+            {navUnits.outer} &gt;&gt;
+          </button>
+        )}
       </div>
 
       {open && (
