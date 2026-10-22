@@ -6,6 +6,24 @@ import { parseSalesReport, type SwiftPosSale } from '@/lib/swiftpos'
 
 const TIMEOUT_MS = 15000
 
+async function getJson(baseUrl: string, path: string): Promise<unknown> {
+  const base = baseUrl.replace(/\/+$/, '')
+  const res = await fetch(`${base}${path}`, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+    cache: 'no-store',
+  })
+  if (!res.ok) {
+    throw new Error(`SwiftDOSnet returned ${res.status} ${res.statusText}`)
+  }
+  return res.json()
+}
+
+/** SwiftDOSnet's lookup lists (locations/terminals/clerks/medias/print groups). */
+export async function fetchLookups(baseUrl: string): Promise<unknown> {
+  return getJson(baseUrl, '/api/lookups')
+}
+
 /**
  * Pull per-product sales for an inclusive date range from SwiftDOSnet:
  * GET {base}/api/analytics/sales?groupBy=product&from=&to=.

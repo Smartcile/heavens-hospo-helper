@@ -303,6 +303,19 @@ POS sale line ── InventoryCode ──► MenuItem.swiftPosId ──► serve
   the **stock drawdown** vs on-hand (negative variance in red) + expansion
   problems. Read-only.
 
+### Built (staff sync, 2026-10-22)
+
+- **Settings → SWIFT POS → STAFF SYNC** (`SwiftPosStaffSync`): pulls clerks from
+  SwiftDOSnet `GET /api/lookups` and links them to `Staff.swiftPosId`. Each clerk
+  is LINKED (exact code), SUGGESTED (one unlinked staff member with the same name
+  tokens) or NEW. LINK/UNLINK update the staff row; CREATE makes a floor `STAFF`
+  profile using the clerk number as the 1–4 digit worker PIN (bcrypt-hashed,
+  collision-checked at the venue). Pure rules in `lib/swiftpos-staff.ts`
+  (`parseClerks`, `splitClerkName`, `buildClerkRows`, `validClerkPin`).
+  Routes: `GET /api/admin/swiftpos/staff` (`team.staff.view`),
+  `POST /api/admin/swiftpos/staff` (`team.staff.edit` for LINK/UNLINK,
+  `team.staff.create` for CREATE). Server-side only — SwiftDOSnet has no auth.
+
 ### Still to do
 
 1. **Auto-deduct** (write the drawdown back to stock) vs. review-then-post — a
@@ -310,6 +323,10 @@ POS sale line ── InventoryCode ──► MenuItem.swiftPosId ──► serve
 2. **Trading-day window** — SwiftPOS uses a 06:00 start-of-day; the pull currently
    uses calendar dates from/to.
 3. **Schedule the pull** (internal cron) so drawdown is ready each morning.
+4. **Menu item linking** — pull SwiftDOSnet `/api/products` (InventoryCode,
+   Category, PrintGroup, MasterGroup) and build the linked/unlinked mapping page.
+5. **Kitchen dockets** — proxy SwiftDOSnet
+   `/api/table-tracking/kitchen-dockets` into an admin page.
 
 > **Important:** SwiftPOS's own `RecipeTable` / `EJRecipeUsageTable` are **empty**,
 > so SwiftPOS does not supply recipe drawdown — consumption must be computed here

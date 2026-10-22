@@ -55,6 +55,7 @@ describe('AvailabilityAdminClient', () => {
 
     expect((await screen.findAllByText('TAYLOR REED')).length).toBeGreaterThan(0)
     expect(screen.getByText(/TIME OFF — CHECK LEAVE PAY/)).toBeDefined()
+    expect(screen.getByText('NOTE: LEAVE')).toBeDefined()
     fireEvent.click(screen.getByText('CONFIRM'))
 
     await waitFor(() => {
@@ -145,6 +146,25 @@ describe('AvailabilityAdminClient', () => {
       expect(body.staffId).toBe('st1')
       expect(body.date).toBe(monday)
     })
+  })
+
+  it('shows a stored note on an approved grid day', async () => {
+    const withNote = {
+      ...data,
+      entries: [
+        {
+          id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: 'SCHOOL PICKUP', reason: null, reviewNote: null,
+          seriesId: null, seriesEndDate: null,
+        },
+      ],
+      queue: { pending: [], requests: [] },
+    }
+    mockFetch(withNote)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    expect(await screen.findByText('NOTE: SCHOOL PICKUP')).toBeDefined()
   })
 
   it('opens the staff editor when a name in the grid is clicked', async () => {
@@ -257,6 +277,9 @@ describe('AvailabilityAdminClient', () => {
     fireEvent(handle, new MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 60 }))
     fireEvent(handle, new MouseEvent('pointerup', { bubbles: true, clientX: 60, clientY: 60 }))
 
+    expect(await screen.findByText('COPY AVAILABILITY')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'CONFIRM' }))
+
     await waitFor(() => {
       const post = spy.mock.calls.find((c) =>
         String(c[0]).endsWith('/api/admin/availability') && (c[1] as RequestInit | undefined)?.method === 'POST')
@@ -265,6 +288,77 @@ describe('AvailabilityAdminClient', () => {
       expect(body.staffId).toBe('st1')
       expect(body.date).toBe(shiftDay(monday, 1))
       expect(body.availability.type).toBe('AVAILABLE')
+    })
+  })
+
+  it('does not copy anything when the drag confirmation is cancelled', async () => {
+    const withEntry = {
+      ...data,
+      entries: [
+        {
+          id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+          seriesId: null, seriesEndDate: null,
+        },
+      ],
+      queue: { pending: [], requests: [] },
+    }
+    const spy = mockFetch(withEntry)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    const handle = await screen.findByTitle('DRAG TO COPY THIS DAY')
+    const target = document.querySelector('[data-fill-col="1"]') as HTMLElement
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target })
+
+    fireEvent(handle, new MouseEvent('pointerdown', { bubbles: true, clientX: 10, clientY: 10 }))
+    fireEvent(handle, new MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 60 }))
+    fireEvent(handle, new MouseEvent('pointerup', { bubbles: true, clientX: 60, clientY: 60 }))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'CANCEL' }))
+    await waitFor(() => expect(screen.queryByText('COPY AVAILABILITY')).toBeNull())
+    const post = spy.mock.calls.find((c) =>
+      String(c[0]).endsWith('/api/admin/availability') && (c[1] as RequestInit | undefined)?.method === 'POST')
+    expect(post).toBeUndefined()
+  })
+
+  it('offers a weekly series when copying a series day', async () => {
+    const withSeries = {
+      ...data,
+      entries: [
+        {
+          id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+          seriesId: 's1', seriesEndDate: shiftDay(monday, 21),
+        },
+      ],
+      series: [{ id: 's1', startDate: monday, endDate: shiftDay(monday, 21), dates: [monday] }],
+      queue: { pending: [], requests: [] },
+    }
+    const spy = mockFetch(withSeries)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    const handle = await screen.findByTitle('DRAG TO COPY THIS DAY')
+    const target = document.querySelector('[data-fill-col="1"]') as HTMLElement
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target })
+
+    fireEvent(handle, new MouseEvent('pointerdown', { bubbles: true, clientX: 10, clientY: 10 }))
+    fireEvent(handle, new MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 60 }))
+    fireEvent(handle, new MouseEvent('pointerup', { bubbles: true, clientX: 60, clientY: 60 }))
+
+    expect(await screen.findByText('COPY AVAILABILITY')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'WEEKLY SERIES' }))
+    fireEvent.click(screen.getByRole('button', { name: 'CONFIRM' }))
+
+    await waitFor(() => {
+      const post = spy.mock.calls.find((c) =>
+        String(c[0]).endsWith('/api/admin/availability') && (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(post).toBeDefined()
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body.date).toBe(shiftDay(monday, 1))
+      expect(body.repeat).toEqual({ weeks: 4 })
+      expect(body.seriesId).toBeNull()
     })
   })
 })

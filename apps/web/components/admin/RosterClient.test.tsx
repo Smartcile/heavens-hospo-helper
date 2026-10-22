@@ -271,6 +271,9 @@ describe('RosterClient', () => {
     fireEvent(block, new MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 60 }))
     fireEvent(block, new MouseEvent('pointerup', { bubbles: true, clientX: 60, clientY: 60 }))
 
+    expect(await screen.findByText('MOVE SHIFT')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'CONFIRM' }))
+
     await waitFor(() => {
       const put = spy.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'PUT')
       expect(put).toBeDefined()
@@ -293,6 +296,10 @@ describe('RosterClient', () => {
     fireEvent(handle, new MouseEvent('pointerdown', { bubbles: true, clientX: 10, clientY: 10 }))
     fireEvent(handle, new MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 60 }))
     fireEvent(handle, new MouseEvent('pointerup', { bubbles: true, clientX: 60, clientY: 60 }))
+
+    expect(await screen.findByText('COPY SHIFT')).toBeDefined()
+    expect(screen.getByText(/NO SERIES IS CREATED/)).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'CONFIRM' }))
 
     await waitFor(() => {
       const posts = spy.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST')

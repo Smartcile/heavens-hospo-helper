@@ -8,8 +8,10 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { Combobox } from '@/components/ui/Combobox'
+import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
 import { moveItem } from '@/lib/array'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
+import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { isActivatedOn, isChecklistHidden } from '@/lib/checklist-activation'
 import { useGuidePopup } from '@/components/GuidePopup'
@@ -30,6 +32,9 @@ interface Task {
   monthlyDay: number | null
   isActive: boolean
   sortOrder: number
+  allowedOutcomes?: string[]
+  overrideOutcomes?: boolean
+  requireOutcomeReason?: boolean
   department: { id: string; name: string; colour: string | null } | null
   section: { id: string; name: string } | null
   requiredTraining: { moduleId: string; module?: { kind: string } }[]
@@ -53,6 +58,8 @@ interface Checklist {
   sectionId: string | null
   appearFromTime: string | null
   activatedOn: string | null
+  allowedOutcomes?: string[]
+  requireOutcomeReason?: boolean
   department: { id: string; name: string } | null
   section: { id: string; name: string } | null
   tasks: ChecklistCardTask[]
@@ -73,12 +80,16 @@ interface FormState {
   monthlyDay: number
   requiredTrainingIds: string[]
   competencyGuideIds: string[]
+  allowedOutcomes: TaskOutcome[]
+  overrideOutcomes: boolean
+  requireOutcomeReason: boolean
 }
 
 const EMPTY_FORM: FormState = {
   title: '', description: '', venueId: '', departmentId: '', sectionId: '',
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
   intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, requiredTrainingIds: [], competencyGuideIds: [],
+  allowedOutcomes: [...TASK_OUTCOMES], overrideOutcomes: false, requireOutcomeReason: false,
 }
 
 const COMPLETION_OPTIONS = [
@@ -127,6 +138,8 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [clSectionId, setClSectionId] = useState('')
   const [clSelected, setClSelected] = useState<string[]>([])
   const [clAppearFrom, setClAppearFrom] = useState('')
+  const [clAllowedOutcomes, setClAllowedOutcomes] = useState<TaskOutcome[]>([...TASK_OUTCOMES])
+  const [clRequireReason, setClRequireReason] = useState(false)
   const [clSaving, setClSaving] = useState(false)
   const [clError, setClError] = useState('')
   const [activateError, setActivateError] = useState('')
@@ -179,6 +192,9 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       intervalMonths: t.intervalMonths ?? 1, monthlyOption: t.monthlyOption ?? 'FIRST_DAY', monthlyDay: t.monthlyDay ?? 1,
       requiredTrainingIds: (t.requiredTraining ?? []).map((r) => r.moduleId),
       competencyGuideIds: (t.taskGuides ?? []).filter((g) => g.isRequiredForCompetency).map((g) => g.guideId),
+      allowedOutcomes: (t.allowedOutcomes?.length ? t.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[],
+      overrideOutcomes: !!t.overrideOutcomes,
+      requireOutcomeReason: !!t.requireOutcomeReason,
     })
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
@@ -231,12 +247,15 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClName(''); setClDesc('')
     setClVenueId(role === 'MANAGER' ? sessionVenueId : (filterVenue || venues[0]?.id || ''))
     setClDeptId(''); setClSectionId(''); setClSelected([]); setClAppearFrom(''); setClError('')
+    setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false)
   }
   function openChecklistEdit(c: Checklist) {
     setClEditing(c)
     setClName(c.name); setClDesc(c.description ?? '')
     setClVenueId(c.venueId); setClDeptId(c.departmentId ?? ''); setClSectionId(c.sectionId ?? '')
     setClSelected(c.tasks.map((t) => t.id)); setClAppearFrom(c.appearFromTime ?? ''); setClError('')
+    setClAllowedOutcomes((c.allowedOutcomes?.length ? c.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[])
+    setClRequireReason(!!c.requireOutcomeReason)
     // Auto-scope left panel filters to match this checklist
     if (c.venueId) setFilterVenue(c.venueId)
     if (c.departmentId) setFilterDept(c.departmentId)
@@ -250,7 +269,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (!clName.trim() || !clVenueId) { setClError('NAME AND VENUE ARE REQUIRED'); return }
     if (clSelected.length === 0) { setClError('ADD AT LEAST ONE TASK'); return }
     setClSaving(true); setClError('')
-    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clAppearFrom || null, taskIds: clSelected }
+    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clAppearFrom || null, taskIds: clSelected, allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason }
     const url = clEditing && clEditing !== 'new' ? `/api/admin/checklists/${clEditing.id}` : '/api/admin/checklists'
     const method = clEditing && clEditing !== 'new' ? 'PUT' : 'POST'
     const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -477,8 +496,15 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
               </div>
               <div>
                 <Input label="Appears from (time, optional)" type="time" value={clAppearFrom} onChange={(e) => setClAppearFrom(e.target.value)} />
-                <p className="font-mono text-xs uppercase text-grey-light mt-1">SHOWS ON THE FLOOR FROM THIS TIME &amp; STAYS UNTIL EVERY TASK IS DONE FOR THE DAY.</p>
+                <p className="font-mono text-xs uppercase text-grey-light mt-1">SHOWS ON THE FLOOR FROM THIS TIME &amp; STAYS UNTIL EVERY TASK IS SETTLED FOR THE DAY.</p>
               </div>
+
+              <OutcomeOptions
+                allowed={clAllowedOutcomes}
+                requireReason={clRequireReason}
+                onChange={(allowedOutcomes, requireOutcomeReason) => { setClAllowedOutcomes(allowedOutcomes); setClRequireReason(requireOutcomeReason) }}
+                inheritedLabel="APPLIES TO EVERY TASK IN THIS LIST UNLESS THE TASK OVERRIDES IT"
+              />
 
               <div className="space-y-1">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Tasks in this checklist (drag in from the left)</label>
@@ -630,6 +656,15 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
             <Select label="Completion Type" value={form.completionType} onChange={(e) => setForm({ ...form, completionType: e.target.value })} options={COMPLETION_OPTIONS} />
             <Select label="Schedule" value={form.scheduleType} onChange={(e) => setForm({ ...form, scheduleType: e.target.value, scheduleDays: [] })} options={SCHEDULE_OPTIONS} />
           </div>
+
+          <OutcomeOptions
+            allowed={form.allowedOutcomes}
+            requireReason={form.requireOutcomeReason}
+            onChange={(allowedOutcomes, requireOutcomeReason) => setForm({ ...form, allowedOutcomes, requireOutcomeReason })}
+            canOverride
+            override={form.overrideOutcomes}
+            onOverrideChange={(overrideOutcomes) => setForm({ ...form, overrideOutcomes })}
+          />
 
           {form.scheduleType === 'MONTHLY' && (
             <div className="space-y-3">

@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
     })
 
     const rows = [
-      ['Date', 'Staff', 'Task', 'Venue', 'Department', 'Completed At', 'Note'].join(','),
+      ['Date', 'Staff', 'Task', 'Venue', 'Department', 'Completed At', 'Outcome', 'Note'].join(','),
       ...all.map((c) =>
         [
           c.scheduledDate.toISOString().slice(0, 10),
@@ -58,6 +58,7 @@ export async function GET(req: NextRequest) {
           `"${c.task.venue.name}"`,
           `"${c.task.department?.name ?? ''}"`,
           c.completedAt.toISOString(),
+          c.outcome,
           `"${c.note?.replace(/"/g, '""') ?? ''}"`,
         ].join(',')
       ),

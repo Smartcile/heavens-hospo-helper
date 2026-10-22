@@ -113,7 +113,7 @@ export function AvailabilityDayEditor({
   )
   const [windows, setWindows] = useState<AvailabilityWindow[]>(entry && !entry.isAllDay ? entry.windows : [])
   const [timeOff, setTimeOff] = useState(entry?.timeOff ?? false)
-  const [reason, setReason] = useState('')
+  const [note, setNote] = useState(entry?.notes ?? '')
   const [repeatOn, setRepeatOn] = useState(false)
   const [noEnd, setNoEnd] = useState(() => (series ? !series.endDate : false))
   const [weeks, setWeeks] = useState(() =>
@@ -168,12 +168,12 @@ export function AvailabilityDayEditor({
       type,
       windows: isAllDay ? [] : windows,
       timeOff,
-      notes: entry?.notes ?? null,
+      notes: note.trim() || null,
     }
     onSave(draft, {
       repeat: currentRepeat(),
       scope: series ? scope : null,
-      reason: reason.trim() || null,
+      reason: note.trim() || null,
     })
   }
 
@@ -424,10 +424,10 @@ export function AvailabilityDayEditor({
         />
       </div>
 
-      {/* Reason */}
+      {/* Note */}
       <input
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
         placeholder="NOTE FOR THE MANAGER (OPTIONAL)"
         className="field w-full"
       />
@@ -446,7 +446,7 @@ export function AvailabilityDayEditor({
         {entry && (
           <button
             type="button"
-            onClick={() => onClear({ scope: series ? scope : null, reason: reason.trim() || null })}
+            onClick={() => onClear({ scope: series ? scope : null, reason: note.trim() || null })}
             disabled={busy}
             className="h-12 px-4 border border-danger text-danger font-mono font-bold text-sm uppercase hover:bg-danger hover:text-black transition-colors disabled:opacity-40"
           >

@@ -54,9 +54,13 @@ export async function GET(req: NextRequest) {
       taskId: { in: tasks.map((t) => t.id) },
       scheduledDate: { gte: earliest },
     },
-    select: { taskId: true, scheduledDate: true },
+    select: { taskId: true, scheduledDate: true, outcome: true },
   })
-  const doneSet = new Set(completions.map((c) => `${c.taskId}|${formatDateKey(c.scheduledDate)}`))
+  const doneSet = new Set(
+    completions
+      .filter((c) => c.outcome === 'DONE' || c.outcome === 'NOT_REQUIRED')
+      .map((c) => `${c.taskId}|${formatDateKey(c.scheduledDate)}`),
+  )
 
   const items: {
     taskId: string

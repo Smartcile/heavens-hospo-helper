@@ -57,7 +57,7 @@ hospo-ops/
 ├── packages/
 │   ├── db/                         # Prisma 7 schema + PG adapter + seed
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma       # 133 models (as of 2026-10)
+│   │   │   ├── schema.prisma       # 134 models (as of 2026-10)
 │   │   │   ├── seed.ts             # Idempotent demo/sample data
 │   │   │   ├── migrate-*.ts        # One-off migrations wired into docker-entrypoint.sh
 │   │   │   └── migrations/         # Legacy 0_init migration (kept for reference)
@@ -549,11 +549,14 @@ files an `AvailabilityEditRequest` even when no protected row is touched
 The worker GET returns `cutoff` and the phone shows a deadline banner. Admin
 writes bypass it.
 
-**Drag-fill** — every day with an entry carries a corner handle on the admin
-grid and both worker views. Dragging it copies that day's settings across a day
-range (same person) by looping `POST /api/{admin,worker}/availability` per
-target day; worker targets past the cut-off/lock come back as requests, which
-the flash summarises. Rectangle hit-testing is the shared `lib/cell-fill.ts`.
+**Drag-fill (admin only)** — every day with an entry carries a corner handle on
+the admin availability grid. Dragging it opens a confirmation modal, then copies
+that day's settings across a day range (same person) by looping
+`POST /api/admin/availability` per target day. If the source day is part of a
+weekly series, the modal also offers **JUST THESE DAYS** (standalone copies) or
+**WEEKLY SERIES** (weeks / no-end, starting from the first dragged day). The
+worker availability view has no drag-fill — workers tap a day to edit. Rectangle
+hit-testing is the shared `lib/cell-fill.ts`.
 
 **Roster** — `/admin/team?tab=roster` (`RosterClient`, 13 tests): week/day grid,
 staff grouped by derived Position (drag headers; persisted `Position.sortOrder`),
@@ -569,7 +572,8 @@ time that day float to the top of their group (`sortByPinnedAvailability`), and
 for today only the time still ahead counts. Every shift block carries a
 **drag-fill handle** (top-right, appears on hover) — drag it to copy the shift
 across days and down/up staff rows in one gesture (time-off cells are skipped;
-blocked targets are silently left alone). The block itself is draggable onto
+blocked targets are silently left alone). Both copy-fill and moving a shift open
+a confirmation modal before writing. The block itself is draggable onto
 another person/day to **move** the shift — `PUT /api/admin/shifts/[id]` now
 accepts `staffId` (venue-checked, and the department follows the new person).
 Creating a shift defaults Role to the person's top-ranked Position; editing
@@ -1212,23 +1216,46 @@ inventory deduction is still not built.
 Inventory Items tree in one query. `GET /api/admin/structure` extends with
 `floorPlan { tables, chairs, equip }` per section.
 
-### SwiftPOS integration (partial, 2026-09)
+### SwiftPOS integration (sales + staff sync, 2026-10)
 `Venue.swiftPosBaseUrl` + `MenuItem.swiftPosId` (SwiftPOS `Inventory_Code`).
 `lib/swiftpos.ts` (5 tests) parses a SwiftDOSnet sales report and matches rows to
 products by `swiftPosId`; `lib/swiftpos.server.ts` fetches
-`/api/analytics/sales?groupBy=product`. `lib/swiftpos-consumption.server.ts`
+`/api/analytics/sales?groupBy=product` and `/api/lookups` (locations/terminals/
+clerks/medias/print groups). `lib/swiftpos-consumption.server.ts`
 turns sales into drawdown — MADE serves go through `explodeRecipe`,
 pour/bottle via `canonicalQty` — and reports variance vs on-hand for BASE items.
 **Read-only report; nothing mutates stock** (auto-deduct not built). Admin UI at
-Settings → SWIFT POS (`SwiftPosSalesClient`); route
+Settings → SWIFT POS (`SwiftPosSalesClient`, SALES / STAFF SYNC sub-tabs); route
 `GET /api/admin/swiftpos/sales[?drawdown=1]` (guard `ops.inventory.view`).
-Staff records carry `Staff.swiftPosId` for future roster/task sync (not built).
+
+**Staff sync** (`2026-10-22`) pulls SwiftPOS clerks from SwiftDOSnet
+`GET /api/lookups` and links them to venue staff via `Staff.swiftPosId`.
+`lib/swiftpos-staff.ts` (14 tests, pure) parses the clerk list, splits
+`"Jane Doe"` / `"Doe, Jane"` names, and suggests a match only when exactly one
+unlinked staff member has the same name tokens. Settings → SWIFT POS → STAFF SYNC
+(`SwiftPosStaffSync`) shows LINKED / SUGGESTED / NEW rows and offers LINK,
+UNLINK and CREATE. CREATE makes a `STAFF` profile with the clerk number as the
+1–4 digit worker PIN (bcrypt-hashed; the clerk number, or an override) and
+blocks a PIN already in use at the venue. Routes:
+`GET /api/admin/swiftpos/staff?venueId=` (guard `team.staff.view`),
+`POST /api/admin/swiftpos/staff` (LINK/UNLINK `team.staff.edit`,
+CREATE `team.staff.create`). SwiftDOSnet has no auth; it is reached server-side
+from HOSPO OPS, never the browser. Staff records still carry `Staff.swiftPosId`
+for future roster/task sync (not built).
+
+**Remaining SwiftPOS work (issue #5):** menu item linking — pull SwiftDOSnet
+`/api/products` (`InventoryCode`, `Category`, `PrintGroupName`,
+`MasterGroupName`) and add a linked/unlinked mapping page; kitchen dockets —
+proxy SwiftDOSnet `/api/table-tracking/kitchen-dockets` into an admin page.
+`/api/lookups` also returns locations, terminals, medias and print groups for
+future use.
 
 ### Unified staff identity
 A single `Staff` profile carries external-system link IDs — `swiftPosId`,
 `myHrId`, `loadedReportsId` — so one person maps across SwiftPOS, MyHR, and
-LoadedReports. These are editable in the Staff form; automated sync is a
-future item. `email` doubles as a natural cross-system match key.
+LoadedReports. These are editable in the Staff form; SwiftPOS links sync from
+Settings → SWIFT POS → STAFF SYNC, while MyHR/LoadedReports remain manual.
+`email` doubles as a natural cross-system match key.
 
 ### Live structure map
 `/admin/settings?tab=structure` (the `/admin/structure` stub redirects;
@@ -1495,6 +1522,68 @@ route blocks a second completion by checking `taskId + scheduledDate` (not
 staffId). So once anyone ticks a job it's done for the team (the list shows "BY
 <name>"), preventing double-ups. Personally-assigned tasks still show, tagged
 `FOR <name>`, but anyone can complete them.
+
+### Task outcomes, PARTIAL carry-over & admin hierarchy (built 2026-10)
+
+Opening a worker task now asks **what happened**, not just "Mark Done":
+
+| Outcome | Terminal? | Counts as complete? | Behaviour |
+|---|---|---|---|
+| `DONE` | yes | yes | Normal completion; reading alerts + untrained follow-up apply. |
+| `PARTIAL` | **no** | no | Saves/updates a `TaskProgress` row (one per task) and keeps the task on the floor across refreshes **and later days** until a terminal outcome is recorded. |
+| `NOT_REQUIRED` | yes | no | Settles the day; not a completion for metrics/follow-ups. |
+| `DID_NOT_COMPLETE` | yes | no | Settles the day but remains a candidate for a MISSED follow-up. |
+
+**Hierarchy — checklist defaults, task override.** `Checklist.allowedOutcomes` /
+`Checklist.requireOutcomeReason` are the defaults for every task in the list.
+A task can opt in with `Task.overrideOutcomes: true` and its own
+`allowedOutcomes` / `requireOutcomeReason` (an empty override array means "only
+DONE"). The first **open** checklist containing the task supplies the policy,
+matching how the worker groups tasks under a list; a task override always wins.
+**DONE is always allowed** — resolving never removes it. The pure resolver is
+`lib/task-outcomes.ts` (`normaliseOutcomes`, `resolveOutcomePolicy`,
+`resolveOutcomePolicyForChecklists`, `outcomeValidationError`), shared by the
+worker GET/completion routes and both admin/manager editors. Add outcomes in
+`TaskOutcome` + that file; don't branch on strings in components. Checklist
+applicability (department / linked department / section / position audiences)
+lives in `lib/checklist-applicability.server.ts` so the worker list and the
+completion endpoint resolve the same policy.
+
+**Reason requirements are deliberately a policy, not a hard-coded rule.** The
+admin toggle `requireOutcomeReason` makes a note mandatory for every non-DONE
+outcome. This is the extension point for the planned **per-staff trust /
+re-training / training** rules: a future resolver should combine the task/list
+policy with the staff member's competency and history (e.g. a newly trained or
+under-review person must give a reason or take a photo, a long-tenured trusted
+person need not). Keep that decision in one resolver so follow-ups and the
+worker UI cannot drift. The note is stored on the completion/progress row and is
+visible in the review/report surfaces; it is the raw material for follow-up
+review.
+
+**Counting semantics.** Only `DONE` counts towards the worker progress bar and
+the admin dashboard completion percentage. `NOT_REQUIRED` and
+`DID_NOT_COMPLETE` settle the day but are shown separately (worker "HANDLED —
+NOT DONE", review list). `DID_NOT_COMPLETE` is **not** treated as handled by
+`/api/admin/overdue` or `lib/followups.ts`; `NOT_REQUIRED` is. A task with a
+`TaskProgress` row is treated as in progress by follow-ups (no MISSED row while
+the floor is still working on it), and pathway task nodes only count `DONE`
+completions.
+
+**Carry-over details.** `TaskProgress.taskId` is unique, so there is one
+shared in-progress state per task. The worker GET includes any task with a
+progress row even when `isTaskDueOnDate` is false for today. A terminal outcome
+deletes the progress row in the same transaction as the completion. The worker
+card shows `IN PROGRESS · <name>` with the latest note; a list stays visible
+until every task is **settled** (DONE / NOT_REQUIRED / DID_NOT_COMPLETE), not
+only DONE.
+
+**Worker chrome.** The dashboard hosts worker pages in an iframe with a single
+bottom "BACK TO DASHBOARD" bar. Pages with a full-screen detail view (task
+modal, availability day editor, guide reader/editor, delivery/event editor) call
+`useWorkerImmersive(...)`; the dashboard hides the bar while that flag is on.
+The dashboard also keeps a history guard so browser back returns to
+`/w/dashboard` and never drops staff out of `/w/*`. Top-left back buttons are
+bordered (`border border-grey-mid`) so they read as buttons.
 
 ### Budget (Phase 4, built)
 Weighted multi-category monthly budget tool with department-linked breakdowns.
@@ -1901,7 +1990,7 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 
 ## ERP & WOOCOMMERCE (BUILT 2026-07)
 
-### Schema: 133 models (as of 2026-10)
+### Schema: 134 models (as of 2026-10)
 Core ERP models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`,
 `RecipeLineItem` (recursive BOM), `IngredientReference` (Pantry Bible),
 `WooIntegration`, `MenuItem` (+ `MenuItemServe`, `MenuItemVenue`), `Menu`,
@@ -2304,9 +2393,11 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
 
 ## 2026-10-13 ROSTER + AVAILABILITY PASS (all built)
 
-- **Drag-fill handles** on every shift block and availability day cell — drag
-  the corner arrow to copy the shift/settings across cells (roster: days +
-  staff rows; availability: days for the same person, admin and worker views).
+- **Drag-fill handles** on every shift block and admin availability day cell —
+  drag the corner arrow to copy the shift/settings across cells (roster: days +
+  staff rows; availability: days for the same person, admin only). Both copy and
+  move drags ask for confirmation; a series availability day additionally offers
+  a weekly-series copy or a one-off copy. Worker availability has no drag-fill.
   Shared `lib/cell-fill.ts` rectangle helper; roster copies skip time-off cells.
 - **Drag shifts onto other people** — a shift block can be dropped on another
   staff row/day to move it; `PUT /api/admin/shifts/[id]` accepts `staffId`.
@@ -2336,7 +2427,8 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
 | Stub | Location | Phase |
 |---|---|---|
 | Passkeys / WebAuthn login | Admin + worker login upgrade (alongside email/password + PIN) | 2 |
-| SwiftPOS staff sync | `Staff.swiftPosId` field | 2 |
+| SwiftPOS menu item linking | Map SwiftDOSnet products/categories to `MenuItem.swiftPosId` + linked/unlinked page | 2 |
+| SwiftPOS kitchen dockets | Admin page fed by SwiftDOSnet `/api/table-tracking/kitchen-dockets` | 2 |
 | Push notifications | Not yet wired | 2 |
 | S3 file uploads | `UPLOAD_PROVIDER=s3` env var stub | 2 |
 | Inventory delete protection | API check against ElementInventoryItem + StocktakeLineItem | 2 |
@@ -2355,7 +2447,8 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
 > Built since the original stub table: budget splitter, labour cost visibility
 > (`lib/roster-math.ts`), role-based permission system (`StaffPermission` +
 > registry), public API (`ApiKey`), food-safety diary (delivery + reading
-> tasks), and SwiftPOS sales/drawdown reporting.
+> tasks), SwiftPOS sales/drawdown reporting, and SwiftPOS staff sync
+> (Settings → SWIFT POS → STAFF SYNC).
 
 ## TESTING
 
@@ -2454,11 +2547,12 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/reference-table.ts` — derived MENU_FIELD columns + sanitisation | ✅ (19 tests) |
 | `lib/rich-text.ts` — `sanitiseRichText` allowlist | ✅ (13 tests) |
 | `lib/checklist-activation.ts` — venue-local date activation | ✅ (6 tests) |
+| `lib/task-outcomes.ts` — outcome hierarchy, DONE-always, reason validation, open-list policy | ✅ (12 tests) |
 | `lib/position-requirements.ts` — required guides + readiness resolver | ✅ (6 tests) |
 | `lib/staff-groups.ts` — derived position grouping | ✅ (14 tests) |
 | `lib/permissions/registry.ts` — `PERMISSION_TREE`, presets, `completeGrantSet` | ✅ (16 tests) |
 | `lib/image-annotations.ts` / `image-thumb.ts` | ✅ (24 + 4) |
-| `lib/tips.ts` / `swiftpos.ts` / `woo-pairing.ts` / `woo-oauth.ts` / `woo-categories.ts` | ✅ (tested) |
+| `lib/tips.ts` / `swiftpos.ts` / `swiftpos-staff.ts` / `woo-pairing.ts` / `woo-oauth.ts` / `woo-categories.ts` | ✅ (tested) |
 | `lib/video-transcode.ts` / `download-file.ts` / `pdf-safe.ts` / `geo.ts` | ✅ (2 + 4 + 4 + tested) |
 | `lib/woo-push.ts` — `mapStatusToWoo`, `buildProductPushPayload` (images, categories, variable products), `pushVariationPrices`, `isSelfEcho` echo guard | ✅ |
 | `lib/woo-sync.ts` — `runProductPull`, `upsertProductFromWoo`, `fetchWooCategories`, `fetchProductVariations` | ✅ |
@@ -2479,7 +2573,8 @@ pushing, run: `npm run lint && npm run test`.
 | `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |
 | `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (19 tests) |
-| `WorkerTasksClient.tsx` — dual early-return paths | ✅ |
+| `WorkerTasksClient.tsx` — dual early-return paths, outcome choices, PARTIAL/in-progress, handled section | ✅ (9 tests) |
+| `OutcomeOptions.tsx` — DONE-always, outcome toggles, reason toggle, inherit/override | ✅ (4 tests) |
 | `FloorplanInspector.tsx` — presets, sliders, booth capacity | ✅ |
 | `FloorplanToolbar.tsx` — zoom, DIM toggle | ✅ |
 | `Button` (ui) — variants, sizes, loading, disabled | ✅ |
@@ -2496,7 +2591,7 @@ pushing, run: `npm run lint && npm run test`.
 | `ReferenceTableEditor.tsx` — column kinds, derived cells, row editing | ✅ (5 tests) |
 | `WorkerGuidesClient.tsx` — BIBLE / MY TREE, folder grouping, edit gating | ✅ (11 tests) |
 | `EventBuilder.tsx` / `PipelinePanel.tsx` / `EnquiriesPanel.tsx` — BEO builder, pipeline board, intake | ✅ (5 + 2 + 4) |
-| `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 10 + 7 + 9) |
+| `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 12 + 8 + 12) |
 | `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (13 + 5 + 4) |
 | `StaffingLinesEditor.tsx` — payload mapping, unnamed-row filter, rows, remove | ✅ (5 tests) |
 | `EventStaffingModal.tsx` — event info, linked shifts CLAIMED/ASSIGNED, listed-seat lock, FIND STAFF, claims review | ✅ (5 tests) |

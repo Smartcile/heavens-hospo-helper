@@ -1,0 +1,180 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
+import { prisma } from '@hospo-ops/db'
+import bcrypt from 'bcryptjs'
+import { guardAccess } from '@/lib/permissions'
+import { fetchLookups } from '@/lib/swiftpos.server'
+import {
+  buildClerkRows,
+  parseClerks,
+  splitClerkName,
+  validClerkPin,
+} from '@/lib/swiftpos-staff'
+
+const STAFF_SELECT = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  swiftPosId: true,
+  isActive: true,
+} as const
+
+type SessionLike = { user: { role: string; venueId: string } }
+
+function resolveVenueId(session: SessionLike, req: NextRequest, posted?: string): string {
+  const param = posted || req.nextUrl.searchParams.get('venueId')
+  return session.user.role === 'MANAGER' ? session.user.venueId : param || session.user.venueId
+}
+
+function codeKey(code: string): string {
+  return code.trim().toUpperCase()
+}
+
+export async function GET(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'team.staff.view')
+  if (denied) return denied
+
+  const venueId = resolveVenueId(session, req)
+  const venue = await prisma.venue.findUnique({
+    where: { id: venueId },
+    select: { id: true, name: true, swiftPosBaseUrl: true },
+  })
+  if (!venue) return NextResponse.json({ error: 'Venue not found' }, { status: 404 })
+  if (!venue.swiftPosBaseUrl) {
+    return NextResponse.json(
+      { error: 'SWIFTPOS NOT CONNECTED — SET THE SWIFTDOSNET URL ON THE VENUE' },
+      { status: 400 },
+    )
+  }
+
+  let raw: unknown
+  try {
+    raw = await fetchLookups(venue.swiftPosBaseUrl)
+  } catch (e) {
+    return NextResponse.json(
+      { error: `COULD NOT REACH SWIFTDOSNET: ${(e as Error).message}` },
+      { status: 502 },
+    )
+  }
+
+  const staff = await prisma.staff.findMany({
+    where: { venueId, deletedAt: null },
+    select: STAFF_SELECT,
+    orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+  })
+
+  return NextResponse.json({
+    venueId,
+    venueName: venue.name,
+    baseUrl: venue.swiftPosBaseUrl,
+    rows: buildClerkRows(parseClerks(raw), staff),
+    staff,
+  })
+}
+
+export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const body = await req.json().catch(() => null) as {
+    venueId?: string
+    action?: string
+    clerkId?: string
+    clerkName?: string
+    staffId?: string
+    pin?: string
+    firstName?: string
+    lastName?: string
+  } | null
+
+  const action = body?.action
+  if (action !== 'LINK' && action !== 'UNLINK' && action !== 'CREATE') {
+    return NextResponse.json({ error: 'UNKNOWN ACTION' }, { status: 400 })
+  }
+
+  const denied = await guardAccess(session, req, action === 'CREATE' ? 'team.staff.create' : 'team.staff.edit')
+  if (denied) return denied
+
+  const venueId = resolveVenueId(session, req, body?.venueId)
+  const venue = await prisma.venue.findUnique({ where: { id: venueId }, select: { id: true } })
+  if (!venue) return NextResponse.json({ error: 'Venue not found' }, { status: 404 })
+
+  const venueStaff = await prisma.staff.findMany({
+    where: { venueId, deletedAt: null },
+    select: { ...STAFF_SELECT, pin: true },
+  })
+
+  if (action === 'UNLINK') {
+    const staff = venueStaff.find((s) => s.id === body?.staffId)
+    if (!staff) return NextResponse.json({ error: 'STAFF NOT FOUND' }, { status: 404 })
+    const updated = await prisma.staff.update({
+      where: { id: staff.id },
+      data: { swiftPosId: null },
+      select: STAFF_SELECT,
+    })
+    return NextResponse.json({ ok: true, staff: updated })
+  }
+
+  const clerkId = String(body?.clerkId ?? '').trim()
+  if (!clerkId) return NextResponse.json({ error: 'CLERK ID REQUIRED' }, { status: 400 })
+
+  const clash = venueStaff.find((s) => s.swiftPosId && codeKey(s.swiftPosId) === codeKey(clerkId))
+  if (clash && (action === 'CREATE' || clash.id !== body?.staffId)) {
+    return NextResponse.json(
+      { error: `${clash.firstName} ${clash.lastName} IS ALREADY LINKED TO CLERK ${clerkId}` },
+      { status: 409 },
+    )
+  }
+
+  if (action === 'LINK') {
+    const staff = venueStaff.find((s) => s.id === body?.staffId)
+    if (!staff) return NextResponse.json({ error: 'STAFF NOT FOUND' }, { status: 404 })
+    const updated = await prisma.staff.update({
+      where: { id: staff.id },
+      data: { swiftPosId: clerkId },
+      select: STAFF_SELECT,
+    })
+    return NextResponse.json({ ok: true, staff: updated })
+  }
+
+  const split = splitClerkName(typeof body?.clerkName === 'string' ? body.clerkName : '')
+  const firstName = (typeof body?.firstName === 'string' && body.firstName.trim()
+    ? body.firstName.trim()
+    : split.firstName).toUpperCase()
+  const lastName = (typeof body?.lastName === 'string' && body.lastName.trim()
+    ? body.lastName.trim()
+    : split.lastName).toUpperCase()
+  if (!firstName) return NextResponse.json({ error: 'CLERK NAME REQUIRED' }, { status: 400 })
+
+  const pin = String(body?.pin ?? '').trim() || clerkId
+  if (!validClerkPin(pin)) {
+    return NextResponse.json({ error: 'PIN MUST BE 1–4 DIGITS' }, { status: 400 })
+  }
+
+  for (const staff of venueStaff) {
+    if (staff.isActive && staff.pin && await bcrypt.compare(pin, staff.pin)) {
+      return NextResponse.json(
+        { error: `PIN ${pin} IS ALREADY IN USE BY ${staff.firstName} ${staff.lastName}` },
+        { status: 409 },
+      )
+    }
+  }
+
+  const created = await prisma.staff.create({
+    data: {
+      firstName,
+      lastName,
+      pin: await bcrypt.hash(pin, 10),
+      role: 'STAFF',
+      venueId,
+      swiftPosId: clerkId,
+      isActive: true,
+    },
+    select: STAFF_SELECT,
+  })
+
+  return NextResponse.json({ ok: true, staff: created }, { status: 201 })
+}

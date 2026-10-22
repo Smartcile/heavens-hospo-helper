@@ -9,6 +9,7 @@ import { groupGuidesByFolder } from '@/lib/guide-folders'
 import { moveItem } from '@/lib/array'
 import { nearestIndex } from '@/lib/reorder'
 import type { ResolvedStepLink } from '@/lib/guide-links'
+import { useWorkerImmersive } from '@/components/worker/useWorkerImmersive'
 
 interface Step {
   id: string
@@ -85,6 +86,8 @@ function GuidesInner({ role }: { role: string }) {
   const [canEdit, setCanEdit] = useState(false)
   const [canPublish, setCanPublish] = useState(false)
   const [editor, setEditor] = useState<{ id: string | null } | null>(null)
+
+  useWorkerImmersive(!!active || !!editor)
 
   // Folder view + pointer drag-and-drop (works with mouse AND touch — the ⠿
   // grips carry `touch-action: none`, so a swipe on a grip drags instead of
@@ -380,7 +383,7 @@ function GuidesInner({ role }: { role: string }) {
     return (
       <div className="min-h-screen bg-black flex flex-col">
         <div className="flex items-center justify-between px-4 py-4 border-b border-grey-mid">
-          <button onClick={() => { setActive(null); setLockNote('') }} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">← BACK</button>
+          <button onClick={() => { setActive(null); setLockNote('') }} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors border border-grey-mid px-3 py-2 hover:border-white">← BACK</button>
           <div className="flex items-center gap-3">
             {canEdit && (
               <button onClick={() => setEditor({ id: active.id })} className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors">EDIT</button>

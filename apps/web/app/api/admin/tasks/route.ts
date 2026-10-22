@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { normaliseOutcomes } from '@/lib/task-outcomes'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -85,6 +86,9 @@ export async function POST(req: NextRequest) {
     readingMax,
     criticalMin,
     criticalMax,
+    allowedOutcomes,
+    overrideOutcomes,
+    requireOutcomeReason,
   } = body
 
   if (!title?.trim() || !venueId) {
@@ -136,6 +140,9 @@ export async function POST(req: NextRequest) {
       readingMax: readingMax != null && Number.isFinite(readingMax) ? Number(readingMax) : null,
       criticalMin: criticalMin != null && Number.isFinite(criticalMin) ? Number(criticalMin) : null,
       criticalMax: criticalMax != null && Number.isFinite(criticalMax) ? Number(criticalMax) : null,
+      allowedOutcomes: normaliseOutcomes(allowedOutcomes),
+      overrideOutcomes: !!overrideOutcomes,
+      requireOutcomeReason: !!requireOutcomeReason,
       requiredTraining: { create: reqIds.map((moduleId) => ({ moduleId })) },
       taskGuides: Array.isArray(competencyGuideIds) && competencyGuideIds.length
         ? { create: competencyGuideIds.map((guideId: string) => ({ guideId, isRequiredForCompetency: true })) }

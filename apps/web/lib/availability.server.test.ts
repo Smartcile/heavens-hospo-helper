@@ -23,6 +23,7 @@ const { db } = vi.hoisted(() => {
 vi.mock('@hospo-ops/db', () => ({ prisma: db, Prisma: { DbNull: null } }))
 
 import {
+  applyEditRequest,
   buildAvailabilityPayload,
   cancelPendingAvailability,
   clearAvailability,
@@ -331,6 +332,80 @@ describe('weekly request cut-off', () => {
       { ...adminGate, cutoff: { day: 4, time: '17:00' }, nowMinutes: 18 * 60 },
     )
     expect(out).toMatchObject({ mode: 'SAVED' })
+  })
+})
+
+describe('availability notes', () => {
+  const rawNote = { isAllDay: true, type: 'UNAVAILABLE', notes: '  NEED SUNDAY OFF  ' }
+
+  it('writes the note on a normal saved day', async () => {
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: rawNote, repeat: null, scope: null, seriesId: null, reason: null },
+      gate,
+    )
+    expect(out).toMatchObject({ mode: 'SAVED' })
+    expect(db.staffAvailability.updateMany.mock.calls[0][0].data.notes).toBe('NEED SUNDAY OFF')
+  })
+
+  it('carries the note into an edit request and mirrors it as the reason', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: rawNote, repeat: null, scope: null, seriesId: null, reason: null },
+      gate,
+    )
+
+    expect(out).toMatchObject({ mode: 'REQUEST', requestId: 'req1' })
+    const data = db.availabilityEditRequest.create.mock.calls[0][0].data
+    expect(data.payload.availability.notes).toBe('NEED SUNDAY OFF')
+    expect(data.reason).toBe('NEED SUNDAY OFF')
+  })
+
+  it('writes the note on an admin override', async () => {
+    await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: rawNote, repeat: null, scope: null, seriesId: null, reason: null },
+      adminGate,
+    )
+    expect(db.staffAvailability.updateMany.mock.calls[0][0].data.notes).toBe('NEED SUNDAY OFF')
+  })
+
+  it('copies the note to every occurrence of a series', async () => {
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: rawNote, repeat: { weeks: 3 }, scope: null, seriesId: null, reason: null },
+      gate,
+    )
+
+    expect(out).toMatchObject({ mode: 'SAVED' })
+    expect(db.staffAvailability.updateMany.mock.calls[0][0].data.notes).toBe('NEED SUNDAY OFF')
+    const created = db.staffAvailability.createMany.mock.calls[0][0].data
+    expect(created).toHaveLength(3)
+    expect(created.every((row: { notes: string | null }) => row.notes === 'NEED SUNDAY OFF')).toBe(true)
+  })
+
+  it('preserves the note when an edit request is applied', async () => {
+    db.availabilityEditRequest.findUnique.mockResolvedValueOnce({
+      id: 'r1',
+      staffId: 'st1',
+      venueId: 'v1',
+      status: 'PENDING',
+      deletedAt: null,
+      action: 'SET',
+      payload: {
+        action: 'SET',
+        anchor: '2026-10-15',
+        scope: 'THIS',
+        availability: { isAllDay: true, type: 'UNAVAILABLE', windows: [], timeOff: false, notes: 'NEED SUNDAY OFF' },
+        writeDates: ['2026-10-15'],
+        removeDates: [],
+        seriesId: null,
+        syncSeriesId: null,
+        seriesEndDate: null,
+        syncSeriesEnd: false,
+      },
+    })
+
+    expect(await applyEditRequest('r1', 'admin1')).toBe(true)
+    expect(db.staffAvailability.updateMany.mock.calls[0][0].data.notes).toBe('NEED SUNDAY OFF')
   })
 })
 

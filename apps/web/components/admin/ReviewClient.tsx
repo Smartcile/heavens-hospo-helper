@@ -23,7 +23,7 @@ interface StaffRow {
   name: string
   role: string
   departmentName: string | null
-  completed: { taskTitle: string; completedAt: string; note: string | null }[]
+  completed: { taskTitle: string; completedAt: string; note: string | null; outcome: string }[]
   notes: Note[]
 }
 
@@ -159,8 +159,9 @@ export function ReviewClient({ role, sessionVenueId, defaultVenueId }: { role: s
                     <span className="font-mono text-sm font-semibold uppercase text-white">{s.name}</span>
                     {s.departmentName && <Badge>{s.departmentName}</Badge>}
                   </div>
-                  <Badge variant={s.completed.length > 0 ? 'success' : 'warning'}>
-                    {s.completed.length} DONE
+                  <Badge variant={s.completed.some((c) => c.outcome === 'DONE') ? 'success' : 'warning'}>
+                    {s.completed.filter((c) => c.outcome === 'DONE').length} DONE
+                    {s.completed.some((c) => c.outcome !== 'DONE') ? ` · ${s.completed.filter((c) => c.outcome !== 'DONE').length} OTHER` : ''}
                   </Badge>
                 </div>
 
@@ -174,8 +175,13 @@ export function ReviewClient({ role, sessionVenueId, defaultVenueId }: { role: s
                       <ul className="space-y-1">
                         {s.completed.map((c, i) => (
                           <li key={i} className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 bg-success flex-shrink-0 mt-1.5" />
+                            <span className={`w-1.5 h-1.5 flex-shrink-0 mt-1.5 ${c.outcome === 'DONE' ? 'bg-success' : c.outcome === 'DID_NOT_COMPLETE' ? 'bg-danger' : 'bg-grey-light'}`} />
                             <span className="font-mono text-xs text-white">{c.taskTitle}</span>
+                            {c.outcome !== 'DONE' && (
+                              <span className="font-mono text-xs uppercase border border-grey-mid text-grey-light px-1 py-0.5 flex-shrink-0">
+                                {c.outcome === 'NOT_REQUIRED' ? 'NOT REQUIRED' : c.outcome === 'DID_NOT_COMPLETE' ? 'DID NOT COMPLETE' : c.outcome}
+                              </span>
+                            )}
                             <span className="font-mono text-xs text-grey-light ml-auto flex-shrink-0">{formatTime(c.completedAt)}</span>
                           </li>
                         ))}

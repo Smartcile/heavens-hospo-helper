@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
         staffId: true,
         completedAt: true,
         note: true,
+        outcome: true,
         task: { select: { title: true } },
       },
       orderBy: { completedAt: 'asc' },
@@ -80,7 +81,7 @@ export async function GET(req: NextRequest) {
     departmentName: s.department?.name ?? null,
     completed: completions
       .filter((c) => c.staffId === s.id)
-      .map((c) => ({ taskTitle: c.task.title, completedAt: c.completedAt, note: c.note })),
+      .map((c) => ({ taskTitle: c.task.title, completedAt: c.completedAt, note: c.note, outcome: c.outcome })),
     notes: notes
       .filter((n) => n.staffId === s.id)
       .map((n) => ({

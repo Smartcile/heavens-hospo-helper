@@ -7,6 +7,30 @@ vi.mock('next/navigation', () => ({
 
 import { WorkerTasksClient } from '@/components/worker/WorkerTasksClient'
 
+const BASE_TASK = {
+  id: 't1', title: 'WIPE BENCHES', description: null, completionType: 'TICK',
+  departmentName: 'KITCHEN', sectionName: null, isCompleted: false,
+  isDone: false, isSettled: false, outcome: null,
+  allowedOutcomes: ['DONE', 'PARTIAL', 'NOT_REQUIRED', 'DID_NOT_COMPLETE'],
+  requireOutcomeReason: false, inProgress: null,
+  assigneeName: null, guide: null, isOneOff: false, dueDate: null,
+  rolloverEnabled: false, rolledOverFrom: null,
+  readingUnit: null, readingMin: null, readingMax: null, criticalMin: null, criticalMax: null,
+  linkedItemName: null, completedByName: null, completion: null,
+}
+
+function mockTasks(tasks: unknown[], checklists: unknown[] = []) {
+  const fetchMock = vi.mocked(global.fetch)
+  fetchMock.mockImplementation(async (url: string | URL | Request) => {
+    const u = String(url)
+    if (u === '/api/worker/tasks') {
+      return { ok: true, json: async () => ({ tasks, checklists, firstName: 'BAR' }) } as Response
+    }
+    return { ok: true, json: async () => ({}) } as Response
+  })
+  return fetchMock
+}
+
 describe('WorkerTasksClient', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -75,5 +99,69 @@ describe('WorkerTasksClient', () => {
     activated = true
     render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
     await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+  })
+
+  it('lets the worker choose NOT REQUIRED and sends the outcome', async () => {
+    const fetchMock = mockTasks([BASE_TASK])
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    fireEvent.click(screen.getByText('WIPE BENCHES'))
+
+    await waitFor(() => expect(screen.getByText('WHAT HAPPENED?')).toBeDefined())
+    expect(screen.getByText('PARTIAL')).toBeDefined()
+    expect(screen.getByText('DID NOT COMPLETE')).toBeDefined()
+
+    fireEvent.click(screen.getByText('NOT REQUIRED'))
+    fireEvent.click(screen.getByText('MARK NOT REQUIRED'))
+
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(([url]) => String(url).includes('/complete'))
+      expect(post).toBeDefined()
+      const body = JSON.parse(String((post![1] as RequestInit).body))
+      expect(body.outcome).toBe('NOT_REQUIRED')
+    })
+  })
+
+  it('requires a reason for a non-done outcome when configured', async () => {
+    const fetchMock = mockTasks([
+      { ...BASE_TASK, allowedOutcomes: ['DONE', 'DID_NOT_COMPLETE'], requireOutcomeReason: true },
+    ])
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    fireEvent.click(screen.getByText('WIPE BENCHES'))
+
+    await waitFor(() => expect(screen.getByText('WHAT HAPPENED?')).toBeDefined())
+    fireEvent.click(screen.getByText('DID NOT COMPLETE'))
+    fireEvent.click(screen.getByText('MARK DID NOT COMPLETE'))
+
+    await waitFor(() => expect(screen.getByText('A REASON IS REQUIRED')).toBeDefined())
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/complete'))).toBe(false)
+  })
+
+  it('shows an in-progress task on the list', async () => {
+    mockTasks([
+      {
+        ...BASE_TASK,
+        inProgress: { note: 'HALF DONE', byName: 'SAM', since: '2026-10-21T08:00:00.000Z' },
+      },
+    ])
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    expect(screen.getByText('IN PROGRESS · SAM')).toBeDefined()
+    expect(screen.getByText('HALF DONE')).toBeDefined()
+  })
+
+  it('shows settled non-done outcomes separately from completed work', async () => {
+    mockTasks([
+      { ...BASE_TASK, id: 't1', title: 'STILL TO DO' },
+      {
+        ...BASE_TASK, id: 't2', title: 'WAS NOT NEEDED', isCompleted: true, isSettled: true,
+        outcome: 'NOT_REQUIRED', completion: { id: 'c2', note: null, photoUrl: null, completedAt: new Date(), outcome: 'NOT_REQUIRED' },
+      },
+    ])
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('HANDLED — NOT DONE')).toBeDefined())
+    expect(screen.getByText('WAS NOT NEEDED')).toBeDefined()
+    expect(screen.getByText('NOT REQUIRED')).toBeDefined()
   })
 })

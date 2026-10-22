@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { cleanNoticeAudiences } from '@/lib/notice-audience'
+import { normaliseOutcomes } from '@/lib/task-outcomes'
 
 // A checklist is an ordered set of references to LIVE tasks. Reads return the
 // current task data, so edits to a task show up here automatically.
@@ -55,6 +56,8 @@ export async function GET(req: NextRequest) {
       sectionId: c.sectionId,
       appearFromTime: c.appearFromTime,
       activatedOn: c.activatedOn,
+      allowedOutcomes: c.allowedOutcomes,
+      requireOutcomeReason: c.requireOutcomeReason,
       department: c.department,
       section: c.section,
       audiences: c.audiences,
@@ -81,7 +84,7 @@ export async function POST(req: NextRequest) {
   if (denied) return denied
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, audiences } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, audiences, allowedOutcomes, requireOutcomeReason } = body
   const venueId = session.user.role === 'MANAGER' ? session.user.venueId : body.venueId
   const cleanAud = cleanNoticeAudiences(audiences)
 
@@ -98,6 +101,8 @@ export async function POST(req: NextRequest) {
       departmentId: departmentId || null,
       sectionId: sectionId || null,
       appearFromTime: appearFromTime?.trim() || null,
+      allowedOutcomes: normaliseOutcomes(allowedOutcomes),
+      requireOutcomeReason: !!requireOutcomeReason,
       audiences: cleanAud.length ? { create: cleanAud } : undefined,
       tasks: { create: ids.map((taskId, i) => ({ taskId, sortOrder: i })) },
     },

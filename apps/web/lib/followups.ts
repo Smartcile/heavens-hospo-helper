@@ -118,15 +118,30 @@ export async function generateVenueFollowUps(venueId: string): Promise<number> {
   if (tasks.length === 0) return 0
 
   const taskIds = tasks.map((t) => t.id)
-  const completions = await prisma.taskCompletion.findMany({
-    where: { taskId: { in: taskIds }, scheduledDate: { in: dates } },
-    select: { taskId: true, staffId: true, scheduledDate: true },
-  })
+  const [completions, inProgress] = await Promise.all([
+    prisma.taskCompletion.findMany({
+      where: {
+        taskId: { in: taskIds },
+        scheduledDate: { in: dates },
+        // DONE is completed; NOT_REQUIRED is deliberately handled. DID_NOT_COMPLETE
+        // stays a candidate for a MISSED follow-up.
+        outcome: { in: ['DONE', 'NOT_REQUIRED'] },
+      },
+      select: { taskId: true, staffId: true, scheduledDate: true },
+    }),
+    prisma.taskProgress.findMany({
+      where: { taskId: { in: taskIds } },
+      select: { taskId: true },
+    }),
+  ])
   const done = new Set(completions.map((c) => `${c.taskId}|${c.staffId}|${formatDateKey(c.scheduledDate)}`))
+  // A task in progress is not missed yet — the floor is still working on it.
+  const progressTaskIds = new Set(inProgress.map((p) => p.taskId))
 
   let created = 0
   for (const task of tasks) {
     const staffId = task.assignedToStaffId!
+    if (progressTaskIds.has(task.id)) continue // still in progress
     const createdDay = formatDateKey(task.createdAt)
     for (const date of dates) {
       const key = formatDateKey(date)

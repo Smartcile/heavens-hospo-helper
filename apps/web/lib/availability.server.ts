@@ -513,6 +513,7 @@ async function storeRequest(
   input: { staffId: string; venueId: string; dateKey: string; reason: string | null },
   plan: AvailabilityPlan,
 ): Promise<string> {
+  const reason = input.reason?.trim() || plan.availability?.notes?.trim() || null
   const request = await prisma.availabilityEditRequest.create({
     data: {
       staffId: input.staffId,
@@ -522,7 +523,7 @@ async function storeRequest(
       seriesId: plan.seriesId,
       action: plan.action,
       payload: plan as unknown as Prisma.InputJsonValue,
-      reason: input.reason?.trim() || null,
+      reason,
     },
   })
   return request.id

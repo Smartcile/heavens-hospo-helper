@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { cleanNoticeAudiences } from '@/lib/notice-audience'
+import { normaliseOutcomes } from '@/lib/task-outcomes'
 
 interface Params {
   params: { id: string }
@@ -47,6 +48,8 @@ export async function GET(req: NextRequest, { params }: Params) {
     department: c.department,
     section: c.section,
     appearFromTime: c.appearFromTime,
+    allowedOutcomes: c.allowedOutcomes,
+    requireOutcomeReason: c.requireOutcomeReason,
     tasks: c.tasks.filter((ct) => ct.task && !ct.task.deletedAt).map((ct) => ct.task),
   })
 }
@@ -70,6 +73,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.departmentId !== undefined) updates.departmentId = body.departmentId || null
   if (body.sectionId !== undefined) updates.sectionId = body.sectionId || null
   if (body.appearFromTime !== undefined) updates.appearFromTime = body.appearFromTime?.trim() || null
+  if (body.allowedOutcomes !== undefined) updates.allowedOutcomes = normaliseOutcomes(body.allowedOutcomes)
+  if (body.requireOutcomeReason !== undefined) updates.requireOutcomeReason = !!body.requireOutcomeReason
   if (body.isActive !== undefined) updates.isActive = !!body.isActive
   if (body.taskIds !== undefined) {
     const ids: string[] = Array.isArray(body.taskIds) ? body.taskIds : []

@@ -101,6 +101,7 @@ export interface RecentActivity {
   taskTitle: string
   departmentName: string | null
   completedAt: Date
+  outcome: string
 }
 
 export interface WorkerSession {
@@ -164,12 +165,28 @@ export interface WorkerTaskView {
   assigneeName: string | null
   guide: { id: string; title: string } | null
   isCompleted: boolean
+  /** True only when the recorded outcome is DONE. */
+  isDone: boolean
+  /** True when a terminal outcome (DONE / NOT_REQUIRED / DID_NOT_COMPLETE) settled the day. */
+  isSettled: boolean
+  /** The recorded terminal outcome, if any. */
+  outcome: string | null
+  /** Outcomes the worker is allowed to pick for this task (always contains DONE). */
+  allowedOutcomes: string[]
+  requireOutcomeReason: boolean
+  /** Current PARTIAL state, when the task is in progress. */
+  inProgress: {
+    note: string | null
+    byName: string | null
+    since: string
+  } | null
   completedByName: string | null
   completion: {
     id: string
     note: string | null
     photoUrl: string | null
     completedAt: Date
+    outcome: string
   } | null
   isOneOff: boolean
   dueDate: string | null

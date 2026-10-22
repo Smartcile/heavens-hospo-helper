@@ -219,7 +219,7 @@ export function WorkerGuideEditor({
   return (
     <div className="min-h-screen bg-black flex flex-col">
       <div className="flex items-center justify-between px-4 py-4 border-b border-grey-mid">
-        <button onClick={onClose} className="font-mono text-xs uppercase text-grey-light hover:text-white">← BACK</button>
+        <button onClick={onClose} className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid px-3 py-2 hover:border-white transition-colors">← BACK</button>
         <span className="font-mono text-xs text-grey-light">{guideId ? 'EDIT GUIDE' : 'NEW GUIDE'}</span>
         <span className={`font-mono text-xs uppercase ${form.status === 'PUBLISHED' ? 'text-success' : 'text-warning'}`}>{form.status}</span>
       </div>

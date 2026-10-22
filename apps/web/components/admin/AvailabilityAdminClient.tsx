@@ -11,6 +11,7 @@
 // clicked again.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { DateNav } from '@/components/admin/DateNav'
 import { getActiveVenueId } from '@/lib/active-venue'
@@ -28,12 +29,14 @@ import {
   describeSeriesEnd,
   describeWindows,
   isFreeAt,
+  seriesEndDateKey,
   statusMeta,
   type AvailabilityEntry,
   type AvailabilityPayloadLike,
   type AvailabilityPreset,
   type AvailabilityScope,
   type AvailabilitySeries,
+  type Repeat,
 } from '@/lib/availability'
 
 const WEEKDAY = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
@@ -120,6 +123,15 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
   // Drag-fill — copy one day's settings across the row.
   const [fill, setFill] = useState<{ staffId: string; from: number; to: number } | null>(null)
   const fillRef = useRef<{ staffId: string; from: number; to: number; x: number; y: number; moved: boolean } | null>(null)
+  const [pendingFill, setPendingFill] = useState<{
+    staffId: string
+    sourceDate: string
+    targetDates: string[]
+    entry: AvailabilityEntry
+  } | null>(null)
+  const [fillMode, setFillMode] = useState<'SINGLE' | 'SERIES'>('SINGLE')
+  const [fillWeeks, setFillWeeks] = useState(4)
+  const [fillNoEnd, setFillNoEnd] = useState(false)
 
   const days = useMemo(
     () => dateKeysBetween(new Date(`${range.start}T00:00:00Z`), new Date(`${range.end}T00:00:00Z`)),
@@ -348,7 +360,12 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
     const sourceDate = days[drag.from]
     const targetDates = targets.map((t) => days[t.col]).filter((d): d is string => !!d)
     if (!sourceDate || targetDates.length === 0) return
-    void copyDays(drag.staffId, sourceDate, targetDates)
+    const entry = entryFor(drag.staffId, sourceDate)
+    if (!entry) return
+    setFillMode('SINGLE')
+    setFillWeeks(4)
+    setFillNoEnd(false)
+    setPendingFill({ staffId: drag.staffId, sourceDate, targetDates, entry })
   }
 
   function onFillPointerCancel() {
@@ -356,9 +373,21 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
     setFill(null)
   }
 
-  async function copyDays(staffId: string, sourceDate: string, dates: string[]) {
-    const entry = entryFor(staffId, sourceDate)
-    if (!entry) return
+  function confirmFill() {
+    if (!pendingFill) return
+    const repeat: Repeat | null = pendingFill.entry.seriesId && fillMode === 'SERIES'
+      ? (fillNoEnd ? { noEnd: true } : { weeks: Math.max(1, Math.floor(fillWeeks) || 1) })
+      : null
+    const pending = pendingFill
+    setPendingFill(null)
+    void copyDays(pending, repeat)
+  }
+
+  async function copyDays(
+    pending: { staffId: string; targetDates: string[]; entry: AvailabilityEntry },
+    repeat: Repeat | null,
+  ) {
+    const { entry } = pending
     const source = {
       isAllDay: entry.isAllDay,
       type: entry.type,
@@ -367,13 +396,19 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
       notes: entry.notes,
     }
     setBusy(true); setError('')
-    const results = await Promise.all(dates.map((date) =>
-      fetch('/api/admin/availability', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ venueId, staffId, date, availability: source, repeat: null, scope: null, seriesId: null }),
-      }),
-    ))
+    const results = repeat
+      ? [await fetch('/api/admin/availability', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ venueId, staffId: pending.staffId, date: pending.targetDates[0], availability: source, repeat, scope: null, seriesId: null }),
+        })]
+      : await Promise.all(pending.targetDates.map((date) =>
+          fetch('/api/admin/availability', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ venueId, staffId: pending.staffId, date, availability: source, repeat: null, scope: null, seriesId: null }),
+          }),
+        ))
     setBusy(false)
     const failed = results.filter((r) => !r.ok).length
     if (failed) setError(`${failed} DAY${failed === 1 ? '' : 'S'} FAILED TO COPY`)
@@ -427,6 +462,17 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
     ? data?.series.find((s) => s.id === editorEntry.seriesId) ?? null
     : null
 
+  const fillTargetLabel = pendingFill
+    ? pendingFill.targetDates.length === 1
+      ? formatDateLong(pendingFill.targetDates[0])
+      : `${formatDateLong(pendingFill.targetDates[0])} → ${formatDateLong(pendingFill.targetDates[pendingFill.targetDates.length - 1])} (${pendingFill.targetDates.length} DAYS)`
+    : ''
+  const fillSeriesEnd = pendingFill && fillMode === 'SERIES'
+    ? fillNoEnd
+      ? 'NO END DATE'
+      : formatDateLong(seriesEndDateKey(pendingFill.targetDates[0], Math.max(1, Math.floor(fillWeeks) || 1)))
+    : null
+
   function renderStaffRow(s: AdminStaff) {
     return (
       <div key={s.id} className="contents">
@@ -470,6 +516,9 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
                     )}
                     {entry.timeOff && <span className="font-mono text-2xs uppercase text-warning">TO</span>}
                   </div>
+                  {entry.notes && (
+                    <p title={entry.notes} className="font-mono text-2xs uppercase text-grey-light truncate">NOTE: {entry.notes}</p>
+                  )}
                 </div>
               ) : (
                 <span className="font-mono text-2xs uppercase text-grey-mid">—</span>
@@ -700,6 +749,97 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
             onClear={(options) => clear(editor.staffId, editor.date, options)}
             onClose={() => { if (!busy) setEditor(null) }}
           />
+        )}
+      </Modal>
+
+      {/* Drag-fill confirmation */}
+      <Modal
+        isOpen={!!pendingFill}
+        onClose={() => { if (!busy) setPendingFill(null) }}
+        title="COPY AVAILABILITY"
+        size="sm"
+      >
+        {pendingFill && (
+          <div className="space-y-4">
+            <div>
+              <p className="font-mono text-sm text-white uppercase">{staffName(pendingFill.staffId)}</p>
+              <p className="font-mono text-xs text-grey-light uppercase mt-0.5">
+                {formatDateLong(pendingFill.sourceDate)} → {fillTargetLabel}
+              </p>
+            </div>
+
+            <div className="border border-grey-mid p-2">
+              <AvailabilityBar
+                windows={pendingFill.entry.windows}
+                isAllDay={pendingFill.entry.isAllDay}
+                type={pendingFill.entry.type}
+                labelled
+                fill
+              />
+              {pendingFill.entry.timeOff && (
+                <p className="font-mono text-2xs uppercase text-warning mt-1">TIME OFF REQUEST</p>
+              )}
+              {pendingFill.entry.notes && (
+                <p className="font-mono text-2xs uppercase text-grey-light mt-1">NOTE: {pendingFill.entry.notes}</p>
+              )}
+            </div>
+
+            {pendingFill.entry.seriesId && (
+              <div className="border border-grey-mid p-3 space-y-3">
+                <h3 className="font-mono text-2xs uppercase tracking-wider text-grey-light">THIS DAY IS PART OF A WEEKLY SERIES</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    size="sm"
+                    variant={fillMode === 'SINGLE' ? 'primary' : 'ghost'}
+                    onClick={() => setFillMode('SINGLE')}
+                  >
+                    JUST THESE DAYS
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={fillMode === 'SERIES' ? 'primary' : 'ghost'}
+                    onClick={() => setFillMode('SERIES')}
+                  >
+                    WEEKLY SERIES
+                  </Button>
+                </div>
+                {fillMode === 'SERIES' && (
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 font-mono text-2xs uppercase text-grey-light">
+                      REPEAT FOR
+                      <input
+                        type="number"
+                        min={1}
+                        max={104}
+                        value={fillWeeks}
+                        onChange={(e) => setFillWeeks(Number(e.target.value) || 1)}
+                        disabled={fillNoEnd}
+                        className="field w-20 disabled:opacity-40"
+                      />
+                      WEEKS
+                    </label>
+                    <label className="flex items-center gap-2 font-mono text-2xs uppercase text-grey-light">
+                      <input type="checkbox" checked={fillNoEnd} onChange={(e) => setFillNoEnd(e.target.checked)} />
+                      NO END DATE
+                    </label>
+                    <p className="font-mono text-2xs uppercase text-grey-light">
+                      STARTS {formatDateLong(pendingFill.targetDates[0])} · {fillSeriesEnd}
+                    </p>
+                    {pendingFill.targetDates.length > 1 && (
+                      <p className="font-mono text-2xs uppercase text-grey-light">
+                        REPEATS WEEKLY FROM THE FIRST DAY — OTHER DRAGGED DAYS ARE NOT COPIED.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button size="sm" loading={busy} onClick={confirmFill}>CONFIRM</Button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPendingFill(null)}>CANCEL</Button>
+            </div>
+          </div>
         )}
       </Modal>
 

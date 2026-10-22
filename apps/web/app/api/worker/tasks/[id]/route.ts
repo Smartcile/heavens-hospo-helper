@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
+import { normaliseOutcomes } from '@/lib/task-outcomes'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getWorkerSession()
@@ -18,6 +19,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     scheduleType, scheduleDays, customCron, intervalMonths,
     monthlyOption, monthlyDay, isActive, requiredTrainingIds,
     requireRetrain, changeSummary,
+    allowedOutcomes, overrideOutcomes, requireOutcomeReason,
   } = body
 
   let resolvedDeptId = departmentId !== undefined ? (departmentId || null) : undefined
@@ -46,6 +48,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (isActive !== undefined) update.isActive = isActive
   if (monthlyOption !== undefined) update.monthlyOption = scheduleType === 'MONTHLY' ? monthlyOption : null
   if (monthlyDay !== undefined) update.monthlyDay = scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? monthlyDay : null
+  if (allowedOutcomes !== undefined) update.allowedOutcomes = normaliseOutcomes(allowedOutcomes)
+  if (overrideOutcomes !== undefined) update.overrideOutcomes = !!overrideOutcomes
+  if (requireOutcomeReason !== undefined) update.requireOutcomeReason = !!requireOutcomeReason
 
   if (requireRetrain) {
     update.version = existing.version + 1

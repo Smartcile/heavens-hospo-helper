@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { postRetrainNotice } from '@/lib/retrain'
 import { guardAccess } from '@/lib/permissions'
+import { normaliseOutcomes } from '@/lib/task-outcomes'
 
 interface Params {
   params: { id: string }
@@ -24,6 +25,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       intervalMonths: true, monthlyOption: true, monthlyDay: true, isActive: true,
       status: true, hsCategory: true, linkedItemId: true,
       readingUnit: true, readingMin: true, readingMax: true, criticalMin: true, criticalMax: true,
+      allowedOutcomes: true, overrideOutcomes: true, requireOutcomeReason: true,
       sections: { select: { sectionId: true } },
       requiredTraining: { select: { moduleId: true } },
       taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
@@ -64,6 +66,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.readingMax !== undefined) updates.readingMax = body.readingMax != null && Number.isFinite(body.readingMax) ? Number(body.readingMax) : null
   if (body.criticalMin !== undefined) updates.criticalMin = body.criticalMin != null && Number.isFinite(body.criticalMin) ? Number(body.criticalMin) : null
   if (body.criticalMax !== undefined) updates.criticalMax = body.criticalMax != null && Number.isFinite(body.criticalMax) ? Number(body.criticalMax) : null
+  if (body.allowedOutcomes !== undefined) updates.allowedOutcomes = normaliseOutcomes(body.allowedOutcomes)
+  if (body.overrideOutcomes !== undefined) updates.overrideOutcomes = !!body.overrideOutcomes
+  if (body.requireOutcomeReason !== undefined) updates.requireOutcomeReason = !!body.requireOutcomeReason
 
   // Multiple sections — replace the set; the first is primary (department).
   if (body.sectionIds !== undefined) {

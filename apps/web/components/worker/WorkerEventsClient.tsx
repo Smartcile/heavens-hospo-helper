@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { BeoBlockEditor } from '@/components/admin/BeoBlockEditor'
+import { useWorkerImmersive } from '@/components/worker/useWorkerImmersive'
 import { BeoBlockLibrary } from '@/components/admin/BeoBlockLibrary'
 import { BeoBlockReferences } from '@/components/admin/BeoBlockReferences'
 import {
@@ -110,6 +111,8 @@ export function WorkerEventsClient() {
   const [creating, setCreating] = useState(false)
   const [view, setView] = useState<'ENQUIRIES' | 'EVENTS' | 'ALL'>('ENQUIRIES')
   const [converting, setConverting] = useState(false)
+
+  useWorkerImmersive(!!draft || createOpen || showLibrary)
 
   const load = useCallback(async () => {
     setLoading(true)

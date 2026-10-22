@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
+import { normaliseOutcomes } from '@/lib/task-outcomes'
 
 export async function GET() {
   const session = await getWorkerSession()
@@ -29,6 +30,8 @@ export async function GET() {
     departmentId: c.departmentId,
     sectionId: c.sectionId,
     appearFromTime: c.appearFromTime,
+    allowedOutcomes: c.allowedOutcomes,
+    requireOutcomeReason: c.requireOutcomeReason,
     department: c.department,
     section: c.section,
     tasks: c.tasks.map((ct) => ({
@@ -49,7 +52,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason } = body
 
   if (!name?.trim()) return NextResponse.json({ error: 'NAME IS REQUIRED' }, { status: 400 })
   if (!taskIds?.length) return NextResponse.json({ error: 'ADD AT LEAST ONE TASK' }, { status: 400 })
@@ -62,6 +65,8 @@ export async function POST(req: Request) {
       departmentId: departmentId || null,
       sectionId: sectionId || null,
       appearFromTime: appearFromTime || null,
+      allowedOutcomes: normaliseOutcomes(allowedOutcomes),
+      requireOutcomeReason: !!requireOutcomeReason,
       tasks: { create: taskIds.map((taskId: string, i: number) => ({ taskId, sortOrder: i })) },
     },
   })

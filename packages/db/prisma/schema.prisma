@@ -19,6 +19,17 @@ enum CompletionType {
   READING // a numeric measurement (temp, pH...) with pass/fail thresholds
 }
 
+// What actually happened when a worker opened a task. DONE is the only outcome
+// that counts as complete; NOT_REQUIRED and DID_NOT_COMPLETE settle the day
+// without inflating completion stats; PARTIAL stays in progress (TaskProgress)
+// until a terminal outcome is recorded.
+enum TaskOutcome {
+  DONE
+  PARTIAL
+  NOT_REQUIRED
+  DID_NOT_COMPLETE
+}
+
 // A reading task's pass verdict, denormalised onto the completion at write time
 // so it survives later threshold edits.
 enum ReadingVerdict {
@@ -448,6 +459,7 @@ model Staff {
   venue                Venue                @relation(fields: [venueId], references: [id])
   department           Department?          @relation(fields: [departmentId], references: [id])
   taskCompletions      TaskCompletion[]
+  taskProgress         TaskProgress[]
   trainingAssignments  TrainingAssignment[]
   trainingCompletions  TrainingCompletion[]
   guideCompletions     GuideCompletion[]
@@ -516,6 +528,12 @@ model Task {
   rolloverEnabled   Boolean        @default(false) // if not done by dueDate, show again next day
   rolledOverFrom    DateTime?      @db.Date // if this is a rollover copy, the original date
   version           Int            @default(1) // bumped on a "significant change" (drives re-train)
+  // --- Worker completion outcomes (hierarchy: checklist defaults, task override) ---
+  // Empty + overrideOutcomes=false means "inherit the checklist" (or all
+  // outcomes when the task is in no list). DONE is always allowed.
+  allowedOutcomes     TaskOutcome[] @default([])
+  overrideOutcomes    Boolean       @default(false) // true = use this task's own allowedOutcomes
+  requireOutcomeReason Boolean      @default(false) // task-level reason requirement (with override)
   // --- Food Health & Safety (Compliance hub) ---
   status            TaskStatus     @default(ACTIVE) // DRAFT tasks never reach the floor
   hsCategory        HsCategory? // Chomp-style grouping: FOOD / EQUIPMENT / TEAM / FACILITY
@@ -536,6 +554,7 @@ model Task {
   section          Section?               @relation(fields: [sectionId], references: [id])
   linkedItem       InventoryItem?         @relation("TaskLinkedItem", fields: [linkedItemId], references: [id])
   taskCompletions  TaskCompletion[]
+  progress         TaskProgress?
   hsAlerts         HsAlert[]
   trainingSteps    TrainingStep[]         @relation("StepLinkedTask")
   stepTasks        StepTask[]
@@ -556,6 +575,9 @@ model TaskCompletion {
   note          String?
   photoUrl      String?
   scheduledDate DateTime      @db.Date
+  // What actually happened. Only DONE counts as complete in progress metrics;
+  // NOT_REQUIRED / DID_NOT_COMPLETE still settle the task for the day.
+  outcome       TaskOutcome   @default(DONE)
   // READING completions: the recorded measurement + pass verdict (denormalised).
   value         Float?
   valueStatus   ReadingVerdict @default(NA)
@@ -563,6 +585,23 @@ model TaskCompletion {
   updatedAt     DateTime      @updatedAt
 
   task  Task  @relation(fields: [taskId], references: [id])
+  staff Staff @relation(fields: [staffId], references: [id])
+}
+
+// The current in-progress state of a task. One row per task (shared across the
+// floor, like completions). PARTIAL writes here and keeps the task on the list
+// across refreshes and day rollovers; a terminal outcome deletes it in the same
+// transaction as the completion.
+model TaskProgress {
+  id        String      @id @default(uuid())
+  taskId    String      @unique
+  staffId   String
+  note      String?
+  outcome   TaskOutcome @default(PARTIAL)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
   staff Staff @relation(fields: [staffId], references: [id])
 }
 
@@ -1589,6 +1628,10 @@ model Checklist {
   sectionId      String?
   appearFromTime String? // "HH:mm" venue-local — list shows from this time; stays until all done
   activatedOn    DateTime? @db.Date // admin force-opened the list for this venue-day; null = time gate only
+  // Default worker outcomes for every task in the list. Empty = all outcomes.
+  // DONE is always allowed. A task can override these (Task.overrideOutcomes).
+  allowedOutcomes       TaskOutcome[] @default([])
+  requireOutcomeReason  Boolean       @default(false)
   sortOrder      Int       @default(0)
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())

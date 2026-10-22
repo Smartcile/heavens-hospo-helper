@@ -31,7 +31,47 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
   const [data, setData] = useState<DashData | null>(null)
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<Widget>('dashboard')
+  const [immersive, setImmersive] = useState(false)
   const loaded = useRef(false)
+
+  // The worker pages are rendered in an iframe. When one opens a full-screen
+  // task / availability day / guide view it posts `worker-immersive`, so the
+  // dashboard's bottom bar steps out of the way.
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (e.data?.type === 'worker-immersive') setImmersive(!!e.data.immersive)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
+
+  // Keep browser back inside the worker app: back returns to the dashboard and
+  // never drops someone out to the landing/login page by accident.
+  useEffect(() => {
+    const arm = () => history.pushState({ workerGuard: true }, '', '/w/dashboard')
+    arm()
+    function onPop() {
+      setView('dashboard')
+      setImmersive(false)
+      router.replace('/w/dashboard')
+      // Re-arm after the pop so the next back is also caught.
+      arm()
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [router])
+
+  function openView(next: Widget) {
+    setImmersive(false)
+    setView(next)
+    history.pushState({ workerView: next }, '', '/w/dashboard')
+  }
+
+  function backToDashboard() {
+    setImmersive(false)
+    setView('dashboard')
+    history.replaceState({ workerGuard: true }, '', '/w/dashboard')
+  }
 
   const expiryMinutes = Number(process.env.NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES ?? 15)
 
@@ -172,14 +212,16 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
         <div className="flex-1">
           <iframe src={src} className="w-full h-full border-0" />
         </div>
-        <div className="px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] bg-black border-t border-grey-mid">
-          <button
-            onClick={() => setView('dashboard')}
-            className="w-full h-12 bg-warning/10 border border-warning/30 text-warning font-mono text-sm font-bold uppercase tracking-widest hover:bg-warning/20 hover:border-warning/50 transition-colors"
-          >
-            ← BACK TO DASHBOARD
-          </button>
-        </div>
+        {!immersive && (
+          <div className="px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] bg-black border-t border-grey-mid">
+            <button
+              onClick={backToDashboard}
+              className="w-full h-12 bg-warning/10 border border-warning/30 text-warning font-mono text-sm font-bold uppercase tracking-widest hover:bg-warning/20 hover:border-warning/50 transition-colors"
+            >
+              ← BACK TO DASHBOARD
+            </button>
+          </div>
+        )}
       </div>
     )
   }
@@ -227,7 +269,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           (data?.unackedNotices ?? 0) > 0 ? `${data?.unackedNotices} NEW` : null,
           'text-danger',
           'border-grey-mid',
-          () => setView('notices')
+          () => openView('notices')
         )}
 
         {card(
@@ -241,7 +283,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           `${tasksDone}/${tasksTotal}`,
           'text-grey-light',
           allTasksDone ? 'border-success' : tasksPending > 0 ? 'border-danger' : 'border-grey-mid',
-          () => setView('tasks')
+          () => openView('tasks')
         )}
 
         {card(
@@ -255,7 +297,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           `${data?.upcomingShifts} SHIFTS`,
           'text-grey-light',
           'border-grey-mid',
-          () => setView('calendar')
+          () => openView('calendar')
         )}
 
         {card(
@@ -267,7 +309,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           null,
           'text-grey-light',
           'border-grey-mid',
-          () => setView('availability')
+          () => openView('availability')
         )}
 
         {card(
@@ -281,7 +323,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           (data?.openShifts ?? 0) > 0 ? `${data?.openShifts} NEW` : null,
           'text-accent',
           (data?.openShifts ?? 0) > 0 ? 'border-accent' : 'border-grey-mid',
-          () => setView('shifts')
+          () => openView('shifts')
         )}
 
         {card(
@@ -297,7 +339,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           `${data?.trainingDone}/${data?.trainingTotal}`,
           'text-grey-light',
           'border-grey-mid',
-          () => setView('guides')
+          () => openView('guides')
         )}
 
         {card(
@@ -311,7 +353,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           `${data?.sopCount} PTS`,
           'text-grey-light',
           'border-grey-mid',
-          () => setView('guides')
+          () => openView('guides')
         )}
 
         {card(
@@ -323,7 +365,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           null,
           'text-grey-light',
           'border-grey-mid',
-          () => setView('floorplan')
+          () => openView('floorplan')
         )}
 
         {card(
@@ -337,7 +379,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           (data?.pendingStocktakes ?? 0) > 0 ? `${data?.pendingStocktakes} PENDING` : null,
           'text-accent',
           'border-grey-mid',
-          () => setView('stocktake')
+          () => openView('stocktake')
         )}
 
         {card(
@@ -349,7 +391,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           data?.isClockedIn ? 'ON DUTY' : null,
           data?.isClockedIn ? 'text-success' : 'text-grey-light',
           data?.isClockedIn ? 'border-success' : 'border-grey-mid',
-          () => setView('timeclock')
+          () => openView('timeclock')
         )}
 
         {data?.eventsAllowed && card(
@@ -361,7 +403,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           null,
           'text-grey-light',
           'border-grey-mid',
-          () => setView('events')
+          () => openView('events')
         )}
       </div>
     </div>

@@ -86,6 +86,24 @@ describe('AvailabilityDayEditor', () => {
     expect(onSave.mock.calls[0][0].notes).toBe('UNI ON TUESDAYS')
   })
 
+  it('prefills the stored note into the editable field', () => {
+    renderEditor({ entry: entry({ notes: 'UNI ON TUESDAYS' }) })
+
+    const note = screen.getByPlaceholderText('NOTE FOR THE MANAGER (OPTIONAL)') as HTMLInputElement
+    expect(note.value).toBe('UNI ON TUESDAYS')
+  })
+
+  it('sends a newly typed note as both the day note and the request reason', () => {
+    const { onSave } = renderEditor()
+
+    const note = screen.getByPlaceholderText('NOTE FOR THE MANAGER (OPTIONAL)')
+    fireEvent.change(note, { target: { value: '  NEED SUNDAY OFF  ' } })
+    fireEvent.click(screen.getByText('SAVE'))
+
+    expect(onSave.mock.calls[0][0].notes).toBe('NEED SUNDAY OFF')
+    expect(onSave.mock.calls[0][1].reason).toBe('NEED SUNDAY OFF')
+  })
+
   it('offers the series scopes and passes the chosen one', () => {
     const { onSave } = renderEditor({
       entry: entry({ seriesId: 's1', type: 'UNAVAILABLE', status: 'APPROVED' }),

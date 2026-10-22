@@ -10,9 +10,12 @@ import { DateInput } from '@/components/ui/DateInput'
 import { Combobox } from '@/components/ui/Combobox'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { readingVerdict, criticalVerdict, describeBand } from '@/lib/food-safety'
+import { OUTCOME_LABELS, OUTCOME_DESCRIPTIONS, TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { moveItem } from '@/lib/array'
 import { Panel } from '@/components/ui/Panel'
+import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
 import { useGuidePopup } from '@/components/GuidePopup'
+import { useWorkerImmersive } from '@/components/worker/useWorkerImmersive'
 
 type TaskState = WorkerTaskView
 type ModalTask = TaskState | null
@@ -23,6 +26,9 @@ interface TaskForm {
   scheduleDays: number[]; customCron: string
   intervalMonths: number; monthlyOption: string; monthlyDay: number
   requiredTrainingIds: string[]
+  allowedOutcomes: TaskOutcome[]
+  overrideOutcomes: boolean
+  requireOutcomeReason: boolean
 }
 
 interface TaskFull {
@@ -31,6 +37,7 @@ interface TaskFull {
   completionType: string; scheduleType: string; scheduleDays: number[]
   customCron: string | null; intervalMonths: number
   monthlyOption: string | null; monthlyDay: number | null; isActive: boolean
+  allowedOutcomes?: string[]; overrideOutcomes?: boolean; requireOutcomeReason?: boolean
   department: { id: string; name: string } | null
   section: { id: string; name: string } | null
   requiredTraining: { moduleId: string; module?: { kind: string } }[]
@@ -39,6 +46,8 @@ interface TaskFull {
 interface ChecklistFull {
   id: string; name: string; description: string | null; venueId: string
   departmentId: string | null; sectionId: string | null; appearFromTime: string | null
+  allowedOutcomes?: string[]
+  requireOutcomeReason?: boolean
   tasks: { id: string; title: string; isActive: boolean; version: number }[]
 }
 
@@ -51,6 +60,7 @@ const EMPTY_TASK_FORM: TaskForm = {
   title: '', description: '', departmentId: '', sectionId: '',
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
   intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, requiredTrainingIds: [],
+  allowedOutcomes: [...TASK_OUTCOMES], overrideOutcomes: false, requireOutcomeReason: false,
 }
 
 const COMPLETION_OPTIONS = [
@@ -81,6 +91,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   const [note, setNote] = useState('')
   const [photo, setPhoto] = useState<File | null>(null)
   const [readingValue, setReadingValue] = useState('')
+  const [outcome, setOutcome] = useState<TaskOutcome>('DONE')
   const [completing, setCompleting] = useState(false)
   const [completionError, setCompletionError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
@@ -111,6 +122,8 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   const [clDeptId, setClDeptId] = useState('')
   const [clSectionId, setClSectionId] = useState('')
   const [clAppearFrom, setClAppearFrom] = useState('')
+  const [clAllowedOutcomes, setClAllowedOutcomes] = useState<TaskOutcome[]>([...TASK_OUTCOMES])
+  const [clRequireReason, setClRequireReason] = useState(false)
   const [clSelected, setClSelected] = useState<string[]>([])
   const [clSaving, setClSaving] = useState(false)
   const [clError, setClError] = useState('')
@@ -145,6 +158,8 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   }
 
   const expiryMinutes = Number(process.env.NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES ?? 15)
+
+  useWorkerImmersive(!!activeTask || taskModalOpen || clModalOpen)
 
   function resetInactivity() {
     if (inactivityTimer) clearTimeout(inactivityTimer)
@@ -205,26 +220,37 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
 
   function openTask(t: TaskState) {
     if (isEditMode) return
-    if (t.isCompleted) return
+    if (t.isSettled) return
     setActiveTask(t)
     setNote('')
     setPhoto(null)
     setReadingValue('')
+    setOutcome('DONE')
     setCompletionError('')
   }
 
+  const activeAllowedOutcomes: TaskOutcome[] = (activeTask?.allowedOutcomes?.length
+    ? activeTask.allowedOutcomes
+    : TASK_OUTCOMES) as TaskOutcome[]
+
   async function handleComplete() {
     if (!activeTask) return
+    if (outcome !== 'DONE' && activeTask.requireOutcomeReason && !note.trim()) {
+      setCompletionError('A REASON IS REQUIRED')
+      return
+    }
     setCompleting(true)
     setCompletionError('')
 
+    const readingValueForSubmit = outcome === 'DONE' ? readingValue : ''
     let r: Response
 
-    if (activeTask.completionType === 'TICK_PHOTO' && photo) {
+    if (activeTask.completionType === 'TICK_PHOTO' && photo && outcome === 'DONE') {
       const form = new FormData()
       form.append('note', note)
+      form.append('outcome', outcome)
       form.append('photo', photo)
-      if (readingValue !== '') form.append('value', readingValue)
+      if (readingValueForSubmit !== '') form.append('value', readingValueForSubmit)
       r = await fetch(`/api/worker/tasks/${activeTask.id}/complete`, {
         method: 'POST',
         body: form,
@@ -233,7 +259,11 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
       r = await fetch(`/api/worker/tasks/${activeTask.id}/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note: note || null, value: readingValue !== '' ? Number(readingValue) : null }),
+        body: JSON.stringify({
+          note: note || null,
+          outcome,
+          value: readingValueForSubmit !== '' ? Number(readingValueForSubmit) : null,
+        }),
       })
     }
 
@@ -285,6 +315,9 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
       monthlyOption: t.monthlyOption ?? 'FIRST_DAY',
       monthlyDay: t.monthlyDay ?? 1,
       requiredTrainingIds: (t.requiredTraining ?? []).map(r => r.moduleId),
+      allowedOutcomes: (t.allowedOutcomes?.length ? t.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[],
+      overrideOutcomes: !!t.overrideOutcomes,
+      requireOutcomeReason: !!t.requireOutcomeReason,
     })
     setRequireRetrain(false); setChangeSummary('')
     setTaskError(''); setTaskModalOpen(true)
@@ -341,6 +374,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     setClName(''); setClDesc('')
     setClDeptId(''); setClSectionId(''); setClSelected([])
     setClAppearFrom(''); setClError(''); setClModalOpen(true)
+    setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false)
   }
 
   function openChecklistEdit(c: ChecklistFull) {
@@ -349,6 +383,8 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     setClDeptId(c.departmentId ?? ''); setClSectionId(c.sectionId ?? '')
     setClSelected(c.tasks.map(t => t.id))
     setClAppearFrom(c.appearFromTime ?? '')
+    setClAllowedOutcomes((c.allowedOutcomes?.length ? c.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[])
+    setClRequireReason(!!c.requireOutcomeReason)
     setClError(''); setClModalOpen(true)
   }
 
@@ -360,6 +396,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
       name: clName, description: clDesc,
       departmentId: clDeptId || null, sectionId: clSectionId || null,
       appearFromTime: clAppearFrom || null, taskIds: clSelected,
+      allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason,
     }
     const url = clEditing && clEditing !== 'new' ? `/api/worker/checklists/${clEditing.id}` : '/api/worker/checklists'
     const method = clEditing && clEditing !== 'new' ? 'PUT' : 'POST'
@@ -380,9 +417,11 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     await loadEditData()
   }
 
-  const pending = tasks.filter((t) => !t.isCompleted)
-  const done = tasks.filter((t) => t.isCompleted)
+  const pending = tasks.filter((t) => !t.isSettled)
+  const done = tasks.filter((t) => t.isDone)
+  const handled = tasks.filter((t) => t.isSettled && !t.isDone)
   const allDone = tasks.length > 0 && pending.length === 0
+  const allActuallyDone = allDone && handled.length === 0
 
   // Time-gate the lists
   const now = new Date()
@@ -502,7 +541,15 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               {(t.rolledOverFrom || (t.isOneOff && t.dueDate && !t.isCompleted)) && (
                 <span className="font-mono text-xs text-warning uppercase">⚠ ROLLED OVER</span>
               )}
+              {t.inProgress && (
+                <span className="font-mono text-xs text-warning uppercase">
+                  IN PROGRESS{t.inProgress.byName ? ` · ${t.inProgress.byName}` : ''}
+                </span>
+              )}
             </div>
+            {t.inProgress?.note && (
+              <p className="font-sans text-xs text-warning/80 mt-1 truncate">{t.inProgress.note}</p>
+            )}
           </div>
         </div>
       </div>
@@ -531,19 +578,26 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           <div />
         </div>
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-6">
-          <Panel padding="none" className="w-16 h-16 border-4 border-success flex items-center justify-center">
-            <svg className="w-8 h-8 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M5 13l4 4L19 7" />
-            </svg>
+          <Panel padding="none" className={`w-16 h-16 border-4 flex items-center justify-center ${allActuallyDone ? 'border-success' : 'border-warning'}`}>
+            {allActuallyDone ? (
+              <svg className="w-8 h-8 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <span className="font-mono text-2xl text-warning">!</span>
+            )}
           </Panel>
           <div>
-            <h1 className="font-mono text-2xl font-bold uppercase tracking-widest text-success">
-              ALL DONE
+            <h1 className={`font-mono text-2xl font-bold uppercase tracking-widest ${allActuallyDone ? 'text-success' : 'text-warning'}`}>
+              {allActuallyDone ? 'ALL DONE' : 'ALL TASKS HANDLED'}
             </h1>
-            <p className="font-mono text-sm text-white mt-1 uppercase">NICE WORK, {firstName}!</p>
+            <p className="font-mono text-sm text-white mt-1 uppercase">
+              {allActuallyDone ? `NICE WORK, ${firstName}!` : `NOT EVERYTHING WAS DONE, ${firstName}`}
+            </p>
           </div>
           <p className="font-mono text-xs text-grey-light uppercase">
-            {tasks.length} TASK{tasks.length !== 1 ? 'S' : ''} COMPLETED TODAY
+            {done.length} DONE
+            {handled.length > 0 ? ` · ${handled.length} NOT DONE / NOT REQUIRED` : ''}
           </p>
         </div>
       </div>
@@ -560,7 +614,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               {getGreeting()}, {firstName}
             </h1>
             <p className="font-mono text-xs text-grey-light mt-0.5 uppercase">
-              {done.length} OF {tasks.length} TASKS COMPLETE
+              {done.length} OF {tasks.length} TASKS DONE{handled.length > 0 ? ` · ${handled.length} HANDLED` : ''}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -713,7 +767,15 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                           {(t.rolledOverFrom || (t.isOneOff && t.dueDate && !t.isCompleted)) && (
                             <span className="font-mono text-xs text-warning uppercase">⚠ ROLLED OVER</span>
                           )}
+                          {t.inProgress && (
+                            <span className="font-mono text-xs text-warning uppercase">
+                              IN PROGRESS{t.inProgress.byName ? ` · ${t.inProgress.byName}` : ''}
+                            </span>
+                          )}
                         </div>
+                        {t.inProgress?.note && (
+                          <p className="font-sans text-xs text-warning/80 mt-1 truncate">{t.inProgress.note}</p>
+                        )}
                       </div>
                     </div>
                   )
@@ -779,13 +841,42 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
         </div>
       )}
 
+      {/* Settled but not done — NOT REQUIRED / DID NOT COMPLETE */}
+      {handled.length > 0 && (
+        <div className="px-4 pb-6">
+          <div className="font-mono text-xs text-grey-light uppercase mb-2 tracking-wider">
+            HANDLED — NOT DONE
+          </div>
+          <div className="space-y-1">
+            {handled.map((t) => {
+              const outcomeLabel = t.outcome === 'NOT_REQUIRED' ? 'NOT REQUIRED' : 'DID NOT COMPLETE'
+              const tone = t.outcome === 'NOT_REQUIRED' ? 'text-grey-light border-grey-mid' : 'text-danger border-danger/50'
+              return (
+                <Panel key={t.id} padding="md" className="space-y-1 opacity-80">
+                  <div className="flex items-center gap-3">
+                    <span className={`font-mono text-xs uppercase border px-1.5 py-0.5 flex-shrink-0 ${tone}`}>
+                      {outcomeLabel}
+                    </span>
+                    <span className="font-mono text-xs uppercase text-white min-w-0 truncate">{t.title}</span>
+                    {t.completedByName && <span className="font-mono text-xs uppercase text-grey-light ml-auto flex-shrink-0">BY {t.completedByName}</span>}
+                  </div>
+                  {t.completion?.note && (
+                    <p className="font-sans text-xs text-grey-light pl-1">{t.completion.note}</p>
+                  )}
+                </Panel>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Completion modal (only when not in edit mode) */}
       {!isEditMode && activeTask && (
         <div className="fixed inset-0 z-50 bg-black flex flex-col">
           <div className="flex items-center justify-between px-4 py-4 border-b border-grey-mid">
             <button
               onClick={() => setActiveTask(null)}
-              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors border border-grey-mid px-3 py-2 hover:border-white"
             >
               ← BACK
             </button>
@@ -811,7 +902,51 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               )}
             </div>
 
-            {activeTask.completionType === 'READING' && (
+            {activeTask.inProgress && outcome === 'DONE' && (
+              <div className="border-l-4 border-l-warning pl-3 py-1">
+                <p className="font-mono text-xs text-warning uppercase">
+                  IN PROGRESS SINCE {new Date(activeTask.inProgress.since).toLocaleDateString()}
+                  {activeTask.inProgress.byName ? ` · ${activeTask.inProgress.byName}` : ''}
+                </p>
+                {activeTask.inProgress.note && (
+                  <p className="font-sans text-xs text-grey-light mt-1">{activeTask.inProgress.note}</p>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">
+                WHAT HAPPENED?
+              </label>
+              <div className="grid grid-cols-1 gap-2">
+                {activeAllowedOutcomes.map((o) => {
+                  const selected = outcome === o
+                  const tone =
+                    o === 'DONE'
+                      ? 'border-success text-success'
+                      : o === 'PARTIAL'
+                        ? 'border-warning text-warning'
+                        : o === 'DID_NOT_COMPLETE'
+                          ? 'border-danger text-danger'
+                          : 'border-grey-mid text-white'
+                  return (
+                    <button
+                      key={o}
+                      type="button"
+                      onClick={() => setOutcome(o)}
+                      className={`text-left border px-3 py-3 transition-colors ${selected ? 'bg-white text-black border-white' : `bg-transparent ${tone} hover:border-white hover:text-white`}`}
+                    >
+                      <div className="font-mono text-xs font-bold uppercase tracking-wider">{OUTCOME_LABELS[o]}</div>
+                      <div className={`font-mono text-xs uppercase mt-0.5 ${selected ? 'text-grey-dark' : 'text-grey-light'}`}>
+                        {OUTCOME_DESCRIPTIONS[o]}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {activeTask.completionType === 'READING' && outcome === 'DONE' && (
               <div className="space-y-2">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider">
                   READING — {describeBand(activeTask, activeTask.readingUnit)}
@@ -858,21 +993,23 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               </div>
             )}
 
-            {(activeTask.completionType === 'TICK_NOTE' || activeTask.completionType === 'TICK_PHOTO') && (
+            {(activeTask.completionType === 'TICK_NOTE' || activeTask.completionType === 'TICK_PHOTO' || outcome !== 'DONE') && (
               <div className="space-y-2">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider">
-                  {activeTask.completionType === 'TICK_PHOTO' ? 'NOTE (OPTIONAL)' : 'NOTE'}
+                  {outcome !== 'DONE'
+                    ? `REASON${activeTask.requireOutcomeReason ? ' (REQUIRED)' : ' (OPTIONAL)'}`
+                    : activeTask.completionType === 'TICK_PHOTO' ? 'NOTE (OPTIONAL)' : 'NOTE'}
                 </label>
                 <textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
-                  placeholder="ADD YOUR NOTES HERE..."
+                  placeholder={outcome !== 'DONE' ? 'WHY? (HELPS THE FOLLOW-UP REVIEW)...' : 'ADD YOUR NOTES HERE...'}
                   className="w-full bg-grey-dark border border-grey-mid text-white font-sans text-sm px-3 py-3 outline-none focus:border-white min-h-[120px] resize-none placeholder:text-grey-light"
                 />
               </div>
             )}
 
-            {activeTask.completionType === 'TICK_PHOTO' && (
+            {activeTask.completionType === 'TICK_PHOTO' && outcome === 'DONE' && (
               <div className="space-y-2">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider">PHOTO</label>
                 <input
@@ -916,9 +1053,23 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             <button
               onClick={handleComplete}
               disabled={completing}
-              className="w-full h-14 bg-success text-black font-mono font-bold text-sm uppercase tracking-widest hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+              className={`w-full h-14 font-mono font-bold text-sm uppercase tracking-widest hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed ${
+                outcome === 'DONE'
+                  ? 'bg-success text-black'
+                  : outcome === 'PARTIAL'
+                    ? 'bg-warning text-black'
+                    : outcome === 'DID_NOT_COMPLETE'
+                      ? 'bg-danger text-black'
+                      : 'bg-white text-black'
+              }`}
             >
-              {completing ? 'SAVING_' : 'MARK DONE'}
+              {completing
+                ? 'SAVING_'
+                : outcome === 'DONE'
+                  ? 'MARK DONE'
+                  : outcome === 'PARTIAL'
+                    ? 'SAVE PROGRESS'
+                    : `MARK ${OUTCOME_LABELS[outcome]}`}
             </button>
           </div>
         </div>
@@ -930,7 +1081,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           <div className="flex items-center justify-between px-4 py-4 border-b border-grey-mid">
             <button
               onClick={() => setTaskModalOpen(false)}
-              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors border border-grey-mid px-3 py-2 hover:border-white"
             >
               ← BACK
             </button>
@@ -983,6 +1134,15 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                 onChange={(e) => setTaskForm({ ...taskForm, scheduleType: e.target.value, scheduleDays: [] })}
                 options={SCHEDULE_OPTIONS} />
             </div>
+
+            <OutcomeOptions
+              allowed={taskForm.allowedOutcomes}
+              requireReason={taskForm.requireOutcomeReason}
+              onChange={(allowedOutcomes, requireOutcomeReason) => setTaskForm({ ...taskForm, allowedOutcomes, requireOutcomeReason })}
+              canOverride
+              override={taskForm.overrideOutcomes}
+              onOverrideChange={(overrideOutcomes) => setTaskForm({ ...taskForm, overrideOutcomes })}
+            />
 
             {taskForm.scheduleType === 'WEEKLY' && (
               <div className="flex flex-col gap-1">
@@ -1080,7 +1240,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
         <div className="fixed inset-0 z-50 bg-black flex flex-col">
           <div className="flex items-center justify-between px-4 py-4 border-b border-grey-mid">
             <button onClick={() => setClModalOpen(false)}
-              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">
+              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors border border-grey-mid px-3 py-2 hover:border-white">
               ← BACK
             </button>
             <span className="font-mono text-xs font-bold uppercase text-warning tracking-widest">
@@ -1114,8 +1274,15 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             <Input label="Appears from (time, optional)" type="time"
               value={clAppearFrom} onChange={(e) => setClAppearFrom(e.target.value)} />
             <p className="font-mono text-xs uppercase text-grey-light">
-              SHOWS ON THE FLOOR FROM THIS TIME &amp; STAYS UNTIL EVERY TASK IS DONE FOR THE DAY.
+              SHOWS ON THE FLOOR FROM THIS TIME &amp; STAYS UNTIL EVERY TASK IS SETTLED FOR THE DAY.
             </p>
+
+            <OutcomeOptions
+              allowed={clAllowedOutcomes}
+              requireReason={clRequireReason}
+              onChange={(allowedOutcomes, requireOutcomeReason) => { setClAllowedOutcomes(allowedOutcomes); setClRequireReason(requireOutcomeReason) }}
+              inheritedLabel="APPLIES TO EVERY TASK IN THIS LIST UNLESS THE TASK OVERRIDES IT"
+            />
 
             <div className="space-y-1">
               <label className="font-mono text-xs uppercase text-grey-light tracking-wider">

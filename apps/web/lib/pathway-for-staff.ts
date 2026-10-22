@@ -73,7 +73,7 @@ export async function completedNodeIds(
       : Promise.resolve([]),
     taskNodes.length
       ? prisma.taskCompletion.findMany({
-          where: { staffId, taskId: { in: taskNodes.map((n) => n.targetId!) } },
+          where: { staffId, taskId: { in: taskNodes.map((n) => n.targetId!) }, outcome: 'DONE' },
           select: { taskId: true },
           distinct: ['taskId'],
         })
@@ -96,7 +96,7 @@ export async function completedNodeIds(
   // at least once — an empty checklist is not an automatic win.
   if (listTasks.length) {
     const listTaskDone = await prisma.taskCompletion.findMany({
-      where: { staffId, taskId: { in: [...new Set(listTasks.map((t) => t.taskId))] } },
+      where: { staffId, taskId: { in: [...new Set(listTasks.map((t) => t.taskId))] }, outcome: 'DONE' },
       select: { taskId: true },
       distinct: ['taskId'],
     })

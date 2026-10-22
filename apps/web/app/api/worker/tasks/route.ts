@@ -4,6 +4,8 @@ import { getWorkerSession } from '@/lib/worker-session'
 import { getTodayDate } from '@/lib/utils'
 import { isTaskDueOnDate } from '@/lib/scheduling'
 import { isActivatedOn } from '@/lib/checklist-activation'
+import { resolveOutcomePolicyForChecklists, normaliseOutcomes, type OutcomePolicyChecklist } from '@/lib/task-outcomes'
+import { applicableChecklistsForStaff } from '@/lib/checklist-applicability.server'
 
 export async function GET(req: NextRequest) {
   const session = await getWorkerSession()
@@ -50,6 +52,12 @@ export async function GET(req: NextRequest) {
     select: { timezone: true },
   })
   const today = getTodayDate(venue?.timezone)
+  const nowHHmm = new Intl.DateTimeFormat('en-GB', {
+    timeZone: venue?.timezone ?? 'Pacific/Auckland',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date())
 
   // Show the WHOLE department's lists for the day — everyone on the floor sees
   // every list; completion is shared (global per task+date), so no double-ups.
@@ -74,6 +82,9 @@ export async function GET(req: NextRequest) {
         orderBy: { completedAt: 'desc' },
         take: 1,
       },
+      progress: {
+        include: { staff: { select: { firstName: true, lastName: true } } },
+      },
       taskGuides: {
         include: {
           guide: { select: { id: true, title: true } },
@@ -89,7 +100,9 @@ export async function GET(req: NextRequest) {
     orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
   })
 
-  const todayTasks = tasks.filter((t) => isTaskDueOnDate(t, today))
+  // A task with an in-progress PARTIAL row stays visible even when it is not due
+  // today (a job that spans more than a day).
+  const todayTasks = tasks.filter((t) => isTaskDueOnDate(t, today) || !!t.progress)
 
   // ── Rollover handling ──
   // A rolled-over one-off completed on its dueDate should not reappear today.
@@ -100,7 +113,7 @@ export async function GET(req: NextRequest) {
         taskId: { in: rolledTasks.map((t) => t.id) },
         scheduledDate: { in: [...new Set(rolledTasks.map((t) => new Date(t.dueDate!)))] },
       },
-      select: { taskId: true, id: true, note: true, photoUrl: true, completedAt: true, staff: { select: { firstName: true, lastName: true } } },
+      select: { taskId: true, id: true, note: true, photoUrl: true, completedAt: true, outcome: true, staff: { select: { firstName: true, lastName: true } } },
       orderBy: { completedAt: 'desc' },
     })
     const completedMap = new Map(rolledCompletions.map((c) => [c.taskId, c]))
@@ -121,42 +134,13 @@ export async function GET(req: NextRequest) {
   const assigneeName = new Map(assignees.map((s) => [s.id, `${s.firstName} ${s.lastName}`]))
 
   // Checklists ("lists") for this floor — they gate visibility by appear-from
-  // time and stay until everything's done. A list can target departments,
-  // sections and/or roles (ChecklistAudience); legacy dept-scoped lists still
-  // work (only when they carry no audiences).
-  const staffCtx = await prisma.staff.findUnique({
-    where: { id: session.staffId },
-    select: { sections: { select: { sectionId: true } }, positions: { select: { positionId: true } } },
-  })
-  const sectionIds = (staffCtx?.sections ?? []).map((s) => s.sectionId)
-  const positionIds = (staffCtx?.positions ?? []).map((p) => p.positionId)
-  const checklists = await prisma.checklist.findMany({
-    where: {
-      deletedAt: null,
-      isActive: true,
-      venueId: session.venueId,
-      OR: [
-        ...(departmentIds ? [{ departmentId: { in: departmentIds }, audiences: { none: {} } }] : []),
-        { departmentId: null, audiences: { none: {} } },
-        ...(session.departmentId
-          ? [{ audiences: { some: { kind: 'DEPARTMENT' as const, targetId: session.departmentId } } }]
-          : []),
-        ...(sectionIds.length
-          ? [{ audiences: { some: { kind: 'SECTION' as const, targetId: { in: sectionIds } } } }]
-          : []),
-        ...(positionIds.length
-          ? [{ audiences: { some: { kind: 'POSITION' as const, targetId: { in: positionIds } } } }]
-          : []),
-      ],
-    },
-    select: {
-      id: true,
-      name: true,
-      appearFromTime: true,
-      activatedOn: true,
-      tasks: { select: { taskId: true }, orderBy: { sortOrder: 'asc' } },
-    },
-    orderBy: [{ appearFromTime: 'asc' }, { name: 'asc' }],
+  // time and stay until everything's settled. Audience/department rules live in
+  // `applicableChecklistsForStaff` so the completion endpoint agrees.
+  const { checklists } = await applicableChecklistsForStaff({
+    staffId: session.staffId,
+    venueId: session.venueId,
+    departmentId: session.departmentId,
+    linkedDepartmentIds,
   })
   const checklistResult = checklists.map((c) => ({
     id: c.id,
@@ -167,8 +151,36 @@ export async function GET(req: NextRequest) {
     taskIds: c.tasks.map((ct) => ct.taskId),
   }))
 
+  // The policy hierarchy is checklist → task override. Build the per-task list
+  // once; the pure resolver picks the first open list, matching how the client
+  // groups tasks under a list.
+  const policyListsByTask = new Map<string, OutcomePolicyChecklist[]>()
+  for (const c of checklists) {
+    const policyList: OutcomePolicyChecklist = {
+      name: c.name,
+      appearFromTime: c.appearFromTime,
+      activatedOn: c.activatedOn,
+      allowedOutcomes: c.allowedOutcomes,
+      requireOutcomeReason: c.requireOutcomeReason,
+    }
+    for (const ct of c.tasks) {
+      const arr = policyListsByTask.get(ct.taskId) ?? []
+      arr.push(policyList)
+      policyListsByTask.set(ct.taskId, arr)
+    }
+  }
+
   const result = todayTasks.map((t) => {
     const c = t.taskCompletions[0]
+    const policy = resolveOutcomePolicyForChecklists(
+      {
+        overrideOutcomes: t.overrideOutcomes,
+        allowedOutcomes: t.allowedOutcomes,
+        requireOutcomeReason: t.requireOutcomeReason,
+      },
+      policyListsByTask.get(t.id) ?? [],
+      { today, nowHHmm },
+    )
     return {
       id: t.id,
       title: t.title,
@@ -178,10 +190,22 @@ export async function GET(req: NextRequest) {
       sectionName: t.section?.name ?? null,
       assigneeName: t.assignedToStaffId ? assigneeName.get(t.assignedToStaffId) ?? null : null,
       guide: (t.taskGuides?.[0]?.guide) ?? (t.trainingModules[0] ?? null),
-      isCompleted: t.taskCompletions.length > 0,
+      isCompleted: !!c,
+      isDone: c?.outcome === 'DONE',
+      isSettled: !!c,
+      outcome: c?.outcome ?? null,
+      allowedOutcomes: policy.allowed,
+      requireOutcomeReason: policy.requireReason,
+      inProgress: t.progress
+        ? {
+            note: t.progress.note,
+            byName: `${t.progress.staff.firstName} ${t.progress.staff.lastName}`,
+            since: t.progress.createdAt.toISOString(),
+          }
+        : null,
       completedByName: c ? `${c.staff.firstName} ${c.staff.lastName}` : null,
       completion: c
-        ? { id: c.id, note: c.note, photoUrl: c.photoUrl, completedAt: c.completedAt }
+        ? { id: c.id, note: c.note, photoUrl: c.photoUrl, completedAt: c.completedAt, outcome: c.outcome }
         : null,
       isOneOff: t.isOneOff,
       dueDate: t.dueDate,
@@ -211,6 +235,7 @@ export async function POST(req: NextRequest) {
     title, description, departmentId, sectionId, completionType,
     scheduleType, scheduleDays, customCron, intervalMonths,
     monthlyOption, monthlyDay, requiredTrainingIds,
+    allowedOutcomes, overrideOutcomes, requireOutcomeReason,
   } = body
 
   if (!title?.trim()) return NextResponse.json({ error: 'TITLE IS REQUIRED' }, { status: 400 })
@@ -240,6 +265,9 @@ export async function POST(req: NextRequest) {
       intervalMonths: Math.max(1, intervalMonths || 1),
       monthlyOption: scheduleType === 'MONTHLY' ? (monthlyOption || 'FIRST_DAY') : null,
       monthlyDay: scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? (monthlyDay || 1) : null,
+      allowedOutcomes: normaliseOutcomes(allowedOutcomes),
+      overrideOutcomes: !!overrideOutcomes,
+      requireOutcomeReason: !!requireOutcomeReason,
     },
   })
 

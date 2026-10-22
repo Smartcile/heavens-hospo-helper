@@ -120,6 +120,11 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const shiftDropRef = useRef<FillCell | null>(null)
   const fillRef = useRef<{ shift: RosterShift; from: FillCell; to: FillCell; x: number; y: number; moved: boolean } | null>(null)
   const suppressShiftClickRef = useRef(false)
+  const [pendingDrag, setPendingDrag] = useState<
+    | { kind: 'move'; shift: RosterShift; to: FillCell }
+    | { kind: 'copy'; shift: RosterShift; copies: { staffId: string; date: string }[] }
+    | null
+  >(null)
 
   // Shift modal
   const [modal, setModal] = useState<null | { shift: RosterShift | null; staffId: string; date: string }>(null)
@@ -241,6 +246,15 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     return map
   }, [rowStaff])
 
+  const staffLabel = (id: string) => {
+    const person = data?.staff.find((s) => s.id === id)
+    return person ? `${person.firstName} ${person.lastName}` : 'STAFF'
+  }
+
+  const pendingMoveTarget = pendingDrag?.kind === 'move'
+    ? { staff: rowStaff[pendingDrag.to.row], date: weekDays[pendingDrag.to.col] }
+    : null
+
   const visibleGroupKeys = useMemo(
     () => staffGroups.filter((g) => g.positionId).map((g) => g.key),
     [staffGroups],
@@ -358,7 +372,8 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setShiftDrop(null)
     if (!drag || !drag.moved || !drop) return
     if (drop.row === drag.from.row && drop.col === drag.from.col) return
-    void moveShift(drag.shift, drop)
+    setError('')
+    setPendingDrag({ kind: 'move', shift: drag.shift, to: drop })
   }
 
   function onShiftPointerCancel() {
@@ -394,7 +409,15 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setFill(null)
     if (!drag || !drag.moved) return
     const targets = fillTargets(drag.from, fillRect(drag.from, drag.to))
-    if (targets.length > 0) void copyShifts(drag.shift, targets)
+    const copies = targets
+      .map((c) => ({ staff: rowStaff[c.row], date: weekDays[c.col] }))
+      .filter((x): x is { staff: RosterStaff; date: string } => !!x.staff && !!x.date)
+      .filter((x) => !(data?.blockedDays[x.staff.id] ?? []).includes(x.date))
+      .filter((x) => !(x.staff.id === drag.shift.staffId && x.date === drag.shift.date))
+      .map((x) => ({ staffId: x.staff.id, date: x.date }))
+    if (copies.length === 0) return
+    setError('')
+    setPendingDrag({ kind: 'copy', shift: drag.shift, copies })
   }
 
   function onFillPointerCancel() {
@@ -402,12 +425,15 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setFill(null)
   }
 
-  async function copyShifts(shift: RosterShift, targets: FillCell[]) {
-    const copies = targets
-      .map((c) => ({ staff: rowStaff[c.row], date: weekDays[c.col] }))
-      .filter((x): x is { staff: RosterStaff; date: string } => !!x.staff && !!x.date)
-      .filter((x) => !(data?.blockedDays[x.staff.id] ?? []).includes(x.date))
-      .filter((x) => !(x.staff.id === shift.staffId && x.date === shift.date))
+  function confirmDrag() {
+    const pending = pendingDrag
+    setPendingDrag(null)
+    if (!pending) return
+    if (pending.kind === 'move') void moveShift(pending.shift, pending.to)
+    else void copyShifts(pending.shift, pending.copies)
+  }
+
+  async function copyShifts(shift: RosterShift, copies: { staffId: string; date: string }[]) {
     if (copies.length === 0) return
     setBusy(true); setError('')
     const body = {
@@ -424,7 +450,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       fetch('/api/admin/shifts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...body, staffId: x.staff.id, date: x.date }),
+        body: JSON.stringify({ ...body, staffId: x.staffId, date: x.date }),
       }),
     ))
     setBusy(false)
@@ -936,6 +962,52 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
           ))}
         </div>
       </div>
+
+      {/* Drag confirmation — copy or move */}
+      {pendingDrag && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => { if (!busy) setPendingDrag(null) }}>
+          <div className="bg-grey-dark border border-grey-mid p-5 w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-mono text-xs uppercase tracking-widest text-white">
+              {pendingDrag.kind === 'move' ? 'MOVE SHIFT' : 'COPY SHIFT'}
+            </h2>
+            <div className="font-mono text-sm text-white">{pendingDrag.shift.startTime} — {pendingDrag.shift.endTime}</div>
+            {pendingDrag.kind === 'move' ? (
+              <div className="space-y-1">
+                <p className="font-mono text-2xs uppercase text-grey-light">FROM</p>
+                <p className="font-mono text-xs uppercase text-white">
+                  {staffLabel(pendingDrag.shift.staffId)} · {formatDateLong(pendingDrag.shift.date)}
+                </p>
+                <p className="font-mono text-2xs uppercase text-grey-light pt-2">TO</p>
+                <p className="font-mono text-xs uppercase text-white">
+                  {pendingMoveTarget?.staff ? `${pendingMoveTarget.staff.firstName} ${pendingMoveTarget.staff.lastName}` : 'STAFF'} · {pendingMoveTarget?.date ? formatDateLong(pendingMoveTarget.date) : '—'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="font-mono text-2xs uppercase text-grey-light">
+                  FROM {staffLabel(pendingDrag.shift.staffId)} · {formatDateLong(pendingDrag.shift.date)}
+                </p>
+                <p className="font-mono text-2xs uppercase text-grey-light">
+                  COPY TO {pendingDrag.copies.length} CELL{pendingDrag.copies.length === 1 ? '' : 'S'}
+                </p>
+                <div className="max-h-40 overflow-y-auto border border-grey-mid divide-y divide-grey-mid">
+                  {pendingDrag.copies.map((c) => (
+                    <div key={`${c.staffId}:${c.date}`} className="px-2 py-1 font-mono text-2xs uppercase text-white">
+                      {staffLabel(c.staffId)} · {formatDateLong(c.date)}
+                    </div>
+                  ))}
+                </div>
+                <p className="font-mono text-2xs uppercase text-grey-light">SHIFTS ARE SINGLE DAYS — NO SERIES IS CREATED.</p>
+              </div>
+            )}
+            {error && <p className="font-mono text-xs text-danger">{error}</p>}
+            <div className="flex gap-2 pt-2">
+              <Button size="sm" loading={busy} onClick={confirmDrag}>CONFIRM</Button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPendingDrag(null)}>CANCEL</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Shift modal */}
       {modal && (

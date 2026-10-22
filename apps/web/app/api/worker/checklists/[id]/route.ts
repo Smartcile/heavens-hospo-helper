@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
+import { normaliseOutcomes } from '@/lib/task-outcomes'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getWorkerSession()
@@ -13,7 +14,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (existing.venueId !== session.venueId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason } = body
 
   const checklist = await prisma.checklist.update({
     where: { id: params.id },
@@ -23,6 +24,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       ...(departmentId !== undefined && { departmentId: departmentId || null }),
       ...(sectionId !== undefined && { sectionId: sectionId || null }),
       ...(appearFromTime !== undefined && { appearFromTime: appearFromTime || null }),
+      ...(allowedOutcomes !== undefined && { allowedOutcomes: normaliseOutcomes(allowedOutcomes) }),
+      ...(requireOutcomeReason !== undefined && { requireOutcomeReason: !!requireOutcomeReason }),
       ...(taskIds !== undefined && {
         tasks: {
           deleteMany: {},

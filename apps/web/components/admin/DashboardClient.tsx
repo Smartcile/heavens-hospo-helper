@@ -380,9 +380,14 @@ export function DashboardClient({ role }: { role: string }) {
                 {stats.recentActivity.map((a) => (
                   <div key={a.id} className="px-4 py-2.5 flex items-center justify-between">
                     <div className="flex items-center gap-3 min-w-0">
-                      <span className="w-1.5 h-1.5 bg-success flex-shrink-0" />
+                      <span className={`w-1.5 h-1.5 flex-shrink-0 ${a.outcome === 'DONE' ? 'bg-success' : a.outcome === 'DID_NOT_COMPLETE' ? 'bg-danger' : 'bg-grey-light'}`} />
                       <span className="font-mono text-xs text-white truncate">{a.staffName}</span>
                       <span className="font-mono text-xs text-grey-light truncate">{a.taskTitle}</span>
+                      {a.outcome !== 'DONE' && (
+                        <span className="font-mono text-xs uppercase border border-grey-mid text-grey-light px-1 py-0.5 flex-shrink-0">
+                          {a.outcome === 'NOT_REQUIRED' ? 'NOT REQUIRED' : a.outcome === 'DID_NOT_COMPLETE' ? 'DID NOT COMPLETE' : a.outcome}
+                        </span>
+                      )}
                     </div>
                     <span className="font-mono text-xs text-grey-light flex-shrink-0 ml-2">{formatDateTime(a.completedAt)}</span>
                   </div>

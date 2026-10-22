@@ -122,6 +122,20 @@ describe('WorkerAvailabilityClient', () => {
     expect(screen.getByText('TODAY')).toBeDefined()
   })
 
+  it('shows the stored note on a week card', async () => {
+    const withNote = {
+      ...payload,
+      entries: [{ ...payload.entries[0], notes: 'NEED SUNDAY OFF' }],
+    }
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => withNote } as Response)
+
+    render(<WorkerAvailabilityClient />)
+    await screen.findByText('MY AVAILABILITY')
+
+    fireEvent.click(screen.getByText('week'))
+    expect(await screen.findByText('NOTE: NEED SUNDAY OFF')).toBeDefined()
+  })
+
   it('shows the weekly request deadline when the venue sets one', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue({
       ok: true, status: 200,
@@ -132,11 +146,11 @@ describe('WorkerAvailabilityClient', () => {
     expect(await screen.findByText(/THURSDAY 17:00/)).toBeDefined()
   })
 
-  it('shows the copy handle on a filled editable day', async () => {
+  it('does not offer drag-copy on a filled editable day', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => payload } as Response)
 
     render(<WorkerAvailabilityClient />)
     await screen.findByText('MY AVAILABILITY')
-    expect(screen.getByTitle('DRAG TO COPY THIS DAY')).toBeDefined()
+    expect(screen.queryByTitle('DRAG TO COPY THIS DAY')).toBeNull()
   })
 })

@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { deliveryLineVerdict, vehicleVerdict, verdictLabel, type Verdict } from '@/lib/food-safety'
 import { cn } from '@/lib/utils'
+import { useWorkerImmersive } from '@/components/worker/useWorkerImmersive'
 
 interface CatalogItem {
   id: string
@@ -78,6 +79,8 @@ export function WorkerDeliveriesClient() {
   const [itemSearch, setItemSearch] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  useWorkerImmersive(open)
 
   const load = useCallback(async () => {
     const r = await fetch('/api/worker/deliveries')
@@ -213,7 +216,7 @@ export function WorkerDeliveriesClient() {
       {open && (
         <div className="fixed inset-0 z-50 bg-black flex flex-col">
           <div className="flex items-center justify-between px-4 py-4 border-b border-grey-mid">
-            <button onClick={() => setOpen(false)} className="font-mono text-xs uppercase text-grey-light hover:text-white">
+            <button onClick={() => setOpen(false)} className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid px-3 py-2 hover:border-white transition-colors">
               ← BACK
             </button>
             <span className="font-mono text-xs text-grey-light">RECEIVE DELIVERY</span>

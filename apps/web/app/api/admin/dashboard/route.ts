@@ -44,10 +44,14 @@ export async function GET(req: NextRequest) {
     allTaskIds.length > 0
       ? await prisma.taskCompletion.findMany({
           where: { taskId: { in: allTaskIds }, scheduledDate: { in: distinctDates } },
-          select: { taskId: true, scheduledDate: true },
+          select: { taskId: true, scheduledDate: true, outcome: true },
         })
       : []
-  const doneSet = new Set(completions.map((c) => `${c.taskId}|${formatDateKey(c.scheduledDate)}`))
+  const doneSet = new Set(
+    completions
+      .filter((c) => c.outcome === 'DONE')
+      .map((c) => `${c.taskId}|${formatDateKey(c.scheduledDate)}`),
+  )
 
   let totalTasksToday = 0
   let completedTasksToday = 0
@@ -142,6 +146,7 @@ export async function GET(req: NextRequest) {
       taskTitle: c.task.title,
       departmentName: c.task.department?.name ?? null,
       completedAt: c.completedAt,
+      outcome: c.outcome,
     })),
     parAlerts,
   }

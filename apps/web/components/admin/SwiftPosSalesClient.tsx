@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/Input'
 import { DateInput } from '@/components/ui/DateInput'
 import { pushToast } from '@/components/ui/Toast'
 import { getActiveVenueId } from '@/lib/active-venue'
+import { SwiftPosStaffSync } from '@/components/admin/SwiftPosStaffSync'
 
 interface VenueRow { id: string; name: string; swiftPosBaseUrl: string | null }
 
@@ -75,6 +76,7 @@ export function SwiftPosSalesClient({
   const [running, setRunning] = useState(false)
   const [report, setReport] = useState<Report | null>(null)
   const [error, setError] = useState('')
+  const [section, setSection] = useState<'sales' | 'staff'>('sales')
 
   useEffect(() => {
     fetch('/api/admin/venues')
@@ -132,7 +134,7 @@ export function SwiftPosSalesClient({
       <div>
         <h1 className="font-mono text-xl font-bold uppercase tracking-widest">SWIFT POS</h1>
         <p className="font-mono text-xs text-grey-light mt-1 uppercase">
-          PULL PRODUCT SALES FROM SWIFTDOSNET AND SEE WHAT THEY WOULD DRAW DOWN. READ-ONLY — NOTHING IS DEDUCTED.
+          PULL SALES AND CLERKS FROM SWIFTDOSNET. SALES ARE READ-ONLY — NOTHING IS DEDUCTED.
         </p>
       </div>
 
@@ -155,6 +157,13 @@ export function SwiftPosSalesClient({
         </p>
       </div>
 
+      <div className="flex gap-2">
+        <Button size="sm" variant={section === 'sales' ? 'primary' : 'ghost'} onClick={() => setSection('sales')}>SALES</Button>
+        <Button size="sm" variant={section === 'staff' ? 'primary' : 'ghost'} onClick={() => setSection('staff')}>STAFF SYNC</Button>
+      </div>
+
+      {section === 'sales' && (
+        <>
       {/* Range + run */}
       <div className="border border-grey-mid p-3 space-y-2">
         <div className="flex flex-wrap items-end gap-3">
@@ -244,6 +253,10 @@ export function SwiftPosSalesClient({
           )}
         </>
       )}
+        </>
+      )}
+
+      {section === 'staff' && <SwiftPosStaffSync venueId={venueId} />}
     </div>
   )
 }
