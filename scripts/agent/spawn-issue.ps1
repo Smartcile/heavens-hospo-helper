@@ -20,6 +20,22 @@ function Require-Command($Name) {
   }
 }
 
+function Invoke-Native {
+  param(
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [Parameter(Mandatory = $true)][string[]]$Arguments
+  )
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $output = & $FilePath @Arguments 2>&1
+    $code = $LASTEXITCODE
+    return [pscustomobject]@{ Output = @($output); Code = $code }
+  } finally {
+    $ErrorActionPreference = $previous
+  }
+}
+
 Require-Command git
 Require-Command gh
 
@@ -33,18 +49,18 @@ if ($currentBranch -ne "develop" -and -not $Force) {
   throw "The main checkout is on '$currentBranch', not 'develop'. Switch to develop or re-run with -Force."
 }
 
-$issueJson = gh issue view $Issue --json number,title,body,labels,comments,url 2>&1
-if ($LASTEXITCODE -ne 0) {
-  throw "Could not read issue #$Issue from GitHub: $($issueJson -join ' ')"
+$issueResult = Invoke-Native -FilePath "gh" -Arguments @("issue", "view", "$Issue", "--json", "number,title,body,labels,comments,url")
+if ($issueResult.Code -ne 0) {
+  throw "Could not read issue #$Issue from GitHub: $($issueResult.Output -join ' ')"
 }
-$issue = $issueJson | ConvertFrom-Json
+$issueData = ($issueResult.Output -join "`n") | ConvertFrom-Json
 
-$labels = @($issue.labels | ForEach-Object { $_.name })
+$labels = @($issueData.labels | ForEach-Object { $_.name })
 if (($labels -notcontains "agent:approved") -and -not $Force) {
   throw "Issue #$Issue does not have the 'agent:approved' label. Review the triage comment, add the label, then re-run. Use -Force to skip this gate."
 }
 
-$slug = $issue.title.ToLowerInvariant()
+$slug = $issueData.title.ToLowerInvariant()
 $slug = [regex]::Replace($slug, "[^a-z0-9]+", "-").Trim("-")
 if ($slug.Length -gt 48) {
   $slug = $slug.Substring(0, 48).Trim("-")
@@ -70,15 +86,15 @@ if (-not (Test-Path -LiteralPath $WorktreeRoot)) {
 }
 
 Write-Host "Fetching origin/develop..."
-$fetchOutput = git -C $RepoRoot fetch origin develop --quiet 2>&1
-if ($LASTEXITCODE -ne 0) {
-  throw "git fetch origin develop failed: $($fetchOutput -join ' ')"
+$fetchResult = Invoke-Native -FilePath "git" -Arguments @("-C", $RepoRoot, "fetch", "origin", "develop", "--quiet")
+if ($fetchResult.Code -ne 0) {
+  throw "git fetch origin develop failed: $($fetchResult.Output -join ' ')"
 }
 
 Write-Host "Creating worktree at $worktreePath..."
-$worktreeOutput = git -C $RepoRoot worktree add -b $branch $worktreePath origin/develop 2>&1
-if ($LASTEXITCODE -ne 0) {
-  throw "git worktree add failed: $($worktreeOutput -join ' ')"
+$worktreeResult = Invoke-Native -FilePath "git" -Arguments @("-C", $RepoRoot, "worktree", "add", "-b", $branch, $worktreePath, "origin/develop")
+if ($worktreeResult.Code -ne 0) {
+  throw "git worktree add failed: $($worktreeResult.Output -join ' ')"
 }
 
 $requiredAgent = Join-Path $worktreePath ".opencode\agents\implementer.md"
@@ -99,7 +115,7 @@ $agentDir = Join-Path $worktreePath ".agent"
 New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
 
 $comments = ""
-foreach ($comment in @($issue.comments)) {
+foreach ($comment in @($issueData.comments)) {
   if ($null -eq $comment) { continue }
   $author = "unknown"
   if ($comment.author -and $comment.author.login) {
@@ -109,16 +125,16 @@ foreach ($comment in @($issue.comments)) {
 }
 
 $task = @"
-# Issue #$($issue.number) - $($issue.title)
+# Issue #$($issueData.number) - $($issueData.title)
 
-- Issue: $($issue.url)
+- Issue: $($issueData.url)
 - Branch: $branch
 - Base: origin/develop
 - Worktree: $worktreePath
 
 ## Problem
 
-$($issue.body)
+$($issueData.body)
 
 ## Issue discussion / approved plan
 
@@ -182,26 +198,26 @@ if (-not $SkipInstall) {
   Push-Location $worktreePath
   try {
     Write-Host "Installing dependencies in the worktree (this can take a few minutes)..."
-    & $npm.Source install --prefer-offline --legacy-peer-deps
-    if ($LASTEXITCODE -ne 0) {
-      throw "npm install failed."
+    $installResult = Invoke-Native -FilePath $npm.Source -Arguments @("install", "--prefer-offline", "--legacy-peer-deps")
+    if ($installResult.Code -ne 0) {
+      throw "npm install failed: $($installResult.Output -join ' ')"
     }
 
     Write-Host "Generating the Prisma client..."
-    & $npm.Source run db:generate
-    if ($LASTEXITCODE -ne 0) {
-      throw "npm run db:generate failed."
+    $generateResult = Invoke-Native -FilePath $npm.Source -Arguments @("run", "db:generate")
+    if ($generateResult.Code -ne 0) {
+      throw "npm run db:generate failed: $($generateResult.Output -join ' ')"
     }
   } finally {
     Pop-Location
   }
 }
 
-gh issue edit $Issue --add-label "agent:working" 2>&1 | Out-Null
+Invoke-Native -FilePath "gh" -Arguments @("issue", "edit", "$Issue", "--add-label", "agent:working") | Out-Null
 
 Write-Host ""
 Write-Host "Worktree ready."
-Write-Host "  Issue:  #$Issue $($issue.title)"
+Write-Host "  Issue:  #$Issue $($issueData.title)"
 Write-Host "  Branch: $branch"
 Write-Host "  Folder: $worktreePath"
 Write-Host "  Brief:  $taskPath"
