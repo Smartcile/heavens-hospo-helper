@@ -29,6 +29,7 @@ import {
   describeSeriesEnd,
   describeWindows,
   isFreeAt,
+  proposalToEntry,
   seriesEndDateKey,
   statusMeta,
   type AvailabilityEntry,
@@ -85,6 +86,28 @@ interface AdminData {
   }
 }
 
+/** One person's still-pending work — declarations already grouped by series. */
+interface PersonApproval {
+  staffId: string
+  name: string
+  declarations: { key: string; rows: AvailabilityEntry[] }[]
+  requests: AdminEditRequest[]
+  pendingCount: number
+}
+
+/** Which day the editor is open on, plus any proposal it should start from. */
+interface EditorTarget {
+  staffId: string
+  date: string
+  /** Proposed/pending state to prefill; falls back to the stored day entry. */
+  entry?: AvailabilityEntry | null
+  /** Series scope to keep when the series summary is not loaded in the range. */
+  scope?: AvailabilityScope | null
+  /** Edit request this override came from — marked APPLIED after a save. */
+  requestId?: string | null
+  requestReviewNote?: string | null
+}
+
 function payloadSummary(req: AdminEditRequest): string {
   if (req.action === 'CLEAR') return 'CLEAR THIS DAY'
   const av = req.payload?.availability
@@ -108,7 +131,10 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [editor, setEditor] = useState<{ staffId: string; date: string } | null>(null)
+  const [editor, setEditor] = useState<EditorTarget | null>(null)
+  const [openPersonId, setOpenPersonId] = useState<string | null>(null)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [visibleStaffIds, setVisibleStaffIds] = useState<Set<string> | null>(null)
   const [editStaffId, setEditStaffId] = useState<string | null>(null)
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [pinnedDay, setPinnedDay] = useState<string | null>(null)
@@ -178,10 +204,16 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
     return state !== 'UNAVAILABLE'
   }
 
+  const gridStaff = useMemo(() => {
+    if (!data) return []
+    if (!visibleStaffIds) return data.staff
+    return data.staff.filter((s) => visibleStaffIds.has(s.id))
+  }, [data, visibleStaffIds])
+
   const groups = useMemo(() => {
     if (!data) return []
-    return buildStaffGroups(data.staff, positions)
-  }, [data, positions])
+    return buildStaffGroups(gridStaff, positions)
+  }, [data, gridStaff, positions])
 
   // A pinned day floats the people available that day to the top of their
   // position group — the grouping itself stays put.
@@ -195,9 +227,9 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
 
   const ungroupedStaff = useMemo(() => {
     if (!data) return []
-    if (!pinnedDay) return data.staff
-    return sortByPinnedAvailability(data.staff, (s) => isAvailableOn(s.id, pinnedDay))
-  }, [data, pinnedDay, entryIndex]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!pinnedDay) return gridStaff
+    return sortByPinnedAvailability(gridStaff, (s) => isAvailableOn(s.id, pinnedDay))
+  }, [data, gridStaff, pinnedDay, entryIndex]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const visibleGroupKeys = useMemo(
     () => groups.filter((g) => g.positionId).map((g) => g.key),
@@ -282,14 +314,60 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
     setPinnedDay(null)
   }
 
-  const pendingGroups = useMemo(() => {
-    const map = new Map<string, AvailabilityEntry[]>()
-    for (const e of data?.queue.pending ?? []) {
+  // Person-centred approvals: group pending declarations (by series) and edit
+  // requests under the staff member, and show only people with pending items.
+  const approvals = useMemo<PersonApproval[]>(() => {
+    if (!data) return []
+    const decByStaff = new Map<string, Map<string, AvailabilityEntry[]>>()
+    for (const e of data.queue.pending) {
+      if (!e.staffId) continue
       const key = e.seriesId ? `${e.staffId}:${e.seriesId}` : `${e.staffId}:${e.id}`
-      map.set(key, [...(map.get(key) ?? []), e])
+      const bucket = decByStaff.get(e.staffId) ?? new Map<string, AvailabilityEntry[]>()
+      bucket.set(key, [...(bucket.get(key) ?? []), e])
+      decByStaff.set(e.staffId, bucket)
     }
-    return [...map.entries()]
+    const reqByStaff = new Map<string, AdminEditRequest[]>()
+    for (const r of data.queue.requests) {
+      reqByStaff.set(r.staffId, [...(reqByStaff.get(r.staffId) ?? []), r])
+    }
+    const order = new Map(data.staff.map((s, i) => [s.id, i]))
+    return [...new Set([...decByStaff.keys(), ...reqByStaff.keys()])]
+      .sort((a, b) => (order.get(a) ?? Infinity) - (order.get(b) ?? Infinity))
+      .map((staffId) => {
+        const staff = data.staff.find((s) => s.id === staffId)
+        const declarations = [...(decByStaff.get(staffId)?.entries() ?? [])]
+          .map(([key, rows]) => ({ key, rows }))
+        const requests = reqByStaff.get(staffId) ?? []
+        return {
+          staffId,
+          name: staff ? `${staff.firstName} ${staff.lastName}` : 'STAFF',
+          declarations,
+          requests,
+          pendingCount: declarations.reduce((n, d) => n + d.rows.length, 0) + requests.length,
+        }
+      })
   }, [data])
+
+  const openPerson = approvals.find((p) => p.staffId === openPersonId) ?? null
+
+  const selectedStaffCount = visibleStaffIds
+    ? (data?.staff ?? []).filter((s) => visibleStaffIds.has(s.id)).length
+    : (data?.staff.length ?? 0)
+
+  function toggleStaffFilter(id: string) {
+    setVisibleStaffIds((prev) => {
+      const all = data?.staff.map((s) => s.id) ?? []
+      const next = prev ? new Set(prev) : new Set(all)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function openEditor(target: EditorTarget) {
+    setOpenPersonId(null)
+    setEditor(target)
+  }
 
   const staffName = (id: string) => {
     const s = data?.staff.find((x) => x.id === id)
@@ -415,16 +493,16 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
     load()
   }
 
-  async function save(staffId: string, date: string, draft: EditorDraft, options: EditorSaveOptions) {
-    const entry = entryFor(staffId, date)
+  async function save(target: EditorTarget, draft: EditorDraft, options: EditorSaveOptions) {
+    const entry = target.entry ?? entryFor(target.staffId, target.date)
     setBusy(true); setError('')
     const r = await fetch('/api/admin/availability', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         venueId,
-        staffId,
-        date,
+        staffId: target.staffId,
+        date: target.date,
         availability: {
           isAllDay: draft.isAllDay,
           type: draft.type,
@@ -433,31 +511,73 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
           notes: draft.notes,
         },
         repeat: options.repeat,
-        scope: options.scope,
+        scope: options.scope ?? target.scope ?? null,
         seriesId: entry?.seriesId ?? null,
       }),
     })
+    if (!r.ok) {
+      setBusy(false)
+      const d = await r.json().catch(() => ({}))
+      setError((d.error ?? 'SAVE FAILED').toUpperCase())
+      return
+    }
+    if (target.requestId) {
+      const mark = await fetch(`/api/admin/availability/requests/${target.requestId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'MARK_APPLIED', reviewNote: target.requestReviewNote ?? null }),
+      })
+      if (!mark.ok) {
+        setBusy(false)
+        await load()
+        setError('SAVED — BUT THE REQUEST COULD NOT BE MARKED APPLIED. CHECK THE REQUEST IN THE QUEUE.')
+        return
+      }
+    }
     setBusy(false)
-    if (!r.ok) { const d = await r.json().catch(() => ({})); setError((d.error ?? 'SAVE FAILED').toUpperCase()); return }
     setEditor(null)
     load()
   }
 
-  async function clear(staffId: string, date: string, options: { scope: AvailabilityScope | null }) {
-    const entry = entryFor(staffId, date)
+  async function clear(target: EditorTarget, options: { scope: AvailabilityScope | null }) {
+    const entry = target.entry ?? entryFor(target.staffId, target.date)
     setBusy(true); setError('')
     const r = await fetch('/api/admin/availability/clear', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ venueId, staffId, date, scope: options.scope, seriesId: entry?.seriesId ?? null }),
+      body: JSON.stringify({
+        venueId,
+        staffId: target.staffId,
+        date: target.date,
+        scope: options.scope ?? target.scope ?? null,
+        seriesId: entry?.seriesId ?? null,
+      }),
     })
+    if (!r.ok) {
+      setBusy(false)
+      const d = await r.json().catch(() => ({}))
+      setError((d.error ?? 'CLEAR FAILED').toUpperCase())
+      return
+    }
+    if (target.requestId) {
+      const mark = await fetch(`/api/admin/availability/requests/${target.requestId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'MARK_APPLIED', reviewNote: target.requestReviewNote ?? null }),
+      })
+      if (!mark.ok) {
+        setBusy(false)
+        await load()
+        setError('CLEARED — BUT THE REQUEST COULD NOT BE MARKED APPLIED. CHECK THE REQUEST IN THE QUEUE.')
+        return
+      }
+    }
     setBusy(false)
-    if (!r.ok) { const d = await r.json().catch(() => ({})); setError((d.error ?? 'CLEAR FAILED').toUpperCase()); return }
     setEditor(null)
     load()
   }
 
-  const editorEntry = editor ? entryFor(editor.staffId, editor.date) : null
+  const editorEntry = editor ? (editor.entry ?? entryFor(editor.staffId, editor.date)) : null
   const editorSeries = editorEntry?.seriesId
     ? data?.series.find((s) => s.id === editorEntry.seriesId) ?? null
     : null
@@ -472,6 +592,162 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
       ? 'NO END DATE'
       : formatDateLong(seriesEndDateKey(pendingFill.targetDates[0], Math.max(1, Math.floor(fillWeeks) || 1)))
     : null
+
+  function renderDeclaration(key: string, rows: AvailabilityEntry[]) {
+    const first = rows[0]
+    const dates = rows.map((r) => r.date).sort()
+    const rangeLabel = dates[0] === dates[dates.length - 1]
+      ? dates[0]
+      : `${dates[0]} → ${dates[dates.length - 1]}`
+    return (
+      <div key={key} className="border border-grey-mid p-3 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <span className="font-mono text-sm text-white uppercase">DECLARATION</span>
+            <span className="font-mono text-xs text-grey-light ml-2">{rangeLabel}{rows.length > 1 ? ` · ${rows.length} DAYS` : ''}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {first.timeOff && <span className="font-mono text-2xs uppercase px-1.5 py-0.5 border border-warning text-warning">TIME OFF — CHECK LEAVE PAY</span>}
+            {first.seriesId && <span className="font-mono text-2xs uppercase px-1.5 py-0.5 border border-accent text-accent">{describeSeriesEnd(first.seriesEndDate)}</span>}
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex-1"><AvailabilityBar windows={first.windows} isAllDay={first.isAllDay} type={first.type} labelled showType /></div>
+          <span className="font-mono text-2xs uppercase text-grey-light">{describeWindows(first.windows, first.isAllDay, first.type)}</span>
+        </div>
+        {first.notes && <p className="font-mono text-2xs uppercase text-grey-light">NOTE: {first.notes}</p>}
+        <input
+          value={notes[key] ?? ''}
+          onChange={(e) => setNotes({ ...notes, [key]: e.target.value })}
+          placeholder="REVIEW NOTE (OPTIONAL)"
+          aria-label="Review note for declaration"
+          className="field w-full"
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => openEditor({
+              staffId: first.staffId ?? '',
+              date: first.date,
+              entry: first,
+              scope: first.seriesId ? 'ALL' : null,
+            })}
+            className="h-9 px-3 border border-accent text-accent font-mono text-xs uppercase hover:bg-accent hover:text-black disabled:opacity-40"
+          >
+            OPEN / EDIT
+          </button>
+          <button disabled={busy} onClick={() => review(first.seriesId ? 'series' : 'ids', rows.map((r) => r.id!).filter(Boolean), first.staffId ?? '', first.seriesId, 'APPROVE', key)}
+            className="h-9 px-3 bg-success text-black font-mono text-xs uppercase font-bold hover:opacity-80 disabled:opacity-40">CONFIRM</button>
+          <button disabled={busy} onClick={() => review(first.seriesId ? 'series' : 'ids', rows.map((r) => r.id!).filter(Boolean), first.staffId ?? '', first.seriesId, 'DECLINE', key)}
+            className="h-9 px-3 border border-danger text-danger font-mono text-xs uppercase hover:bg-danger hover:text-black disabled:opacity-40">DECLINE</button>
+          <button disabled={busy} onClick={() => review(first.seriesId ? 'series' : 'ids', rows.map((r) => r.id!).filter(Boolean), first.staffId ?? '', first.seriesId, 'DELETE', key)}
+            title="CANCEL THIS DECLARATION WITHOUT APPROVING OR DECLINING"
+            className="h-9 px-3 border border-grey-mid text-grey-light font-mono text-xs uppercase hover:border-danger hover:text-danger disabled:opacity-40">CANCEL</button>
+        </div>
+      </div>
+    )
+  }
+
+  function renderRequest(req: AdminEditRequest) {
+    const current = entryFor(req.staffId, req.date)
+    const proposed = proposalToEntry({
+      date: req.date,
+      staffId: req.staffId,
+      payload: { action: req.action, availability: req.payload?.availability },
+      seriesId: req.seriesId,
+      status: 'PENDING',
+    })
+    const proposedNote = req.payload?.availability?.notes ?? proposed?.notes ?? null
+    return (
+      <div key={req.id} className="border border-accent/50 bg-accent/5 p-3 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <span className="font-mono text-sm text-white uppercase">EDIT REQUEST</span>
+            <span className="font-mono text-xs text-grey-light ml-2">{req.date} · {req.scope === 'THIS' ? 'JUST THIS DAY' : req.scope === 'FROM' ? 'FROM THIS DAY' : 'ALL IN SERIES'}</span>
+          </div>
+          <span className="font-mono text-2xs uppercase text-accent">{req.action} · {payloadSummary(req)}</span>
+        </div>
+
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          <div className="border border-grey-mid p-2 space-y-1">
+            <div className="font-mono text-2xs uppercase tracking-wider text-grey-light">CURRENT DAY</div>
+            {current ? (
+              <>
+                <AvailabilityBar windows={current.windows} isAllDay={current.isAllDay} type={current.type} labelled showType />
+                <p className="font-mono text-2xs uppercase text-grey-light">{describeWindows(current.windows, current.isAllDay, current.type)}</p>
+                {current.notes && <p title={current.notes} className="truncate font-mono text-2xs uppercase text-grey-light">NOTE: {current.notes}</p>}
+              </>
+            ) : (
+              <p className="font-mono text-2xs uppercase text-grey-light">NOT IN THE SELECTED DATE RANGE — OPEN THE DAY TO SEE IT.</p>
+            )}
+          </div>
+          <div className="border border-grey-mid p-2 space-y-1">
+            <div className="font-mono text-2xs uppercase tracking-wider text-accent">PROPOSED</div>
+            {req.action === 'CLEAR' ? (
+              <p className="font-mono text-xs uppercase text-danger">CLEAR THIS DAY</p>
+            ) : proposed ? (
+              <>
+                <AvailabilityBar windows={proposed.windows} isAllDay={proposed.isAllDay} type={proposed.type} labelled showType />
+                <p className="font-mono text-2xs uppercase text-grey-light">{describeWindows(proposed.windows, proposed.isAllDay, proposed.type)}</p>
+                {proposedNote && <p title={proposedNote} className="truncate font-mono text-2xs uppercase text-grey-light">NOTE: {proposedNote}</p>}
+              </>
+            ) : (
+              <p className="font-mono text-2xs uppercase text-grey-light">—</p>
+            )}
+          </div>
+        </div>
+
+        <p className="font-mono text-2xs uppercase text-warning border border-warning/50 bg-warning/10 px-2 py-1.5">
+          APPLYING OR OVERRIDING REPLACES THE CURRENT APPROVED DAY.
+        </p>
+        {req.reason && <p className="font-mono text-2xs uppercase text-grey-light">WORKER: {req.reason}</p>}
+
+        <input
+          value={notes[`req:${req.id}`] ?? ''}
+          onChange={(e) => setNotes({ ...notes, [`req:${req.id}`]: e.target.value })}
+          placeholder="REVIEW NOTE (OPTIONAL)"
+          aria-label="Review note for edit request"
+          className="field w-full"
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <button disabled={busy} onClick={() => resolveRequest(req.id, 'APPLY')}
+            className="h-9 px-3 bg-white text-black font-mono text-xs uppercase font-bold hover:bg-accent disabled:opacity-40">APPLY</button>
+          <button disabled={busy} onClick={() => resolveRequest(req.id, 'DISCARD')}
+            className="h-9 px-3 border border-grey-mid text-grey-light font-mono text-xs uppercase hover:border-white hover:text-white disabled:opacity-40">DISCARD</button>
+          {req.action === 'CLEAR' ? (
+            <button
+              type="button"
+              onClick={() => openEditor({
+                staffId: req.staffId,
+                date: req.date,
+                requestId: req.id,
+                requestReviewNote: notes[`req:${req.id}`] ?? null,
+              })}
+              className="h-9 px-3 border border-accent text-accent font-mono text-xs uppercase hover:bg-accent hover:text-black disabled:opacity-40"
+            >
+              OPEN CURRENT DAY
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={!proposed}
+              onClick={() => openEditor({
+                staffId: req.staffId,
+                date: req.date,
+                entry: proposed,
+                scope: req.scope,
+                requestId: req.id,
+                requestReviewNote: notes[`req:${req.id}`] ?? null,
+              })}
+              className="h-9 px-3 border border-accent text-accent font-mono text-xs uppercase hover:bg-accent hover:text-black disabled:opacity-40"
+            >
+              OPEN / EDIT PROPOSED
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   function renderStaffRow(s: AdminStaff) {
     return (
@@ -562,93 +838,101 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
 
       {error && <p className="font-mono text-xs text-danger border border-danger/50 bg-danger/10 px-3 py-2">{error}</p>}
 
-      {/* Queue */}
+      {/* Approvals — one row per person with pending work */}
       <div className="border border-grey-mid p-4 space-y-4">
         <h2 className="font-mono text-xs uppercase tracking-wider text-grey-light">WAITING FOR CONFIRMATION</h2>
 
-        {pendingGroups.length === 0 && (data?.queue.requests.length ?? 0) === 0 && (
+        {approvals.length === 0 && (
           <p className="font-mono text-xs uppercase text-grey-light">NOTHING WAITING.</p>
         )}
 
-        {pendingGroups.map(([key, rows]) => {
-          const first = rows[0]
-          const dates = rows.map((r) => r.date).sort()
-          const rangeLabel = dates[0] === dates[dates.length - 1]
-            ? dates[0]
-            : `${dates[0]} → ${dates[dates.length - 1]}`
-          return (
-            <div key={key} className="border border-grey-mid p-3 space-y-3">
+        <div className="space-y-2">
+          {approvals.map((person) => (
+            <button
+              key={person.staffId}
+              type="button"
+              aria-haspopup="dialog"
+              onClick={() => setOpenPersonId(person.staffId)}
+              className="w-full border border-grey-mid p-3 text-left hover:border-white transition-colors"
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <span className="font-mono text-sm text-white uppercase">{staffName(first.staffId ?? '')}</span>
-                  <span className="font-mono text-xs text-grey-light ml-2">{rangeLabel}{rows.length > 1 ? ` · ${rows.length} DAYS` : ''}</span>
-                </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {first.timeOff && <span className="font-mono text-2xs uppercase px-1.5 py-0.5 border border-warning text-warning">TIME OFF — CHECK LEAVE PAY</span>}
-                  {first.seriesId && <span className="font-mono text-2xs uppercase px-1.5 py-0.5 border border-accent text-accent">{describeSeriesEnd(first.seriesEndDate)}</span>}
+                  <span className="font-mono text-sm text-white uppercase">{person.name}</span>
+                  <span className="font-mono text-2xs uppercase px-1.5 py-0.5 border border-warning text-warning">
+                    {person.pendingCount} PENDING
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  {person.declarations.length > 0 && (
+                    <span className="font-mono text-2xs uppercase text-grey-light">
+                      {person.declarations.reduce((n, d) => n + d.rows.length, 0)} DECLARATION{person.declarations.reduce((n, d) => n + d.rows.length, 0) === 1 ? '' : 'S'}
+                    </span>
+                  )}
+                  {person.requests.length > 0 && (
+                    <span className="font-mono text-2xs uppercase text-accent">
+                      {person.requests.length} EDIT REQUEST{person.requests.length === 1 ? '' : 'S'}
+                    </span>
+                  )}
+                  <span className="font-mono text-xs uppercase text-white">OPEN →</span>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="flex-1"><AvailabilityBar windows={first.windows} isAllDay={first.isAllDay} type={first.type} labelled showType /></div>
-                <span className="font-mono text-2xs uppercase text-grey-light">{describeWindows(first.windows, first.isAllDay, first.type)}</span>
-              </div>
-              {first.notes && <p className="font-mono text-2xs uppercase text-grey-light">NOTE: {first.notes}</p>}
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  value={notes[key] ?? ''}
-                  onChange={(e) => setNotes({ ...notes, [key]: e.target.value })}
-                  placeholder="REVIEW NOTE (OPTIONAL)"
-                  className="field flex-1 min-w-[10rem]"
-                />
-                <button disabled={busy} onClick={() => review(first.seriesId ? 'series' : 'ids', rows.map((r) => r.id!).filter(Boolean), first.staffId ?? '', first.seriesId, 'APPROVE', key)}
-                  className="h-9 px-3 bg-success text-black font-mono text-xs uppercase font-bold hover:opacity-80 disabled:opacity-40">CONFIRM</button>
-                <button disabled={busy} onClick={() => review(first.seriesId ? 'series' : 'ids', rows.map((r) => r.id!).filter(Boolean), first.staffId ?? '', first.seriesId, 'DECLINE', key)}
-                  className="h-9 px-3 border border-danger text-danger font-mono text-xs uppercase hover:bg-danger hover:text-black disabled:opacity-40">DECLINE</button>
-                <button disabled={busy} onClick={() => review(first.seriesId ? 'series' : 'ids', rows.map((r) => r.id!).filter(Boolean), first.staffId ?? '', first.seriesId, 'DELETE', key)}
-                  title="CANCEL THIS DECLARATION WITHOUT APPROVING OR DECLINING"
-                  className="h-9 px-3 border border-grey-mid text-grey-light font-mono text-xs uppercase hover:border-danger hover:text-danger disabled:opacity-40">CANCEL</button>
-              </div>
-            </div>
-          )
-        })}
-
-        {data?.queue.requests.map((req) => (
-          <div key={req.id} className="border border-accent/50 bg-accent/5 p-3 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <span className="font-mono text-sm text-white uppercase">{staffName(req.staffId)}</span>
-                <span className="font-mono text-xs text-grey-light ml-2">EDIT REQUEST · {req.date} · {req.scope === 'THIS' ? 'JUST THIS DAY' : req.scope === 'FROM' ? 'FROM THIS DAY' : 'ALL IN SERIES'}</span>
-              </div>
-              <span className="font-mono text-2xs uppercase text-accent">{req.action} · {payloadSummary(req)}</span>
-            </div>
-            {req.reason && <p className="font-mono text-2xs uppercase text-grey-light">WORKER: {req.reason}</p>}
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                value={notes[`req:${req.id}`] ?? ''}
-                onChange={(e) => setNotes({ ...notes, [`req:${req.id}`]: e.target.value })}
-                placeholder="REVIEW NOTE (OPTIONAL)"
-                className="field flex-1 min-w-[10rem]"
-              />
-              <button disabled={busy} onClick={() => resolveRequest(req.id, 'APPLY')}
-                className="h-9 px-3 bg-white text-black font-mono text-xs uppercase font-bold hover:bg-accent disabled:opacity-40">APPLY</button>
-              <button disabled={busy} onClick={() => resolveRequest(req.id, 'DISCARD')}
-                className="h-9 px-3 border border-grey-mid text-grey-light font-mono text-xs uppercase hover:border-white hover:text-white disabled:opacity-40">DISCARD</button>
-            </div>
-          </div>
-        ))}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {/* Person approvals modal */}
+      <Modal
+        isOpen={!!openPerson}
+        onClose={() => { if (!busy) setOpenPersonId(null) }}
+        title={openPerson ? `${openPerson.name} — PENDING` : 'PENDING'}
+        size="xl"
+      >
+        {openPerson && (
+          <div className="space-y-4">
+            {error && (
+              <p className="border border-danger/50 bg-danger/10 px-3 py-2 font-mono text-xs text-danger">{error}</p>
+            )}
+            {openPerson.declarations.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="font-mono text-xs uppercase tracking-wider text-grey-light">DECLARATIONS</h3>
+                {openPerson.declarations.map((d) => renderDeclaration(d.key, d.rows))}
+              </div>
+            )}
+            {openPerson.requests.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="font-mono text-xs uppercase tracking-wider text-accent">EDIT REQUESTS</h3>
+                {openPerson.requests.map((req) => renderRequest(req))}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
 
       {/* Grid controls */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={() => setGroupByPosition(!groupByPosition)}
-          className={`font-mono text-xs uppercase px-3 py-1.5 border transition-colors ${
-            groupByPosition ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid hover:border-white hover:text-white'
-          }`}
-        >
-          GROUP BY POSITION
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setGroupByPosition(!groupByPosition)}
+            className={`font-mono text-xs uppercase px-3 py-1.5 border transition-colors ${
+              groupByPosition ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid hover:border-white hover:text-white'
+            }`}
+          >
+            GROUP BY POSITION
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterOpen(true)}
+            className={`font-mono text-xs uppercase px-3 py-1.5 border transition-colors ${
+              visibleStaffIds
+                ? 'text-info border-info'
+                : 'text-grey-light border-grey-mid hover:border-white hover:text-white'
+            }`}
+          >
+            FILTER STAFF{visibleStaffIds ? ` (${selectedStaffCount}/${data?.staff.length ?? 0})` : ''}
+          </button>
+        </div>
         {pinnedDay && (
           <p className="font-mono text-2xs uppercase text-success">
             ● SHOWING STAFF AVAILABLE ON {formatDateLong(pinnedDay)} FIRST — CLICK THE DAY AGAIN TO CLEAR
@@ -656,11 +940,71 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
         )}
       </div>
 
+      {/* Staff filter — grid only; approvals stay unfiltered */}
+      <Modal
+        isOpen={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        title="FILTER STAFF"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-mono text-xs uppercase text-white">
+              {selectedStaffCount} OF {data?.staff.length ?? 0} SELECTED
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setVisibleStaffIds(null)}
+                title="SHOW EVERY STAFF MEMBER"
+                className="h-8 px-3 border border-white bg-white text-black font-mono text-2xs uppercase font-bold hover:bg-accent"
+              >
+                SHOW ALL
+              </button>
+              <button
+                type="button"
+                onClick={() => setVisibleStaffIds(new Set())}
+                title="SHOW NO STAFF IN THE GRID"
+                className="h-8 px-3 border border-grey-mid text-grey-light font-mono text-2xs uppercase hover:border-danger hover:text-danger"
+              >
+                NONE
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterOpen(false)}
+                className="h-8 px-3 border border-accent text-accent font-mono text-2xs uppercase hover:bg-accent hover:text-black"
+              >
+                DONE
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            {(data?.staff ?? []).map((s) => {
+              const checked = !visibleStaffIds || visibleStaffIds.has(s.id)
+              return (
+                <label key={s.id} className="flex items-center gap-2 border border-grey-mid px-2 py-1.5 hover:border-white cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleStaffFilter(s.id)}
+                    className="accent-white"
+                  />
+                  <span className="font-mono text-xs uppercase text-white">{s.firstName} {s.lastName}</span>
+                  <span className="font-mono text-2xs uppercase text-grey-light ml-auto">{s.employmentType ?? ''}</span>
+                </label>
+              )
+            })}
+          </div>
+          <p className="font-mono text-2xs uppercase text-grey-light">THIS FILTER CHANGES THE GRID ONLY — APPROVALS ALWAYS SHOW EVERY PERSON.</p>
+        </div>
+      </Modal>
+
       {/* Grid */}
       <div className="border border-grey-mid overflow-auto">
         {loading ? (
           <p className="p-4 font-mono text-xs text-grey-light loading-cursor">LOADING</p>
-        ) : data && data.staff.length > 0 ? (
+        ) : data && data.staff.length > 0 && gridStaff.length > 0 ? (
           <div
             className="grid"
             style={{
@@ -723,6 +1067,8 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
                 ))
               : ungroupedStaff.map((s) => renderStaffRow(s))}
           </div>
+        ) : data && data.staff.length > 0 ? (
+          <p className="p-4 font-mono text-xs text-grey-light">NO STAFF MATCH THE FILTER.</p>
         ) : (
           <p className="p-4 font-mono text-xs text-grey-light">NO STAFF FOR THIS VENUE.</p>
         )}
@@ -737,16 +1083,17 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
       >
         {editor && (
           <AvailabilityDayEditor
-            key={`${editor.staffId}:${editor.date}`}
+            key={`${editor.staffId}:${editor.date}:${editor.requestId ?? 'grid'}`}
             dateKey={editor.date}
             entry={editorEntry}
             series={editorSeries}
             presets={data?.presets ?? []}
             canOverride
+            initialScope={editor.scope ?? 'THIS'}
             busy={busy}
             error={error || null}
-            onSave={(draft, options) => save(editor.staffId, editor.date, draft, options)}
-            onClear={(options) => clear(editor.staffId, editor.date, options)}
+            onSave={(draft, options) => save(editor, draft, options)}
+            onClear={(options) => clear(editor, options)}
             onClose={() => { if (!busy) setEditor(null) }}
           />
         )}

@@ -27,6 +27,7 @@ import {
   buildAvailabilityPayload,
   cancelPendingAvailability,
   clearAvailability,
+  markEditRequestApplied,
   planClear,
   planSet,
   saveAvailability,
@@ -406,6 +407,27 @@ describe('availability notes', () => {
 
     expect(await applyEditRequest('r1', 'admin1')).toBe(true)
     expect(db.staffAvailability.updateMany.mock.calls[0][0].data.notes).toBe('NEED SUNDAY OFF')
+  })
+
+  it('marks a request APPLIED without executing its stored plan', async () => {
+    db.availabilityEditRequest.findUnique.mockResolvedValueOnce({
+      id: 'r1', staffId: 'st1', venueId: 'v1', status: 'PENDING', deletedAt: null, action: 'SET', payload: {},
+    })
+
+    expect(await markEditRequestApplied('r1', 'admin1', 'OVERRODE MANUALLY')).toBe(true)
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
+    expect(db.staffAvailability.createMany).not.toHaveBeenCalled()
+    const update = db.availabilityEditRequest.update.mock.calls[0][0]
+    expect(update.data).toMatchObject({ status: 'APPLIED', reviewedById: 'admin1', reviewNote: 'OVERRODE MANUALLY' })
+  })
+
+  it('does not mark an already resolved request applied', async () => {
+    db.availabilityEditRequest.findUnique.mockResolvedValueOnce({
+      id: 'r1', staffId: 'st1', status: 'APPLIED', deletedAt: null,
+    })
+
+    expect(await markEditRequestApplied('r1', 'admin1')).toBe(false)
+    expect(db.availabilityEditRequest.update).not.toHaveBeenCalled()
   })
 })
 

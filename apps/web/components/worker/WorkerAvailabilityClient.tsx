@@ -40,6 +40,8 @@ interface WorkerRequest {
   scope: AvailabilityScope
   action: 'SET' | 'CLEAR'
   seriesId: string | null
+  reason?: string | null
+  payload?: { availability?: { notes?: string | null } | null } | null
 }
 
 interface AvailabilityData {
@@ -252,24 +254,32 @@ export function WorkerAvailabilityClient() {
       {data.requests.length > 0 && (
         <div className="mx-4 mt-3 border border-accent/50 bg-accent/5 p-3 space-y-2">
           <h2 className="font-mono text-xs uppercase tracking-wider text-accent">WAITING FOR A MANAGER</h2>
-          {data.requests.map((req) => (
-            <div key={req.id} className="flex flex-wrap items-center justify-between gap-2 border border-grey-mid bg-black p-2">
-              <div>
-                <div className="font-mono text-xs text-white uppercase">{formatDateLong(req.date)}</div>
-                <div className="font-mono text-2xs uppercase text-grey-light">
-                  {req.action === 'CLEAR' ? 'CANCEL' : 'CHANGE'} · {req.scope === 'THIS' ? 'JUST THIS DAY' : req.scope === 'FROM' ? 'FROM THIS DAY' : 'ALL IN SERIES'}
+          {data.requests.map((req) => {
+            const requestNote = req.reason?.trim() || req.payload?.availability?.notes?.trim() || null
+            return (
+              <div key={req.id} className="flex flex-wrap items-center justify-between gap-2 border border-grey-mid bg-black p-2">
+                <div className="min-w-0">
+                  <div className="font-mono text-xs text-white uppercase">{formatDateLong(req.date)}</div>
+                  <div className="font-mono text-2xs uppercase text-grey-light">
+                    {req.action === 'CLEAR' ? 'CANCEL' : 'CHANGE'} · {req.scope === 'THIS' ? 'JUST THIS DAY' : req.scope === 'FROM' ? 'FROM THIS DAY' : 'ALL IN SERIES'}
+                  </div>
+                  {requestNote && (
+                    <div title={requestNote} className="max-w-[16rem] truncate font-mono text-2xs uppercase text-grey-light">
+                      NOTE: {requestNote}
+                    </div>
+                  )}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => cancelRequest(req.id)}
+                  disabled={saving}
+                  className="h-9 px-3 border border-danger text-danger font-mono text-xs uppercase hover:bg-danger hover:text-black transition-colors disabled:opacity-40"
+                >
+                  CANCEL REQUEST
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => cancelRequest(req.id)}
-                disabled={saving}
-                className="h-9 px-3 border border-danger text-danger font-mono text-xs uppercase hover:bg-danger hover:text-black transition-colors disabled:opacity-40"
-              >
-                CANCEL REQUEST
-              </button>
-            </div>
-          ))}
+            )
+          })}
           <p className="font-mono text-2xs uppercase text-grey-light">CANCELLING HERE WITHDRAWS THE REQUEST — YOUR APPROVED DAYS STAY AS THEY ARE.</p>
         </div>
       )}
@@ -304,6 +314,11 @@ export function WorkerAvailabilityClient() {
                       <span className="font-mono text-2xs text-grey-light leading-tight">
                         {describeWindows(entry.windows, entry.isAllDay, entry.type)}
                       </span>
+                      {entry.notes && (
+                        <span title={entry.notes} className="w-full min-w-0 truncate font-mono text-2xs text-grey-light leading-tight">
+                          NOTE: {entry.notes}
+                        </span>
+                      )}
                       <span className="flex flex-wrap gap-0.5">
                         {entry.status === 'PENDING' && <span className="font-mono text-2xs text-warning leading-none">PENDING</span>}
                         {entry.status === 'DECLINED' && <span className="font-mono text-2xs text-danger leading-none">DECLINED</span>}

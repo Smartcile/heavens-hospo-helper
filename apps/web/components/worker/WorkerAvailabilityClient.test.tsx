@@ -85,10 +85,14 @@ describe('WorkerAvailabilityClient', () => {
     expect(await screen.findByText(/EDIT REQUEST SENT/)).toBeDefined()
   })
 
-  it('lists pending requests and cancels one', async () => {
+  it('lists pending requests, shows the note and cancels one', async () => {
     const withRequest = {
       ...payload,
-      requests: [{ id: 'r1', date: todayKey, scope: 'THIS', action: 'CLEAR', seriesId: null }],
+      requests: [{
+        id: 'r1', date: todayKey, scope: 'THIS', action: 'CLEAR', seriesId: null,
+        reason: 'FAMILY',
+        payload: { availability: { notes: 'FAMILY' } },
+      }],
     }
     const spy = vi.spyOn(global, 'fetch').mockImplementation(async (_url: unknown, init?: RequestInit) => {
       if (init?.method === 'DELETE') return { ok: true, status: 200, json: async () => ({ success: true }) } as Response
@@ -101,6 +105,7 @@ describe('WorkerAvailabilityClient', () => {
     expect(screen.getByText('WAITING FOR A MANAGER')).toBeDefined()
     // A CLEAR request reads as a cancel request to the worker.
     expect(screen.getByText(/CANCEL · JUST THIS DAY/)).toBeDefined()
+    expect(screen.getByText('NOTE: FAMILY')).toBeDefined()
     fireEvent.click(screen.getByText('CANCEL REQUEST'))
 
     await waitFor(() => {
@@ -120,6 +125,19 @@ describe('WorkerAvailabilityClient', () => {
     fireEvent.click(screen.getByText('week'))
     expect(await screen.findByText('ALL DAY')).toBeDefined()
     expect(screen.getByText('TODAY')).toBeDefined()
+  })
+
+  it('shows the stored note on a month cell', async () => {
+    const withNote = {
+      ...payload,
+      entries: [{ ...payload.entries[0], notes: 'NEED SUNDAY OFF' }],
+    }
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => withNote } as Response)
+
+    render(<WorkerAvailabilityClient />)
+    await screen.findByText('MY AVAILABILITY')
+
+    expect(await screen.findByText('NOTE: NEED SUNDAY OFF')).toBeDefined()
   })
 
   it('shows the stored note on a week card', async () => {

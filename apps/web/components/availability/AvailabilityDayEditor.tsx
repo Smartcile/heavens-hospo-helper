@@ -90,6 +90,7 @@ export function AvailabilityDayEditor({
   series,
   presets,
   canOverride = false,
+  initialScope = 'THIS',
   busy = false,
   error,
   onSave,
@@ -101,6 +102,7 @@ export function AvailabilityDayEditor({
   series: AvailabilitySeries | null
   presets: AvailabilityPreset[]
   canOverride?: boolean
+  initialScope?: AvailabilityScope
   busy?: boolean
   error?: string | null
   onSave: (draft: EditorDraft, options: EditorSaveOptions) => void
@@ -120,7 +122,7 @@ export function AvailabilityDayEditor({
     series && series.endDate ? weeksForSeries(series.startDate, series.endDate) : 2,
   )
   const [changeSeriesEnd, setChangeSeriesEnd] = useState(false)
-  const [scope, setScope] = useState<AvailabilityScope>('THIS')
+  const [scope, setScope] = useState<AvailabilityScope>(initialScope)
 
   const partition = windowsArePartition(windows)
   const locked = !!entry && entry.status === 'APPROVED' && !canOverride

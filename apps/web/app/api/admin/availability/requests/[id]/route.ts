@@ -4,11 +4,12 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { getManagerVenueId } from '@/lib/venue-scope'
 import { guardAccess } from '@/lib/permissions'
-import { applyEditRequest, discardEditRequest } from '@/lib/availability.server'
+import { applyEditRequest, discardEditRequest, markEditRequestApplied } from '@/lib/availability.server'
 
-// Apply or discard a worker's edit request to an approved availability day or
-// series. Applying executes the stored plan with manager authority; discarding
-// leaves the approved rows exactly as they are.
+// Apply, discard or mark applied a worker's edit request to an approved
+// availability day or series. APPLY executes the stored plan with manager
+// authority; DISCARD leaves the approved rows as they are; MARK_APPLIED only
+// retires a request the manager already superseded with their own override.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -16,12 +17,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (denied) return denied
 
   const body = await req.json().catch(() => null) as {
-    action?: 'APPLY' | 'DISCARD'
+    action?: 'APPLY' | 'DISCARD' | 'MARK_APPLIED'
     reviewNote?: string | null
   } | null
   const action = body?.action
-  if (action !== 'APPLY' && action !== 'DISCARD') {
-    return NextResponse.json({ error: 'action must be APPLY or DISCARD' }, { status: 400 })
+  if (action !== 'APPLY' && action !== 'DISCARD' && action !== 'MARK_APPLIED') {
+    return NextResponse.json({ error: 'action must be APPLY, DISCARD or MARK_APPLIED' }, { status: 400 })
   }
 
   const request = await prisma.availabilityEditRequest.findUnique({ where: { id: params.id } })
@@ -34,7 +35,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const ok = action === 'APPLY'
     ? await applyEditRequest(params.id, session.user.id, body?.reviewNote)
-    : await discardEditRequest(params.id, session.user.id, body?.reviewNote)
+    : action === 'MARK_APPLIED'
+      ? await markEditRequestApplied(params.id, session.user.id, body?.reviewNote)
+      : await discardEditRequest(params.id, session.user.id, body?.reviewNote)
 
   if (!ok) return NextResponse.json({ error: 'REQUEST ALREADY RESOLVED' }, { status: 409 })
   return NextResponse.json({ success: true })
