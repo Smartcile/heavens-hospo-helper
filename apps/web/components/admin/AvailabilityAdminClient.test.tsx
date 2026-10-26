@@ -49,11 +49,14 @@ describe('AvailabilityAdminClient', () => {
     delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint
   })
 
-  it('lists pending declarations and confirms them by id', async () => {
+  it('lists pending people and confirms a declaration by id', async () => {
     const spy = mockFetch()
     render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 
     expect((await screen.findAllByText('TAYLOR REED')).length).toBeGreaterThan(0)
+    expect(screen.getByText('2 PENDING')).toBeDefined()
+    fireEvent.click(screen.getByText('OPEN →'))
+
     expect(screen.getByText(/TIME OFF — CHECK LEAVE PAY/)).toBeDefined()
     expect(screen.getByText('NOTE: LEAVE')).toBeDefined()
     fireEvent.click(screen.getByText('CONFIRM'))
@@ -66,11 +69,13 @@ describe('AvailabilityAdminClient', () => {
     })
   })
 
-  it('applies a worker edit request', async () => {
+  it('applies a worker edit request from the person modal', async () => {
     const spy = mockFetch()
     render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 
-    expect(await screen.findByText(/EDIT REQUEST/)).toBeDefined()
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    expect(await screen.findByText('EDIT REQUEST')).toBeDefined()
     fireEvent.click(screen.getByText('APPLY'))
 
     await waitFor(() => {
@@ -79,6 +84,155 @@ describe('AvailabilityAdminClient', () => {
       const body = JSON.parse((post![1] as RequestInit).body as string)
       expect(body.action).toBe('APPLY')
     })
+  })
+
+  it('only lists people who have pending items', async () => {
+    const withIdleStaff = {
+      ...data,
+      staff: [
+        { id: 'st1', firstName: 'TAYLOR', lastName: 'REED', employmentType: 'CASUAL' },
+        { id: 'st2', firstName: 'ANN', lastName: 'LEE', employmentType: 'CASUAL' },
+      ],
+    }
+    mockFetch(withIdleStaff)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    expect(screen.getAllByText('OPEN →')).toHaveLength(1)
+    expect(screen.getByText('2 PENDING')).toBeDefined()
+  })
+
+  it('shows the current and proposed day plus the worker note on an edit request', async () => {
+    const withCurrent = {
+      ...data,
+      entries: [
+        {
+          id: 'e1', staffId: 'st1', date: monday, type: 'UNAVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: 'OLD NOTE', reason: null, reviewNote: null,
+          seriesId: null, seriesEndDate: null,
+        },
+      ],
+      queue: {
+        pending: [],
+        requests: [{
+          ...data.queue.requests[0],
+          reason: 'SWAPPED A SHIFT',
+          payload: { availability: { isAllDay: true, type: 'AVAILABLE', windows: [], timeOff: false, notes: 'NEW NOTE' } },
+        }],
+      },
+    }
+    mockFetch(withCurrent)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+
+    expect(screen.getByText('CURRENT APPROVED DAY')).toBeDefined()
+    expect(screen.getByText('PROPOSED')).toBeDefined()
+    expect(screen.getAllByText('NOTE: OLD NOTE').length).toBeGreaterThan(0)
+    expect(screen.getByText('NOTE: NEW NOTE')).toBeDefined()
+    expect(screen.getByText('WORKER: SWAPPED A SHIFT')).toBeDefined()
+    expect(screen.getByText(/REPLACES THE CURRENT APPROVED DAY/)).toBeDefined()
+  })
+
+  it('opens the pending declaration in the editor and saves an override', async () => {
+    const spy = mockFetch({ ...data, queue: { ...data.queue, requests: [] } })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(screen.getByText('OPEN / EDIT'))
+
+    expect(await screen.findByDisplayValue('LEAVE')).toBeDefined()
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      const post = spy.mock.calls.find((c) =>
+        String(c[0]).endsWith('/api/admin/availability') && (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(post).toBeDefined()
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body.staffId).toBe('st1')
+      expect(body.availability.type).toBe('UNAVAILABLE')
+      expect(body.availability.notes).toBe('LEAVE')
+    })
+    expect(spy.mock.calls.some((c) => String(c[0]).includes('/requests/'))).toBe(false)
+  })
+
+  it('opens a SET proposal in the editor, saves the override, then marks the request applied', async () => {
+    const requestOnly = {
+      ...data,
+      queue: {
+        pending: [],
+        requests: [{
+          ...data.queue.requests[0],
+          payload: { availability: { isAllDay: true, type: 'AVAILABLE', windows: [], timeOff: false, notes: 'NEW NOTE' } },
+        }],
+      },
+    }
+    const spy = mockFetch(requestOnly)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(screen.getByText('OPEN / EDIT PROPOSED'))
+
+    expect(await screen.findByDisplayValue('NEW NOTE')).toBeDefined()
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      const save = spy.mock.calls.find((c) =>
+        String(c[0]).endsWith('/api/admin/availability') && (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(save).toBeDefined()
+      const body = JSON.parse((save![1] as RequestInit).body as string)
+      expect(body.availability.type).toBe('AVAILABLE')
+      expect(body.availability.notes).toBe('NEW NOTE')
+    })
+
+    await waitFor(() => {
+      const mark = spy.mock.calls.find((c) => String(c[0]).includes('/requests/req1'))
+      expect(mark).toBeDefined()
+      const body = JSON.parse((mark![1] as RequestInit).body as string)
+      expect(body.action).toBe('MARK_APPLIED')
+    })
+  })
+
+  it('filters the grid without hiding the approvals queue', async () => {
+    mockFetch()
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByRole('button', { name: /FILTER STAFF/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /TAYLOR REED/ }))
+    fireEvent.click(screen.getByText('DONE'))
+
+    expect(await screen.findByText('NO STAFF MATCH THE FILTER.')).toBeDefined()
+    expect(screen.getByText('2 PENDING')).toBeDefined()
+    expect(screen.getByText('OPEN →')).toBeDefined()
+  })
+
+  it('hides empty position groups after filtering staff', async () => {
+    const grouped = {
+      ...data,
+      staff: [
+        { id: 'st1', firstName: 'TAYLOR', lastName: 'REED', employmentType: 'CASUAL', positions: [{ id: 'p1', name: 'MANAGER', colour: '#F00' }] },
+        { id: 'st2', firstName: 'ANN', lastName: 'LEE', employmentType: 'CASUAL', positions: [{ id: 'p2', name: 'SENIOR', colour: null }] },
+      ],
+      positions: [
+        { id: 'p1', name: 'MANAGER', colour: '#F00', sortOrder: 0 },
+        { id: 'p2', name: 'SENIOR', colour: null, sortOrder: 1 },
+      ],
+    }
+    mockFetch(grouped)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByRole('button', { name: /FILTER STAFF/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /TAYLOR REED/ }))
+    fireEvent.click(screen.getByText('DONE'))
+
+    await waitFor(() => expect(screen.queryByText('MANAGER')).toBeNull())
+    expect(screen.getByText('SENIOR')).toBeDefined()
+    expect(screen.getByText('2 PENDING')).toBeDefined()
   })
 
   it('opens the override editor from the week grid and saves directly', async () => {
@@ -108,6 +262,7 @@ describe('AvailabilityAdminClient', () => {
     render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 
     await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
     fireEvent.click(screen.getByText('CANCEL'))
 
     await waitFor(() => {

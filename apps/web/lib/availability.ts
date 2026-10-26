@@ -145,6 +145,52 @@ export function snapWindow(window: AvailabilityWindow): AvailabilityWindow | nul
   return { type: window.type, startTime: fromMinutes(start), endTime: fromMinutes(end) }
 }
 
+/** The subset of a stored edit-request plan the UI needs to preview a proposal. */
+export interface EditRequestProposalLike {
+  action?: 'SET' | 'CLEAR'
+  availability?: AvailabilityPayloadLike | null
+}
+
+/**
+ * Turn a stored edit-request proposal into an `AvailabilityEntry` so the normal
+ * day editor can open pre-filled with the worker's proposed state. Returns null
+ * for a CLEAR request (there is no proposed day to edit) or an empty payload.
+ */
+export function proposalToEntry(input: {
+  date: string
+  payload: EditRequestProposalLike | null | undefined
+  staffId?: string
+  seriesId?: string | null
+  seriesEndDate?: string | null
+  status?: AvailabilityStatus
+}): AvailabilityEntry | null {
+  const proposal = input.payload
+  if (!proposal || proposal.action === 'CLEAR') return null
+  const availability = proposal.availability
+  if (!availability) return null
+  const isAllDay = availability.isAllDay !== false
+  const windows = isAllDay ? [] : normaliseWindows(availability.windows)
+  const type: AvailabilityType = isAllDay
+    ? availability.type
+    : windows.some((w) => w.type === 'UNAVAILABLE') ? 'UNAVAILABLE' : 'AVAILABLE'
+  return {
+    staffId: input.staffId,
+    date: input.date,
+    type,
+    isAllDay,
+    startTime: null,
+    endTime: null,
+    windows,
+    status: input.status ?? 'PENDING',
+    timeOff: availability.timeOff === true,
+    notes: availability.notes ?? null,
+    reason: null,
+    reviewNote: null,
+    seriesId: input.seriesId ?? null,
+    seriesEndDate: input.seriesEndDate ?? null,
+  }
+}
+
 export interface AvailabilityMeta {
   label: string
   /** Badge pill classes: `border ${badge}`. */

@@ -689,6 +689,24 @@ export async function withdrawEditRequest(id: string, staffId: string): Promise<
   return true
 }
 
+/** Mark a request APPLIED without executing its stored plan — used after a
+ *  manager saved their own override for the same day, so the superseded
+ *  request leaves the queue without writing twice. */
+export async function markEditRequestApplied(id: string, actorId: string, reviewNote?: string | null): Promise<boolean> {
+  const request = await prisma.availabilityEditRequest.findUnique({ where: { id } })
+  if (!request || request.deletedAt || request.status !== 'PENDING') return false
+  await prisma.availabilityEditRequest.update({
+    where: { id },
+    data: {
+      status: 'APPLIED',
+      reviewedById: actorId,
+      reviewedAt: new Date(),
+      reviewNote: reviewNote?.trim() || null,
+    },
+  })
+  return true
+}
+
 /** Discard a stored edit request — the approved rows stay as they are. */
 export async function discardEditRequest(id: string, actorId: string, reviewNote?: string | null): Promise<boolean> {
   const request = await prisma.availabilityEditRequest.findUnique({ where: { id } })

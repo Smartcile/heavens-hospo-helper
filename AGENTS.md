@@ -534,7 +534,16 @@ DISCARD. A **THIS** edit on a series day **detaches** it: the row is written
 with `seriesId: null` as a standalone day, so later FROM/ALL changes to the
 series no longer override it (detaching the final occurrence re-pins the
 remaining series end via `AvailabilityPlan.syncSeriesId`). `/admin/team?tab=availability` (`AvailabilityAdminClient`) is the
-review grid. Routes: `/api/admin/availability` (+ `/clear`, `/review`,
+review grid. Approvals are person-centred: only staff with pending work are
+listed, and opening a person shows their declarations and edit requests with the
+current day next to the proposed one. A manager can open either in
+`AvailabilityDayEditor` (`proposalToEntry` in `lib/availability.ts` maps a stored
+SET proposal to an entry) and save an admin override; a `MARK_APPLIED` action on
+`/api/admin/availability/requests/[id]` then retires the request without running
+its stored plan. FILTER STAFF narrows the grid only (never the approvals queue)
+and groups with no matching staff are hidden. Notes show on worker month/week
+cells, the admin grid, edit-request previews and worker pending-request cards.
+Routes: `/api/admin/availability` (+ `/clear`, `/review`,
 `/requests/[id]`), `/api/worker/availability` (+ `/clear`, `/[id]`,
 `/requests/[id]`). Guards: `team.availability.view|edit|approve`.
 
@@ -2530,7 +2539,7 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/beo-links.ts` / `beo-pdf.ts` — link grouping / BEO PDF variants | ✅ (8 + 11) |
 | `lib/event-flow.ts` / `event-pricing.ts` / `event-share.ts` | ✅ (6 + 10 + 8) |
 | `lib/service-schedule.ts` / `service-windows.ts` / `service-seating.ts` | ✅ (19 + 20 + 11) |
-| `lib/availability.ts` / `availability.server.ts` — window algebra, free-window state (PARTIAL) + plan→execute + weekly cut-off gate + series-day detach | ✅ (70 + 27) |
+| `lib/availability.ts` / `availability.server.ts` — window algebra, free-window state (PARTIAL) + plan→execute + weekly cut-off gate + series-day detach + edit-proposal→entry mapping | ✅ (73 + 34) |
 | `lib/event-roster.ts` — area resolution + per-day event buckets | ✅ (11 tests) |
 | `lib/manual-event.ts` — validation, UTC date/time mapping, capacity check | ✅ (9 tests) |
 | `lib/calendar-feeds.ts` — feed URL expansion, room naming | ✅ (9 tests) |
