@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
     }),
   ])
 
-  const seriesIds = [...rows, ...pendingRows]
+  const seriesIds = [...rows, ...pendingRows, ...requests]
     .map((r) => r.seriesId)
     .filter((x): x is string => !!x)
   const series = await loadSeriesSummaries(staff.map((s) => s.id), seriesIds)

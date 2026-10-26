@@ -127,7 +127,7 @@ describe('AvailabilityAdminClient', () => {
     await screen.findAllByText('TAYLOR REED')
     fireEvent.click(screen.getByText('OPEN →'))
 
-    expect(screen.getByText('CURRENT APPROVED DAY')).toBeDefined()
+    expect(screen.getByText('CURRENT DAY')).toBeDefined()
     expect(screen.getByText('PROPOSED')).toBeDefined()
     expect(screen.getAllByText('NOTE: OLD NOTE').length).toBeGreaterThan(0)
     expect(screen.getByText('NOTE: NEW NOTE')).toBeDefined()
@@ -193,6 +193,104 @@ describe('AvailabilityAdminClient', () => {
       expect(mark).toBeDefined()
       const body = JSON.parse((mark![1] as RequestInit).body as string)
       expect(body.action).toBe('MARK_APPLIED')
+    })
+  })
+
+  it('opens a CLEAR request day and retires the request after clearing', async () => {
+    const clearRequest = {
+      ...data,
+      entries: [
+        {
+          id: 'e1', staffId: 'st1', date: monday, type: 'UNAVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: 'OLD NOTE', reason: null, reviewNote: null,
+          seriesId: null, seriesEndDate: null,
+        },
+      ],
+      queue: {
+        pending: [],
+        requests: [{ ...data.queue.requests[0], action: 'CLEAR', payload: null }],
+      },
+    }
+    const spy = mockFetch(clearRequest)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(screen.getByText('OPEN CURRENT DAY'))
+    fireEvent.click(screen.getByText('CLEAR'))
+
+    await waitFor(() => {
+      const clear = spy.mock.calls.find((c) =>
+        String(c[0]).endsWith('/api/admin/availability/clear') && (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(clear).toBeDefined()
+    })
+    await waitFor(() => {
+      const mark = spy.mock.calls.find((c) => String(c[0]).includes('/requests/req1'))
+      expect(mark).toBeDefined()
+      const body = JSON.parse((mark![1] as RequestInit).body as string)
+      expect(body.action).toBe('MARK_APPLIED')
+    })
+  })
+
+  it('keeps the proposed request open with an error when MARK_APPLIED fails', async () => {
+    const requestOnly = {
+      ...data,
+      queue: {
+        pending: [],
+        requests: [{
+          ...data.queue.requests[0],
+          payload: { availability: { isAllDay: true, type: 'AVAILABLE', windows: [], timeOff: false, notes: 'NEW NOTE' } },
+        }],
+      },
+    }
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('/requests/req1') && init?.method === 'POST') {
+        return { ok: false, status: 403, json: async () => ({ error: 'Forbidden' }) } as Response
+      }
+      if (init?.method === 'POST') {
+        return { ok: true, status: 200, json: async () => ({ success: true }) } as Response
+      }
+      return { ok: true, status: 200, json: async () => requestOnly } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(screen.getByText('OPEN / EDIT PROPOSED'))
+    fireEvent.click(screen.getByText('SAVE'))
+
+    expect((await screen.findAllByText(/COULD NOT BE MARKED APPLIED/)).length).toBeGreaterThan(0)
+  })
+
+  it('preserves the proposal scope and series id when saving an override', async () => {
+    const seriesRequest = {
+      ...data,
+      series: [{ id: 's1', staffId: 'st1', startDate: monday, endDate: shiftDay(monday, 21), dates: [monday] }],
+      queue: {
+        pending: [],
+        requests: [{
+          ...data.queue.requests[0],
+          scope: 'FROM',
+          seriesId: 's1',
+          payload: { availability: { isAllDay: true, type: 'AVAILABLE', windows: [], timeOff: false, notes: 'SERIES NOTE' } },
+        }],
+      },
+    }
+    const spy = mockFetch(seriesRequest)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(screen.getByText('OPEN / EDIT PROPOSED'))
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      const save = spy.mock.calls.find((c) =>
+        String(c[0]).endsWith('/api/admin/availability') && (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(save).toBeDefined()
+      const body = JSON.parse((save![1] as RequestInit).body as string)
+      expect(body.scope).toBe('FROM')
+      expect(body.seriesId).toBe('s1')
     })
   })
 

@@ -350,7 +350,9 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
 
   const openPerson = approvals.find((p) => p.staffId === openPersonId) ?? null
 
-  const selectedStaffCount = visibleStaffIds ? visibleStaffIds.size : (data?.staff.length ?? 0)
+  const selectedStaffCount = visibleStaffIds
+    ? (data?.staff ?? []).filter((s) => visibleStaffIds.has(s.id)).length
+    : (data?.staff.length ?? 0)
 
   function toggleStaffFilter(id: string) {
     setVisibleStaffIds((prev) => {
@@ -527,9 +529,8 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
       })
       if (!mark.ok) {
         setBusy(false)
-        setEditor(null)
-        setError('SAVED — BUT THE REQUEST COULD NOT BE MARKED APPLIED')
-        load()
+        await load()
+        setError('SAVED — BUT THE REQUEST COULD NOT BE MARKED APPLIED. CHECK THE REQUEST IN THE QUEUE.')
         return
       }
     }
@@ -552,8 +553,26 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
         seriesId: entry?.seriesId ?? null,
       }),
     })
+    if (!r.ok) {
+      setBusy(false)
+      const d = await r.json().catch(() => ({}))
+      setError((d.error ?? 'CLEAR FAILED').toUpperCase())
+      return
+    }
+    if (target.requestId) {
+      const mark = await fetch(`/api/admin/availability/requests/${target.requestId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'MARK_APPLIED', reviewNote: target.requestReviewNote ?? null }),
+      })
+      if (!mark.ok) {
+        setBusy(false)
+        await load()
+        setError('CLEARED — BUT THE REQUEST COULD NOT BE MARKED APPLIED. CHECK THE REQUEST IN THE QUEUE.')
+        return
+      }
+    }
     setBusy(false)
-    if (!r.ok) { const d = await r.json().catch(() => ({})); setError((d.error ?? 'CLEAR FAILED').toUpperCase()); return }
     setEditor(null)
     load()
   }
@@ -601,6 +620,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
           value={notes[key] ?? ''}
           onChange={(e) => setNotes({ ...notes, [key]: e.target.value })}
           placeholder="REVIEW NOTE (OPTIONAL)"
+          aria-label="Review note for declaration"
           className="field w-full"
         />
         <div className="flex flex-wrap items-center gap-2">
@@ -650,7 +670,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
 
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
           <div className="border border-grey-mid p-2 space-y-1">
-            <div className="font-mono text-2xs uppercase tracking-wider text-grey-light">CURRENT APPROVED DAY</div>
+            <div className="font-mono text-2xs uppercase tracking-wider text-grey-light">CURRENT DAY</div>
             {current ? (
               <>
                 <AvailabilityBar windows={current.windows} isAllDay={current.isAllDay} type={current.type} labelled showType />
@@ -686,6 +706,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
           value={notes[`req:${req.id}`] ?? ''}
           onChange={(e) => setNotes({ ...notes, [`req:${req.id}`]: e.target.value })}
           placeholder="REVIEW NOTE (OPTIONAL)"
+          aria-label="Review note for edit request"
           className="field w-full"
         />
         <div className="flex flex-wrap items-center gap-2">
@@ -696,7 +717,12 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
           {req.action === 'CLEAR' ? (
             <button
               type="button"
-              onClick={() => openEditor({ staffId: req.staffId, date: req.date })}
+              onClick={() => openEditor({
+                staffId: req.staffId,
+                date: req.date,
+                requestId: req.id,
+                requestReviewNote: notes[`req:${req.id}`] ?? null,
+              })}
               className="h-9 px-3 border border-accent text-accent font-mono text-xs uppercase hover:bg-accent hover:text-black disabled:opacity-40"
             >
               OPEN CURRENT DAY
@@ -825,6 +851,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
             <button
               key={person.staffId}
               type="button"
+              aria-haspopup="dialog"
               onClick={() => setOpenPersonId(person.staffId)}
               className="w-full border border-grey-mid p-3 text-left hover:border-white transition-colors"
             >
@@ -863,6 +890,9 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
       >
         {openPerson && (
           <div className="space-y-4">
+            {error && (
+              <p className="border border-danger/50 bg-danger/10 px-3 py-2 font-mono text-xs text-danger">{error}</p>
+            )}
             {openPerson.declarations.length > 0 && (
               <div className="space-y-2">
                 <h3 className="font-mono text-xs uppercase tracking-wider text-grey-light">DECLARATIONS</h3>
@@ -926,16 +956,18 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
               <button
                 type="button"
                 onClick={() => setVisibleStaffIds(null)}
+                title="SHOW EVERY STAFF MEMBER"
                 className="h-8 px-3 border border-white bg-white text-black font-mono text-2xs uppercase font-bold hover:bg-accent"
               >
-                ALL
+                SHOW ALL
               </button>
               <button
                 type="button"
                 onClick={() => setVisibleStaffIds(new Set())}
+                title="SHOW NO STAFF IN THE GRID"
                 className="h-8 px-3 border border-grey-mid text-grey-light font-mono text-2xs uppercase hover:border-danger hover:text-danger"
               >
-                CLEAR
+                NONE
               </button>
               <button
                 type="button"

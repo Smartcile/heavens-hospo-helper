@@ -61,5 +61,12 @@ describe('proposalToEntry', () => {
     expect(proposalToEntry({ date: '2026-10-26', payload: { action: 'CLEAR', availability: null } })).toBeNull()
     expect(proposalToEntry({ date: '2026-10-26', payload: null })).toBeNull()
     expect(proposalToEntry({ date: '2026-10-26', payload: { action: 'SET', availability: null } })).toBeNull()
+    expect(proposalToEntry({
+      date: '2026-10-26',
+      payload: {
+        action: 'SET',
+        availability: { isAllDay: false, type: 'AVAILABLE', windows: [], timeOff: false, notes: null },
+      },
+    })).toBeNull()
   })
 })

@@ -170,6 +170,7 @@ export function proposalToEntry(input: {
   if (!availability) return null
   const isAllDay = availability.isAllDay !== false
   const windows = isAllDay ? [] : normaliseWindows(availability.windows)
+  if (!isAllDay && windows.length === 0) return null
   const type: AvailabilityType = isAllDay
     ? availability.type
     : windows.some((w) => w.type === 'UNAVAILABLE') ? 'UNAVAILABLE' : 'AVAILABLE'
