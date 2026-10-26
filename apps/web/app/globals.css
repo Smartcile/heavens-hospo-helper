@@ -240,3 +240,16 @@ label {
 @utility mb-safe {
   margin-bottom: env(safe-area-inset-bottom);
 }
+
+/* ── iOS: stop Safari zooming the page when a control is focused ─────────
+   iOS zooms on focus when the control's font-size is below 16px. This is
+   iOS-only so the compact desktop density is untouched. `!important` is
+   deliberate: several fields use Tailwind `text-xs` utilities. */
+@supports (-webkit-touch-callout: none) {
+  input,
+  select,
+  textarea,
+  [contenteditable="true"] {
+    font-size: 16px !important;
+  }
+}
