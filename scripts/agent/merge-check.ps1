@@ -8,7 +8,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 git -C $RepoRoot fetch origin develop --quiet 2>&1 | Out-Null
 
 if ($Branches.Count -eq 0) {
-  $Branches = @(git -C $RepoRoot for-each-ref --format="%(refname:short)" refs/heads/issue 2>$null)
+  $Branches = @(git -C $RepoRoot for-each-ref --format="%(refname:short)" refs/heads/issue refs/heads/wave 2>$null)
 }
 
 if ($Branches.Count -eq 0) {

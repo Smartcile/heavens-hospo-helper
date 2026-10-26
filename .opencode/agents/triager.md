@@ -16,9 +16,13 @@ Process:
 2. Run `gh issue view <number> --comments` and read the full thread.
 3. Search the codebase read-only using glob, grep, and read. Do not change code.
 4. Identify the root cause, likely files, data/API/schema impact, test plan, risks, and overlap with other open issues.
-5. Write the plan to `.agent/triage-<number>.md`.
-6. Post it with `gh issue comment <number> --body-file .agent/triage-<number>.md`.
-7. Add the `agent:planned` label with `gh issue edit <number> --add-label agent:planned`.
+5. Rename the issue to a clean title with `gh issue edit <number> --title "[AREA] Short imperative description"`.
+   Use one of: `[AVAILABILITY]`, `[ROSTER]`, `[TASKS]`, `[GUIDES]`, `[BOOKINGS]`, `[ORDERS]`, `[INVENTORY]`, `[EVENTS]`, `[SWIFTPOS]`, `[UI]`, `[OTHER]`.
+   Keep it under 72 characters, use sentence case, and do not end with a full stop.
+   If you are triaging a group, rename every issue and use the same area prefix.
+6. Write the plan to `.agent/triage-<number>.md`.
+7. Post it with `gh issue comment <number> --body-file .agent/triage-<number>.md`.
+8. Add the `agent:planned` label with `gh issue edit <number> --add-label agent:planned`.
 
 Use this template:
 
@@ -32,6 +36,7 @@ Use this template:
 **Out of scope**
 **Overlap with other open issues**
 **Suggested PR size**
+**Screenshot plan** (role, path, viewport, and what should be visible)
 
 Rules:
 - Do not implement, edit application files, commit, or open a PR.

@@ -1,6 +1,6 @@
 name: Task
 description: A HOSPO OPS fix or feature request
-title: "[Task] "
+title: "[AREA] "
 labels: ["enhancement"]
 body:
   - type: dropdown
@@ -81,5 +81,37 @@ body:
       label: Screenshots, links, or extra context
       description: Paste screenshots, page paths, or related issues.
       placeholder: Admin -> Team -> Availability...
+    validations:
+      required: false
+
+  - type: dropdown
+    id: screenshot_needed
+    attributes:
+      label: Screenshot before merge?
+      description: Choose Yes when you want the agent to post a visual check.
+      options:
+        - "No"
+        - "Yes"
+        - "Only if the UI changes"
+    validations:
+      required: true
+
+  - type: input
+    id: screenshot_path
+    attributes:
+      label: Page to screenshot
+      description: The page path the agent should capture.
+      placeholder: /admin/team?tab=availability
+    validations:
+      required: false
+
+  - type: dropdown
+    id: screenshot_role
+    attributes:
+      label: Screenshot login
+      options:
+        - Public
+        - Admin
+        - Worker
     validations:
       required: false

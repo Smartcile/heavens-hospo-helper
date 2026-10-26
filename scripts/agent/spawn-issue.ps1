@@ -1,6 +1,8 @@
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Single")]
 param(
-  [Parameter(Mandatory = $true)][int]$Issue,
+  [Parameter(Mandatory = $true, ParameterSetName = "Single")][int]$Issue,
+  [Parameter(Mandatory = $true, ParameterSetName = "Group")][int[]]$Issues,
+  [string]$Name = "",
   [string]$WorktreeRoot = "",
   [switch]$SkipInstall,
   [switch]$Force
@@ -14,9 +16,9 @@ if ([string]::IsNullOrWhiteSpace($WorktreeRoot)) {
   $WorktreeRoot = Join-Path $RepoRoot ".worktrees"
 }
 
-function Require-Command($Name) {
-  if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
-    throw "Required command '$Name' was not found on PATH."
+function Require-Command($CommandName) {
+  if (-not (Get-Command $CommandName -ErrorAction SilentlyContinue)) {
+    throw "Required command '$CommandName' was not found on PATH."
   }
 }
 
@@ -36,8 +38,32 @@ function Invoke-Native {
   }
 }
 
+function ConvertTo-Slug([string]$Text) {
+  $value = $Text.ToLowerInvariant()
+  $value = [regex]::Replace($value, "[^a-z0-9]+", "-").Trim("-")
+  if ($value.Length -gt 48) {
+    $value = $value.Substring(0, 48).Trim("-")
+  }
+  if ([string]::IsNullOrWhiteSpace($value)) {
+    return "issue"
+  }
+  return $value
+}
+
 Require-Command git
 Require-Command gh
+
+if ($PSCmdlet.ParameterSetName -eq "Group") {
+  $issueNumbers = @($Issues | Select-Object -Unique)
+} else {
+  $issueNumbers = @($Issue)
+}
+
+if ($issueNumbers.Count -eq 0) {
+  throw "No issue numbers supplied."
+}
+
+$isGroup = $issueNumbers.Count -gt 1
 
 $dirty = @(git -C $RepoRoot status --porcelain)
 if ($dirty.Count -gt 0 -and -not $Force) {
@@ -49,28 +75,37 @@ if ($currentBranch -ne "develop" -and -not $Force) {
   throw "The main checkout is on '$currentBranch', not 'develop'. Switch to develop or re-run with -Force."
 }
 
-$issueResult = Invoke-Native -FilePath "gh" -Arguments @("issue", "view", "$Issue", "--json", "number,title,body,labels,comments,url")
-if ($issueResult.Code -ne 0) {
-  throw "Could not read issue #$Issue from GitHub: $($issueResult.Output -join ' ')"
-}
-$issueData = ($issueResult.Output -join "`n") | ConvertFrom-Json
-
-$labels = @($issueData.labels | ForEach-Object { $_.name })
-if (($labels -notcontains "agent:approved") -and -not $Force) {
-  throw "Issue #$Issue does not have the 'agent:approved' label. Review the triage comment, add the label, then re-run. Use -Force to skip this gate."
+$issueDataList = @()
+foreach ($issueNumber in $issueNumbers) {
+  $issueResult = Invoke-Native -FilePath "gh" -Arguments @("issue", "view", "$issueNumber", "--json", "number,title,body,labels,comments,url")
+  if ($issueResult.Code -ne 0) {
+    throw "Could not read issue #$issueNumber from GitHub: $($issueResult.Output -join ' ')"
+  }
+  $issueDataList += (($issueResult.Output -join "`n") | ConvertFrom-Json)
 }
 
-$slug = $issueData.title.ToLowerInvariant()
-$slug = [regex]::Replace($slug, "[^a-z0-9]+", "-").Trim("-")
-if ($slug.Length -gt 48) {
-  $slug = $slug.Substring(0, 48).Trim("-")
-}
-if ([string]::IsNullOrWhiteSpace($slug)) {
-  $slug = "issue"
+foreach ($issueData in $issueDataList) {
+  $labels = @($issueData.labels | ForEach-Object { $_.name })
+  if (($labels -notcontains "agent:approved") -and -not $Force) {
+    throw "Issue #$($issueData.number) does not have the 'agent:approved' label. Review the triage comment, add the label, then re-run. Use -Force to skip this gate."
+  }
 }
 
-$branch = "issue/$Issue-$slug"
-$worktreePath = Join-Path $WorktreeRoot "issue-$Issue"
+if (-not [string]::IsNullOrWhiteSpace($Name)) {
+  $slug = ConvertTo-Slug $Name
+} elseif ($isGroup) {
+  $slug = "issues-" + ($issueNumbers -join "-")
+} else {
+  $slug = ConvertTo-Slug $issueDataList[0].title
+}
+
+if ($isGroup) {
+  $branch = "wave/$slug"
+  $worktreePath = Join-Path $WorktreeRoot "wave-$slug"
+} else {
+  $branch = "issue/$($issueNumbers[0])-$slug"
+  $worktreePath = Join-Path $WorktreeRoot "issue-$($issueNumbers[0])"
+}
 
 if (Test-Path -LiteralPath $worktreePath) {
   throw "Worktree folder already exists: $worktreePath"
@@ -114,47 +149,77 @@ if (Test-Path -LiteralPath $envSource) {
 $agentDir = Join-Path $worktreePath ".agent"
 New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
 
-$comments = ""
-foreach ($comment in @($issueData.comments)) {
-  if ($null -eq $comment) { continue }
-  $author = "unknown"
-  if ($comment.author -and $comment.author.login) {
-    $author = $comment.author.login
+$issueSections = ""
+foreach ($issueData in $issueDataList) {
+  $comments = ""
+  foreach ($comment in @($issueData.comments)) {
+    if ($null -eq $comment) { continue }
+    $author = "unknown"
+    if ($comment.author -and $comment.author.login) {
+      $author = $comment.author.login
+    }
+    $comments += "### $author - $($comment.createdAt)`r`n`r`n$($comment.body)`r`n`r`n"
   }
-  $comments += "### $author - $($comment.createdAt)`r`n`r`n$($comment.body)`r`n`r`n"
-}
 
-$task = @"
-# Issue #$($issueData.number) - $($issueData.title)
+  $issueSections += @"
+
+## Issue #$($issueData.number) - $($issueData.title)
 
 - Issue: $($issueData.url)
-- Branch: $branch
-- Base: origin/develop
-- Worktree: $worktreePath
 
-## Problem
+### Problem
 
 $($issueData.body)
 
-## Issue discussion / approved plan
+### Discussion / approved plan
 
 $comments
 
+"@
+}
+
+$fixLines = ($issueNumbers | ForEach-Object { "Fixes #$_" }) -join "`r`n"
+
+if ($isGroup) {
+  $taskTitle = "Issues #" + ($issueNumbers -join ", #")
+  if (-not [string]::IsNullOrWhiteSpace($Name)) {
+    $taskTitle += " - $Name"
+  }
+} else {
+  $taskTitle = "Issue #$($issueNumbers[0]) - $($issueDataList[0].title)"
+}
+
+$task = @"
+# $taskTitle
+
+- Branch: $branch
+- Base: origin/develop
+- Worktree: $worktreePath
+- Issues: $($issueNumbers -join ", ")
+
+$issueSections
+
 ## Acceptance criteria
 
-- [ ] The issue is fixed.
+- [ ] Every issue above is fixed.
 - [ ] Tests cover the changed logic.
 - [ ] `npm run lint` passes.
 - [ ] Relevant tests pass; the full test suite passes before shipping.
 
 ## Guardrails
 
-- Change only what this issue needs.
+- Change only what these issues need.
 - Do not refactor unrelated code.
 - Do not run `prisma db push`, `prisma migrate`, `db:seed`, or any Docker command.
 - Do not merge, force-push, or push to `develop`, `main`, or `master`.
 - If a schema change is needed, stop and ask first.
 - Update docs when models, routes, or conventions change.
+
+## PR instructions
+
+When shipping, include these lines in the PR body:
+
+$fixLines
 
 ## Definition of done
 
@@ -162,11 +227,15 @@ $comments
 - [ ] Lint and relevant tests pass.
 - [ ] Reviewer findings addressed.
 - [ ] Human review done.
+- [ ] If a screenshot was requested, it was posted on the issue.
 - [ ] PR opened to `develop`.
 "@
 
 $taskPath = Join-Path $agentDir "TASK.md"
 Set-Content -LiteralPath $taskPath -Value $task -Encoding UTF8
+
+$issuesPath = Join-Path $agentDir "ISSUES"
+Set-Content -LiteralPath $issuesPath -Value ($issueNumbers -join ",") -Encoding ASCII
 
 $commonDir = (git -C $worktreePath rev-parse --git-common-dir).Trim()
 if (-not [System.IO.Path]::IsPathRooted($commonDir)) {
@@ -213,11 +282,13 @@ if (-not $SkipInstall) {
   }
 }
 
-Invoke-Native -FilePath "gh" -Arguments @("issue", "edit", "$Issue", "--add-label", "agent:working") | Out-Null
+foreach ($issueNumber in $issueNumbers) {
+  Invoke-Native -FilePath "gh" -Arguments @("issue", "edit", "$issueNumber", "--add-label", "agent:working") | Out-Null
+}
 
 Write-Host ""
 Write-Host "Worktree ready."
-Write-Host "  Issue:  #$Issue $($issueData.title)"
+Write-Host "  Issues: #$($issueNumbers -join ', #')"
 Write-Host "  Branch: $branch"
 Write-Host "  Folder: $worktreePath"
 Write-Host "  Brief:  $taskPath"
@@ -227,5 +298,9 @@ Write-Host "  1. In OpenCode Desktop, open this folder as a project:"
 Write-Host "       $worktreePath"
 Write-Host "  2. Select the 'implementer' agent."
 Write-Host "  3. Say: Read .agent/TASK.md and implement it."
-Write-Host "  4. When it is done: @reviewer review the diff for issue #$Issue"
-Write-Host "  5. After your review: /ship $Issue"
+Write-Host "  4. When it is done: @reviewer review the diff for the issues in .agent/ISSUES"
+if ($isGroup) {
+  Write-Host "  5. After your review: /ship-group $($issueNumbers -join ',')"
+} else {
+  Write-Host "  5. After your review: /ship $($issueNumbers[0])"
+}
