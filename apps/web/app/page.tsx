@@ -54,15 +54,13 @@ export default function Home() {
         </span>
       </button>
 
-      {/* Admin login lives behind a discreet button */}
-      <div className="border-t border-grey-mid p-4 flex justify-center">
-        <button
-          onClick={() => setAdminOpen(true)}
-          className="font-mono text-xs uppercase tracking-widest text-grey-light hover:text-white transition-colors"
-        >
-          ADMIN LOGIN
-        </button>
-      </div>
+      {/* Admin login lives behind a discreet full-width button */}
+      <button
+        onClick={() => setAdminOpen(true)}
+        className="w-full min-h-[48px] flex items-center justify-center border-t border-grey-mid px-4 pt-4 pb-safe font-mono text-xs uppercase tracking-widest text-grey-light hover:text-white transition-colors"
+      >
+        <span className="pb-4">ADMIN LOGIN</span>
+      </button>
 
       <Modal isOpen={adminOpen} onClose={() => setAdminOpen(false)} title="ADMIN LOGIN" size="md">
         <form onSubmit={handleSubmit} className="space-y-4">
