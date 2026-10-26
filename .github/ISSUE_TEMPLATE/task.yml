@@ -1,0 +1,85 @@
+name: Task
+description: A HOSPO OPS fix or feature request
+title: "[Task] "
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of HOSPO OPS does this touch?
+      options:
+        - Availability
+        - Tasks and Lists
+        - Guides
+        - Roster
+        - Bookings
+        - Orders
+        - Inventory
+        - Events and BEO
+        - SwiftPOS
+        - UI and mobile
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing?
+      description: Describe the current behaviour and why it is a problem.
+      placeholder: When I open the approvals area...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should happen?
+      description: Describe the expected behaviour as if you were using it.
+      placeholder: I should be able to click a person and see...
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What must be true for this to be done?
+      placeholder: |
+        - [ ] The approvals area lists people, not every request.
+        - [ ] Clicking a person opens the same editor used elsewhere.
+        - [ ] Existing approvals are not overwritten silently.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: db_impact
+    attributes:
+      label: Database or schema impact
+      options:
+        - "No"
+        - "Yes - schema change"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - Low
+        - Medium
+        - High
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Screenshots, links, or extra context
+      description: Paste screenshots, page paths, or related issues.
+      placeholder: Admin -> Team -> Availability...
+    validations:
+      required: false
