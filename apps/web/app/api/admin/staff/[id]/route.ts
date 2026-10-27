@@ -23,6 +23,10 @@ export async function GET(_req: NextRequest, { params }: Params) {
       taxCode: true, kiwiSaverRate: true, studentLoan: true,
       swiftPosId: true, myHrId: true, loadedReportsId: true,
       sections: { select: { sectionId: true } },
+      sectionWorkReviews: {
+        where: { deletedAt: null, status: 'PENDING' },
+        select: { sectionId: true },
+      },
       positions: { select: { positionId: true, hourlyRate: true } },
       staffVenues: { select: { venueId: true } },
     },

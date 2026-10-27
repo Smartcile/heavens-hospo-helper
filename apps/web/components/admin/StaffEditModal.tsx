@@ -17,6 +17,7 @@ interface StaffData {
   taxCode: string | null; kiwiSaverRate: number | null; studentLoan: boolean
   swiftPosId: string | null; myHrId: string | null; loadedReportsId: string | null
   sections: { sectionId: string }[]
+  sectionWorkReviews?: { sectionId: string }[]
   positions?: { positionId: string; hourlyRate: number | null }[]
   staffVenues: { venueId: string }[]
 }
@@ -134,6 +135,9 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
     : []
   const formSections = staff ? sections.filter((s) => s.venueId === staff.venueId) : []
   const formPositions = staff ? allPositions.filter((p) => p.venueId === staff.venueId) : []
+  const pendingSectionIds = new Set(
+    (staff?.sectionWorkReviews ?? []).map((r) => r.sectionId),
+  )
 
   return (
     <Modal isOpen onClose={onClose} title="EDIT STAFF" size="md">
@@ -182,6 +186,17 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
                   <button key={s.id} type="button" onClick={() => toggleSection(s.id)} className={`font-mono text-xs px-2 py-1.5 border transition-colors ${sectionIds.includes(s.id) ? 'bg-white text-black border-white' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>{s.name}</button>
                 ))}
               </div>
+              {formSections.some((s) => pendingSectionIds.has(s.id) && !sectionIds.includes(s.id)) && (
+                <div className="flex flex-wrap gap-1">
+                  {formSections
+                    .filter((s) => pendingSectionIds.has(s.id) && !sectionIds.includes(s.id))
+                    .map((s) => (
+                      <span key={`pending-${s.id}`} className="font-mono text-xs uppercase px-2 py-1.5 border border-warning/60 text-warning">
+                        {s.name} · PENDING REVIEW
+                      </span>
+                    ))}
+                </div>
+              )}
             </div>
           )}
 

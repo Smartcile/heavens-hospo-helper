@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { guardAccess } from '@/lib/permissions'
 import { trainingStatusForVenue } from '@/lib/training-status.server'
+import { reconcileVenueSectionWork } from '@/lib/section-work.server'
 
 // Staff training status for the STATUS tab: on-shift staff first, traffic-light
 // level per person. Computation lives in lib/training-status.server.ts (also
@@ -17,6 +18,10 @@ export async function GET(req: NextRequest) {
     session.user.role === 'MANAGER'
       ? session.user.venueId
       : new URL(req.url).searchParams.get('venueId') || session.user.venueId
+
+  // Lazy reconcile so a review is raised even if a completion path missed the
+  // best-effort hook. Best-effort itself — never blocks the board.
+  await reconcileVenueSectionWork(venueId)
 
   const status = await trainingStatusForVenue(venueId)
   if (!status) return NextResponse.json({ error: 'Venue not found' }, { status: 404 })
