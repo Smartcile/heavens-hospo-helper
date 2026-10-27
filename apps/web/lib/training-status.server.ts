@@ -8,7 +8,6 @@ import { prisma } from '@hospo-ops/db'
 import { guideSource, type GuideAudienceRow, type StaffContext } from '@/lib/guides'
 import { getTodayDate } from '@/lib/utils'
 import { sortTrainingRows, trainingLevel, type TrainingLevel } from '@/lib/training-status'
-import { listSectionWorkReviews, type SectionWorkReviewSummary } from '@/lib/section-work.server'
 
 export interface StaffTrainingRow {
   id: string
@@ -28,8 +27,6 @@ export interface VenueTrainingStatus {
   date: string
   staff: StaffTrainingRow[]
   summary: { green: number; yellow: number; red: number }
-  /** Sections awaiting a manager's confirm/dismiss (never a grant by themselves). */
-  sectionReviews: SectionWorkReviewSummary[]
 }
 
 export async function trainingStatusForVenue(venueId: string): Promise<VenueTrainingStatus | null> {
@@ -55,7 +52,7 @@ export async function trainingStatusForVenue(venueId: string): Promise<VenueTrai
   })
   const staffIds = staff.map((s) => s.id)
 
-  const [shifts, guides, assignments, completions, followUps, sectionReviews] = await Promise.all([
+  const [shifts, guides, assignments, completions, followUps] = await Promise.all([
     prisma.shift.findMany({
       where: { venueId, deletedAt: null, status: 'PUBLISHED', date: today },
       select: { staffId: true },
@@ -88,7 +85,6 @@ export async function trainingStatusForVenue(venueId: string): Promise<VenueTrai
           select: { staffId: true },
         })
       : [],
-    listSectionWorkReviews(venueId),
   ])
 
   const onShift = new Set(shifts.map((s) => s.staffId))
@@ -155,6 +151,5 @@ export async function trainingStatusForVenue(venueId: string): Promise<VenueTrai
       yellow: sorted.filter((r) => r.level === 'YELLOW').length,
       red: sorted.filter((r) => r.level === 'RED').length,
     },
-    sectionReviews,
   }
 }

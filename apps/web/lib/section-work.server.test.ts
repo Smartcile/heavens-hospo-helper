@@ -12,6 +12,7 @@ const { db, resolvePathwayForStaff } = vi.hoisted(() => {
       findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
     staffSection: { upsert: vi.fn() },
     $transaction: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock('@hospo-ops/db', () => ({ prisma: db }))
 vi.mock('@/lib/pathway-for-staff', () => ({ resolvePathwayForStaff }))
 
 import {
+  dismissPendingSectionWorkForGrant,
   listSectionWorkReviews,
   reconcileSectionWork,
   reviewSectionWork,
@@ -55,6 +57,7 @@ beforeEach(() => {
     id: 'r1',
     ...data,
   }))
+  db.sectionWorkReview.updateMany.mockResolvedValue({ count: 1 })
   db.staffSection.upsert.mockResolvedValue({ id: 'ss1' })
   resolvePathwayForStaff.mockResolvedValue(null)
 })
@@ -144,16 +147,73 @@ describe('reconcileSectionWork', () => {
     })
   })
 
-  it('auto-dismisses a pending review whose evidence disappeared', async () => {
+  it('auto-dismisses a pending review whose evidence disappeared and clears the signature', async () => {
     db.guideAudience.findMany.mockResolvedValue([])
     db.sectionWorkReview.findMany.mockResolvedValue([
-      { id: 'r1', sectionId: 'sec1', status: 'PENDING', evidence: 'GUIDES:g1,g2' },
+      { id: 'r1', sectionId: 'sec1', status: 'PENDING', evidence: 'GUIDES:g1,g2', deletedAt: null },
     ])
     const result = await reconcileSectionWork('s1')
     expect(result).toMatchObject({ dismissed: 1 })
     expect(db.sectionWorkReview.update).toHaveBeenCalledWith({
       where: { id: 'r1' },
-      data: expect.objectContaining({ status: 'DISMISSED', note: 'EVIDENCE REMOVED' }),
+      data: expect.objectContaining({
+        status: 'DISMISSED',
+        note: 'EVIDENCE REMOVED',
+        evidence: null,
+        pathwayId: null,
+      }),
+    })
+  })
+
+  it('reopens after work is revoked (auto-dismiss) and completed again', async () => {
+    // 1) Completion exists and a pending review is waiting.
+    db.sectionWorkReview.findMany.mockResolvedValue([
+      { id: 'r1', sectionId: 'sec1', status: 'PENDING', evidence: 'GUIDES:g1,g2', deletedAt: null },
+    ])
+    await reconcileSectionWork('s1')
+
+    // 2) The guides are revoked → reconcile auto-dismisses and clears evidence.
+    db.guideCompletion.findMany.mockResolvedValue([])
+    await reconcileSectionWork('s1')
+    expect(db.sectionWorkReview.update).toHaveBeenLastCalledWith({
+      where: { id: 'r1' },
+      data: expect.objectContaining({ status: 'DISMISSED', evidence: null }),
+    })
+
+    // 3) The same guides are completed again → the cleared signature differs,
+    // so the review reopens instead of staying dismissed.
+    db.sectionWorkReview.findMany.mockResolvedValue([
+      { id: 'r1', sectionId: 'sec1', status: 'DISMISSED', evidence: null, deletedAt: null },
+    ])
+    db.guideCompletion.findMany.mockResolvedValue([{ guideId: 'g1' }, { guideId: 'g2' }])
+    const result = await reconcileSectionWork('s1')
+    expect(result).toMatchObject({ reopened: 1 })
+    expect(db.sectionWorkReview.update).toHaveBeenLastCalledWith({
+      where: { id: 'r1' },
+      data: expect.objectContaining({ status: 'PENDING', evidence: 'GUIDES:g1,g2' }),
+    })
+  })
+
+  it('restores a soft-deleted review instead of creating a duplicate (unique key)', async () => {
+    db.sectionWorkReview.findMany.mockResolvedValue([
+      {
+        id: 'r1',
+        sectionId: 'sec1',
+        status: 'DISMISSED',
+        evidence: 'GUIDES:g1,g2',
+        deletedAt: new Date('2026-10-01T00:00:00Z'),
+      },
+    ])
+    const result = await reconcileSectionWork('s1')
+    expect(result).toMatchObject({ created: 0, reopened: 1 })
+    expect(db.sectionWorkReview.create).not.toHaveBeenCalled()
+    expect(db.sectionWorkReview.update).toHaveBeenCalledWith({
+      where: { id: 'r1' },
+      data: expect.objectContaining({
+        deletedAt: null,
+        status: 'PENDING',
+        evidence: 'GUIDES:g1,g2',
+      }),
     })
   })
 
@@ -183,6 +243,7 @@ describe('reviewSectionWork', () => {
       id: 'r1',
       staffId: 's1',
       sectionId: 'sec1',
+      status: 'PENDING',
     })
   })
 
@@ -220,6 +281,12 @@ describe('reviewSectionWork', () => {
   })
 
   it('REOPEN puts a dismissed review back in the queue without granting it', async () => {
+    db.sectionWorkReview.findFirst.mockResolvedValue({
+      id: 'r1',
+      staffId: 's1',
+      sectionId: 'sec1',
+      status: 'DISMISSED',
+    })
     const result = await reviewSectionWork({ reviewId: 'r1', action: 'REOPEN', reviewerId: 'm1' })
     expect(result.ok).toBe(true)
     expect(db.staffSection.upsert).not.toHaveBeenCalled()
@@ -229,11 +296,68 @@ describe('reviewSectionWork', () => {
     })
   })
 
+  it('rejects DISMISS on a CONFIRMED review without creating a grant', async () => {
+    db.sectionWorkReview.findFirst.mockResolvedValue({
+      id: 'r1',
+      staffId: 's1',
+      sectionId: 'sec1',
+      status: 'CONFIRMED',
+    })
+    const result = await reviewSectionWork({ reviewId: 'r1', action: 'DISMISS', reviewerId: 'm1' })
+    expect(result).toMatchObject({ ok: false, status: 409 })
+    expect(db.sectionWorkReview.update).not.toHaveBeenCalled()
+    expect(db.staffSection.upsert).not.toHaveBeenCalled()
+  })
+
+  it('rejects CONFIRM on a DISMISSED review', async () => {
+    db.sectionWorkReview.findFirst.mockResolvedValue({
+      id: 'r1',
+      staffId: 's1',
+      sectionId: 'sec1',
+      status: 'DISMISSED',
+    })
+    const result = await reviewSectionWork({ reviewId: 'r1', action: 'CONFIRM', reviewerId: 'm1' })
+    expect(result).toMatchObject({ ok: false, status: 409 })
+    expect(db.staffSection.upsert).not.toHaveBeenCalled()
+    expect(db.sectionWorkReview.update).not.toHaveBeenCalled()
+  })
+
+  it('rejects REOPEN on a PENDING review', async () => {
+    const result = await reviewSectionWork({ reviewId: 'r1', action: 'REOPEN', reviewerId: 'm1' })
+    expect(result).toMatchObject({ ok: false, status: 409 })
+    expect(db.sectionWorkReview.update).not.toHaveBeenCalled()
+  })
+
   it('404s for an unknown review', async () => {
     db.sectionWorkReview.findFirst.mockResolvedValue(null)
     const result = await reviewSectionWork({ reviewId: 'nope', action: 'CONFIRM', reviewerId: 'm1' })
     expect(result).toMatchObject({ ok: false, status: 404 })
     expect(db.staffSection.upsert).not.toHaveBeenCalled()
+  })
+})
+
+describe('dismissPendingSectionWorkForGrant', () => {
+  it('closes matching PENDING reviews when a manager grants sections manually', async () => {
+    const count = await dismissPendingSectionWorkForGrant('s1', ['sec1', 'sec2'], 'm1')
+    expect(count).toBe(1)
+    expect(db.sectionWorkReview.updateMany).toHaveBeenCalledWith({
+      where: {
+        staffId: 's1',
+        sectionId: { in: ['sec1', 'sec2'] },
+        status: 'PENDING',
+        deletedAt: null,
+      },
+      data: expect.objectContaining({
+        status: 'DISMISSED',
+        reviewedById: 'm1',
+        note: 'GRANTED MANUALLY',
+      }),
+    })
+  })
+
+  it('does nothing when no sections are granted', async () => {
+    await dismissPendingSectionWorkForGrant('s1', [], 'm1')
+    expect(db.sectionWorkReview.updateMany).not.toHaveBeenCalled()
   })
 })
 

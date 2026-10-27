@@ -469,7 +469,10 @@ of it:
   `@@unique([staffId, sectionId])` keeps one row per person + section.
 - `evidence` is a stable signature (`GUIDES:g1,g2|PATHWAY:p1`), so a dismissed
   review only reopens when the qualifying evidence **changes** — not on every
-  page load.
+  page load. A **manager** DISMISS keeps the signature; a **system** auto-dismiss
+  clears `evidence`/`pathwayId`, so restoring the same work reopens it.
+- The unique key is `(staffId, sectionId)` across soft-deleted rows too, so
+  reconcile restores a soft-deleted row in place instead of hitting P2002.
 
 **Eligibility (`lib/section-work.ts`, pure).** A section is trainable when at
 least one PUBLISHED, tracked guide targets it via `GuideAudience(kind: SECTION)`;
@@ -480,26 +483,30 @@ the resolved view).
 **Reconcile (`lib/section-work.server.ts`).** `reconcileSectionWork(staffId)`:
 for sections the person does not already hold, raises a `PENDING` review when
 eligible + complete. It never writes `StaffSection`. A still-PENDING review whose
-evidence disappears is auto-dismissed; a CONFIRMED review is never touched; a
-DISMISSED review is revived only when the evidence signature changes. Called
-best-effort after worker self-complete, admin sign-off, completion revoke, and a
-`DONE` task completion, plus lazily on the training-status board
-(`reconcileVenueSectionWork`).
+evidence disappears is auto-dismissed (and its signature cleared); a CONFIRMED
+review is never touched; a DISMISSED review is revived only when the evidence
+signature changes. Called best-effort after worker self-complete, admin sign-off,
+completion revoke, and a `DONE` task completion, plus lazily by the section-work
+queue (`reconcileVenueSectionWork`).
 
-**Confirm/dismiss.** `reviewSectionWork` CONFIRM upserts `StaffSection` and
-stamps `CONFIRMED`; DISMISS only closes the review; REOPEN puts a dismissed
-review back in the queue. UI: **TRAINING → STATUS** has a **SECTION REVIEWS**
-strip with staff, section, source/evidence and CONFIRM/DISMISS (plus a dismissed
-list with REOPEN). The Staff edit modal shows pending sections as outlined
+**Confirm/dismiss.** `reviewSectionWork` validates transitions server-side —
+CONFIRM/DISMISS only from `PENDING`, REOPEN only from `DISMISSED` (409 otherwise).
+CONFIRM upserts `StaffSection` and stamps `CONFIRMED`; DISMISS only closes the
+review; REOPEN puts a dismissed review back in the queue. A manual grant from the
+Staff modal also dismisses any matching PENDING review so it cannot resurface.
+UI: **TRAINING → STATUS** has a **SECTION REVIEWS** strip fed by
+`GET /api/admin/section-work?status=ALL` with staff, section, source/evidence and
+CONFIRM/DISMISS (plus a dismissed list with REOPEN); action failures (403/409)
+show inline. The Staff edit modal shows pending sections as outlined
 `PENDING REVIEW` chips while keeping the manual toggle a direct manager grant.
 
 | Route | Methods | Purpose |
 |-------|---------|---------|
 | `/api/admin/section-work` | GET | List reviews (`?venueId=&status=PENDING|CONFIRMED|DISMISSED|ALL`), lazily reconciling first. Guard `training.playbook.view` |
-| `/api/admin/section-work/[id]` | POST | `{action: CONFIRM|DISMISS|REOPEN, note?}`. Guard `training.playbook.assign`. Venue-scoped for managers |
+| `/api/admin/section-work/[id]` | POST | `{action: CONFIRM|DISMISS|REOPEN, note?}`. Guard `training.playbook.assign`. Venue-scoped for managers and to the ADMIN active venue |
 
-Training status (`GET /api/admin/training/status`) now returns `sectionReviews`
-alongside its staff rows; the dashboard TRAINING widget ignores the extra field.
+`GET /api/admin/training/status` no longer returns or reconciles section reviews —
+the section-work queue is the single path.
 
 ### External embeds + calendar import + NZ breaks
 Per-venue integration links live on `Venue` (`loadedRosterUrl`,
@@ -2437,10 +2444,11 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
   stale-guide counts and open follow-ups as GREEN (good) / YELLOW (bits to
   work on) / RED (retraining or overdue), grouped ON SHIFT TODAY then NOT ON
   SHIFT. It also renders the **SECTION REVIEWS** strip (confirm/dismiss/reopen
-  pending section-work reviews — see "Section-work reviews"). Data from
-  `GET /api/admin/training/status` backed by `lib/training-status.server.ts`
-  (pure rules + sort in `lib/training-status.ts`). Managers get a TRAINING
-  STATUS → button on the worker `/w/guides` header.
+  pending section-work reviews — see "Section-work reviews"). Staff rows come
+  from `GET /api/admin/training/status` backed by `lib/training-status.server.ts`
+  (pure rules + sort in `lib/training-status.ts`); reviews come from
+  `GET /api/admin/section-work?status=ALL` (the single reconcile path). Managers
+  get a TRAINING STATUS → button on the worker `/w/guides` header.
 - **Notices grouping.** Worker notices split into PINNED (top) / unread /
   READ / ACKNOWLEDGED (bottom group) via `lib/notice-groups.ts`.
 - **Drag-reorder lists.** Guide steps reorder by drag or ↑/↓ in both editors
@@ -2604,7 +2612,7 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/checklist-activation.ts` — venue-local date activation | ✅ (6 tests) |
 | `lib/task-outcomes.ts` — outcome hierarchy, DONE-always, reason validation, open-list policy | ✅ (12 tests) |
 | `lib/position-requirements.ts` — required guides + readiness resolver | ✅ (6 tests) |
-| `lib/section-work.ts` / `section-work.server.ts` — section eligibility, evidence signatures, reconcile/confirm/dismiss/reopen | ✅ (8 + 14 tests) |
+| `lib/section-work.ts` / `section-work.server.ts` — section eligibility, evidence signatures, reconcile/confirm/dismiss/reopen, transition guards, soft-delete restore | ✅ (8 + 21 tests) |
 | `lib/staff-groups.ts` — derived position grouping | ✅ (14 tests) |
 | `lib/permissions/registry.ts` — `PERMISSION_TREE`, presets, `completeGrantSet` | ✅ (16 tests) |
 | `lib/image-annotations.ts` / `image-thumb.ts` | ✅ (24 + 4) |
@@ -2653,7 +2661,7 @@ pushing, run: `npm run lint && npm run test`.
 | `EventStaffingModal.tsx` — event info, linked shifts CLAIMED/ASSIGNED, listed-seat lock, FIND STAFF, claims review | ✅ (5 tests) |
 | `CalendarEventFormModal.tsx` — create + staffing POST, capacity warning, edit load/PUT | ✅ (2 tests) |
 | `WorkerShiftsClient.tsx` — pickup grid, claim/withdraw, conflict warning, confirmed panel | ✅ (5 tests) |
-| `TrainingStatusClient.tsx` — status rows + SECTION REVIEWS strip, CONFIRM/DISMISS actions | ✅ (3 tests) |
+| `TrainingStatusClient.tsx` — status rows + SECTION REVIEWS strip, CONFIRM/DISMISS/error surfacing | ✅ (4 tests) |
 | `StaffAccessDrawer.tsx` / `OpsClient.tsx` / `MenusClient` builder components | ✅ (4 + 7 + tested) |
 | `EventShareClient.tsx` / `WorkerEventsClient.tsx` / `WorkerTimeclockClient.tsx` | ✅ (4 + tested) |
 | `ImageAnnotator` / `ImagePicker` / `AnnotatedImage` / `MediaLibraryModal` / `Panel` / `Combobox` | ✅ (co-located tests) |

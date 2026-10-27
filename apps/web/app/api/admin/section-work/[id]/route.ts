@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { getAccessibleVenueIds, getManagerVenueId } from '@/lib/venue-scope'
 import { reviewSectionWork, type SectionWorkAction } from '@/lib/section-work.server'
 
 interface Params {
@@ -24,7 +25,17 @@ export async function POST(req: NextRequest, { params }: Params) {
     select: { venueId: true },
   })
   if (!review) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (session.user.role === 'MANAGER' && review.venueId !== session.user.venueId) {
+
+  // MANAGER is scoped to their active venue; ADMIN respects the venue they are
+  // currently working in (admin-active-venue cookie), falling back to home.
+  const cookieVenueId = req.cookies.get('admin-active-venue')?.value
+  const activeVenueId =
+    session.user.role === 'MANAGER'
+      ? getManagerVenueId(session, req)
+      : cookieVenueId && getAccessibleVenueIds(session).includes(cookieVenueId)
+        ? cookieVenueId
+        : session.user.venueId
+  if (review.venueId !== activeVenueId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

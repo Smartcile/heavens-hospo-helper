@@ -37,7 +37,6 @@ interface Payload {
   date: string
   staff: Row[]
   summary: { green: number; yellow: number; red: number }
-  sectionReviews?: SectionReview[]
 }
 
 const LEVEL_ACCENT: Record<TrainingLevel, string> = {
@@ -68,17 +67,29 @@ export function TrainingStatusClient({
   const [dismissedReviews, setDismissedReviews] = useState<SectionReview[]>([])
   const [showDismissed, setShowDismissed] = useState(false)
   const [busyReviewId, setBusyReviewId] = useState<string | null>(null)
+  const [reviewsError, setReviewsError] = useState('')
 
   useEffect(() => {
     async function load() {
       setLoading(true)
-      const r = await fetch(`/api/admin/training/status${venueId ? `?venueId=${encodeURIComponent(venueId)}` : ''}`)
-      if (r.ok) {
-        const payload = (await r.json()) as Payload
-        setData(payload)
-        const reviews = payload.sectionReviews ?? []
+      setReviewsError('')
+      const venueQuery = venueId ? `?venueId=${encodeURIComponent(venueId)}` : ''
+      const [statusRes, reviewsRes] = await Promise.all([
+        fetch(`/api/admin/training/status${venueQuery}`),
+        fetch(`/api/admin/section-work${venueQuery ? `${venueQuery}&status=ALL` : '?status=ALL'}`),
+      ])
+      if (statusRes.ok) {
+        setData((await statusRes.json()) as Payload)
+      }
+      if (reviewsRes.ok) {
+        const payload = (await reviewsRes.json()) as { reviews?: SectionReview[] }
+        const reviews = payload.reviews ?? []
         setPendingReviews(reviews.filter((r) => r.status === 'PENDING'))
         setDismissedReviews(reviews.filter((r) => r.status === 'DISMISSED'))
+      } else {
+        setPendingReviews([])
+        setDismissedReviews([])
+        setReviewsError(`COULD NOT LOAD SECTION REVIEWS (${reviewsRes.status})`)
       }
       setLoading(false)
     }
@@ -87,13 +98,20 @@ export function TrainingStatusClient({
 
   async function actOnReview(review: SectionReview, action: 'CONFIRM' | 'DISMISS' | 'REOPEN') {
     setBusyReviewId(review.id)
+    setReviewsError('')
     try {
       const r = await fetch(`/api/admin/section-work/${review.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       })
-      if (!r.ok) return
+      if (!r.ok) {
+        const payload = (await r.json().catch(() => ({}))) as { error?: string }
+        setReviewsError(
+          `${action} FAILED — ${r.status}${payload.error ? ` · ${payload.error.toUpperCase()}` : ''}`,
+        )
+        return
+      }
 
       if (action === 'CONFIRM') {
         setPendingReviews((prev) => prev.filter((x) => x.id !== review.id))
@@ -190,6 +208,7 @@ export function TrainingStatusClient({
         <h2 className="font-mono text-xs uppercase tracking-widest text-grey-light">
           SECTION REVIEWS ({pendingReviews.length})
         </h2>
+        {reviewsError && <p className="font-mono text-xs text-danger">{reviewsError}</p>}
         {pendingReviews.length === 0 ? (
           <p className="font-mono text-xs text-grey-light">NO SECTIONS AWAITING CONFIRMATION.</p>
         ) : (

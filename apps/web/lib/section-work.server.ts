@@ -49,9 +49,12 @@ export type SectionWorkActionResult =
  * Rules:
  * - Only sections the person does NOT already hold are considered.
  * - No qualifying evidence → a still-PENDING review is auto-dismissed (stale).
- * - A DISMISSED review stays dismissed while its evidence signature is unchanged;
- *   a new guide completion / milestone changes the signature and reopens it.
+ *   A system auto-dismiss clears the evidence signature so restoring the same
+ *   work reopens it; a manager DISMISS keeps the signature so it stays closed
+ *   until the evidence actually changes.
  * - A CONFIRMED review is never touched automatically.
+ * - A soft-deleted row is restored (unique key is staff + section) rather than
+ *   re-created, which would trip P2002.
  */
 export async function reconcileSectionWork(
   staffId: string,
@@ -105,9 +108,17 @@ export async function reconcileSectionWork(
       },
       select: { id: true, sectionId: true },
     }),
+    // Include soft-deleted rows: the unique key is (staffId, sectionId), so a
+    // re-create would hit P2002. Reuse the row instead.
     prisma.sectionWorkReview.findMany({
-      where: { staffId, deletedAt: null },
-      select: { id: true, sectionId: true, status: true, evidence: true },
+      where: { staffId },
+      select: {
+        id: true,
+        sectionId: true,
+        status: true,
+        evidence: true,
+        deletedAt: true,
+      },
     }),
   ])
 
@@ -146,10 +157,19 @@ export async function reconcileSectionWork(
     const current = existingBySection.get(section.id)
 
     if (!evidence) {
-      if (current && current.status === 'PENDING') {
+      if (current && !current.deletedAt && current.status === 'PENDING') {
+        // SYSTEM auto-dismiss: clear the signature, otherwise restoring the
+        // same work would look unchanged and never reopen. A manager DISMISS
+        // keeps its signature on purpose (see reviewSectionWork).
         await prisma.sectionWorkReview.update({
           where: { id: current.id },
-          data: { status: 'DISMISSED', reviewedAt: now, note: 'EVIDENCE REMOVED' },
+          data: {
+            status: 'DISMISSED',
+            reviewedAt: now,
+            note: 'EVIDENCE REMOVED',
+            evidence: null,
+            pathwayId: null,
+          },
         })
         result.dismissed++
       }
@@ -171,6 +191,26 @@ export async function reconcileSectionWork(
         },
       })
       result.created++
+      continue
+    }
+
+    // A soft-deleted row still owns the unique key — restore it in place.
+    if (current.deletedAt) {
+      await prisma.sectionWorkReview.update({
+        where: { id: current.id },
+        data: {
+          deletedAt: null,
+          status: 'PENDING',
+          source,
+          pathwayId,
+          evidence,
+          requestedAt: now,
+          reviewedById: null,
+          reviewedAt: null,
+          note: null,
+        },
+      })
+      result.reopened++
       continue
     }
 
@@ -274,6 +314,16 @@ export async function listSectionWorkReviews(
   })
 }
 
+/**
+ * The legal moves, validated server-side so a stale board cannot create a
+ * granted section without a PENDING review (e.g. DISMISS a CONFIRMED row).
+ */
+const ALLOWED_FROM: Record<SectionWorkAction, SectionWorkStatus> = {
+  CONFIRM: 'PENDING',
+  DISMISS: 'PENDING',
+  REOPEN: 'DISMISSED',
+}
+
 /** CONFIRM grants the section; DISMISS/REOPEN only move the review. */
 export async function reviewSectionWork(input: {
   reviewId: string
@@ -283,9 +333,18 @@ export async function reviewSectionWork(input: {
 }): Promise<SectionWorkActionResult> {
   const review = await prisma.sectionWorkReview.findFirst({
     where: { id: input.reviewId, deletedAt: null },
-    select: { id: true, staffId: true, sectionId: true },
+    select: { id: true, staffId: true, sectionId: true, status: true },
   })
   if (!review) return { ok: false, status: 404, error: 'Not found' }
+
+  const expected = ALLOWED_FROM[input.action]
+  if (review.status !== expected) {
+    return {
+      ok: false,
+      status: 409,
+      error: `Cannot ${input.action} a ${review.status} review`,
+    }
+  }
 
   const note = input.note?.trim() || null
   const now = new Date()
@@ -318,4 +377,32 @@ export async function reviewSectionWork(input: {
 
   const updated = await prisma.sectionWorkReview.update({ where: { id: review.id }, data })
   return { ok: true, review: { id: updated.id, status: updated.status as SectionWorkStatus } }
+}
+
+/**
+ * A manager can grant a section directly from the Staff modal. Close any
+ * matching PENDING review at the same time so it cannot resurface later.
+ * Keeps the evidence signature (a manager decision, not a system dismissal).
+ */
+export async function dismissPendingSectionWorkForGrant(
+  staffId: string,
+  sectionIds: readonly string[],
+  reviewerId: string,
+): Promise<number> {
+  if (sectionIds.length === 0) return 0
+  const result = await prisma.sectionWorkReview.updateMany({
+    where: {
+      staffId,
+      sectionId: { in: [...sectionIds] },
+      status: 'PENDING',
+      deletedAt: null,
+    },
+    data: {
+      status: 'DISMISSED',
+      reviewedById: reviewerId,
+      reviewedAt: new Date(),
+      note: 'GRANTED MANUALLY',
+    },
+  })
+  return result.count
 }

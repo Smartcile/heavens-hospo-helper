@@ -20,25 +20,36 @@ const payload = {
     },
   ],
   summary: { green: 1, yellow: 0, red: 0 },
-  sectionReviews: [
-    {
-      id: 'r1',
-      staffName: 'SMITH, JANE',
-      sectionName: 'BAR',
-      source: 'GUIDES',
-      status: 'PENDING',
-      evidenceLabel: '2 GUIDES COMPLETE',
-      requestedAt: '2026-10-27T00:00:00.000Z',
-      note: null,
-    },
-  ],
 }
 
-function mockFetch() {
+const reviews = [
+  {
+    id: 'r1',
+    staffName: 'SMITH, JANE',
+    sectionName: 'BAR',
+    source: 'GUIDES',
+    status: 'PENDING',
+    evidenceLabel: '2 GUIDES COMPLETE',
+    requestedAt: '2026-10-27T00:00:00.000Z',
+    note: null,
+  },
+]
+
+function mockFetch(actionResponse?: { ok: boolean; status: number; error?: string }) {
   return vi.spyOn(global, 'fetch').mockImplementation((url: string | URL | Request, init?: RequestInit) => {
     const u = String(url)
     if (u.includes('/api/admin/section-work/')) {
+      if (actionResponse && !actionResponse.ok) {
+        return Promise.resolve({
+          ok: false,
+          status: actionResponse.status,
+          json: async () => ({ error: actionResponse.error }),
+        } as Response)
+      }
       return Promise.resolve({ ok: true, json: async () => ({ id: 'r1', status: 'CONFIRMED' }) } as Response)
+    }
+    if (u.includes('/api/admin/section-work')) {
+      return Promise.resolve({ ok: true, json: async () => ({ reviews }) } as Response)
     }
     return Promise.resolve({ ok: true, json: async () => payload } as Response)
   })
@@ -100,5 +111,19 @@ describe('TrainingStatusClient section reviews', () => {
     fireEvent.click(getByText(/DISMISSED REVIEWS \(1\)/))
     await waitFor(() => expect(getByText(/2 GUIDES COMPLETE/)).toBeTruthy())
     expect(getByText('REOPEN')).toBeTruthy()
+  })
+
+  it('surfaces a failed CONFIRM (e.g. 403) instead of silently dropping it', async () => {
+    mockFetch({ ok: false, status: 403, error: 'Forbidden' })
+    const { getByText, queryByText } = render(
+      <TrainingStatusClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />,
+    )
+    await waitFor(() => expect(getByText('CONFIRM')).toBeTruthy())
+
+    fireEvent.click(getByText('CONFIRM'))
+
+    await waitFor(() => expect(getByText(/CONFIRM FAILED — 403/)).toBeTruthy())
+    // The review stays in the queue so the manager can retry.
+    expect(queryByText('2 GUIDES COMPLETE')).toBeTruthy()
   })
 })
