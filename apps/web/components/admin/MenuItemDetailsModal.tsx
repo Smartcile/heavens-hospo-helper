@@ -25,6 +25,7 @@ export function MenuItemDetailsModal({ menuItemId, menuItemName, venueId, onClos
   const [tastingNotes, setTastingNotes] = useState('')
   const [vintage, setVintage] = useState('')
   const [howToServe, setHowToServe] = useState('')
+  const [swiftPosId, setSwiftPosId] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
@@ -39,6 +40,7 @@ export function MenuItemDetailsModal({ menuItemId, menuItemName, venueId, onClos
       setTastingNotes(item.tastingNotes ?? '')
       setVintage(item.vintage ?? '')
       setHowToServe(item.howToServe ?? '')
+      setSwiftPosId(item.swiftPosId ?? '')
     }
     setLoading(false)
   }
@@ -55,7 +57,19 @@ export function MenuItemDetailsModal({ menuItemId, menuItemName, venueId, onClos
         howToServe: howToServe || null,
       }),
     })
-    setMessage(r.ok ? 'SAVED' : 'SAVE FAILED')
+    const link = await fetch('/api/admin/swiftpos/menu-links', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ menuItemId, swiftPosId: swiftPosId.trim() || null }),
+    })
+    if (!r.ok) {
+      setMessage('SAVE FAILED')
+    } else if (!link.ok) {
+      const body = await link.json().catch(() => ({}))
+      setMessage(String(body.error ?? 'SWIFTPOS CODE NOT SAVED'))
+    } else {
+      setMessage('SAVED')
+    }
     setSaving(false)
     if (r.ok) onSaved?.()
   }
@@ -85,6 +99,22 @@ export function MenuItemDetailsModal({ menuItemId, menuItemName, venueId, onClos
                 placeholder="2024 / NV"
                 className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light"
               />
+            </div>
+            <div>
+              <label className="font-mono text-xs uppercase text-grey-light block mb-1">SWIFT POS CODE</label>
+              <input
+                aria-label="SWIFT POS CODE"
+                value={swiftPosId}
+                onChange={(e) => setSwiftPosId(e.target.value.toUpperCase())}
+                placeholder="SWIFTPOS INVENTORY CODE"
+                className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light"
+              />
+            </div>
+            <div>
+              <label className="font-mono text-xs uppercase text-grey-light block mb-1">POS MATCH</label>
+              <p className="font-mono text-2xs uppercase text-grey-light leading-tight pt-1">
+                LINKS THIS PRODUCT TO ITS SWIFTPOS SALES. SEE SETTINGS → SWIFT POS → MENU LINKS FOR THE FULL MAP.
+              </p>
             </div>
             <div className="md:col-span-3">
               <label className="font-mono text-xs uppercase text-grey-light block mb-1">HOW TO SERVE</label>
