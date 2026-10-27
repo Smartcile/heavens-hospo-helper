@@ -2,10 +2,11 @@
 
 Source of truth: GitHub issues (`gh issue list --state open`).
 Last synced: 2026-10-27.
-Session status: all six implementation PRs are merged into `develop` (head
-`d0fd1f6`). Combined develop verification passed locally: lint 0 errors, 225
+Session status: all seven implementation PRs are merged into `develop` (head
+`6cc5219`). Combined develop verification passed locally: lint 0 errors, 225
 test files / 2,057 tests. Issues closed after merge; **#5 remains open and
-blocked** on the live SwiftDOSnet smoke test.
+blocked** on the live SwiftDOSnet smoke test. Follow-up #31 (bulk lock) was
+merged separately in PR #32.
 
 This doc records the grouping decisions for the current session. GitHub remains
 authoritative; update this file when issues are closed or regrouped.
@@ -20,6 +21,7 @@ authoritative; update this file when issues are closed or regrouped.
 | [#28](https://github.com/Smartcile/heavens-hospo-helper/pull/28) | `issue/5-swiftpos` | #5 | Merged; issue **open/blocked** on live SwiftDOSnet smoke test |
 | [#29](https://github.com/Smartcile/heavens-hospo-helper/pull/29) | `issue/9-phone-session` | #9 | Merged; issue closed |
 | [#30](https://github.com/Smartcile/heavens-hospo-helper/pull/30) | `issue/17-section-worked` | #17 | Merged; issue closed |
+| [#32](https://github.com/Smartcile/heavens-hospo-helper/pull/32) | `issue/31-bulk-lock-availability` | #31 | Merged; issue closed |
 
 Also verified and closed: **#3** (roster drag-fill / series verification).
 
@@ -62,6 +64,10 @@ in-place refresh/scroll preservation (#16).
 Worker authoring (#8), the stale available-task list (#19), and the verified
 gaps from #4.
 
+### Follow-up — `issue/31-bulk-lock-availability` (PR #32)
+Bulk lock selected availability days with an optional reason, admin only. Reuses
+the #25 multi-select and per-day lock API.
+
 ### Singles
 | Branch | Issue | Area |
 |---|---|---|
@@ -87,4 +93,5 @@ gaps from #4.
 | 7 | Navigation — worker availability weekly default | feature | Closed (PR #25) |
 | 5 | SwiftDOSNet — sync, menu linking, kitchen dockets | feature | **Open — blocked on live smoke test** (PR #28 merged) |
 | 4 | Tasks & Lists — outcomes + chrome | bug + feature | Closed (PR #26) |
+| 31 | Availability — bulk lock selected days with a reason | Feature Update | Closed (PR #32) |
 | 3 | Staff Rosters — admin-only drag/drop + confirmation | bug + feature | Verified, closed |
