@@ -12,7 +12,8 @@ import { prisma } from '@hospo-ops/db'
 import { attachTargets, type LinkTarget, type ResolvedStepLink, type StepLinkRow } from '@/lib/guide-links'
 import { buildTargetIndex } from '@/lib/guide-links.server'
 import { mergeStepImages } from '@/lib/guide-media'
-import { guideStepUsageKey, normaliseAnnotation, type ImageAnnotationLayer } from '@/lib/image-annotations'
+import { loadStepAnnotations, stepAnnotationsFor } from '@/lib/guides.server'
+import type { ImageAnnotationLayer } from '@/lib/image-annotations'
 import { sanitiseColumns, type ReferenceColumn, type ReferenceMenuItem } from '@/lib/reference-table'
 import { loadMenuItemIndex } from '@/lib/reference-table.server'
 
@@ -267,20 +268,9 @@ export async function resolveStaffGuides(
 
   // Annotation layers for every step photo, one batched query keyed by step id.
   const allStepIds = guides.flatMap((g) => stepsOf(g).map((s) => s.id))
-  const annotationRows = allStepIds.length
-    ? await prisma.imageAnnotation.findMany({
-        where: { usageKey: { in: allStepIds.map((id) => guideStepUsageKey(id)) }, deletedAt: null },
-        select: { usageKey: true, imageUrl: true, data: true },
-      })
-    : []
-  const annotationByStep = new Map<string, ImageAnnotationLayer[]>()
-  for (const r of annotationRows) {
-    const stepId = r.usageKey.slice('guide-step:'.length)
-    const list = annotationByStep.get(stepId) ?? []
-    list.push({ imageUrl: r.imageUrl, data: normaliseAnnotation(r.data) })
-    annotationByStep.set(stepId, list)
-  }
-  const annotationsFor = (stepId: string): ImageAnnotationLayer[] => annotationByStep.get(stepId) ?? []
+  const annotationByStep = allStepIds.length
+    ? await loadStepAnnotations(allStepIds)
+    : new Map<string, ImageAnnotationLayer[]>()
 
   const tableOf = (g: unknown) => ({
     tableColumns: sanitiseColumns((g as { tableColumns?: unknown }).tableColumns),
@@ -337,7 +327,7 @@ export async function resolveStaffGuides(
         videoUrl: s.videoUrl,
         videoPath: s.videoPath,
         links: attachTargets(s.links, targetIndex),
-        imageAnnotations: annotationsFor(s.id),
+        imageAnnotations: stepAnnotationsFor(annotationByStep, s.id),
       })),
     }]
   })
@@ -374,7 +364,7 @@ export async function resolveStaffGuides(
         videoUrl: s.videoUrl,
         videoPath: s.videoPath,
         links: attachTargets(s.links, targetIndex),
-        imageAnnotations: annotationsFor(s.id),
+        imageAnnotations: stepAnnotationsFor(annotationByStep, s.id),
       })),
     }]
   })
