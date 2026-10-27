@@ -33,3 +33,25 @@ export function fillTargets(source: FillCell, rect: FillRect): FillCell[] {
   }
   return out
 }
+
+/**
+ * Inclusive index range between an anchor and a target — used by shift-click
+ * selection on the availability grids. Works backwards and never goes below 0.
+ */
+export function dayRange(anchorIndex: number, targetIndex: number): number[] {
+  const a = Math.max(0, Math.floor(anchorIndex))
+  const b = Math.max(0, Math.floor(targetIndex))
+  const start = Math.min(a, b)
+  const end = Math.max(a, b)
+  const out: number[] = []
+  for (let i = start; i <= end; i++) out.push(i)
+  return out
+}
+
+/** Toggle one key in a selection set (returns a new set). */
+export function toggleSelection(current: ReadonlySet<string>, key: string): Set<string> {
+  const next = new Set(current)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  return next
+}

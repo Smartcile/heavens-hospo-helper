@@ -30,6 +30,9 @@ describe('proposalToEntry', () => {
       timeOff: true,
       notes: 'FAMILY',
       seriesId: 's1',
+      lockedAt: null,
+      lockedById: null,
+      lockedReason: null,
     })
   })
 

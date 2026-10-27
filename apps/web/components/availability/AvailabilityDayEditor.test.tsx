@@ -21,8 +21,11 @@ function entry(over: Partial<AvailabilityEntry> = {}): AvailabilityEntry {
     reviewNote: null,
     seriesId: null,
     seriesEndDate: null,
+    lockedAt: null,
+    lockedById: null,
+    lockedReason: null,
     ...over,
-  }
+  } as AvailabilityEntry
 }
 
 function renderEditor(props: Partial<Parameters<typeof AvailabilityDayEditor>[0]> = {}) {
@@ -163,6 +166,66 @@ describe('AvailabilityDayEditor', () => {
     expect(screen.getByText(/LEAVES THE SERIES/)).toBeDefined()
   })
 
+  it('locks availability controls but keeps the note editable for an admin', () => {
+    const onSaveNote = vi.fn()
+    const onToggleLock = vi.fn()
+    renderEditor({
+      entry: entry({ status: 'APPROVED', lockedAt: '2026-10-20T01:00:00.000Z', lockedReason: 'CONFIRMED' }),
+      canOverride: true,
+      onSaveNote,
+      onToggleLock,
+    })
+
+    expect(screen.getByText(/LOCKED — UNLOCK TO EDIT/)).toBeDefined()
+    const allDay = screen.getByText('ALL DAY').closest('button') as HTMLButtonElement
+    const controls = allDay.closest('fieldset') as HTMLFieldSetElement
+    expect(controls.disabled).toBe(true)
+
+    const note = screen.getByPlaceholderText('NOTE FOR THE MANAGER (OPTIONAL)')
+    fireEvent.change(note, { target: { value: '  RANG THE VENUE  ' } })
+    fireEvent.click(screen.getByText('SAVE NOTE'))
+    expect(onSaveNote).toHaveBeenCalledWith('RANG THE VENUE')
+
+    fireEvent.click(screen.getByText('UNLOCK'))
+    expect(onToggleLock).toHaveBeenCalledWith(false, null)
+  })
+
+  it('sends manager-locked worker saves as a change request with THIS only', () => {
+    const { onSave } = renderEditor({
+      entry: entry({ seriesId: 's1', status: 'APPROVED', lockedAt: '2026-10-20T01:00:00.000Z' }),
+      series,
+      allowSeriesScope: false,
+    })
+
+    expect(screen.getByText(/LOCKED BY A MANAGER/)).toBeDefined()
+    expect(screen.getByText(/LEAVES THE SERIES/)).toBeDefined()
+    expect(screen.queryByText('FROM THIS DAY ONWARDS')).toBeNull()
+    expect(screen.queryByText('ALL IN THE SERIES')).toBeNull()
+    expect(screen.queryByText('CHANGE SERIES END')).toBeNull()
+
+    fireEvent.click(screen.getByText('SEND CHANGE REQUEST'))
+    expect(onSave.mock.calls[0][1].scope).toBe('THIS')
+    expect(onSave.mock.calls[0][1].repeat).toBeNull()
+  })
+
+  it('keeps REPEAT WEEKLY working for a worker on a brand-new day', () => {
+    const { onSave } = renderEditor({ allowSeriesScope: false })
+
+    fireEvent.click(screen.getByText('REPEAT WEEKLY'))
+    fireEvent.click(screen.getByText('SAVE'))
+
+    expect(onSave.mock.calls[0][1].repeat).toEqual({ weeks: 2 })
+    expect(onSave.mock.calls[0][1].scope).toBeNull()
+  })
+
+  it('offers LOCK with an optional reason on an unlocked admin day', () => {
+    const onToggleLock = vi.fn()
+    renderEditor({ entry: entry({ status: 'APPROVED' }), canOverride: true, onToggleLock })
+
+    fireEvent.change(screen.getByLabelText('Lock reason'), { target: { value: 'AGREED ON THE PHONE' } })
+    fireEvent.click(screen.getByText('LOCK'))
+    expect(onToggleLock).toHaveBeenCalledWith(true, 'AGREED ON THE PHONE')
+  })
   it('moves the neighbouring edge when a partition boundary is edited — no extra block', () => {
     const { onSave } = renderEditor({
       entry: entry({

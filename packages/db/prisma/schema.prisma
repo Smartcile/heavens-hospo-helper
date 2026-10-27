@@ -1263,6 +1263,13 @@ model StaffAvailability {
   reviewNote    String? // manager's note on approve/decline
   reviewedById  String?
   reviewedAt    DateTime?
+  // Day-level lock. Set manually by a manager (via the day editor) or
+  // automatically when a manager approves a declaration / applies an edit
+  // request. Worker saves/clears touching a locked day become edit requests;
+  // admin writes skip locked days until they are unlocked. Notes stay editable.
+  lockedAt      DateTime?
+  lockedById    String?
+  lockedReason  String?
   // Weekly series membership (materialised occurrences share this id).
   seriesId      String?
   seriesEndDate DateTime?          @db.Date // last occurrence; null = no end

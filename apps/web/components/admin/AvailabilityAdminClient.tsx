@@ -19,7 +19,8 @@ import { AvailabilityBar } from '@/components/availability/AvailabilityBar'
 import { AvailabilityDayEditor, type EditorDraft, type EditorSaveOptions } from '@/components/availability/AvailabilityDayEditor'
 import { StaffEditModal } from '@/components/admin/StaffEditModal'
 import { moveItem } from '@/lib/array'
-import { fillRect, fillTargets, inFillRect } from '@/lib/cell-fill'
+import { dayRange, fillRect, fillTargets, inFillRect, toggleSelection } from '@/lib/cell-fill'
+import { useScrollRestore } from '@/lib/use-scroll-restore'
 import { dateKeysBetween } from '@/lib/calendar'
 import { formatDateLong, keyOfDay, mondayOf, parseDay, shiftDay, type DateRange } from '@/lib/date-nav'
 import { nearestIndex, type Rect } from '@/lib/reorder'
@@ -28,6 +29,7 @@ import {
   availabilityState,
   describeSeriesEnd,
   describeWindows,
+  isEntryLocked,
   isFreeAt,
   proposalToEntry,
   seriesEndDateKey,
@@ -106,6 +108,8 @@ interface EditorTarget {
   /** Edit request this override came from — marked APPLIED after a save. */
   requestId?: string | null
   requestReviewNote?: string | null
+  /** Opening from a declaration / edit request: saving re-locks the day. */
+  lockOnSave?: boolean
 }
 
 function payloadSummary(req: AdminEditRequest): string {
@@ -129,8 +133,14 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
   const [data, setData] = useState<AdminData | null>(null)
   const [positions, setPositions] = useState<AdminPosition[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selection, setSelection] = useState<Set<string>>(new Set())
+  const [selectionAnchor, setSelectionAnchor] = useState<{ staffId: string; date: string } | null>(null)
+  const [clearSelectionOpen, setClearSelectionOpen] = useState(false)
+  const { capture: captureScroll, restore: restoreScroll } = useScrollRestore()
   const [editor, setEditor] = useState<EditorTarget | null>(null)
   const [openPersonId, setOpenPersonId] = useState<string | null>(null)
   const [filterOpen, setFilterOpen] = useState(false)
@@ -165,18 +175,41 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
   )
   const today = keyOfDay(new Date())
 
-  async function load() {
+  // A soft reload keeps the previous payload mounted (and restores scroll), so
+  // a save never blanks the grid. A hard load is user navigation.
+  async function load(soft = false) {
     if (!venueId) { setLoading(false); return }
-    setLoading(true); setError('')
+    if (soft) { captureScroll(); setRefreshing(true) } else { setLoading(true) }
+    setError('')
     const r = await fetch(`/api/admin/availability?venueId=${venueId}&start=${range.start}&end=${range.end}`)
     const d = await r.json()
-    if (!r.ok) { setError((d.error ?? 'LOAD FAILED').toUpperCase()); setLoading(false); return }
+    if (!r.ok) {
+      setError((d.error ?? 'LOAD FAILED').toUpperCase())
+      setLoading(false)
+      setRefreshing(false)
+      return
+    }
     setData(d)
     setPositions(d.positions ?? [])
     setLoading(false)
+    setRefreshing(false)
+    if (soft) restoreScroll()
   }
 
-  useEffect(() => { load() }, [venueId, range.start, range.end]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(false) }, [venueId, range.start, range.end]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selectMode) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectMode(false)
+        setSelection(new Set())
+        setSelectionAnchor(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectMode])
 
   const entryIndex = useMemo(() => {
     const map = new Map<string, AvailabilityEntry>()
@@ -312,6 +345,96 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
   function onChangeDate(_next: string, nextRange: DateRange) {
     setRange(nextRange)
     setPinnedDay(null)
+    setSelectMode(false)
+    setSelection(new Set())
+    setSelectionAnchor(null)
+  }
+
+  function cancelSelection() {
+    setSelectMode(false)
+    setSelection(new Set())
+    setSelectionAnchor(null)
+  }
+
+  /**
+   * Select/toggle one grid cell. Shift-click extends a contiguous range on the
+   * same staff row; selection never spans rows (a click on another row starts
+   * a fresh selection there).
+   */
+  function selectCell(staffId: string, date: string, range = false) {
+    const key = `${staffId}:${date}`
+    setSelection((prev) => {
+      const sameRow = !selectionAnchor || selectionAnchor.staffId === staffId
+      if (!sameRow) {
+        const base = toggleSelection(new Set<string>(), key)
+        return base
+      }
+      if (range && selectionAnchor) {
+        const from = days.indexOf(selectionAnchor.date)
+        const to = days.indexOf(date)
+        if (from < 0 || to < 0) return toggleSelection(prev, key)
+        const next = new Set(prev)
+        for (const idx of dayRange(from, to)) next.add(`${staffId}:${days[idx]}`)
+        return next
+      }
+      return toggleSelection(prev, key)
+    })
+    setSelectionAnchor({ staffId, date })
+  }
+
+  function onCellClick(e: React.MouseEvent, staffId: string, date: string) {
+    if (e.shiftKey) {
+      e.preventDefault()
+      setSelectMode(true)
+      selectCell(staffId, date, true)
+      return
+    }
+    if (selectMode) {
+      selectCell(staffId, date)
+      return
+    }
+    openEditor({ staffId, date })
+  }
+
+  async function clearSelected() {
+    const targets = [...selection].map((key) => {
+      const idx = key.indexOf(':')
+      return { staffId: key.slice(0, idx), date: key.slice(idx + 1) }
+    })
+    const withEntry = targets
+      .map((t) => ({ ...t, entry: entryFor(t.staffId, t.date) }))
+      .filter((t): t is { staffId: string; date: string; entry: AvailabilityEntry } => !!t.entry)
+    const locked = withEntry.filter((t) => isEntryLocked(t.entry))
+    const writable = withEntry.filter((t) => !isEntryLocked(t.entry))
+
+    setClearSelectionOpen(false)
+    setSelectMode(false)
+    setSelection(new Set())
+    setSelectionAnchor(null)
+
+    if (writable.length === 0) {
+      setError(locked.length > 0
+        ? `${locked.length} LOCKED DAY${locked.length === 1 ? '' : 'S'} SKIPPED — UNLOCK FIRST`
+        : 'NOTHING TO CLEAR IN THE SELECTION')
+      return
+    }
+
+    setBusy(true); setError('')
+    const results = await Promise.all(writable.map((t) =>
+      fetch('/api/admin/availability/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ venueId, staffId: t.staffId, date: t.date, scope: 'THIS', seriesId: t.entry.seriesId }),
+      }),
+    ))
+    setBusy(false)
+    const failed = results.filter((r) => !r.ok).length
+    await load(true)
+    if (failed > 0) {
+      setError(`${failed} DAY${failed === 1 ? '' : 'S'} FAILED TO CLEAR`)
+    } else if (locked.length > 0) {
+      setError(`${locked.length} LOCKED DAY${locked.length === 1 ? '' : 'S'} SKIPPED — UNLOCK FIRST`)
+    }
   }
 
   // Person-centred approvals: group pending declarations (by series) and edit
@@ -367,6 +490,9 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
   function openEditor(target: EditorTarget) {
     setOpenPersonId(null)
     setEditor(target)
+    setSelection(new Set())
+    setSelectionAnchor(null)
+    setSelectMode(false)
   }
 
   const staffName = (id: string) => {
@@ -386,7 +512,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
     })
     setBusy(false)
     if (!r.ok) { const d = await r.json().catch(() => ({})); setError((d.error ?? 'REVIEW FAILED').toUpperCase()); return }
-    load()
+    load(true)
   }
 
   async function resolveRequest(id: string, action: 'APPLY' | 'DISCARD') {
@@ -398,7 +524,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
     })
     setBusy(false)
     if (!r.ok) { const d = await r.json().catch(() => ({})); setError((d.error ?? 'REQUEST FAILED').toUpperCase()); return }
-    load()
+    load(true)
   }
 
   function cellColFromPoint(x: number, y: number): number | null {
@@ -436,10 +562,18 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
     if (!drag || !drag.moved) return
     const targets = fillTargets({ row: 0, col: drag.from }, fillRect({ row: 0, col: drag.from }, { row: 0, col: drag.to }))
     const sourceDate = days[drag.from]
-    const targetDates = targets.map((t) => days[t.col]).filter((d): d is string => !!d)
-    if (!sourceDate || targetDates.length === 0) return
+    const allTargets = targets.map((t) => days[t.col]).filter((d): d is string => !!d)
+    if (!sourceDate || allTargets.length === 0) return
     const entry = entryFor(drag.staffId, sourceDate)
     if (!entry) return
+    // Locked targets are skipped before the copy loop (never a generic failure).
+    const locked = allTargets.filter((d) => isEntryLocked(entryFor(drag.staffId, d)))
+    const targetDates = allTargets.filter((d) => !isEntryLocked(entryFor(drag.staffId, d)))
+    if (targetDates.length === 0) {
+      setError(`${locked.length} LOCKED DAY${locked.length === 1 ? '' : 'S'} SKIPPED — UNLOCK FIRST`)
+      return
+    }
+    if (locked.length > 0) setError(`${locked.length} LOCKED DAY${locked.length === 1 ? '' : 'S'} SKIPPED`)
     setFillMode('SINGLE')
     setFillWeeks(4)
     setFillNoEnd(false)
@@ -490,7 +624,11 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
     setBusy(false)
     const failed = results.filter((r) => !r.ok).length
     if (failed) setError(`${failed} DAY${failed === 1 ? '' : 'S'} FAILED TO COPY`)
-    load()
+    load(true)
+  }
+
+  function cellSelected(staffId: string, date: string): boolean {
+    return selection.has(`${staffId}:${date}`)
   }
 
   async function save(target: EditorTarget, draft: EditorDraft, options: EditorSaveOptions) {
@@ -513,6 +651,9 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
         repeat: options.repeat,
         scope: options.scope ?? target.scope ?? null,
         seriesId: entry?.seriesId ?? null,
+        // Approving/overriding a declaration or request re-locks the day; a
+        // plain grid override leaves the lock as it was.
+        lock: target.lockOnSave === true,
       }),
     })
     if (!r.ok) {
@@ -529,14 +670,14 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
       })
       if (!mark.ok) {
         setBusy(false)
-        await load()
+        await load(true)
         setError('SAVED — BUT THE REQUEST COULD NOT BE MARKED APPLIED. CHECK THE REQUEST IN THE QUEUE.')
         return
       }
     }
     setBusy(false)
     setEditor(null)
-    load()
+    load(true)
   }
 
   async function clear(target: EditorTarget, options: { scope: AvailabilityScope | null }) {
@@ -567,14 +708,75 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
       })
       if (!mark.ok) {
         setBusy(false)
-        await load()
+        await load(true)
         setError('CLEARED — BUT THE REQUEST COULD NOT BE MARKED APPLIED. CHECK THE REQUEST IN THE QUEUE.')
         return
       }
     }
     setBusy(false)
     setEditor(null)
-    load()
+    load(true)
+  }
+
+  // Notes-only PATCH: allowed on locked/past days, never touches availability.
+  async function saveNote(target: EditorTarget, notes: string | null) {
+    const entry = target.entry ?? entryFor(target.staffId, target.date)
+    if (!entry?.id) { setError('SAVE THE DAY BEFORE ADDING A NOTE'); return }
+    setBusy(true); setError('')
+    const r = await fetch(`/api/admin/availability/${entry.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes }),
+    })
+    setBusy(false)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setError((d.error ?? 'COULD NOT SAVE THE NOTE').toUpperCase())
+      return
+    }
+    const d = await r.json().catch(() => ({}))
+    // A queue-opened editor holds its own snapshot entry — refresh it so the
+    // note shows without closing and reopening the day.
+    setEditor((prev) => (
+      prev && prev.staffId === target.staffId && prev.date === target.date && prev.entry
+        ? { ...prev, entry: { ...prev.entry, notes: d.notes ?? notes } }
+        : prev
+    ))
+    await load(true)
+  }
+
+  // Lock/unlock one day. The modal stays open so the manager sees the result.
+  async function toggleLock(target: EditorTarget, locked: boolean, reason: string | null) {
+    const entry = target.entry ?? entryFor(target.staffId, target.date)
+    if (!entry?.id) { setError('SAVE THE DAY BEFORE LOCKING IT'); return }
+    setBusy(true); setError('')
+    const r = await fetch(`/api/admin/availability/${entry.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locked, lockedReason: locked ? reason : null }),
+    })
+    setBusy(false)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setError((d.error ?? (locked ? 'COULD NOT LOCK THE DAY' : 'COULD NOT UNLOCK THE DAY')).toUpperCase())
+      return
+    }
+    // A queue-opened editor holds its own snapshot entry — refresh the lock
+    // fields so the banner and LOCK/UNLOCK buttons flip immediately.
+    setEditor((prev) => (
+      prev && prev.staffId === target.staffId && prev.date === target.date && prev.entry
+        ? {
+            ...prev,
+            entry: {
+              ...prev.entry,
+              lockedAt: locked ? new Date().toISOString() : null,
+              lockedById: locked ? prev.entry.lockedById : null,
+              lockedReason: locked ? reason : null,
+            },
+          }
+        : prev
+    ))
+    await load(true)
   }
 
   const editorEntry = editor ? (editor.entry ?? entryFor(editor.staffId, editor.date)) : null
@@ -631,6 +833,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
               date: first.date,
               entry: first,
               scope: first.seriesId ? 'ALL' : null,
+              lockOnSave: true,
             })}
             className="h-9 px-3 border border-accent text-accent font-mono text-xs uppercase hover:bg-accent hover:text-black disabled:opacity-40"
           >
@@ -722,6 +925,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
                 date: req.date,
                 requestId: req.id,
                 requestReviewNote: notes[`req:${req.id}`] ?? null,
+                lockOnSave: true,
               })}
               className="h-9 px-3 border border-accent text-accent font-mono text-xs uppercase hover:bg-accent hover:text-black disabled:opacity-40"
             >
@@ -738,6 +942,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
                 scope: req.scope,
                 requestId: req.id,
                 requestReviewNote: notes[`req:${req.id}`] ?? null,
+                lockOnSave: true,
               })}
               className="h-9 px-3 border border-accent text-accent font-mono text-xs uppercase hover:bg-accent hover:text-black disabled:opacity-40"
             >
@@ -768,13 +973,14 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
           const inFill = fill && fill.staffId === s.id
             ? inFillRect({ row: 0, col: di }, fillRect({ row: 0, col: fill.from }, { row: 0, col: fill.to }))
             : false
+          const selected = cellSelected(s.id, d)
           return (
             <button
               key={d}
               type="button"
               data-fill-col={di}
-              onClick={() => setEditor({ staffId: s.id, date: d })}
-              className={`group/day relative border-b border-r border-grey-mid min-h-[64px] p-1.5 text-left hover:bg-black/30 transition-colors flex flex-col ${entry ? '' : 'bg-black/10'} ${inFill ? 'ring-1 ring-inset ring-accent/70 bg-accent/10' : ''}`}
+              onClick={(e) => onCellClick(e, s.id, d)}
+              className={`group/day relative border-b border-r border-grey-mid min-h-[64px] p-1.5 text-left hover:bg-black/30 transition-colors flex flex-col ${entry ? '' : 'bg-black/10'} ${inFill ? 'ring-1 ring-inset ring-accent/70 bg-accent/10' : ''} ${selected ? 'ring-2 ring-inset ring-accent bg-accent/20' : ''}`}
             >
               {entry ? (
                 <div className="flex-1 flex flex-col min-h-0 gap-1">
@@ -787,6 +993,9 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
                     series={entry.seriesId ? { endDate: entry.seriesEndDate } : null}
                   />
                   <div className="flex flex-wrap gap-1 items-center">
+                    {entry.lockedAt && (
+                      <span title={entry.lockedReason ?? 'LOCKED BY A MANAGER'} className="font-mono text-2xs uppercase text-warning">🔒 LOCKED</span>
+                    )}
                     {entry.status !== 'APPROVED' && (
                       <span className={`font-mono text-2xs uppercase border px-1 ${statusMeta(entry.status).badge}`}>{entry.status}</span>
                     )}
@@ -932,12 +1141,43 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
           >
             FILTER STAFF{visibleStaffIds ? ` (${selectedStaffCount}/${data?.staff.length ?? 0})` : ''}
           </button>
+          {!selectMode ? (
+            <button
+              type="button"
+              onClick={() => { setSelectMode(true); setSelection(new Set()); setSelectionAnchor(null); setOpenPersonId(null); setEditor(null) }}
+              className="font-mono text-xs uppercase px-3 py-1.5 border border-grey-mid text-grey-light hover:border-white hover:text-white transition-colors"
+            >
+              SELECT DAYS
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={busy || selection.size === 0}
+                onClick={() => setClearSelectionOpen(true)}
+                className="font-mono text-xs uppercase px-3 py-1.5 border border-danger text-danger hover:bg-danger hover:text-black transition-colors disabled:opacity-40"
+              >
+                CLEAR SELECTED ({selection.size})
+              </button>
+              <button
+                type="button"
+                onClick={cancelSelection}
+                className="font-mono text-xs uppercase px-3 py-1.5 border border-grey-mid text-grey-light hover:border-white hover:text-white transition-colors"
+              >
+                CANCEL
+              </button>
+            </>
+          )}
         </div>
-        {pinnedDay && (
+        {selectMode ? (
+          <p className="font-mono text-2xs uppercase text-accent">
+            ● SELECT MODE — TAP DAYS, OR SHIFT-CLICK A RANGE ON ONE ROW
+          </p>
+        ) : pinnedDay ? (
           <p className="font-mono text-2xs uppercase text-success">
             ● SHOWING STAFF AVAILABLE ON {formatDateLong(pinnedDay)} FIRST — CLICK THE DAY AGAIN TO CLEAR
           </p>
-        )}
+        ) : null}
       </div>
 
       {/* Staff filter — grid only; approvals stay unfiltered */}
@@ -1000,8 +1240,12 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
         </div>
       </Modal>
 
-      {/* Grid */}
-      <div className="border border-grey-mid overflow-auto">
+      {/* Grid — a soft save refresh keeps it mounted (REFRESHING…) so scroll
+          position and expanded state survive. */}
+      <div className="border border-grey-mid overflow-auto" data-scroll-key="availability-grid">
+        {refreshing && !loading && (
+          <p className="px-4 py-1.5 font-mono text-2xs uppercase text-grey-light loading-cursor">REFRESHING…</p>
+        )}
         {loading ? (
           <p className="p-4 font-mono text-xs text-grey-light loading-cursor">LOADING</p>
         ) : data && data.staff.length > 0 && gridStaff.length > 0 ? (
@@ -1094,9 +1338,33 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
             error={error || null}
             onSave={(draft, options) => save(editor, draft, options)}
             onClear={(options) => clear(editor, options)}
+            onSaveNote={(notes) => saveNote(editor, notes)}
+            onToggleLock={(locked, reason) => toggleLock(editor, locked, reason)}
             onClose={() => { if (!busy) setEditor(null) }}
           />
         )}
+      </Modal>
+
+      {/* Bulk-clear confirmation */}
+      <Modal
+        isOpen={clearSelectionOpen}
+        onClose={() => { if (!busy) setClearSelectionOpen(false) }}
+        title="CLEAR SELECTED DAYS"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="font-mono text-sm text-white uppercase">
+            CLEAR {selection.size} SELECTED DAY{selection.size === 1 ? '' : 'S'}?
+          </p>
+          <p className="font-mono text-2xs uppercase text-grey-light">
+            ONLY DAYS THAT ALREADY HAVE AVAILABILITY ARE CLEARED. LOCKED DAYS ARE SKIPPED — UNLOCK THEM FIRST.
+            THIS CANNOT BE UNDONE.
+          </p>
+          <div className="flex gap-2">
+            <Button size="sm" variant="danger" loading={busy} onClick={clearSelected}>CLEAR</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setClearSelectionOpen(false)}>CANCEL</Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Drag-fill confirmation */}
@@ -1196,7 +1464,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
           staffId={editStaffId}
           role={role}
           onClose={() => setEditStaffId(null)}
-          onSaved={() => { setEditStaffId(null); load() }}
+          onSaved={() => { setEditStaffId(null); load(true) }}
         />
       )}
     </div>
