@@ -50,6 +50,10 @@ export interface AvailabilityEntry {
   reviewNote: string | null
   seriesId: string | null
   seriesEndDate: string | null // null with a seriesId = no end date
+  /** Manager/admin lock. Set manually or on approval; survives reloads. */
+  lockedAt: string | null
+  lockedById: string | null
+  lockedReason: string | null
 }
 
 export interface AvailabilitySeries {
@@ -189,7 +193,28 @@ export function proposalToEntry(input: {
     reviewNote: null,
     seriesId: input.seriesId ?? null,
     seriesEndDate: input.seriesEndDate ?? null,
+    lockedAt: null,
+    lockedById: null,
+    lockedReason: null,
   }
+}
+
+/** True when a manager has locked this day (manual or approval auto-lock). */
+export function isEntryLocked(entry: { lockedAt?: string | null } | null | undefined): boolean {
+  return !!entry?.lockedAt
+}
+
+/**
+ * The lock columns stamped by a manager review. APPROVE locks the day;
+ * DECLINE never does. Keep the rule here so the review route and its tests
+ * cannot drift.
+ */
+export function approvalLockFields(
+  approve: boolean,
+  actorId: string,
+  at: Date = new Date(),
+): { lockedAt: Date; lockedById: string; lockedReason: null } | Record<string, never> {
+  return approve ? { lockedAt: at, lockedById: actorId, lockedReason: null } : {}
 }
 
 export interface AvailabilityMeta {

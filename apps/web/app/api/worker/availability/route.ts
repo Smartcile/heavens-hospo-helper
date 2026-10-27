@@ -126,6 +126,9 @@ export async function POST(req: NextRequest) {
       cutoff: parseAvailabilityCutoff(venue?.availabilityCutoff),
       nowMinutes: now.minutes,
       bypass: false,
+      // A worker can never widen an edit to later occurrences: the server
+      // detaches just the clicked day even if an old client sends FROM/ALL.
+      forceScopeThis: true,
     },
   )
 

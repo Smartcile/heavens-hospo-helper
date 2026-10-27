@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
       todayKey: formatDateKey(getTodayDate(venue?.timezone ?? undefined)),
       lockDays: venue?.availabilityLockDays ?? 0,
       bypass: false,
+      forceScopeThis: true,
     },
   )
 

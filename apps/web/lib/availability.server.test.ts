@@ -231,10 +231,13 @@ describe('saveAvailability approval rules', () => {
     )
 
     expect(out).toMatchObject({ mode: 'REQUEST', requestId: 'req1' })
-    // Only confirmed block-outs / time off are protected.
+    // Locked rows and confirmed block-outs / time off are protected.
     const where = db.staffAvailability.findMany.mock.calls[0][0].where
-    expect(where.status).toBe('APPROVED')
-    expect(where.OR).toEqual([{ timeOff: true }, { type: 'UNAVAILABLE' }])
+    expect(where.OR).toEqual([
+      { lockedAt: { not: null } },
+      { status: 'APPROVED', timeOff: true },
+      { status: 'APPROVED', type: 'UNAVAILABLE' },
+    ])
     expect(db.availabilityEditRequest.create).toHaveBeenCalledTimes(1)
     const create = db.availabilityEditRequest.create.mock.calls[0][0]
     expect(create.data.action).toBe('SET')
@@ -284,6 +287,108 @@ describe('saveAvailability approval rules', () => {
     const plan = db.availabilityEditRequest.create.mock.calls[0][0].data.payload
     expect(plan.action).toBe('CLEAR')
     expect(plan.removeDates).toEqual(['2026-10-15'])
+  })
+})
+
+describe('day-level locking', () => {
+  const fixture = [
+    { date: day('2026-10-15'), seriesEndDate: day('2026-10-29') },
+    { date: day('2026-10-22'), seriesEndDate: day('2026-10-29') },
+    { date: day('2026-10-29'), seriesEndDate: day('2026-10-29') },
+  ]
+
+  it('files a request when a worker writes a locked day', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: payload, repeat: null, scope: null, seriesId: null, reason: null },
+      gate,
+    )
+    expect(out).toMatchObject({ mode: 'REQUEST', requestId: 'req1' })
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('files a request when a worker clears a locked day', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+    const out = await clearAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', scope: null, seriesId: null, reason: null },
+      gate,
+    )
+    expect(out).toMatchObject({ mode: 'REQUEST' })
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('forceScopeThis turns a worker FROM/ALL series edit into a THIS detach', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce(fixture)
+    const out = await planSet(
+      { staffId: 'st1', dateKey: '2026-10-22', payload, repeat: null, scope: 'ALL', seriesId: 's1' },
+      { ...gate, forceScopeThis: true },
+    )
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.plan.writeDates).toEqual(['2026-10-22'])
+    expect(out.plan.seriesId).toBeNull()
+    expect(out.plan.syncSeriesId).toBe('s1')
+  })
+
+  it('forceScopeThis turns a worker FROM/ALL clear into a THIS clear', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce(fixture)
+    const out = await planClear(
+      { staffId: 'st1', dateKey: '2026-10-22', scope: 'ALL', seriesId: 's1' },
+      { ...gate, forceScopeThis: true },
+    )
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.plan.removeDates).toEqual(['2026-10-22'])
+    expect(out.plan.scope).toBe('THIS')
+  })
+
+  it('refuses an admin single-day save on a locked day', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([{ date: day('2026-10-15') }])
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: payload, repeat: null, scope: null, seriesId: null, reason: null },
+      adminGate,
+    )
+    expect(out).toEqual({ error: 'LOCKED — UNLOCK FIRST', locked: ['2026-10-15'] })
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('refuses an admin single-day clear on a locked day', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([{ date: day('2026-10-15') }])
+    const out = await clearAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', scope: null, seriesId: null, reason: null },
+      adminGate,
+    )
+    expect(out).toEqual({ error: 'LOCKED — UNLOCK FIRST', locked: ['2026-10-15'] })
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('an admin FROM/ALL series save skips locked occurrences and writes the rest', async () => {
+    db.staffAvailability.findMany
+      .mockResolvedValueOnce(fixture)
+      .mockResolvedValueOnce([{ date: day('2026-10-22') }])
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: payload, repeat: null, scope: 'ALL', seriesId: 's1', reason: null },
+      adminGate,
+    )
+    expect(out).toMatchObject({ mode: 'SAVED', skipped: ['2026-10-22'] })
+    expect(db.staffAvailability.updateMany.mock.calls[0][0].where.date.in).toEqual([
+      day('2026-10-15'),
+      day('2026-10-29'),
+    ])
+  })
+
+  it('stamps the lock fields when an admin saves with lockById', async () => {
+    await saveAvailability(
+      {
+        staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: payload, repeat: null, scope: null, seriesId: null,
+        reason: null, lockById: 'admin1', lockReason: 'CONFIRMED',
+      },
+      adminGate,
+    )
+    const data = db.staffAvailability.updateMany.mock.calls[0][0].data
+    expect(data.lockedAt).toBeInstanceOf(Date)
+    expect(data.lockedById).toBe('admin1')
+    expect(data.lockedReason).toBe('CONFIRMED')
   })
 })
 
@@ -406,7 +511,11 @@ describe('availability notes', () => {
     })
 
     expect(await applyEditRequest('r1', 'admin1')).toBe(true)
-    expect(db.staffAvailability.updateMany.mock.calls[0][0].data.notes).toBe('NEED SUNDAY OFF')
+    const data = db.staffAvailability.updateMany.mock.calls[0][0].data
+    expect(data.notes).toBe('NEED SUNDAY OFF')
+    // Applying a request is a manager confirmation: the day locks.
+    expect(data.lockedAt).toBeInstanceOf(Date)
+    expect(data.lockedById).toBe('admin1')
   })
 
   it('marks a request APPLIED without executing its stored plan', async () => {
@@ -438,7 +547,7 @@ describe('cancelPendingAvailability / withdrawEditRequest', () => {
 
     expect(count).toBe(2)
     const call = db.staffAvailability.updateMany.mock.calls[0][0]
-    expect(call.where).toMatchObject({ id: { in: ['a1', 'a2'] }, venueId: 'v1', deletedAt: null, status: 'PENDING' })
+    expect(call.where).toMatchObject({ id: { in: ['a1', 'a2'] }, venueId: 'v1', deletedAt: null, status: 'PENDING', lockedAt: null })
     expect(call.data.deletedAt).toBeInstanceOf(Date)
   })
 

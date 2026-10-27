@@ -22,7 +22,7 @@ const data = {
       {
         id: 'p1', staffId: 'st1', date: monday, type: 'UNAVAILABLE', isAllDay: true, startTime: null, endTime: null,
         windows: [], status: 'PENDING', timeOff: true, notes: 'LEAVE', reason: null, reviewNote: null,
-        seriesId: null, seriesEndDate: null,
+        seriesId: null, seriesEndDate: null, lockedAt: null, lockedById: null, lockedReason: null,
       },
     ],
     requests: [
@@ -109,7 +109,7 @@ describe('AvailabilityAdminClient', () => {
         {
           id: 'e1', staffId: 'st1', date: monday, type: 'UNAVAILABLE', isAllDay: true, startTime: null, endTime: null,
           windows: [], status: 'APPROVED', timeOff: false, notes: 'OLD NOTE', reason: null, reviewNote: null,
-          seriesId: null, seriesEndDate: null,
+          seriesId: null, seriesEndDate: null, lockedAt: null, lockedById: null, lockedReason: null,
         },
       ],
       queue: {
@@ -203,7 +203,7 @@ describe('AvailabilityAdminClient', () => {
         {
           id: 'e1', staffId: 'st1', date: monday, type: 'UNAVAILABLE', isAllDay: true, startTime: null, endTime: null,
           windows: [], status: 'APPROVED', timeOff: false, notes: 'OLD NOTE', reason: null, reviewNote: null,
-          seriesId: null, seriesEndDate: null,
+          seriesId: null, seriesEndDate: null, lockedAt: null, lockedById: null, lockedReason: null,
         },
       ],
       queue: {
@@ -379,7 +379,7 @@ describe('AvailabilityAdminClient', () => {
         {
           id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
           windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
-          seriesId: null, seriesEndDate: null,
+          seriesId: null, seriesEndDate: null, lockedAt: null, lockedById: null, lockedReason: null,
         },
       ],
       queue: { pending: [], requests: [] },
@@ -408,7 +408,7 @@ describe('AvailabilityAdminClient', () => {
         {
           id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
           windows: [], status: 'APPROVED', timeOff: false, notes: 'SCHOOL PICKUP', reason: null, reviewNote: null,
-          seriesId: null, seriesEndDate: null,
+          seriesId: null, seriesEndDate: null, lockedAt: null, lockedById: null, lockedReason: null,
         },
       ],
       queue: { pending: [], requests: [] },
@@ -481,7 +481,7 @@ describe('AvailabilityAdminClient', () => {
         {
           id: 'e1', staffId: 'st2', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
           windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
-          seriesId: null, seriesEndDate: null,
+          seriesId: null, seriesEndDate: null, lockedAt: null, lockedById: null, lockedReason: null,
         },
       ],
       queue: { pending: [], requests: [] },
@@ -513,7 +513,7 @@ describe('AvailabilityAdminClient', () => {
         {
           id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
           windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
-          seriesId: null, seriesEndDate: null,
+          seriesId: null, seriesEndDate: null, lockedAt: null, lockedById: null, lockedReason: null,
         },
       ],
       queue: { pending: [], requests: [] },
@@ -551,7 +551,7 @@ describe('AvailabilityAdminClient', () => {
         {
           id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
           windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
-          seriesId: null, seriesEndDate: null,
+          seriesId: null, seriesEndDate: null, lockedAt: null, lockedById: null, lockedReason: null,
         },
       ],
       queue: { pending: [], requests: [] },
@@ -575,6 +575,175 @@ describe('AvailabilityAdminClient', () => {
     expect(post).toBeUndefined()
   })
 
+  it('shows a lock badge and unlocks through the day PATCH', async () => {
+    const locked = {
+      ...data,
+      entries: [{
+        id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+        windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+        seriesId: null, seriesEndDate: null, lockedAt: '2026-10-20T01:00:00.000Z', lockedById: 'admin1', lockedReason: 'CONFIRMED',
+      }],
+      queue: { pending: [], requests: [] },
+    }
+    const spy = mockFetch(locked)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    expect(screen.getByText('🔒 LOCKED')).toBeDefined()
+    fireEvent.click(screen.getByText('00:00–24:00'))
+
+    expect(await screen.findByText(/LOCKED — UNLOCK TO EDIT/)).toBeDefined()
+    fireEvent.click(screen.getByText('UNLOCK'))
+
+    await waitFor(() => {
+      const patch = spy.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'PATCH')
+      expect(patch).toBeDefined()
+      expect(String(patch![0])).toBe('/api/admin/availability/e1')
+      expect(JSON.parse((patch![1] as RequestInit).body as string)).toMatchObject({ locked: false })
+    })
+  })
+
+  it('saves a note on a locked day through the notes-only PATCH', async () => {
+    const locked = {
+      ...data,
+      entries: [{
+        id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+        windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+        seriesId: null, seriesEndDate: null, lockedAt: '2026-10-20T01:00:00.000Z', lockedById: 'admin1', lockedReason: null,
+      }],
+      queue: { pending: [], requests: [] },
+    }
+    const spy = mockFetch(locked)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('00:00–24:00'))
+    const note = await screen.findByPlaceholderText('NOTE FOR THE MANAGER (OPTIONAL)')
+    fireEvent.change(note, { target: { value: '  AGREED ON THE PHONE  ' } })
+    fireEvent.click(screen.getByText('SAVE NOTE'))
+
+    await waitFor(() => {
+      const patch = spy.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'PATCH')
+      expect(patch).toBeDefined()
+      expect(JSON.parse((patch![1] as RequestInit).body as string)).toEqual({ notes: 'AGREED ON THE PHONE' })
+    })
+  })
+
+  it('re-locks the day when a request proposal is saved as an override', async () => {
+    const requestOnly = {
+      ...data,
+      queue: {
+        pending: [],
+        requests: [{
+          ...data.queue.requests[0],
+          payload: { availability: { isAllDay: true, type: 'AVAILABLE', windows: [], timeOff: false, notes: 'NEW NOTE' } },
+        }],
+      },
+    }
+    const spy = mockFetch(requestOnly)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(screen.getByText('OPEN / EDIT PROPOSED'))
+    fireEvent.click(await screen.findByText('SAVE'))
+
+    await waitFor(() => {
+      const save = spy.mock.calls.find((c) =>
+        String(c[0]).endsWith('/api/admin/availability') && (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(save).toBeDefined()
+      expect(JSON.parse((save![1] as RequestInit).body as string).lock).toBe(true)
+    })
+  })
+
+  it('shift-click selects a day without opening the editor', async () => {
+    const withEntry = {
+      ...data,
+      entries: [{
+        id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+        windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+        seriesId: null, seriesEndDate: null, lockedAt: null, lockedById: null, lockedReason: null,
+      }],
+      queue: { pending: [], requests: [] },
+    }
+    mockFetch(withEntry)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('00:00–24:00'), { shiftKey: true })
+
+    expect(screen.getByText('CLEAR SELECTED (1)')).toBeDefined()
+    expect(screen.queryByText('AVAILABILITY — TAYLOR REED')).toBeNull()
+  })
+
+  it('bulk clears selected populated days and keeps the grid mounted', async () => {
+    const withEntry = {
+      ...data,
+      entries: [{
+        id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+        windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+        seriesId: null, seriesEndDate: null, lockedAt: null, lockedById: null, lockedReason: null,
+      }],
+      queue: { pending: [], requests: [] },
+    }
+    const spy = mockFetch(withEntry)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('SELECT DAYS'))
+    fireEvent.click(screen.getByText('00:00–24:00'))
+    fireEvent.click(screen.getByText('CLEAR SELECTED (1)'))
+
+    await screen.findByText('CLEAR SELECTED DAYS')
+    const clears = screen.getAllByRole('button', { name: 'CLEAR' })
+    fireEvent.click(clears[clears.length - 1])
+
+    await waitFor(() => {
+      const post = spy.mock.calls.find((c) => String(c[0]).endsWith('/api/admin/availability/clear'))
+      expect(post).toBeDefined()
+      expect(JSON.parse((post![1] as RequestInit).body as string)).toMatchObject({
+        staffId: 'st1', date: monday, scope: 'THIS',
+      })
+    })
+    expect(screen.getByText('TAYLOR REED')).toBeDefined()
+    expect(screen.queryByText('LOADING')).toBeNull()
+  })
+
+  it('skips locked days when drag-filling', async () => {
+    const withEntry = {
+      ...data,
+      entries: [
+        {
+          id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+          seriesId: null, seriesEndDate: null, lockedAt: null, lockedById: null, lockedReason: null,
+        },
+        {
+          id: 'e2', staffId: 'st1', date: shiftDay(monday, 1), type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+          seriesId: null, seriesEndDate: null, lockedAt: '2026-10-20T01:00:00.000Z', lockedById: 'admin1', lockedReason: null,
+        },
+      ],
+      queue: { pending: [], requests: [] },
+    }
+    const spy = mockFetch(withEntry)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    const handle = (await screen.findAllByTitle('DRAG TO COPY THIS DAY'))[0]
+    const target = document.querySelector('[data-fill-col="1"]') as HTMLElement
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target })
+
+    fireEvent(handle, new MouseEvent('pointerdown', { bubbles: true, clientX: 10, clientY: 10 }))
+    fireEvent(handle, new MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 60 }))
+    fireEvent(handle, new MouseEvent('pointerup', { bubbles: true, clientX: 60, clientY: 60 }))
+
+    expect(await screen.findByText(/LOCKED DAY SKIPPED/)).toBeDefined()
+    expect(screen.queryByText('COPY AVAILABILITY')).toBeNull()
+    const post = spy.mock.calls.find((c) =>
+      String(c[0]).endsWith('/api/admin/availability') && (c[1] as RequestInit | undefined)?.method === 'POST')
+    expect(post).toBeUndefined()
+  })
   it('offers a weekly series when copying a series day', async () => {
     const withSeries = {
       ...data,

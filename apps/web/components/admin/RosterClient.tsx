@@ -16,6 +16,7 @@ import { eventsByDay, formatEventTime } from '@/lib/event-roster'
 import { seatFillStatus } from '@/lib/open-shifts'
 import { useEventRoster } from '@/lib/use-event-roster'
 import { nearestIndex, type Rect } from '@/lib/reorder'
+import { useScrollRestore } from '@/lib/use-scroll-restore'
 import { buildStaffGroups, insertSubset, sortByPinnedAvailability, topPositionId } from '@/lib/staff-groups'
 import { colourForShift, rateForShift, rosterWeekSummary, staffWeekTotals, type RosterShift, type StaffRate } from '@/lib/roster-math'
 import { generateRosterPdf } from '@/lib/roster-pdf'
@@ -99,8 +100,10 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [roleFilter, setRoleFilter] = useState('')
   const [data, setData] = useState<RosterData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const { capture: captureScroll, restore: restoreScroll } = useScrollRestore()
   const [fullscreen, setFullscreen] = useState(false)
   const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable')
   const compact = density === 'compact'
@@ -169,20 +172,30 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setPositions(Array.isArray(pData) ? pData : [])
   }
 
-  const load = useCallback(async () => {
+  // Soft reload (save-triggered) keeps the grid mounted and restores scroll;
+  // a hard load is user navigation.
+  const load = useCallback(async (soft = false) => {
     if (!venueId) { setLoading(false); return }
-    setLoading(true); setError('')
+    if (soft) { captureScroll(); setRefreshing(true) } else { setLoading(true) }
+    setError('')
     const start = weekStart
     const end = shiftDay(weekStart, view === 'week' ? 6 : 0)
     const r = await fetch(`/api/admin/roster?venueId=${venueId}&start=${start}&end=${end}`)
     const d = await r.json()
-    if (!r.ok) { setError(d.error ?? 'LOAD FAILED'); setLoading(false); return }
+    if (!r.ok) {
+      setError(d.error ?? 'LOAD FAILED')
+      setLoading(false)
+      setRefreshing(false)
+      return
+    }
     setData(d)
     setLoading(false)
-  }, [venueId, weekStart, view])
+    setRefreshing(false)
+    if (soft) restoreScroll()
+  }, [venueId, weekStart, view, captureScroll, restoreScroll])
 
   useEffect(() => { loadMeta() }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (venueId) load() }, [venueId, load])
+  useEffect(() => { if (venueId) load(false) }, [venueId, load])
 
   useEffect(() => {
     function onFs() { setFullscreen(!!document.fullscreenElement) }
@@ -456,7 +469,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setBusy(false)
     const failed = results.filter((r) => !r.ok).length
     if (failed) setError(`${failed} SHIFT${failed === 1 ? '' : 'S'} FAILED TO COPY`)
-    load()
+    load(true)
   }
 
   async function moveShift(shift: RosterShift, target: FillCell) {
@@ -475,7 +488,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       setError((d.error ?? 'COULD NOT MOVE THE SHIFT').toUpperCase())
       return
     }
-    load()
+    load(true)
   }
 
   const totals = useMemo(() => {
@@ -517,7 +530,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     })
     setBusy(false)
     if (!r.ok) { const d = await r.json(); setError(d.error ?? 'FAILED'); return }
-    load()
+    load(true)
   }
 
   function defaultPositionFor(staffId: string): string {
@@ -585,14 +598,14 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setBusy(false)
     if (!r.ok) { const d = await r.json(); setError(d.error ?? 'SAVE FAILED'); return }
     setModal(null)
-    load()
+    load(true)
   }
 
   async function deleteShift(id: string) {
     if (!confirm('DELETE THIS SHIFT?')) return
     await fetch(`/api/admin/shifts/${id}`, { method: 'DELETE' })
     setModal(null)
-    load()
+    load(true)
   }
 
   async function reviewQueueClaim(claimId: string, action: 'APPROVE' | 'DECLINE') {
@@ -606,7 +619,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setBusy(false)
     if (!r.ok) { setError((d.error ?? 'FAILED').toUpperCase()); return }
     eventRoster.reload()
-    load()
+    load(true)
   }
 
   function printRoster() {
@@ -858,10 +871,13 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       </div>
 
       {/* Grid */}
+      {refreshing && !loading && (
+        <p className="font-mono text-2xs uppercase text-grey-light loading-cursor">REFRESHING…</p>
+      )}
       {loading ? (
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
       ) : data && filteredStaff.length > 0 ? (
-        <div className={`border ${GRID_LINE} overflow-auto max-h-[70vh]`}>
+        <div className={`border ${GRID_LINE} overflow-auto max-h-[70vh]`} data-scroll-key="roster-grid">
           <div className="grid" style={{ gridTemplateColumns: `220px repeat(${weekDays.length}, minmax(140px, 1fr))`, minWidth: 220 + weekDays.length * 140 }}>
             {/* Header row */}
             <div className={`sticky top-0 left-0 z-20 bg-black border-b-2 border-r ${GRID_LINE} font-mono text-2xs uppercase text-white ${compact ? 'px-2 py-1' : 'px-3 py-2'}`}>TEAM</div>
@@ -1064,7 +1080,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
           staffId={editStaffId}
           role={role}
           onClose={() => setEditStaffId(null)}
-          onSaved={() => { setEditStaffId(null); load() }}
+          onSaved={() => { setEditStaffId(null); load(true) }}
         />
       )}
 
@@ -1125,7 +1141,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
           event={openEvent}
           positions={eventRoster.data?.positions ?? positions}
           onClose={() => setOpenEventId(null)}
-          onSaved={() => { eventRoster.reload(); load() }}
+          onSaved={() => { eventRoster.reload(); load(true) }}
           onEdit={() => { setEditEventId(openEvent.id); setOpenEventId(null) }}
         />
       )}

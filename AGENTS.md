@@ -543,9 +543,51 @@ SET proposal to an entry) and save an admin override; a `MARK_APPLIED` action on
 its stored plan. FILTER STAFF narrows the grid only (never the approvals queue)
 and groups with no matching staff are hidden. Notes show on worker month/week
 cells, the admin grid, edit-request previews and worker pending-request cards.
-Routes: `/api/admin/availability` (+ `/clear`, `/review`,
-`/requests/[id]`), `/api/worker/availability` (+ `/clear`, `/[id]`,
-`/requests/[id]`). Guards: `team.availability.view|edit|approve`.
+Routes: `/api/admin/availability` (+ `/clear`, `/review`, `/[id]` PATCH
+notes/lock, `/requests/[id]`), `/api/worker/availability` (+ `/clear`, `/[id]`
+PATCH notes + DELETE, `/requests/[id]`). Guards:
+`team.availability.view|edit|approve`.
+
+**Day-level lock (#12/#14)** — `StaffAvailability.lockedAt` / `lockedById` /
+`lockedReason` (all nullable). Set manually from the admin day editor (`LOCK` /
+`UNLOCK`, optional reason) and **automatically** when a manager CONFIRMs a
+declaration (`/review` APPROVE) or APPLYs an edit request — every written day is
+locked, and applying an admin override opened from a declaration/request sends
+`lock: true`. A plain grid override does not change the lock; auto-approved
+pure-AVAILABLE worker saves never lock. A locked day:
+
+- files a worker save/clear as an `AvailabilityEditRequest` (same path as an
+  approved block-out) — see `rowsTouchedByPlan` in `lib/availability.server.ts`;
+- is **stripped** from admin writes and reported in `skipped`; a single-day
+  write that only touched locked dates returns 409 `{ error: 'LOCKED — UNLOCK FIRST', locked: [...] }`;
+- keeps **notes editable** via the notes-only PATCH (admin `/[id]` = `{ notes?,
+  locked?, lockedReason? }`, worker `/[id]` = `{ notes }` only), which never
+  touches availability/status/lock fields;
+- is skipped by drag-fill and bulk clear client-side (and by
+  `cancelPendingAvailability`).
+
+The shared `AvailabilityDayEditor` renders locked days read-only for admins
+(`LOCKED — UNLOCK TO EDIT`, `SAVE NOTE`, `UNLOCK`) and lets workers submit a
+change request (`SEND CHANGE REQUEST`).
+
+**Worker series edits (#20) + bulk clear (#13) + weekly default (#7) +
+in-place refresh (#16)** — worker writes pass `forceScopeThis: true`, so a
+series edit/clear always detaches **just the clicked day** (`seriesId: null`,
+`syncSeriesId` keeps the remaining series end correct); the worker editor hides
+FROM/ALL and CHANGE SERIES END and says `THIS DAY LEAVES THE SERIES`. Both
+availability grids support **bulk clear**: admins shift-click a range on one
+staff row (or use `SELECT DAYS`), workers use `SELECT DAYS` on mobile or
+shift-click on desktop, then `CLEAR SELECTED (n)` with confirmation; clearing
+loops the existing `/clear` route one day at a time with `scope: 'THIS'` (no
+bulk API). Selection is one row/range and clears on navigation. The worker view
+defaults to **WEEKLY** and remembers the toggle in
+`sessionStorage['hospo-worker-availability-view']` (validated, falls back to
+week). Live pages refresh in place: `AvailabilityAdminClient` and `RosterClient`
+keep the previous payload mounted and show `REFRESHING…` on save-triggered
+reloads, restoring scroll via `lib/use-scroll-restore.ts`
+(`captureScroll` / `restoreScroll` + `useScrollRestore()`); keyed containers use
+`data-scroll-key`. `lib/cell-fill.ts` also exports `dayRange` /
+`toggleSelection` for the selection logic.
 
 **Weekly request cut-off** — `Venue.availabilityCutoff Json?`
 (`{ day: 0-6 (Sun-Sat), time: "HH:mm" }`), set in Settings → GENERAL →
@@ -2500,7 +2542,8 @@ pushing, run: `npm run lint && npm run test`.
 | Target | Coverage |
 |---|---|
 | `lib/array.ts` — `moveItem` | ✅ |
-| `lib/cell-fill.ts` — `fillRect`, `fillTargets`, `inFillRect` (drag-fill rectangles) | ✅ (8 tests) |
+| `lib/cell-fill.ts` — `fillRect`, `fillTargets`, `inFillRect` (drag-fill rectangles), `dayRange`, `toggleSelection` (bulk-clear selection) | ✅ (11 tests) |
+| `lib/use-scroll-restore.ts` — `captureScroll`, `restoreScroll`, `useScrollRestore` (in-place refresh) | ✅ (3 tests) |
 | `lib/booth-trace.ts` — `traceBoothPerimeter` | ✅ |
 | `lib/breaks.ts` — `nzBreakEntitlement`, `shiftHours`, `formatBreaks` | ✅ |
 | `lib/budget-math.ts` — `generateDailyBudgetsNormalized`, `computeBreakdowns` | ✅ |
