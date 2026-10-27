@@ -12,6 +12,7 @@ import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { readingVerdict, criticalVerdict, describeBand } from '@/lib/food-safety'
 import { OUTCOME_LABELS, OUTCOME_DESCRIPTIONS, TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { moveItem } from '@/lib/array'
+import { resolveWorkerTaskAccess, type WorkerTaskAccess } from '@/lib/worker-task-access'
 import { Panel } from '@/components/ui/Panel'
 import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
 import { useGuidePopup } from '@/components/GuidePopup'
@@ -25,7 +26,7 @@ interface TaskForm {
   completionType: string; scheduleType: string
   scheduleDays: number[]; customCron: string
   intervalMonths: number; monthlyOption: string; monthlyDay: number
-  requiredTrainingIds: string[]
+  competencyGuideIds: string[]
   allowedOutcomes: TaskOutcome[]
   overrideOutcomes: boolean
   requireOutcomeReason: boolean
@@ -41,11 +42,14 @@ interface TaskFull {
   department: { id: string; name: string } | null
   section: { id: string; name: string } | null
   requiredTraining: { moduleId: string; module?: { kind: string } }[]
+  taskGuides?: { guideId: string; isRequiredForCompetency: boolean; guide?: { id: string; title: string } | null }[]
 }
 
 interface ChecklistFull {
   id: string; name: string; description: string | null; venueId: string
   departmentId: string | null; sectionId: string | null; appearFromTime: string | null
+  activatedOn?: string | null
+  activatedToday?: boolean
   allowedOutcomes?: string[]
   requireOutcomeReason?: boolean
   tasks: { id: string; title: string; isActive: boolean; version: number }[]
@@ -59,7 +63,7 @@ interface GuideLite { id: string; title: string; venueId: string; isTracked: boo
 const EMPTY_TASK_FORM: TaskForm = {
   title: '', description: '', departmentId: '', sectionId: '',
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
-  intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, requiredTrainingIds: [],
+  intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, competencyGuideIds: [],
   allowedOutcomes: [...TASK_OUTCOMES], overrideOutcomes: false, requireOutcomeReason: false,
 }
 
@@ -76,10 +80,23 @@ const SCHEDULE_OPTIONS = [
 ]
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
-export function WorkerTasksClient({ role, sessionVenueId }: { role: string | null; sessionVenueId: string | null }) {
+export function WorkerTasksClient({
+  role,
+  sessionVenueId,
+  access: accessProp,
+}: {
+  role: string | null
+  sessionVenueId: string | null
+  access?: WorkerTaskAccess | null
+}) {
   const router = useRouter()
-  const isAdminOrManager = role === 'ADMIN' || role === 'MANAGER'
   const { requestGuide, nodes: guidePopupNodes } = useGuidePopup('worker')
+  // Server-computed flags, with a role fallback so an older page (or a test)
+  // still behaves exactly as before.
+  const [access, setAccess] = useState<WorkerTaskAccess>(
+    accessProp ?? resolveWorkerTaskAccess(role, []),
+  )
+  const canAuthor = access.canAuthor
 
   const [tasks, setTasks] = useState<TaskState[]>([])
   const [checklists, setChecklists] = useState<{ id: string; name: string; appearFromTime: string | null; activatedToday: boolean; taskIds: string[] }[]>([])
@@ -106,6 +123,9 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   // Task edit modal
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [taskEditing, setTaskEditing] = useState<TaskFull | null>(null)
+  // True when the task modal was opened from the checklist editor: on save the
+  // new task is appended to the open list and the list modal stays up.
+  const [taskForList, setTaskForList] = useState(false)
   const [taskForm, setTaskForm] = useState<TaskForm>(EMPTY_TASK_FORM)
   const [taskSaving, setTaskSaving] = useState(false)
   const [taskError, setTaskError] = useState('')
@@ -164,12 +184,14 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     setTasks(data.tasks)
     setChecklists(data.checklists ?? [])
     setFirstName(data.firstName)
+    if (data.access) setAccess(data.access as WorkerTaskAccess)
     setLoading(false)
   }
 
   useEffect(() => { load() }, [])
 
   async function loadEditData() {
+    if (!canAuthor) return
     const [dR, sR, tR, taskR, clR] = await Promise.all([
       fetch('/api/worker/departments'),
       fetch('/api/worker/sections'),
@@ -269,21 +291,28 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   function toggleRequired(id: string) {
     setTaskForm(f => ({
       ...f,
-      requiredTrainingIds: f.requiredTrainingIds.includes(id)
-        ? f.requiredTrainingIds.filter(x => x !== id)
-        : [...f.requiredTrainingIds, id],
+      competencyGuideIds: f.competencyGuideIds.includes(id)
+        ? f.competencyGuideIds.filter(x => x !== id)
+        : [...f.competencyGuideIds, id],
     }))
   }
 
-  function openTaskCreate() {
+  function openTaskCreate(opts?: { fromList?: boolean }) {
     setTaskEditing(null)
-    setTaskForm({ ...EMPTY_TASK_FORM })
+    setTaskForList(!!opts?.fromList)
+    setTaskForm({
+      ...EMPTY_TASK_FORM,
+      // Pre-scope a task created from a list to that list's department/section.
+      departmentId: opts?.fromList ? clDeptId : '',
+      sectionId: opts?.fromList ? clSectionId : '',
+    })
     setRequireRetrain(false); setChangeSummary('')
     setTaskError(''); setTaskModalOpen(true)
   }
 
   function openTaskEdit(t: TaskFull) {
     setTaskEditing(t)
+    setTaskForList(false)
     setTaskForm({
       title: t.title, description: t.description ?? '',
       departmentId: t.departmentId ?? '', sectionId: t.sectionId ?? '',
@@ -292,7 +321,11 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
       intervalMonths: t.intervalMonths ?? 1,
       monthlyOption: t.monthlyOption ?? 'FIRST_DAY',
       monthlyDay: t.monthlyDay ?? 1,
-      requiredTrainingIds: (t.requiredTraining ?? []).map(r => r.moduleId),
+      // Same competency junction the admin form edits. Legacy
+      // TaskRequiredTraining rows are left untouched (not edited or deleted).
+      competencyGuideIds: (t.taskGuides ?? [])
+        .filter(g => g.isRequiredForCompetency)
+        .map(g => g.guideId),
       allowedOutcomes: (t.allowedOutcomes?.length ? t.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[],
       overrideOutcomes: !!t.overrideOutcomes,
       requireOutcomeReason: !!t.requireOutcomeReason,
@@ -302,6 +335,10 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   }
 
   async function handleTaskSave() {
+    if (taskEditing ? !access.canEditTask : !access.canCreateTask) {
+      setTaskError('NOT ALLOWED')
+      return
+    }
     if (!taskForm.title.trim()) { setTaskError('TITLE IS REQUIRED'); return }
     if (taskForm.scheduleType === 'WEEKLY' && taskForm.scheduleDays.length === 0) {
       setTaskError('SELECT AT LEAST ONE DAY FOR WEEKLY'); return
@@ -318,14 +355,22 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
         ...taskForm,
         departmentId: taskForm.departmentId || null,
         sectionId: taskForm.sectionId || null,
-        requiredTrainingIds: taskForm.requiredTrainingIds,
+        // Legacy `requiredTrainingIds` is deliberately not sent: the worker UI
+        // edits TaskGuide now, and omitting it leaves old links untouched.
+        competencyGuideIds: taskForm.competencyGuideIds,
         customCron: taskForm.scheduleType === 'CUSTOM' ? taskForm.customCron : null,
         scheduleDays: taskForm.scheduleType === 'DAILY' ? [] : taskForm.scheduleDays,
         ...(taskEditing ? { requireRetrain, changeSummary } : {}),
       }),
     })
     if (!r.ok) { const d = await r.json(); setTaskError(d.error ?? 'SAVE FAILED'); setTaskSaving(false); return }
+    const saved = await r.json().catch(() => null)
     setTaskSaving(false); setTaskModalOpen(false)
+    const addToList = taskForList && !taskEditing && saved?.id
+    setTaskForList(false)
+    if (addToList) {
+      setClSelected(prev => (prev.includes(saved.id) ? prev : [...prev, saved.id]))
+    }
     await load()
     await loadEditData()
   }
@@ -367,6 +412,10 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   }
 
   async function saveChecklist() {
+    if (clEditing && clEditing !== 'new' ? !access.canEditList : !access.canCreateList) {
+      setClError('NOT ALLOWED')
+      return
+    }
     if (!clName.trim()) { setClError('NAME IS REQUIRED'); return }
     if (clSelected.length === 0) { setClError('ADD AT LEAST ONE TASK'); return }
     setClSaving(true); setClError('')
@@ -391,6 +440,28 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     if (!confirm(`DELETE CHECKLIST "${clEditing.name}"?`)) return
     await fetch(`/api/worker/checklists/${clEditing.id}`, { method: 'DELETE' })
     setClModalOpen(false)
+    await load()
+    await loadEditData()
+  }
+
+  async function toggleChecklistActivation(active: boolean) {
+    if (!clEditing || clEditing === 'new' || !access.canEditList) return
+    setClError('')
+    const r = await fetch(`/api/worker/checklists/${clEditing.id}/activate`, {
+      method: active ? 'POST' : 'DELETE',
+    })
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setClError(d.error ?? 'FAILED')
+      return
+    }
+    const updated = await r.json().catch(() => null)
+    setClEditing({
+      ...clEditing,
+      activatedOn: updated?.activatedOn ?? null,
+      // The server owns the venue-local "today" verdict; we just toggled it.
+      activatedToday: updated?.activatedToday ?? active,
+    })
     await load()
     await loadEditData()
   }
@@ -455,6 +526,10 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
 
   const renderTask = (t: TaskState) => {
     if (isEditMode) {
+      const full = editTasks.find(et => et.id === t.id)
+      const guideTitles = (full?.taskGuides ?? [])
+        .filter(g => g.isRequiredForCompetency && g.guide)
+        .map(g => g.guide!.title)
       return (
         <Panel
           key={t.id}
@@ -468,24 +543,41 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <CompletionTypeIcon type={t.completionType} />
               {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
+              {guideTitles.map((title) => (
+                <span key={title} className="font-mono text-xs uppercase text-info truncate max-w-[10rem]">
+                  📖 {title}
+                </span>
+              ))}
               {(t.rolledOverFrom || (t.isOneOff && t.dueDate && !t.isCompleted)) && (
                 <span className="font-mono text-xs text-warning uppercase">⚠ ROLLED OVER</span>
               )}
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              onClick={() => { const full = editTasks.find(et => et.id === t.id); if (full) openTaskEdit(full) }}
-              className="font-mono text-xs uppercase text-warning hover:text-white transition-colors px-2 py-1"
-            >
-              EDIT
-            </button>
-            <button
-              onClick={() => handleTaskDelete(t.id)}
-              className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors px-2 py-1"
-            >
-              DEL
-            </button>
+            {full && access.canEditTask && (
+              <button
+                onClick={() => toggleTaskActive(full)}
+                className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors px-2 py-1"
+              >
+                {full.isActive ? 'OFF' : 'ON'}
+              </button>
+            )}
+            {access.canEditTask && (
+              <button
+                onClick={() => { if (full) openTaskEdit(full) }}
+                className="font-mono text-xs uppercase text-warning hover:text-white transition-colors px-2 py-1"
+              >
+                EDIT
+              </button>
+            )}
+            {access.canDeleteTask && (
+              <button
+                onClick={() => handleTaskDelete(t.id)}
+                className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors px-2 py-1"
+              >
+                DEL
+              </button>
+            )}
           </div>
         </Panel>
       )
@@ -602,7 +694,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             >
               + QUICK TASK
             </button>
-            {isAdminOrManager && (
+            {canAuthor && (
               <button
                 onClick={() => { const next = !isEditMode; setIsEditMode(next); if (next && editDepts.length === 0) loadEditData() }}
                 className={`font-mono text-xs uppercase font-bold tracking-wider px-3 py-2 border transition-colors ${
@@ -656,10 +748,10 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           </Panel>
         )}
 
-        {isEditMode && isAdminOrManager && (
+        {isEditMode && canAuthor && (
           <Panel padding="none" className="mt-3 py-2 px-3 border border-warning text-warning font-mono text-xs uppercase tracking-widest flex items-center gap-2">
             <span className="inline-block w-2 h-2 bg-warning animate-pulse" />
-            MANAGER EDIT MODE ACTIVE // ARMED
+            EDIT MODE ACTIVE // ARMED
           </Panel>
         )}
 
@@ -673,16 +765,20 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
         )}
       </div>
 
-      {isEditMode && isAdminOrManager && (
+      {isEditMode && canAuthor && (
         <div className="px-4 pt-3 flex gap-2">
-          <button onClick={openTaskCreate}
-            className="font-mono text-xs uppercase font-bold tracking-wider px-4 py-2 border border-warning text-warning hover:bg-warning hover:text-black transition-colors">
-            + NEW TASK
-          </button>
-          <button onClick={openChecklistCreate}
-            className="font-mono text-xs uppercase font-bold tracking-wider px-4 py-2 border border-warning text-warning hover:bg-warning hover:text-black transition-colors">
-            + NEW CHECKLIST
-          </button>
+          {access.canCreateTask && (
+            <button onClick={() => openTaskCreate()}
+              className="font-mono text-xs uppercase font-bold tracking-wider px-4 py-2 border border-warning text-warning hover:bg-warning hover:text-black transition-colors">
+              + NEW TASK
+            </button>
+          )}
+          {access.canCreateList && (
+            <button onClick={openChecklistCreate}
+              className="font-mono text-xs uppercase font-bold tracking-wider px-4 py-2 border border-warning text-warning hover:bg-warning hover:text-black transition-colors">
+              + NEW CHECKLIST
+            </button>
+          )}
         </div>
       )}
 
@@ -705,8 +801,9 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               <div className="p-3 border-b border-grey-mid flex items-center justify-between gap-2">
                 <div className="font-mono text-xs uppercase tracking-widest text-white">{lg.name}</div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  {isEditMode && isAdminOrManager && (
+                  {isEditMode && access.canEditList && (
                     <button
+                      aria-label={`EDIT CHECKLIST ${lg.name}`}
                       onClick={() => { const full = editChecklists.find(c => c.id === lg.id); if (full) openChecklistEdit(full) }}
                       className="font-mono text-xs uppercase text-warning hover:text-white transition-colors px-1 py-0.5"
                     >
@@ -1172,10 +1269,10 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
 
             {editGuides.length > 0 && (
               <Combobox
-                label="Required Training"
+                label="Required training (competency)"
                 options={editGuides.map(m => ({ value: m.id, label: m.title, description: m.description ?? undefined }))}
-                selected={taskForm.requiredTrainingIds}
-                onChange={(ids) => setTaskForm({ ...taskForm, requiredTrainingIds: ids })}
+                selected={taskForm.competencyGuideIds}
+                onChange={(ids) => setTaskForm({ ...taskForm, competencyGuideIds: ids })}
                 placeholder="Search guides..."
               />
             )}
@@ -1201,7 +1298,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           </div>
 
           <div className="px-4 pb-8 pt-4 border-t border-grey-mid flex gap-2">
-            <button onClick={handleTaskSave} disabled={taskSaving}
+            <button data-testid="worker-task-save" onClick={handleTaskSave} disabled={taskSaving}
               className="flex-1 h-14 bg-warning text-black font-mono font-bold text-sm uppercase tracking-widest hover:opacity-90 transition-opacity disabled:opacity-40">
               {taskSaving ? 'SAVING_' : 'SAVE'}
             </button>
@@ -1255,6 +1352,27 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               SHOWS ON THE FLOOR FROM THIS TIME &amp; STAYS UNTIL EVERY TASK IS SETTLED FOR THE DAY.
             </p>
 
+            {clEditing !== 'new' && clEditing?.appearFromTime && access.canEditList && (
+              <div className="flex items-center justify-between gap-2 border border-grey-mid p-2">
+                <span className="font-mono text-xs uppercase text-grey-light">
+                  {clEditing.activatedToday
+                    ? 'FORCED OPEN FOR TODAY'
+                    : 'NOT OPEN YET TODAY'}
+                </span>
+                {clEditing.activatedToday ? (
+                  <button onClick={() => toggleChecklistActivation(false)}
+                    className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white transition-colors">
+                    DEACTIVATE
+                  </button>
+                ) : (
+                  <button onClick={() => toggleChecklistActivation(true)}
+                    className="font-mono text-xs uppercase border border-success/40 px-2 py-1 text-success hover:bg-success hover:text-black transition-colors">
+                    ACTIVATE NOW
+                  </button>
+                )}
+              </div>
+            )}
+
             <OutcomeOptions
               allowed={clAllowedOutcomes}
               requireReason={clRequireReason}
@@ -1280,6 +1398,12 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                           {i + 1}. {found?.title ?? '(task removed)'}
                         </span>
                         <div className="flex gap-2 flex-shrink-0">
+                          {found && access.canEditTask && (
+                            <button onClick={() => openTaskEdit(found)}
+                              className="font-mono text-xs uppercase text-grey-light hover:text-white px-1 py-0.5">
+                              EDIT
+                            </button>
+                          )}
                           <button disabled={i === 0}
                             onClick={() => setClSelected(moveItem(clSelected, i, i - 1))}
                             className="font-mono text-xs text-grey-light hover:text-white disabled:opacity-30 px-1 py-0.5">
@@ -1307,13 +1431,24 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                 onChange={(ids) => setClSelected(ids)}
                 placeholder="+ ADD A TASK..."
               />
+              {access.canCreateTask && (
+                <div className="pt-1">
+                  <button data-testid="checklist-create-task" onClick={() => openTaskCreate({ fromList: true })}
+                    className="w-full border border-dashed border-grey-mid py-2 font-mono text-xs uppercase text-warning hover:border-warning transition-colors">
+                    + CREATE NEW TASK
+                  </button>
+                  <p className="font-mono text-xs uppercase text-grey-light mt-1">
+                    A NEW TASK SAVES IMMEDIATELY — CANCELLING THIS LIST WON&apos;T DELETE IT.
+                  </p>
+                </div>
+              )}
             </div>
 
             {clError && <p className="font-mono text-xs text-danger">{clError}</p>}
           </div>
 
           <div className="px-4 pb-8 pt-4 border-t border-grey-mid flex gap-2">
-            <button onClick={saveChecklist} disabled={clSaving}
+            <button data-testid="worker-checklist-save" onClick={saveChecklist} disabled={clSaving}
               className="flex-1 h-14 bg-warning text-black font-mono font-bold text-sm uppercase tracking-widest hover:opacity-90 disabled:opacity-40">
               {clSaving ? 'SAVING_' : 'SAVE'}
             </button>
@@ -1321,7 +1456,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               className="flex-1 h-14 border border-grey-mid text-white font-mono font-bold text-sm uppercase tracking-widest hover:border-white transition-colors">
               CANCEL
             </button>
-            {clEditing !== 'new' && (
+            {clEditing !== 'new' && access.canDeleteList && (
               <button onClick={deleteChecklist}
                 className="h-14 px-4 border border-danger text-danger font-mono font-bold text-xs uppercase tracking-widest hover:bg-danger hover:text-black transition-colors">
                 DEL

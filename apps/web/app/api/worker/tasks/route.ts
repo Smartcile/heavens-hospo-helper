@@ -6,10 +6,15 @@ import { isTaskDueOnDate } from '@/lib/scheduling'
 import { isActivatedOn } from '@/lib/checklist-activation'
 import { resolveOutcomePolicyForChecklists, normaliseOutcomes, type OutcomePolicyChecklist } from '@/lib/task-outcomes'
 import { applicableChecklistsForStaff } from '@/lib/checklist-applicability.server'
+import { workerTaskAccess } from '@/lib/worker-task-access.server'
+import { resolveCompetencyGuideIds } from '@/lib/task-guides'
+import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
 
 export async function GET(req: NextRequest) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const access = await workerTaskAccess(session)
 
   // Resolve linked department IDs — staff see tasks from their home department
   // AND any departments linked to it.
@@ -25,20 +30,24 @@ export async function GET(req: NextRequest) {
     ? [session.departmentId, ...linkedDepartmentIds]
     : null
 
+  // Authoring data for EDIT MODE (tasks + their Guide links). Whole venue, not
+  // just the worker's department, so any venue task can be added to a list —
+  // the same scope the admin Tasks page uses. Read-only until a grant passes.
   if (req.nextUrl.searchParams.get('edit') === '1') {
+    if (!access.canAuthor) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     const tasks = await prisma.task.findMany({
-      where: {
-        venueId: session.venueId,
-        isActive: true,
-        status: 'ACTIVE' as const,
-        deletedAt: null,
-        ...(departmentIds ? { departmentId: { in: departmentIds } } : {}),
-      },
+      where: { venueId: session.venueId, deletedAt: null },
       include: {
         department: { select: { id: true, name: true } },
         section: { select: { id: true, name: true } },
         requiredTraining: { select: { moduleId: true, module: { select: { kind: true } } } },
-        taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
+        taskGuides: {
+          select: {
+            guideId: true,
+            isRequiredForCompetency: true,
+            guide: { select: { id: true, title: true } },
+          },
+        },
       },
       orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
     })
@@ -221,20 +230,25 @@ export async function GET(req: NextRequest) {
     }
   })
 
-  return NextResponse.json({ tasks: result, checklists: checklistResult, firstName: session.firstName })
+  return NextResponse.json({
+    tasks: result,
+    checklists: checklistResult,
+    firstName: session.firstName,
+    access,
+  })
 }
 
 export async function POST(req: NextRequest) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.role !== 'ADMIN' && session.role !== 'MANAGER')
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const access = await workerTaskAccess(session)
+  if (!access.canCreateTask) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
   const {
     title, description, departmentId, sectionId, completionType,
     scheduleType, scheduleDays, customCron, intervalMonths,
-    monthlyOption, monthlyDay, requiredTrainingIds,
+    monthlyOption, monthlyDay, requiredTrainingIds, competencyGuideIds,
     allowedOutcomes, overrideOutcomes, requireOutcomeReason,
   } = body
 
@@ -244,12 +258,35 @@ export async function POST(req: NextRequest) {
   if (scheduleType === 'CUSTOM' && !customCron?.trim())
     return NextResponse.json({ error: 'CRON EXPRESSION IS REQUIRED FOR CUSTOM SCHEDULE' }, { status: 400 })
 
+  // `requiredTrainingIds` is the legacy name the old worker form posted — but
+  // it always carried GUIDE ids (the picker loaded from `/api/worker/guides`).
+  // Treat it as an alias so old clients write the same TaskGuide rows as admin
+  // instead of the long-dead TaskRequiredTraining/TrainingModule pair.
+  const guideIds = resolveCompetencyGuideIds({ competencyGuideIds, requiredTrainingIds }) ?? []
+
+  // Granted STAFF can now write tasks, so every ref must belong to their venue
+  // before it is used (a cross-venue section would otherwise infer its own
+  // department and write the task outside the worker's venue).
+  const refError = await validateWorkerTaskRefs({
+    venueId: session.venueId,
+    departmentId,
+    sectionId,
+    guideIds,
+  })
+  if (refError) return NextResponse.json({ error: refError }, { status: 400 })
+
   let resolvedDeptId = departmentId || null
   const resolvedSectionId = sectionId || null
   if (sectionId && !departmentId) {
     const s = await prisma.section.findUnique({ where: { id: sectionId }, select: { departmentId: true } })
     if (s) resolvedDeptId = s.departmentId
   }
+
+  const maxSort = await prisma.task.findFirst({
+    where: { venueId: session.venueId, departmentId: resolvedDeptId, deletedAt: null },
+    orderBy: { sortOrder: 'desc' },
+    select: { sortOrder: true },
+  })
 
   const task = await prisma.task.create({
     data: {
@@ -265,21 +302,21 @@ export async function POST(req: NextRequest) {
       intervalMonths: Math.max(1, intervalMonths || 1),
       monthlyOption: scheduleType === 'MONTHLY' ? (monthlyOption || 'FIRST_DAY') : null,
       monthlyDay: scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? (monthlyDay || 1) : null,
+      sortOrder: (maxSort?.sortOrder ?? -1) + 1,
       allowedOutcomes: normaliseOutcomes(allowedOutcomes),
       overrideOutcomes: !!overrideOutcomes,
       requireOutcomeReason: !!requireOutcomeReason,
+      // Same competency junction the admin form writes.
+      taskGuides: guideIds.length
+        ? {
+            create: guideIds.map((guideId) => ({
+              guideId,
+              isRequiredForCompetency: true,
+            })),
+          }
+        : undefined,
     },
   })
-
-  if (requiredTrainingIds?.length) {
-    await prisma.taskRequiredTraining.createMany({
-      data: requiredTrainingIds.map((moduleId: string) => ({ taskId: task.id, moduleId })),
-    })
-    await prisma.trainingModule.updateMany({
-      where: { id: { in: requiredTrainingIds } },
-      data: { linkedTaskId: task.id },
-    })
-  }
 
   return NextResponse.json(task, { status: 201 })
 }

@@ -44,6 +44,14 @@ export async function GET(req: NextRequest) {
         select: { guideId: true, isRequiredForCompetency: true, guide: { select: { id: true, title: true } } },
       },
       trainingModules: { select: { kind: true } }, // modules whose how-to is this task
+      progress: {
+        select: {
+          note: true,
+          outcome: true,
+          updatedAt: true,
+          staff: { select: { firstName: true, lastName: true } },
+        },
+      },
       _count: { select: { checklistLinks: true } },
     },
     orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],

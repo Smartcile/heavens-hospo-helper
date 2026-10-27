@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -40,6 +40,12 @@ interface Task {
   requiredTraining: { moduleId: string; module?: { kind: string } }[]
   taskGuides?: { guideId: string; isRequiredForCompetency: boolean; guide?: { id: string; title: string } | null }[]
   trainingModules?: { kind: string }[]
+  progress?: {
+    note: string | null
+    outcome: string
+    updatedAt: string
+    staff: { firstName: string; lastName: string }
+  } | null
   _count?: { checklistLinks: number }
 }
 
@@ -104,9 +110,40 @@ const SCHEDULE_OPTIONS = [
   { value: 'CUSTOM', label: 'CUSTOM (CRON)' },
 ]
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+const TASKS_SCROLL_KEY = 'hospo-tasks-scroll'
+
+// #16: keep the window and the sticky checklist panel where they were when the
+// page is re-entered. A scoped fix — no SPA rewrite, no polling.
+function useTasksScrollRestoration(panelRef: RefObject<HTMLDivElement>, ready: boolean) {
+  useEffect(() => {
+    // Restoring while the lists are still empty (and the panel is not mounted)
+    // scrolls the window only, then the loaded content reflows and loses it.
+    if (!ready) return
+    const winKey = `${TASKS_SCROLL_KEY}:window`
+    const panelKey = `${TASKS_SCROLL_KEY}:panel`
+    const savedWindow = sessionStorage.getItem(winKey)
+    if (savedWindow) window.scrollTo(0, Number(savedWindow))
+    const panel = panelRef.current
+    const savedPanel = sessionStorage.getItem(panelKey)
+    if (panel && savedPanel) panel.scrollTop = Number(savedPanel)
+
+    const save = () => {
+      sessionStorage.setItem(winKey, String(window.scrollY))
+      if (panel) sessionStorage.setItem(panelKey, String(panel.scrollTop))
+    }
+    window.addEventListener('scroll', save, { passive: true })
+    panel?.addEventListener('scroll', save, { passive: true })
+    return () => {
+      save()
+      window.removeEventListener('scroll', save)
+      panel?.removeEventListener('scroll', save)
+    }
+  }, [panelRef, ready])
+}
 
 export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const { requestGuide, nodes: guidePopupNodes } = useGuidePopup('admin')
+  const checklistPanelRef = useRef<HTMLDivElement>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -114,6 +151,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [guides, setGuides] = useState<GuideLite[]>([])
   const [checklists, setChecklists] = useState<Checklist[]>([])
   const [loading, setLoading] = useState(true)
+  useTasksScrollRestoration(checklistPanelRef, !loading)
 
   // Task create/edit modal
   const [modalOpen, setModalOpen] = useState(false)
@@ -248,6 +286,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClVenueId(role === 'MANAGER' ? sessionVenueId : (filterVenue || venues[0]?.id || ''))
     setClDeptId(''); setClSectionId(''); setClSelected([]); setClAppearFrom(''); setClError('')
     setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false)
+    setFilterUsage('notinthis')
   }
   function openChecklistEdit(c: Checklist) {
     setClEditing(c)
@@ -265,6 +304,12 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   function addToChecklist(id: string) {
     setClSelected((prev) => (prev.includes(id) ? prev : [...prev, id]))
   }
+  function closeChecklist() {
+    setClEditing(null)
+    // Reset to a value that always exists in USAGE_OPTIONS, otherwise the
+    // Select keeps rendering a phantom "NOT IN THIS LIST".
+    setFilterUsage('nolist')
+  }
   async function saveChecklist() {
     if (!clName.trim() || !clVenueId) { setClError('NAME AND VENUE ARE REQUIRED'); return }
     if (clSelected.length === 0) { setClError('ADD AT LEAST ONE TASK'); return }
@@ -275,13 +320,18 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     setClSaving(false)
     if (!r.ok) { const d = await r.json(); setClError(d.error ?? 'SAVE FAILED'); return }
-    setClEditing(null); load()
+    closeChecklist(); load()
   }
   async function deleteChecklist() {
     if (!clEditing || clEditing === 'new') return
     if (!confirm(`DELETE CHECKLIST "${clEditing.name}"? (the tasks themselves are kept)`)) return
     await fetch(`/api/admin/checklists/${clEditing.id}`, { method: 'DELETE' })
-    setClEditing(null); load()
+    closeChecklist(); load()
+  }
+  async function clearProgress(id: string) {
+    if (!confirm('CLEAR THE STALE IN-PROGRESS (PARTIAL) STATE FOR THIS TASK?')) return
+    await fetch(`/api/admin/tasks/${id}/progress`, { method: 'DELETE' })
+    load()
   }
   async function toggleChecklistActivation(c: Checklist, active: boolean) {
     setActivateError('')
@@ -329,7 +379,10 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (search.trim() && !t.title.toLowerCase().includes(search.trim().toLowerCase())) return false
     if (filterUsage === 'list' && !(t._count?.checklistLinks)) return false
     if (filterUsage === 'nolist' && (t._count?.checklistLinks ?? 0) > 0) return false
-    if (filterUsage === 'notinthis' && clEditing && clEditing !== 'new' && clEditing.tasks?.some((ct) => ct.id === t.id)) return false
+    // #19: filter against the LIVE selection, not the snapshot taken when the
+    // editor opened. A task dropped this session must leave the left list too;
+    // this also covers a brand-new list (`clEditing === 'new'`).
+    if (filterUsage === 'notinthis' && clSelected.includes(t.id)) return false
     if (filterUsage === 'training' && !hasTrainingUse(t)) return false
     return true
   })
@@ -374,6 +427,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     return (
       <div
         key={t.id}
+        data-testid={`available-task-${t.id}`}
         draggable
         onDragStart={(e) => { e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'copy' }}
         className="bg-grey-dark border border-grey-mid px-3 py-2.5 flex items-center gap-2 cursor-grab active:cursor-grabbing"
@@ -395,9 +449,17 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 📖 {g.guide!.title}
               </button>
             ))}
+            {t.progress && (
+              <span className="font-mono text-xs uppercase text-warning">
+                IN PROGRESS · {t.progress.staff.firstName} {t.progress.staff.lastName}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {t.progress && (
+            <button onClick={() => clearProgress(t.id)} className="font-mono text-xs uppercase text-warning hover:text-white transition-colors">CLEAR</button>
+          )}
           <button onClick={() => toggleActive(t)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">{t.isActive ? 'OFF' : 'ON'}</button>
           <button onClick={() => openEdit(t)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">EDIT</button>
           <button onClick={() => handleDelete(t.id)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">DEL</button>
@@ -436,7 +498,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 <Select value={filterSection} onChange={(e) => setFilterSection(e.target.value)} options={filterSectionOptions} className={selClass(filterSection)} />
               </div>
               <div className="w-40">
-                <Select value={filterUsage} onChange={(e) => setFilterUsage(e.target.value)} options={USAGE_OPTIONS} className={selClass(filterUsage)} />
+                <Select data-testid="usage-filter" value={filterUsage} onChange={(e) => setFilterUsage(e.target.value)} options={USAGE_OPTIONS} className={selClass(filterUsage)} />
               </div>
             </div>
           </div>
@@ -475,12 +537,12 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
 
         {/* RIGHT — checklists list OR inline editor (sticky so it follows long task lists) */}
         <div className="lg:border-l lg:border-grey-mid lg:pl-6">
-          <div className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
+          <div ref={checklistPanelRef} className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
           {clEditing ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="font-mono text-sm uppercase tracking-widest text-white">{clEditing === 'new' ? 'NEW CHECKLIST' : 'EDIT CHECKLIST'}</h2>
-                <button onClick={() => setClEditing(null)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">CLOSE</button>
+                <button onClick={closeChecklist} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">CLOSE</button>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -509,6 +571,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
               <div className="space-y-1">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Tasks in this checklist (drag in from the left)</label>
                 <div
+                  data-testid="cl-dropzone"
                   onDragOver={(e) => { e.preventDefault(); setDropActive(true) }}
                   onDragLeave={() => setDropActive(false)}
                   onDrop={(e) => { e.preventDefault(); setDropActive(false); const id = e.dataTransfer.getData('text/plain'); if (id) addToChecklist(id) }}
@@ -554,7 +617,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
               {clError && <p className="font-mono text-xs text-danger">{clError}</p>}
               <div className="flex gap-2 pt-1">
                 <Button onClick={saveChecklist} loading={clSaving} size="sm">SAVE CHECKLIST</Button>
-                <Button variant="ghost" size="sm" onClick={() => setClEditing(null)}>CANCEL</Button>
+                <Button variant="ghost" size="sm" onClick={closeChecklist}>CANCEL</Button>
                 {clEditing !== 'new' && (
                   <button onClick={deleteChecklist} className="ml-auto font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">DELETE</button>
                 )}
@@ -575,7 +638,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                     <div key={c.id} className="bg-grey-dark border border-grey-mid p-3 space-y-1">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono font-semibold text-sm uppercase text-white truncate">{c.name}</span>
-                        <button onClick={() => openChecklistEdit(c)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors flex-shrink-0">EDIT</button>
+                        <button aria-label={`EDIT CHECKLIST ${c.name}`} onClick={() => openChecklistEdit(c)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors flex-shrink-0">EDIT</button>
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
                         {c.section ? <Badge>{c.section.name}</Badge> : c.department ? <Badge>{c.department.name}</Badge> : <Badge>WHOLE VENUE</Badge>}

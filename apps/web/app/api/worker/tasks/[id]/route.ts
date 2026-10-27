@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
+import { workerTaskAccess } from '@/lib/worker-task-access.server'
+import { resolveCompetencyGuideIds } from '@/lib/task-guides'
+import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.role !== 'ADMIN' && session.role !== 'MANAGER')
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const access = await workerTaskAccess(session)
+  if (!access.canEditTask) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const existing = await prisma.task.findUnique({ where: { id: params.id } })
   if (!existing || existing.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -21,6 +24,20 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     requireRetrain, changeSummary,
     allowedOutcomes, overrideOutcomes, requireOutcomeReason,
   } = body
+
+  const guideIds = resolveCompetencyGuideIds({
+    competencyGuideIds: body.competencyGuideIds,
+    requiredTrainingIds,
+  })
+
+  // Venue-check every ref the granted STAFF editor can send before writing.
+  const refError = await validateWorkerTaskRefs({
+    venueId: session.venueId,
+    departmentId: departmentId !== undefined ? departmentId || null : undefined,
+    sectionId: sectionId !== undefined ? sectionId || null : undefined,
+    guideIds,
+  })
+  if (refError) return NextResponse.json({ error: refError }, { status: 400 })
 
   let resolvedDeptId = departmentId !== undefined ? (departmentId || null) : undefined
   const resolvedSectionId = sectionId !== undefined ? (sectionId || null) : undefined
@@ -68,38 +85,22 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   const task = await prisma.task.update({ where: { id: params.id }, data: update })
 
-  if (requiredTrainingIds !== undefined) {
-    await prisma.taskRequiredTraining.deleteMany({ where: { taskId: task.id } })
-    if (requiredTrainingIds.length) {
-      await prisma.taskRequiredTraining.createMany({
-        data: requiredTrainingIds.map((moduleId: string) => ({ taskId: task.id, moduleId })),
+  // Competency links use TaskGuide (admin parity). The old `requiredTrainingIds`
+  // name is accepted as an alias because the legacy worker form actually sent
+  // Guide ids — never TrainingModule ids. Both map to the same junction.
+  if (guideIds !== undefined) {
+    await prisma.$transaction(async (tx) => {
+      await tx.taskGuide.deleteMany({
+        where: { taskId: task.id, isRequiredForCompetency: true },
       })
-    }
-    // Sync linkedTaskId back to modules (bidirectional)
-    await prisma.trainingModule.updateMany({
-      where: { linkedTaskId: task.id, id: { notIn: requiredTrainingIds } },
-      data: { linkedTaskId: null },
+      if (guideIds.length) {
+        await tx.taskGuide.createMany({
+          data: guideIds.map((guideId) => ({
+            taskId: task.id, guideId, isRequiredForCompetency: true,
+          })),
+        })
+      }
     })
-    if (requiredTrainingIds.length > 0) {
-      await prisma.trainingModule.updateMany({
-        where: { id: { in: requiredTrainingIds } },
-        data: { linkedTaskId: task.id },
-      })
-    }
-  }
-
-  // New: sync competency Guide links
-  if (body.competencyGuideIds !== undefined) {
-    await prisma.taskGuide.deleteMany({
-      where: { taskId: task.id, isRequiredForCompetency: true },
-    })
-    if (body.competencyGuideIds.length) {
-      await prisma.taskGuide.createMany({
-        data: (body.competencyGuideIds as string[]).map((guideId: string) => ({
-          taskId: task.id, guideId, isRequiredForCompetency: true,
-        })),
-      })
-    }
   }
 
   return NextResponse.json(task)
@@ -108,8 +109,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.role !== 'ADMIN' && session.role !== 'MANAGER')
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const access = await workerTaskAccess(session)
+  if (!access.canDeleteTask) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const existing = await prisma.task.findUnique({ where: { id: params.id } })
   if (!existing || existing.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
