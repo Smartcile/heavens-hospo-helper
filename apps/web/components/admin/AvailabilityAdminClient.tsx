@@ -120,10 +120,12 @@ function payloadSummary(req: AdminEditRequest): string {
   return describeWindows(av.windows, false, av.type)
 }
 
-export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }: {
+export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, canEdit = true }: {
   role: string
   sessionVenueId: string
   defaultVenueId?: string | null
+  /** `team.availability.edit` — gates the bulk-lock action. */
+  canEdit?: boolean
 }) {
   const [venueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [range, setRange] = useState<DateRange>(() => {
@@ -140,6 +142,9 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
   const [selection, setSelection] = useState<Set<string>>(new Set())
   const [selectionAnchor, setSelectionAnchor] = useState<{ staffId: string; date: string } | null>(null)
   const [clearSelectionOpen, setClearSelectionOpen] = useState(false)
+  const [lockSelectionOpen, setLockSelectionOpen] = useState(false)
+  const [lockReason, setLockReason] = useState('')
+  const [notice, setNotice] = useState('')
   const { capture: captureScroll, restore: restoreScroll } = useScrollRestore()
   const [editor, setEditor] = useState<EditorTarget | null>(null)
   const [openPersonId, setOpenPersonId] = useState<string | null>(null)
@@ -221,6 +226,19 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
 
   const entryFor = (staffId: string, date: string) =>
     entryIndex.get(`${staffId}:${date}`) ?? null
+
+  // Populated days in the current selection — the bulk-lock target set.
+  const selectedEntries = useMemo(() => {
+    const out: { staffId: string; date: string; entry: AvailabilityEntry }[] = []
+    for (const key of selection) {
+      const idx = key.indexOf(':')
+      const entry = entryIndex.get(key)
+      if (entry) out.push({ staffId: key.slice(0, idx), date: key.slice(idx + 1), entry })
+    }
+    return out
+  }, [selection, entryIndex])
+
+  const lockableCount = selectedEntries.filter((t) => !isEntryLocked(t.entry)).length
 
   // A pinned day floats people with free time to the top: free all day, free
   // part of the day (SPLIT), or — for today — still free after the current
@@ -435,6 +453,52 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
     } else if (locked.length > 0) {
       setError(`${locked.length} LOCKED DAY${locked.length === 1 ? '' : 'S'} SKIPPED — UNLOCK FIRST`)
     }
+  }
+
+  // Bulk lock: every populated, unlocked selected day is PATCHed with the same
+  // optional reason. Blank and already-locked days are skipped and reported.
+  async function lockSelected() {
+    const reason = lockReason.trim() || null
+    const targets = selectedEntries.filter((t) => !isEntryLocked(t.entry))
+    const skipped = selection.size - targets.length
+
+    setLockSelectionOpen(false)
+    setLockReason('')
+    setSelectMode(false)
+    setSelection(new Set())
+    setSelectionAnchor(null)
+    setNotice('')
+
+    if (targets.length === 0) {
+      setError(skipped > 0
+        ? `${skipped} SELECTED DAY${skipped === 1 ? '' : 'S'} SKIPPED — NO ENTRY OR ALREADY LOCKED`
+        : 'NOTHING TO LOCK IN THE SELECTION')
+      return
+    }
+
+    setBusy(true); setError('')
+    const results = await Promise.all(targets.map((t) =>
+      fetch(`/api/admin/availability/${t.entry.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locked: true, lockedReason: reason }),
+      }),
+    ))
+    setBusy(false)
+    const failedResults = results.filter((r) => !r.ok)
+    await load(true)
+
+    if (failedResults.length > 0) {
+      let detail = ''
+      for (const r of failedResults) {
+        const d = await r.json().catch(() => ({}))
+        if (!detail && typeof d.error === 'string') detail = d.error
+      }
+      setError(`${failedResults.length} DAY${failedResults.length === 1 ? '' : 'S'} FAILED TO LOCK${detail ? ` — ${detail.toUpperCase()}` : ''}`)
+      return
+    }
+
+    setNotice(`${targets.length} DAY${targets.length === 1 ? '' : 'S'} LOCKED${skipped > 0 ? ` · ${skipped} SKIPPED` : ''}`)
   }
 
   // Person-centred approvals: group pending declarations (by series) and edit
@@ -1046,6 +1110,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
       </div>
 
       {error && <p className="font-mono text-xs text-danger border border-danger/50 bg-danger/10 px-3 py-2">{error}</p>}
+      {notice && <p className="font-mono text-xs text-success border border-success/50 bg-success/10 px-3 py-2">{notice}</p>}
 
       {/* Approvals — one row per person with pending work */}
       <div className="border border-grey-mid p-4 space-y-4">
@@ -1151,6 +1216,17 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
             </button>
           ) : (
             <>
+              {canEdit && selectedEntries.length > 0 && (
+                <button
+                  type="button"
+                  disabled={busy || lockableCount === 0}
+                  title={lockableCount === 0 ? 'NO UNLOCKED DAYS WITH AN ENTRY IN THE SELECTION' : 'LOCK EVERY SELECTED DAY WITH AN OPTIONAL REASON'}
+                  onClick={() => { setError(''); setNotice(''); setLockReason(''); setLockSelectionOpen(true) }}
+                  className="font-mono text-xs uppercase px-3 py-1.5 border border-white text-white hover:bg-white hover:text-black transition-colors disabled:opacity-40"
+                >
+                  LOCK SELECTED ({lockableCount})
+                </button>
+              )}
               <button
                 type="button"
                 disabled={busy || selection.size === 0}
@@ -1343,6 +1419,37 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
             onClose={() => { if (!busy) setEditor(null) }}
           />
         )}
+      </Modal>
+
+      {/* Bulk-lock confirmation */}
+      <Modal
+        isOpen={lockSelectionOpen}
+        onClose={() => { if (!busy) setLockSelectionOpen(false) }}
+        title="LOCK SELECTED DAYS"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="font-mono text-sm text-white uppercase">
+            LOCK {lockableCount} SELECTED DAY{lockableCount === 1 ? '' : 'S'}?
+          </p>
+          <p className="font-mono text-2xs uppercase text-grey-light">
+            ONLY DAYS THAT ALREADY HAVE AVAILABILITY AND ARE NOT LOCKED ARE LOCKED. THE REASON IS OPTIONAL.
+          </p>
+          <label className="block space-y-1">
+            <span className="font-mono text-2xs uppercase tracking-wider text-grey-light">LOCK REASON (OPTIONAL)</span>
+            <input
+              value={lockReason}
+              onChange={(e) => setLockReason(e.target.value)}
+              placeholder="E.G. AGREED ON THE PHONE"
+              aria-label="Bulk lock reason"
+              className="field w-full"
+            />
+          </label>
+          <div className="flex gap-2">
+            <Button size="sm" variant="primary" loading={busy} onClick={lockSelected}>LOCK</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setLockSelectionOpen(false)}>CANCEL</Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Bulk-clear confirmation */}

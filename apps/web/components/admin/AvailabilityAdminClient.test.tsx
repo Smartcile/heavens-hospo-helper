@@ -806,4 +806,129 @@ describe('AvailabilityAdminClient', () => {
       expect(body.seriesId).toBeNull()
     })
   })
+
+  const avEntry = (id: string, date: string, lockedAt: string | null = null) => ({
+    id, staffId: 'st1', date, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+    windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+    seriesId: null, seriesEndDate: null, lockedAt, lockedById: lockedAt ? 'admin1' : null, lockedReason: null,
+  })
+
+  async function selectRangeTo(dayIndices: number[]) {
+    fireEvent.click(screen.getByText('SELECT DAYS'))
+    const cells = document.querySelectorAll('[data-fill-col]')
+    fireEvent.click(cells[dayIndices[0]])
+    fireEvent.click(cells[dayIndices[dayIndices.length - 1]], { shiftKey: true })
+  }
+
+  it('shift-click selects a contiguous range of days on one row', async () => {
+    mockFetch({
+      ...data,
+      entries: [avEntry('e1', monday), avEntry('e3', shiftDay(monday, 2))],
+      queue: { pending: [], requests: [] },
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    await selectRangeTo([0, 2])
+
+    expect(screen.getByText('CLEAR SELECTED (3)')).toBeDefined()
+    expect(screen.getByText('LOCK SELECTED (2)')).toBeDefined()
+  })
+
+  it('bulk locks every populated selected day with the reason', async () => {
+    const spy = mockFetch({
+      ...data,
+      entries: [avEntry('e1', monday), avEntry('e3', shiftDay(monday, 2))],
+      queue: { pending: [], requests: [] },
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    await selectRangeTo([0, 2])
+    fireEvent.click(screen.getByText('LOCK SELECTED (2)'))
+
+    expect(await screen.findByText('LOCK SELECTED DAYS')).toBeDefined()
+    fireEvent.change(screen.getByLabelText('Bulk lock reason'), { target: { value: '  AGREED ON THE PHONE  ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'LOCK' }))
+
+    await waitFor(() => {
+      const patches = spy.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'PATCH')
+      expect(patches).toHaveLength(2)
+      expect(patches.map((c) => String(c[0])).sort()).toEqual([
+        '/api/admin/availability/e1',
+        '/api/admin/availability/e3',
+      ])
+      for (const patch of patches) {
+        expect(JSON.parse((patch[1] as RequestInit).body as string)).toEqual({
+          locked: true,
+          lockedReason: 'AGREED ON THE PHONE',
+        })
+      }
+    })
+    expect(await screen.findByText('2 DAYS LOCKED · 1 SKIPPED')).toBeDefined()
+  })
+
+  it('skips blank and already-locked selected days and treats the reason as optional', async () => {
+    const spy = mockFetch({
+      ...data,
+      entries: [
+        avEntry('e1', monday),
+        avEntry('e2', shiftDay(monday, 1), '2026-10-20T01:00:00.000Z'),
+      ],
+      queue: { pending: [], requests: [] },
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    await selectRangeTo([0, 2])
+
+    expect(screen.getByText('LOCK SELECTED (1)')).toBeDefined()
+    fireEvent.click(screen.getByText('LOCK SELECTED (1)'))
+    fireEvent.click(await screen.findByRole('button', { name: 'LOCK' }))
+
+    await waitFor(() => {
+      const patches = spy.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'PATCH')
+      expect(patches).toHaveLength(1)
+      expect(String(patches[0][0])).toBe('/api/admin/availability/e1')
+      expect(JSON.parse((patches[0][1] as RequestInit).body as string)).toEqual({
+        locked: true,
+        lockedReason: null,
+      })
+    })
+    expect(await screen.findByText('1 DAY LOCKED · 2 SKIPPED')).toBeDefined()
+  })
+
+  it('surfaces a failed bulk lock inline', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      if (init?.method === 'PATCH') {
+        return { ok: false, status: 409, json: async () => ({ error: 'LOCK REJECTED' }) } as Response
+      }
+      return { ok: true, status: 200, json: async () => ({ ...data, entries: [avEntry('e1', monday)], queue: { pending: [], requests: [] } }) } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('SELECT DAYS'))
+    fireEvent.click(document.querySelectorAll('[data-fill-col]')[0])
+    fireEvent.click(screen.getByText('LOCK SELECTED (1)'))
+    fireEvent.click(await screen.findByRole('button', { name: 'LOCK' }))
+
+    expect(await screen.findByText(/FAILED TO LOCK — LOCK REJECTED/)).toBeDefined()
+  })
+
+  it('hides the bulk-lock action without the edit grant', async () => {
+    mockFetch({
+      ...data,
+      entries: [avEntry('e1', monday)],
+      queue: { pending: [], requests: [] },
+    })
+    render(<AvailabilityAdminClient role="MANAGER" sessionVenueId="v1" defaultVenueId="v1" canEdit={false} />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('SELECT DAYS'))
+    fireEvent.click(document.querySelectorAll('[data-fill-col]')[0])
+
+    expect(screen.getByText('CLEAR SELECTED (1)')).toBeDefined()
+    expect(screen.queryByText(/LOCK SELECTED/)).toBeNull()
+  })
 })
