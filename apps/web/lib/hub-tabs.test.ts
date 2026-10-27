@@ -16,7 +16,7 @@ describe('hub-tabs', () => {
   it('each ops area has its own fine-tab set for the top bar (customers is a leaf)', () => {
     expect(OPS_SUB_TABS.menu.map((s) => s.id)).toEqual(['recipes', 'menus', 'services'])
     expect(OPS_SUB_TABS.bookings.map((s) => s.id)).toEqual(['diary', 'table', 'deleted'])
-    expect(OPS_SUB_TABS.orders.map((s) => s.id)).toEqual(['all', 'service', 'kitchen', 'foh', 'production'])
+    expect(OPS_SUB_TABS.orders.map((s) => s.id)).toEqual(['all', 'service', 'kitchen', 'foh', 'production', 'dockets'])
     expect(OPS_SUB_TABS.orders.find((s) => s.id === 'all')?.title).toContain('EVERY SYNCED ORDER')
     expect(OPS_SUB_TABS.inventory.map((s) => s.id)).toEqual(['inventory', 'pantry', 'stocktake'])
     expect(OPS_SUB_TABS.customers).toBeUndefined()

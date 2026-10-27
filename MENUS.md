@@ -316,17 +316,49 @@ POS sale line ── InventoryCode ──► MenuItem.swiftPosId ──► serve
   `POST /api/admin/swiftpos/staff` (`team.staff.edit` for LINK/UNLINK,
   `team.staff.create` for CREATE). Server-side only — SwiftDOSnet has no auth.
 
+### Built (menu-item linking, 2026-10-27)
+
+- **Settings → SWIFT POS → MENU LINKS** (`SwiftPosMenuLinks`): every SwiftPOS
+  product grouped by its POS category (collapsible), search + category filter,
+  linked/unlinked counts, and LINK/UNLINK per row. Orphan codes (local codes
+  missing from the POS master) and duplicate codes (one code on several local
+  products — `swiftPosId` is not unique) are surfaced, never silently resolved.
+- `lib/swiftpos-products.ts` (pure): `parseProducts` (paged envelope
+  `{ rows, hasMore, total }`, camel/Pascal, short flags), `buildProductLinks`
+  (case-insensitive, linked/unlinked/orphans/duplicates) and
+  `groupProductsByCategory`. 7 tests.
+- `fetchProducts(baseUrl)` pages `/api/products` at 100/page up to 2,000 rows
+  and reports `truncated`; the fetch helper surfaces SwiftDOSnet problem
+  `title`/`detail` text.
+- Routes: `GET /api/admin/swiftpos/menu-links` (`ops.menus.view`) and `PUT`
+  (`ops.menus.edit`). PUT writes `MenuItem.swiftPosId` only (no Woo push) and
+  409s when another local product already holds the code. The product-info
+  popup on a menu line also edits the code through the same route.
+
+### Built (kitchen dockets, 2026-10-27)
+
+- **Ops → Orders → DOCKETS** (`/admin/ops?tab=orders&sub=dockets`): live open
+  sales from SwiftDOSnet `GET /api/table-tracking/kitchen-dockets`, one card per
+  docket with table/booking, covers, clerk, terminal and opened time. Lines show
+  quantity, seat and print group; instruction/modifier lines are nested.
+  Auto-refreshes every 30 s only while the tab is visible, with manual REFRESH
+  and 30 / 60 / 120 min / ALL LINES windows.
+- `lib/swiftpos-dockets.ts` (pure): `parseKitchenDockets` (bare array,
+  camel/Pascal, drops malformed rows) and `docketWindow` — unzoned venue-local
+  `YYYY-MM-DD HH:mm` strings. The feed's `opened`/`addedAt` are unzoned
+  wall-clock, so they are rendered as-is. 8 tests.
+- Route `GET /api/admin/swiftpos/dockets?venueId=&minutes=` (`orders.orders.view`,
+  default 60) proxies the feed, 400s when the venue has no base URL and 502s
+  with the SwiftDOSnet problem detail.
+
 ### Still to do
 
-1. **Auto-deduct** (write the drawdown back to stock) vs. review-then-post — a
+1. **Auto-deduct** (write the drawdown back to stock) vs. review-then-post - a
    decision. Currently the tab only *reports*; nothing mutates `totalQty`.
-2. **Trading-day window** — SwiftPOS uses a 06:00 start-of-day; the pull currently
+2. **Trading-day window** - SwiftPOS uses a 06:00 start-of-day; the pull currently
    uses calendar dates from/to.
 3. **Schedule the pull** (internal cron) so drawdown is ready each morning.
-4. **Menu item linking** — pull SwiftDOSnet `/api/products` (InventoryCode,
-   Category, PrintGroup, MasterGroup) and build the linked/unlinked mapping page.
-5. **Kitchen dockets** — proxy SwiftDOSnet
-   `/api/table-tracking/kitchen-dockets` into an admin page.
+
 
 > **Important:** SwiftPOS's own `RecipeTable` / `EJRecipeUsageTable` are **empty**,
 > so SwiftPOS does not supply recipe drawdown — consumption must be computed here

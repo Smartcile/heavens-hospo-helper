@@ -63,7 +63,7 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 |---|---|---|
 | **Menu & Services** | `/admin/ops?tab=menu` | RECIPES · MENUS & CATEGORIES · SERVICES (see section 2) |
 | **Bookings** | `/admin/ops?tab=bookings` | DIARY · TABLE · DELETED (see section 2) |
-| **Orders** | `/admin/ops?tab=orders` | ALL · SERVICE · KITCHEN · FOH · PRODUCTION (see section 2) |
+| **Orders** | `/admin/ops?tab=orders` | ALL · SERVICE · KITCHEN · FOH · PRODUCTION · DOCKETS (see section 2) |
 | **Customers** | `/admin/ops?tab=customers` | Customer search by phone/name (a leaf — no top bar) |
 | **Inventory & Stocktake** | `/admin/ops?tab=inventory` | INVENTORY · STOCKTAKE (see section 2) |
 
@@ -106,7 +106,7 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 | Item | URL | What it does |
 |---|---|---|
 | **Floor Plans** | `/admin/settings?tab=floorplans` | To-scale venue editor (PixiJS canvas): walls, doors, section zones, tables. BASE layer + SETUPS (event layouts). Furniture from inventory palette, snapping, auto-join groups, BOM shortages, zone pax totals, undo/redo, PDF export. Lives as a tab of SETTINGS — `/admin/floorplan` redirects here |
-| **Settings** | `/admin/settings` | 10 tabs — GENERAL · VENUE SETUP · STRUCTURE · FLOOR PLANS · UNITS OF MEASURE · SUPPLIERS · QR CODES · SYNC · SWIFT POS (SALES / STAFF SYNC) · FILES (admin) (section 3) |
+| **Settings** | `/admin/settings` | 10 tabs — GENERAL · VENUE SETUP · STRUCTURE · FLOOR PLANS · UNITS OF MEASURE · SUPPLIERS · QR CODES · SYNC · SWIFT POS (SALES / STAFF SYNC / MENU LINKS) · FILES (admin) (section 3) |
 
 ---
 
@@ -120,7 +120,7 @@ area's **fine tabs** only (CUSTOMERS is a leaf — no bar). Sub-tab = URL
 ┌──────────────────────────────────────────────────────────────────────┐
 │ MENU & SERVICES →  RECIPES | MENUS & CATEGORIES | SERVICES            │
 │ BOOKINGS →        DIARY | TABLE | DELETED                             │
-│ ORDERS →          ALL | SERVICE | KITCHEN | FOH | PRODUCTION          │
+│ ORDERS →          ALL | SERVICE | KITCHEN | FOH | PRODUCTION | DOCKETS  │
 │ INVENTORY & STOCKTAKE →  INVENTORY | STOCKTAKE                        │
 │ CUSTOMERS →       (no top bar)                                        │
 └──────────────────────────────────────────────────────────────────────┘
@@ -132,7 +132,7 @@ Flow order: **Sell → Seat → Serve → Stock**.
 |---|---|---|
 | **MENU & SERVICES** | `/admin/ops?tab=menu` | RECIPES: master-detail recipe editor — ingredient BOM (inventory + PANTRY BIBLE references + sub-recipes), yield, allergens (inherited resolution), LINK TO MENU (price, Woo product/category/image/variations). MENUS & CATEGORIES: pax-range menus (opt-in toggle), Woo category linking, unlinked-category rescue, and a drag-reorder **group → item** builder where each product row shows its list prices and **COGS vs price ex-GST** (EDIT opens a focused popup). SERVICES: dated ordering services (weekly slots, date exceptions, table plan, booking interval, BOOKING REQUIRED) |
 | **BOOKINGS** | `/admin/ops?tab=bookings` | Table reservations. DIARY (timeline), TABLE (tables × time grid with service windows, click-to-create, drag-resize), DELETED (recover with reseat + clash guard). Booking cards have a CUSTOMER button → slide-out customer drawer. Creates calendar events |
-| **ORDERS** | `/admin/ops?tab=orders` | Date-driven orders. Views: ALL / SERVICE / KITCHEN / FOH / PRODUCTION. Filters, saved views, + NEW ORDER. Detail popout: contact (VIEW CUSTOMER → drawer), booking controls, progress buttons, payment, items, Woo status push |
+| **ORDERS** | `/admin/ops?tab=orders` | Date-driven orders. Views: ALL / SERVICE / KITCHEN / FOH / PRODUCTION. Filters, saved views, + NEW ORDER. Detail popout: contact (VIEW CUSTOMER → drawer), booking controls, progress buttons, payment, items, Woo status push. DOCKETS: live SwiftPOS open-sale kitchen dockets at the pass (30 s refresh while visible, 30/60/120 min/ALL LINES windows, not-connected/error states) |
 | **CUSTOMERS** | `/admin/ops?tab=customers` | Customer search by phone/name; detail opens the slide-out customer drawer (contact + booking history) |
 | **INVENTORY & STOCKTAKE** | `/admin/ops?tab=inventory` | INVENTORY: master-detail stock system (FOOD/BEVERAGE/OTHER categories, AVAIL = total − placed, deep fields, equipment tracking, furniture form, SHOW DELETED; regular items tagged `CUSTOM`). PANTRY BIBLE: searchable known-ingredient density library with BUILT-IN / CUSTOM badges and delete for venue-owned rows. STOCKTAKE: create/count/variance/sign-off |
 
