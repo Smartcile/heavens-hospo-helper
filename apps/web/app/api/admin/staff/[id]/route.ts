@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import bcrypt from 'bcryptjs'
 import { guardAccess } from '@/lib/permissions'
+import { dismissPendingSectionWorkForGrant } from '@/lib/section-work.server'
 
 interface Params {
   params: { id: string }
@@ -23,6 +24,10 @@ export async function GET(_req: NextRequest, { params }: Params) {
       taxCode: true, kiwiSaverRate: true, studentLoan: true,
       swiftPosId: true, myHrId: true, loadedReportsId: true,
       sections: { select: { sectionId: true } },
+      sectionWorkReviews: {
+        where: { deletedAt: null, status: 'PENDING' },
+        select: { sectionId: true },
+      },
       positions: { select: { positionId: true, hourlyRate: true } },
       staffVenues: { select: { venueId: true } },
     },
@@ -156,6 +161,14 @@ export async function PUT(req: NextRequest, { params }: Params) {
       staffVenues: { select: { venueId: true } },
     },
   })
+
+  // A manual grant from the Staff modal supersedes a pending review.
+  if (body.sectionIds !== undefined) {
+    const grantedIds: string[] = Array.isArray(body.sectionIds) ? body.sectionIds : []
+    try {
+      await dismissPendingSectionWorkForGrant(params.id, grantedIds, session.user.id)
+    } catch { /* best-effort — the grant already succeeded */ }
+  }
 
   // Sync additional venue assignments
   if (venueIds !== undefined) {

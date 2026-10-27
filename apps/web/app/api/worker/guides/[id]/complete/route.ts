@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getWorkerSession } from '@/lib/worker-session'
 import { prisma } from '@hospo-ops/db'
+import { reconcileSectionWork } from '@/lib/section-work.server'
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getWorkerSession()
@@ -35,6 +36,12 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       selfCompleted: true,
     },
   })
+
+  // Finishing a section's last guide raises a review for a manager — it never
+  // grants the section automatically. Best-effort, never blocks the completion.
+  try {
+    await reconcileSectionWork(session.staffId)
+  } catch { /* ignore */ }
 
   return NextResponse.json(completion, { status: 201 })
 }

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { reconcileSectionWork } from '@/lib/section-work.server'
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -36,6 +37,11 @@ export async function POST(req: NextRequest) {
     },
   })
 
+  // Sign-off can complete the last section guide; raise the manager review.
+  try {
+    await reconcileSectionWork(staffId)
+  } catch { /* ignore */ }
+
   return NextResponse.json(completion, { status: 201 })
 }
 
@@ -64,6 +70,12 @@ export async function DELETE(req: NextRequest) {
   await prisma.guideCompletion.deleteMany({
     where: { guideId, staffId },
   })
+
+  // Evidence removed → a still-PENDING review is auto-dismissed. A confirmed
+  // section grant is never revoked automatically.
+  try {
+    await reconcileSectionWork(staffId)
+  } catch { /* ignore */ }
 
   return NextResponse.json({ success: true })
 }

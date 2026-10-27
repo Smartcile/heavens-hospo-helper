@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, waitFor, fireEvent } from '@testing-library/react'
 import { StaffEditModal } from '@/components/admin/StaffEditModal'
 
-function mockFetch() {
+function mockFetch(overrides: { sectionWorkReviews?: { sectionId: string }[] } = {}) {
   return vi.spyOn(global, 'fetch').mockImplementation((url: string | URL | Request, init?: RequestInit) => {
     const u = String(url)
     let body: unknown = []
@@ -11,10 +11,13 @@ function mockFetch() {
         id: 's1', firstName: 'JANE', lastName: 'SMITH', email: null, role: 'STAFF', venueId: 'v1',
         departmentId: null, isActive: true, hourlyRate: null, employmentType: null,
         swiftPosId: null, myHrId: null, loadedReportsId: null, sections: [],
+        sectionWorkReviews: overrides.sectionWorkReviews ?? [],
         positions: [{ positionId: 'p1', hourlyRate: 30 }],
       }
     } else if (u.includes('/api/admin/venues')) {
       body = [{ id: 'v1', name: 'MAIN' }]
+    } else if (u.includes('/api/admin/sections')) {
+      body = [{ id: 'sec1', name: 'BAR', venueId: 'v1', departmentId: 'd1' }]
     } else if (u.includes('/api/admin/positions')) {
       body = [{ id: 'p1', name: 'BARISTA', venueId: 'v1', hourlyRate: 25 }]
     }
@@ -39,6 +42,17 @@ describe('StaffEditModal', () => {
       <StaffEditModal staffId="s1" role="MANAGER" onClose={() => {}} onSaved={() => {}} />
     )
     expect(getByText('EDIT STAFF')).toBeTruthy()
+  })
+
+  it('shows a pending section review chip without selecting the section', async () => {
+    mockFetch({ sectionWorkReviews: [{ sectionId: 'sec1' }] })
+    const { getByText, queryByText } = render(
+      <StaffEditModal staffId="s1" role="ADMIN" onClose={() => {}} onSaved={() => {}} />
+    )
+    await waitFor(() => expect(getByText('BAR')).toBeTruthy())
+    expect(getByText(/BAR · PENDING REVIEW/)).toBeTruthy()
+    // Pending is only a prompt — the section is not treated as granted/selected.
+    expect(queryByText('Sections worked (optional)')).toBeTruthy()
   })
 
   it('loads held positions with their rate and saves them without wiping the role', async () => {
