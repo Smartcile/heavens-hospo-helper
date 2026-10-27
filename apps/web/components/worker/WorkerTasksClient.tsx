@@ -76,8 +76,6 @@ const SCHEDULE_OPTIONS = [
 ]
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
-let inactivityTimer: ReturnType<typeof setTimeout> | null = null
-
 export function WorkerTasksClient({ role, sessionVenueId }: { role: string | null; sessionVenueId: string | null }) {
   const router = useRouter()
   const isAdminOrManager = role === 'ADMIN' || role === 'MANAGER'
@@ -157,27 +155,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     }
   }
 
-  const expiryMinutes = Number(process.env.NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES ?? 15)
-
   useWorkerImmersive(!!activeTask || taskModalOpen || clModalOpen)
-
-  function resetInactivity() {
-    if (inactivityTimer) clearTimeout(inactivityTimer)
-    inactivityTimer = setTimeout(async () => {
-      await fetch('/api/worker/logout', { method: 'POST' })
-      router.push('/w/login')
-    }, expiryMinutes * 60 * 1000)
-  }
-
-  useEffect(() => {
-    const events = ['click', 'touchstart', 'keydown']
-    events.forEach((e) => document.addEventListener(e, resetInactivity, { passive: true }))
-    resetInactivity()
-    return () => {
-      events.forEach((e) => document.removeEventListener(e, resetInactivity))
-      if (inactivityTimer) clearTimeout(inactivityTimer)
-    }
-  }, [])
 
   async function load() {
     const r = await fetch('/api/worker/tasks')

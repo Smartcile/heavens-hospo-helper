@@ -24,8 +24,6 @@ interface DashData {
   eventsAllowed: boolean
 }
 
-let inactivityTimer: ReturnType<typeof setTimeout> | null = null
-
 export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
   const router = useRouter()
   const [data, setData] = useState<DashData | null>(null)
@@ -72,26 +70,6 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
     setView('dashboard')
     history.replaceState({ workerGuard: true }, '', '/w/dashboard')
   }
-
-  const expiryMinutes = Number(process.env.NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES ?? 15)
-
-  function resetInactivity() {
-    if (inactivityTimer) clearTimeout(inactivityTimer)
-    inactivityTimer = setTimeout(async () => {
-      await fetch('/api/worker/logout', { method: 'POST' })
-      router.push('/w/login')
-    }, expiryMinutes * 60 * 1000)
-  }
-
-  useEffect(() => {
-    const events = ['click', 'touchstart', 'keydown']
-    events.forEach((e) => document.addEventListener(e, resetInactivity, { passive: true }))
-    resetInactivity()
-    return () => {
-      events.forEach((e) => document.removeEventListener(e, resetInactivity))
-      if (inactivityTimer) clearTimeout(inactivityTimer)
-    }
-  }, [])
 
   async function load() {
     if (loaded.current) return

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma, Prisma } from '@hospo-ops/db'
 import { resolveAvailabilityPresets, parseAvailabilityCutoff } from '@/lib/availability'
+import { clampWorkerSessionMinutes } from '@/lib/worker-session-timeout'
 
 interface Params {
   params: { id: string }
@@ -22,7 +23,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
 
   const body = await req.json()
-  const { name, address, timezone, isActive, loadedRosterUrl, googleCalendarUrl, icalFeedUrl, swiftPosBaseUrl, externalRefreshMinutes, availabilityLockDays, availabilityCutoff, availabilityPresets, sharingEnabled, sharedWooVenueId } = body
+  const { name, address, timezone, isActive, loadedRosterUrl, googleCalendarUrl, icalFeedUrl, swiftPosBaseUrl, externalRefreshMinutes, availabilityLockDays, availabilityCutoff, availabilityPresets, workerSessionTimeoutMinutes, sharingEnabled, sharedWooVenueId } = body
 
   const data: Record<string, unknown> = {}
   // Integration settings — editable by an admin or the venue's own manager.
@@ -44,6 +45,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
   // 15-minute grid so a bad payload can never poison the worker editor.
   if (availabilityPresets !== undefined) {
     data.availabilityPresets = resolveAvailabilityPresets(availabilityPresets) as unknown as Prisma.InputJsonValue
+  }
+  // Worker phone-session idle timeout. Blank / 0 / null = env fallback;
+  // anything else is clamped to the supported 5–480 minute window.
+  if (workerSessionTimeoutMinutes !== undefined) {
+    const raw = workerSessionTimeoutMinutes
+    data.workerSessionTimeoutMinutes =
+      raw === null || raw === '' || Number(raw) === 0
+        ? null
+        : clampWorkerSessionMinutes(raw)
   }
   // Venue sharing settings
   if (sharingEnabled !== undefined) data.sharingEnabled = sharingEnabled
