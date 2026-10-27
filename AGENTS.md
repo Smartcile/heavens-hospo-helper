@@ -195,11 +195,11 @@ to keep old deployments migratable), `db:backfill-orders`,
 | `INTERNAL_CRON` | Built-in scheduler (Woo product pull + expiry scan). Default true; `false` = use external scheduler |
 | `CRON_SECRET` | Bearer token for the /api/cron endpoints (external schedulers only) |
 | `WORKER_SESSION_SECRET` | JWT secret for worker PIN sessions |
-| `WORKER_SESSION_EXPIRY_MINUTES` | Worker auto-logout timeout (default: 15) |
+| `WORKER_SESSION_EXPIRY_MINUTES` | Fallback worker idle timeout when a venue leaves `workerSessionTimeoutMinutes` blank/0 (default: 15) |
 | `UPLOAD_PROVIDER` | `local` (Phase 1) — future: `s3` |
 | `UPLOAD_PATH` | Where uploaded files are written to disk |
 | `NEXT_PUBLIC_APP_NAME` | Client-side app name |
-| `NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES` | Client-side inactivity timer value |
+| `NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES` | Legacy build-time fallback only — the worker UI reads the venue timeout from `/api/worker/session` |
 
 ### Compose / Portainer-only variables
 
@@ -557,6 +557,13 @@ files an `AvailabilityEditRequest` even when no protected row is touched
 `planPastCutoff` gate check (gate carries `cutoff` + venue-local `nowMinutes`).
 The worker GET returns `cutoff` and the phone shows a deadline banner. Admin
 writes bypass it.
+
+**Worker session timeout** — `Venue.workerSessionTimeoutMinutes Int? @default(15)`
+is the phone inactivity limit, set in Settings → GENERAL → WORKER SESSION
+(5–480 minutes; blank/0 = env fallback). It drives the JWT `exp`, the cookie
+`maxAge`, and the client guard from one resolver (`lib/worker-session-timeout.ts`).
+An active phone slides its own session via `POST /api/worker/session/refresh`;
+going idle signs out to `/w/login`. Admin sessions are untouched.
 
 **Drag-fill (admin only)** — every day with an entry carries a corner handle on
 the admin availability grid. Dragging it opens a confirmation modal, then copies
@@ -1403,7 +1410,13 @@ old deployments can migrate.
 
 ### Dual auth system
 - **Admin**: NextAuth.js with Credentials provider — creates a JWT session cookie (`next-auth.session-token`). Suitable for desktop, supports 8-hour sessions.
-- **Worker**: Custom JWT in an HTTP-only cookie (`hospo-worker-session`). Minimal — just stores staffId, venueId, and expiry. Auto-logout after 15 minutes of inactivity (client-side timer + server-side JWT expiry).
+- **Worker**: Custom JWT in an HTTP-only cookie (`hospo-worker-session`). Minimal — just stores staffId, venueId, and expiry. The idle timeout is **per venue** (`Venue.workerSessionTimeoutMinutes`, clamp 5–480; null/0 falls back to `WORKER_SESSION_EXPIRY_MINUTES`). An active phone slides the session forward: `WorkerSessionGuard` (mounted in `app/w/(authenticated)/layout.tsx`) owns the single idle timer in the top window, reports activity from embedded iframes via `worker-activity` messages, and calls `POST /api/worker/session/refresh` (throttled to once per max(60s, timeout/3)). On idle it calls `/api/worker/logout` and redirects to `/w/login`; it never clears the admin NextAuth cookie unless the user explicitly signs out.
+
+**Worker session routes:**
+| Route | Methods | Purpose |
+|-------|---------|---------|
+| `/api/worker/session` | GET | `{ timeoutMinutes, expiresAt, refreshAfterMs }` for the guard |
+| `/api/worker/session/refresh` | POST | Re-mint the current worker JWT/cookie with a fresh expiry (server-side throttled; 401 if the venue is disabled) |
 
 ### Route structure
 - Admin routes live under `app/admin/(protected)/` — the inner route group applies the auth layout without affecting URL structure.
@@ -2517,7 +2530,8 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/training.ts` — REMOVED with the legacy training UI | — |
 | `lib/retrain.ts` — `postRetrainNotice` | ✅ |
 | `lib/demo-block.ts` — `shouldBlockDemoWrite` | ✅ (14 tests) |
-| `lib/worker-session.ts` — `workerCookieSecure` | ✅ |
+| `lib/worker-session.ts` — `workerCookieSecure`, `createWorkerSession` / `getWorkerSession` round-trip, cookie maxAge | ✅ |
+| `lib/worker-session-timeout.ts` — venue timeout clamp/fallback, `expiresAt`, refresh interval + throttle | ✅ |
 | `lib/followups.ts` — `checkUntrainedOnCompletion` (reads `TaskGuide`) | ✅ (5 tests) |
 | `lib/guides.ts` — `guideSource`, `guideAppliesTo`, `guideWhereOr` | ✅ (25 tests) |
 | `lib/guide-links.ts` — `groupTargetIdsByKind`, `attachTargets`, `targetKey` | ✅ (14 tests) |
@@ -2583,6 +2597,7 @@ pushing, run: `npm run lint && npm run test`.
 | `CalendarClient.tsx` — 22 useState | ✅ |
 | `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (19 tests) |
 | `WorkerTasksClient.tsx` — dual early-return paths, outcome choices, PARTIAL/in-progress, handled section | ✅ (9 tests) |
+| `WorkerSessionGuard.tsx` — idle logout/redirect, activity refresh, refresh throttle, iframe activity relay | ✅ (4 tests) |
 | `OutcomeOptions.tsx` — DONE-always, outcome toggles, reason toggle, inherit/override | ✅ (4 tests) |
 | `FloorplanInspector.tsx` — presets, sliders, booth capacity | ✅ |
 | `FloorplanToolbar.tsx` — zoom, DIM toggle | ✅ |

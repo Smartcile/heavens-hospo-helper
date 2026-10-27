@@ -307,6 +307,9 @@ model Venue {
   // Custom morning/afternoon/evening quick-pick windows for the worker
   // availability editor: [{ key, label, startTime, endTime }]. Null = defaults.
   availabilityPresets    Json?
+  // Worker phone-session inactivity timeout in minutes. Null / 0 = fall back
+  // to the WORKER_SESSION_EXPIRY_MINUTES env. Clamped to 5–480 on read/write.
+  workerSessionTimeoutMinutes Int?  @default(15)
   // Geo-fence for timeclock punches (centre point + allowed radius in metres).
   // Null means geo-fencing is off for this venue.
   geoLat                 Float?

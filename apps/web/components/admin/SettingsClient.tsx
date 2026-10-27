@@ -37,6 +37,7 @@ interface Venue {
   availabilityLockDays: number
   availabilityCutoff: unknown
   availabilityPresets: unknown
+  workerSessionTimeoutMinutes: number | null
   sharingEnabled: boolean
   sharedWooVenueId: string | null
 }
@@ -184,6 +185,11 @@ export function SettingsClient({
   const [lockSaving, setLockSaving] = useState(false)
   const [lockMessage, setLockMessage] = useState('')
 
+  // Worker phone-session idle timeout
+  const [workerSessionMinutes, setWorkerSessionMinutes] = useState('15')
+  const [workerSessionSaving, setWorkerSessionSaving] = useState(false)
+  const [workerSessionMessage, setWorkerSessionMessage] = useState('')
+
   // WooCommerce
   const [wcVenueId, setWcVenueId] = useState<string>(() => {
     if (role !== 'ADMIN') return sessionVenueId
@@ -316,6 +322,7 @@ export function SettingsClient({
     setCutoffDay(String(cutoff?.day ?? 4))
     setCutoffTime(cutoff?.time ?? '17:00')
     setPresets(resolveAvailabilityPresets(v.availabilityPresets))
+    setWorkerSessionMinutes(String(v.workerSessionTimeoutMinutes ?? 0))
     setSharingEnabled(v.sharingEnabled ?? false)
     setSharedWooVenueId(v.sharedWooVenueId ?? '')
   }
@@ -613,6 +620,33 @@ export function SettingsClient({
       setVenues((prev) => prev.map((x) => (x.id === v.id ? { ...x, ...v } : x)))
       setLockMessage('SAVED')
     } else setLockMessage('SAVE FAILED')
+  }
+
+  async function saveWorkerSession() {
+    if (!venueId) return
+    const raw = workerSessionMinutes.trim()
+    if (raw !== '' && raw !== '0') {
+      const n = Number(raw)
+      if (!Number.isFinite(n) || n < 5 || n > 480) {
+        setWorkerSessionMessage('ENTER 5–480 MINUTES (0 = SERVER DEFAULT)')
+        return
+      }
+    }
+    setWorkerSessionSaving(true); setWorkerSessionMessage('')
+    const r = await fetch(`/api/admin/venues/${venueId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workerSessionTimeoutMinutes: raw === '' || raw === '0' ? null : Math.round(Number(raw)),
+      }),
+    })
+    setWorkerSessionSaving(false)
+    if (r.ok) {
+      const v = await r.json()
+      setVenues((prev) => prev.map((x) => (x.id === v.id ? { ...x, ...v } : x)))
+      setWorkerSessionMinutes(String(v.workerSessionTimeoutMinutes ?? 0))
+      setWorkerSessionMessage('SAVED')
+    } else setWorkerSessionMessage('SAVE FAILED')
   }
 
   async function saveWooCommerce() {
@@ -996,6 +1030,30 @@ export function SettingsClient({
 
           {lockMessage && <p className={`font-mono text-xs ${lockMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{lockMessage}</p>}
           <Button onClick={saveAvailabilityLock} loading={lockSaving} size="sm">SAVE</Button>
+        </div>
+      </div>
+
+      {/* Worker phone session */}
+      <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">
+        <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">WORKER SESSION</h2>
+        <p className="font-mono text-xs text-grey-light mb-3">
+          HOW MANY MINUTES A STAFF MEMBER&apos;S PHONE STAYS SIGNED IN AFTER THEIR LAST TAP. ACTIVE USE KEEPS THE SESSION ALIVE; IDLE TIME SIGNS THEM OUT AND ASKS FOR THEIR PIN AGAIN. 5–480 MINUTES. 0 = SERVER DEFAULT.
+        </p>
+        <div className="space-y-3">
+          <Input
+            label="Inactivity timeout (minutes)"
+            type="number"
+            min="0"
+            max="480"
+            value={workerSessionMinutes}
+            onChange={(e) => setWorkerSessionMinutes(e.target.value)}
+          />
+          {workerSessionMessage && (
+            <p className={`font-mono text-xs ${workerSessionMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>
+              {workerSessionMessage}
+            </p>
+          )}
+          <Button onClick={saveWorkerSession} loading={workerSessionSaving} size="sm">SAVE</Button>
         </div>
       </div>
 

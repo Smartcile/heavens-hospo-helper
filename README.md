@@ -517,7 +517,7 @@ for plain compose). Everything else is derived automatically.
 | `DB_USER` | No | `hospo_ops_user` | PostgreSQL username |
 | `DB_DATA` | No | `postgres_data` | Where PostgreSQL stores its data. Default is a named Docker volume (auto-scoped per stack). Set to a host path (e.g. `/mnt/data/db`) for a bind mount |
 | `UPLOADS_DATA` | No | `uploads_data` | Where task photos / uploads are stored. Default is a named Docker volume (auto-scoped per stack). Set to a host path (e.g. `/mnt/data/uploads`) for a bind mount |
-| `WORKER_SESSION_EXPIRY_MINUTES` | No | `15` | Worker auto-logout timeout |
+| `WORKER_SESSION_EXPIRY_MINUTES` | No | `15` | Fallback worker idle timeout when a venue leaves its WORKER SESSION setting blank/0 |
 | `INTERNAL_CRON` | No | `true` | Built-in scheduler (WooCommerce product sync every 15 min + daily expiry scan). Set `false` to use an external scheduler instead |
 | `CRON_SECRET` | No | — | Bearer token for the `/api/cron/*` endpoints — only needed for external schedulers or manual triggers |
 

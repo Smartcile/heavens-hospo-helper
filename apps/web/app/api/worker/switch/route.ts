@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { createWorkerSession, setWorkerSessionCookie } from '@/lib/worker-session'
+import { resolveWorkerSessionMinutes } from '@/lib/worker-session-timeout'
 
 // Admin/manager → worker view without a PIN. The person is already
 // authenticated on the admin session; this mints the worker JWT for their own
@@ -18,13 +19,19 @@ export async function POST() {
   })
   if (!staff) return NextResponse.json({ error: 'No staff record for this login' }, { status: 404 })
 
+  const venue = await prisma.venue.findFirst({
+    where: { id: staff.venueId, deletedAt: null },
+    select: { workerSessionTimeoutMinutes: true },
+  })
+  const timeoutMinutes = resolveWorkerSessionMinutes(venue?.workerSessionTimeoutMinutes)
+
   const token = await createWorkerSession({
     staffId: staff.id,
     venueId: staff.venueId,
     departmentId: staff.departmentId,
     firstName: staff.firstName,
     role: staff.role,
-  })
-  setWorkerSessionCookie(token)
+  }, timeoutMinutes)
+  setWorkerSessionCookie(token, timeoutMinutes)
   return NextResponse.json({ success: true })
 }

@@ -4,8 +4,6 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { TimeClockStatus } from '@hospo-ops/types'
 
-let inactivityTimer: ReturnType<typeof setTimeout> | null = null
-
 export function WorkerTimeclockClient() {
   const router = useRouter()
   const [status, setStatus] = useState<TimeClockStatus | null>(null)
@@ -13,26 +11,6 @@ export function WorkerTimeclockClient() {
   const [clocking, setClocking] = useState(false)
   const [error, setError] = useState('')
   const [gpsDenied, setGpsDenied] = useState(false)
-
-  const expiryMinutes = Number(process.env.NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES ?? 15)
-
-  function resetInactivity() {
-    if (inactivityTimer) clearTimeout(inactivityTimer)
-    inactivityTimer = setTimeout(async () => {
-      await fetch('/api/worker/logout', { method: 'POST' })
-      router.push('/w/login')
-    }, expiryMinutes * 60 * 1000)
-  }
-
-  useEffect(() => {
-    const events = ['click', 'touchstart', 'keydown']
-    events.forEach((e) => document.addEventListener(e, resetInactivity, { passive: true }))
-    resetInactivity()
-    return () => {
-      events.forEach((e) => document.removeEventListener(e, resetInactivity))
-      if (inactivityTimer) clearTimeout(inactivityTimer)
-    }
-  }, [])
 
   async function load() {
     const r = await fetch('/api/worker/timeclock/status')
