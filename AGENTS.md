@@ -1326,39 +1326,67 @@ inventory deduction is still not built.
 Inventory Items tree in one query. `GET /api/admin/structure` extends with
 `floorPlan { tables, chairs, equip }` per section.
 
-### SwiftPOS integration (sales + staff sync, 2026-10)
+### SwiftPOS integration (sales + staff sync + menu links + dockets, 2026-10)
 `Venue.swiftPosBaseUrl` + `MenuItem.swiftPosId` (SwiftPOS `Inventory_Code`).
 `lib/swiftpos.ts` (5 tests) parses a SwiftDOSnet sales report and matches rows to
 products by `swiftPosId`; `lib/swiftpos.server.ts` fetches
-`/api/analytics/sales?groupBy=product` and `/api/lookups` (locations/terminals/
-clerks/medias/print groups). `lib/swiftpos-consumption.server.ts`
+`/api/analytics/sales?groupBy=product`, `/api/lookups` (locations/terminals/
+clerks/medias/print groups), `/api/products` (paged product master) and
+`/api/table-tracking/kitchen-dockets`. `lib/swiftpos-consumption.server.ts`
 turns sales into drawdown — MADE serves go through `explodeRecipe`,
 pour/bottle via `canonicalQty` — and reports variance vs on-hand for BASE items.
 **Read-only report; nothing mutates stock** (auto-deduct not built). Admin UI at
-Settings → SWIFT POS (`SwiftPosSalesClient`, SALES / STAFF SYNC sub-tabs); route
-`GET /api/admin/swiftpos/sales[?drawdown=1]` (guard `ops.inventory.view`).
+Settings → SWIFT POS (`SwiftPosSalesClient`, **SALES / STAFF SYNC / MENU LINKS**
+sub-tabs); route `GET /api/admin/swiftpos/sales[?drawdown=1]` (guard
+`ops.inventory.view`).
 
 **Staff sync** (`2026-10-22`) pulls SwiftPOS clerks from SwiftDOSnet
 `GET /api/lookups` and links them to venue staff via `Staff.swiftPosId`.
-`lib/swiftpos-staff.ts` (14 tests, pure) parses the clerk list, splits
-`"Jane Doe"` / `"Doe, Jane"` names, and suggests a match only when exactly one
-unlinked staff member has the same name tokens. Settings → SWIFT POS → STAFF SYNC
-(`SwiftPosStaffSync`) shows LINKED / SUGGESTED / NEW rows and offers LINK,
-UNLINK and CREATE. CREATE makes a `STAFF` profile with the clerk number as the
-1–4 digit worker PIN (bcrypt-hashed; the clerk number, or an override) and
-blocks a PIN already in use at the venue. Routes:
-`GET /api/admin/swiftpos/staff?venueId=` (guard `team.staff.view`),
+`lib/swiftpos-staff.ts` (23 tests, pure) parses the clerk list, splits
+`"Jane Doe"` / `"Doe, Jane"` names, suggests a match only when exactly one
+unlinked staff member has the same name tokens, and exposes the route's
+decision helpers (`clerkCodeConflict`, `resolveCreatedName`, `resolveClerkPin`,
+`findPinClash` — the last takes the bcrypt comparator so the lib stays
+client-safe). Settings → SWIFT POS → STAFF SYNC (`SwiftPosStaffSync`) shows
+LINKED / SUGGESTED / NEW rows and offers LINK, UNLINK and CREATE. CREATE makes a
+`STAFF` profile with the clerk number as the 1–4 digit worker PIN (bcrypt-hashed;
+the clerk number, or an override) and blocks a PIN already in use at the venue.
+Routes: `GET /api/admin/swiftpos/staff?venueId=` (guard `team.staff.view`),
 `POST /api/admin/swiftpos/staff` (LINK/UNLINK `team.staff.edit`,
 CREATE `team.staff.create`). SwiftDOSnet has no auth; it is reached server-side
 from HOSPO OPS, never the browser. Staff records still carry `Staff.swiftPosId`
 for future roster/task sync (not built).
 
-**Remaining SwiftPOS work (issue #5):** menu item linking — pull SwiftDOSnet
-`/api/products` (`InventoryCode`, `Category`, `PrintGroupName`,
-`MasterGroupName`) and add a linked/unlinked mapping page; kitchen dockets —
-proxy SwiftDOSnet `/api/table-tracking/kitchen-dockets` into an admin page.
-`/api/lookups` also returns locations, terminals, medias and print groups for
-future use.
+**Menu-item linking** (`2026-10-27`) maps each SwiftPOS product to the local
+product that carries its code. `lib/swiftpos-products.ts` (pure) parses the
+paged `GET /api/products` envelope (`{ rows, hasMore, total }`, camel/Pascal,
+short-flags), and `buildProductLinks` classifies rows as linked/unlinked while
+surfacing **orphans** (local codes missing from the POS master) and
+**duplicates** (one code on multiple local products — `MenuItem.swiftPosId` has
+no unique index and `matchSalesToItems` would silently pick one). The server
+helper `fetchProducts(baseUrl)` loops pages of 100 up to a 2,000-row cap and
+returns `truncated`. Settings → SWIFT POS → MENU LINKS (`SwiftPosMenuLinks`)
+groups products by SwiftPOS category with search, a category filter, counts,
+LINK/UNLINK and expand/collapse; a product's SWIFT POS CODE is also editable
+from PRODUCT INFO on a menu line (`MenuItemDetailsModal`). Routes:
+`GET /api/admin/swiftpos/menu-links?venueId=` (guard `ops.menus.view`; 400 when
+not connected, 502 on fetch failure) and `PUT` (guard `ops.menus.edit`; writes
+`MenuItem.swiftPosId` only — **never** pushes to Woo, and 409s when another
+local product already holds the code).
+
+**Kitchen dockets** (`2026-10-27`) is the live pass view. `lib/swiftpos-dockets.ts`
+(pure) parses the bare `GET /api/table-tracking/kitchen-dockets` array
+(`transactionId/tableNumber/booking/covers/clerk/terminal/opened/lines`; line
+`quantity/seat/printGroup/instruction/...`) and `docketWindow(nowMs, tz,
+minutes)` builds **unzoned venue-local** `YYYY-MM-DD HH:mm` strings (the feed's
+timestamps are unzoned wall-clock, so they are never `new Date()`-parsed).
+`KitchenDocketsClient` lives at `/admin/ops?tab=orders&sub=dockets` (`DOCKETS`
+tab in `OPS_SUB_TABS.orders`, no sidebar entry), polls every 30 s while visible,
+pauses when the tab is hidden, and offers 30 / 60 / 120 min / ALL LINES windows.
+Route: `GET /api/admin/swiftpos/dockets?venueId=&minutes=` (guard
+`orders.orders.view`; default 60; 400 when not connected, 502 with the
+SwiftDOSnet problem `detail`/`title`).
+
 
 ### Unified staff identity
 A single `Staff` profile carries external-system link IDs — `swiftPosId`,
@@ -2545,8 +2573,6 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
 | Stub | Location | Phase |
 |---|---|---|
 | Passkeys / WebAuthn login | Admin + worker login upgrade (alongside email/password + PIN) | 2 |
-| SwiftPOS menu item linking | Map SwiftDOSnet products/categories to `MenuItem.swiftPosId` + linked/unlinked page | 2 |
-| SwiftPOS kitchen dockets | Admin page fed by SwiftDOSnet `/api/table-tracking/kitchen-dockets` | 2 |
 | Push notifications | Not yet wired | 2 |
 | S3 file uploads | `UPLOAD_PROVIDER=s3` env var stub | 2 |
 | Inventory delete protection | API check against ElementInventoryItem + StocktakeLineItem | 2 |
@@ -2565,8 +2591,10 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
 > Built since the original stub table: budget splitter, labour cost visibility
 > (`lib/roster-math.ts`), role-based permission system (`StaffPermission` +
 > registry), public API (`ApiKey`), food-safety diary (delivery + reading
-> tasks), SwiftPOS sales/drawdown reporting, and SwiftPOS staff sync
-> (Settings → SWIFT POS → STAFF SYNC).
+> tasks), SwiftPOS sales/drawdown reporting, SwiftPOS staff sync
+> (Settings → SWIFT POS → STAFF SYNC), SwiftPOS menu-item linking
+> (Settings → SWIFT POS → MENU LINKS) and live kitchen dockets
+> (Ops → Orders → DOCKETS).
 
 ## TESTING
 
@@ -2674,6 +2702,9 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/permissions/registry.ts` — `PERMISSION_TREE`, presets, `completeGrantSet` | ✅ (16 tests) |
 | `lib/image-annotations.ts` / `image-thumb.ts` | ✅ (24 + 4) |
 | `lib/tips.ts` / `swiftpos.ts` / `swiftpos-staff.ts` / `woo-pairing.ts` / `woo-oauth.ts` / `woo-categories.ts` | ✅ (tested) |
+| `lib/swiftpos-products.ts` — product parsing, link/orphan/duplicate report, category grouping | ✅ (7 tests) |
+| `lib/swiftpos-dockets.ts` — docket parsing (unzoned timestamps), window + supported minutes | ✅ (8 tests) |
+| `lib/swiftpos.server.ts` — paged `fetchProducts` cap, `fetchKitchenDockets` window, problem-detail errors | ✅ (6 tests) |
 | `lib/video-transcode.ts` / `download-file.ts` / `pdf-safe.ts` / `geo.ts` | ✅ (2 + 4 + 4 + tested) |
 | `lib/woo-push.ts` — `mapStatusToWoo`, `buildProductPushPayload` (images, categories, variable products), `pushVariationPrices`, `isSelfEcho` echo guard | ✅ |
 | `lib/woo-sync.ts` — `runProductPull`, `upsertProductFromWoo`, `fetchWooCategories`, `fetchProductVariations` | ✅ |
@@ -2721,6 +2752,7 @@ pushing, run: `npm run lint && npm run test`.
 | `WorkerShiftsClient.tsx` — pickup grid, claim/withdraw, conflict warning, confirmed panel | ✅ (5 tests) |
 | `TrainingStatusClient.tsx` — status rows + SECTION REVIEWS strip, CONFIRM/DISMISS/error surfacing | ✅ (4 tests) |
 | `StaffAccessDrawer.tsx` / `OpsClient.tsx` / `MenusClient` builder components | ✅ (4 + 7 + tested) |
+| `SwiftPosMenuLinks.tsx` / `KitchenDocketsClient.tsx` / `MenuItemDetailsModal.tsx` / `SwiftPosStaffSync.tsx` | ✅ (4 + 4 + 1 + 2) |
 | `EventShareClient.tsx` / `WorkerEventsClient.tsx` / `WorkerTimeclockClient.tsx` | ✅ (4 + tested) |
 | `ImageAnnotator` / `ImagePicker` / `AnnotatedImage` / `MediaLibraryModal` / `Panel` / `Combobox` | ✅ (co-located tests) |
 

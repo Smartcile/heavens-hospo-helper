@@ -4,12 +4,17 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import bcrypt from 'bcryptjs'
 import { guardAccess } from '@/lib/permissions'
+import { resolveScopedVenueId } from '@/lib/venue-scope'
 import { fetchLookups } from '@/lib/swiftpos.server'
 import {
   buildClerkRows,
+  clerkCodeConflict,
+  findPinClash,
   parseClerks,
-  splitClerkName,
+  resolveClerkPin,
+  resolveCreatedName,
   validClerkPin,
+  type VenueStaffRow,
 } from '@/lib/swiftpos-staff'
 
 const STAFF_SELECT = {
@@ -20,24 +25,16 @@ const STAFF_SELECT = {
   isActive: true,
 } as const
 
-type SessionLike = { user: { role: string; venueId: string } }
-
-function resolveVenueId(session: SessionLike, req: NextRequest, posted?: string): string {
-  const param = posted || req.nextUrl.searchParams.get('venueId')
-  return session.user.role === 'MANAGER' ? session.user.venueId : param || session.user.venueId
-}
-
-function codeKey(code: string): string {
-  return code.trim().toUpperCase()
-}
-
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const denied = await guardAccess(session, req, 'team.staff.view')
   if (denied) return denied
 
-  const venueId = resolveVenueId(session, req)
+  const scoped = resolveScopedVenueId(session, req)
+  if ('error' in scoped) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const venueId = scoped.venueId
+
   const venue = await prisma.venue.findUnique({
     where: { id: venueId },
     select: { id: true, name: true, swiftPosBaseUrl: true },
@@ -98,14 +95,17 @@ export async function POST(req: NextRequest) {
   const denied = await guardAccess(session, req, action === 'CREATE' ? 'team.staff.create' : 'team.staff.edit')
   if (denied) return denied
 
-  const venueId = resolveVenueId(session, req, body?.venueId)
+  const scoped = resolveScopedVenueId(session, req, body?.venueId)
+  if ('error' in scoped) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const venueId = scoped.venueId
+
   const venue = await prisma.venue.findUnique({ where: { id: venueId }, select: { id: true } })
   if (!venue) return NextResponse.json({ error: 'Venue not found' }, { status: 404 })
 
   const venueStaff = await prisma.staff.findMany({
     where: { venueId, deletedAt: null },
     select: { ...STAFF_SELECT, pin: true },
-  })
+  }) as VenueStaffRow[]
 
   if (action === 'UNLINK') {
     const staff = venueStaff.find((s) => s.id === body?.staffId)
@@ -121,8 +121,8 @@ export async function POST(req: NextRequest) {
   const clerkId = String(body?.clerkId ?? '').trim()
   if (!clerkId) return NextResponse.json({ error: 'CLERK ID REQUIRED' }, { status: 400 })
 
-  const clash = venueStaff.find((s) => s.swiftPosId && codeKey(s.swiftPosId) === codeKey(clerkId))
-  if (clash && (action === 'CREATE' || clash.id !== body?.staffId)) {
+  const clash = clerkCodeConflict(venueStaff, clerkId, action === 'LINK' ? body?.staffId : null)
+  if (clash) {
     return NextResponse.json(
       { error: `${clash.firstName} ${clash.lastName} IS ALREADY LINKED TO CLERK ${clerkId}` },
       { status: 409 },
@@ -140,27 +140,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, staff: updated })
   }
 
-  const split = splitClerkName(typeof body?.clerkName === 'string' ? body.clerkName : '')
-  const firstName = (typeof body?.firstName === 'string' && body.firstName.trim()
-    ? body.firstName.trim()
-    : split.firstName).toUpperCase()
-  const lastName = (typeof body?.lastName === 'string' && body.lastName.trim()
-    ? body.lastName.trim()
-    : split.lastName).toUpperCase()
+  const { firstName, lastName } = resolveCreatedName(
+    { firstName: body?.firstName, lastName: body?.lastName },
+    typeof body?.clerkName === 'string' ? body.clerkName : '',
+  )
   if (!firstName) return NextResponse.json({ error: 'CLERK NAME REQUIRED' }, { status: 400 })
 
-  const pin = String(body?.pin ?? '').trim() || clerkId
+  const pin = resolveClerkPin(body?.pin, clerkId)
   if (!validClerkPin(pin)) {
     return NextResponse.json({ error: 'PIN MUST BE 1–4 DIGITS' }, { status: 400 })
   }
 
-  for (const staff of venueStaff) {
-    if (staff.isActive && staff.pin && await bcrypt.compare(pin, staff.pin)) {
-      return NextResponse.json(
-        { error: `PIN ${pin} IS ALREADY IN USE BY ${staff.firstName} ${staff.lastName}` },
-        { status: 409 },
-      )
-    }
+  const pinClash = await findPinClash(venueStaff, pin, (plain, hash) => bcrypt.compare(plain, hash))
+  if (pinClash) {
+    return NextResponse.json(
+      { error: `PIN ${pin} IS ALREADY IN USE BY ${pinClash.firstName} ${pinClash.lastName}` },
+      { status: 409 },
+    )
   }
 
   const created = await prisma.staff.create({

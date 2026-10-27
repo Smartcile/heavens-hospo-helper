@@ -59,6 +59,10 @@ describe('SwiftPosStaffSync', () => {
     fireEvent.click(screen.getByLabelText('CREATE STAFF FOR CLERK 3'))
     await waitFor(() => expect(posts).toHaveLength(2))
     expect(posts[1]).toMatchObject({ action: 'CREATE', clerkId: '3', pin: '3', venueId: 'v1' })
+
+    fireEvent.click(screen.getByLabelText('UNLINK CLERK 1'))
+    await waitFor(() => expect(posts).toHaveLength(3))
+    expect(posts[2]).toMatchObject({ action: 'UNLINK', clerkId: '1', staffId: 's1', venueId: 'v1' })
   })
 
   it('shows the server error when SwiftDOSnet is not configured', async () => {

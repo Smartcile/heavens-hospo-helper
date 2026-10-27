@@ -37,6 +37,7 @@ export const OPS_SUB_TABS: Record<string, TabDef[]> = {
     { id: 'kitchen', label: 'KITCHEN', title: 'PREP TOTALS + ALLERGENS' },
     { id: 'foh', label: 'FOH', title: 'BY TABLE' },
     { id: 'production', label: 'PRODUCTION', title: 'PICK LIST' },
+    { id: 'dockets', label: 'DOCKETS', title: 'LIVE KITCHEN DOCKETS — SWIFTPOS' },
   ],
   inventory: [
     { id: 'inventory', label: 'INVENTORY' },
