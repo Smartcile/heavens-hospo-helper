@@ -1,11 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildClerkRows,
+  clerkCodeConflict,
+  findPinClash,
   normaliseName,
   parseClerks,
+  resolveClerkPin,
+  resolveCreatedName,
   splitClerkName,
   validClerkPin,
   type SwiftPosStaffRef,
+  type VenueStaffRow,
 } from '@/lib/swiftpos-staff'
 
 const staff = (over: Partial<SwiftPosStaffRef> & { id: string }): SwiftPosStaffRef => ({
@@ -121,5 +126,75 @@ describe('buildClerkRows', () => {
   it('leaves an unnamed clerk as NEW', () => {
     const rows = buildClerkRows([{ clerkId: '3', name: '' }], [staff({ id: 's1' })])
     expect(rows[0]).toMatchObject({ status: 'NEW', suggestedStaffId: null })
+  })
+})
+
+const venueStaff = (over: Partial<VenueStaffRow> & { id: string }): VenueStaffRow => ({
+  firstName: 'JANE',
+  lastName: 'DOE',
+  swiftPosId: null,
+  isActive: true,
+  pin: null,
+  ...over,
+})
+
+describe('clerkCodeConflict (LINK)', () => {
+  it('finds another staff member holding the code, case-insensitively', () => {
+    const staffRows = [venueStaff({ id: 's1', swiftPosId: 'ab12' })]
+    expect(clerkCodeConflict(staffRows, 'AB12')?.id).toBe('s1')
+  })
+
+  it('excludes the staff member being re-linked to its own code', () => {
+    const staffRows = [venueStaff({ id: 's1', swiftPosId: 'AB12' })]
+    expect(clerkCodeConflict(staffRows, 'AB12', 's1')).toBeNull()
+  })
+
+  it('ignores unlinked staff and a missing code', () => {
+    const staffRows = [venueStaff({ id: 's1' }), venueStaff({ id: 's2', swiftPosId: null })]
+    expect(clerkCodeConflict(staffRows, 'AB12')).toBeNull()
+    expect(clerkCodeConflict(staffRows, '  ')).toBeNull()
+  })
+})
+
+describe('resolveCreatedName / resolveClerkPin (CREATE)', () => {
+  it('splits the clerk name when no explicit name is given', () => {
+    expect(resolveCreatedName({}, 'Doe, Jane')).toEqual({ firstName: 'JANE', lastName: 'DOE' })
+  })
+
+  it('prefers an explicit name and uppercases it', () => {
+    expect(resolveCreatedName({ firstName: ' jane ', lastName: 'Doe' }, 'John Smith')).toEqual({
+      firstName: 'JANE',
+      lastName: 'DOE',
+    })
+  })
+
+  it('defaults the PIN to the clerk number, unless a pin is supplied', () => {
+    expect(resolveClerkPin(undefined, ' 42 ')).toBe('42')
+    expect(resolveClerkPin('', '42')).toBe('42')
+    expect(resolveClerkPin(' 9999 ', '42')).toBe('9999')
+  })
+})
+
+describe('findPinClash (PIN clash handling)', () => {
+  const compare = async (plain: string, hash: string) => hash === `h:${plain}`
+
+  it('returns the active staff member whose PIN matches', async () => {
+    const rows = [
+      venueStaff({ id: 's1', pin: 'h:1234' }),
+      venueStaff({ id: 's2', firstName: 'JOHN', pin: 'h:9999' }),
+    ]
+    expect((await findPinClash(rows, '9999', compare))?.id).toBe('s2')
+  })
+
+  it('skips inactive staff and staff with no PIN', async () => {
+    const rows = [
+      venueStaff({ id: 's1', isActive: false, pin: 'h:1234' }),
+      venueStaff({ id: 's2', pin: null }),
+    ]
+    expect(await findPinClash(rows, '1234', compare)).toBeNull()
+  })
+
+  it('returns null when nothing matches', async () => {
+    expect(await findPinClash([venueStaff({ id: 's1', pin: 'h:1111' })], '2222', compare)).toBeNull()
   })
 })

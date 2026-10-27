@@ -15,6 +15,11 @@ export interface SwiftPosStaffRef {
   swiftPosId: string | null
 }
 
+export interface VenueStaffRow extends SwiftPosStaffRef {
+  isActive: boolean
+  pin: string | null
+}
+
 export type ClerkLinkStatus = 'LINKED' | 'SUGGESTED' | 'NEW'
 
 export interface ClerkLinkRow extends SwiftPosClerk {
@@ -95,6 +100,54 @@ export function splitClerkName(name: string): { firstName: string; lastName: str
 /** Pin policy for a newly created clerk: the SwiftPOS clerk number, 1–4 digits. */
 export function validClerkPin(value: string): boolean {
   return /^\d{1,4}$/.test(value.trim())
+}
+
+/**
+ * The staff row already holding this clerk code (case-insensitive), excluding
+ * `staffId` itself so re-saving the same link is not a conflict. `CREATE` passes
+ * no `staffId`; `LINK` passes the target so a link to itself stays a no-op.
+ */
+export function clerkCodeConflict(
+  staff: VenueStaffRow[],
+  clerkId: string,
+  staffId?: string | null,
+): VenueStaffRow | null {
+  const key = codeKey(clerkId)
+  return (
+    staff.find((s) => s.id !== staffId && !!s.swiftPosId && codeKey(s.swiftPosId) === key) ?? null
+  )
+}
+
+/** CREATE name: an explicit first/last name wins, otherwise split the clerk name. */
+export function resolveCreatedName(
+  input: { firstName?: string; lastName?: string },
+  clerkName: string,
+): { firstName: string; lastName: string } {
+  const split = splitClerkName(clerkName)
+  const firstName = (input.firstName ?? '').trim().toUpperCase() || split.firstName
+  const lastName = (input.lastName ?? '').trim().toUpperCase() || split.lastName
+  return { firstName, lastName }
+}
+
+/** CREATE pin: an explicit pin wins, otherwise the clerk number is the pin. */
+export function resolveClerkPin(pin: string | undefined, clerkId: string): string {
+  return String(pin ?? '').trim() || clerkId.trim()
+}
+
+/**
+ * The first active staff member whose stored PIN hash matches. The comparator is
+ * injected so bcrypt stays in the server route and this lib stays client-safe.
+ */
+export async function findPinClash(
+  staff: VenueStaffRow[],
+  pin: string,
+  compare: (plain: string, hash: string) => Promise<boolean>,
+): Promise<VenueStaffRow | null> {
+  for (const row of staff) {
+    if (!row.isActive || !row.pin) continue
+    if (await compare(pin, row.pin)) return row
+  }
+  return null
 }
 
 /**
