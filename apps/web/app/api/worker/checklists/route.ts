@@ -3,6 +3,9 @@ import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
+import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
+import { getTodayDate } from '@/lib/utils'
+import { isActivatedOn } from '@/lib/checklist-activation'
 
 export async function GET() {
   const session = await getWorkerSession()
@@ -10,18 +13,25 @@ export async function GET() {
   const access = await workerTaskAccess(session)
   if (!access.canAuthor) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const checklists = await prisma.checklist.findMany({
-    where: { venueId: session.venueId, deletedAt: null },
-    include: {
-      department: { select: { id: true, name: true } },
-      section: { select: { id: true, name: true } },
-      tasks: {
-        include: { task: { select: { id: true, title: true, isActive: true, version: true } } },
-        orderBy: { sortOrder: 'asc' },
+  const [checklists, venue] = await Promise.all([
+    prisma.checklist.findMany({
+      where: { venueId: session.venueId, deletedAt: null },
+      include: {
+        department: { select: { id: true, name: true } },
+        section: { select: { id: true, name: true } },
+        tasks: {
+          include: { task: { select: { id: true, title: true, isActive: true, version: true } } },
+          orderBy: { sortOrder: 'asc' },
+        },
       },
-    },
-    orderBy: { name: 'asc' },
-  })
+      orderBy: { name: 'asc' },
+    }),
+    prisma.venue.findUnique({ where: { id: session.venueId }, select: { timezone: true } }),
+  ])
+
+  // The editor must compare against the venue-local day, not the phone's UTC
+  // day. The server supplies the verdict so the client never re-derives it.
+  const today = getTodayDate(venue?.timezone)
 
   const result = checklists.map((c) => ({
     id: c.id,
@@ -32,6 +42,7 @@ export async function GET() {
     sectionId: c.sectionId,
     appearFromTime: c.appearFromTime,
     activatedOn: c.activatedOn,
+    activatedToday: isActivatedOn(c.activatedOn, today),
     allowedOutcomes: c.allowedOutcomes,
     requireOutcomeReason: c.requireOutcomeReason,
     department: c.department,
@@ -58,6 +69,13 @@ export async function POST(req: Request) {
 
   if (!name?.trim()) return NextResponse.json({ error: 'NAME IS REQUIRED' }, { status: 400 })
   if (!taskIds?.length) return NextResponse.json({ error: 'ADD AT LEAST ONE TASK' }, { status: 400 })
+
+  const refError = await validateWorkerTaskRefs({
+    venueId: session.venueId,
+    departmentId,
+    sectionId,
+  })
+  if (refError) return NextResponse.json({ error: refError }, { status: 400 })
 
   const ids: string[] = [...new Set<string>(Array.isArray(taskIds) ? taskIds : [])]
   if (ids.length !== taskIds.length) {

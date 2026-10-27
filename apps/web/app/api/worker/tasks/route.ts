@@ -8,6 +8,7 @@ import { resolveOutcomePolicyForChecklists, normaliseOutcomes, type OutcomePolic
 import { applicableChecklistsForStaff } from '@/lib/checklist-applicability.server'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { resolveCompetencyGuideIds } from '@/lib/task-guides'
+import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
 
 export async function GET(req: NextRequest) {
   const session = await getWorkerSession()
@@ -257,6 +258,23 @@ export async function POST(req: NextRequest) {
   if (scheduleType === 'CUSTOM' && !customCron?.trim())
     return NextResponse.json({ error: 'CRON EXPRESSION IS REQUIRED FOR CUSTOM SCHEDULE' }, { status: 400 })
 
+  // `requiredTrainingIds` is the legacy name the old worker form posted — but
+  // it always carried GUIDE ids (the picker loaded from `/api/worker/guides`).
+  // Treat it as an alias so old clients write the same TaskGuide rows as admin
+  // instead of the long-dead TaskRequiredTraining/TrainingModule pair.
+  const guideIds = resolveCompetencyGuideIds({ competencyGuideIds, requiredTrainingIds }) ?? []
+
+  // Granted STAFF can now write tasks, so every ref must belong to their venue
+  // before it is used (a cross-venue section would otherwise infer its own
+  // department and write the task outside the worker's venue).
+  const refError = await validateWorkerTaskRefs({
+    venueId: session.venueId,
+    departmentId,
+    sectionId,
+    guideIds,
+  })
+  if (refError) return NextResponse.json({ error: refError }, { status: 400 })
+
   let resolvedDeptId = departmentId || null
   const resolvedSectionId = sectionId || null
   if (sectionId && !departmentId) {
@@ -264,11 +282,11 @@ export async function POST(req: NextRequest) {
     if (s) resolvedDeptId = s.departmentId
   }
 
-  // `requiredTrainingIds` is the legacy name the old worker form posted — but
-  // it always carried GUIDE ids (the picker loaded from `/api/worker/guides`).
-  // Treat it as an alias so old clients write the same TaskGuide rows as admin
-  // instead of the long-dead TaskRequiredTraining/TrainingModule pair.
-  const guideIds = resolveCompetencyGuideIds({ competencyGuideIds, requiredTrainingIds }) ?? []
+  const maxSort = await prisma.task.findFirst({
+    where: { venueId: session.venueId, departmentId: resolvedDeptId, deletedAt: null },
+    orderBy: { sortOrder: 'desc' },
+    select: { sortOrder: true },
+  })
 
   const task = await prisma.task.create({
     data: {
@@ -284,6 +302,7 @@ export async function POST(req: NextRequest) {
       intervalMonths: Math.max(1, intervalMonths || 1),
       monthlyOption: scheduleType === 'MONTHLY' ? (monthlyOption || 'FIRST_DAY') : null,
       monthlyDay: scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? (monthlyDay || 1) : null,
+      sortOrder: (maxSort?.sortOrder ?? -1) + 1,
       allowedOutcomes: normaliseOutcomes(allowedOutcomes),
       overrideOutcomes: !!overrideOutcomes,
       requireOutcomeReason: !!requireOutcomeReason,

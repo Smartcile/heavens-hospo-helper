@@ -3,6 +3,7 @@ import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
+import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getWorkerSession()
@@ -16,6 +17,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   const body = await req.json()
   const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason } = body
+
+  const refError = await validateWorkerTaskRefs({
+    venueId: session.venueId,
+    departmentId: departmentId !== undefined ? departmentId || null : undefined,
+    sectionId: sectionId !== undefined ? sectionId || null : undefined,
+  })
+  if (refError) return NextResponse.json({ error: refError }, { status: 400 })
 
   let ids: string[] | undefined
   if (taskIds !== undefined) {

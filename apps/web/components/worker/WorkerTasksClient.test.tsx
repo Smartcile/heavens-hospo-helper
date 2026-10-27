@@ -33,6 +33,7 @@ const FULL_TASK = {
 const CHECKLIST_FULL = {
   id: 'c1', name: 'OPENING', description: null, venueId: 'v1',
   departmentId: null, sectionId: null, appearFromTime: '00:00', activatedOn: null,
+  activatedToday: false,
   allowedOutcomes: [], requireOutcomeReason: false,
   tasks: [{ id: 't1', title: 'WIPE BENCHES', isActive: true, version: 1 }],
 }
@@ -106,7 +107,7 @@ function mockEditApi(opts: {
     if (u === '/api/worker/guides?edit=1') return json(guides)
     if (u === '/api/worker/checklists') return json([CHECKLIST_FULL])
     if (u.startsWith('/api/worker/checklists/') && u.endsWith('/activate')) {
-      return json({ ...CHECKLIST_FULL, activatedOn: new Date().toISOString() })
+      return json({ ...CHECKLIST_FULL, activatedOn: new Date().toISOString(), activatedToday: true })
     }
     return json({})
   })
@@ -245,6 +246,7 @@ describe('WorkerTasksClient', () => {
     fireEvent.click(screen.getByLabelText('EDIT CHECKLIST OPENING'))
 
     await waitFor(() => expect(screen.getByText('ACTIVATE NOW')).toBeDefined())
+    expect(screen.getByText('NOT OPEN YET TODAY')).toBeDefined()
     fireEvent.click(screen.getByText('ACTIVATE NOW'))
 
     await waitFor(() => {
@@ -253,6 +255,12 @@ describe('WorkerTasksClient', () => {
       )
       expect(post).toBeDefined()
     })
+
+    // The server says it is activated for the venue-local day, so the editor
+    // must switch to DEACTIVATE from that fact (not a client UTC-day compare).
+    await waitFor(() => expect(screen.getByText('DEACTIVATE')).toBeDefined())
+    expect(screen.getByText('FORCED OPEN FOR TODAY')).toBeDefined()
+    expect(screen.queryByText('ACTIVATE NOW')).toBeNull()
   })
 
   it('hides a timed list until an admin activates it for today', async () => {

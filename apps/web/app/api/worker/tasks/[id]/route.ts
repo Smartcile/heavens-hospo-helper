@@ -4,6 +4,7 @@ import { getWorkerSession } from '@/lib/worker-session'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { resolveCompetencyGuideIds } from '@/lib/task-guides'
+import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getWorkerSession()
@@ -23,6 +24,20 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     requireRetrain, changeSummary,
     allowedOutcomes, overrideOutcomes, requireOutcomeReason,
   } = body
+
+  const guideIds = resolveCompetencyGuideIds({
+    competencyGuideIds: body.competencyGuideIds,
+    requiredTrainingIds,
+  })
+
+  // Venue-check every ref the granted STAFF editor can send before writing.
+  const refError = await validateWorkerTaskRefs({
+    venueId: session.venueId,
+    departmentId: departmentId !== undefined ? departmentId || null : undefined,
+    sectionId: sectionId !== undefined ? sectionId || null : undefined,
+    guideIds,
+  })
+  if (refError) return NextResponse.json({ error: refError }, { status: 400 })
 
   let resolvedDeptId = departmentId !== undefined ? (departmentId || null) : undefined
   const resolvedSectionId = sectionId !== undefined ? (sectionId || null) : undefined
@@ -73,21 +88,19 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   // Competency links use TaskGuide (admin parity). The old `requiredTrainingIds`
   // name is accepted as an alias because the legacy worker form actually sent
   // Guide ids — never TrainingModule ids. Both map to the same junction.
-  const guideIds = resolveCompetencyGuideIds({
-    competencyGuideIds: body.competencyGuideIds,
-    requiredTrainingIds,
-  })
   if (guideIds !== undefined) {
-    await prisma.taskGuide.deleteMany({
-      where: { taskId: task.id, isRequiredForCompetency: true },
-    })
-    if (guideIds.length) {
-      await prisma.taskGuide.createMany({
-        data: guideIds.map((guideId) => ({
-          taskId: task.id, guideId, isRequiredForCompetency: true,
-        })),
+    await prisma.$transaction(async (tx) => {
+      await tx.taskGuide.deleteMany({
+        where: { taskId: task.id, isRequiredForCompetency: true },
       })
-    }
+      if (guideIds.length) {
+        await tx.taskGuide.createMany({
+          data: guideIds.map((guideId) => ({
+            taskId: task.id, guideId, isRequiredForCompetency: true,
+          })),
+        })
+      }
+    })
   }
 
   return NextResponse.json(task)

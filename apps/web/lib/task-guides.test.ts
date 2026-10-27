@@ -16,9 +16,16 @@ describe('resolveCompetencyGuideIds', () => {
     expect(resolveCompetencyGuideIds({})).toBeUndefined()
   })
 
-  it('dedupes and drops non-string ids', () => {
+  it('dedupes, trims and drops non-string ids', () => {
     expect(
-      resolveCompetencyGuideIds({ competencyGuideIds: ['g1', 'g1', '', 42, null] }),
+      resolveCompetencyGuideIds({ competencyGuideIds: ['g1', ' g1 ', '  ', 42, null] }),
     ).toEqual(['g1'])
+  })
+
+  it('leaves links untouched for malformed (non-array) input', () => {
+    expect(resolveCompetencyGuideIds({ competencyGuideIds: 'g1' })).toBeUndefined()
+    expect(
+      resolveCompetencyGuideIds({ competencyGuideIds: { id: 'g1' }, requiredTrainingIds: ['legacy'] }),
+    ).toBeUndefined()
   })
 })

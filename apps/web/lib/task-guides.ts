@@ -11,10 +11,14 @@ export function resolveCompetencyGuideIds(input: {
     ? input.competencyGuideIds
     : input.requiredTrainingIds
   if (raw === undefined) return undefined
-  if (!Array.isArray(raw)) return []
+  // Malformed input is "no change", never an accidental wipe of existing links.
+  if (!Array.isArray(raw)) return undefined
   return [
     ...new Set(
-      raw.filter((id): id is string => typeof id === 'string' && id.trim() !== ''),
+      raw
+        .filter((id): id is string => typeof id === 'string')
+        .map((id) => id.trim())
+        .filter((id) => id !== ''),
     ),
   ]
 }

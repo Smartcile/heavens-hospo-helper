@@ -7,12 +7,14 @@ import { Select } from '@/components/ui/Select'
 import { DateInput } from '@/components/ui/DateInput'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { formatDateTime } from '@/lib/utils'
+import { OUTCOME_LABELS, type TaskOutcome } from '@/lib/task-outcomes'
 
 interface Completion {
   id: string
   scheduledDate: string
   completedAt: string
   note: string | null
+  outcome: string
   staff: { id: string; firstName: string; lastName: string }
   task: {
     title: string
@@ -23,6 +25,17 @@ interface Completion {
 
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string }
+
+const OUTCOME_VARIANTS = {
+  DONE: 'success',
+  PARTIAL: 'warning',
+  NOT_REQUIRED: 'default',
+  DID_NOT_COMPLETE: 'danger',
+} as const
+
+function outcomeLabel(outcome: string): string {
+  return OUTCOME_LABELS[outcome as TaskOutcome] ?? outcome.replace(/_/g, ' ')
+}
 
 export function ReportsClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [completions, setCompletions] = useState<Completion[]>([])
@@ -148,7 +161,7 @@ export function ReportsClient({ role, sessionVenueId, defaultVenueId }: { role: 
           <table className="w-full border border-grey-mid">
             <thead>
               <tr className="border-b border-grey-mid">
-                {['DATE', 'STAFF', 'TASK', 'DEPARTMENT', 'VENUE', 'COMPLETED AT', 'NOTE'].map((h) => (
+                {['DATE', 'STAFF', 'TASK', 'OUTCOME', 'DEPARTMENT', 'VENUE', 'COMPLETED AT', 'NOTE'].map((h) => (
                   <th key={h} className="px-4 py-2 font-mono text-xs uppercase text-grey-light text-left whitespace-nowrap">
                     {h}
                   </th>
@@ -158,7 +171,7 @@ export function ReportsClient({ role, sessionVenueId, defaultVenueId }: { role: 
             <tbody className="divide-y divide-grey-mid">
               {completions.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-4 font-mono text-xs text-grey-light">
+                  <td colSpan={8} className="px-4 py-4 font-mono text-xs text-grey-light">
                     NO COMPLETIONS FOUND.
                   </td>
                 </tr>
@@ -173,6 +186,11 @@ export function ReportsClient({ role, sessionVenueId, defaultVenueId }: { role: 
                     </td>
                     <td className="px-4 py-2 font-mono text-xs text-white max-w-48 truncate">
                       {c.task.title}
+                    </td>
+                    <td className="px-4 py-2 whitespace-nowrap">
+                      <Badge variant={OUTCOME_VARIANTS[c.outcome as keyof typeof OUTCOME_VARIANTS] ?? 'default'}>
+                        {outcomeLabel(c.outcome)}
+                      </Badge>
                     </td>
                     <td className="px-4 py-2">
                       {c.task.department ? (

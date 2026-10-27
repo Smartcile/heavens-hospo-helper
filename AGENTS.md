@@ -2452,12 +2452,20 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
   `requiredTrainingIds` field is still accepted but treated as an alias for
   Guide ids (it always carried Guide ids from the old worker picker); it no
   longer writes `TaskRequiredTraining`/`TrainingModule`. Those legacy rows are
-  never read, written or deleted by the worker. Edit-mode rows show linked guide
-  titles + the task ON/OFF toggle.
+  still READ for display (the worker list still falls back to
+  `trainingModules`, and `?edit=1` still returns `requiredTraining`), but the
+  worker never writes or deletes them. Edit-mode rows show linked guide titles +
+  the task ON/OFF toggle.
+- **Venue-checked writes.** Worker task/list POST/PUT validate every incoming
+  `departmentId`, `sectionId` and `competencyGuideIds` entry against the
+  session venue + `deletedAt: null` (`lib/worker-task-refs.server.ts`) before
+  writing. List POST/PUT reject duplicate `taskId`s and validate each task
+  belongs to the worker's venue (duplicates are an error, not deduped).
 - **List parity.** New `POST/DELETE /api/worker/checklists/[id]/activate`
-  mirrors the admin activation, and the worker list editor offers
-  ACTIVATE NOW / DEACTIVATE. List POST/PUT validate every `taskId` belongs to
-  the worker's venue (deduped).
+  mirrors the admin activation. The worker list editor offers ACTIVATE NOW /
+  DEACTIVATE only for lists that have an `appearFromTime` (the control is
+  hidden otherwise), and compares against the server-supplied venue-local
+  `activatedToday` — never the phone's UTC day.
 - **`?edit=1` scope.** `GET /api/worker/tasks?edit=1` now requires an authoring
   grant and returns every non-deleted task in the venue (admin parity),
   including `taskGuides.guide`.
@@ -2470,12 +2478,15 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
   shows `IN PROGRESS · <name>` + CLEAR. Report totals are DONE-only:
   `lib/report-filters.ts` builds `{ all, done }`, `/api/admin/reports` returns
   `total` (DONE) and `recordsTotal` (all outcomes for the list/pagination), and
-  the page labels them separately. Chrome is tested in
+  the page labels them separately. The report list keeps every outcome (and the
+  CSV keeps its Outcome column) and now renders an OUTCOME badge per row so
+  non-DONE records are distinguishable. Chrome is tested in
   `WorkerDashboardClient.test.tsx` (bottom bar hides on `worker-immersive`;
   browser back re-arms `/w/dashboard`).
 - **#16 scroll/state.** `TasksClient` keeps the window + sticky-panel scroll in
-  `sessionStorage` (`hospo-tasks-scroll:*`) and restores it on mount. Scoped to
-  the Tasks page; no SPA rewrite.
+  `sessionStorage` (`hospo-tasks-scroll:*`) and restores it after the lists
+  finish loading (`loading === false`), not on mount while the page is empty.
+  Scoped to the Tasks page; no SPA rewrite.
 
 ## FUTURE INTEGRATION STUBS
 
@@ -2629,10 +2640,12 @@ pushing, run: `npm run lint && npm run test`.
 | `CalendarClient.tsx` — 22 useState | ✅ |
 | `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (19 tests) |
 | `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, handled section, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation | ✅ (14 tests) |
-| `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, scroll restore | ✅ (5 tests) |
+| `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, scroll restore after load | ✅ (5 tests) |
 | `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard | ✅ (2 tests) |
+| `ReportsClient.tsx` — OUTCOME badge distinguishes non-DONE rows | ✅ (1 test) |
 | `lib/worker-task-access.ts` — grant matrix (ADMIN/MANAGER bypass, CREATE/EDIT/DELETE, list OR mapping) | ✅ (6 tests) |
-| `lib/task-guides.ts` — competency ids with legacy `requiredTrainingIds` alias | ✅ (4 tests) |
+| `lib/worker-task-refs.server.ts` — venue checks for department/section/Guide refs | ✅ (6 tests) |
+| `lib/task-guides.ts` — competency ids with legacy `requiredTrainingIds` alias, trim, malformed input | ✅ (5 tests) |
 | `lib/report-filters.ts` — DONE-only completion metric vs all-outcome audit where | ✅ (4 tests) |
 | `OutcomeOptions.tsx` — DONE-always, outcome toggles, reason toggle, inherit/override | ✅ (4 tests) |
 | `FloorplanInspector.tsx` — presets, sliders, booth capacity | ✅ |

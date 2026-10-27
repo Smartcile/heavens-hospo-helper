@@ -28,9 +28,10 @@ const CHECKLIST = {
   tasks: [{ id: 't1', title: 'TASK ONE', isActive: true, version: 1 }],
 }
 
-function mockApi(tasks: unknown[] = [TASK_ONE, TASK_TWO]) {
+function mockApi(tasks: unknown[] = [TASK_ONE, TASK_TWO], gate?: Promise<void>) {
   const fetchMock = vi.mocked(global.fetch)
   fetchMock.mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+    if (gate) await gate
     const u = String(url)
     if (u.includes('/progress')) return json({ success: true })
     if (u.startsWith('/api/admin/tasks')) return json(tasks)
@@ -132,13 +133,21 @@ describe('TasksClient', () => {
     })
   })
 
-  it('restores the saved scroll position on mount (#16)', async () => {
+  it('restores the saved scroll position after the lists render (#16)', async () => {
     const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
     sessionStorage.setItem('hospo-tasks-scroll:window', '240')
-    mockApi()
+
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    mockApi([TASK_ONE, TASK_TWO], gate)
 
     render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
 
+    // Still loading: do not restore against an empty page.
+    expect(scrollTo).not.toHaveBeenCalled()
+
+    release()
+    await waitFor(() => expect(screen.getByTestId('available-task-t2')).toBeDefined())
     await waitFor(() => expect(scrollTo).toHaveBeenCalledWith(0, 240))
   })
 })

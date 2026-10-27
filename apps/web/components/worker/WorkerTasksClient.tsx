@@ -12,7 +12,6 @@ import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { readingVerdict, criticalVerdict, describeBand } from '@/lib/food-safety'
 import { OUTCOME_LABELS, OUTCOME_DESCRIPTIONS, TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { moveItem } from '@/lib/array'
-import { isActivatedOn } from '@/lib/checklist-activation'
 import { resolveWorkerTaskAccess, type WorkerTaskAccess } from '@/lib/worker-task-access'
 import { Panel } from '@/components/ui/Panel'
 import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
@@ -50,6 +49,7 @@ interface ChecklistFull {
   id: string; name: string; description: string | null; venueId: string
   departmentId: string | null; sectionId: string | null; appearFromTime: string | null
   activatedOn?: string | null
+  activatedToday?: boolean
   allowedOutcomes?: string[]
   requireOutcomeReason?: boolean
   tasks: { id: string; title: string; isActive: boolean; version: number }[]
@@ -478,9 +478,12 @@ export function WorkerTasksClient({
       return
     }
     const updated = await r.json().catch(() => null)
-    if (updated?.activatedOn !== undefined) {
-      setClEditing({ ...clEditing, activatedOn: updated.activatedOn })
-    }
+    setClEditing({
+      ...clEditing,
+      activatedOn: updated?.activatedOn ?? null,
+      // The server owns the venue-local "today" verdict; we just toggled it.
+      activatedToday: updated?.activatedToday ?? active,
+    })
     await load()
     await loadEditData()
   }
@@ -1374,11 +1377,11 @@ export function WorkerTasksClient({
             {clEditing !== 'new' && clEditing?.appearFromTime && access.canEditList && (
               <div className="flex items-center justify-between gap-2 border border-grey-mid p-2">
                 <span className="font-mono text-xs uppercase text-grey-light">
-                  {isActivatedOn(clEditing.activatedOn, new Date())
+                  {clEditing.activatedToday
                     ? 'FORCED OPEN FOR TODAY'
                     : 'NOT OPEN YET TODAY'}
                 </span>
-                {isActivatedOn(clEditing.activatedOn, new Date()) ? (
+                {clEditing.activatedToday ? (
                   <button onClick={() => toggleChecklistActivation(false)}
                     className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white transition-colors">
                     DEACTIVATE

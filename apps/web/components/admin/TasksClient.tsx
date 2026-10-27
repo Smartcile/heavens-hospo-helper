@@ -114,8 +114,11 @@ const TASKS_SCROLL_KEY = 'hospo-tasks-scroll'
 
 // #16: keep the window and the sticky checklist panel where they were when the
 // page is re-entered. A scoped fix — no SPA rewrite, no polling.
-function useTasksScrollRestoration(panelRef: RefObject<HTMLDivElement>) {
+function useTasksScrollRestoration(panelRef: RefObject<HTMLDivElement>, ready: boolean) {
   useEffect(() => {
+    // Restoring while the lists are still empty (and the panel is not mounted)
+    // scrolls the window only, then the loaded content reflows and loses it.
+    if (!ready) return
     const winKey = `${TASKS_SCROLL_KEY}:window`
     const panelKey = `${TASKS_SCROLL_KEY}:panel`
     const savedWindow = sessionStorage.getItem(winKey)
@@ -135,13 +138,12 @@ function useTasksScrollRestoration(panelRef: RefObject<HTMLDivElement>) {
       window.removeEventListener('scroll', save)
       panel?.removeEventListener('scroll', save)
     }
-  }, [panelRef])
+  }, [panelRef, ready])
 }
 
 export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const { requestGuide, nodes: guidePopupNodes } = useGuidePopup('admin')
   const checklistPanelRef = useRef<HTMLDivElement>(null)
-  useTasksScrollRestoration(checklistPanelRef)
   const [tasks, setTasks] = useState<Task[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -149,6 +151,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [guides, setGuides] = useState<GuideLite[]>([])
   const [checklists, setChecklists] = useState<Checklist[]>([])
   const [loading, setLoading] = useState(true)
+  useTasksScrollRestoration(checklistPanelRef, !loading)
 
   // Task create/edit modal
   const [modalOpen, setModalOpen] = useState(false)
