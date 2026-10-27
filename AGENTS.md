@@ -2543,7 +2543,7 @@ pushing, run: `npm run lint && npm run test`.
 |---|---|
 | `lib/array.ts` — `moveItem` | ✅ |
 | `lib/cell-fill.ts` — `fillRect`, `fillTargets`, `inFillRect` (drag-fill rectangles), `dayRange`, `toggleSelection` (bulk-clear selection) | ✅ (11 tests) |
-| `lib/use-scroll-restore.ts` — `captureScroll`, `restoreScroll`, `useScrollRestore` (in-place refresh) | ✅ (3 tests) |
+| `lib/use-scroll-restore.ts` — `captureScroll`, `restoreScroll`, `useScrollRestore` (in-place refresh) | ✅ (4 tests) |
 | `lib/booth-trace.ts` — `traceBoothPerimeter` | ✅ |
 | `lib/breaks.ts` — `nzBreakEntitlement`, `shiftHours`, `formatBreaks` | ✅ |
 | `lib/budget-math.ts` — `generateDailyBudgetsNormalized`, `computeBreakdowns` | ✅ |
@@ -2582,7 +2582,7 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/beo-links.ts` / `beo-pdf.ts` — link grouping / BEO PDF variants | ✅ (8 + 11) |
 | `lib/event-flow.ts` / `event-pricing.ts` / `event-share.ts` | ✅ (6 + 10 + 8) |
 | `lib/service-schedule.ts` / `service-windows.ts` / `service-seating.ts` | ✅ (19 + 20 + 11) |
-| `lib/availability.ts` / `availability.server.ts` — window algebra, free-window state (PARTIAL) + plan→execute + weekly cut-off gate + series-day detach + edit-proposal→entry mapping | ✅ (73 + 34) |
+| `lib/availability.ts` / `availability.server.ts` — window algebra, free-window state (PARTIAL) + plan→execute + weekly cut-off gate + series-day detach + edit-proposal→entry mapping | ✅ (72 + 43) |
 | `lib/event-roster.ts` — area resolution + per-day event buckets | ✅ (11 tests) |
 | `lib/manual-event.ts` — validation, UTC date/time mapping, capacity check | ✅ (9 tests) |
 | `lib/calendar-feeds.ts` — feed URL expansion, room naming | ✅ (9 tests) |
@@ -2643,7 +2643,7 @@ pushing, run: `npm run lint && npm run test`.
 | `ReferenceTableEditor.tsx` — column kinds, derived cells, row editing | ✅ (5 tests) |
 | `WorkerGuidesClient.tsx` — BIBLE / MY TREE, folder grouping, edit gating | ✅ (11 tests) |
 | `EventBuilder.tsx` / `PipelinePanel.tsx` / `EnquiriesPanel.tsx` — BEO builder, pipeline board, intake | ✅ (5 + 2 + 4) |
-| `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 12 + 8 + 12) |
+| `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 16 + 15 + 28) |
 | `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (13 + 5 + 4) |
 | `StaffingLinesEditor.tsx` — payload mapping, unnamed-row filter, rows, remove | ✅ (5 tests) |
 | `EventStaffingModal.tsx` — event info, linked shifts CLAIMED/ASSIGNED, listed-seat lock, FIND STAFF, claims review | ✅ (5 tests) |

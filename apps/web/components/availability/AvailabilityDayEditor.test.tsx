@@ -208,6 +208,16 @@ describe('AvailabilityDayEditor', () => {
     expect(onSave.mock.calls[0][1].repeat).toBeNull()
   })
 
+  it('keeps REPEAT WEEKLY working for a worker on a brand-new day', () => {
+    const { onSave } = renderEditor({ allowSeriesScope: false })
+
+    fireEvent.click(screen.getByText('REPEAT WEEKLY'))
+    fireEvent.click(screen.getByText('SAVE'))
+
+    expect(onSave.mock.calls[0][1].repeat).toEqual({ weeks: 2 })
+    expect(onSave.mock.calls[0][1].scope).toBeNull()
+  })
+
   it('offers LOCK with an optional reason on an unlocked admin day', () => {
     const onToggleLock = vi.fn()
     renderEditor({ entry: entry({ status: 'APPROVED' }), canOverride: true, onToggleLock })

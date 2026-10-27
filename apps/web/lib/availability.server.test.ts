@@ -194,6 +194,20 @@ describe('series day detach (THIS scope)', () => {
     expect(out.plan.syncSeriesEnd).toBe(true)
   })
 
+  it('a worker FROM edit on the final occurrence still detaches and re-pins', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce(fixture)
+    const out = await planSet(
+      { staffId: 'st1', dateKey: '2026-10-22', payload, repeat: null, scope: 'FROM', seriesId: 's1' },
+      { ...gate, forceScopeThis: true },
+    )
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.plan.writeDates).toEqual(['2026-10-22'])
+    expect(out.plan.seriesId).toBeNull()
+    expect(out.plan.syncSeriesId).toBe('s1')
+    expect(out.plan.syncSeriesEnd).toBe(true)
+  })
+
   it('does not re-pin an open-ended series when its last occurrence detaches', async () => {
     db.staffAvailability.findMany.mockResolvedValueOnce([
       { date: day('2026-10-01'), seriesEndDate: null },

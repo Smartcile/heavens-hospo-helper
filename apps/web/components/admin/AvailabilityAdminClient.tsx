@@ -734,6 +734,14 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
       setError((d.error ?? 'COULD NOT SAVE THE NOTE').toUpperCase())
       return
     }
+    const d = await r.json().catch(() => ({}))
+    // A queue-opened editor holds its own snapshot entry — refresh it so the
+    // note shows without closing and reopening the day.
+    setEditor((prev) => (
+      prev && prev.staffId === target.staffId && prev.date === target.date && prev.entry
+        ? { ...prev, entry: { ...prev.entry, notes: d.notes ?? notes } }
+        : prev
+    ))
     await load(true)
   }
 
@@ -753,6 +761,21 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId }
       setError((d.error ?? (locked ? 'COULD NOT LOCK THE DAY' : 'COULD NOT UNLOCK THE DAY')).toUpperCase())
       return
     }
+    // A queue-opened editor holds its own snapshot entry — refresh the lock
+    // fields so the banner and LOCK/UNLOCK buttons flip immediately.
+    setEditor((prev) => (
+      prev && prev.staffId === target.staffId && prev.date === target.date && prev.entry
+        ? {
+            ...prev,
+            entry: {
+              ...prev.entry,
+              lockedAt: locked ? new Date().toISOString() : null,
+              lockedById: locked ? prev.entry.lockedById : null,
+              lockedReason: locked ? reason : null,
+            },
+          }
+        : prev
+    ))
     await load(true)
   }
 

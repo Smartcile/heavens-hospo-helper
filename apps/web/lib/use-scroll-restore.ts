@@ -41,9 +41,9 @@ export function captureScroll(root: ScrollRoot = document): ScrollSnapshot {
 }
 
 /**
- * Put a snapshot back. Element containers always restore; the window scroll is
- * skipped when it moved by more than `guardPx` since the snapshot (the user
- * scrolled deliberately during the refresh).
+ * Put a snapshot back. Elements and the window are both restored only while
+ * they are still within `guardPx` of the snapshot; anything further moved was
+ * a deliberate scroll during the refresh and must never be reverted.
  */
 export function restoreScroll(
   snapshot: ScrollSnapshot,
@@ -56,7 +56,9 @@ export function restoreScroll(
   }
   root.querySelectorAll<HTMLElement>('[data-scroll-key]').forEach((el) => {
     const key = el.dataset.scrollKey
-    if (key && key in snapshot.elements) el.scrollTop = snapshot.elements[key]
+    if (!key || !(key in snapshot.elements)) return
+    const target = snapshot.elements[key]
+    if (target > 0 && Math.abs(el.scrollTop - target) <= guardPx) el.scrollTop = target
   })
 }
 

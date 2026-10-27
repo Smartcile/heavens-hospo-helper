@@ -186,8 +186,9 @@ export function AvailabilityDayEditor({
     }
     onSave(draft, {
       // A worker series edit is always THIS: the server detaches the day and
-      // later occurrences are never touched. A series-end change is hidden.
-      repeat: allowSeriesScope ? currentRepeat() : null,
+      // later occurrences are never touched. A series-end change is hidden —
+      // but a worker still repeats a brand-new non-series day as usual.
+      repeat: series && !allowSeriesScope ? null : currentRepeat(),
       scope: series ? (allowSeriesScope ? scope : 'THIS') : null,
       reason: note.trim() || null,
     })

@@ -30,26 +30,36 @@ describe('scroll restoration', () => {
     const snapshot = captureScroll()
 
     setWindowY(120)
-    grid.scrollTop = 0
+    grid.scrollTop = 336
     restoreScroll(snapshot)
 
     expect(scrollTo).toHaveBeenCalledWith(0, 120)
     expect(grid.scrollTop).toBe(340)
   })
 
-  it('does not fight an intentional window scroll during the refresh', () => {
+  it('does not fight an intentional scroll during the refresh', () => {
     setWindowY(120)
     const grid = scroller('roster-grid', 200)
     const snapshot = captureScroll()
 
     // The user scrolled deliberately while the refresh was in flight.
     setWindowY(600)
-    grid.scrollTop = 0
+    grid.scrollTop = 600
     restoreScroll(snapshot)
 
     expect(scrollTo).not.toHaveBeenCalled()
-    // Inner containers are still restored.
-    expect(grid.scrollTop).toBe(200)
+    expect(grid.scrollTop).toBe(600)
+  })
+
+  it('leaves a keyed container alone when it drifted past the guard', () => {
+    setWindowY(0)
+    const grid = scroller('roster-grid', 200)
+    const snapshot = captureScroll()
+
+    grid.scrollTop = 400
+    restoreScroll(snapshot)
+
+    expect(grid.scrollTop).toBe(400)
   })
 
   it('does not restore a key that no longer exists', () => {

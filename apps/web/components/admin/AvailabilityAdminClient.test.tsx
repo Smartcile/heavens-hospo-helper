@@ -629,6 +629,29 @@ describe('AvailabilityAdminClient', () => {
     })
   })
 
+  it('refreshes a queue-opened editor after locking without reopening', async () => {
+    const spy = mockFetch()
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(await screen.findByText('OPEN / EDIT'))
+
+    fireEvent.change(screen.getByLabelText('Lock reason'), { target: { value: 'AGREED ON THE PHONE' } })
+    fireEvent.click(screen.getByText('LOCK'))
+
+    await waitFor(() => {
+      const patch = spy.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'PATCH')
+      expect(patch).toBeDefined()
+      expect(JSON.parse((patch![1] as RequestInit).body as string)).toEqual({
+        locked: true,
+        lockedReason: 'AGREED ON THE PHONE',
+      })
+    })
+    expect(await screen.findByText(/LOCKED — UNLOCK TO EDIT/)).toBeDefined()
+    expect(screen.getByText('UNLOCK')).toBeDefined()
+  })
+
   it('re-locks the day when a request proposal is saved as an override', async () => {
     const requestOnly = {
       ...data,
