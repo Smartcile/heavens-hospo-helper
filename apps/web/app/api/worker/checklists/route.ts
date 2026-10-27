@@ -2,12 +2,13 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
+import { workerTaskAccess } from '@/lib/worker-task-access.server'
 
 export async function GET() {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.role !== 'ADMIN' && session.role !== 'MANAGER')
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const access = await workerTaskAccess(session)
+  if (!access.canAuthor) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const checklists = await prisma.checklist.findMany({
     where: { venueId: session.venueId, deletedAt: null },
@@ -30,6 +31,7 @@ export async function GET() {
     departmentId: c.departmentId,
     sectionId: c.sectionId,
     appearFromTime: c.appearFromTime,
+    activatedOn: c.activatedOn,
     allowedOutcomes: c.allowedOutcomes,
     requireOutcomeReason: c.requireOutcomeReason,
     department: c.department,
@@ -48,14 +50,25 @@ export async function GET() {
 export async function POST(req: Request) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.role !== 'ADMIN' && session.role !== 'MANAGER')
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const access = await workerTaskAccess(session)
+  if (!access.canCreateList) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
   const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason } = body
 
   if (!name?.trim()) return NextResponse.json({ error: 'NAME IS REQUIRED' }, { status: 400 })
   if (!taskIds?.length) return NextResponse.json({ error: 'ADD AT LEAST ONE TASK' }, { status: 400 })
+
+  const ids: string[] = [...new Set<string>(Array.isArray(taskIds) ? taskIds : [])]
+  if (ids.length !== taskIds.length) {
+    return NextResponse.json({ error: 'DUPLICATE TASKS IN THIS LIST' }, { status: 400 })
+  }
+  const venueTaskCount = await prisma.task.count({
+    where: { id: { in: ids }, venueId: session.venueId, deletedAt: null },
+  })
+  if (venueTaskCount !== ids.length) {
+    return NextResponse.json({ error: 'ONE OR MORE TASKS ARE NOT IN THIS VENUE' }, { status: 400 })
+  }
 
   const checklist = await prisma.checklist.create({
     data: {
@@ -67,7 +80,7 @@ export async function POST(req: Request) {
       appearFromTime: appearFromTime || null,
       allowedOutcomes: normaliseOutcomes(allowedOutcomes),
       requireOutcomeReason: !!requireOutcomeReason,
-      tasks: { create: taskIds.map((taskId: string, i: number) => ({ taskId, sortOrder: i })) },
+      tasks: { create: ids.map((taskId, i) => ({ taskId, sortOrder: i })) },
     },
   })
 

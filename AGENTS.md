@@ -1361,10 +1361,11 @@ entries**.
   whole venue). Staff acknowledge via the existing `/w/notices` GOT IT flow;
   managers track acks on `/admin/notices`. Reuses notice/ack infra — no new
   worker screen. Best-effort (never blocks the save).
-- **Task filter "NOT IN THIS LIST".** When editing a checklist, a dynamic
-  `'notinthis'` usage filter appears showing all tasks except those already in
-  the current checklist — allowing tasks already used elsewhere to be added.
-  Defaults to `'notinthis'` when opening a checklist for editing.
+- **Task filter "NOT IN THIS LIST".** When creating or editing a checklist, a
+  dynamic `'notinthis'` usage filter appears showing all tasks except the LIVE
+  `clSelected` set — allowing tasks already used elsewhere to be added, and
+  removing a just-dropped task from the left list immediately. Defaults to
+  `'notinthis'` when opening the editor and resets to `nolist` on close/save.
 - **One-day activation + audiences.** `Checklist.activatedOn` (venue-local date)
   is set by ACTIVATE NOW (`POST /api/admin/checklists/[id]/activate`) — the list
   shows for the rest of the local day then self-expires (no cron; next day
@@ -2431,6 +2432,51 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
   While CHANGE SERIES END is armed, JUST THIS DAY is disabled and the scope
   auto-moves to FROM — a single-day edit cannot carry an end change.
 
+## 2026-10-27 TASKS AUTHORING PASS (#8, #19, #4 gaps, #16 — built)
+
+- **Worker task/list authoring is permission-gated.** `lib/worker-task-access.ts`
+  (pure) + `lib/worker-task-access.server.ts` mirror the guide-access pattern:
+  ADMIN/MANAGER pass; floor STAFF need `execution.tasks.create|edit|delete`.
+  List create accepts CREATE **or** EDIT (the admin route has always used
+  `.edit`); list edit/activate = EDIT; deletes = DELETE. `GET /api/worker/tasks`
+  returns an additive `access` object and `/w/tasks` passes the same flags from
+  the server, so EDIT MODE and every action use grants, not the role alone.
+- **Direct add-to-list.** The worker checklist editor has `+ CREATE NEW TASK`
+  (opens the task modal pre-scoped to the list's department/section). SAVE
+  appends the returned id to the live selection, refreshes the edit data, and
+  keeps the list open. The task persists even if the list is cancelled; the
+  editor says so. Selected list rows also have EDIT.
+- **TaskGuide parity.** The worker competency picker now sends
+  `competencyGuideIds` and the worker POST/PUT write
+  `TaskGuide.isRequiredForCompetency` (same junction as admin). The legacy
+  `requiredTrainingIds` field is still accepted but treated as an alias for
+  Guide ids (it always carried Guide ids from the old worker picker); it no
+  longer writes `TaskRequiredTraining`/`TrainingModule`. Those legacy rows are
+  never read, written or deleted by the worker. Edit-mode rows show linked guide
+  titles + the task ON/OFF toggle.
+- **List parity.** New `POST/DELETE /api/worker/checklists/[id]/activate`
+  mirrors the admin activation, and the worker list editor offers
+  ACTIVATE NOW / DEACTIVATE. List POST/PUT validate every `taskId` belongs to
+  the worker's venue (deduped).
+- **`?edit=1` scope.** `GET /api/worker/tasks?edit=1` now requires an authoring
+  grant and returns every non-deleted task in the venue (admin parity),
+  including `taskGuides.guide`.
+- **#19 — live available-task filter.** The admin left list hides tasks in the
+  live `clSelected` set (not the `clEditing.tasks` snapshot), works for a brand
+  new list (`clEditing === 'new'`), and the usage filter resets to `nolist` on
+  close/save.
+- **#4 gaps closed.** `DELETE /api/admin/tasks/[id]/progress` (guard
+  `execution.tasks.edit`) clears a stale `TaskProgress` row; the admin task row
+  shows `IN PROGRESS · <name>` + CLEAR. Report totals are DONE-only:
+  `lib/report-filters.ts` builds `{ all, done }`, `/api/admin/reports` returns
+  `total` (DONE) and `recordsTotal` (all outcomes for the list/pagination), and
+  the page labels them separately. Chrome is tested in
+  `WorkerDashboardClient.test.tsx` (bottom bar hides on `worker-immersive`;
+  browser back re-arms `/w/dashboard`).
+- **#16 scroll/state.** `TasksClient` keeps the window + sticky-panel scroll in
+  `sessionStorage` (`hospo-tasks-scroll:*`) and restores it on mount. Scoped to
+  the Tasks page; no SPA rewrite.
+
 ## FUTURE INTEGRATION STUBS
 
 | Stub | Location | Phase |
@@ -2582,7 +2628,12 @@ pushing, run: `npm run lint && npm run test`.
 | `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |
 | `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (19 tests) |
-| `WorkerTasksClient.tsx` — dual early-return paths, outcome choices, PARTIAL/in-progress, handled section | ✅ (9 tests) |
+| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, handled section, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation | ✅ (14 tests) |
+| `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, scroll restore | ✅ (5 tests) |
+| `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard | ✅ (2 tests) |
+| `lib/worker-task-access.ts` — grant matrix (ADMIN/MANAGER bypass, CREATE/EDIT/DELETE, list OR mapping) | ✅ (6 tests) |
+| `lib/task-guides.ts` — competency ids with legacy `requiredTrainingIds` alias | ✅ (4 tests) |
+| `lib/report-filters.ts` — DONE-only completion metric vs all-outcome audit where | ✅ (4 tests) |
 | `OutcomeOptions.tsx` — DONE-always, outcome toggles, reason toggle, inherit/override | ✅ (4 tests) |
 | `FloorplanInspector.tsx` — presets, sliders, booth capacity | ✅ |
 | `FloorplanToolbar.tsx` — zoom, DIM toggle | ✅ |

@@ -27,6 +27,7 @@ interface Department { id: string; name: string; venueId: string }
 export function ReportsClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [completions, setCompletions] = useState<Completion[]>([])
   const [total, setTotal] = useState(0)
+  const [recordsTotal, setRecordsTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
   const [loading, setLoading] = useState(true)
@@ -52,6 +53,7 @@ export function ReportsClient({ role, sessionVenueId, defaultVenueId }: { role: 
     const data = await r.json()
     setCompletions(data.completions)
     setTotal(data.total)
+    setRecordsTotal(data.recordsTotal ?? data.total)
     setPages(data.pages)
     setPage(p)
     setLoading(false)
@@ -135,7 +137,8 @@ export function ReportsClient({ role, sessionVenueId, defaultVenueId }: { role: 
       </div>
 
       <div className="font-mono text-xs text-grey-light">
-        {total} RECORD{total !== 1 ? 'S' : ''} FOUND
+        {total} COMPLETION{total !== 1 ? 'S' : ''} (DONE ONLY)
+        {recordsTotal !== total && ` · ${recordsTotal} TOTAL RECORD${recordsTotal !== 1 ? 'S' : ''} (INCL. NOT DONE)`}
       </div>
 
       {loading ? (

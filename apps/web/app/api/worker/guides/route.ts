@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWorkerSession } from '@/lib/worker-session'
 import { resolveStaffGuides } from '@/lib/guides'
 import { workerGuideAccess } from '@/lib/worker-guide-access'
+import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { prisma } from '@hospo-ops/db'
 import {
   cleanBodyHtml,
@@ -17,10 +18,15 @@ export async function GET(req: NextRequest) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Manager/admin editing tasks — return all guides for the venue (lite form).
+  // Task authoring (or guide authoring) — return all guides for the venue
+  // (lite form) so competency links can be picked on the phone.
   if (req.nextUrl.searchParams.get('edit') === '1') {
-    if (session.role !== 'ADMIN' && session.role !== 'MANAGER') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const taskAccess = await workerTaskAccess(session)
+    if (!taskAccess.canAuthor) {
+      const guideAccess = await workerGuideAccess(session)
+      if (!guideAccess.canEdit) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
     }
     const guides = await prisma.guide.findMany({
       where: { venueId: session.venueId, deletedAt: null },

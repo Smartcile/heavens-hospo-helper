@@ -31,8 +31,15 @@ Wave B.
 Bulk clear, worker default weekly view, no-refresh/scroll preservation. Touches
 availability UI, so it runs after Wave A.
 
-### Wave C — `wave/tasks-authoring` (#8, #19)
-Direct add-to-list and the stale left-hand available-task list.
+### Wave C — `wave/tasks-authoring` (#8, #19, plus #4 gaps and #16 tasks scope)
+Direct add-to-list, permission-gated worker authoring, the stale left-hand
+available-task list, stale PARTIAL clear + DONE-only report totals + chrome
+tests (#4 gaps), and Tasks-page scroll preservation (#16, TasksClient only).
+
+Status 2026-10-27: implemented on `wave/tasks-authoring` (commit pending review).
+New API: `POST/DELETE /api/worker/checklists/[id]/activate`,
+`DELETE /api/admin/tasks/[id]/progress`. Permissions reuse
+`execution.tasks.create|edit|delete` (list create = CREATE or EDIT).
 
 ### Singles
 | Branch | Issue | Area |
@@ -44,7 +51,9 @@ Direct add-to-list and the stale left-hand available-task list.
 
 ### Verification only (no worktree unless gaps found)
 - #3 — roster drag/drop admin-only, confirmation, series prompt.
-- #4 — task outcomes, worker chrome, back-button guard.
+- #4 — task outcomes, worker chrome, back-button guard. **Gaps fixed in Wave C:**
+  admin clear for stale `TaskProgress`, DONE-only report totals, automated chrome
+  / history-guard test.
 
 ## Open issue inventory
 
