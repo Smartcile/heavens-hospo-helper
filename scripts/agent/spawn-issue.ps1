@@ -1,7 +1,7 @@
 [CmdletBinding(DefaultParameterSetName = "Single")]
 param(
   [Parameter(Mandatory = $true, ParameterSetName = "Single")][int]$Issue,
-  [Parameter(Mandatory = $true, ParameterSetName = "Group")][int[]]$Issues,
+  [Parameter(Mandatory = $true, ParameterSetName = "Group")][string]$Issues,
   [string]$Name = "",
   [string]$WorktreeRoot = "",
   [switch]$SkipInstall,
@@ -54,7 +54,12 @@ Require-Command git
 Require-Command gh
 
 if ($PSCmdlet.ParameterSetName -eq "Group") {
-  $issueNumbers = @($Issues | Select-Object -Unique)
+  $issueNumbers = @(
+    $Issues -split "[,\s]+" |
+      Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+      ForEach-Object { [int]$_ } |
+      Select-Object -Unique
+  )
 } else {
   $issueNumbers = @($Issue)
 }

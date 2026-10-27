@@ -2,6 +2,8 @@
 
 One issue = one branch = one worktree = one worker session. Related issues can share one wave. GitHub is the source of truth.
 
+For the copy-paste activation prompt for a new session, see `NEXT-SESSION.md`.
+
 Everything here is used from the OpenCode Desktop chat. No terminal or CLI is required. The agents run the scripts for you.
 
 Type `/workflow` at any time to show these steps again.
@@ -59,7 +61,7 @@ Use this for 2-4 related issues that share files or a user flow. Do not group un
 
 1. `/triage-group 12 13 14` - one combined plan, every title cleaned up, each issue labelled `agent:planned`.
 2. You review the plan and add `agent:approved` to every issue.
-3. `/spawn-group 12 13 14 availability approvals` - one worktree and branch for the group.
+3. `/spawn-group 12 13 14 availability approvals` - one worktree and branch for the group. Pass the issue numbers as a comma-separated list to the script (`-Issues "12,13,14"`).
 4. Open the worktree in OpenCode Desktop, select `implementer`, and say: `Read .agent/TASK.md and implement it.`
 5. `@reviewer review the diff for the issues in .agent/ISSUES`.
 6. Run `/screenshot <lead-issue>` if you want a visual check.
@@ -83,6 +85,8 @@ The agent:
 5. posts it as a comment on the issue.
 
 For authenticated pages, set `AGENT_SCREENSHOT_EMAIL` and `AGENT_SCREENSHOT_PASSWORD` in `apps/web/.env.local`.
+
+Authenticated screenshots also need the local Postgres database running. If the database is down, the login step fails before the screenshot is captured; do not merge the screenshot gate silently — record the blocker or run `/screenshot` again once the database is up.
 
 Limits:
 - Headless Chrome cannot reproduce iOS Safari's focus zoom. For iOS-only CSS, take a real iPhone screenshot manually.

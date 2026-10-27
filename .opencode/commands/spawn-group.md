@@ -11,7 +11,7 @@ Normalize the issue numbers to a comma-separated list before running the script 
 Use your bash tool to run:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent/spawn-issue.ps1 -Issues $ARGUMENTS -Name "<short wave name>"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent/spawn-issue.ps1 -Issues "12,13,14" -Name "<short wave name>"
 ```
 
 Before running, confirm:
