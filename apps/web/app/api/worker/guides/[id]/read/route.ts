@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWorkerSession } from '@/lib/worker-session'
 import { workerGuideAccess } from '@/lib/worker-guide-access'
 import { resolveStepLinks } from '@/lib/guide-links.server'
+import { loadStepAnnotations, stepAnnotationsFor } from '@/lib/guides.server'
 import { loadMenuItemIndex } from '@/lib/reference-table.server'
 import { prisma } from '@hospo-ops/db'
 
@@ -34,9 +35,10 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   // One batched resolve for the whole guide (mirrors the admin route).
   const allLinks = guide.steps.flatMap((s) => s.links)
-  const [resolved, menuIndex] = await Promise.all([
+  const [resolved, menuIndex, annotationByStep] = await Promise.all([
     resolveStepLinks(allLinks),
     loadMenuItemIndex(guide.tableRows.map((r) => r.menuItemId)),
+    loadStepAnnotations(guide.steps.map((s) => s.id)),
   ])
   const byId = new Map(resolved.map((l) => [l.id, l]))
 
@@ -45,6 +47,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
     steps: guide.steps.map((s) => ({
       ...s,
       links: s.links.map((l) => byId.get(l.id)).filter(Boolean),
+      imageAnnotations: stepAnnotationsFor(annotationByStep, s.id),
     })),
     tableRows: guide.tableRows.map((r) => ({
       ...r,

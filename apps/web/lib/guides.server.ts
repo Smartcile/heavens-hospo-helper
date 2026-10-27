@@ -9,6 +9,11 @@ import { prisma } from '@hospo-ops/db'
 import { STEP_LINK_KINDS, type StepLinkKind } from '@/lib/guide-links'
 import { mergeStepImages } from '@/lib/guide-media'
 import { isGuideType, type GuideType } from '@/lib/guide-types'
+import {
+  guideStepUsageKey,
+  normaliseAnnotation,
+  type ImageAnnotationLayer,
+} from '@/lib/image-annotations'
 import { sanitiseCells, sanitiseColumns, type ReferenceColumn } from '@/lib/reference-table'
 import { sanitiseRichText } from '@/lib/rich-text'
 
@@ -42,6 +47,51 @@ export interface GuideAudienceInput {
 
 export function guideTypeValue(value: unknown): GuideType | null {
   return isGuideType(value) ? value : null
+}
+
+const STEP_ANNOTATION_PREFIX = 'guide-step:'
+
+/**
+ * Batched annotation layers for a set of guide step ids — one query for the
+ * whole guide, never one per step.
+ *
+ * Only `guide-step:<id>` usages are returned. `guide-row:<id>:<col>` layers
+ * belong to product-reference tables and the bare `guide-level` key to another
+ * surface; neither can be attached to a reader step, so they are ignored.
+ * Soft-deleted layers are excluded (the reader must match the annotator, which
+ * revives a layer on save). Steps without a layer are absent from the map.
+ */
+export async function loadStepAnnotations(
+  stepIds: readonly string[],
+): Promise<Map<string, ImageAnnotationLayer[]>> {
+  const ids = [...new Set(stepIds.filter((id): id is string => typeof id === 'string' && !!id))]
+  if (ids.length === 0) return new Map()
+
+  const rows = await prisma.imageAnnotation.findMany({
+    where: { usageKey: { in: ids.map(guideStepUsageKey) }, deletedAt: null },
+    select: { usageKey: true, imageUrl: true, data: true },
+  })
+
+  const idSet = new Set(ids)
+  const byStep = new Map<string, ImageAnnotationLayer[]>()
+  for (const row of rows) {
+    if (!row.usageKey.startsWith(STEP_ANNOTATION_PREFIX)) continue
+    const stepId = row.usageKey.slice(STEP_ANNOTATION_PREFIX.length)
+    // Guard against a `guide-step:` key that was not one of the ids we asked for.
+    if (!idSet.has(stepId)) continue
+    const list = byStep.get(stepId) ?? []
+    list.push({ imageUrl: row.imageUrl, data: normaliseAnnotation(row.data) })
+    byStep.set(stepId, list)
+  }
+  return byStep
+}
+
+/** Layers for one step; a stable empty array when it has none. */
+export function stepAnnotationsFor(
+  byStep: ReadonlyMap<string, ImageAnnotationLayer[]>,
+  stepId: string,
+): ImageAnnotationLayer[] {
+  return byStep.get(stepId) ?? []
 }
 
 /**
