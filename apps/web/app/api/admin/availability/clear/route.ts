@@ -47,6 +47,11 @@ export async function POST(req: NextRequest) {
     { todayKey: formatDateKey(new Date()), lockDays: 0, bypass: true },
   )
 
-  if ('error' in out) return NextResponse.json({ error: out.error }, { status: 400 })
+  if ('error' in out) {
+    return NextResponse.json(
+      { error: out.error, ...(out.locked ? { locked: out.locked } : {}) },
+      { status: out.locked ? 409 : 400 },
+    )
+  }
   return NextResponse.json({ mode: out.mode, skipped: out.skipped })
 }

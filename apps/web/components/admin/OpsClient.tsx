@@ -8,6 +8,7 @@ import { MenusClient } from '@/components/admin/MenusClient'
 import { ServicesClient } from '@/components/admin/ServicesClient'
 import { BookingClient } from '@/app/admin/(protected)/bookings/BookingClient'
 import { OrdersClient } from '@/app/admin/(protected)/orders/OrdersClient'
+import { KitchenDocketsClient } from '@/components/admin/KitchenDocketsClient'
 import { CustomersClient } from '@/app/admin/(protected)/customers/CustomersClient'
 import { InventoryClient } from '@/app/admin/(protected)/inventory/InventoryClient'
 import { PantryBibleClient } from '@/components/admin/PantryBibleClient'
@@ -44,7 +45,8 @@ export function OpsClient({ role, sessionVenueId, defaultVenueId }: OpsClientPro
         {area === 'menu' && sub === 'menus' && <MenusClient {...venueProps} />}
         {area === 'menu' && sub === 'services' && <ServicesClient {...venueProps} />}
         {area === 'bookings' && <BookingClient {...venueProps} sub={sub} />}
-        {area === 'orders' && <OrdersClient {...venueProps} sub={sub} />}
+        {area === 'orders' && sub === 'dockets' && <KitchenDocketsClient {...venueProps} />}
+        {area === 'orders' && sub !== 'dockets' && <OrdersClient {...venueProps} sub={sub} />}
         {area === 'customers' && <CustomersClient {...venueProps} />}
         {area === 'inventory' && sub === 'inventory' && <InventoryClient {...venueProps} />}
         {area === 'inventory' && sub === 'pantry' && <PantryBibleClient {...venueProps} />}

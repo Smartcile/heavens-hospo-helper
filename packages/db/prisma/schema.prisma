@@ -307,6 +307,9 @@ model Venue {
   // Custom morning/afternoon/evening quick-pick windows for the worker
   // availability editor: [{ key, label, startTime, endTime }]. Null = defaults.
   availabilityPresets    Json?
+  // Worker phone-session inactivity timeout in minutes. Null / 0 = fall back
+  // to the WORKER_SESSION_EXPIRY_MINUTES env. Clamped to 5–480 on read/write.
+  workerSessionTimeoutMinutes Int?  @default(15)
   // Geo-fence for timeclock punches (centre point + allowed radius in metres).
   // Null means geo-fencing is off for this venue.
   geoLat                 Float?
@@ -337,6 +340,7 @@ model Venue {
   openShifts          OpenShift[]
   openShiftClaims     OpenShiftClaim[]
   sections            Section[]
+  sectionWorkReviews  SectionWorkReview[]
   followUps           FollowUp[]
   checklists          Checklist[]
   floorPlans          FloorPlan[]
@@ -470,6 +474,8 @@ model Staff {
   availabilities       StaffAvailability[]
   noticeAcks           NoticeAck[]
   sections             StaffSection[]
+  sectionWorkReviews   SectionWorkReview[] @relation("SectionWorkStaff")
+  reviewedSectionWorkReviews SectionWorkReview[] @relation("SectionWorkReviewer")
   followUps            FollowUp[]
   stocktakeCompletions StocktakeRecord[]    @relation("stocktakeCompletedBy")
   stocktakeAssignments StocktakeRecord[]    @relation("stocktakeAssignedTo")
@@ -1260,6 +1266,13 @@ model StaffAvailability {
   reviewNote    String? // manager's note on approve/decline
   reviewedById  String?
   reviewedAt    DateTime?
+  // Day-level lock. Set manually by a manager (via the day editor) or
+  // automatically when a manager approves a declaration / applies an edit
+  // request. Worker saves/clears touching a locked day become edit requests;
+  // admin writes skip locked days until they are unlocked. Notes stay editable.
+  lockedAt      DateTime?
+  lockedById    String?
+  lockedReason  String?
   // Weekly series membership (materialised occurrences share this id).
   seriesId      String?
   seriesEndDate DateTime?          @db.Date // last occurrence; null = no end
@@ -1681,6 +1694,7 @@ model Section {
   department        Department         @relation(fields: [departmentId], references: [id])
   tasks             Task[]
   staff             StaffSection[]
+  sectionWorkReviews SectionWorkReview[]
   resources         ResourceSection[]
   checklists        Checklist[]
   floorPlanElements FloorPlanElement[]
@@ -1695,6 +1709,49 @@ model Section {
 
   @@index([venueId])
   @@index([departmentId])
+}
+
+enum SectionWorkStatus {
+  PENDING
+  CONFIRMED
+  DISMISSED
+}
+
+enum SectionWorkSource {
+  GUIDES
+  PATHWAY
+}
+
+// The manager gate between "finished this section's training" and "worked in
+// this section". A PENDING or DISMISSED review is NOT a grant — only CONFIRM
+// writes a StaffSection row. One row per staff + section; reconcile revives a
+// DISMISSED row only when the qualifying evidence set actually changes.
+model SectionWorkReview {
+  id           String            @id @default(uuid())
+  venueId      String
+  staffId      String
+  sectionId    String
+  source       SectionWorkSource @default(GUIDES)
+  pathwayId    String?
+  status       SectionWorkStatus @default(PENDING)
+  // Stable signature: sorted completed section-guide ids and/or a pathway id.
+  // Comparing this stops a dismissed review re-nagging on every page load.
+  evidence     String?
+  requestedAt  DateTime          @default(now())
+  reviewedById String?
+  reviewedAt   DateTime?
+  note         String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  deletedAt    DateTime?
+
+  venue      Venue   @relation(fields: [venueId], references: [id])
+  staff      Staff   @relation("SectionWorkStaff", fields: [staffId], references: [id], onDelete: Cascade)
+  section    Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  reviewedBy Staff?  @relation("SectionWorkReviewer", fields: [reviewedById], references: [id])
+
+  @@unique([staffId, sectionId])
+  @@index([venueId, status])
 }
 
 // Staff ⇄ Section (a person can work many sections).

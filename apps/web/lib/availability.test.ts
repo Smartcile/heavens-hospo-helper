@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   addWindow,
+  approvalLockFields,
   autoComplement,
   availabilityMeta,
   availabilityState,
@@ -21,6 +22,7 @@ import {
   initialStatus,
   isCasual,
   isDateLocked,
+  isEntryLocked,
   isFreeAt,
   isPastCutoff,
   isPastDate,
@@ -69,9 +71,31 @@ function entry(over: Partial<AvailabilityEntry> = {}): AvailabilityEntry {
     reviewNote: null,
     seriesId: null,
     seriesEndDate: null,
+    lockedAt: null,
+    lockedById: null,
+    lockedReason: null,
     ...over,
-  }
+  } as AvailabilityEntry
 }
+
+describe('approvalLockFields', () => {
+  it('locks on APPROVE and never on DECLINE', () => {
+    const at = new Date('2026-10-20T01:00:00.000Z')
+    expect(approvalLockFields(true, 'admin1', at)).toEqual({
+      lockedAt: at, lockedById: 'admin1', lockedReason: null,
+    })
+    expect(approvalLockFields(false, 'admin1', at)).toEqual({})
+  })
+})
+
+describe('isEntryLocked', () => {
+  it('treats a day-level lock timestamp as locked and a missing lock as unlocked', () => {
+    expect(isEntryLocked(entry({ lockedAt: '2026-10-20T01:00:00.000Z', lockedById: 'm1' }))).toBe(true)
+    expect(isEntryLocked(entry({ lockedAt: null }))).toBe(false)
+    expect(isEntryLocked(null)).toBe(false)
+    expect(isEntryLocked(undefined)).toBe(false)
+  })
+})
 
 describe('isCasual', () => {
   it('detects casual regardless of case', () => {

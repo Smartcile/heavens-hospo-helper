@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fillRect, fillTargets, inFillRect } from '@/lib/cell-fill'
+import { dayRange, fillRect, fillTargets, inFillRect, toggleSelection } from '@/lib/cell-fill'
 
 describe('fillRect', () => {
   it('orders the bounds regardless of drag direction', () => {
@@ -58,5 +58,29 @@ describe('fillTargets', () => {
 
   it('returns nothing for a single-cell rect', () => {
     expect(fillTargets({ row: 5, col: 5 }, fillRect({ row: 5, col: 5 }, { row: 5, col: 5 }))).toEqual([])
+  })
+})
+
+describe('dayRange', () => {
+  it('returns an inclusive range', () => {
+    expect(dayRange(2, 4)).toEqual([2, 3, 4])
+    expect(dayRange(2, 2)).toEqual([2])
+  })
+
+  it('works backwards and never goes below zero', () => {
+    expect(dayRange(4, 2)).toEqual([2, 3, 4])
+    expect(dayRange(-3, 1)).toEqual([0, 1])
+  })
+})
+
+describe('toggleSelection', () => {
+  it('adds and removes without mutating the source', () => {
+    const first = new Set<string>(['a'])
+    const added = toggleSelection(first, 'b')
+    expect([...added].sort()).toEqual(['a', 'b'])
+    expect([...first]).toEqual(['a'])
+
+    const removed = toggleSelection(added, 'a')
+    expect([...removed]).toEqual(['b'])
   })
 })

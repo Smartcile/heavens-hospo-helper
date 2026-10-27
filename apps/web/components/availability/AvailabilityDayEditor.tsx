@@ -91,10 +91,13 @@ export function AvailabilityDayEditor({
   presets,
   canOverride = false,
   initialScope = 'THIS',
+  allowSeriesScope = true,
   busy = false,
   error,
   onSave,
   onClear,
+  onSaveNote,
+  onToggleLock,
   onClose,
 }: {
   dateKey: string
@@ -103,10 +106,16 @@ export function AvailabilityDayEditor({
   presets: AvailabilityPreset[]
   canOverride?: boolean
   initialScope?: AvailabilityScope
+  /** Workers never get FROM/ALL (a series edit detaches just the clicked day). */
+  allowSeriesScope?: boolean
   busy?: boolean
   error?: string | null
   onSave: (draft: EditorDraft, options: EditorSaveOptions) => void
   onClear: (options: { scope: AvailabilityScope | null; reason: string | null }) => void
+  /** Notes-only PATCH — works on locked/past days, applies immediately. */
+  onSaveNote?: (notes: string | null) => void
+  /** Admin only: set/clear the day-level lock (optional reason). */
+  onToggleLock?: (locked: boolean, reason: string | null) => void
   onClose: () => void
 }) {
   const [isAllDay, setIsAllDay] = useState(entry ? entry.isAllDay : true)
@@ -122,9 +131,12 @@ export function AvailabilityDayEditor({
     series && series.endDate ? weeksForSeries(series.startDate, series.endDate) : 2,
   )
   const [changeSeriesEnd, setChangeSeriesEnd] = useState(false)
-  const [scope, setScope] = useState<AvailabilityScope>(initialScope)
+  const [scope, setScope] = useState<AvailabilityScope>(allowSeriesScope ? initialScope : 'THIS')
+  const [lockReason, setLockReason] = useState('')
 
   const partition = windowsArePartition(windows)
+  const managerLocked = !!entry?.lockedAt
+  const adminReadOnly = managerLocked && canOverride
   const locked = !!entry && entry.status === 'APPROVED' && !canOverride
     && (entry.timeOff || entry.type === 'UNAVAILABLE')
   const status = entry ? statusMeta(entry.status) : null
@@ -173,10 +185,26 @@ export function AvailabilityDayEditor({
       notes: note.trim() || null,
     }
     onSave(draft, {
-      repeat: currentRepeat(),
-      scope: series ? scope : null,
+      // A worker series edit is always THIS: the server detaches the day and
+      // later occurrences are never touched. A series-end change is hidden —
+      // but a worker still repeats a brand-new non-series day as usual.
+      repeat: series && !allowSeriesScope ? null : currentRepeat(),
+      scope: series ? (allowSeriesScope ? scope : 'THIS') : null,
       reason: note.trim() || null,
     })
+  }
+
+  function saveNote() {
+    onSaveNote?.(note.trim() || null)
+  }
+
+  function toggleLock() {
+    if (!onToggleLock) return
+    if (managerLocked) {
+      onToggleLock(false, null)
+    } else {
+      onToggleLock(true, lockReason.trim() || null)
+    }
   }
 
   return (
@@ -201,14 +229,23 @@ export function AvailabilityDayEditor({
       {entry?.reviewNote && (
         <p className="font-mono text-2xs uppercase text-grey-light border-l border-grey-mid pl-2">MANAGER: {entry.reviewNote}</p>
       )}
-      {locked && (
+      {managerLocked && (
+        <p className="font-mono text-2xs uppercase text-warning border border-warning/60 bg-warning/10 px-2 py-1.5">
+          {canOverride
+            ? '🔒 LOCKED — UNLOCK TO EDIT. THE NOTE IS STILL EDITABLE.'
+            : '🔒 LOCKED BY A MANAGER — YOUR CHANGES WILL BE SENT AS A REQUEST.'}
+          {entry?.lockedReason ? ` REASON: ${entry.lockedReason}` : ''}
+        </p>
+      )}
+      {locked && !managerLocked && (
         <p className="font-mono text-2xs uppercase text-warning border border-warning/50 bg-warning/10 px-2 py-1.5">
           CONFIRMED BY A MANAGER — CHANGES HERE ARE SENT AS AN EDIT REQUEST
         </p>
       )}
 
+      <fieldset disabled={adminReadOnly} className="m-0 min-w-0 space-y-4 border-0 p-0">
       {/* All-day */}
-      <div className="border border-grey-mid p-3 space-y-3">
+      <div className={`border border-grey-mid p-3 space-y-3 ${adminReadOnly ? 'opacity-60' : ''}`}>
         <ToggleCheck
           checked={isAllDay}
           onChange={(v) => setIsAllDay(v)}
@@ -321,19 +358,21 @@ export function AvailabilityDayEditor({
                   : 'NO END DATE'}
               </span>
             </div>
-            <ToggleCheck
-              checked={changeSeriesEnd}
-              onChange={(v) => {
-                setChangeSeriesEnd(v)
-                if (v) {
-                  const nextScope = scope === 'THIS' ? 'FROM' : scope
-                  setScope(nextScope)
-                  if (series.endDate) setWeeks(weeksForSeries(nextScope === 'FROM' ? dateKey : series.startDate, series.endDate))
-                }
-              }}
-              label="CHANGE SERIES END"
-            />
-            {changeSeriesEnd && (
+            {allowSeriesScope && (
+              <ToggleCheck
+                checked={changeSeriesEnd}
+                onChange={(v) => {
+                  setChangeSeriesEnd(v)
+                  if (v) {
+                    const nextScope = scope === 'THIS' ? 'FROM' : scope
+                    setScope(nextScope)
+                    if (series.endDate) setWeeks(weeksForSeries(nextScope === 'FROM' ? dateKey : series.startDate, series.endDate))
+                  }
+                }}
+                label="CHANGE SERIES END"
+              />
+            )}
+            {allowSeriesScope && changeSeriesEnd && (
               <div className="space-y-2">
                 <ToggleCheck checked={noEnd} onChange={setNoEnd} label="NO END DATE" hint="REPEATS WEEKLY FOREVER (MATERIALISED 2 YEARS AHEAD)" />
                 {!noEnd && (
@@ -374,8 +413,17 @@ export function AvailabilityDayEditor({
         )}
       </div>
 
-      {/* Series scope */}
-      {series && (
+      {/* Series scope — workers only ever get THIS (a detached day). */}
+      {series && !allowSeriesScope && (
+        <div className="border border-grey-mid p-3 space-y-1">
+          <div className="label">THIS CHANGE APPLIES TO</div>
+          <p className="font-mono text-xs uppercase text-white">JUST THIS DAY</p>
+          <p className="font-mono text-2xs uppercase text-grey-mid">
+            THIS DAY LEAVES THE SERIES — LATER DAYS ARE UNCHANGED.
+          </p>
+        </div>
+      )}
+      {series && allowSeriesScope && (
         <div className="border border-grey-mid p-3 space-y-2">
           <div className="label">THIS CHANGE APPLIES TO</div>
           <div className="grid grid-cols-3 gap-2">
@@ -425,34 +473,79 @@ export function AvailabilityDayEditor({
           hint="LABELS THIS AS LEAVE — YOUR MANAGER CHECKS IT FOR LEAVE PAY"
         />
       </div>
+      </fieldset>
 
-      {/* Note */}
-      <input
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        placeholder="NOTE FOR THE MANAGER (OPTIONAL)"
-        className="field w-full"
-      />
+      {/* Note — always editable, even on a locked/past day. */}
+      <div className="space-y-2">
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="NOTE FOR THE MANAGER (OPTIONAL)"
+          className="field w-full"
+        />
+        {managerLocked && onSaveNote && (
+          <button
+            type="button"
+            onClick={saveNote}
+            disabled={busy}
+            className="h-9 px-3 border border-accent text-accent font-mono text-xs uppercase hover:bg-accent hover:text-black transition-colors disabled:opacity-40"
+          >
+            SAVE NOTE
+          </button>
+        )}
+      </div>
+
+      {canOverride && onToggleLock && !managerLocked && (
+        <div className="flex items-center gap-2">
+          <input
+            value={lockReason}
+            onChange={(e) => setLockReason(e.target.value)}
+            placeholder="LOCK REASON (OPTIONAL)"
+            aria-label="Lock reason"
+            className="field flex-1"
+          />
+          <button
+            type="button"
+            onClick={toggleLock}
+            disabled={busy}
+            className="h-9 px-3 border border-warning text-warning font-mono text-xs uppercase hover:bg-warning hover:text-black transition-colors disabled:opacity-40"
+          >
+            LOCK
+          </button>
+        </div>
+      )}
 
       {error && <p className="font-mono text-xs text-danger">{error}</p>}
 
       <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={save}
-          disabled={busy}
-          className="flex-1 h-12 bg-white text-black font-mono font-bold text-sm uppercase tracking-widest hover:bg-accent transition-colors disabled:opacity-40"
-        >
-          {busy ? 'SAVING_' : locked ? 'SAVE (ASKS A MANAGER)' : 'SAVE'}
-        </button>
-        {entry && (
+        {!adminReadOnly && (
           <button
             type="button"
-            onClick={() => onClear({ scope: series ? scope : null, reason: note.trim() || null })}
+            onClick={save}
+            disabled={busy}
+            className="flex-1 h-12 bg-white text-black font-mono font-bold text-sm uppercase tracking-widest hover:bg-accent transition-colors disabled:opacity-40"
+          >
+            {busy ? 'SAVING_' : managerLocked ? 'SEND CHANGE REQUEST' : locked ? 'SAVE (ASKS A MANAGER)' : 'SAVE'}
+          </button>
+        )}
+        {!adminReadOnly && entry && (
+          <button
+            type="button"
+            onClick={() => onClear({ scope: series ? (allowSeriesScope ? scope : 'THIS') : null, reason: note.trim() || null })}
             disabled={busy}
             className="h-12 px-4 border border-danger text-danger font-mono font-bold text-sm uppercase hover:bg-danger hover:text-black transition-colors disabled:opacity-40"
           >
             CLEAR
+          </button>
+        )}
+        {adminReadOnly && onToggleLock && (
+          <button
+            type="button"
+            onClick={toggleLock}
+            disabled={busy}
+            className="flex-1 h-12 border border-success text-success font-mono font-bold text-sm uppercase hover:bg-success hover:text-black transition-colors disabled:opacity-40"
+          >
+            UNLOCK
           </button>
         )}
         <button

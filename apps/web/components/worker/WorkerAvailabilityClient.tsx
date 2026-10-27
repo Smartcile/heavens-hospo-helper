@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { AvailabilityBar } from '@/components/availability/AvailabilityBar'
 import { useWorkerImmersive } from '@/components/worker/useWorkerImmersive'
 import { AvailabilityDayEditor, type EditorDraft, type EditorSaveOptions } from '@/components/availability/AvailabilityDayEditor'
+import { dayRange, toggleSelection } from '@/lib/cell-fill'
 import {
   availabilityMeta,
   availabilityState,
@@ -33,6 +34,18 @@ import {
 
 const WEEKDAY_HEADS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
 const WEEKDAY_SHORT = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
+const VIEW_STORAGE_KEY = 'hospo-worker-availability-view'
+
+/** Weekly is the default; a valid choice from this session is remembered. */
+function initialView(): 'month' | 'week' {
+  if (typeof window === 'undefined') return 'week'
+  try {
+    const saved = window.sessionStorage.getItem(VIEW_STORAGE_KEY)
+    return saved === 'month' || saved === 'week' ? saved : 'week'
+  } catch {
+    return 'week'
+  }
+}
 
 interface WorkerRequest {
   id: string
@@ -61,9 +74,13 @@ export function WorkerAvailabilityClient() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [flash, setFlash] = useState('')
-  const [view, setView] = useState<'month' | 'week'>('month')
+  const [view, setView] = useState<'month' | 'week'>(initialView)
   const [data, setData] = useState<AvailabilityData | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selection, setSelection] = useState<Set<string>>(new Set())
+  const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null)
+  const [clearSelectionOpen, setClearSelectionOpen] = useState(false)
 
   useWorkerImmersive(!!selected)
 
@@ -104,6 +121,90 @@ export function WorkerAvailabilityClient() {
   const requestDates = useMemo(() => new Set((data?.requests ?? []).map((r) => r.date)), [data])
   const cells = useMemo(() => monthGrid(month.year, month.month), [month])
   const weekDays = useMemo(() => (view === 'week' ? weekKeys(weekStart) : []), [view, weekStart])
+  const orderedKeys = useMemo(
+    () => (view === 'week'
+      ? weekDays
+      : cells.filter((c) => c.inMonth && c.key).map((c) => c.key as string)),
+    [view, weekDays, cells],
+  )
+
+  useEffect(() => {
+    if (!selectMode) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setSelectMode(false)
+      setSelection(new Set())
+      setSelectionAnchor(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectMode])
+
+  function selectable(dateKey: string): boolean {
+    return canWorkerEditDate(dateKey, data?.lockDays ?? 0, today)
+  }
+
+  function changeView(next: 'month' | 'week') {
+    setView(next)
+    clearSelection()
+    try { window.sessionStorage.setItem(VIEW_STORAGE_KEY, next) } catch { /* private mode */ }
+  }
+
+  function goMonth(next: { year: number; month: number }) {
+    setMonth(next)
+    clearSelection()
+  }
+
+  function goWeek(next: string) {
+    setWeekStart(next)
+    clearSelection()
+  }
+
+  // Range/view changes clear the selected days but keep SELECT MODE active,
+  // so a mobile user can move on and pick another range.
+  function clearSelection() {
+    setSelection(new Set())
+    setSelectionAnchor(null)
+  }
+
+  function cancelSelection() {
+    setSelectMode(false)
+    clearSelection()
+  }
+
+  function selectDay(dateKey: string, range = false) {
+    if (!selectable(dateKey)) return
+    setSelection((prev) => {
+      if (range && selectionAnchor) {
+        const from = orderedKeys.indexOf(selectionAnchor)
+        const to = orderedKeys.indexOf(dateKey)
+        if (from >= 0 && to >= 0) {
+          const next = new Set(prev)
+          for (const idx of dayRange(from, to)) {
+            const key = orderedKeys[idx]
+            if (selectable(key)) next.add(key)
+          }
+          return next
+        }
+      }
+      return toggleSelection(prev, dateKey)
+    })
+    setSelectionAnchor(dateKey)
+  }
+
+  function onDayClick(e: React.MouseEvent, dateKey: string) {
+    if (e.shiftKey) {
+      e.preventDefault()
+      setSelectMode(true)
+      selectDay(dateKey, true)
+      return
+    }
+    if (selectMode) {
+      selectDay(dateKey)
+      return
+    }
+    pick(dateKey)
+  }
 
   function pick(dateKey: string) {
     const locked = !canWorkerEditDate(dateKey, data?.lockDays ?? 0, today)
@@ -187,6 +288,60 @@ export function WorkerAvailabilityClient() {
     load()
   }
 
+  // Notes-only PATCH — applies immediately, even on a manager-locked day.
+  async function saveNote(dateKey: string, notes: string | null) {
+    const entry = entryByDate.get(dateKey)
+    if (!entry?.id) { setError('SAVE THE DAY BEFORE ADDING A NOTE'); return }
+    setSaving(true); setError('')
+    const r = await fetch(`/api/worker/availability/${entry.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes }),
+    })
+    setSaving(false)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setError((d.error ?? 'COULD NOT SAVE THE NOTE').toUpperCase())
+      return
+    }
+    setFlash('NOTE SAVED')
+    load()
+  }
+
+  // Bulk clear: one THIS-scoped POST per day with availability. Locked/approved
+  // days become edit requests server-side; past/system-locked days are blocked.
+  async function clearSelected() {
+    const dates = [...selection].filter((d) => entryByDate.has(d) && selectable(d))
+    setClearSelectionOpen(false)
+    cancelSelection()
+    if (dates.length === 0) {
+      setFlash('NOTHING TO CLEAR IN THE SELECTION')
+      return
+    }
+    setSaving(true); setError('')
+    const results = await Promise.all(dates.map((date) => {
+      const entry = entryByDate.get(date)
+      return fetch('/api/worker/availability/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, scope: 'THIS', seriesId: entry?.seriesId ?? null }),
+      })
+    }))
+    const failed = results.filter((r) => !r.ok).length
+    const bodies = await Promise.all(results.filter((r) => r.ok).map((r) => r.json().catch(() => ({}))))
+    setSaving(false)
+    const requests = bodies.filter((b) => b?.mode === 'REQUEST').length
+    const saved = bodies.filter((b) => b?.mode === 'SAVED').length
+    load()
+    if (failed > 0) {
+      setError(`${failed} DAY${failed === 1 ? '' : 'S'} FAILED TO CLEAR — THE OTHERS WERE SAVED`)
+    } else if (requests > 0) {
+      setFlash(`${requests} CHANGE REQUEST${requests === 1 ? '' : 'S'} SENT · ${saved} CLEARED`)
+    } else {
+      setFlash(`${saved} DAY${saved === 1 ? '' : 'S'} CLEARED`)
+    }
+  }
+
   if (loading || !data) {
     return <div className="min-h-screen bg-black flex items-center justify-center"><p className="font-mono text-sm text-grey-light loading-cursor">LOADING</p></div>
   }
@@ -222,7 +377,7 @@ export function WorkerAvailabilityClient() {
           {(['month', 'week'] as const).map((v) => (
             <button
               key={v}
-              onClick={() => setView(v)}
+              onClick={() => changeView(v)}
               className={`h-9 px-3 font-mono text-xs uppercase tracking-wider transition-colors ${
                 view === v ? 'bg-white text-black' : 'text-grey-light hover:text-white'
               }`}
@@ -231,17 +386,34 @@ export function WorkerAvailabilityClient() {
             </button>
           ))}
         </div>
+        {!selectMode ? (
+          <button
+            type="button"
+            onClick={() => { setSelectMode(true); setSelection(new Set()); setSelectionAnchor(null) }}
+            className="h-9 px-3 border border-grey-mid font-mono text-xs uppercase text-grey-light hover:border-white hover:text-white transition-colors"
+          >
+            SELECT DAYS
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={cancelSelection}
+            className="h-9 px-3 border border-accent font-mono text-xs uppercase text-accent hover:bg-accent hover:text-black transition-colors"
+          >
+            CANCEL SELECT
+          </button>
+        )}
         {view === 'month' ? (
           <div className="flex items-center gap-2">
-            <button onClick={() => setMonth(shiftMonth(month.year, month.month, -1))} className="font-mono text-xs text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">&lt;</button>
+            <button onClick={() => goMonth(shiftMonth(month.year, month.month, -1))} className="font-mono text-xs text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">&lt;</button>
             <span className="font-mono text-sm text-white tracking-widest uppercase">{MONTH_ABBR[month.month - 1]} {month.year}</span>
-            <button onClick={() => setMonth(shiftMonth(month.year, month.month, 1))} className="font-mono text-xs text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">&gt;</button>
+            <button onClick={() => goMonth(shiftMonth(month.year, month.month, 1))} className="font-mono text-xs text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">&gt;</button>
           </div>
         ) : (
           <div className="flex items-center gap-2">
-            <button onClick={() => setWeekStart(shiftDay(weekStart, -7))} className="font-mono text-xs text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">&lt;&lt;</button>
-            <button onClick={() => setWeekStart(mondayOf(today))} className="font-mono text-xs text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">TODAY</button>
-            <button onClick={() => setWeekStart(shiftDay(weekStart, 7))} className="font-mono text-xs text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">&gt;&gt;</button>
+            <button onClick={() => goWeek(shiftDay(weekStart, -7))} className="font-mono text-xs text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">&lt;&lt;</button>
+            <button onClick={() => goWeek(mondayOf(today))} className="font-mono text-xs text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">TODAY</button>
+            <button onClick={() => goWeek(shiftDay(weekStart, 7))} className="font-mono text-xs text-grey-light border border-grey-mid px-3 py-1.5 hover:border-white hover:text-white">&gt;&gt;</button>
           </div>
         )}
       </div>
@@ -298,14 +470,15 @@ export function WorkerAvailabilityClient() {
               const meta = availabilityMeta(availabilityState(entry), data.employmentType)
               const isToday = c.key === today
               const requested = requestDates.has(c.key)
+              const selected = selection.has(c.key)
               return (
                 <button
                   key={c.key}
-                  onClick={() => pick(c.key)}
+                  onClick={(e) => onDayClick(e, c.key!)}
                   disabled={!editable}
                   className={`bg-black min-h-[64px] flex flex-col items-start pt-1.5 px-1 gap-0.5 transition-colors ${meta.tint} ${
                     editable ? 'hover:ring-1 hover:ring-inset hover:ring-white' : 'opacity-40 cursor-not-allowed'
-                  }`}
+                  } ${selected ? 'ring-2 ring-inset ring-accent bg-accent/20' : ''}`}
                 >
                   <span className={`font-mono text-2xs ${isToday ? 'text-accent font-bold' : 'text-white'}`}>{c.day}</span>
                   {entry ? (
@@ -323,6 +496,7 @@ export function WorkerAvailabilityClient() {
                         {entry.status === 'PENDING' && <span className="font-mono text-2xs text-warning leading-none">PENDING</span>}
                         {entry.status === 'DECLINED' && <span className="font-mono text-2xs text-danger leading-none">DECLINED</span>}
                         {entry.timeOff && <span className="font-mono text-2xs text-warning leading-none">TO</span>}
+                        {entry.lockedAt && <span title={entry.lockedReason ?? 'LOCKED BY A MANAGER'} className="font-mono text-2xs text-warning leading-none">🔒</span>}
                         {entry.seriesId && <span className="font-mono text-2xs text-accent leading-none">⟳</span>}
                       </span>
                     </>
@@ -347,14 +521,15 @@ export function WorkerAvailabilityClient() {
             const isToday = d === today
             const requested = requestDates.has(d)
             const dObj = parseDay(d)
+            const selected = selection.has(d)
             return (
               <button
                 key={d}
-                onClick={() => pick(d)}
+                onClick={(e) => onDayClick(e, d)}
                 disabled={!editable}
                 className={`w-full text-left border border-grey-mid p-3 space-y-2 ${meta.tint} ${
                   editable ? 'hover:border-white' : 'opacity-40 cursor-not-allowed'
-                }`}
+                } ${selected ? 'ring-2 ring-inset ring-accent bg-accent/20' : ''}`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className={`font-mono text-xs uppercase ${isToday ? 'text-accent font-bold' : 'text-white'}`}>
@@ -365,6 +540,7 @@ export function WorkerAvailabilityClient() {
                     {entry?.timeOff && <span className="font-mono text-2xs uppercase text-warning">TIME OFF</span>}
                     {entry?.status === 'PENDING' && <span className="font-mono text-2xs uppercase text-warning">PENDING</span>}
                     {entry?.status === 'DECLINED' && <span className="font-mono text-2xs uppercase text-danger">DECLINED</span>}
+                    {entry?.lockedAt && <span title={entry.lockedReason ?? 'LOCKED BY A MANAGER'} className="font-mono text-2xs uppercase text-warning">🔒 LOCKED</span>}
                     <span className={`font-mono text-2xs uppercase ${meta.dot === 'bg-danger' ? 'text-danger' : meta.dot === 'bg-success' ? 'text-success' : 'text-grey-light'}`}>
                       {meta.label}
                     </span>
@@ -393,12 +569,72 @@ export function WorkerAvailabilityClient() {
         </div>
       )}
 
+      {/* Select-mode action bar (mobile friendly) */}
+      {selectMode && (
+        <div className="sticky bottom-0 z-30 border-t border-accent bg-black px-4 py-3 flex items-center justify-between gap-3">
+          <span className="font-mono text-xs uppercase text-accent">{selection.size} SELECTED</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={saving || selection.size === 0}
+              onClick={() => setClearSelectionOpen(true)}
+              className="h-10 px-4 border border-danger text-danger font-mono text-xs uppercase hover:bg-danger hover:text-black transition-colors disabled:opacity-40"
+            >
+              CLEAR
+            </button>
+            <button
+              type="button"
+              onClick={cancelSelection}
+              className="h-10 px-4 border border-grey-mid text-grey-light font-mono text-xs uppercase hover:border-white hover:text-white transition-colors"
+            >
+              CANCEL
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk-clear confirmation */}
+      <Modal
+        isOpen={clearSelectionOpen}
+        onClose={() => { if (!saving) setClearSelectionOpen(false) }}
+        title="CLEAR SELECTED DAYS"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="font-mono text-sm text-white uppercase">
+            CLEAR {selection.size} SELECTED DAY{selection.size === 1 ? '' : 'S'}?
+          </p>
+          <p className="font-mono text-2xs uppercase text-grey-light">
+            APPROVED OR LOCKED DAYS ARE SENT TO YOUR MANAGER AS CHANGE REQUESTS. THIS CANNOT BE UNDONE.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={saving || selection.size === 0}
+              onClick={clearSelected}
+              className="h-10 px-4 border border-danger text-danger font-mono text-xs uppercase hover:bg-danger hover:text-black transition-colors disabled:opacity-40"
+            >
+              CLEAR
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => setClearSelectionOpen(false)}
+              className="h-10 px-4 border border-grey-mid text-grey-light font-mono text-xs uppercase hover:border-white hover:text-white transition-colors disabled:opacity-40"
+            >
+              CANCEL
+            </button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Legend */}
       <div className="px-4 pb-4 flex flex-wrap items-center gap-3">
         <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-success" /><span className="font-mono text-2xs uppercase text-grey-light">Available</span></span>
         <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-danger" /><span className="font-mono text-2xs uppercase text-grey-light">Unavailable</span></span>
         <span className="flex items-center gap-1.5"><span className={`w-2 h-2 ${casual ? 'bg-warning' : 'bg-grey-mid'}`} /><span className="font-mono text-2xs uppercase text-grey-light">{casual ? 'Unset' : 'Default'}</span></span>
         <span className="font-mono text-2xs uppercase text-warning">PENDING = WAITING FOR A MANAGER</span>
+        <span className="font-mono text-2xs uppercase text-warning">🔒 = LOCKED BY A MANAGER</span>
         <span className="font-mono text-2xs uppercase text-accent">⟳ = WEEKLY SERIES</span>
       </div>
 
@@ -420,10 +656,12 @@ export function WorkerAvailabilityClient() {
             entry={selectedEntry}
             series={selectedSeries}
             presets={data.presets}
+            allowSeriesScope={false}
             busy={saving}
             error={error || null}
             onSave={save}
             onClear={clear}
+            onSaveNote={(notes) => saveNote(selected, notes)}
             onClose={() => { if (!saving) { setSelected(null); setError('') } }}
           />
         )}

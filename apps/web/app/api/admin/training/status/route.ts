@@ -18,6 +18,8 @@ export async function GET(req: NextRequest) {
       ? session.user.venueId
       : new URL(req.url).searchParams.get('venueId') || session.user.venueId
 
+  // Section reviews are fetched from /api/admin/section-work (the queue owns
+  // the lazy reconcile) — keep this endpoint to training-status only.
   const status = await trainingStatusForVenue(venueId)
   if (!status) return NextResponse.json({ error: 'Venue not found' }, { status: 404 })
   return NextResponse.json(status)

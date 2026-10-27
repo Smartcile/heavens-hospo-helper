@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { getManagerVenueId } from '@/lib/venue-scope'
 import { guardAccess } from '@/lib/permissions'
+import { approvalLockFields } from '@/lib/availability'
 import { cancelPendingAvailability } from '@/lib/availability.server'
 
 // Confirm, decline or cancel declared availability. `ids` reviews individual
@@ -50,13 +51,17 @@ export async function POST(req: NextRequest) {
     ? { id: { in: ids } }
     : { seriesId: body!.seriesId!, staffId: body!.staffId! }
 
+  // Confirming a declaration locks every approved day (a series is locked
+  // occurrence-by-occurrence). Declining never locks.
+  const approve = action === 'APPROVE'
   const result = await prisma.staffAvailability.updateMany({
     where: { ...where, venueId, deletedAt: null, status: 'PENDING' },
     data: {
-      status: action === 'APPROVE' ? 'APPROVED' : 'DECLINED',
+      status: approve ? 'APPROVED' : 'DECLINED',
       reviewedById: session.user.id,
       reviewedAt: new Date(),
       reviewNote: typeof body?.reviewNote === 'string' && body.reviewNote.trim() ? body.reviewNote.trim() : null,
+      ...approvalLockFields(approve, session.user.id),
     },
   })
 

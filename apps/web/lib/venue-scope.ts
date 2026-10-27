@@ -33,3 +33,32 @@ export function getAccessibleVenueIds(session: SessionLike): string[] {
   if (!session) return []
   return session.user.availableVenueIds ?? [session.user.venueId]
 }
+
+/**
+ * Resolve the venue a route should operate on. A MANAGER is always bound to the
+ * effective venue from the `admin-active-venue` cookie; their `requested` venue
+ * is ignored. An ADMIN must name a venue they can access (falling back to their
+ * home venue), otherwise the request is refused.
+ */
+export function resolveScopedVenueId(
+  session: SessionLike,
+  req: NextRequest,
+  requested?: string | null,
+): { venueId: string } | { error: 'FORBIDDEN' } {
+  if (!session) return { error: 'FORBIDDEN' }
+
+  if (session.user.role === 'MANAGER') {
+    const venueId = getManagerVenueId(session, req)
+    return venueId ? { venueId } : { error: 'FORBIDDEN' }
+  }
+
+  const venueId = String(
+    requested || req.nextUrl.searchParams.get('venueId') || session.user.venueId,
+  ).trim()
+  if (!venueId) return { error: 'FORBIDDEN' }
+
+  const accessible = getAccessibleVenueIds(session)
+  if (!accessible.includes(venueId)) return { error: 'FORBIDDEN' }
+
+  return { venueId }
+}

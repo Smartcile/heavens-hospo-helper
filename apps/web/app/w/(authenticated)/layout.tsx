@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { jwtVerify } from 'jose'
+import { WorkerSessionGuard } from '@/components/worker/WorkerSessionGuard'
 
 export default async function WorkerAuthLayout({ children }: { children: React.ReactNode }) {
   const cookieStore = cookies()
@@ -19,5 +20,10 @@ export default async function WorkerAuthLayout({ children }: { children: React.R
     redirect('/w/login')
   }
 
-  return <>{children}</>
+  return (
+    <>
+      <WorkerSessionGuard />
+      {children}
+    </>
+  )
 }

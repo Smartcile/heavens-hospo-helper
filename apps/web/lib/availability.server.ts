@@ -61,20 +61,28 @@ export interface AvailabilityGate {
   lockDays: number
   /** Admin/manager backend: skip the past/lock and approval protections. */
   bypass: boolean
+  /** Worker writes: a series edit always detaches just the clicked day. */
+  forceScopeThis?: boolean
   /** Weekly request cut-off — changes for a week past its deadline file a request. */
   cutoff?: AvailabilityCutoff | null
   /** Venue-local minutes since midnight, for the cut-off deadline. */
   nowMinutes?: number
 }
 
+export interface AvailabilitySetLock {
+  byId: string
+  at?: Date
+  reason?: string | null
+}
+
 export type PlanOutcome =
   | { ok: true; plan: AvailabilityPlan; skipped: string[] }
-  | { ok: false; error: string }
+  | { ok: false; error: string; locked?: string[] }
 
 export type SaveOutcome =
   | { mode: 'SAVED'; plan: AvailabilityPlan; skipped: string[] }
   | { mode: 'REQUEST'; requestId: string; skipped: string[] }
-  | { error: string }
+  | { error: string; locked?: string[] }
 
 interface AvailabilityRow {
   id: string
@@ -93,9 +101,13 @@ interface AvailabilityRow {
   reviewNote: string | null
   seriesId: string | null
   seriesEndDate: Date | null
+  lockedAt: Date | null
+  lockedById: string | null
+  lockedReason: string | null
 }
 
 const utcDay = (key: string) => new Date(`${key}T00:00:00Z`)
+const LOCKED_ERROR = 'LOCKED — UNLOCK FIRST'
 
 // ── Mapping ───────────────────────────────────────────────────────────────
 
@@ -120,7 +132,21 @@ export function mapAvailabilityEntry(row: AvailabilityRow): AvailabilityEntry {
     reviewNote: row.reviewNote,
     seriesId: row.seriesId,
     seriesEndDate: row.seriesEndDate ? formatDateKey(row.seriesEndDate) : null,
+    lockedAt: row.lockedAt ? row.lockedAt.toISOString() : null,
+    lockedById: row.lockedById ?? null,
+    lockedReason: row.lockedReason ?? null,
   }
+}
+
+/** Dates among `dates` whose stored row is manager-locked. */
+async function lockedDatesAmong(staffId: string, dates: string[]): Promise<string[]> {
+  const unique = [...new Set(dates.filter(Boolean))]
+  if (unique.length === 0) return []
+  const rows = await prisma.staffAvailability.findMany({
+    where: { staffId, deletedAt: null, date: { in: unique.map(utcDay) }, lockedAt: { not: null } },
+    select: { date: true },
+  })
+  return rows.map((r) => formatDateKey(r.date)).sort()
 }
 
 // ── Payload validation ────────────────────────────────────────────────────
@@ -209,7 +235,9 @@ export async function planSet(
     const dates = rows.map((r) => formatDateKey(r.date))
     const storedEnd = rows.find((r) => r.seriesEndDate)?.seriesEndDate
     const currentEnd = storedEnd ? formatDateKey(storedEnd) : null
-    const scope = input.scope ?? 'THIS'
+    // Workers never choose a series scope: an edit always detaches the clicked
+    // day, so later occurrences can never be overwritten from the phone.
+    const scope = gate.forceScopeThis ? 'THIS' : (input.scope ?? 'THIS')
     // A THIS edit on a series occurrence detaches the day: it is written as a
     // standalone row so later FROM/ALL changes to the series no longer touch it.
     const detach = scope === 'THIS'
@@ -253,6 +281,18 @@ export async function planSet(
       if (writeDates.length === 0 && removeSet.size === 0) {
         return { ok: false, error: 'NO EDITABLE DAYS IN RANGE' }
       }
+    } else {
+      // Manager authority still stops at a locked day: skip it and report it.
+      const locked = await lockedDatesAmong(staffId, [...writeDates, ...removeSet])
+      if (locked.length > 0) {
+        const lockedSet = new Set(locked)
+        writeDates = writeDates.filter((d) => !lockedSet.has(d))
+        for (const d of [...removeSet]) if (lockedSet.has(d)) removeSet.delete(d)
+        skipped.push(...locked)
+        if (writeDates.length === 0 && removeSet.size === 0) {
+          return { ok: false, error: LOCKED_ERROR, locked }
+        }
+      }
     }
 
     return {
@@ -278,7 +318,16 @@ export async function planSet(
     if (!gate.bypass && !canWorkerEditDate(dateKey, gate.lockDays, gate.todayKey)) {
       return { ok: false, error: 'THIS DAY IS IN THE PAST OR LOCKED' }
     }
-    const occurrenceDates = occurrencesForRepeat(dateKey, input.repeat)
+    let occurrenceDates = occurrencesForRepeat(dateKey, input.repeat)
+    if (gate.bypass) {
+      const locked = await lockedDatesAmong(staffId, occurrenceDates)
+      if (locked.length > 0) {
+        const lockedSet = new Set(locked)
+        occurrenceDates = occurrenceDates.filter((d) => !lockedSet.has(d))
+        skipped.push(...locked)
+        if (occurrenceDates.length === 0) return { ok: false, error: LOCKED_ERROR, locked }
+      }
+    }
     const end = 'noEnd' in input.repeat ? null : seriesEndDateKey(dateKey, input.repeat.weeks)
     return {
       ok: true,
@@ -301,6 +350,10 @@ export async function planSet(
   // A standalone day.
   if (!gate.bypass && !canWorkerEditDate(dateKey, gate.lockDays, gate.todayKey)) {
     return { ok: false, error: 'THIS DAY IS IN THE PAST OR LOCKED' }
+  }
+  if (gate.bypass) {
+    const locked = await lockedDatesAmong(staffId, [dateKey])
+    if (locked.length > 0) return { ok: false, error: LOCKED_ERROR, locked }
   }
   return {
     ok: true,
@@ -336,7 +389,7 @@ export async function planClear(
     const rows = await seriesRows(input.staffId, input.seriesId)
     if (rows.length === 0) return { ok: false, error: 'SERIES NOT FOUND' }
     const dates = rows.map((r) => formatDateKey(r.date))
-    const scope = input.scope ?? 'THIS'
+    const scope = gate.forceScopeThis ? 'THIS' : (input.scope ?? 'THIS')
     let removeDates = scope === 'THIS' ? [input.dateKey] : scope === 'FROM' ? dates.filter((d) => d >= input.dateKey) : dates
     if (removeDates.length === 0) return { ok: false, error: 'NO DAYS IN RANGE' }
 
@@ -345,6 +398,14 @@ export async function planClear(
       skipped.push(...removeDates.filter((d) => !allowed.includes(d)))
       removeDates = allowed
       if (removeDates.length === 0) return { ok: false, error: 'NO EDITABLE DAYS IN RANGE' }
+    } else {
+      const locked = await lockedDatesAmong(input.staffId, removeDates)
+      if (locked.length > 0) {
+        const lockedSet = new Set(locked)
+        removeDates = removeDates.filter((d) => !lockedSet.has(d))
+        skipped.push(...locked)
+        if (removeDates.length === 0) return { ok: false, error: LOCKED_ERROR, locked }
+      }
     }
 
     return {
@@ -369,6 +430,10 @@ export async function planClear(
   if (!gate.bypass && !canWorkerEditDate(input.dateKey, gate.lockDays, gate.todayKey)) {
     return { ok: false, error: 'THIS DAY IS IN THE PAST OR LOCKED' }
   }
+  if (gate.bypass) {
+    const locked = await lockedDatesAmong(input.staffId, [input.dateKey])
+    if (locked.length > 0) return { ok: false, error: LOCKED_ERROR, locked }
+  }
   return {
     ok: true,
     skipped,
@@ -389,9 +454,9 @@ export async function planClear(
 
 // ── Execution ─────────────────────────────────────────────────────────────
 
-/** Rows a plan would touch, scoped to the staff member. Only CONFIRMED
- *  block-outs / time off are protected — an auto-approved AVAILABLE day is
- *  informational and can always be changed. */
+/** Rows a plan would touch, scoped to the staff member. A manager-locked day is
+ *  always protected; otherwise only CONFIRMED block-outs / time off are — an
+ *  auto-approved AVAILABLE day is informational and can always be changed. */
 async function rowsTouchedByPlan(staffId: string, plan: AvailabilityPlan) {
   const dates = [...plan.writeDates, ...plan.removeDates]
   if (dates.length === 0) return [] as { id: string; status: string }[]
@@ -400,8 +465,11 @@ async function rowsTouchedByPlan(staffId: string, plan: AvailabilityPlan) {
       staffId,
       deletedAt: null,
       date: { in: dates.map(utcDay) },
-      status: 'APPROVED',
-      OR: [{ timeOff: true }, { type: 'UNAVAILABLE' }],
+      OR: [
+        { lockedAt: { not: null } },
+        { status: 'APPROVED', timeOff: true },
+        { status: 'APPROVED', type: 'UNAVAILABLE' },
+      ],
     },
     select: { id: true, status: true },
   })
@@ -415,7 +483,13 @@ export function planPastCutoff(plan: AvailabilityPlan, gate: AvailabilityGate): 
   )
 }
 
-function sharedRowData(payload: AvailabilityPayload, seriesId: string | null, seriesEndDate: string | null, status: AvailabilityStatus) {
+function sharedRowData(
+  payload: AvailabilityPayload,
+  seriesId: string | null,
+  seriesEndDate: string | null,
+  status: AvailabilityStatus,
+  lock?: AvailabilitySetLock,
+) {
   return {
     type: payload.type,
     isAllDay: payload.isAllDay,
@@ -427,6 +501,9 @@ function sharedRowData(payload: AvailabilityPayload, seriesId: string | null, se
     seriesId,
     seriesEndDate: seriesEndDate ? utcDay(seriesEndDate) : null,
     status,
+    lockedAt: lock ? (lock.at ?? new Date()) : null,
+    lockedById: lock ? lock.byId : null,
+    lockedReason: lock ? (lock.reason ?? null) : null,
   }
 }
 
@@ -437,11 +514,12 @@ export async function executeSet(
   venueId: string,
   plan: AvailabilityPlan,
   status: AvailabilityStatus,
+  lock?: AvailabilitySetLock,
 ): Promise<void> {
   const payload = plan.availability
   if (!payload) return
   const dates = plan.writeDates.map(utcDay)
-  const data = sharedRowData(payload, plan.seriesId, plan.seriesEndDate, status)
+  const data = sharedRowData(payload, plan.seriesId, plan.seriesEndDate, status, lock)
 
   await prisma.$transaction(async (tx) => {
     if (dates.length > 0) {
@@ -507,6 +585,9 @@ export interface SaveInput {
   scope: AvailabilityScope | null
   seriesId: string | null
   reason: string | null
+  /** Admin only: stamp a day-level lock on every written day (approval). */
+  lockById?: string | null
+  lockReason?: string | null
 }
 
 async function storeRequest(
@@ -549,7 +630,7 @@ export async function saveAvailability(input: SaveInput, gate: AvailabilityGate)
     },
     gate,
   )
-  if (!planned.ok) return { error: planned.error }
+  if (!planned.ok) return { error: planned.error, locked: planned.locked }
 
   if (!gate.bypass && planned.plan.writeDates.length + planned.plan.removeDates.length > 0) {
     if (planPastCutoff(planned.plan, gate)) {
@@ -563,7 +644,16 @@ export async function saveAvailability(input: SaveInput, gate: AvailabilityGate)
     }
   }
 
-  await executeSet(input.staffId, input.venueId, planned.plan, gate.bypass ? 'APPROVED' : initialStatus(built.payload))
+  const lock = gate.bypass && input.lockById
+    ? { byId: input.lockById, reason: input.lockReason ?? null }
+    : undefined
+  await executeSet(
+    input.staffId,
+    input.venueId,
+    planned.plan,
+    gate.bypass ? 'APPROVED' : initialStatus(built.payload),
+    lock,
+  )
   return { mode: 'SAVED', plan: planned.plan, skipped: planned.skipped }
 }
 
@@ -576,7 +666,7 @@ export async function clearAvailability(
     { staffId: input.staffId, dateKey: input.dateKey, scope: input.scope, seriesId: input.seriesId },
     gate,
   )
-  if (!planned.ok) return { error: planned.error }
+  if (!planned.ok) return { error: planned.error, locked: planned.locked }
 
   if (!gate.bypass && planned.plan.removeDates.length > 0) {
     if (planPastCutoff(planned.plan, gate)) {
@@ -613,7 +703,7 @@ export async function cancelPendingAvailability(input: {
       : null
   if (!where) return 0
   const result = await prisma.staffAvailability.updateMany({
-    where: { ...where, venueId: input.venueId, deletedAt: null, status: 'PENDING' },
+    where: { ...where, venueId: input.venueId, deletedAt: null, status: 'PENDING', lockedAt: null },
     data: { deletedAt: new Date() },
   })
   return result.count
@@ -659,7 +749,8 @@ export async function applyEditRequest(id: string, actorId: string, reviewNote?:
   if (!plan) return false
 
   if (request.action === 'SET') {
-    await executeSet(request.staffId, request.venueId, plan, 'APPROVED')
+    // An approved request is a manager confirmation: every written day locks.
+    await executeSet(request.staffId, request.venueId, plan, 'APPROVED', { byId: actorId })
   } else {
     await executeClear(request.staffId, plan)
   }

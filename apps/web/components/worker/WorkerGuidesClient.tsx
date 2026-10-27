@@ -9,6 +9,7 @@ import { groupGuidesByFolder } from '@/lib/guide-folders'
 import { moveItem } from '@/lib/array'
 import { nearestIndex } from '@/lib/reorder'
 import type { ResolvedStepLink } from '@/lib/guide-links'
+import type { ImageAnnotationLayer } from '@/lib/image-annotations'
 import { useWorkerImmersive } from '@/components/worker/useWorkerImmersive'
 
 interface Step {
@@ -17,8 +18,11 @@ interface Step {
   heading: string | null
   content: string
   imageUrl: string | null
+  imageUrls?: string[] | null
   videoUrl: string | null
+  videoPath?: string | null
   links?: ResolvedStepLink[]
+  imageAnnotations?: ImageAnnotationLayer[] | null
 }
 
 interface PathwayView {

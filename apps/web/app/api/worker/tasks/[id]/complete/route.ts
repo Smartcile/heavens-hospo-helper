@@ -3,6 +3,7 @@ import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { getTodayDate } from '@/lib/utils'
 import { checkUntrainedOnCompletion } from '@/lib/followups'
+import { reconcileSectionWork } from '@/lib/section-work.server'
 import { readingVerdict, criticalVerdict, readingAlertMessage } from '@/lib/food-safety'
 import {
   resolveOutcomePolicyForChecklists,
@@ -200,6 +201,12 @@ export async function POST(req: NextRequest, { params }: Params) {
         venueId: session.venueId,
         date: today,
       })
+    } catch { /* ignore */ }
+
+    // A completed pathway task can flip a MILESTONE to DONE, which raises a
+    // section-work review (but never grants the section). Best-effort.
+    try {
+      await reconcileSectionWork(session.staffId)
     } catch { /* ignore */ }
   }
 

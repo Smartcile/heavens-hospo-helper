@@ -195,11 +195,11 @@ to keep old deployments migratable), `db:backfill-orders`,
 | `INTERNAL_CRON` | Built-in scheduler (Woo product pull + expiry scan). Default true; `false` = use external scheduler |
 | `CRON_SECRET` | Bearer token for the /api/cron endpoints (external schedulers only) |
 | `WORKER_SESSION_SECRET` | JWT secret for worker PIN sessions |
-| `WORKER_SESSION_EXPIRY_MINUTES` | Worker auto-logout timeout (default: 15) |
+| `WORKER_SESSION_EXPIRY_MINUTES` | Fallback worker idle timeout when a venue leaves `workerSessionTimeoutMinutes` blank/0 (default: 15) |
 | `UPLOAD_PROVIDER` | `local` (Phase 1) — future: `s3` |
 | `UPLOAD_PATH` | Where uploaded files are written to disk |
 | `NEXT_PUBLIC_APP_NAME` | Client-side app name |
-| `NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES` | Client-side inactivity timer value |
+| `NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES` | Legacy build-time fallback only — the worker UI reads the venue timeout from `/api/worker/session` |
 
 ### Compose / Portainer-only variables
 
@@ -456,6 +456,58 @@ rows with `status: 'DRAFT'`, flattens `StepInventoryItem` into
 `legacyToolsNote`, drops step-level junctions. Idempotent — skips if guides
 already exist. Old tables left intact for reference.
 
+### Section-work reviews — manager confirmation before a section is granted (built 2026-10)
+
+Finishing a section's training no longer has any effect on `StaffSection` by
+itself. `StaffSection` still means **granted** (it feeds guide applicability,
+worker pathway targeting and training status), so a review queue sits in front
+of it:
+
+- `SectionWorkReview` (`venueId`, `staffId`, `sectionId`, `source`
+  `GUIDES|PATHWAY`, optional `pathwayId`, `status PENDING|CONFIRMED|DISMISSED`,
+  `evidence`, `requestedAt`, `reviewedById`/`reviewedAt`/`note`, soft delete).
+  `@@unique([staffId, sectionId])` keeps one row per person + section.
+- `evidence` is a stable signature (`GUIDES:g1,g2|PATHWAY:p1`), so a dismissed
+  review only reopens when the qualifying evidence **changes** — not on every
+  page load. A **manager** DISMISS keeps the signature; a **system** auto-dismiss
+  clears `evidence`/`pathwayId`, so restoring the same work reopens it.
+- The unique key is `(staffId, sectionId)` across soft-deleted rows too, so
+  reconcile restores a soft-deleted row in place instead of hitting P2002.
+
+**Eligibility (`lib/section-work.ts`, pure).** A section is trainable when at
+least one PUBLISHED, tracked guide targets it via `GuideAudience(kind: SECTION)`;
+it is complete only when every such guide has a `GuideCompletion`. Zero guides is
+never complete. Pathways count via `isPathwayComplete` (any MILESTONE `DONE` in
+the resolved view).
+
+**Reconcile (`lib/section-work.server.ts`).** `reconcileSectionWork(staffId)`:
+for sections the person does not already hold, raises a `PENDING` review when
+eligible + complete. It never writes `StaffSection`. A still-PENDING review whose
+evidence disappears is auto-dismissed (and its signature cleared); a CONFIRMED
+review is never touched; a DISMISSED review is revived only when the evidence
+signature changes. Called best-effort after worker self-complete, admin sign-off,
+completion revoke, and a `DONE` task completion, plus lazily by the section-work
+queue (`reconcileVenueSectionWork`).
+
+**Confirm/dismiss.** `reviewSectionWork` validates transitions server-side —
+CONFIRM/DISMISS only from `PENDING`, REOPEN only from `DISMISSED` (409 otherwise).
+CONFIRM upserts `StaffSection` and stamps `CONFIRMED`; DISMISS only closes the
+review; REOPEN puts a dismissed review back in the queue. A manual grant from the
+Staff modal also dismisses any matching PENDING review so it cannot resurface.
+UI: **TRAINING → STATUS** has a **SECTION REVIEWS** strip fed by
+`GET /api/admin/section-work?status=ALL` with staff, section, source/evidence and
+CONFIRM/DISMISS (plus a dismissed list with REOPEN); action failures (403/409)
+show inline. The Staff edit modal shows pending sections as outlined
+`PENDING REVIEW` chips while keeping the manual toggle a direct manager grant.
+
+| Route | Methods | Purpose |
+|-------|---------|---------|
+| `/api/admin/section-work` | GET | List reviews (`?venueId=&status=PENDING|CONFIRMED|DISMISSED|ALL`), lazily reconciling first. Guard `training.playbook.view` |
+| `/api/admin/section-work/[id]` | POST | `{action: CONFIRM|DISMISS|REOPEN, note?}`. Guard `training.playbook.assign`. Venue-scoped for managers and to the ADMIN active venue |
+
+`GET /api/admin/training/status` no longer returns or reconciles section reviews —
+the section-work queue is the single path.
+
 ### External embeds + calendar import + NZ breaks
 Per-venue integration links live on `Venue` (`loadedRosterUrl`,
 `googleCalendarUrl`, `icalFeedUrl`, `externalRefreshMinutes`,
@@ -543,9 +595,51 @@ SET proposal to an entry) and save an admin override; a `MARK_APPLIED` action on
 its stored plan. FILTER STAFF narrows the grid only (never the approvals queue)
 and groups with no matching staff are hidden. Notes show on worker month/week
 cells, the admin grid, edit-request previews and worker pending-request cards.
-Routes: `/api/admin/availability` (+ `/clear`, `/review`,
-`/requests/[id]`), `/api/worker/availability` (+ `/clear`, `/[id]`,
-`/requests/[id]`). Guards: `team.availability.view|edit|approve`.
+Routes: `/api/admin/availability` (+ `/clear`, `/review`, `/[id]` PATCH
+notes/lock, `/requests/[id]`), `/api/worker/availability` (+ `/clear`, `/[id]`
+PATCH notes + DELETE, `/requests/[id]`). Guards:
+`team.availability.view|edit|approve`.
+
+**Day-level lock (#12/#14)** — `StaffAvailability.lockedAt` / `lockedById` /
+`lockedReason` (all nullable). Set manually from the admin day editor (`LOCK` /
+`UNLOCK`, optional reason) and **automatically** when a manager CONFIRMs a
+declaration (`/review` APPROVE) or APPLYs an edit request — every written day is
+locked, and applying an admin override opened from a declaration/request sends
+`lock: true`. A plain grid override does not change the lock; auto-approved
+pure-AVAILABLE worker saves never lock. A locked day:
+
+- files a worker save/clear as an `AvailabilityEditRequest` (same path as an
+  approved block-out) — see `rowsTouchedByPlan` in `lib/availability.server.ts`;
+- is **stripped** from admin writes and reported in `skipped`; a single-day
+  write that only touched locked dates returns 409 `{ error: 'LOCKED — UNLOCK FIRST', locked: [...] }`;
+- keeps **notes editable** via the notes-only PATCH (admin `/[id]` = `{ notes?,
+  locked?, lockedReason? }`, worker `/[id]` = `{ notes }` only), which never
+  touches availability/status/lock fields;
+- is skipped by drag-fill and bulk clear client-side (and by
+  `cancelPendingAvailability`).
+
+The shared `AvailabilityDayEditor` renders locked days read-only for admins
+(`LOCKED — UNLOCK TO EDIT`, `SAVE NOTE`, `UNLOCK`) and lets workers submit a
+change request (`SEND CHANGE REQUEST`).
+
+**Worker series edits (#20) + bulk clear (#13) + weekly default (#7) +
+in-place refresh (#16)** — worker writes pass `forceScopeThis: true`, so a
+series edit/clear always detaches **just the clicked day** (`seriesId: null`,
+`syncSeriesId` keeps the remaining series end correct); the worker editor hides
+FROM/ALL and CHANGE SERIES END and says `THIS DAY LEAVES THE SERIES`. Both
+availability grids support **bulk clear**: admins shift-click a range on one
+staff row (or use `SELECT DAYS`), workers use `SELECT DAYS` on mobile or
+shift-click on desktop, then `CLEAR SELECTED (n)` with confirmation; clearing
+loops the existing `/clear` route one day at a time with `scope: 'THIS'` (no
+bulk API). Selection is one row/range and clears on navigation. The worker view
+defaults to **WEEKLY** and remembers the toggle in
+`sessionStorage['hospo-worker-availability-view']` (validated, falls back to
+week). Live pages refresh in place: `AvailabilityAdminClient` and `RosterClient`
+keep the previous payload mounted and show `REFRESHING…` on save-triggered
+reloads, restoring scroll via `lib/use-scroll-restore.ts`
+(`captureScroll` / `restoreScroll` + `useScrollRestore()`); keyed containers use
+`data-scroll-key`. `lib/cell-fill.ts` also exports `dayRange` /
+`toggleSelection` for the selection logic.
 
 **Weekly request cut-off** — `Venue.availabilityCutoff Json?`
 (`{ day: 0-6 (Sun-Sat), time: "HH:mm" }`), set in Settings → GENERAL →
@@ -557,6 +651,13 @@ files an `AvailabilityEditRequest` even when no protected row is touched
 `planPastCutoff` gate check (gate carries `cutoff` + venue-local `nowMinutes`).
 The worker GET returns `cutoff` and the phone shows a deadline banner. Admin
 writes bypass it.
+
+**Worker session timeout** — `Venue.workerSessionTimeoutMinutes Int? @default(15)`
+is the phone inactivity limit, set in Settings → GENERAL → WORKER SESSION
+(5–480 minutes; blank/0 = env fallback). It drives the JWT `exp`, the cookie
+`maxAge`, and the client guard from one resolver (`lib/worker-session-timeout.ts`).
+An active phone slides its own session via `POST /api/worker/session/refresh`;
+going idle signs out to `/w/login`. Admin sessions are untouched.
 
 **Drag-fill (admin only)** — every day with an entry carries a corner handle on
 the admin availability grid. Dragging it opens a confirmation modal, then copies
@@ -1225,39 +1326,67 @@ inventory deduction is still not built.
 Inventory Items tree in one query. `GET /api/admin/structure` extends with
 `floorPlan { tables, chairs, equip }` per section.
 
-### SwiftPOS integration (sales + staff sync, 2026-10)
+### SwiftPOS integration (sales + staff sync + menu links + dockets, 2026-10)
 `Venue.swiftPosBaseUrl` + `MenuItem.swiftPosId` (SwiftPOS `Inventory_Code`).
 `lib/swiftpos.ts` (5 tests) parses a SwiftDOSnet sales report and matches rows to
 products by `swiftPosId`; `lib/swiftpos.server.ts` fetches
-`/api/analytics/sales?groupBy=product` and `/api/lookups` (locations/terminals/
-clerks/medias/print groups). `lib/swiftpos-consumption.server.ts`
+`/api/analytics/sales?groupBy=product`, `/api/lookups` (locations/terminals/
+clerks/medias/print groups), `/api/products` (paged product master) and
+`/api/table-tracking/kitchen-dockets`. `lib/swiftpos-consumption.server.ts`
 turns sales into drawdown — MADE serves go through `explodeRecipe`,
 pour/bottle via `canonicalQty` — and reports variance vs on-hand for BASE items.
 **Read-only report; nothing mutates stock** (auto-deduct not built). Admin UI at
-Settings → SWIFT POS (`SwiftPosSalesClient`, SALES / STAFF SYNC sub-tabs); route
-`GET /api/admin/swiftpos/sales[?drawdown=1]` (guard `ops.inventory.view`).
+Settings → SWIFT POS (`SwiftPosSalesClient`, **SALES / STAFF SYNC / MENU LINKS**
+sub-tabs); route `GET /api/admin/swiftpos/sales[?drawdown=1]` (guard
+`ops.inventory.view`).
 
 **Staff sync** (`2026-10-22`) pulls SwiftPOS clerks from SwiftDOSnet
 `GET /api/lookups` and links them to venue staff via `Staff.swiftPosId`.
-`lib/swiftpos-staff.ts` (14 tests, pure) parses the clerk list, splits
-`"Jane Doe"` / `"Doe, Jane"` names, and suggests a match only when exactly one
-unlinked staff member has the same name tokens. Settings → SWIFT POS → STAFF SYNC
-(`SwiftPosStaffSync`) shows LINKED / SUGGESTED / NEW rows and offers LINK,
-UNLINK and CREATE. CREATE makes a `STAFF` profile with the clerk number as the
-1–4 digit worker PIN (bcrypt-hashed; the clerk number, or an override) and
-blocks a PIN already in use at the venue. Routes:
-`GET /api/admin/swiftpos/staff?venueId=` (guard `team.staff.view`),
+`lib/swiftpos-staff.ts` (23 tests, pure) parses the clerk list, splits
+`"Jane Doe"` / `"Doe, Jane"` names, suggests a match only when exactly one
+unlinked staff member has the same name tokens, and exposes the route's
+decision helpers (`clerkCodeConflict`, `resolveCreatedName`, `resolveClerkPin`,
+`findPinClash` — the last takes the bcrypt comparator so the lib stays
+client-safe). Settings → SWIFT POS → STAFF SYNC (`SwiftPosStaffSync`) shows
+LINKED / SUGGESTED / NEW rows and offers LINK, UNLINK and CREATE. CREATE makes a
+`STAFF` profile with the clerk number as the 1–4 digit worker PIN (bcrypt-hashed;
+the clerk number, or an override) and blocks a PIN already in use at the venue.
+Routes: `GET /api/admin/swiftpos/staff?venueId=` (guard `team.staff.view`),
 `POST /api/admin/swiftpos/staff` (LINK/UNLINK `team.staff.edit`,
 CREATE `team.staff.create`). SwiftDOSnet has no auth; it is reached server-side
 from HOSPO OPS, never the browser. Staff records still carry `Staff.swiftPosId`
 for future roster/task sync (not built).
 
-**Remaining SwiftPOS work (issue #5):** menu item linking — pull SwiftDOSnet
-`/api/products` (`InventoryCode`, `Category`, `PrintGroupName`,
-`MasterGroupName`) and add a linked/unlinked mapping page; kitchen dockets —
-proxy SwiftDOSnet `/api/table-tracking/kitchen-dockets` into an admin page.
-`/api/lookups` also returns locations, terminals, medias and print groups for
-future use.
+**Menu-item linking** (`2026-10-27`) maps each SwiftPOS product to the local
+product that carries its code. `lib/swiftpos-products.ts` (pure) parses the
+paged `GET /api/products` envelope (`{ rows, hasMore, total }`, camel/Pascal,
+short-flags), and `buildProductLinks` classifies rows as linked/unlinked while
+surfacing **orphans** (local codes missing from the POS master) and
+**duplicates** (one code on multiple local products — `MenuItem.swiftPosId` has
+no unique index and `matchSalesToItems` would silently pick one). The server
+helper `fetchProducts(baseUrl)` loops pages of 100 up to a 2,000-row cap and
+returns `truncated`. Settings → SWIFT POS → MENU LINKS (`SwiftPosMenuLinks`)
+groups products by SwiftPOS category with search, a category filter, counts,
+LINK/UNLINK and expand/collapse; a product's SWIFT POS CODE is also editable
+from PRODUCT INFO on a menu line (`MenuItemDetailsModal`). Routes:
+`GET /api/admin/swiftpos/menu-links?venueId=` (guard `ops.menus.view`; 400 when
+not connected, 502 on fetch failure) and `PUT` (guard `ops.menus.edit`; writes
+`MenuItem.swiftPosId` only — **never** pushes to Woo, and 409s when another
+local product already holds the code).
+
+**Kitchen dockets** (`2026-10-27`) is the live pass view. `lib/swiftpos-dockets.ts`
+(pure) parses the bare `GET /api/table-tracking/kitchen-dockets` array
+(`transactionId/tableNumber/booking/covers/clerk/terminal/opened/lines`; line
+`quantity/seat/printGroup/instruction/...`) and `docketWindow(nowMs, tz,
+minutes)` builds **unzoned venue-local** `YYYY-MM-DD HH:mm` strings (the feed's
+timestamps are unzoned wall-clock, so they are never `new Date()`-parsed).
+`KitchenDocketsClient` lives at `/admin/ops?tab=orders&sub=dockets` (`DOCKETS`
+tab in `OPS_SUB_TABS.orders`, no sidebar entry), polls every 30 s while visible,
+pauses when the tab is hidden, and offers 30 / 60 / 120 min / ALL LINES windows.
+Route: `GET /api/admin/swiftpos/dockets?venueId=&minutes=` (guard
+`orders.orders.view`; default 60; 400 when not connected, 502 with the
+SwiftDOSnet problem `detail`/`title`).
+
 
 ### Unified staff identity
 A single `Staff` profile carries external-system link IDs — `swiftPosId`,
@@ -1404,7 +1533,13 @@ old deployments can migrate.
 
 ### Dual auth system
 - **Admin**: NextAuth.js with Credentials provider — creates a JWT session cookie (`next-auth.session-token`). Suitable for desktop, supports 8-hour sessions.
-- **Worker**: Custom JWT in an HTTP-only cookie (`hospo-worker-session`). Minimal — just stores staffId, venueId, and expiry. Auto-logout after 15 minutes of inactivity (client-side timer + server-side JWT expiry).
+- **Worker**: Custom JWT in an HTTP-only cookie (`hospo-worker-session`). Minimal — just stores staffId, venueId, and expiry. The idle timeout is **per venue** (`Venue.workerSessionTimeoutMinutes`, clamp 5–480; null/0 falls back to `WORKER_SESSION_EXPIRY_MINUTES`). An active phone slides the session forward: `WorkerSessionGuard` (mounted in `app/w/(authenticated)/layout.tsx`) owns the single idle timer in the top window, reports activity from embedded iframes via `worker-activity` messages, and calls `POST /api/worker/session/refresh` (throttled to once per max(60s, timeout/3)). On idle it calls `/api/worker/logout` and redirects to `/w/login`; it never clears the admin NextAuth cookie unless the user explicitly signs out.
+
+**Worker session routes:**
+| Route | Methods | Purpose |
+|-------|---------|---------|
+| `/api/worker/session` | GET | `{ timeoutMinutes, expiresAt, refreshAfterMs }` for the guard |
+| `/api/worker/session/refresh` | POST | Re-mint the current worker JWT/cookie with a fresh expiry (server-side throttled; 401 if the venue is disabled) |
 
 ### Route structure
 - Admin routes live under `app/admin/(protected)/` — the inner route group applies the auth layout without affecting URL structure.
@@ -2392,10 +2527,12 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
   `TrainingStatusClient` shows every active staff member's required/missing/
   stale-guide counts and open follow-ups as GREEN (good) / YELLOW (bits to
   work on) / RED (retraining or overdue), grouped ON SHIFT TODAY then NOT ON
-  SHIFT. Data from `GET /api/admin/training/status` backed by
-  `lib/training-status.server.ts` (pure rules + sort in
-  `lib/training-status.ts`). Managers get a TRAINING STATUS → button on the
-  worker `/w/guides` header.
+  SHIFT. It also renders the **SECTION REVIEWS** strip (confirm/dismiss/reopen
+  pending section-work reviews — see "Section-work reviews"). Staff rows come
+  from `GET /api/admin/training/status` backed by `lib/training-status.server.ts`
+  (pure rules + sort in `lib/training-status.ts`); reviews come from
+  `GET /api/admin/section-work?status=ALL` (the single reconcile path). Managers
+  get a TRAINING STATUS → button on the worker `/w/guides` header.
 - **Notices grouping.** Worker notices split into PINNED (top) / unread /
   READ / ACKNOWLEDGED (bottom group) via `lib/notice-groups.ts`.
 - **Drag-reorder lists.** Guide steps reorder by drag or ↑/↓ in both editors
@@ -2493,8 +2630,6 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
 | Stub | Location | Phase |
 |---|---|---|
 | Passkeys / WebAuthn login | Admin + worker login upgrade (alongside email/password + PIN) | 2 |
-| SwiftPOS menu item linking | Map SwiftDOSnet products/categories to `MenuItem.swiftPosId` + linked/unlinked page | 2 |
-| SwiftPOS kitchen dockets | Admin page fed by SwiftDOSnet `/api/table-tracking/kitchen-dockets` | 2 |
 | Push notifications | Not yet wired | 2 |
 | S3 file uploads | `UPLOAD_PROVIDER=s3` env var stub | 2 |
 | Inventory delete protection | API check against ElementInventoryItem + StocktakeLineItem | 2 |
@@ -2513,8 +2648,10 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
 > Built since the original stub table: budget splitter, labour cost visibility
 > (`lib/roster-math.ts`), role-based permission system (`StaffPermission` +
 > registry), public API (`ApiKey`), food-safety diary (delivery + reading
-> tasks), SwiftPOS sales/drawdown reporting, and SwiftPOS staff sync
-> (Settings → SWIFT POS → STAFF SYNC).
+> tasks), SwiftPOS sales/drawdown reporting, SwiftPOS staff sync
+> (Settings → SWIFT POS → STAFF SYNC), SwiftPOS menu-item linking
+> (Settings → SWIFT POS → MENU LINKS) and live kitchen dockets
+> (Ops → Orders → DOCKETS).
 
 ## TESTING
 
@@ -2557,7 +2694,8 @@ pushing, run: `npm run lint && npm run test`.
 | Target | Coverage |
 |---|---|
 | `lib/array.ts` — `moveItem` | ✅ |
-| `lib/cell-fill.ts` — `fillRect`, `fillTargets`, `inFillRect` (drag-fill rectangles) | ✅ (8 tests) |
+| `lib/cell-fill.ts` — `fillRect`, `fillTargets`, `inFillRect` (drag-fill rectangles), `dayRange`, `toggleSelection` (bulk-clear selection) | ✅ (11 tests) |
+| `lib/use-scroll-restore.ts` — `captureScroll`, `restoreScroll`, `useScrollRestore` (in-place refresh) | ✅ (4 tests) |
 | `lib/booth-trace.ts` — `traceBoothPerimeter` | ✅ |
 | `lib/breaks.ts` — `nzBreakEntitlement`, `shiftHours`, `formatBreaks` | ✅ |
 | `lib/budget-math.ts` — `generateDailyBudgetsNormalized`, `computeBreakdowns` | ✅ |
@@ -2574,7 +2712,8 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/training.ts` — REMOVED with the legacy training UI | — |
 | `lib/retrain.ts` — `postRetrainNotice` | ✅ |
 | `lib/demo-block.ts` — `shouldBlockDemoWrite` | ✅ (14 tests) |
-| `lib/worker-session.ts` — `workerCookieSecure` | ✅ |
+| `lib/worker-session.ts` — `workerCookieSecure`, `createWorkerSession` / `getWorkerSession` round-trip, cookie maxAge | ✅ |
+| `lib/worker-session-timeout.ts` — venue timeout clamp/fallback, `expiresAt`, refresh interval + throttle | ✅ |
 | `lib/followups.ts` — `checkUntrainedOnCompletion` (reads `TaskGuide`) | ✅ (5 tests) |
 | `lib/guides.ts` — `guideSource`, `guideAppliesTo`, `guideWhereOr` | ✅ (25 tests) |
 | `lib/guide-links.ts` — `groupTargetIdsByKind`, `attachTargets`, `targetKey` | ✅ (14 tests) |
@@ -2596,7 +2735,7 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/beo-links.ts` / `beo-pdf.ts` — link grouping / BEO PDF variants | ✅ (8 + 11) |
 | `lib/event-flow.ts` / `event-pricing.ts` / `event-share.ts` | ✅ (6 + 10 + 8) |
 | `lib/service-schedule.ts` / `service-windows.ts` / `service-seating.ts` | ✅ (19 + 20 + 11) |
-| `lib/availability.ts` / `availability.server.ts` — window algebra, free-window state (PARTIAL) + plan→execute + weekly cut-off gate + series-day detach + edit-proposal→entry mapping | ✅ (73 + 34) |
+| `lib/availability.ts` / `availability.server.ts` — window algebra, free-window state (PARTIAL) + plan→execute + weekly cut-off gate + series-day detach + edit-proposal→entry mapping | ✅ (72 + 43) |
 | `lib/event-roster.ts` — area resolution + per-day event buckets | ✅ (11 tests) |
 | `lib/manual-event.ts` — validation, UTC date/time mapping, capacity check | ✅ (9 tests) |
 | `lib/calendar-feeds.ts` — feed URL expansion, room naming | ✅ (9 tests) |
@@ -2615,10 +2754,14 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/checklist-activation.ts` — venue-local date activation | ✅ (6 tests) |
 | `lib/task-outcomes.ts` — outcome hierarchy, DONE-always, reason validation, open-list policy | ✅ (12 tests) |
 | `lib/position-requirements.ts` — required guides + readiness resolver | ✅ (6 tests) |
+| `lib/section-work.ts` / `section-work.server.ts` — section eligibility, evidence signatures, reconcile/confirm/dismiss/reopen, transition guards, soft-delete restore | ✅ (8 + 21 tests) |
 | `lib/staff-groups.ts` — derived position grouping | ✅ (14 tests) |
 | `lib/permissions/registry.ts` — `PERMISSION_TREE`, presets, `completeGrantSet` | ✅ (16 tests) |
 | `lib/image-annotations.ts` / `image-thumb.ts` | ✅ (24 + 4) |
 | `lib/tips.ts` / `swiftpos.ts` / `swiftpos-staff.ts` / `woo-pairing.ts` / `woo-oauth.ts` / `woo-categories.ts` | ✅ (tested) |
+| `lib/swiftpos-products.ts` — product parsing, link/orphan/duplicate report, category grouping | ✅ (7 tests) |
+| `lib/swiftpos-dockets.ts` — docket parsing (unzoned timestamps), window + supported minutes | ✅ (8 tests) |
+| `lib/swiftpos.server.ts` — paged `fetchProducts` cap, `fetchKitchenDockets` window, problem-detail errors | ✅ (6 tests) |
 | `lib/video-transcode.ts` / `download-file.ts` / `pdf-safe.ts` / `geo.ts` | ✅ (2 + 4 + 4 + tested) |
 | `lib/woo-push.ts` — `mapStatusToWoo`, `buildProductPushPayload` (images, categories, variable products), `pushVariationPrices`, `isSelfEcho` echo guard | ✅ |
 | `lib/woo-sync.ts` — `runProductPull`, `upsertProductFromWoo`, `fetchWooCategories`, `fetchProductVariations` | ✅ |
@@ -2639,10 +2782,11 @@ pushing, run: `npm run lint && npm run test`.
 | `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |
 | `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (19 tests) |
-| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, handled section, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation | ✅ (14 tests) |
+| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, handled section, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, dual early-return paths | ✅ (14 tests) |
 | `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, scroll restore after load | ✅ (5 tests) |
 | `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard | ✅ (2 tests) |
 | `ReportsClient.tsx` — OUTCOME badge distinguishes non-DONE rows | ✅ (1 test) |
+| `WorkerSessionGuard.tsx` — idle logout/redirect, activity refresh, refresh throttle, iframe activity relay | ✅ (6 tests) |
 | `lib/worker-task-access.ts` — grant matrix (ADMIN/MANAGER bypass, CREATE/EDIT/DELETE, list OR mapping) | ✅ (6 tests) |
 | `lib/worker-task-refs.server.ts` — venue checks for department/section/Guide refs | ✅ (6 tests) |
 | `lib/task-guides.ts` — competency ids with legacy `requiredTrainingIds` alias, trim, malformed input | ✅ (5 tests) |
@@ -2664,13 +2808,15 @@ pushing, run: `npm run lint && npm run test`.
 | `ReferenceTableEditor.tsx` — column kinds, derived cells, row editing | ✅ (5 tests) |
 | `WorkerGuidesClient.tsx` — BIBLE / MY TREE, folder grouping, edit gating | ✅ (11 tests) |
 | `EventBuilder.tsx` / `PipelinePanel.tsx` / `EnquiriesPanel.tsx` — BEO builder, pipeline board, intake | ✅ (5 + 2 + 4) |
-| `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 12 + 8 + 12) |
+| `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 16 + 15 + 28) |
 | `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (13 + 5 + 4) |
 | `StaffingLinesEditor.tsx` — payload mapping, unnamed-row filter, rows, remove | ✅ (5 tests) |
 | `EventStaffingModal.tsx` — event info, linked shifts CLAIMED/ASSIGNED, listed-seat lock, FIND STAFF, claims review | ✅ (5 tests) |
 | `CalendarEventFormModal.tsx` — create + staffing POST, capacity warning, edit load/PUT | ✅ (2 tests) |
 | `WorkerShiftsClient.tsx` — pickup grid, claim/withdraw, conflict warning, confirmed panel | ✅ (5 tests) |
+| `TrainingStatusClient.tsx` — status rows + SECTION REVIEWS strip, CONFIRM/DISMISS/error surfacing | ✅ (4 tests) |
 | `StaffAccessDrawer.tsx` / `OpsClient.tsx` / `MenusClient` builder components | ✅ (4 + 7 + tested) |
+| `SwiftPosMenuLinks.tsx` / `KitchenDocketsClient.tsx` / `MenuItemDetailsModal.tsx` / `SwiftPosStaffSync.tsx` | ✅ (4 + 4 + 1 + 2) |
 | `EventShareClient.tsx` / `WorkerEventsClient.tsx` / `WorkerTimeclockClient.tsx` | ✅ (4 + tested) |
 | `ImageAnnotator` / `ImagePicker` / `AnnotatedImage` / `MediaLibraryModal` / `Panel` / `Combobox` | ✅ (co-located tests) |
 

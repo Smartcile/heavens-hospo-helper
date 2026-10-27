@@ -4,7 +4,6 @@ import { authOptions } from '@/lib/auth'
 import { postRetrainNotice } from '@/lib/retrain'
 import { resolveStepLinks } from '@/lib/guide-links.server'
 import { loadMenuItemIndex } from '@/lib/reference-table.server'
-import { guideStepUsageKey, normaliseAnnotation, type ImageAnnotationLayer } from '@/lib/image-annotations'
 import type { ReferenceColumn } from '@/lib/reference-table'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
@@ -17,8 +16,10 @@ import {
   cleanTaskGuides,
   guideStepsWrite,
   guideTypeValue,
+  loadStepAnnotations,
   scopedFolderId,
   scopedMenuId,
+  stepAnnotationsFor,
   stepsManageLinks,
   syncStepLinks,
   tableRowsWrite,
@@ -51,31 +52,19 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   // One batched resolve for the whole guide rather than per step.
   const allLinks = guide.steps.flatMap((s) => s.links)
-  const [resolved, menuIndex, annotationRows] = await Promise.all([
+  const [resolved, menuIndex, annotationByStep] = await Promise.all([
     resolveStepLinks(allLinks),
     loadMenuItemIndex(guide.tableRows.map((r) => r.menuItemId)),
-    guide.steps.length
-      ? prisma.imageAnnotation.findMany({
-          where: { usageKey: { in: guide.steps.map((s) => guideStepUsageKey(s.id)) }, deletedAt: null },
-          select: { usageKey: true, imageUrl: true, data: true },
-        })
-      : Promise.resolve([]),
+    loadStepAnnotations(guide.steps.map((s) => s.id)),
   ])
   const byId = new Map(resolved.map((l) => [l.id, l]))
-  const annotationByStep = new Map<string, ImageAnnotationLayer[]>()
-  for (const r of annotationRows) {
-    const stepId = r.usageKey.slice('guide-step:'.length)
-    const list = annotationByStep.get(stepId) ?? []
-    list.push({ imageUrl: r.imageUrl, data: normaliseAnnotation(r.data) })
-    annotationByStep.set(stepId, list)
-  }
 
   return NextResponse.json({
     ...guide,
     steps: guide.steps.map((s) => ({
       ...s,
       links: s.links.map((l) => byId.get(l.id)).filter(Boolean),
-      imageAnnotations: annotationByStep.get(s.id) ?? [],
+      imageAnnotations: stepAnnotationsFor(annotationByStep, s.id),
     })),
     tableRows: guide.tableRows.map((r) => ({
       ...r,
