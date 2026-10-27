@@ -2,9 +2,25 @@
 
 Source of truth: GitHub issues (`gh issue list --state open`).
 Last synced: 2026-10-27.
+Session status: all implementation PRs are open against `develop`; CI pending;
+nothing merged. Human review is the gate.
 
 This doc records the grouping decisions for the current session. GitHub remains
 authoritative; update this file when issues are closed or regrouped.
+
+## Session status (2026-10-27)
+
+| PR | Branch | Issues | Status |
+|---|---|---|---|
+| [#25](https://github.com/Smartcile/heavens-hospo-helper/pull/25) | `wave/availability-locking-and-ux` | #12, #14, #20, #13, #7, #16 | PR open, CI pending |
+| [#26](https://github.com/Smartcile/heavens-hospo-helper/pull/26) | `wave/tasks-authoring` | #8, #19, #4 | PR open, CI pending |
+| [#27](https://github.com/Smartcile/heavens-hospo-helper/pull/27) | `issue/18-guides-annotations` | #18 | PR open, CI pending |
+| [#28](https://github.com/Smartcile/heavens-hospo-helper/pull/28) | `issue/5-swiftpos` | #5 | PR open, CI pending; live SwiftDOSnet smoke test blocked (unreachable) |
+| [#29](https://github.com/Smartcile/heavens-hospo-helper/pull/29) | `issue/9-phone-session` | #9 | PR open, CI pending |
+| [#30](https://github.com/Smartcile/heavens-hospo-helper/pull/30) | `issue/17-section-worked` | #17 | PR open, CI pending |
+
+Verified and closed: **#3** (roster drag-fill / series verification).
+
 
 ## Decisions (approved 2026-10-27)
 
