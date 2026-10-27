@@ -9,6 +9,26 @@ type SessionLike = {
 } | null
 
 /**
+ * Resolve the venue a session is effectively acting on. A MANAGER uses the
+ * active-venue cookie only when it is one of their available venues; otherwise
+ * their home venue. ADMIN (and any other role) returns their home venue.
+ * Pure so server pages and route guards share the same rule.
+ */
+export function resolveEffectiveVenueId(
+  session: SessionLike,
+  cookieVenueId?: string | null,
+): string | null {
+  if (!session) return null
+  if (session.user.role === 'MANAGER') {
+    if (cookieVenueId && session.user.availableVenueIds?.includes(cookieVenueId)) {
+      return cookieVenueId
+    }
+    return session.user.venueId
+  }
+  return session.user.venueId
+}
+
+/**
  * Returns the effective venue ID for MANAGER scoping.
  * Reads the `admin-active-venue` cookie; falls back to the session's home venue.
  * Returns null for ADMIN (no venue filter) or unauthenticated sessions.
@@ -17,12 +37,7 @@ export function getManagerVenueId(session: SessionLike, req: NextRequest): strin
   if (!session || !req) return null
   if (session.user.role !== 'MANAGER') return null
 
-  const cookieVenueId = req.cookies.get('admin-active-venue')?.value
-  if (cookieVenueId && session.user.availableVenueIds?.includes(cookieVenueId)) {
-    return cookieVenueId
-  }
-
-  return session.user.venueId
+  return resolveEffectiveVenueId(session, req.cookies.get('admin-active-venue')?.value)
 }
 
 /**
