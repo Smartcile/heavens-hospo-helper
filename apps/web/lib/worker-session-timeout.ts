@@ -31,6 +31,33 @@ export function clampWorkerSessionMinutes(value: unknown): number {
   return Math.min(WORKER_SESSION_MAX_MINUTES, Math.max(WORKER_SESSION_MIN_MINUTES, Math.round(n)))
 }
 
+export type VenueWorkerSessionParse =
+  | { ok: true; minutes: number | null }
+  | { ok: false }
+
+/**
+ * Validate a venue-settings payload. Null / undefined / blank / 0 mean "use the
+ * env fallback" (stored as null); a non-numeric value is rejected so a typo
+ * cannot silently reset the venue timeout. Other numbers are clamped to 5–480
+ * (so -10 becomes 5).
+ */
+export function parseVenueWorkerSessionMinutes(value: unknown): VenueWorkerSessionParse {
+  if (value === null || value === undefined) return { ok: true, minutes: null }
+  if (typeof value === 'string' && value.trim() === '') return { ok: true, minutes: null }
+
+  const n = Number(value)
+  if (!Number.isFinite(n)) return { ok: false }
+  if (n === 0) return { ok: true, minutes: null }
+
+  return {
+    ok: true,
+    minutes: Math.min(
+      WORKER_SESSION_MAX_MINUTES,
+      Math.max(WORKER_SESSION_MIN_MINUTES, Math.round(n))
+    ),
+  }
+}
+
 /**
  * Resolve the timeout for a venue. Null / undefined / blank / 0 mean "use the
  * env fallback"; anything else is clamped to 5–480.

@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma, Prisma } from '@hospo-ops/db'
 import { resolveAvailabilityPresets, parseAvailabilityCutoff } from '@/lib/availability'
-import { clampWorkerSessionMinutes } from '@/lib/worker-session-timeout'
+import { parseVenueWorkerSessionMinutes } from '@/lib/worker-session-timeout'
 
 interface Params {
   params: { id: string }
@@ -47,13 +47,17 @@ export async function PUT(req: NextRequest, { params }: Params) {
     data.availabilityPresets = resolveAvailabilityPresets(availabilityPresets) as unknown as Prisma.InputJsonValue
   }
   // Worker phone-session idle timeout. Blank / 0 / null = env fallback;
-  // anything else is clamped to the supported 5–480 minute window.
+  // non-numeric input is rejected (400) and other numbers are clamped to the
+  // supported 5–480 minute window.
   if (workerSessionTimeoutMinutes !== undefined) {
-    const raw = workerSessionTimeoutMinutes
-    data.workerSessionTimeoutMinutes =
-      raw === null || raw === '' || Number(raw) === 0
-        ? null
-        : clampWorkerSessionMinutes(raw)
+    const parsed = parseVenueWorkerSessionMinutes(workerSessionTimeoutMinutes)
+    if (!parsed.ok) {
+      return NextResponse.json(
+        { error: 'Worker session timeout must be a number between 5 and 480' },
+        { status: 400 }
+      )
+    }
+    data.workerSessionTimeoutMinutes = parsed.minutes
   }
   // Venue sharing settings
   if (sharingEnabled !== undefined) data.sharingEnabled = sharingEnabled

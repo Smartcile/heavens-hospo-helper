@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   clampWorkerSessionMinutes,
+  parseVenueWorkerSessionMinutes,
   resolveWorkerSessionMinutes,
   shouldRefreshWorkerSession,
   workerSessionExpiresAt,
@@ -56,6 +57,23 @@ describe('worker session timeout', () => {
     expect(resolveWorkerSessionMinutes(999)).toBe(WORKER_SESSION_MAX_MINUTES)
     expect(clampWorkerSessionMinutes(-10)).toBe(WORKER_SESSION_DEFAULT_MINUTES)
     expect(clampWorkerSessionMinutes(12.6)).toBe(13)
+  })
+
+  it('parses a venue payload: blank/0 map to null, non-numeric is rejected, negatives clamp to 5', () => {
+    expect(parseVenueWorkerSessionMinutes(null)).toEqual({ ok: true, minutes: null })
+    expect(parseVenueWorkerSessionMinutes(undefined)).toEqual({ ok: true, minutes: null })
+    expect(parseVenueWorkerSessionMinutes('')).toEqual({ ok: true, minutes: null })
+    expect(parseVenueWorkerSessionMinutes('   ')).toEqual({ ok: true, minutes: null })
+    expect(parseVenueWorkerSessionMinutes(0)).toEqual({ ok: true, minutes: null })
+    expect(parseVenueWorkerSessionMinutes('0')).toEqual({ ok: true, minutes: null })
+
+    expect(parseVenueWorkerSessionMinutes('abc')).toEqual({ ok: false })
+    expect(parseVenueWorkerSessionMinutes('12abc')).toEqual({ ok: false })
+
+    expect(parseVenueWorkerSessionMinutes(-10)).toEqual({ ok: true, minutes: 5 })
+    expect(parseVenueWorkerSessionMinutes('30')).toEqual({ ok: true, minutes: 30 })
+    expect(parseVenueWorkerSessionMinutes(999)).toEqual({ ok: true, minutes: 480 })
+    expect(parseVenueWorkerSessionMinutes(12.6)).toEqual({ ok: true, minutes: 13 })
   })
 
   it('clamps the env fallback too', () => {

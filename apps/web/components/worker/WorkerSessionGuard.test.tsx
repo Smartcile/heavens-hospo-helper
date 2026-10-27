@@ -127,6 +127,50 @@ describe('WorkerSessionGuard', () => {
     ).toHaveLength(2)
   })
 
+  it('resets the idle timer when the top window receives same-origin worker-activity', async () => {
+    mockApi({ timeoutMinutes: 5 })
+    render(<WorkerSessionGuard />)
+    await flush()
+
+    await advance(4 * 60_000)
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'worker-activity' },
+          origin: window.location.origin,
+        })
+      )
+    })
+    await flush()
+
+    // Without the reset the original 5-minute timer would fire here.
+    await advance(4 * 60_000)
+    expect(replace).not.toHaveBeenCalled()
+
+    await advance(1 * 60_000)
+    expect(replace).toHaveBeenCalledWith('/w/login')
+  })
+
+  it('ignores worker-activity messages from another origin', async () => {
+    mockApi({ timeoutMinutes: 5 })
+    render(<WorkerSessionGuard />)
+    await flush()
+
+    await advance(4 * 60_000)
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'worker-activity' },
+          origin: 'https://evil.example',
+        })
+      )
+    })
+    await flush()
+
+    await advance(1 * 60_000)
+    expect(replace).toHaveBeenCalledWith('/w/login')
+  })
+
   it('child frames report activity to the top window instead of refreshing', async () => {
     const originalParent = Object.getOwnPropertyDescriptor(window, 'parent')
     const postMessage = vi.fn()

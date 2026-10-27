@@ -29,6 +29,25 @@ export async function POST() {
     return NextResponse.json({ error: 'Venue not available' }, { status: 401 })
   }
 
+  // A live token must still belong to an active staff member at this venue.
+  // Without this a deactivated/offboarded worker could keep renewing forever.
+  const staff = await prisma.staff.findFirst({
+    where: {
+      id: session.staffId,
+      deletedAt: null,
+      isActive: true,
+      OR: [
+        { venueId: session.venueId },
+        { staffVenues: { some: { venueId: session.venueId } } },
+      ],
+    },
+    select: { departmentId: true, firstName: true, role: true },
+  })
+  if (!staff) {
+    clearWorkerSessionCookie()
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const timeoutMinutes = resolveWorkerSessionMinutes(venue.workerSessionTimeoutMinutes)
   const now = Date.now()
 
@@ -43,9 +62,11 @@ export async function POST() {
   const token = await createWorkerSession({
     staffId: session.staffId,
     venueId: session.venueId,
-    departmentId: session.departmentId ?? null,
-    firstName: session.firstName,
-    role: session.role,
+    // Re-mint from the CURRENT staff row, not the old token, so a demotion or
+    // department move sticks the next time the session slides.
+    departmentId: staff.departmentId ?? null,
+    firstName: staff.firstName,
+    role: staff.role,
   }, timeoutMinutes)
   setWorkerSessionCookie(token, timeoutMinutes)
 

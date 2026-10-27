@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -128,5 +128,129 @@ describe('SettingsClient tabs', () => {
         }),
       )
     })
+  })
+})
+
+describe('SettingsClient — worker session timeout', () => {
+  const VENUE = {
+    id: 'v1',
+    name: 'TEST VENUE',
+    loadedRosterUrl: null,
+    googleCalendarUrl: null,
+    icalFeedUrl: null,
+    externalRefreshMinutes: 0,
+    availabilityLockDays: 0,
+    availabilityCutoff: null,
+    availabilityPresets: null,
+    workerSessionTimeoutMinutes: 15,
+    sharingEnabled: false,
+    sharedWooVenueId: null,
+  }
+
+  let fetchMock: ReturnType<typeof installFetchMock>
+
+  function response(body: unknown, status = 200) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => body,
+    } as Response
+  }
+
+  function installFetchMock() {
+    return vi
+      .spyOn(global, 'fetch')
+      .mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = init?.method ?? 'GET'
+
+        if (url === '/api/admin/venues' && method === 'GET') return response([VENUE])
+        if (url.startsWith('/api/admin/venues/') && method === 'PUT') {
+          const body = JSON.parse(String(init?.body))
+          return response({ ...VENUE, ...body })
+        }
+        if (url.startsWith('/api/admin/calendar-feeds')) {
+          return response({ feeds: [], areas: [], floorPlans: [] })
+        }
+        if (url.startsWith('/api/admin/settings/woocommerce')) return response({})
+        if (url.startsWith('/api/admin/api-keys')) return response([])
+        if (url.startsWith('/api/admin/settings/demo-venue')) return response({ venue: null })
+        return response({})
+      })
+  }
+
+  function workerSessionSection() {
+    const heading = screen.getByRole('heading', { name: 'WORKER SESSION' })
+    return heading.closest('div') as HTMLElement
+  }
+
+  function timeoutInput() {
+    return within(workerSessionSection()).getByRole('spinbutton') as HTMLInputElement
+  }
+
+  function saveButton() {
+    return within(workerSessionSection()).getByRole('button', { name: 'SAVE' })
+  }
+
+  function putBodies() {
+    return fetchMock.mock.calls
+      .filter(
+        ([url, init]) =>
+          String(url).startsWith('/api/admin/venues/') &&
+          (init as RequestInit | undefined)?.method === 'PUT'
+      )
+      .map(([, init]) => JSON.parse(String((init as RequestInit).body)))
+  }
+
+  async function renderSettings() {
+    render(<SettingsClient {...props} />)
+    await waitFor(() => expect(screen.getByText('WORKER SESSION')).toBeTruthy())
+  }
+
+  beforeEach(() => {
+    mocks.push.mockClear()
+    mocks.params = new URLSearchParams()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    fetchMock = installFetchMock()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('rejects a value outside 5–480 without saving', async () => {
+    await renderSettings()
+
+    fireEvent.change(timeoutInput(), { target: { value: '4' } })
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(screen.getByText(/ENTER 5.480 MINUTES/)).toBeTruthy())
+
+    fireEvent.change(timeoutInput(), { target: { value: '481' } })
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(screen.getByText(/ENTER 5.480 MINUTES/)).toBeTruthy())
+
+    expect(putBodies()).toHaveLength(0)
+  })
+
+  it('maps a blank or 0 value to null and a valid value to its number', async () => {
+    await renderSettings()
+
+    fireEvent.change(timeoutInput(), { target: { value: '120' } })
+    fireEvent.click(saveButton())
+    await waitFor(() =>
+      expect(putBodies()).toContainEqual({ workerSessionTimeoutMinutes: 120 })
+    )
+
+    fireEvent.change(timeoutInput(), { target: { value: '0' } })
+    fireEvent.click(saveButton())
+    await waitFor(() =>
+      expect(putBodies()).toContainEqual({ workerSessionTimeoutMinutes: null })
+    )
+
+    fireEvent.change(timeoutInput(), { target: { value: '' } })
+    fireEvent.click(saveButton())
+    await waitFor(() =>
+      expect(putBodies()).toContainEqual({ workerSessionTimeoutMinutes: null })
+    )
   })
 })

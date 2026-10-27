@@ -22,6 +22,25 @@ export async function GET() {
     return NextResponse.json({ error: 'Venue not available' }, { status: 401 })
   }
 
+  // A live token must still belong to an active staff member at this venue.
+  // Without this a deactivated/offboarded worker could keep renewing forever.
+  const staff = await prisma.staff.findFirst({
+    where: {
+      id: session.staffId,
+      deletedAt: null,
+      isActive: true,
+      OR: [
+        { venueId: session.venueId },
+        { staffVenues: { some: { venueId: session.venueId } } },
+      ],
+    },
+    select: { id: true },
+  })
+  if (!staff) {
+    clearWorkerSessionCookie()
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const timeoutMinutes = resolveWorkerSessionMinutes(venue.workerSessionTimeoutMinutes)
   return NextResponse.json({
     timeoutMinutes,

@@ -109,6 +109,7 @@ export function WorkerSessionGuard() {
 
     function onMessage(e: MessageEvent) {
       if (isChild) return
+      if (e.origin !== window.location.origin) return
       if (e.data?.type === 'worker-activity') noteActivity()
     }
 

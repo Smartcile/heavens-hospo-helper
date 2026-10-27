@@ -127,8 +127,9 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
   useEffect(() => { load() }, [])
 
   async function handleSignOut() {
-    // Explicit sign-out ends BOTH sessions (admin too) — the inactivity timer
-    // below only clears the worker cookie.
+    // Explicit sign-out ends BOTH sessions (admin too). The inactivity timeout
+    // is owned by WorkerSessionGuard in the worker layout and only clears the
+    // worker cookie.
     await fetch('/api/worker/logout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
