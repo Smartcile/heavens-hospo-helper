@@ -353,12 +353,11 @@ POS sale line ── InventoryCode ──► MenuItem.swiftPosId ──► serve
 
 ### Still to do
 
-1. **Auto-deduct** (write the drawdown back to stock) vs. review-then-post - a
+1. **Auto-deduct** (write the drawdown back to stock) vs. review-then-post — a
    decision. Currently the tab only *reports*; nothing mutates `totalQty`.
-2. **Trading-day window** - SwiftPOS uses a 06:00 start-of-day; the pull currently
+2. **Trading-day window** — SwiftPOS uses a 06:00 start-of-day; the pull currently
    uses calendar dates from/to.
 3. **Schedule the pull** (internal cron) so drawdown is ready each morning.
-
 
 > **Important:** SwiftPOS's own `RecipeTable` / `EJRecipeUsageTable` are **empty**,
 > so SwiftPOS does not supply recipe drawdown — consumption must be computed here

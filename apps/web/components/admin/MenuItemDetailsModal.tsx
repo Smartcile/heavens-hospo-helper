@@ -26,52 +26,83 @@ export function MenuItemDetailsModal({ menuItemId, menuItemName, venueId, onClos
   const [vintage, setVintage] = useState('')
   const [howToServe, setHowToServe] = useState('')
   const [swiftPosId, setSwiftPosId] = useState('')
+  const [swiftPosDirty, setSwiftPosDirty] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+  const [messageTone, setMessageTone] = useState<'success' | 'error'>('success')
 
   useEffect(() => { load() }, [menuItemId])
 
   async function load() {
     setLoading(true)
-    const r = await fetch(`/api/admin/menu-items/${menuItemId}`)
-    if (r.ok) {
+    setMessage('')
+    try {
+      const r = await fetch(`/api/admin/menu-items/${menuItemId}`)
+      if (!r.ok) {
+        setMessage('COULD NOT LOAD PRODUCT DETAILS')
+        setMessageTone('error')
+        setSwiftPosDirty(false)
+        return
+      }
       const item = await r.json()
       setTastingNotes(item.tastingNotes ?? '')
       setVintage(item.vintage ?? '')
       setHowToServe(item.howToServe ?? '')
       setSwiftPosId(item.swiftPosId ?? '')
+      setSwiftPosDirty(false)
+    } catch {
+      setMessage('COULD NOT LOAD PRODUCT DETAILS')
+      setMessageTone('error')
+      setSwiftPosDirty(false)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   async function save() {
     setSaving(true)
     setMessage('')
-    const r = await fetch(`/api/admin/menu-items/${menuItemId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        tastingNotes: tastingNotes || null,
-        vintage: vintage || null,
-        howToServe: howToServe || null,
-      }),
-    })
-    const link = await fetch('/api/admin/swiftpos/menu-links', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ menuItemId, swiftPosId: swiftPosId.trim() || null }),
-    })
-    if (!r.ok) {
+    try {
+      const r = await fetch(`/api/admin/menu-items/${menuItemId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tastingNotes: tastingNotes || null,
+          vintage: vintage || null,
+          howToServe: howToServe || null,
+        }),
+      })
+      if (!r.ok) {
+        setMessage('SAVE FAILED')
+        setMessageTone('error')
+        return
+      }
+
+      let linkError = ''
+      if (swiftPosDirty) {
+        const link = await fetch('/api/admin/swiftpos/menu-links', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ menuItemId, swiftPosId: swiftPosId.trim() || null }),
+        })
+        if (!link.ok) {
+          const body = await link.json().catch(() => ({}))
+          linkError = String(body.error ?? 'SWIFTPOS CODE NOT SAVED')
+        } else {
+          setSwiftPosDirty(false)
+        }
+      }
+
+      setMessage(linkError ? `DETAILS SAVED — ${linkError}` : 'SAVED')
+      setMessageTone(linkError ? 'error' : 'success')
+      onSaved?.()
+    } catch {
       setMessage('SAVE FAILED')
-    } else if (!link.ok) {
-      const body = await link.json().catch(() => ({}))
-      setMessage(String(body.error ?? 'SWIFTPOS CODE NOT SAVED'))
-    } else {
-      setMessage('SAVED')
+      setMessageTone('error')
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
-    if (r.ok) onSaved?.()
   }
 
   return (
@@ -105,7 +136,10 @@ export function MenuItemDetailsModal({ menuItemId, menuItemName, venueId, onClos
               <input
                 aria-label="SWIFT POS CODE"
                 value={swiftPosId}
-                onChange={(e) => setSwiftPosId(e.target.value.toUpperCase())}
+                onChange={(e) => {
+                  setSwiftPosId(e.target.value.toUpperCase())
+                  setSwiftPosDirty(true)
+                }}
                 placeholder="SWIFTPOS INVENTORY CODE"
                 className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light"
               />
@@ -138,7 +172,11 @@ export function MenuItemDetailsModal({ menuItemId, menuItemName, venueId, onClos
           <div className="flex items-center gap-2 border-t border-grey-mid pt-3">
             <Button onClick={save} disabled={saving}>{saving ? 'SAVING…' : 'SAVE'}</Button>
             <Button variant="ghost" onClick={onClose}>CLOSE</Button>
-            {message && <span className="font-mono text-xs uppercase text-success">{message}</span>}
+            {message && (
+              <span className={`font-mono text-xs uppercase ${messageTone === 'error' ? 'text-danger' : 'text-success'}`}>
+                {message}
+              </span>
+            )}
           </div>
         </div>
       )}

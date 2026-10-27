@@ -97,7 +97,9 @@ export async function fetchProducts(baseUrl: string): Promise<ProductFetch> {
       await getJson(baseUrl, `/api/products?page=${page}&top=${PRODUCT_PAGE_SIZE}`),
     )
     rows.push(...parsed.rows)
-    total = parsed.total || rows.length
+    // Accumulate rather than take the last page's fallback (parseProducts falls
+    // back to the page size when the server omits `total`).
+    total = Math.max(total, parsed.total, rows.length)
     if (!parsed.hasMore) break
     if (parsed.rows.length === 0) break
     if (page === PRODUCT_MAX_PAGES) truncated = true

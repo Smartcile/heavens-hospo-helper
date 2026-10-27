@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { SwiftPosMenuLinks } from '@/components/admin/SwiftPosMenuLinks'
+import { pushToast } from '@/components/ui/Toast'
 
 vi.mock('@/components/ui/Toast', () => ({ pushToast: vi.fn() }))
 
@@ -58,6 +59,7 @@ function mockFetch() {
 describe('SwiftPosMenuLinks', () => {
   beforeEach(() => {
     puts = []
+    vi.mocked(pushToast).mockClear()
     globalThis.fetch = mockFetch()
   })
   afterEach(() => { vi.restoreAllMocks() })
@@ -105,5 +107,45 @@ describe('SwiftPosMenuLinks', () => {
     render(<SwiftPosMenuLinks venueId="v1" />)
     await waitFor(() => expect(screen.getByText(/SWIFTPOS NOT CONNECTED/)).toBeTruthy())
     expect(screen.queryByText('SWIFTPOS MENU LINKS')).toBeTruthy()
+  })
+
+  it('asks for a venue instead of fetching when none is selected', () => {
+    globalThis.fetch = vi.fn() as unknown as typeof fetch
+
+    render(<SwiftPosMenuLinks venueId="" />)
+    expect(screen.getByText('SELECT A VENUE.')).toBeTruthy()
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
+
+  it('hides orphans when the catalogue is truncated', async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ ...PAYLOAD, truncated: true, orphans: [], orphansSuppressed: true }),
+    })) as unknown as typeof fetch
+
+    render(<SwiftPosMenuLinks venueId="v1" />)
+    await waitFor(() => expect(screen.getByText('ORPHAN CODES (HIDDEN)')).toBeTruthy())
+    expect(screen.getByText(/CATALOGUE IS TRUNCATED/)).toBeTruthy()
+    expect(screen.getByText('HIDDEN.')).toBeTruthy()
+  })
+
+  it('clears the busy state when the link request fails on the network', async () => {
+    const base = mockFetch()
+    globalThis.fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (String(url).startsWith('/api/admin/swiftpos/menu-links') && init?.method === 'PUT') {
+        return Promise.reject(new Error('network down'))
+      }
+      return base(url, init)
+    }) as unknown as typeof fetch
+
+    render(<SwiftPosMenuLinks venueId="v1" />)
+    await waitFor(() => expect(screen.getByLabelText('LOCAL PRODUCT FOR BTL HEINEKEN')).toBeTruthy())
+
+    fireEvent.change(screen.getByLabelText('LOCAL PRODUCT FOR BTL HEINEKEN'), { target: { value: 'm2' } })
+    fireEvent.click(screen.getByLabelText('LINK BTL HEINEKEN'))
+
+    await waitFor(() => expect(pushToast).toHaveBeenCalledWith('COULD NOT REACH THE SERVER', 'error'))
+    expect(screen.queryByText('LOADING')).toBeNull()
   })
 })

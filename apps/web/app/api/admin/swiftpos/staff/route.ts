@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import bcrypt from 'bcryptjs'
 import { guardAccess } from '@/lib/permissions'
+import { resolveScopedVenueId } from '@/lib/venue-scope'
 import { fetchLookups } from '@/lib/swiftpos.server'
 import {
   buildClerkRows,
@@ -24,20 +25,16 @@ const STAFF_SELECT = {
   isActive: true,
 } as const
 
-type SessionLike = { user: { role: string; venueId: string } }
-
-function resolveVenueId(session: SessionLike, req: NextRequest, posted?: string): string {
-  const param = posted || req.nextUrl.searchParams.get('venueId')
-  return session.user.role === 'MANAGER' ? session.user.venueId : param || session.user.venueId
-}
-
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const denied = await guardAccess(session, req, 'team.staff.view')
   if (denied) return denied
 
-  const venueId = resolveVenueId(session, req)
+  const scoped = resolveScopedVenueId(session, req)
+  if ('error' in scoped) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const venueId = scoped.venueId
+
   const venue = await prisma.venue.findUnique({
     where: { id: venueId },
     select: { id: true, name: true, swiftPosBaseUrl: true },
@@ -98,7 +95,10 @@ export async function POST(req: NextRequest) {
   const denied = await guardAccess(session, req, action === 'CREATE' ? 'team.staff.create' : 'team.staff.edit')
   if (denied) return denied
 
-  const venueId = resolveVenueId(session, req, body?.venueId)
+  const scoped = resolveScopedVenueId(session, req, body?.venueId)
+  if ('error' in scoped) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const venueId = scoped.venueId
+
   const venue = await prisma.venue.findUnique({ where: { id: venueId }, select: { id: true } })
   if (!venue) return NextResponse.json({ error: 'Venue not found' }, { status: 404 })
 

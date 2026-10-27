@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { resolveScopedVenueId } from '@/lib/venue-scope'
 import { fetchProducts } from '@/lib/swiftpos.server'
 import { buildProductLinks } from '@/lib/swiftpos-products'
 
@@ -11,13 +12,6 @@ import { buildProductLinks } from '@/lib/swiftpos-products'
 // Read-only against SwiftDOSnet; PUT only writes the local mapping column and
 // deliberately does NOT push to WooCommerce (a POS code is not a Woo field).
 // See MENUS.md §8.
-
-type SessionLike = { user: { role: string; venueId: string } }
-
-function resolveVenueId(session: SessionLike, req: NextRequest, posted?: string): string {
-  const param = posted || req.nextUrl.searchParams.get('venueId')
-  return session.user.role === 'MANAGER' ? session.user.venueId : param || session.user.venueId
-}
 
 function codeKey(code: string): string {
   return code.trim().toUpperCase()
@@ -29,7 +23,10 @@ export async function GET(req: NextRequest) {
   const denied = await guardAccess(session, req, 'ops.menus.view')
   if (denied) return denied
 
-  const venueId = resolveVenueId(session, req)
+  const scoped = resolveScopedVenueId(session, req)
+  if ('error' in scoped) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const venueId = scoped.venueId
+
   const venue = await prisma.venue.findUnique({
     where: { id: venueId },
     select: { id: true, name: true, swiftPosBaseUrl: true },
@@ -65,7 +62,7 @@ export async function GET(req: NextRequest) {
     total: products.total,
     truncated: products.truncated,
     menuItems,
-    ...buildProductLinks(products.rows, menuItems),
+    ...buildProductLinks(products.rows, menuItems, { truncated: products.truncated }),
   })
 }
 
@@ -89,7 +86,10 @@ export async function PUT(req: NextRequest) {
     select: { id: true, name: true, venueId: true },
   })
   if (!item) return NextResponse.json({ error: 'PRODUCT NOT FOUND' }, { status: 404 })
-  if (session.user.role === 'MANAGER' && item.venueId !== session.user.venueId) {
+
+  const scoped = resolveScopedVenueId(session, req, body?.venueId ?? item.venueId)
+  if ('error' in scoped) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (item.venueId !== scoped.venueId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

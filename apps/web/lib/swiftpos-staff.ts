@@ -118,14 +118,19 @@ export function clerkCodeConflict(
   )
 }
 
+/** Uppercase a possibly-malformed name part; non-strings are ignored. */
+function namePart(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toUpperCase() : ''
+}
+
 /** CREATE name: an explicit first/last name wins, otherwise split the clerk name. */
 export function resolveCreatedName(
-  input: { firstName?: string; lastName?: string },
-  clerkName: string,
+  input: { firstName?: unknown; lastName?: unknown },
+  clerkName: unknown,
 ): { firstName: string; lastName: string } {
-  const split = splitClerkName(clerkName)
-  const firstName = (input.firstName ?? '').trim().toUpperCase() || split.firstName
-  const lastName = (input.lastName ?? '').trim().toUpperCase() || split.lastName
+  const split = splitClerkName(typeof clerkName === 'string' ? clerkName : '')
+  const firstName = namePart(input.firstName) || split.firstName
+  const lastName = namePart(input.lastName) || split.lastName
   return { firstName, lastName }
 }
 

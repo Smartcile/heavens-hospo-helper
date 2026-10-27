@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { resolveScopedVenueId } from '@/lib/venue-scope'
 import { fetchKitchenDockets } from '@/lib/swiftpos.server'
 import { docketWindow, normaliseDocketMinutes } from '@/lib/swiftpos-dockets'
 
@@ -11,20 +12,16 @@ import { docketWindow, normaliseDocketMinutes } from '@/lib/swiftpos-dockets'
 // browser). Default window is the last 60 minutes; `?minutes=0` returns every
 // line on the open sales. See MENUS.md §8.
 
-type SessionLike = { user: { role: string; venueId: string } }
-
-function resolveVenueId(session: SessionLike, req: NextRequest): string {
-  const param = req.nextUrl.searchParams.get('venueId')
-  return session.user.role === 'MANAGER' ? session.user.venueId : param || session.user.venueId
-}
-
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const denied = await guardAccess(session, req, 'orders.orders.view')
   if (denied) return denied
 
-  const venueId = resolveVenueId(session, req)
+  const scoped = resolveScopedVenueId(session, req)
+  if ('error' in scoped) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const venueId = scoped.venueId
+
   const venue = await prisma.venue.findUnique({
     where: { id: venueId },
     select: { id: true, name: true, swiftPosBaseUrl: true, timezone: true },

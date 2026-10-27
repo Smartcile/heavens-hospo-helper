@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { KitchenDocketsClient } from '@/components/admin/KitchenDocketsClient'
+import { getActiveVenueId } from '@/lib/active-venue'
 
-vi.mock('@/lib/active-venue', () => ({ getActiveVenueId: () => 'v1' }))
+vi.mock('@/lib/active-venue', () => ({ getActiveVenueId: vi.fn(() => 'v1') }))
 
 const PAYLOAD = {
   venueName: 'DEMO',
@@ -56,9 +57,19 @@ function mockFetch(payload: unknown = PAYLOAD) {
 describe('KitchenDocketsClient', () => {
   beforeEach(() => {
     calls = 0
+    vi.mocked(getActiveVenueId).mockReturnValue('v1')
     globalThis.fetch = mockFetch()
   })
   afterEach(() => { vi.restoreAllMocks() })
+
+  it('asks for a venue instead of polling when none is selected', () => {
+    vi.mocked(getActiveVenueId).mockReturnValue('')
+    globalThis.fetch = vi.fn() as unknown as typeof fetch
+
+    render(<KitchenDocketsClient role="ADMIN" sessionVenueId="" />)
+    expect(screen.getByText('SELECT A VENUE.')).toBeTruthy()
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
 
   it('renders open dockets with their lines and nested instructions', async () => {
     render(<KitchenDocketsClient role="ADMIN" sessionVenueId="v1" />)

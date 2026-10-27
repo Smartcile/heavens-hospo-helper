@@ -37,6 +37,19 @@ describe('fetchProducts', () => {
     expect(calls[0]).toBe('http://swift:5080/api/products?page=1&top=100')
   })
 
+  it('accumulates the row count when the server omits total', async () => {
+    globalThis.fetch = vi.fn((url: string) => {
+      const u = String(url)
+      if (u.includes('page=1')) {
+        return Promise.resolve(jsonResponse({ rows: [{ InventoryCode: 'A' }], hasMore: true }))
+      }
+      return Promise.resolve(jsonResponse({ rows: [{ InventoryCode: 'B' }], hasMore: false }))
+    }) as unknown as typeof fetch
+
+    const result = await fetchProducts('http://swift:5080')
+    expect(result.total).toBe(2)
+  })
+
   it('stops at the hard page cap and reports truncation', async () => {
     let calls = 0
     globalThis.fetch = vi.fn(() => {

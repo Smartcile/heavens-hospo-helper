@@ -168,6 +168,13 @@ describe('resolveCreatedName / resolveClerkPin (CREATE)', () => {
     })
   })
 
+  it('ignores malformed name parts instead of throwing', () => {
+    expect(
+      resolveCreatedName({ firstName: 42, lastName: { nope: true } }, 'Doe, Jane'),
+    ).toEqual({ firstName: 'JANE', lastName: 'DOE' })
+    expect(resolveCreatedName({}, 99)).toEqual({ firstName: '', lastName: '' })
+  })
+
   it('defaults the PIN to the clerk number, unless a pin is supplied', () => {
     expect(resolveClerkPin(undefined, ' 42 ')).toBe('42')
     expect(resolveClerkPin('', '42')).toBe('42')

@@ -102,6 +102,15 @@ describe('buildProductLinks', () => {
   it('lists local codes missing from the SwiftPOS master as orphans', () => {
     const report = buildProductLinks(products, menuItems)
     expect(report.orphans).toEqual([{ code: 'DELETED POS ITEM', items: [{ id: 'm3', name: 'GONE' }] }])
+    expect(report.orphansSuppressed).toBe(false)
+  })
+
+  it('hides orphans when the product catalogue is truncated', () => {
+    const report = buildProductLinks(products, menuItems, { truncated: true })
+    expect(report.orphans).toEqual([])
+    expect(report.orphansSuppressed).toBe(true)
+    // Duplicates come from the local list, so they stay reliable.
+    expect(report.duplicates).toHaveLength(1)
   })
 })
 

@@ -42,7 +42,10 @@ export function KitchenDocketsClient({
   const [updatedAt, setUpdatedAt] = useState('')
 
   const load = useCallback(async (showLoading = true) => {
-    if (!venueId) return
+    if (!venueId) {
+      setLoading(false)
+      return
+    }
     if (showLoading) setLoading(true)
     try {
       const params = new URLSearchParams({ venueId, minutes: String(minutes) })
@@ -76,6 +79,10 @@ export function KitchenDocketsClient({
 
   const dockets = data?.dockets ?? []
   const lineCount = dockets.reduce((sum, d) => sum + d.lines.length, 0)
+
+  if (!venueId) {
+    return <p className="font-mono text-xs text-grey-light uppercase">SELECT A VENUE.</p>
+  }
 
   return (
     <div className="space-y-3">

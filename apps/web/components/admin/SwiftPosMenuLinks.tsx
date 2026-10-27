@@ -24,6 +24,7 @@ interface Payload {
   truncated: boolean
   rows: ProductLinkRow[]
   orphans: CodeGroup[]
+  orphansSuppressed?: boolean
   duplicates: CodeGroup[]
   linkedCount: number
   unlinkedCount: number
@@ -41,7 +42,11 @@ export function SwiftPosMenuLinks({ venueId }: { venueId: string }) {
   const [selected, setSelected] = useState<Record<string, string>>({})
 
   const load = useCallback(async () => {
-    if (!venueId) return
+    if (!venueId) {
+      setLoading(false)
+      setData(null)
+      return
+    }
     setLoading(true)
     setError('')
     try {
@@ -65,19 +70,24 @@ export function SwiftPosMenuLinks({ venueId }: { venueId: string }) {
 
   async function setLink(menuItemId: string, swiftPosId: string | null) {
     setBusy(`${swiftPosId ?? 'UNLINK'}:${menuItemId}`)
-    const res = await fetch('/api/admin/swiftpos/menu-links', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ venueId, menuItemId, swiftPosId }),
-    })
-    const body = await res.json().catch(() => ({}))
-    setBusy('')
-    if (!res.ok) {
-      pushToast(String(body.error ?? 'ACTION FAILED'), 'error')
-      return
+    try {
+      const res = await fetch('/api/admin/swiftpos/menu-links', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ venueId, menuItemId, swiftPosId }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        pushToast(String(body.error ?? 'ACTION FAILED'), 'error')
+        return
+      }
+      pushToast(swiftPosId ? 'PRODUCT LINKED' : 'PRODUCT UNLINKED', 'success')
+      await load()
+    } catch {
+      pushToast('COULD NOT REACH THE SERVER', 'error')
+    } finally {
+      setBusy('')
     }
-    pushToast(swiftPosId ? 'PRODUCT LINKED' : 'PRODUCT UNLINKED', 'success')
-    await load()
   }
 
   const categories = useMemo(() => {
@@ -105,6 +115,10 @@ export function SwiftPosMenuLinks({ venueId }: { venueId: string }) {
     [data],
   )
   const itemOptions = unlinkedItems.map((m) => ({ value: m.id, label: m.name }))
+
+  if (!venueId) {
+    return <p className="font-mono text-xs text-grey-light uppercase">SELECT A VENUE.</p>
+  }
 
   if (loading && !data) {
     return <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
@@ -147,9 +161,14 @@ export function SwiftPosMenuLinks({ venueId }: { venueId: string }) {
                 groups={data.duplicates}
               />
               <IssueBox
-                title={`ORPHAN CODES (${data.orphans.length})`}
-                hint="Local products whose code no longer exists in the SwiftPOS master."
+                title={data.orphansSuppressed ? 'ORPHAN CODES (HIDDEN)' : `ORPHAN CODES (${data.orphans.length})`}
+                hint={
+                  data.orphansSuppressed
+                    ? 'THE SWIFTPOS CATALOGUE IS TRUNCATED — ORPHANS CANNOT BE DETERMINED RELIABLY.'
+                    : 'Local products whose code no longer exists in the SwiftPOS master.'
+                }
                 groups={data.orphans}
+                suppressed={data.orphansSuppressed}
               />
             </div>
           )}
@@ -305,13 +324,25 @@ function Status({ row }: { row: ProductLinkRow }) {
   )
 }
 
-function IssueBox({ title, hint, groups }: { title: string; hint: string; groups: CodeGroup[] }) {
+function IssueBox({
+  title,
+  hint,
+  groups,
+  suppressed,
+}: {
+  title: string
+  hint: string
+  groups: CodeGroup[]
+  suppressed?: boolean
+}) {
   return (
     <div className={`border p-3 ${groups.length > 0 ? 'border-danger' : 'border-grey-mid'}`}>
       <div className="font-mono text-xs uppercase tracking-wider text-white">{title}</div>
       <div className="font-mono text-2xs uppercase text-grey-light mt-0.5">{hint}</div>
       {groups.length === 0 ? (
-        <p className="font-mono text-2xs uppercase text-success mt-2">NONE.</p>
+        <p className="font-mono text-2xs uppercase text-grey-light mt-2">
+          {suppressed ? 'HIDDEN.' : 'NONE.'}
+        </p>
       ) : (
         <div className="mt-2 space-y-1">
           {groups.map((group) => (

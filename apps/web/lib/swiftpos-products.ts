@@ -47,6 +47,11 @@ export interface ProductLinkReport {
   rows: ProductLinkRow[]
   /** Local codes with no product in the SwiftPOS master (renamed/deleted). */
   orphans: CodeGroup[]
+  /**
+   * True when the product list was truncated, so orphans could not be proven —
+   * an orphan may simply be on a page that was never fetched.
+   */
+  orphansSuppressed: boolean
   /** Codes claimed by more than one local product — a sale matches only one. */
   duplicates: CodeGroup[]
   linkedCount: number
@@ -125,7 +130,12 @@ export function parseProducts(raw: unknown): ProductPage {
  * `matchSalesToItems`). Duplicates are surfaced, never resolved: a sale would
  * silently pick one of them.
  */
-export function buildProductLinks(products: SwiftPosProduct[], menuItems: MenuItemRef[]): ProductLinkReport {
+export function buildProductLinks(
+  products: SwiftPosProduct[],
+  menuItems: MenuItemRef[],
+  options?: { truncated?: boolean },
+): ProductLinkReport {
+  const truncated = options?.truncated === true
   const productCodes = new Set(products.map((p) => codeKey(p.inventoryCode)))
 
   const byCode = new Map<string, LinkedMenuItem[]>()
@@ -146,7 +156,7 @@ export function buildProductLinks(products: SwiftPosProduct[], menuItems: MenuIt
   const orphans: CodeGroup[] = []
   for (const [code, items] of byCode) {
     if (items.length > 1) duplicates.push({ code, items })
-    if (!productCodes.has(code)) orphans.push({ code, items })
+    if (!truncated && !productCodes.has(code)) orphans.push({ code, items })
   }
   duplicates.sort((a, b) => a.code.localeCompare(b.code))
   orphans.sort((a, b) => a.code.localeCompare(b.code))
@@ -154,6 +164,7 @@ export function buildProductLinks(products: SwiftPosProduct[], menuItems: MenuIt
   return {
     rows,
     orphans,
+    orphansSuppressed: truncated,
     duplicates,
     linkedCount: rows.filter((r) => r.linked.length > 0).length,
     unlinkedCount: rows.filter((r) => r.linked.length === 0).length,
