@@ -631,7 +631,7 @@ availability grids support **bulk clear**: admins shift-click a range on one
 staff row (or use `SELECT DAYS`), workers use `SELECT DAYS` on mobile or
 shift-click on desktop, then `CLEAR SELECTED (n)` with confirmation; clearing
 loops the existing `/clear` route one day at a time with `scope: 'THIS'` (no
-bulk API). Admins with `team.availability.edit` also get **`LOCK SELECTED (n)`**
+bulk API). Users with `team.availability.edit` also get **`LOCK SELECTED (n)`**
 beside clear: a small confirmation modal takes an optional reason, then loops
 `PATCH /api/admin/availability/[id]` with `{ locked: true, lockedReason }` for
 each populated, unlocked selected day (blank and already-locked days are
@@ -2813,7 +2813,7 @@ pushing, run: `npm run lint && npm run test`.
 | `ReferenceTableEditor.tsx` — column kinds, derived cells, row editing | ✅ (5 tests) |
 | `WorkerGuidesClient.tsx` — BIBLE / MY TREE, folder grouping, edit gating | ✅ (11 tests) |
 | `EventBuilder.tsx` / `PipelinePanel.tsx` / `EnquiriesPanel.tsx` — BEO builder, pipeline board, intake | ✅ (5 + 2 + 4) |
-| `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 16 + 15 + 28) |
+| `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 16 + 15 + 33) |
 | `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (13 + 5 + 4) |
 | `StaffingLinesEditor.tsx` — payload mapping, unnamed-row filter, rows, remove | ✅ (5 tests) |
 | `EventStaffingModal.tsx` — event info, linked shifts CLAIMED/ASSIGNED, listed-seat lock, FIND STAFF, claims review | ✅ (5 tests) |

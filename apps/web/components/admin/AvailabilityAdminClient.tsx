@@ -494,7 +494,8 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
         const d = await r.json().catch(() => ({}))
         if (!detail && typeof d.error === 'string') detail = d.error
       }
-      setError(`${failedResults.length} DAY${failedResults.length === 1 ? '' : 'S'} FAILED TO LOCK${detail ? ` — ${detail.toUpperCase()}` : ''}`)
+      const saved = targets.length - failedResults.length
+      setError(`${saved} LOCKED · ${failedResults.length} DAY${failedResults.length === 1 ? '' : 'S'} FAILED TO LOCK${detail ? ` — ${detail.toUpperCase()}` : ''}`)
       return
     }
 
@@ -1216,7 +1217,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
             </button>
           ) : (
             <>
-              {canEdit && selectedEntries.length > 0 && (
+              {canEdit && lockableCount > 0 && (
                 <button
                   type="button"
                   disabled={busy || lockableCount === 0}
