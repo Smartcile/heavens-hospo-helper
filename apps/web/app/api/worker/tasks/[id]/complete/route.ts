@@ -117,15 +117,14 @@ export async function POST(req: NextRequest, { params }: Params) {
     })
 
     // Performing the task without the required training is still worth a
-    // follow-up, even if the job isn't finished yet.
-    try {
-      await checkUntrainedOnCompletion({
-        taskId: params.id,
-        staffId: session.staffId,
-        venueId: session.venueId,
-        date: today,
-      })
-    } catch { /* ignore */ }
+    // follow-up, even if the job isn't finished yet. Fire-and-forget so a slow
+    // follow-up can never hold the worker's save open.
+    void checkUntrainedOnCompletion({
+      taskId: params.id,
+      staffId: session.staffId,
+      venueId: session.venueId,
+      date: today,
+    }).catch(() => { /* ignore */ })
 
     return NextResponse.json(progress, { status: 200 })
   }
@@ -194,20 +193,18 @@ export async function POST(req: NextRequest, { params }: Params) {
   // Best-effort — never let this block the completion response. Only a real
   // completion counts; NOT_REQUIRED / DID_NOT_COMPLETE never did the work.
   if (outcome === 'DONE') {
-    try {
-      await checkUntrainedOnCompletion({
-        taskId: params.id,
-        staffId: session.staffId,
-        venueId: session.venueId,
-        date: today,
-      })
-    } catch { /* ignore */ }
+    // Both are best-effort. Dispatch them without awaiting so a slow query (or
+    // a large venue reconcile) can never hold the completion response open.
+    void checkUntrainedOnCompletion({
+      taskId: params.id,
+      staffId: session.staffId,
+      venueId: session.venueId,
+      date: today,
+    }).catch(() => { /* ignore */ })
 
     // A completed pathway task can flip a MILESTONE to DONE, which raises a
-    // section-work review (but never grants the section). Best-effort.
-    try {
-      await reconcileSectionWork(session.staffId)
-    } catch { /* ignore */ }
+    // section-work review (but never grants the section).
+    void reconcileSectionWork(session.staffId).catch(() => { /* ignore */ })
   }
 
   return NextResponse.json(completion, { status: 201 })
