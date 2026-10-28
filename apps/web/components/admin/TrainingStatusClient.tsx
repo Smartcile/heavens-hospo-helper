@@ -6,17 +6,22 @@
 
 import { useEffect, useState } from 'react'
 import { getActiveVenueId } from '@/lib/active-venue'
-import type { TrainingLevel } from '@/lib/training-status'
+import { groupByPosition } from '@/lib/staff-groups'
+import { sortTrainingRows, type TrainingLevel } from '@/lib/training-status'
+import { StaffGuidesModal } from '@/components/admin/StaffGuidesModal'
 
 interface Row {
   id: string
   name: string
   positions: string[]
+  positionIds: string[]
   onShift: boolean
   requiredCount: number
   completedCount: number
   missingCount: number
   staleCount: number
+  missingGuides: string[]
+  staleGuides: string[]
   openFollowUps: number
   level: TrainingLevel
 }
@@ -36,6 +41,7 @@ interface Payload {
   venueName: string
   date: string
   staff: Row[]
+  positions: { id: string; name: string; colour: string | null }[]
   summary: { green: number; yellow: number; red: number }
 }
 
@@ -68,6 +74,7 @@ export function TrainingStatusClient({
   const [showDismissed, setShowDismissed] = useState(false)
   const [busyReviewId, setBusyReviewId] = useState<string | null>(null)
   const [reviewsError, setReviewsError] = useState('')
+  const [manageStaff, setManageStaff] = useState<{ id: string; name: string } | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -134,8 +141,14 @@ export function TrainingStatusClient({
     return <p className="font-mono text-xs text-danger">COULD NOT LOAD TRAINING STATUS.</p>
   }
 
-  const onShift = data.staff.filter((s) => s.onShift)
-  const offShift = data.staff.filter((s) => !s.onShift)
+  // Same derived-position grouping as availability/roster. The server already
+  // sorts on-shift first; re-apply it per group so the order holds inside each
+  // position bucket too.
+  const groups = groupByPosition(
+    data.staff,
+    data.positions ?? [],
+    (s) => s.positionIds,
+  ).map((g) => ({ ...g, items: sortTrainingRows(g.items) }))
 
   const row = (s: Row) => {
     const pct = s.requiredCount > 0 ? Math.round((s.completedCount / s.requiredCount) * 100) : 100
@@ -149,6 +162,11 @@ export function TrainingStatusClient({
                 {p}
               </span>
             ))}
+            {s.onShift && (
+              <span className="font-mono text-xs uppercase border border-info/60 text-info px-1.5 py-0.5">
+                ON SHIFT
+              </span>
+            )}
             <span className={`font-mono text-xs uppercase border px-1.5 py-0.5 ${LEVEL_CHIP[s.level]}`}>
               {s.level === 'GREEN' ? '✓ ALL GOOD' : s.level === 'YELLOW' ? 'NEEDS ATTENTION' : 'ACTION NEEDED'}
             </span>
@@ -186,6 +204,27 @@ export function TrainingStatusClient({
           {s.missingCount === 0 && s.staleCount === 0 && s.openFollowUps === 0 && (
             <span className="font-mono text-xs uppercase text-grey-light">NO OUTSTANDING TRAINING</span>
           )}
+        </div>
+
+        {s.missingGuides.length > 0 && (
+          <p className="mt-1.5 font-mono text-2xs uppercase text-warning">
+            TO DO: {s.missingGuides.join(' · ')}
+          </p>
+        )}
+        {s.staleGuides.length > 0 && (
+          <p className="mt-1.5 font-mono text-2xs uppercase text-danger">
+            RETRAIN: {s.staleGuides.join(' · ')}
+          </p>
+        )}
+
+        <div className="mt-2 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setManageStaff({ id: s.id, name: s.name })}
+            className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors"
+          >
+            MANAGE GUIDES →
+          </button>
         </div>
       </div>
     )
@@ -281,23 +320,29 @@ export function TrainingStatusClient({
         )}
       </div>
 
-      <div className="space-y-2">
-        <h2 className="font-mono text-xs uppercase tracking-widest text-grey-light">ON SHIFT TODAY ({onShift.length})</h2>
-        {onShift.length === 0 ? (
-          <p className="font-mono text-xs text-grey-light">NOBODY PUBLISHED ON SHIFT TODAY.</p>
-        ) : (
-          onShift.map(row)
-        )}
-      </div>
+      {groups.length === 0 ? (
+        <p className="font-mono text-xs text-grey-light">NO ACTIVE STAFF FOR THIS VENUE.</p>
+      ) : (
+        <div className="space-y-4">
+          {groups.map((g) => (
+            <div key={g.key} className="space-y-2">
+              <h2 className="flex flex-wrap items-center gap-2 font-mono text-xs uppercase tracking-widest text-grey-light">
+                <span>{g.label} ({g.items.length})</span>
+                <span>· {g.items.filter((i) => i.onShift).length} ON SHIFT</span>
+              </h2>
+              {g.items.map(row)}
+            </div>
+          ))}
+        </div>
+      )}
 
-      <div className="space-y-2">
-        <h2 className="font-mono text-xs uppercase tracking-widest text-grey-light">NOT ON SHIFT ({offShift.length})</h2>
-        {offShift.length === 0 ? (
-          <p className="font-mono text-xs text-grey-light">EVERYONE IS ON SHIFT TODAY.</p>
-        ) : (
-          offShift.map(row)
-        )}
-      </div>
+      {manageStaff && (
+        <StaffGuidesModal
+          staffId={manageStaff.id}
+          staffName={manageStaff.name}
+          onClose={() => setManageStaff(null)}
+        />
+      )}
     </div>
   )
 }

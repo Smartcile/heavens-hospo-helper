@@ -2530,14 +2530,20 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
   separate `SOFTWARE ROLE` (ADMIN/MANAGER/STAFF) from `POSITIONS`.
 - **Training STATUS tab + board.** `TRAINING_TABS` gains STATUS;
   `TrainingStatusClient` shows every active staff member's required/missing/
-  stale-guide counts and open follow-ups as GREEN (good) / YELLOW (bits to
-  work on) / RED (retraining or overdue), grouped ON SHIFT TODAY then NOT ON
-  SHIFT. It also renders the **SECTION REVIEWS** strip (confirm/dismiss/reopen
-  pending section-work reviews — see "Section-work reviews"). Staff rows come
-  from `GET /api/admin/training/status` backed by `lib/training-status.server.ts`
-  (pure rules + sort in `lib/training-status.ts`); reviews come from
+  stale-guide counts, the **titles** of missing/stale guides and open
+  follow-ups as GREEN (good) / YELLOW (bits to work on) / RED (retraining or
+  overdue), grouped by derived Position (same `lib/staff-groups.ts` rules as
+  availability/roster) with on-shift people first inside each group. Each row
+  has **MANAGE GUIDES →**, which opens the existing `StaffGuidesModal` (mark
+  trained / sign off / revoke / assign) so training can be completed without
+  leaving the board. It also renders the **SECTION REVIEWS** strip
+  (confirm/dismiss/reopen pending section-work reviews — see "Section-work
+  reviews"). Staff rows come from `GET /api/admin/training/status` backed by
+  `lib/training-status.server.ts` (pure rules + sort in `lib/training-status.ts`);
+  reviews come from
   `GET /api/admin/section-work?status=ALL` (the single reconcile path). Managers
-  get a TRAINING STATUS → button on the worker `/w/guides` header.
+  get a TRAINING STATUS → button on the worker `/w/guides` header; it opens
+  `/w/training-status`, the same board rendered inside the worker chrome.
 - **Notices grouping.** Worker notices split into PINNED (top) / unread /
   READ / ACKNOWLEDGED (bottom group) via `lib/notice-groups.ts`.
 - **Drag-reorder lists.** Guide steps reorder by drag or ↑/↓ in both editors

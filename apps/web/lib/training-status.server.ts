@@ -13,11 +13,16 @@ export interface StaffTrainingRow {
   id: string
   name: string
   positions: string[]
+  positionIds: string[]
   onShift: boolean
   requiredCount: number
   completedCount: number
   missingCount: number
   staleCount: number
+  /** Titles of required guides not yet completed. */
+  missingGuides: string[]
+  /** Titles of completed guides updated since the completion (re-training). */
+  staleGuides: string[]
   openFollowUps: number
   level: TrainingLevel
 }
@@ -26,6 +31,8 @@ export interface VenueTrainingStatus {
   venueName: string
   date: string
   staff: StaffTrainingRow[]
+  /** Ordered venue positions — the grouping order for the board. */
+  positions: { id: string; name: string; colour: string | null }[]
   summary: { green: number; yellow: number; red: number }
 }
 
@@ -45,14 +52,19 @@ export async function trainingStatusForVenue(venueId: string): Promise<VenueTrai
       firstName: true,
       lastName: true,
       departmentId: true,
-      positions: { select: { positionId: true, position: { select: { name: true } } } },
+      positions: {
+        select: {
+          positionId: true,
+          position: { select: { id: true, name: true, colour: true } },
+        },
+      },
       sections: { select: { sectionId: true } },
     },
     orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
   })
   const staffIds = staff.map((s) => s.id)
 
-  const [shifts, guides, assignments, completions, followUps] = await Promise.all([
+  const [shifts, guides, assignments, completions, followUps, venuePositions] = await Promise.all([
     prisma.shift.findMany({
       where: { venueId, deletedAt: null, status: 'PUBLISHED', date: today },
       select: { staffId: true },
@@ -61,6 +73,7 @@ export async function trainingStatusForVenue(venueId: string): Promise<VenueTrai
       where: { venueId, deletedAt: null, status: 'PUBLISHED', isTracked: true },
       select: {
         id: true,
+        title: true,
         updatedAt: true,
         isOnboarding: true,
         departmentId: true,
@@ -85,6 +98,11 @@ export async function trainingStatusForVenue(venueId: string): Promise<VenueTrai
           select: { staffId: true },
         })
       : [],
+    prisma.position.findMany({
+      where: { venueId, deletedAt: null, isActive: true },
+      select: { id: true, name: true, colour: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    }),
   ])
 
   const onShift = new Set(shifts.map((s) => s.staffId))
@@ -121,21 +139,31 @@ export async function trainingStatusForVenue(venueId: string): Promise<VenueTrai
     const done = completionByStaff.get(s.id) ?? new Map<string, Date>()
     let missing = 0
     let stale = 0
+    const missingGuides: string[] = []
+    const staleGuides: string[] = []
     for (const g of applicable) {
       const completedAt = done.get(g.id)
-      if (!completedAt) missing++
-      else if (completedAt < g.updatedAt) stale++
+      if (!completedAt) {
+        missing++
+        missingGuides.push(g.title)
+      } else if (completedAt < g.updatedAt) {
+        stale++
+        staleGuides.push(g.title)
+      }
     }
     const openFollowUps = followUpsByStaff.get(s.id) ?? 0
     return {
       id: s.id,
       name: `${s.lastName}, ${s.firstName}`,
       positions: s.positions.map((p) => p.position.name),
+      positionIds: s.positions.map((p) => p.positionId),
       onShift: onShift.has(s.id),
       requiredCount: applicable.length,
       completedCount: applicable.length - missing,
       missingCount: missing,
       staleCount: stale,
+      missingGuides,
+      staleGuides,
       openFollowUps,
       level: trainingLevel({ requiredCount: applicable.length, missingCount: missing, staleCount: stale, openFollowUps }),
     }
@@ -146,6 +174,7 @@ export async function trainingStatusForVenue(venueId: string): Promise<VenueTrai
     venueName: venue.name,
     date: today.toISOString().slice(0, 10),
     staff: sorted,
+    positions: venuePositions,
     summary: {
       green: sorted.filter((r) => r.level === 'GREEN').length,
       yellow: sorted.filter((r) => r.level === 'YELLOW').length,
