@@ -946,7 +946,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
                 {current.notes && <p title={current.notes} className="truncate font-mono text-2xs uppercase text-grey-light">NOTE: {current.notes}</p>}
               </>
             ) : (
-              <p className="font-mono text-2xs uppercase text-grey-light">NOT IN THE SELECTED DATE RANGE — OPEN THE DAY TO SEE IT.</p>
+              <p className="font-mono text-2xs uppercase text-grey-light">NO ENTRY ON THIS DAY.</p>
             )}
           </div>
           <div className="border border-grey-mid p-2 space-y-1">
