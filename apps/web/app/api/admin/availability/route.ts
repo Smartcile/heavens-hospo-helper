@@ -78,7 +78,27 @@ export async function GET(req: NextRequest) {
     }),
   ])
 
-  const seriesIds = [...rows, ...pendingRows, ...requests]
+  // Edit requests can target a date outside the visible range. Load the current
+  // row for those days too, so the review panel can show what is being replaced
+  // instead of "not in range". Deduped by id against the in-range rows.
+  const inRangeKeys = new Set(rows.map((r) => `${r.staffId}:${formatDateKey(r.date)}`))
+  const requestTargets = requests
+    .filter((r) => !inRangeKeys.has(`${r.staffId}:${formatDateKey(r.date)}`))
+    .map((r) => ({ staffId: r.staffId, date: r.date }))
+  const requestRows = requestTargets.length
+    ? await prisma.staffAvailability.findMany({
+        where: { venueId, deletedAt: null, OR: requestTargets },
+      })
+    : []
+  const entries = [...rows]
+  const seen = new Set(entries.map((r) => r.id))
+  for (const row of requestRows) {
+    if (seen.has(row.id)) continue
+    entries.push(row)
+    seen.add(row.id)
+  }
+
+  const seriesIds = [...entries, ...pendingRows, ...requests]
     .map((r) => r.seriesId)
     .filter((x): x is string => !!x)
   const series = await loadSeriesSummaries(staff.map((s) => s.id), seriesIds)
@@ -97,7 +117,7 @@ export async function GET(req: NextRequest) {
       })),
     })),
     positions,
-    entries: rows.map(mapAvailabilityEntry),
+    entries: entries.map(mapAvailabilityEntry),
     series,
     presets: resolveAvailabilityPresets(venue?.availabilityPresets),
     queue: {
