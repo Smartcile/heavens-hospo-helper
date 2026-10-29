@@ -1356,6 +1356,10 @@ client-safe). Settings → SWIFT POS → STAFF SYNC (`SwiftPosStaffSync`) shows
 LINKED / SUGGESTED / NEW rows and offers LINK, UNLINK and CREATE. CREATE makes a
 `STAFF` profile with the clerk number as the 1–4 digit worker PIN (bcrypt-hashed;
 the clerk number, or an override) and blocks a PIN already in use at the venue.
+LINK also sets the PIN from the clerk id (or the typed override) when the staff
+member has **no** PIN; an existing PIN is never overwritten — the response says
+`PIN ALREADY SET FROM CLERK ID` or `EXISTING PIN KEPT`, and a PIN clash links
+without changing it.
 Routes: `GET /api/admin/swiftpos/staff?venueId=` (guard `team.staff.view`),
 `POST /api/admin/swiftpos/staff` (LINK/UNLINK `team.staff.edit`,
 CREATE `team.staff.create`). SwiftDOSnet has no auth; it is reached server-side

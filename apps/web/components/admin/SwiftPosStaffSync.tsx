@@ -85,7 +85,7 @@ export function SwiftPosStaffSync({ venueId }: { venueId: string }) {
         clerkId: row.clerkId,
         clerkName: row.name,
         staffId: action === 'UNLINK' ? row.staffId : selected[row.clerkId] || undefined,
-        pin: action === 'CREATE' ? pins[row.clerkId] || row.clerkId : undefined,
+        pin: action === 'UNLINK' ? undefined : pins[row.clerkId] || row.clerkId,
       }),
     })
     const body = await res.json().catch(() => ({}))
@@ -94,10 +94,15 @@ export function SwiftPosStaffSync({ venueId }: { venueId: string }) {
       pushToast(String(body.error ?? 'ACTION FAILED'), 'error')
       return
     }
-    pushToast(
-      action === 'LINK' ? 'STAFF LINKED' : action === 'UNLINK' ? 'STAFF UNLINKED' : 'STAFF CREATED',
-      'success',
-    )
+    if (action === 'LINK') {
+      const warning = typeof body.pinWarning === 'string' ? body.pinWarning : ''
+      pushToast(
+        body.pinSet ? 'STAFF LINKED — PIN SET FROM CLERK ID' : warning ? `STAFF LINKED — ${warning}` : 'STAFF LINKED',
+        body.pinSet || !warning ? 'success' : 'info',
+      )
+    } else {
+      pushToast(action === 'UNLINK' ? 'STAFF UNLINKED' : 'STAFF CREATED', 'success')
+    }
     await load()
   }
 
