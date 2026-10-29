@@ -303,15 +303,19 @@ POS sale line ── InventoryCode ──► MenuItem.swiftPosId ──► serve
   the **stock drawdown** vs on-hand (negative variance in red) + expansion
   problems. Read-only.
 
-### Built (staff sync, 2026-10-22)
+### Built (staff sync, 2026-10-22; PIN-on-link 2026-10-29)
 
 - **Settings → SWIFT POS → STAFF SYNC** (`SwiftPosStaffSync`): pulls clerks from
   SwiftDOSnet `GET /api/lookups` and links them to `Staff.swiftPosId`. Each clerk
   is LINKED (exact code), SUGGESTED (one unlinked staff member with the same name
   tokens) or NEW. LINK/UNLINK update the staff row; CREATE makes a floor `STAFF`
   profile using the clerk number as the 1–4 digit worker PIN (bcrypt-hashed,
-  collision-checked at the venue). Pure rules in `lib/swiftpos-staff.ts`
-  (`parseClerks`, `splitClerkName`, `buildClerkRows`, `validClerkPin`).
+  collision-checked at the venue). LINK also sets the PIN from the clerk id (or
+  the typed override) when the staff has **no** PIN; an existing PIN is never
+  overwritten — the response reports `PIN ALREADY SET FROM CLERK ID` /
+  `EXISTING PIN KEPT`, and a PIN clash links without changing it. Pure rules in
+  `lib/swiftpos-staff.ts` (`parseClerks`, `splitClerkName`, `buildClerkRows`,
+  `validClerkPin`).
   Routes: `GET /api/admin/swiftpos/staff` (`team.staff.view`),
   `POST /api/admin/swiftpos/staff` (`team.staff.edit` for LINK/UNLINK,
   `team.staff.create` for CREATE). Server-side only — SwiftDOSnet has no auth.
@@ -350,6 +354,14 @@ POS sale line ── InventoryCode ──► MenuItem.swiftPosId ──► serve
 - Route `GET /api/admin/swiftpos/dockets?venueId=&minutes=` (`orders.orders.view`,
   default 60) proxies the feed, 400s when the venue has no base URL and 502s
   with the SwiftDOSnet problem detail.
+
+### Live smoke test (2026-10-29)
+
+SwiftDOSnet (`swiftdosnet-web` + `swiftdosnet-postgres` + `swiftpos-sql`) was
+reached from the app container via `http://host.docker.internal:5080`. Staff sync
+listed clerks, menu links listed the product catalogue, kitchen dockets rendered,
+and the linked worker PIN verified against the SwiftPOS clerk id. Everything
+remains read-only; no stock was mutated.
 
 ### Still to do
 

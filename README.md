@@ -465,6 +465,24 @@ Plan a banquet event end to end under **EVENTS → BEO Planner**
 - **From the phone.** Managers (and staff granted EVENTS access under
   Staff → ACCESS) can build and edit events from the worker app at `/w/events`.
 
+### SWIFTPOS INTEGRATION
+
+HOSPO OPS can read a **SwiftPOS** feed through **SwiftDOSnet**, a separate local
+service that mirrors the POS. It never talks to SwiftPOS directly.
+
+- **Settings → SWIFT POS** — set the SwiftDOSnet base URL. For a local Docker
+  stack use `http://host.docker.internal:<port>`; `localhost` inside the app
+  container is not the host.
+- **SALES** — pull a date range and see matched/unmatched products plus the
+  stock drawdown. Read-only; nothing is deducted.
+- **STAFF SYNC** — pull the POS clerks and LINK them to staff (setting
+  `Staff.swiftPosId`, and the worker PIN from the clerk id when the staff has no
+  PIN) or CREATE a floor profile (clerk number as the PIN).
+- **MENU LINKS** — map each SwiftPOS product to the local product carrying its
+  code; orphans and duplicate codes are flagged.
+- **Kitchen dockets** — **Ops → Orders → DOCKETS** shows live open sales,
+  refreshing every 30 seconds while visible (30/60/120 min / ALL LINES windows).
+
 ---
 
 ## HOW TO GENERATE AND PRINT A QR CODE

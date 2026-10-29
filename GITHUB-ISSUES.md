@@ -38,7 +38,7 @@ existing PIN). #5 is closed.
 | [#25](https://github.com/Smartcile/heavens-hospo-helper/pull/25) | `wave/availability-locking-and-ux` | #12, #14, #20, #13, #7, #16 | Merged; all six issues closed |
 | [#26](https://github.com/Smartcile/heavens-hospo-helper/pull/26) | `wave/tasks-authoring` | #8, #19, #4 | Merged; all three issues closed |
 | [#27](https://github.com/Smartcile/heavens-hospo-helper/pull/27) | `issue/18-guides-annotations` | #18 | Merged; issue closed |
-| [#28](https://github.com/Smartcile/heavens-hospo-helper/pull/28) | `issue/5-swiftpos` | #5 | Merged; issue **open/blocked** on live SwiftDOSnet smoke test |
+| [#28](https://github.com/Smartcile/heavens-hospo-helper/pull/28) | `issue/5-swiftpos` | #5 | Merged; issue closed 2026-10-29 after the live smoke test (see above) |
 | [#29](https://github.com/Smartcile/heavens-hospo-helper/pull/29) | `issue/9-phone-session` | #9 | Merged; issue closed |
 | [#30](https://github.com/Smartcile/heavens-hospo-helper/pull/30) | `issue/17-section-worked` | #17 | Merged; issue closed |
 | [#32](https://github.com/Smartcile/heavens-hospo-helper/pull/32) | `issue/31-bulk-lock-availability` | #31 | Merged; issue closed |
@@ -47,16 +47,15 @@ Also verified and closed: **#3** (roster drag-fill / series verification).
 
 ### Known blockers / follow-ups
 
-- **#5 SwiftPOS:** SwiftDOSnet is unreachable from this environment, so the
-  product/lookups/kitchen-docket calls are verified with fixtures and mocked
-  fetch only. Live smoke testing needs a reachable SwiftDOSnet URL and a venue
-  row pointed at it. Test Settings → SWIFT POS → STAFF SYNC / MENU LINKS and
-  Ops → Orders → DOCKETS, then close #5.
+- **#5 SwiftPOS — resolved 2026-10-29.** SwiftDOSnet was brought up locally and
+  the staff sync, menu links and kitchen dockets were smoke-tested against
+  TESTURANT. The live PIN-on-link follow-up is PR #40. Issue closed.
 - **#9 phone session:** existing deployments with a custom
   `WORKER_SESSION_EXPIRY_MINUTES` default to 15 until a venue saves `0`/blank to
   use the env fallback.
 - No screenshots were captured (none of the issues carry `needs:screenshot`).
-- Worktrees were created per wave/issue; remove each after its PR is merged.
+- Worktrees were created per wave/issue; all were removed after their PRs
+  merged (2026-10-29).
 
 ## Decisions (approved 2026-10-27)
 

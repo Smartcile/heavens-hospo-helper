@@ -588,7 +588,9 @@ series no longer override it (detaching the final occurrence re-pins the
 remaining series end via `AvailabilityPlan.syncSeriesId`). `/admin/team?tab=availability` (`AvailabilityAdminClient`) is the
 review grid. Approvals are person-centred: only staff with pending work are
 listed, and opening a person shows their declarations and edit requests with the
-current day next to the proposed one. A manager can open either in
+current day next to the proposed one. A request can target a day outside the
+visible range: the GET also returns that day's current row, so the panel always
+shows what is being replaced (never "not in range"). A manager can open either in
 `AvailabilityDayEditor` (`proposalToEntry` in `lib/availability.ts` maps a stored
 SET proposal to an entry) and save an admin override; a `MARK_APPLIED` action on
 `/api/admin/availability/requests/[id]` then retires the request without running
@@ -1333,6 +1335,11 @@ Inventory Items tree in one query. `GET /api/admin/structure` extends with
 
 ### SwiftPOS integration (sales + staff sync + menu links + dockets, 2026-10)
 `Venue.swiftPosBaseUrl` + `MenuItem.swiftPosId` (SwiftPOS `Inventory_Code`).
+For a local Docker stack, point the venue at the host-published SwiftDOSnet
+port via `http://host.docker.internal:<port>` — `localhost` inside the app
+container is the container itself, not the host. Live smoke-tested 2026-10-29
+against the local TESTURANT venue (staff sync, menu links, kitchen dockets,
+PIN-on-link).
 `lib/swiftpos.ts` (5 tests) parses a SwiftDOSnet sales report and matches rows to
 products by `swiftPosId`; `lib/swiftpos.server.ts` fetches
 `/api/analytics/sales?groupBy=product`, `/api/lookups` (locations/terminals/
@@ -2539,7 +2546,7 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
   form now lives behind a discreet `ADMIN LOGIN` button in a modal.
 - **Staff: Software Role vs Positions.** Form labels and the staff table now
   separate `SOFTWARE ROLE` (ADMIN/MANAGER/STAFF) from `POSITIONS`.
-- **Training STATUS tab + board.** `TRAINING_TABS` gains STATUS;
+- **Training STATUS tab + board (updated 2026-10-29).** `TRAINING_TABS` gains STATUS;
   `TrainingStatusClient` shows every active staff member's required/missing/
   stale-guide counts, the **titles** of missing/stale guides and open
   follow-ups as GREEN (good) / YELLOW (bits to work on) / RED (retraining or
@@ -2684,7 +2691,7 @@ regression test. No test, no merge.
 **Config:** `apps/web/vitest.config.ts`, setup via `apps/web/vitest-setup.ts`
 **Location:** test files live alongside components (e.g. `FloorPlanEditor.test.tsx`
 next to `FloorPlanEditor.tsx`).
-**Scale (2026-10):** ~190 test files / ~1,775 cases across `lib` and components.
+**Scale (2026-10):** 228 test files / 2,076 cases across `lib`, route handlers and components.
 
 ```bash
 npm run test          # runs all tests once (also: npm run test in root via turbo)
@@ -2804,7 +2811,7 @@ pushing, run: `npm run lint && npm run test`.
 | `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |
 | `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (19 tests) |
-| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, handled section, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, dual early-return paths | ✅ (14 tests) |
+| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, handled section, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, dual early-return paths | ✅ (16 tests) |
 | `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, scroll restore after load | ✅ (5 tests) |
 | `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard | ✅ (2 tests) |
 | `ReportsClient.tsx` — OUTCOME badge distinguishes non-DONE rows | ✅ (1 test) |
@@ -2836,11 +2843,19 @@ pushing, run: `npm run lint && npm run test`.
 | `EventStaffingModal.tsx` — event info, linked shifts CLAIMED/ASSIGNED, listed-seat lock, FIND STAFF, claims review | ✅ (5 tests) |
 | `CalendarEventFormModal.tsx` — create + staffing POST, capacity warning, edit load/PUT | ✅ (2 tests) |
 | `WorkerShiftsClient.tsx` — pickup grid, claim/withdraw, conflict warning, confirmed panel | ✅ (5 tests) |
-| `TrainingStatusClient.tsx` — status rows + SECTION REVIEWS strip, CONFIRM/DISMISS/error surfacing | ✅ (4 tests) |
+| `TrainingStatusClient.tsx` — status rows + SECTION REVIEWS strip, CONFIRM/DISMISS/error surfacing, position grouping, guide titles, MANAGE GUIDES modal | ✅ (6 tests) |
 | `StaffAccessDrawer.tsx` / `OpsClient.tsx` / `MenusClient` builder components | ✅ (4 + 7 + tested) |
 | `SwiftPosMenuLinks.tsx` / `KitchenDocketsClient.tsx` / `MenuItemDetailsModal.tsx` / `SwiftPosStaffSync.tsx` | ✅ (4 + 4 + 1 + 2) |
 | `EventShareClient.tsx` / `WorkerEventsClient.tsx` / `WorkerTimeclockClient.tsx` | ✅ (4 + tested) |
 | `ImageAnnotator` / `ImagePicker` / `AnnotatedImage` / `MediaLibraryModal` / `Panel` / `Combobox` | ✅ (co-located tests) |
+
+### Route Tests
+
+| Target | Coverage |
+|---|---|
+| `app/api/admin/availability/route.test.ts` — GET includes the off-range edit request's current row; POST returns the locked-day 409 | ✅ (2 tests) |
+| `app/api/worker/tasks/[id]/complete/route.test.ts` — completion responds without waiting for the best-effort follow-ups | ✅ (1 test) |
+| `app/api/admin/swiftpos/staff/route.test.ts` — LINK sets the PIN from the clerk id, keeps an existing PIN, and links without a PIN on a clash | ✅ (3 tests) |
 
 ## PRE-COMMIT CHECKLIST
 
