@@ -53,7 +53,7 @@ describe('SwiftPosStaffSync', () => {
 
     fireEvent.click(screen.getByLabelText('LINK CLERK 2'))
     await waitFor(() => expect(posts).toHaveLength(1))
-    expect(posts[0]).toMatchObject({ action: 'LINK', clerkId: '2', staffId: 's2', venueId: 'v1' })
+    expect(posts[0]).toMatchObject({ action: 'LINK', clerkId: '2', staffId: 's2', pin: '2', venueId: 'v1' })
 
     await waitFor(() => expect(screen.getByLabelText('CREATE STAFF FOR CLERK 3')).toBeTruthy())
     fireEvent.click(screen.getByLabelText('CREATE STAFF FOR CLERK 3'))

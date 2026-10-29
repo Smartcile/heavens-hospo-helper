@@ -132,12 +132,37 @@ export async function POST(req: NextRequest) {
   if (action === 'LINK') {
     const staff = venueStaff.find((s) => s.id === body?.staffId)
     if (!staff) return NextResponse.json({ error: 'STAFF NOT FOUND' }, { status: 404 })
+
+    // Linking carries the clerk id into the worker PIN by default, but never
+    // overwrites a PIN the person already has (they may have changed it).
+    const data: { swiftPosId: string; pin?: string } = { swiftPosId: clerkId }
+    let pinSet = false
+    let pinWarning: string | undefined
+
+    if (!staff.pin) {
+      const pin = resolveClerkPin(body?.pin, clerkId)
+      if (!validClerkPin(pin)) {
+        pinWarning = 'NO PIN SET — ENTER A 1–4 DIGIT PIN'
+      } else {
+        const pinClash = await findPinClash(venueStaff, pin, (plain, hash) => bcrypt.compare(plain, hash))
+        if (pinClash) {
+          pinWarning = `NO PIN SET — PIN ${pin} IS ALREADY IN USE BY ${pinClash.firstName} ${pinClash.lastName}`
+        } else {
+          data.pin = await bcrypt.hash(pin, 10)
+          pinSet = true
+        }
+      }
+    } else {
+      const same = await bcrypt.compare(clerkId, staff.pin)
+      pinWarning = same ? 'PIN ALREADY SET FROM CLERK ID' : 'EXISTING PIN KEPT'
+    }
+
     const updated = await prisma.staff.update({
       where: { id: staff.id },
-      data: { swiftPosId: clerkId },
+      data,
       select: STAFF_SELECT,
     })
-    return NextResponse.json({ ok: true, staff: updated })
+    return NextResponse.json({ ok: true, staff: updated, pinSet, pinWarning })
   }
 
   const { firstName, lastName } = resolveCreatedName(
