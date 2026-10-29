@@ -2,10 +2,10 @@
 
 Source of truth: GitHub issues (`gh issue list --state open`).
 Last synced: 2026-10-29.
-Session status: batch #33/#34/#36 merged into `develop` (head `3296f7c`).
-Combined develop verification: lint 0 errors, 227 test files / 2,073 tests.
-#35 was closed as already implemented (bulk lock, #31/PR #32) with screenshots.
-**#5 remains open and blocked** on the live SwiftDOSnet smoke test.
+Session status: all open issues are closed. Batch #33/#34/#36 merged, #35 closed
+as already implemented, and **#5 closed after the live SwiftDOSnet smoke test**
+(develop head `211e055`). Combined develop verification: lint 0 errors, 227 test
+files / 2,073 tests.
 
 This doc records the grouping decisions for the current session. GitHub remains
 authoritative; update this file when issues are closed or regrouped.
@@ -17,10 +17,19 @@ authoritative; update this file when issues are closed or regrouped.
 | [#37](https://github.com/Smartcile/heavens-hospo-helper/pull/37) | `issue/34-availability-show-the-original-day-on-edit-reque` | #34 | Merged; issue closed |
 | [#38](https://github.com/Smartcile/heavens-hospo-helper/pull/38) | `issue/33-tasks-fix-worker-task-completion-stuck-on-saving` | #33 | Merged; issue closed |
 | [#39](https://github.com/Smartcile/heavens-hospo-helper/pull/39) | `issue/36-training-manage-training-from-the-status-board` | #36 | Merged; issue closed |
+| [#40](https://github.com/Smartcile/heavens-hospo-helper/pull/40) | `issue/5-swiftpos-link-pin` | #5 | Merged; LINK now sets the PIN from the clerk id |
 
 #35 (availability bulk lock) was closed as already implemented by #31/PR #32,
 with screenshots posted on the issue. Local Docker verification ran against the
 TESTURANT test venue (10/10 checks); temporary fixtures were removed afterwards.
+
+**Live SwiftPOS smoke test (2026-10-29).** SwiftDOSnet was brought up locally
+(`swiftpos-sql` + `swiftdosnet-postgres` + `swiftdosnet-web` on host port 5080)
+and reached from the app container via `http://host.docker.internal:5080`.
+STAFF SYNC listed the clerks, MENU LINKS listed the product catalogue, and the
+kitchen dockets rendered. The linked staff PIN was verified against the clerk id;
+PR #40 also makes LINK set the PIN for future links (never overwriting an
+existing PIN). #5 is closed.
 
 ## Session status (2026-10-27)
 
@@ -91,6 +100,10 @@ the #25 multi-select and per-day lock API.
 
 | # | Title | Type | Status |
 |---|---|---|---|
+| 36 | Training — manage training from the status board | Feature Update | Closed (PR #39) |
+| 35 | Availability — bulk lock selected days | Feature Update | Closed — already implemented (#31/PR #32) |
+| 34 | Availability — off-range edit request shows the original day | bug | Closed (PR #37) |
+| 33 | Tasks — worker completion stuck on SAVING | bug | Closed (PR #38) |
 | 20 | Approvals — worker series edit limits | bug | Closed (PR #25) |
 | 19 | Tasks — dragged task stays in available list | bug | Closed (PR #26) |
 | 18 | Guides — worker annotations missing | bug | Closed (PR #27) |
@@ -102,7 +115,7 @@ the #25 multi-select and per-day lock API.
 | 9 | App on Phone — session timeout | bug | Closed (PR #29) |
 | 8 | Edit Mode — add task to list, expose settings | bug | Closed (PR #26) |
 | 7 | Navigation — worker availability weekly default | feature | Closed (PR #25) |
-| 5 | SwiftDOSNet — sync, menu linking, kitchen dockets | feature | **Open — blocked on live smoke test** (PR #28 merged) |
+| 5 | SwiftDOSNet — sync, menu linking, kitchen dockets | feature | Closed — live smoke test passed (PRs #28, #40) |
 | 4 | Tasks & Lists — outcomes + chrome | bug + feature | Closed (PR #26) |
 | 31 | Availability — bulk lock selected days with a reason | Feature Update | Closed (PR #32) |
 | 3 | Staff Rosters — admin-only drag/drop + confirmation | bug + feature | Verified, closed |
