@@ -10,15 +10,19 @@ const payload = {
       id: 's1',
       name: 'SMITH, JANE',
       positions: ['BARISTA'],
+      positionIds: ['p1'],
       onShift: true,
       requiredCount: 2,
       completedCount: 2,
       missingCount: 0,
       staleCount: 0,
+      missingGuides: [],
+      staleGuides: [],
       openFollowUps: 0,
       level: 'GREEN',
     },
   ],
+  positions: [{ id: 'p1', name: 'BARISTA', colour: '#4ADE80' }],
   summary: { green: 1, yellow: 0, red: 0 },
 }
 
@@ -51,9 +55,81 @@ function mockFetch(actionResponse?: { ok: boolean; status: number; error?: strin
     if (u.includes('/api/admin/section-work')) {
       return Promise.resolve({ ok: true, json: async () => ({ reviews }) } as Response)
     }
+    if (u.includes('/api/admin/staff/') && u.includes('/guides')) {
+      return Promise.resolve({ ok: true, json: async () => ({ items: [] }) } as Response)
+    }
+    if (u.includes('/api/admin/guides')) {
+      return Promise.resolve({ ok: true, json: async () => [] } as Response)
+    }
     return Promise.resolve({ ok: true, json: async () => payload } as Response)
   })
 }
+
+describe('TrainingStatusClient board', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it('groups staff by position and shows outstanding guide titles', async () => {
+    const grouped = {
+      ...payload,
+      positions: [
+        { id: 'p1', name: 'BARISTA', colour: '#4ADE80' },
+        { id: 'p2', name: 'DUTY MANAGER', colour: '#60A5FA' },
+      ],
+      staff: [
+        {
+          ...payload.staff[0],
+          missingGuides: ['MILK STATION', 'OPENING LIST'],
+          staleGuides: ['COFFEE MENU UPDATE'],
+          missingCount: 2,
+          staleCount: 1,
+          level: 'RED',
+        },
+        {
+          ...payload.staff[0],
+          id: 's2',
+          name: 'LEE, ANN',
+          positions: ['DUTY MANAGER'],
+          positionIds: ['p2'],
+          onShift: false,
+          missingGuides: [],
+          staleGuides: [],
+          missingCount: 0,
+          staleCount: 0,
+          level: 'GREEN',
+        },
+      ],
+    }
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u.includes('/api/admin/section-work')) {
+        return { ok: true, json: async () => ({ reviews: [] }) } as Response
+      }
+      return { ok: true, json: async () => grouped } as Response
+    })
+
+    const { getByText, getAllByText } = render(
+      <TrainingStatusClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />,
+    )
+
+    await waitFor(() => expect(getByText('BARISTA (1)')).toBeTruthy())
+    expect(getByText('DUTY MANAGER (1)')).toBeTruthy()
+    expect(getByText(/TO DO: MILK STATION · OPENING LIST/)).toBeTruthy()
+    expect(getByText(/RETRAIN: COFFEE MENU UPDATE/)).toBeTruthy()
+    expect(getAllByText('MANAGE GUIDES →').length).toBe(2)
+  })
+
+  it('opens the staff guides modal from a row', async () => {
+    mockFetch()
+    const { getByText, getAllByText } = render(
+      <TrainingStatusClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />,
+    )
+
+    await waitFor(() => expect(getByText('BARISTA (1)')).toBeTruthy())
+    fireEvent.click(getAllByText('MANAGE GUIDES →')[0])
+
+    await waitFor(() => expect(getByText('GUIDES — SMITH, JANE')).toBeTruthy())
+  })
+})
 
 describe('TrainingStatusClient section reviews', () => {
   afterEach(() => { vi.restoreAllMocks() })

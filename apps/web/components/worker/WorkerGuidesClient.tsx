@@ -443,7 +443,7 @@ function GuidesInner({ role }: { role: string }) {
           <div className="flex items-center gap-2">
             {(role === 'ADMIN' || role === 'MANAGER') && (
               <a
-                href="/admin/training?tab=status"
+                href="/w/training-status"
                 className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors"
               >
                 TRAINING STATUS →
