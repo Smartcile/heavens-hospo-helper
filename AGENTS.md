@@ -1727,6 +1727,13 @@ card shows `IN PROGRESS · <name>` with the latest note; a list stays visible
 until every task is **settled** (DONE / NOT_REQUIRED / DID_NOT_COMPLETE), not
 only DONE.
 
+**Completion resilience (#33).** The worker completion POST is bounded by a 20 s
+`AbortController` and always resets the button; a timeout/network failure shows
+`REQUEST TIMED OUT` / `COULD NOT CONNECT` with retry, and a 401 redirects to
+`/w/login`. The route also dispatches `checkUntrainedOnCompletion` and
+`reconcileSectionWork` fire-and-forget — their own contract is "never block the
+completion", and awaiting them could hold the response open.
+
 **Worker chrome.** The dashboard hosts worker pages in an iframe with a single
 bottom "BACK TO DASHBOARD" bar. Pages with a full-screen detail view (task
 modal, availability day editor, guide reader/editor, delivery/event editor) call

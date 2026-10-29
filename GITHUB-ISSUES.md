@@ -1,15 +1,26 @@
 ﻿# GITHUB ISSUES — SESSION PLAN
 
 Source of truth: GitHub issues (`gh issue list --state open`).
-Last synced: 2026-10-27.
-Session status: all seven implementation PRs are merged into `develop` (head
-`6cc5219`). Combined develop verification passed locally: lint 0 errors, 225
-test files / 2,057 tests. Issues closed after merge; **#5 remains open and
-blocked** on the live SwiftDOSnet smoke test. Follow-up #31 (bulk lock) was
-merged separately in PR #32.
+Last synced: 2026-10-29.
+Session status: batch #33/#34/#36 merged into `develop` (head `3296f7c`).
+Combined develop verification: lint 0 errors, 227 test files / 2,073 tests.
+#35 was closed as already implemented (bulk lock, #31/PR #32) with screenshots.
+**#5 remains open and blocked** on the live SwiftDOSnet smoke test.
 
 This doc records the grouping decisions for the current session. GitHub remains
 authoritative; update this file when issues are closed or regrouped.
+
+## Session status (2026-10-29)
+
+| PR | Branch | Issues | Status |
+|---|---|---|---|
+| [#37](https://github.com/Smartcile/heavens-hospo-helper/pull/37) | `issue/34-availability-show-the-original-day-on-edit-reque` | #34 | Merged; issue closed |
+| [#38](https://github.com/Smartcile/heavens-hospo-helper/pull/38) | `issue/33-tasks-fix-worker-task-completion-stuck-on-saving` | #33 | Merged; issue closed |
+| [#39](https://github.com/Smartcile/heavens-hospo-helper/pull/39) | `issue/36-training-manage-training-from-the-status-board` | #36 | Merged; issue closed |
+
+#35 (availability bulk lock) was closed as already implemented by #31/PR #32,
+with screenshots posted on the issue. Local Docker verification ran against the
+TESTURANT test venue (10/10 checks); temporary fixtures were removed afterwards.
 
 ## Session status (2026-10-27)
 
