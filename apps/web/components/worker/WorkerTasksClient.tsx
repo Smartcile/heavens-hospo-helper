@@ -243,40 +243,56 @@ export function WorkerTasksClient({
     setCompletionError('')
 
     const readingValueForSubmit = outcome === 'DONE' ? readingValue : ''
-    let r: Response
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 20_000)
 
-    if (activeTask.completionType === 'TICK_PHOTO' && photo && outcome === 'DONE') {
-      const form = new FormData()
-      form.append('note', note)
-      form.append('outcome', outcome)
-      form.append('photo', photo)
-      if (readingValueForSubmit !== '') form.append('value', readingValueForSubmit)
-      r = await fetch(`/api/worker/tasks/${activeTask.id}/complete`, {
-        method: 'POST',
-        body: form,
-      })
-    } else {
-      r = await fetch(`/api/worker/tasks/${activeTask.id}/complete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          note: note || null,
-          outcome,
-          value: readingValueForSubmit !== '' ? Number(readingValueForSubmit) : null,
-        }),
-      })
-    }
+    try {
+      let r: Response
 
-    if (!r.ok) {
-      const data = await r.json()
-      setCompletionError(data.error ?? 'FAILED TO COMPLETE TASK')
+      if (activeTask.completionType === 'TICK_PHOTO' && photo && outcome === 'DONE') {
+        const form = new FormData()
+        form.append('note', note)
+        form.append('outcome', outcome)
+        form.append('photo', photo)
+        if (readingValueForSubmit !== '') form.append('value', readingValueForSubmit)
+        r = await fetch(`/api/worker/tasks/${activeTask.id}/complete`, {
+          method: 'POST',
+          body: form,
+          signal: controller.signal,
+        })
+      } else {
+        r = await fetch(`/api/worker/tasks/${activeTask.id}/complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            note: note || null,
+            outcome,
+            value: readingValueForSubmit !== '' ? Number(readingValueForSubmit) : null,
+          }),
+          signal: controller.signal,
+        })
+      }
+
+      if (r.status === 401) {
+        router.push('/w/login')
+        return
+      }
+
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}))
+        setCompletionError(data.error ?? 'FAILED TO COMPLETE TASK')
+        return
+      }
+
+      setActiveTask(null)
+      await load()
+    } catch (err) {
+      const aborted = (err as Error)?.name === 'AbortError'
+      setCompletionError(aborted ? 'REQUEST TIMED OUT — TRY AGAIN' : 'COULD NOT CONNECT — TRY AGAIN')
+    } finally {
+      clearTimeout(timeout)
       setCompleting(false)
-      return
     }
-
-    setCompleting(false)
-    setActiveTask(null)
-    await load()
   }
 
   // ── Edit mode handlers ──

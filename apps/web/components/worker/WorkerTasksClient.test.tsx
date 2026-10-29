@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, fireEvent, waitFor, screen } from '@testing-library/react'
 
+const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }))
+
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: pushMock }),
 }))
 
 import { WorkerTasksClient } from '@/components/worker/WorkerTasksClient'
@@ -309,6 +311,49 @@ describe('WorkerTasksClient', () => {
       const body = JSON.parse(String((post![1] as RequestInit).body))
       expect(body.outcome).toBe('NOT_REQUIRED')
     })
+  })
+
+  it('resets the save button and shows an error when the completion request fails', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') {
+        return json({ tasks: [BASE_TASK], checklists: [], firstName: 'BAR' })
+      }
+      if (u.includes('/complete')) throw new TypeError('network down')
+      return json({})
+    })
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    fireEvent.click(screen.getByText('WIPE BENCHES'))
+
+    await waitFor(() => expect(screen.getByText('WHAT HAPPENED?')).toBeDefined())
+    fireEvent.click(screen.getByText('MARK DONE'))
+
+    await waitFor(() => expect(screen.getByText(/COULD NOT CONNECT/)).toBeDefined())
+    expect(screen.getByText('MARK DONE')).toBeDefined()
+    expect(screen.queryByText('SAVING_')).toBeNull()
+  })
+
+  it('redirects to the login page when the completion request returns 401', async () => {
+    pushMock.mockClear()
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') {
+        return json({ tasks: [BASE_TASK], checklists: [], firstName: 'BAR' })
+      }
+      if (u.includes('/complete')) {
+        return { ok: false, status: 401, json: async () => ({ error: 'Unauthorized' }) } as unknown as Response
+      }
+      return json({})
+    })
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    fireEvent.click(screen.getByText('WIPE BENCHES'))
+
+    await waitFor(() => expect(screen.getByText('WHAT HAPPENED?')).toBeDefined())
+    fireEvent.click(screen.getByText('MARK DONE'))
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/w/login'))
   })
 
   it('requires a reason for a non-done outcome when configured', async () => {
