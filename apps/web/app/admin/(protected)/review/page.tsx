@@ -1,8 +1,5 @@
-import { ReviewClient } from '@/components/admin/ReviewClient'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { hubRedirect } from '@/lib/ops-redirect'
 
-export default async function ReviewPage() {
-  const session = await getServerSession(authOptions)
-  return <ReviewClient role={session!.user.role} sessionVenueId={session!.user.venueId} />
+export default function ReviewPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
+  hubRedirect('/admin/execution', 'review', null, searchParams)
 }

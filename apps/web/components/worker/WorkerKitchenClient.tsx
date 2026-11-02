@@ -53,7 +53,7 @@ export function WorkerKitchenClient() {
       <div className="flex items-center justify-between">
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">KITCHEN</h1>
         <div className="flex items-center gap-3">
-          <span className="font-mono text-[10px] text-grey-light uppercase">AUTO-REFRESH 15S</span>
+          <span className="font-mono text-xs text-grey-light uppercase">AUTO-REFRESH 15S</span>
           <span className="font-mono text-xs text-white">{itemTotals.reduce((s, t) => s + t.qty, 0)} ITEMS</span>
         </div>
       </div>
@@ -72,7 +72,7 @@ export function WorkerKitchenClient() {
                   <div className="min-w-0">
                     <span className="font-mono text-sm text-white uppercase truncate block">{t.name}</span>
                     {t.dietaryInfo && (
-                      <span className="font-mono text-[9px] text-[#c4a530] uppercase">{t.dietaryInfo}</span>
+                      <span className="font-mono text-xs text-gold uppercase">{t.dietaryInfo}</span>
                     )}
                   </div>
                   <span className="font-mono text-xl text-white shrink-0">×{t.qty}</span>
@@ -86,7 +86,7 @@ export function WorkerKitchenClient() {
               <div key={t.tableNumber} className="border border-grey-mid">
                 <div className="px-3 py-2 bg-grey-dark/30 border-b border-grey-mid">
                   <span className="font-mono text-xs font-bold text-white uppercase">TABLE {t.tableNumber}</span>
-                  <span className="font-mono text-[10px] text-grey-light ml-2">
+                  <span className="font-mono text-xs text-grey-light ml-2">
                     {t.items.reduce((s, i) => s + i.qty, 0)} ITEMS
                   </span>
                 </div>
@@ -96,7 +96,7 @@ export function WorkerKitchenClient() {
                       <div className="min-w-0 flex-1">
                         <span className="font-mono text-xs text-white uppercase">{item.name}</span>
                         {item.dietaryInfo && (
-                          <span className="font-mono text-[9px] text-[#c4a530] border border-[#c4a530] px-1 ml-1 uppercase">
+                          <span className="font-mono text-xs text-gold border border-gold px-1 ml-1 uppercase">
                             {item.dietaryInfo}
                           </span>
                         )}
@@ -112,7 +112,7 @@ export function WorkerKitchenClient() {
               <div className="border border-grey-mid border-dashed">
                 <div className="px-3 py-2 bg-grey-dark/30 border-b border-grey-mid border-dashed">
                   <span className="font-mono text-xs font-bold text-grey-light uppercase">UNASSIGNED</span>
-                  <span className="font-mono text-[10px] text-grey-light ml-2">
+                  <span className="font-mono text-xs text-grey-light ml-2">
                     {unassigned.reduce((s, i) => s + i.qty, 0)} ITEMS
                   </span>
                 </div>
@@ -122,7 +122,7 @@ export function WorkerKitchenClient() {
                       <div className="min-w-0 flex-1">
                         <span className="font-mono text-xs text-white uppercase">{item.name}</span>
                         {item.dietaryInfo && (
-                          <span className="font-mono text-[9px] text-[#c4a530] border border-[#c4a530] px-1 ml-1 uppercase">
+                          <span className="font-mono text-xs text-gold border border-gold px-1 ml-1 uppercase">
                             {item.dietaryInfo}
                           </span>
                         )}

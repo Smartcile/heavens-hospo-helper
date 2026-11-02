@@ -2,24 +2,30 @@
 
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Panel'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Combobox } from '@/components/ui/Combobox'
+import { computeSectionSummary, type ElementData } from '@/components/admin/floorplan-elements'
+import type { SetupItemInput, FurnitureView } from '@hospo-ops/types'
+import { FurniturePalette, FURNITURE_DRAG_PREFIX } from '@/components/admin/FurniturePalette'
 import {
-  PALETTE_ITEMS,
-  computeSectionSummary, type PaletteItem, type ElementData,
-} from '@/components/admin/floorplan-elements'
-import type { SetupItemInput, TableProfileView } from '@hospo-ops/types'
+  defaultChairSlots,
+  chairTFromWorld,
+  addChair,
+  removeChair,
+  moveChair,
+  redistributeChairs,
+  type FurnitureShape,
+} from '@/lib/furniture'
 import type { SectionBoundaryP } from '@/components/admin/floorplan-pixi'
 import { ElementInventoryPanel } from '@/components/admin/ElementInventoryPanel'
 import { SetupInventoryPanel } from '@/components/admin/SetupInventoryPanel'
 import { FloorPlanPixiCanvas, type ViewState } from '@/components/admin/floorplan-pixi'
 import { FloorplanToolbar } from '@/components/admin/FloorplanToolbar'
 import { FloorplanInspector } from '@/components/admin/FloorplanInspector'
-import { traceBoothPerimeter } from '@/lib/booth-trace'
 import { calculateSetupInventory, unionTablePolygons, computeGroupChairs, computeSetupSectionTotals, type TableProfileWithBom } from '@/lib/floorplan-inventory'
 import { defaultEdgeChairs, adjustEdgeChairs, emptyEdgeChairs, type TableEdge } from '@/lib/floorplan-chairs'
-import { planAutoSeat, type AutoSeatProfile } from '@/lib/auto-seat'
 import { pushToast, ToastContainer } from '@/components/ui/Toast'
 
 interface SectionZone {
@@ -41,24 +47,11 @@ interface FullPlan {
 
 function snap(v: number, unit: number) { return Math.round(v / unit) * unit }
 
-function nextLabel(type: string, existing: ElementData[]): string {
-  const map: Record<string, string> = { TABLE: 'T', CHAIR: 'C', BOOTH_BENCH: 'B' }
-  const prefix = map[type]
-  if (!prefix) return type
-  const nums = existing.filter((e) => e.type === type).map((e) => {
-    const m = (e.label ?? '').match(/^(\d+)$/)
-    return m ? parseInt(m[1]) : 0
-  })
-  const max = nums.length > 0 ? Math.max(...nums) : 0
-  return `${prefix}${max + 1}`
-}
-
 export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; sections: Section[]; onBack: () => void }) {
   const [elements, setElements] = useState<ElementData[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [paletteOpen, setPaletteOpen] = useState(true)
   const [snapEnabled, setSnapEnabled] = useState(true)
   const [snap45Enabled, setSnap45Enabled] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
@@ -69,32 +62,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [zonePolyPoints, setZonePolyPoints] = useState<{ x: number; y: number }[]>([])
   const [wallDrawing, setWallDrawing] = useState(false)
   const [wallPoints, setWallPoints] = useState<{ x: number; y: number }[]>([])
+  const [wallThickness, setWallThickness] = useState(15)
   const [zoneDrawStart, setZoneDrawStart] = useState<{ x: number; y: number } | null>(null)
   const [zoneDrawRect, setZoneDrawRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [zoneSectionId, setZoneSectionId] = useState(sections[0]?.id ?? '')
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
   const [selRect, setSelRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
-  const [customPresets, setCustomPresets] = useState<PaletteItem[]>([])
-  const [presetFormOpen, setPresetFormOpen] = useState(false)
-  const [presetName, setPresetName] = useState('')
-  const [presetW, setPresetW] = useState(80)
-  const [presetD, setPresetD] = useState(80)
-  const [presetFill, setPresetFill] = useState('#555')
-  const [furnitureItems, setFurnitureItems] = useState<any[]>([])
-  const [furnitureCatId, setFurnitureCatId] = useState('')
-  const [paletteDefaults, setPaletteDefaults] = useState<Record<string, { width: number; depth: number }>>({})
-  const [rightClickItem, setRightClickItem] = useState<string | null>(null)
-  const [editDefW, setEditDefW] = useState('80')
-  const [editDefD, setEditDefD] = useState('80')
-  const [newTableOpen, setNewTableOpen] = useState(false)
-  const [newTableName, setNewTableName] = useState('')
-  const [newTableW, setNewTableW] = useState('80')
-  const [newTableD, setNewTableD] = useState('80')
-  const [newTableColour, setNewTableColour] = useState('#555')
-  const [newTableChairs, setNewTableChairs] = useState('0')
-  const [newTableTotalQty, setNewTableTotalQty] = useState('10')
-
-  const INVENTORY_TYPES = ['TABLE', 'CHAIR', 'BOOTH_BENCH', 'BAR', 'COUNTER', 'SINK', 'STORAGE', 'KITCHEN_EQUIP']
 
   const containerRef = useRef<HTMLDivElement>(null)
   const nextIdCounter = useRef(1)
@@ -102,18 +75,17 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const zdStartRef = useRef<{ x: number; y: number } | null>(null)
   const [zoomLevel, setZoomLevel] = useState(1)
   const [showDimensions, setShowDimensions] = useState(false)
-  const [boothPainting, setBoothPainting] = useState(false)
-  const [boothPaintKey, setBoothPaintKey] = useState(0)
-  const boothCellsRef = useRef<Set<string>>(new Set())
   const [textScale, setTextScale] = useState(1)
 
   // ── Setup layer state ──
-  const [setups, setSetups] = useState<{ id: string; name: string; eventDate?: string }[]>([])
+  const [setups, setSetups] = useState<{ id: string; name: string; eventDate?: string; isDefault?: boolean }[]>([])
   const [activeSetupId, setActiveSetupId] = useState<string | null>(null)
   const [setupItems, setSetupItems] = useState<SetupItemInput[]>([])
   const [ghostItems, setGhostItems] = useState<SetupItemInput[]>([])
   const [setupSelectedIds, setSetupSelectedIds] = useState<string[]>([])
-  const [tableProfiles, setTableProfiles] = useState<TableProfileView[]>([])
+  const [furniture, setFurniture] = useState<FurnitureView[]>([])
+  /** Armed palette tile — click the plan to drop it. */
+  const [armedFurnitureId, setArmedFurnitureId] = useState<string | null>(null)
   const [sectionBoundaries, setSectionBoundaries] = useState<SectionBoundaryP[]>([])
   const [allInventoryItems, setAllInventoryItems] = useState<any[]>([])
   const [shortages, setShortages] = useState<any[] | null>(null)
@@ -170,16 +142,36 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
   // ── Setup layer functions ──
 
-  function assignTableNumber(profileId: string, existingItems: SetupItemInput[]): string | null {
-    const profile = tableProfiles.find(p => p.id === profileId)
-    const pool = (profile as any)?.tableNumbers
-    if (!pool || !Array.isArray(pool) || pool.length === 0) return null
-    const used = new Set(
-      existingItems
-        .filter(i => i.tableProfileId === profileId && i.assignedNumber)
-        .map(i => i.assignedNumber!)
-    )
-    const sorted = [...pool].map(String).sort((a, b) => Number(a) - Number(b))
+  const furnitureById = useMemo(() => new Map(furniture.map((f) => [f.id, f])), [furniture])
+
+  /** The furniture a placement is an instance of, old key or new. */
+  function furnitureFor(item: SetupItemInput): FurnitureView | undefined {
+    const key = item.furnitureItemId ?? item.tableProfileId
+    return key ? furnitureById.get(key) : undefined
+  }
+
+  function geometryOf(f: FurnitureView) {
+    return {
+      shape: (f.shape as FurnitureShape) ?? 'RECTANGLE',
+      width: f.width,
+      depth: f.depth,
+      vertices: f.vertices,
+    }
+  }
+
+  /**
+   * Claim the next free number from the furniture's pool.
+   *
+   * Numbers are scoped to the whole layout, not to one furniture type: table 12
+   * is a spot in the room, so two different table types must never both claim
+   * it. The default layout is where real numbering lives; event layouts inherit
+   * and can be overridden per table.
+   */
+  function assignTableNumber(furnitureId: string, existingItems: SetupItemInput[]): string | null {
+    const pool = furnitureById.get(furnitureId)?.tableNumbers
+    if (!Array.isArray(pool) || pool.length === 0) return null
+    const used = new Set(existingItems.map((i) => i.assignedNumber).filter(Boolean) as string[])
+    const sorted = [...pool].map(String).sort((a, b) => (Number(a) || 0) - (Number(b) || 0))
     for (const num of sorted) { if (!used.has(num)) return num }
     return null
   }
@@ -191,81 +183,62 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     const r = await fetch(`/api/admin/floorplan/${plan.id}/setups/${setupId}`)
     if (!r.ok) return
     const data = await r.json()
-    const items: SetupItemInput[] = (data.items || []).map((i: any) => ({
-      id: i.id,
-      tableProfileId: i.tableProfileId,
-      x: i.x, y: i.y, rotation: i.rotation ?? 0,
-      width: i.tableProfile?.width ?? 80,
-      depth: i.tableProfile?.depth ?? 80,
-      tableGroupId: i.tableGroupId ?? null,
-      assignedNumber: i.assignedNumber ?? null,
-      label: i.assignedNumber ?? i.label ?? null,
-      chairEdges: i.chairEdges ?? null,
-    }))
+    // Geometry comes off the furniture item; the deprecated profile is still
+    // read so a layout saved before the migration still draws at the right size.
+    const items: SetupItemInput[] = (data.items || []).map((i: any) => {
+      const f = i.furnitureItem
+      return {
+        id: i.id,
+        furnitureItemId: i.furnitureItemId ?? null,
+        tableProfileId: i.tableProfileId ?? null,
+        x: i.x, y: i.y, rotation: i.rotation ?? 0,
+        width: f?.elementWidth ?? i.tableProfile?.width ?? 80,
+        depth: f?.elementDepth ?? i.tableProfile?.depth ?? 80,
+        shape: f?.elementShape ?? 'RECTANGLE',
+        vertices: Array.isArray(f?.elementVertices) ? f.elementVertices : null,
+        tableGroupId: i.tableGroupId ?? null,
+        assignedNumber: i.assignedNumber ?? null,
+        label: i.assignedNumber ?? i.label ?? null,
+        chairEdges: i.chairEdges ?? null,
+        chairs: Array.isArray(i.chairs) ? i.chairs : null,
+      }
+    })
     setSetupItems(items)
   }
 
   async function handleNewSetup() {
-    const name = prompt('Setup name:')
+    const name = prompt('Name this event layout:')
     if (!name?.trim()) return
     const r = await fetch(`/api/admin/floorplan/${plan.id}/setups`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: name.trim().toUpperCase() }),
     })
-    if (!r.ok) return
+    if (!r.ok) { pushToast('COULD NOT CREATE THE LAYOUT.', 'error'); return }
     const created = await r.json()
     setSetups(prev => [...prev, created])
     handleSetupChange(created.id)
   }
 
-  function handleGenerateSeating() {
+  async function handleDeleteSetup() {
     if (!activeSetupId) return
-    const input = prompt('How many covers (party size)?')
-    const partySize = parseInt(input ?? '')
-    if (!partySize || partySize <= 0) return
-    const profiles: AutoSeatProfile[] = tableProfiles.map((tp: any) => ({
-      id: tp.id, capacity: tp.capacity ?? tp.chairCount, chairCount: tp.chairCount,
-      width: tp.width, depth: tp.depth, tableNumbers: tp.tableNumbers ?? null,
-    }))
-    const usedNumbers: Record<string, string[]> = {}
-    for (const i of setupItems) {
-      if (i.assignedNumber) (usedNumbers[i.tableProfileId] ??= []).push(i.assignedNumber)
-    }
-    const placements = planAutoSeat(partySize, profiles, { usedNumbers })
-    if (placements.length === 0) {
-      pushToast('No table profiles available to auto-seat.', 'error')
+    const target = setups.find(s => s.id === activeSetupId)
+    if (target?.isDefault) {
+      pushToast('THE DEFAULT LAYOUT CANNOT BE DELETED — EDIT IT INSTEAD.', 'error')
       return
     }
-    pushHistory()
-    const newItems: SetupItemInput[] = placements.map((pl) => {
-      const id = `new_setup_${nextIdCounter.current++}`
-      const tp = tableProfiles.find(t => t.id === pl.profileId)
-      return {
-        id,
-        tableProfileId: pl.profileId,
-        assignedNumber: pl.assignedNumber,
-        x: pl.x, y: pl.y, rotation: 0,
-        width: pl.width, depth: pl.depth,
-        label: pl.assignedNumber ?? tp?.name ?? 'TABLE',
-        sectionId: sectionForPoint(pl.x + pl.width / 2, pl.y + pl.depth / 2),
-        chairEdges: defaultEdgeChairs({
-          width: pl.width, depth: pl.depth,
-          seatingDensity: tp?.seatingDensity ?? null,
-          maxHeadChairs: (tp as any)?.maxHeadChairs ?? 1,
-          capacity: tp?.chairCount ?? 0,
-        }),
-      }
-    })
-    setSetupItems(prev => [...prev, ...newItems])
-    pushToast(`Placed ${placements.length} tables for ${partySize} covers.`, 'success')
-  }
+    if (!confirm(`Delete the layout "${target?.name ?? ''}"?`)) return
 
-  async function handleDeleteSetup() {
-    if (!activeSetupId || !confirm('Delete this setup?')) return
-    await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}`, { method: 'DELETE' })
+    const r = await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}`, { method: 'DELETE' })
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      pushToast(err.error ?? 'COULD NOT DELETE THE LAYOUT.', 'error')
+      return
+    }
     setSetups(prev => prev.filter(s => s.id !== activeSetupId))
-    handleSetupChange(null)
+    // Fall back to the default layout — the room always has one to revert to.
+    const fallback = setups.find(s => s.isDefault && s.id !== activeSetupId)
+    handleSetupChange(fallback?.id ?? null)
   }
 
   function handleSetupItemDragEnd(id: string, x: number, y: number) {
@@ -313,20 +286,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   function handleInventoryCheck() {
     if (!activeSetupId) return
     setCheckingInventory(true)
-    const profilesMap = new Map(
-      tableProfiles.map((tp: any) => [
-        tp.id,
-        {
-          id: tp.id, name: tp.name, chairCount: tp.chairCount,
-          seatingDensity: tp.seatingDensity, width: tp.width, depth: tp.depth, maxHeadChairs: tp.maxHeadChairs,
-          bomItems: (tp.bomItems ?? []).map((b: any) => ({
-            inventoryItemId: b.inventoryItemId ?? b.item?.id,
-            quantity: b.quantity,
-            perChair: b.perChair ?? false,
-          })),
-        },
-      ])
-    )
+    const profilesMap = profilesForCalc
     const invMap = new Map(
       allInventoryItems.map((i: any) => [i.id, { itemId: i.id, name: i.name, available: i.totalQty ?? 0 }])
     )
@@ -338,9 +298,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   async function handleGroup() {
     if (!activeSetupId) return
     const selected = setupItems.filter(i => setupSelectedIds.includes(i.id))
-    const profileIds = new Set(selected.map(i => i.tableProfileId))
-    if (profileIds.size > 1) {
-      pushToast('All items in a group must have the same table profile.', 'error')
+    const kinds = new Set(selected.map(i => i.furnitureItemId ?? i.tableProfileId))
+    if (kinds.size > 1) {
+      pushToast('JOINED TABLES MUST ALL BE THE SAME FURNITURE.', 'error')
       return
     }
     const r = await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}/groups`, {
@@ -388,20 +348,121 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     setSetupItems(prev => prev.map(i => i.id === id ? { ...i, rotation } : i))
   }
 
-  function handleSetupChairEdge(id: string, edge: TableEdge, delta: number) {
-    setSetupItems(prev => prev.map(i => {
-      if (i.id !== id) return i
-      const profile = tableProfiles.find(p => p.id === i.tableProfileId)
-      const opts = {
-        width: i.width,
-        depth: i.depth,
-        seatingDensity: profile?.seatingDensity ?? null,
-        maxHeadChairs: profile?.maxHeadChairs ?? 1,
-        capacity: profile?.chairCount ?? 0,
-      }
-      const current = i.chairEdges ?? emptyEdgeChairs()
-      return { ...i, chairEdges: adjustEdgeChairs(current, edge, delta, opts) }
-    }))
+  /**
+   * Drop a piece of furniture onto the active layout at room coordinates.
+   *
+   * Shared by the palette's drag-and-drop and its click-to-place mode, so both
+   * routes get the same number assignment, section tagging and default chairs.
+   */
+  function placeFurniture(furnitureId: string, roomX: number, roomY: number) {
+    if (!activeSetupId) {
+      pushToast('PICK A LAYOUT FIRST — FURNITURE GOES ON A LAYOUT, NOT THE BASE PLAN.', 'error')
+      return
+    }
+    const f = furnitureById.get(furnitureId)
+    if (!f) return
+
+    const available = f.totalQty - f.placedCount - setupItems.filter(i => i.furnitureItemId === f.id && i.id.startsWith('new_setup_')).length
+    if (f.totalQty > 0 && available <= 0) {
+      pushToast(`ALL ${f.totalQty} × ${f.name} ARE ALREADY PLACED.`, 'error')
+      return
+    }
+
+    const hasPool = Array.isArray(f.tableNumbers) && f.tableNumbers.length > 0
+    const assignedNumber = assignTableNumber(f.id, setupItems)
+    if (hasPool && assignedNumber === null) {
+      pushToast(`EVERY TABLE NUMBER FOR ${f.name} IS TAKEN ON THIS LAYOUT.`, 'error')
+      return
+    }
+
+    const gu = plan.gridUnit
+    const cx = snapEnabled ? snap(roomX, gu) : roomX
+    const cy = snapEnabled ? snap(roomY, gu) : roomY
+    const itemX = cx - f.width / 2
+    const itemY = cy - f.depth / 2
+
+    const item: SetupItemInput = {
+      id: `new_setup_${nextIdCounter.current++}`,
+      furnitureItemId: f.id,
+      assignedNumber,
+      x: itemX,
+      y: itemY,
+      rotation: 0,
+      width: f.width,
+      depth: f.depth,
+      shape: f.shape,
+      vertices: f.vertices,
+      sectionId: sectionForPoint(cx, cy),
+      label: assignedNumber ?? f.name,
+      chairs: defaultChairSlots(geometryOf(f), {
+        seatingDensity: f.seatingDensity,
+        maxHeadChairs: f.maxHeadChairs,
+        capacity: f.defaultChairCount || undefined,
+      }),
+    }
+
+    pushHistory()
+    setSetupItems(prev => [...prev, item])
+  }
+
+  // ── Chairs ──
+  // Chairs live at a position `t` (0..1) around the furniture's outline rather
+  // than as per-edge counts, so they can sit anywhere on any shape and be
+  // dragged. `chairsOf` fills in the default layout for a table that has never
+  // had its chairs touched.
+
+  function chairsOf(item: SetupItemInput) {
+    if (Array.isArray(item.chairs)) return item.chairs
+    const f = furnitureFor(item)
+    if (!f) return []
+    return defaultChairSlots(geometryOf(f), {
+      seatingDensity: f.seatingDensity,
+      maxHeadChairs: f.maxHeadChairs,
+      capacity: f.defaultChairCount || undefined,
+    })
+  }
+
+  function updateChairs(
+    id: string,
+    fn: (chairs: NonNullable<SetupItemInput['chairs']>, item: SetupItemInput) => NonNullable<SetupItemInput['chairs']>,
+  ) {
+    setSetupItems(prev => prev.map(i => (i.id === id ? { ...i, chairs: fn(chairsOf(i), i) } : i)))
+  }
+
+  /** Drag a chair to a new spot around its table. */
+  function handleChairMove(itemId: string, chairId: string, t: number) {
+    updateChairs(itemId, (chairs) => moveChair(chairs, chairId, t))
+  }
+
+  /** Click the outline to seat someone there. */
+  function handleChairAdd(itemId: string, t: number) {
+    pushHistory()
+    updateChairs(itemId, (chairs) => addChair(chairs, t))
+  }
+
+  function handleChairRemove(itemId: string, chairId: string) {
+    pushHistory()
+    updateChairs(itemId, (chairs) => removeChair(chairs, chairId))
+  }
+
+  /** Even out the spacing after a lot of manual dragging. */
+  function handleChairsTidy(itemId: string) {
+    pushHistory()
+    updateChairs(itemId, (chairs, item) => {
+      const f = furnitureFor(item)
+      return f ? redistributeChairs(geometryOf(f), chairs) : chairs
+    })
+  }
+
+  /** Put the chairs back to what the furniture says it seats. */
+  function handleChairsReset(itemId: string) {
+    pushHistory()
+    setSetupItems(prev => prev.map(i => (i.id === itemId ? { ...i, chairs: null } : i)))
+  }
+
+  function handleChairsClear(itemId: string) {
+    pushHistory()
+    setSetupItems(prev => prev.map(i => (i.id === itemId ? { ...i, chairs: [] } : i)))
   }
 
   const [rebuildKey, setRebuildKey] = useState(0)
@@ -429,29 +490,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           }
           if (data.zones) setZones(data.zones)
         }
-        const furnRes = await fetch('/api/admin/inventory?furniture=true')
-        if (furnRes.ok) {
-          const fiData = await furnRes.json()
-          setFurnitureItems(Array.isArray(fiData) ? fiData : [])
-          if (Array.isArray(fiData) && fiData.length > 0 && !furnitureCatId) setFurnitureCatId(fiData[0].categoryId)
-        }
-        const catRes = await fetch('/api/admin/inventory/categories')
-        if (catRes.ok) { const cats = await catRes.json(); const fc = Array.isArray(cats) ? cats.find((c: any) => c.name === 'FURNITURE') : null; if (fc) setFurnitureCatId(fc.id) }
-        const defRes = await fetch('/api/admin/palette-defaults')
-        if (defRes.ok) {
-          const defs: any[] = await defRes.json()
-          if (Array.isArray(defs)) {
-            const map: Record<string, { width: number; depth: number }> = {}
-            for (const d of defs) map[d.type] = { width: d.width, depth: d.height ?? d.depth }
-            setPaletteDefaults(map)
-          }
-        }
       } catch (e) {
         console.error('FloorPlanEditor load error:', e)
       }
       // Background loads for setup layer
       fetch(`/api/admin/floorplan/${plan.id}/setups`).then(r => { if (r.ok) r.json().then((d: any[]) => setSetups(d)) }).catch(() => {})
-      fetch('/api/admin/table-profiles').then(r => { if (r.ok) r.json().then((d: any[]) => setTableProfiles(d)) }).catch(() => {})
+      fetch('/api/admin/furniture').then(r => { if (r.ok) r.json().then((d: FurnitureView[]) => setFurniture(d)) }).catch(() => {})
       fetch(`/api/admin/floorplan/${plan.id}/section-boundaries`).then(r => { if (r.ok) r.json().then((d: any[]) => setSectionBoundaries(d)) }).catch(() => {})
       fetch('/api/admin/inventory').then(r => { if (r.ok) r.json().then((d: any[]) => setAllInventoryItems(d)) }).catch(() => {})
       setLoading(false)
@@ -484,46 +528,10 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     setSelectedIds([])
   }
 
-  function addFromPalette(item: PaletteItem, pos: { x: number; y: number }, furnItem?: any) {
-    const id = `new_${nextIdCounter.current++}`
-    const gu = plan.gridUnit
-    const def = paletteDefaults[item.type]
-    const w = furnItem?.elementWidth ?? def?.width ?? item.w
-    const d = furnItem?.elementDepth ?? def?.depth ?? item.d
-    const fill = furnItem?.defaultColour ?? item.fill
-    const label = furnItem?.name ?? nextLabel(item.type, elements)
-    const el: ElementData = {
-      id,
-      type: item.type,
-      shape: furnItem?.elementShape ?? (item.circle ? 'CIRCLE' : 'RECTANGLE'),
-      label,
-      labelVisible: true,
-      x: snapEnabled ? snap(pos.x - (item.circle ? 0 : w / 2), gu) : (pos.x - (item.circle ? 0 : w / 2)),
-      y: snapEnabled ? snap(pos.y - (item.circle ? 0 : d / 2), gu) : (pos.y - (item.circle ? 0 : d / 2)),
-      width: w || gu,
-      depth: d || gu,
-      radius: item.circle ? (snapEnabled ? snap(Math.min(w, d) / 2, gu) : Math.min(w, d) / 2) : null,
-      rotation: 0,
-      fillColour: fill,
-      opacity: 1,
-      zIndex: elements.length + 1,
-      sortOrder: elements.length,
-      isActive: true,
-      style: null,
-      chairCount: furnItem?.defaultChairCount ?? 0,
-      _furnitureItemId: furnItem?.id ?? undefined,
-    }
-    pushHistory()
-    setElements((prev) => [...prev, el])
-    setSelectedIds([id])
-  }
-
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Escape' && boothPainting) {
+    if (e.key === 'Escape' && armedFurnitureId) {
       e.preventDefault()
-      setBoothPainting(false)
-      boothCellsRef.current.clear()
-      setBoothPaintKey(k => k + 1)
+      setArmedFurnitureId(null)
       return
     }
     if (e.key === 'Delete') {
@@ -554,13 +562,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       }
     }
     setSaving(true)
-    const inventoryLinks: { elementId: string; itemId: string; quantity?: number; remove?: boolean }[] = []
     const saveElements = elements.map((el) => {
       const isNew = el.id?.startsWith('new_')
       const clientId = el._clientId ?? el.id ?? ''
-      if (el._furnitureItemId) {
-        inventoryLinks.push({ elementId: clientId, itemId: el._furnitureItemId as string, quantity: 1 })
-      }
       return { ...el, _clientId: clientId, id: isNew ? undefined : el.id }
     })
     const r = await fetch(`/api/admin/floorplan/${plan.id}/elements`, {
@@ -569,7 +573,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       body: JSON.stringify({
         elements: saveElements,
         zones: zones.length > 0 ? zones : undefined,
-        inventoryLinks,
       }),
     })
     if (r.ok) {
@@ -579,16 +582,10 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       setElements((prev) =>
         prev.map((el) => {
           const realId = clientToReal.get(el._clientId ?? el.id!)
-          if (realId && realId !== el.id) return { ...el, id: realId, _clientId: undefined, _furnitureItemId: undefined }
-          return { ...el, _clientId: undefined, _furnitureItemId: undefined }
+          if (realId && realId !== el.id) return { ...el, id: realId, _clientId: undefined }
+          return { ...el, _clientId: undefined }
         })
       )
-      // Refresh furniture items after save
-      const furnRes = await fetch('/api/admin/inventory?furniture=true')
-      if (furnRes.ok) {
-        const fiData = await furnRes.json()
-        setFurnitureItems(Array.isArray(fiData) ? fiData : [])
-      }
     }
     // Save setup items (always when a setup is active, so deletions persist)
     if (activeSetupId) {
@@ -605,6 +602,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           ...i,
           id: i.id.startsWith('new_setup_') ? undefined : i.id,
           _clientId: i.id,
+          furnitureItemId: i.furnitureItemId ?? null,
+          chairs: chairsOf(i),
           assignedNumber: i.assignedNumber ?? null,
           label: i.assignedNumber ?? i.label ?? undefined,
           sectionId: i.sectionId ?? null,
@@ -647,17 +646,6 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
   const summary = showSummary ? computeSectionSummary(elements, sections) : null
 
-  const furnitureWithAvailability = useMemo(() => {
-    if (!Array.isArray(furnitureItems)) return []
-    return furnitureItems.map((fi: any) => {
-      const placed = elements.filter((e) => {
-        if (e._furnitureItemId === fi.id) return true
-        return ((e as any).inventoryItems ?? []).some((inv: any) => inv.itemId === fi.id)
-      }).length
-      return { ...fi, availableQty: (fi.totalQty ?? 0) - placed }
-    })
-  }, [furnitureItems, elements])
-
   // Merged-group outlines + redistributed chairs (rules-based) for grouped setup tables
   const setupGroupRenders = useMemo(() => {
     if (!activeSetupId) return []
@@ -670,34 +658,34 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     const out: { id: string; outline: [number, number][][]; chairs: { x: number; y: number }[] }[] = []
     for (const [gid, members] of groups) {
       if (members.length < 2) continue
-      const profile = tableProfiles.find(p => p.id === members[0].tableProfileId)
+      const f = furnitureFor(members[0])
       const tables = members.map(m => ({ x: m.x, y: m.y, width: m.width, depth: m.depth, rotation: m.rotation ?? 0 }))
       const outline = unionTablePolygons(tables)
       let chairs: { x: number; y: number }[] = []
-      if (profile?.seatingDensity && profile.seatingDensity > 0) {
-        const headWidth = Math.min(profile.width, profile.depth)
+      if (f?.seatingDensity && f.seatingDensity > 0) {
+        const headWidth = Math.min(f.width, f.depth)
         let headDir: number | undefined
-        if (profile.width !== profile.depth) {
+        if (f.width !== f.depth) {
           const rb = (members[0].rotation ?? 0) % 180
-          headDir = profile.width > profile.depth ? ((rb + 90) % 180 + 180) % 180 : ((rb % 180) + 180) % 180
+          headDir = f.width > f.depth ? ((rb + 90) % 180 + 180) % 180 : ((rb % 180) + 180) % 180
         }
-        const res = computeGroupChairs(tables, profile.seatingDensity, undefined, headWidth, profile.maxHeadChairs, headDir)
+        const res = computeGroupChairs(tables, f.seatingDensity, undefined, headWidth, f.maxHeadChairs, headDir)
         chairs = res.placements.map(p => ({ x: p.x, y: p.y }))
       }
       out.push({ id: gid, outline, chairs })
     }
     return out
-  }, [activeSetupId, setupItems, tableProfiles])
+  }, [activeSetupId, setupItems, furnitureById])
 
   const profilesForCalc = useMemo(() => {
     return new Map<string, TableProfileWithBom>(
-      tableProfiles.map((tp: any) => [tp.id, {
-        id: tp.id, name: tp.name, chairCount: tp.chairCount,
-        seatingDensity: tp.seatingDensity, width: tp.width, depth: tp.depth, maxHeadChairs: tp.maxHeadChairs,
-        bomItems: (tp.bomItems ?? []).map((b: any) => ({ inventoryItemId: b.inventoryItemId ?? b.item?.id, quantity: b.quantity, perChair: b.perChair ?? false })),
+      furniture.map((f) => [f.id, {
+        id: f.id, name: f.name, chairCount: f.defaultChairCount,
+        seatingDensity: f.seatingDensity, width: f.width, depth: f.depth, maxHeadChairs: f.maxHeadChairs,
+        bomItems: f.bomItems,
       }])
     )
-  }, [tableProfiles])
+  }, [furniture])
 
   // Live per-section totals keyed by sectionId (for the zone badges + summary)
   const zoneTotals = useMemo(() => {
@@ -709,12 +697,34 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     return map
   }, [activeSetupId, setupItems, zones, profilesForCalc])
 
+  const activeSetup = setups.find(s => s.id === activeSetupId) ?? null
+
   const setupGrand = useMemo(() => {
     if (!activeSetupId) return { tables: 0, seats: 0 }
     const zoneRects = zones.map(z => ({ sectionId: z.sectionId, x: z.x, y: z.y, width: z.width, height: z.height }))
     const totals = computeSetupSectionTotals(setupItems, zoneRects, profilesForCalc)
     return totals.reduce((acc, t) => ({ tables: acc.tables + t.tables, seats: acc.seats + t.seats }), { tables: 0, seats: 0 })
   }, [activeSetupId, setupItems, zones, profilesForCalc])
+
+  /**
+   * Flatten a placement into what the canvas draws. Geometry and chair
+   * dimensions are resolved here so the renderer never has to look anything up
+   * mid-draw, and chairs fall back to the furniture's default layout.
+   */
+  function toCanvasItem(i: SetupItemInput) {
+    const f = furnitureFor(i)
+    const chairItem = f?.chairItemId ? furnitureById.get(f.chairItemId) : undefined
+    return {
+      ...i,
+      shape: i.shape ?? f?.shape ?? 'RECTANGLE',
+      vertices: i.vertices ?? f?.vertices ?? null,
+      colour: f?.colour ?? '#e6c347',
+      chairCount: f?.defaultChairCount ?? 0,
+      chairs: chairsOf(i),
+      chairWidth: chairItem?.width ?? 45,
+      chairDepth: chairItem?.depth ?? 45,
+    }
+  }
 
   function sectionForPoint(cx: number, cy: number): string | null {
     for (const z of zones) {
@@ -741,14 +751,14 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           <h1 className="font-mono text-sm font-bold uppercase tracking-widest text-white">{plan.name}</h1>
           <div className="flex items-center gap-1">
             <input type="number" step="10" value={editRoomW} onChange={(e) => setEditRoomW(e.target.value)}
-              className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-1 py-0.5 text-center outline-none focus:border-white" />
-            <span className="font-mono text-[10px] text-grey-light">×</span>
+              className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-xs px-1 py-0.5 text-center outline-none focus:border-white" />
+            <span className="font-mono text-xs text-grey-light">×</span>
             <input type="number" step="10" value={editRoomD} onChange={(e) => setEditRoomD(e.target.value)}
-              className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-1 py-0.5 text-center outline-none focus:border-white" />
-            <span className="font-mono text-[10px] text-grey-light">cm ·</span>
+              className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-xs px-1 py-0.5 text-center outline-none focus:border-white" />
+            <span className="font-mono text-xs text-grey-light">cm ·</span>
             <input type="number" step="10" value={editGridUnit} onChange={(e) => setEditGridUnit(e.target.value)}
-              className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-1 py-0.5 text-center outline-none focus:border-white" />
-            <span className="font-mono text-[10px] text-grey-light">cm grid</span>
+              className="w-14 bg-grey-dark border border-grey-mid text-white font-mono text-xs px-1 py-0.5 text-center outline-none focus:border-white" />
+            <span className="font-mono text-xs text-grey-light">cm grid</span>
             <button onClick={async () => {
               const r = await fetch(`/api/admin/floorplan/${plan.id}`, {
                 method: 'PUT',
@@ -757,7 +767,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               })
               if (r.ok) setRebuildKey((k) => k + 1)
             }}
-              className="font-mono text-[10px] text-success hover:text-white uppercase px-1 py-0.5 border border-success">
+              className="font-mono text-xs text-success hover:text-white uppercase px-1 py-0.5 border border-success">
               APPLY
             </button>
           </div>
@@ -777,8 +787,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             BASE PLAN
           </button>
           <button onClick={() => {
-            if (!activeSetupId && setups.length === 0) handleNewSetup()
-            else if (!activeSetupId && setups.length > 0) handleSetupChange(setups[0].id)
+            // Always land on the default layout — the everyday arrangement — so
+            // the button never dumps you into somebody's wedding setup.
+            if (!activeSetupId) handleSetupChange((setups.find(s => s.isDefault) ?? setups[0])?.id ?? null)
           }}
             className={`font-mono text-xs uppercase px-3 py-1 border ${activeSetupId ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'}`}>
             TABLE LAYOUT
@@ -788,23 +799,34 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               <select
                 value={activeSetupId}
                 onChange={(e) => handleSetupChange(e.target.value || null)}
-                className="bg-grey-dark border border-grey-mid text-white font-mono text-[10px] px-2 py-1 outline-none"
+                className="bg-grey-dark border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none"
               >
-                {setups.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {setups.map(s => (
+                  <option key={s.id} value={s.id}>{s.isDefault ? `★ ${s.name} (DEFAULT)` : s.name}</option>
+                ))}
               </select>
               <button onClick={handleNewSetup}
-                className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5 border border-grey-mid">
-                + NEW
+                className="font-mono text-xs text-grey-light hover:text-white uppercase px-1.5 py-0.5 border border-grey-mid">
+                + EVENT
               </button>
-              <button onClick={handleDeleteSetup}
-                className="font-mono text-[10px] text-danger hover:text-white uppercase px-1.5 py-0.5 border border-red-800/50">
-                DELETE
-              </button>
+              {/* The default layout is what the room reverts to between events,
+                  so it is editable but never removable. */}
+              {!activeSetup?.isDefault && (
+                <button onClick={handleDeleteSetup}
+                  className="font-mono text-xs text-danger hover:text-white uppercase px-1.5 py-0.5 border border-red-800/50">
+                  DELETE
+                </button>
+              )}
             </div>
           )}
         </div>
+        {activeSetup?.isDefault && (
+          <span className="font-mono text-xs uppercase text-grey-light tracking-wider">
+            EVERYDAY LAYOUT · OWNS TABLE NUMBERS
+          </span>
+        )}
         {activeSetupId && (
-          <span className="font-mono text-[10px] uppercase text-success tracking-wider">
+          <span className="font-mono text-xs uppercase text-success tracking-wider">
             {setupGrand.tables} TBL · {setupGrand.seats} PAX
           </span>
         )}
@@ -812,19 +834,15 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
       {/* ── CONTEXT TOOLBAR ── */}
       <div className="flex items-center gap-2 px-4 py-1.5 border-b border-grey-mid bg-black flex-wrap">
-        <label className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+        <label className="flex items-center gap-1 font-mono text-xs text-grey-light cursor-pointer select-none">
           <input type="checkbox" checked={snapEnabled} onChange={() => setSnapEnabled(!snapEnabled)} className="accent-white" />
           GRID
         </label>
         {activeSetupId ? (
           <>
-            <button onClick={handleGenerateSeating}
-              className="font-mono text-[10px] uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-accent hover:text-accent">
-              ⚡ GENERATE
-            </button>
             {setupSelectedIds.length >= 2 && (
               <button onClick={handleGroup}
-                className="font-mono text-[10px] uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-white">
+                className="font-mono text-xs uppercase px-2 py-1 border border-grey-mid text-grey-light hover:border-white">
                 GROUP
               </button>
             )}
@@ -832,312 +850,58 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               const grouped = setupItems.find(i => i.id === setupSelectedIds[0] && i.tableGroupId)
               return grouped ? (
                 <button onClick={handleUngroup}
-                  className="font-mono text-[10px] uppercase px-2 py-1 border border-red-800/50 text-danger hover:border-red-700">
+                  className="font-mono text-xs uppercase px-2 py-1 border border-red-800/50 text-danger hover:border-red-700">
                   UNGROUP
                 </button>
               ) : null
             })()}
-            <span className="font-mono text-[9px] text-grey-light ml-1">BASE PLAN LOCKED</span>
+            <span className="font-mono text-xs text-grey-light ml-1">BASE PLAN LOCKED</span>
           </>
         ) : (
           <>
-            <label className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+            <label className="flex items-center gap-1 font-mono text-xs text-grey-light cursor-pointer select-none">
               <input type="checkbox" checked={snap45Enabled} onChange={() => setSnap45Enabled(!snap45Enabled)} className="accent-white" />
               45°
             </label>
             <button onClick={() => {
               if (zoneDrawing) { setZoneDrawing(false); setZoneDrawStart(null); setZoneDrawRect(null) }
-              else { setZoneDrawing(true); setBoothPainting(false) }
+              else { setZoneDrawing(true); setZonePolyMode(false); setZonePolyPoints([]) }
             }}
-              className={`font-mono text-[10px] uppercase px-2 py-1 border ${zoneDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
-              SECTIONS {zoneDrawing ? '· ON' : ''}
+              className={`font-mono text-xs uppercase px-2 py-1 border ${zoneDrawing && !zonePolyMode ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
+              SECTIONS {zoneDrawing && !zonePolyMode ? '· ON' : ''}
+            </button>
+            <button onClick={() => {
+              if (zonePolyMode) { setZonePolyMode(false); setZonePolyPoints([]); setZoneDrawing(false) }
+              else { setZonePolyMode(true); setZoneDrawing(false); setZonePolyPoints([]) }
+            }}
+              className={`font-mono text-xs uppercase px-2 py-1 border ${zonePolyMode ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
+              POLYGON {zonePolyMode ? '· ON' : ''}
             </button>
             <button onClick={() => {
               if (wallDrawing) { setWallDrawing(false); setWallPoints([]) }
-              else { setWallDrawing(true); setZoneDrawing(false); setBoothPainting(false) }
+              else { setWallDrawing(true); setZoneDrawing(false) }
             }}
-              className={`font-mono text-[10px] uppercase px-2 py-1 border ${wallDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
+              className={`font-mono text-xs uppercase px-2 py-1 border ${wallDrawing ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
               WALLS {wallDrawing ? '· ON' : ''}
             </button>
-            <button onClick={() => {
-              if (boothPainting) { setBoothPainting(false); boothCellsRef.current.clear(); setBoothPaintKey(k => k + 1) }
-              else { setBoothPainting(true); setZoneDrawing(false); setSelectedIds([]) }
-            }}
-              className={`font-mono text-[10px] uppercase px-2 py-1 border ${boothPainting ? 'border-accent text-accent bg-accent/10' : 'border-grey-mid text-grey-light'} hover:border-accent transition-colors`}>
-              DRAW BOOTH {boothPainting ? '· ON' : ''}
-            </button>
-            {boothPainting && boothCellsRef.current.size > 0 && (
-              <button onClick={() => {
-                const result = traceBoothPerimeter(boothCellsRef.current)
-                if (!result) return
-                const label = nextLabel('BOOTH_BENCH', elements)
-                const id = `new_${nextIdCounter.current++}`
-                const el: ElementData = {
-                  id, type: 'BOOTH_BENCH', shape: 'POLYGON', label, labelVisible: true,
-                  x: result.bx, y: result.by, width: result.bw, depth: result.bd,
-                  vertices: result.outerVertices, rotation: 0, fillColour: '#3D3D4D',
-                  opacity: 1, zIndex: elements.length + 1, sortOrder: elements.length, isActive: true,
-                  style: { cushionVertices: result.cushionVertices }, chairCount: 0,
-                }
-                pushHistory()
-                setElements(prev => [...prev, el])
-                setSelectedIds([id])
-                boothCellsRef.current.clear()
-                setBoothPainting(false)
-                setBoothPaintKey(k => k + 1)
-              }}
-                className="font-mono text-[10px] text-success hover:text-white uppercase px-2 py-1 border border-success">
-                SAVE SHAPE ({boothCellsRef.current.size} BLOCKS)
-              </button>
-            )}
             <button onClick={() => setShowSummary(!showSummary)}
-              className={`font-mono text-[10px] uppercase px-2 py-1 border ${showSummary ? 'border-success text-success' : 'border-grey-mid text-grey-light hover:border-success'}`}>
+              className={`font-mono text-xs uppercase px-2 py-1 border ${showSummary ? 'border-success text-success' : 'border-grey-mid text-grey-light hover:border-success'}`}>
               SUMMARY
             </button>
           </>
         )}
         <span className="flex-1" />
         <div className="flex items-center gap-1">
-          <span className="font-mono text-[8px] text-grey-light">TEXT</span>
+          <span className="font-mono text-xs text-grey-light">TEXT</span>
           <input type="range" min="0.5" max="3" step="0.1" value={textScale} onChange={(e) => setTextScale(parseFloat(e.target.value))}
             className="w-16 accent-white" />
-          <span className="font-mono text-[9px] text-grey-light w-5">{textScale.toFixed(1)}×</span>
+          <span className="font-mono text-xs text-grey-light w-5">{textScale.toFixed(1)}×</span>
         </div>
         <FloorplanToolbar zoom={zoomLevel} onZoomChange={(z) => { setZoomLevel(z); viewRef.current.zoom = z; setRebuildKey((k) => k + 1) }}
           showDimensions={showDimensions} onShowDimensionsChange={setShowDimensions} />
-        <button onClick={() => setPaletteOpen(!paletteOpen)}
-          className={`font-mono text-xs uppercase px-2 py-1 border ${paletteOpen ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:border-white transition-colors'}`}>
-          PALETTE
-        </button>
       </div>
 
       <div className="flex flex-1 min-h-0">
-        {paletteOpen && (
-          <div className="w-44 flex-shrink-0 border-r border-grey-mid overflow-y-auto bg-grey-dark p-2 space-y-1">
-            {/* ── BASE PLAN PALETTE ── */}
-            {!activeSetupId && (
-              <>
-                {(['FIXTURE', 'FURNITURE'] as const).map((cat) => {
-                  const items = [...PALETTE_ITEMS, ...customPresets].filter((i) => i.category === cat)
-                  if (items.length === 0) return null
-                  return (
-                    <div key={cat}>
-                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2 first:mt-0">{cat}</p>
-                      {items.map((item) => {
-                        const def = paletteDefaults[item.type]
-                        const dispW = def?.width ?? item.w; const dispD = def?.depth ?? item.d
-                        return (
-                          <div key={item.type}>
-                            <div
-                              draggable
-                              onDragStart={(e) => {
-                                e.dataTransfer.setData('text/plain', item.type)
-                                const dragImg = new globalThis.Image()
-                                dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-                                e.dataTransfer.setDragImage(dragImg, 0, 0)
-                              }}
-                              onContextMenu={(e) => { e.preventDefault(); setRightClickItem(rightClickItem === item.type ? null : item.type); setEditDefW(dispW.toString()); setEditDefD(dispD.toString()) }}
-                              className="flex items-center gap-2 p-1.5 cursor-grab hover:bg-grey-mid transition-colors"
-                            >
-                              <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.fill }} />
-                              <span className="font-mono text-[10px] text-white uppercase truncate">{item.label}</span>
-                              <span className="font-mono text-[8px] text-grey-light ml-auto">{dispW}×{dispD}</span>
-                            </div>
-                            {rightClickItem === item.type && (
-                              <div className="flex items-center gap-1 px-1 pb-1">
-                                <input type="number" value={editDefW} onChange={(e) => setEditDefW(e.target.value)}
-                                  className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[8px] px-1 py-0.5 text-center" />
-                                <span className="text-grey-light text-[8px]">×</span>
-                                <input type="number" value={editDefD} onChange={(e) => setEditDefD(e.target.value)}
-                                  className="w-12 bg-grey-dark border border-grey-mid text-white font-mono text-[8px] px-1 py-0.5 text-center" />
-                                <button onClick={async () => {
-                                  const w = parseFloat(editDefW) || dispW; const d = parseFloat(editDefD) || dispD
-                                  await fetch('/api/admin/palette-defaults', {
-                                    method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ items: [{ type: item.type, width: w, depth: d }] }),
-                                  })
-                                  setPaletteDefaults((prev) => ({ ...prev, [item.type]: { width: w, depth: d } }))
-                                  setRightClickItem(null)
-                                }}
-                                  className="font-mono text-[8px] text-success hover:text-white uppercase">OK</button>
-                                <button onClick={() => setRightClickItem(null)}
-                                  className="font-mono text-[8px] text-grey-light hover:text-white uppercase">✕</button>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )
-                })}
-                {furnitureWithAvailability.length > 0 && (
-                  <div>
-                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2">INVENTORY</p>
-                    {furnitureWithAvailability.map((fi: any) => (
-                      <div
-                        key={`furn_${fi.id}`}
-                        draggable={fi.availableQty > 0}
-                        onDragStart={(e) => {
-                          if (fi.availableQty <= 0) { e.preventDefault(); return }
-                          e.dataTransfer.setData('text/plain', `furn_${fi.id}`)
-                          const dragImg = new globalThis.Image()
-                          dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-                          e.dataTransfer.setDragImage(dragImg, 0, 0)
-                        }}
-                        className={`flex items-center gap-2 p-1.5 transition-colors ${fi.availableQty > 0 ? 'cursor-grab hover:bg-grey-mid' : 'cursor-not-allowed opacity-40'}`}
-                      >
-                        <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: fi.defaultColour ?? '#555' }} />
-                        <span className="font-mono text-[10px] text-white truncate">{fi.name}</span>
-                        <span className="font-mono text-[8px] text-grey-light ml-auto">{fi.elementWidth}×{fi.elementDepth}</span>
-                        <span className={`font-mono text-[8px] ml-1 ${fi.availableQty > 0 ? 'text-accent' : 'text-danger'}`}>
-                          {fi.availableQty}/{fi.totalQty ?? 0}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-            {/* ── TABLE LAYOUT PALETTE ── */}
-            {activeSetupId && tableProfiles.length > 0 && (
-              <div>
-                <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider px-1 pb-1 border-b border-grey-mid mt-2">TABLE PROFILES</p>
-                {tableProfiles.map(tp => {
-                  const pool = (tp as any)?.tableNumbers
-                  const poolArr: string[] = Array.isArray(pool) ? pool.map(String) : []
-                  const used = new Set(
-                    setupItems
-                      .filter(i => i.tableProfileId === tp.id && i.assignedNumber)
-                      .map(i => i.assignedNumber!)
-                  )
-                  const available = poolArr.filter(n => !used.has(n))
-                  const canDrag = poolArr.length === 0 || available.length > 0
-                  return (
-                    <div key={tp.id} draggable={canDrag}
-                      onDragStart={(e) => {
-                        if (!canDrag) { e.preventDefault(); pushToast(`All table numbers for ${tp.name} are in use.`, 'error'); return }
-                        e.dataTransfer.setData('text/plain', `tp_${tp.id}`)
-                        const dragImg = new globalThis.Image()
-                        dragImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-                        e.dataTransfer.setDragImage(dragImg, 0, 0)
-                      }}
-                      className={`flex items-center gap-2 p-1.5 transition-colors ${canDrag ? 'cursor-grab hover:bg-grey-mid' : 'cursor-not-allowed opacity-40'}`}
-                    >
-                      <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: tp.colour ?? '#555' }} />
-                      <span className="font-mono text-[10px] text-white truncate">{tp.name}</span>
-                      <span className="font-mono text-[8px] text-grey-light ml-auto">{tp.width}×{tp.depth}</span>
-                      <span className="font-mono text-[8px] text-grey-light">{tp.chairCount}S</span>
-                      {poolArr.length > 0 && (
-                        <span className={`font-mono text-[8px] ml-1 ${available.length > 0 ? 'text-success' : 'text-danger'}`}>
-                          {available.length}/{poolArr.length}
-                        </span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-            {!activeSetupId && (
-              <>
-                {(furnitureItems.length > 0 || true) && (
-                  <div className="border-t border-grey-mid pt-1 mt-1">
-                    {newTableOpen ? (
-                      <div className="space-y-1 px-1">
-                        <Input label="Name" value={newTableName} onChange={(e) => setNewTableName(e.target.value)} placeholder="TABLE" />
-                        <div className="grid grid-cols-2 gap-1">
-                          <Input label="W" type="number" value={newTableW} onChange={(e) => setNewTableW(e.target.value)} />
-                          <Input label="D" type="number" value={newTableD} onChange={(e) => setNewTableD(e.target.value)} />
-                        </div>
-                        <Input label="Colour" value={newTableColour} onChange={(e) => setNewTableColour(e.target.value)} placeholder="#555" />
-                        <Input label="Chairs" type="number" value={newTableChairs} onChange={(e) => setNewTableChairs(e.target.value)} />
-                        <Input label="Stock Qty" type="number" value={newTableTotalQty} onChange={(e) => setNewTableTotalQty(e.target.value)} />
-                        <div className="flex gap-1">
-                          <button onClick={async () => {
-                            const name = (newTableName || `TABLE-${Math.floor(Math.random() * 1000)}`).toUpperCase().trim()
-                            if (!name) return
-                            let catId = furnitureCatId
-                            if (!catId) {
-                              const cre = await fetch('/api/admin/inventory/categories')
-                              if (cre.ok) { const cats = await cre.json(); const fc = cats.find((c: any) => c.name === 'FURNITURE'); if (fc) { catId = fc.id; setFurnitureCatId(fc.id) } }
-                            }
-                            if (!catId) return
-                            const r = await fetch('/api/admin/inventory', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                name,
-                                categoryId: catId,
-                                unit: 'EA', defaultParLevel: 0, totalQty: parseInt(newTableTotalQty) || 10,
-                                furnitureType: 'TABLE',
-                                elementWidth: parseFloat(newTableW) || 80,
-                                elementDepth: parseFloat(newTableD) || 80,
-                                elementShape: 'RECTANGLE',
-                                defaultColour: newTableColour,
-                                defaultChairCount: parseInt(newTableChairs) || 0,
-                              }),
-                            })
-                            if (r.ok) {
-                              const created = await r.json()
-                              setFurnitureItems((prev) => [...prev, created])
-                              setNewTableOpen(false); setNewTableName(''); setNewTableW('80'); setNewTableD('80'); setNewTableColour('#555'); setNewTableChairs('0'); setNewTableTotalQty('10')
-                            }
-                          }}
-                            className="font-mono text-[10px] text-success hover:text-white uppercase px-1.5 py-0.5 border border-success flex-1">
-                            CREATE
-                          </button>
-                          <button onClick={() => setNewTableOpen(false)}
-                            className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5">
-                            CANCEL
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button onClick={() => setNewTableOpen(true)}
-                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-1 w-full text-left">
-                        + NEW TABLE
-                      </button>
-                    )}
-                  </div>
-                )}
-                <div className="border-t border-grey-mid pt-2 mt-2">
-                  {presetFormOpen ? (
-                    <div className="space-y-1 px-1">
-                      <Input label="Name" value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="E.G. TABLE-60X60" />
-                      <div className="grid grid-cols-2 gap-1">
-                        <Input label="W" type="number" value={presetW.toString()} onChange={(e) => setPresetW(parseInt(e.target.value) || 80)} />
-                        <Input label="D" type="number" value={presetD.toString()} onChange={(e) => setPresetD(parseInt(e.target.value) || 80)} />
-                      </div>
-                      <Input label="Colour" value={presetFill} onChange={(e) => setPresetFill(e.target.value)} placeholder="#555" />
-                      <div className="flex gap-1">
-                        <button onClick={() => {
-                          if (!presetName.trim()) return
-                          const p: PaletteItem = { type: presetName.toUpperCase().trim(), label: presetName.toUpperCase().trim(), w: presetW, d: presetD, fill: presetFill, category: 'FURNITURE' }
-                          setCustomPresets((prev) => [...prev, p])
-                          setPresetName(''); setPresetW(80); setPresetD(80); setPresetFill('#555')
-                          setPresetFormOpen(false)
-                        }}
-                          className="font-mono text-[10px] text-success hover:text-white uppercase px-1.5 py-0.5 border border-success flex-1">
-                          ADD
-                        </button>
-                        <button onClick={() => setPresetFormOpen(false)}
-                          className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-0.5">
-                          CANCEL
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button onClick={() => setPresetFormOpen(true)}
-                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase px-1.5 py-1 w-full text-left">
-                      + ADD PRESET
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
         <div
           ref={containerRef}
           className="flex-1 overflow-hidden bg-black"
@@ -1152,69 +916,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             const screenY = e.clientY - rect.top
             const x = (screenX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
             const y = (screenY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
-            if (type.startsWith('furn_')) {
-              if (!Array.isArray(furnitureItems)) return
-              const fi = furnitureItems.find((f: any) => `furn_${f.id}` === type)
-              if (!fi) return
-              const placed = elements.filter((e) => {
-                if (e._furnitureItemId === fi.id) return true
-                return ((e as any).inventoryItems ?? []).some((inv: any) => inv.itemId === fi.id)
-              }).length
-              const available = (fi.totalQty ?? 0) - placed
-              if (available <= 0) { pushToast('Out of stock. Please add more to inventory.', 'error'); return }
-              const paletteItem: PaletteItem = {
-                type: fi.furnitureType ?? 'TABLE',
-                label: fi.name,
-                w: fi.elementWidth ?? 80,
-                d: fi.elementDepth ?? 80,
-                fill: fi.defaultColour ?? '#555',
-                category: 'FURNITURE',
-                circle: fi.elementShape === 'CIRCLE',
-              }
-              addFromPalette(paletteItem, { x, y }, fi)
-              return
+            if (type.startsWith(FURNITURE_DRAG_PREFIX)) {
+              placeFurniture(type.slice(FURNITURE_DRAG_PREFIX.length), x, y)
             }
-            // TableProfile drop (setup mode)
-            if (type.startsWith('tp_') && activeSetupId) {
-              const tpId = type.replace('tp_', '')
-              const tp = tableProfiles.find(p => p.id === tpId)
-              if (!tp) return
-              const pool = (tp as any)?.tableNumbers
-              const poolArr: string[] = Array.isArray(pool) ? pool.map(String) : []
-              const assignedNumber = assignTableNumber(tp.id, setupItems)
-              if (poolArr.length > 0 && assignedNumber === null) {
-                pushToast(`All table numbers for ${tp.name} are assigned.`, 'error')
-                return
-              }
-              const id = `new_setup_${nextIdCounter.current++}`
-              const gu = plan.gridUnit
-              const itemX = snapEnabled ? snap(x, gu) - tp.width / 2 : x - tp.width / 2
-              const itemY = snapEnabled ? snap(y, gu) - tp.depth / 2 : y - tp.depth / 2
-              const item: SetupItemInput = {
-                id,
-                tableProfileId: tp.id,
-                assignedNumber,
-                x: itemX,
-                y: itemY,
-                rotation: 0,
-                width: tp.width,
-                depth: tp.depth,
-                sectionId: sectionForPoint(itemX + tp.width / 2, itemY + tp.depth / 2),
-                label: assignedNumber ?? tp.name,
-                chairEdges: defaultEdgeChairs({
-                  width: tp.width, depth: tp.depth,
-                  seatingDensity: tp.seatingDensity ?? null,
-                  maxHeadChairs: (tp as any).maxHeadChairs ?? 1,
-                  capacity: tp.chairCount ?? 0,
-                }),
-              }
-              pushHistory()
-              setSetupItems(prev => [...prev, item])
-              return
-            }
-            const item = [...PALETTE_ITEMS, ...customPresets].find((p) => p.type === type)
-            if (!item) return
-            addFromPalette(item, { x, y })
           }}
         >
           <FloorPlanPixiCanvas
@@ -1298,20 +1002,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             }}
             rebuildKey={rebuildKey}
             showDimensions={showDimensions}
-            boothPainting={boothPainting}
-            boothCellsRef={boothCellsRef}
-            onBoothCellToggle={() => setBoothPaintKey(k => k + 1)}
-            setupItems={activeSetupId ? setupItems.map(i => ({
-              ...i,
-              colour: tableProfiles.find(tp => tp.id === i.tableProfileId)?.colour ?? '#555',
-              chairCount: tableProfiles.find(tp => tp.id === i.tableProfileId)?.chairCount ?? 0,
-              chairEdges: i.chairEdges ?? null,
-            })) : (ghostItems.length > 0 ? ghostItems.map(i => ({
-              ...i,
-              colour: tableProfiles.find(tp => tp.id === i.tableProfileId)?.colour ?? '#555',
-              chairCount: tableProfiles.find(tp => tp.id === i.tableProfileId)?.chairCount ?? 0,
-              chairEdges: i.chairEdges ?? null,
-            })) : undefined)}
+            setupItems={activeSetupId ? setupItems.map(toCanvasItem) : (ghostItems.length > 0 ? ghostItems.map(toCanvasItem) : undefined)}
             setupSelectedIds={activeSetupId ? setupSelectedIds : []}
             ghostMode={!activeSetupId && setups.length > 0}
             wallDrawing={wallDrawing}
@@ -1320,6 +1011,11 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             zonePolyMode={zonePolyMode}
             zonePolyPoints={zonePolyPoints}
             onZonePolyAdd={(x, y) => setZonePolyPoints((prev) => [...prev, { x: Math.round(x), y: Math.round(y) }])}
+            armedPlacement={!!armedFurnitureId}
+            onCanvasPlace={(x, y) => {
+              if (!armedFurnitureId) return
+              placeFurniture(armedFurnitureId, x, y)
+            }}
             onSetupItemClick={(id, ctrlKey) => {
               if (!id) { setSetupSelectedIds([]); return }
               setSetupSelectedIds(prev =>
@@ -1328,7 +1024,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               )
             }}
             onSetupItemDragEnd={handleSetupItemDragEnd}
-            onSetupChairEdge={handleSetupChairEdge}
+            onSetupChairMove={handleChairMove}
+            onSetupChairAdd={handleChairAdd}
+            onSetupChairRemove={handleChairRemove}
             onSetupItemRotate={handleSetupItemRotate}
             onSetupItemsJoin={handleSetupItemsJoin}
             setupGroups={activeSetupId ? setupGroupRenders : undefined}
@@ -1342,21 +1040,26 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
         {/* Right panel — always rendered */}
         <div className="w-56 flex-shrink-0 border-l border-grey-mid overflow-y-auto bg-grey-dark p-3 space-y-3">
           {wallDrawing && (
-            <div className="border border-[#4488FF] p-3 space-y-2">
-              <h2 className="font-mono text-xs font-bold text-[#4488FF] uppercase tracking-wider">WALL DRAWING</h2>
-              <p className="font-mono text-[10px] text-grey-light">{wallPoints.length} POINT{wallPoints.length !== 1 ? 'S' : ''}</p>
+            <div className="border border-info p-3 space-y-2">
+              <h2 className="font-mono text-xs font-bold text-info uppercase tracking-wider">WALL DRAWING</h2>
+              <p className="font-mono text-xs text-grey-light">{wallPoints.length} POINT{wallPoints.length !== 1 ? 'S' : ''}</p>
+              <Input label="THICKNESS (CM)" type="number" value={wallThickness.toString()} onChange={(e) => setWallThickness(Math.max(2, parseInt(e.target.value) || 15))} />
               <div className="flex gap-1">
                 <Button size="sm" onClick={() => {
                   pushHistory()
                   const newElements: ElementData[] = []
+                  const t = wallThickness
                   for (let i = 0; i < wallPoints.length - 1; i++) {
                     const a = wallPoints[i]; const b = wallPoints[i + 1]
+                    const dx = b.x - a.x; const dy = b.y - a.y
+                    const isHorizontal = Math.abs(dx) >= Math.abs(dy)
                     newElements.push({
-                      id: `w-${Math.random().toString(36).slice(2)}`, type: 'WALL', shape: 'LINE',
-                      x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
-                      width: Math.abs(b.x - a.x) || 5,
-                      depth: Math.abs(b.y - a.y) || 5,
-                      rotation: 0, fillColour: '#4488FF', opacity: 1, zIndex: 0, sortOrder: 0, isActive: true,
+                      id: `w-${Math.random().toString(36).slice(2)}`, type: 'WALL', shape: 'RECTANGLE',
+                      x: isHorizontal ? Math.min(a.x, b.x) : Math.min(a.x, b.x) - t / 2 + (Math.abs(dx) || t) / 2,
+                      y: isHorizontal ? Math.min(a.y, b.y) - t / 2 + (Math.abs(dy) || t) / 2 : Math.min(a.y, b.y),
+                      width: isHorizontal ? Math.abs(dx) || t : t,
+                      depth: isHorizontal ? t : Math.abs(dy) || t,
+                      rotation: 0, fillColour: '#4A4A4A', opacity: 1, zIndex: 0, sortOrder: 0, isActive: true,
                       label: '',
                     })
                   }
@@ -1371,6 +1074,16 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
               </div>
             </div>
           )}
+          {/* The palette is the way furniture gets onto a layout — keep it at
+              the top of the panel and out of the way of the inspector below. */}
+          <FurniturePalette
+            furniture={furniture}
+            armedId={armedFurnitureId}
+            onArm={setArmedFurnitureId}
+            disabled={!activeSetupId}
+            disabledReason="SWITCH TO A TABLE LAYOUT TO PLACE FURNITURE"
+          />
+
           <SetupInventoryPanel
             activeSetupId={activeSetupId}
             shortages={shortages}
@@ -1380,14 +1093,13 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           {setupSelectedIds.length > 0 ? (() => {
             const sel = setupItems.filter(i => setupSelectedIds.includes(i.id))
             const first = sel[0]
-            const profile = first ? tableProfiles.find(p => p.id === first.tableProfileId) : null
+            const profile = first ? furnitureFor(first) : undefined
             const sectionName = first?.sectionId ? sectionMap.get(first.sectionId)?.name : null
-            const edges = first?.chairEdges ?? { top: 0, bottom: 0, left: 0, right: 0 }
-            const totalChairs = edges.top + edges.bottom + edges.left + edges.right
+            const totalChairs = first ? chairsOf(first).length : 0
             return (
               <>
                 {/* ── TABLE IDENTITY ── */}
-                <div className="border border-grey-mid p-3 space-y-2">
+                <Panel variant="outline" className="space-y-2">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 flex-shrink-0 border border-grey-mid" style={{ backgroundColor: profile?.colour ?? '#555' }} />
                     <div className="min-w-0 flex-1">
@@ -1395,87 +1107,86 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                         {sel.length > 1 ? `${sel.length} TABLES` : (first?.label || profile?.name || 'TABLE')}
                       </p>
                       {profile && (
-                        <p className="font-mono text-[9px] text-grey-light">{profile.name} · {profile.chairCount}S CAP</p>
+                        <p className="font-mono text-xs text-grey-light">
+                          {profile.name} · {Math.round(profile.width)}×{Math.round(profile.depth)}
+                        </p>
                       )}
                     </div>
                     <button onClick={deleteSetupSelected}
-                      className="font-mono text-[10px] text-danger hover:text-white uppercase border border-red-800/50 px-1.5 py-0.5 flex-shrink-0">
+                      className="font-mono text-xs text-danger hover:text-white uppercase border border-red-800/50 px-1.5 py-0.5 flex-shrink-0">
                       ×
                     </button>
                   </div>
                   {sel.length === 1 && (
-                    <p className="font-mono text-[10px] text-grey-light uppercase pt-1 border-t border-grey-mid">
+                    <p className="font-mono text-xs text-grey-light uppercase pt-1 border-t border-grey-mid">
                       SECTION: {sectionName ?? 'NONE'}
                       {first.tableGroupId && <span className="text-accent ml-1">· GROUPED</span>}
                     </p>
                   )}
-                </div>
+                </Panel>
 
                 {/* ── ROTATION ── */}
                 {sel.length === 1 && (
-                  <div className="border border-grey-mid p-3 space-y-2">
-                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">ROTATION</p>
+                  <Panel variant="outline" className="space-y-2">
+                    <p className="font-mono text-xs text-grey-light uppercase tracking-wider">ROTATION</p>
                     <div className="flex flex-wrap gap-1">
                       {[0, 45, 90, 135, 180, 270].map((angle) => (
                         <button key={angle} onClick={() => rotateSetupSelected(angle)}
-                          className={`font-mono text-[10px] px-2 py-1 border ${first && Math.round(first.rotation) === angle ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
+                          className={`font-mono text-xs px-2 py-1 border ${first && Math.round(first.rotation) === angle ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
                           {angle}°
                         </button>
                       ))}
                     </div>
-                  </div>
+                  </Panel>
                 )}
 
                 {/* ── CHAIRS ── */}
                 {sel.length === 1 && !first?.tableGroupId && (
-                  <div className="border border-grey-mid p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">CHAIRS ({totalChairs})</p>
-                      <button onClick={() => handleSetupChairEdge(first.id, 'top', -edges.top)}
-                        className="font-mono text-[9px] text-danger hover:text-white border border-red-800/50 px-1">CLEAR</button>
+                  <Panel variant="outline" className="space-y-2">
+                    <p className="font-mono text-xs text-grey-light uppercase tracking-wider">
+                      CHAIRS ({totalChairs})
+                    </p>
+                    <p className="font-mono text-xs text-grey-light leading-snug">
+                      DRAG A CHAIR TO MOVE IT · CLICK THE TABLE EDGE TO ADD · RIGHT-CLICK A CHAIR TO REMOVE
+                    </p>
+                    <div className="grid grid-cols-3 gap-1">
+                      <button onClick={() => handleChairsTidy(first.id)}
+                        className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid hover:border-white px-1 py-1">
+                        TIDY
+                      </button>
+                      <button onClick={() => handleChairsReset(first.id)}
+                        className="font-mono text-xs uppercase text-grey-light hover:text-white border border-grey-mid hover:border-white px-1 py-1">
+                        RESET
+                      </button>
+                      <button onClick={() => handleChairsClear(first.id)}
+                        className="font-mono text-xs uppercase text-danger hover:text-white border border-red-800/50 hover:border-danger px-1 py-1">
+                        CLEAR
+                      </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-1">
-                      {(['top', 'bottom', 'left', 'right'] as const).map((edge) => (
-                        <div key={edge} className="flex items-center justify-between border border-grey-mid p-1.5">
-                          <span className="font-mono text-[10px] text-grey-light uppercase">{edge}</span>
-                          <div className="flex items-center gap-0.5">
-                            <button onClick={() => handleSetupChairEdge(first.id, edge, -1)}
-                              className="font-mono text-[10px] text-grey-light hover:text-white px-1 py-0.5 border border-grey-mid hover:border-white">
-                              −
-                            </button>
-                            <span className="font-mono text-[11px] text-white w-5 text-center">{edges[edge]}</span>
-                            <button onClick={() => handleSetupChairEdge(first.id, edge, 1)}
-                              className="font-mono text-[10px] text-grey-light hover:text-white px-1 py-0.5 border border-grey-mid hover:border-accent hover:text-accent">
-                              +
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                  </Panel>
                 )}
 
                 {sel.length >= 2 && (
-                  <div className="border border-grey-mid p-3">
-                    <p className="font-mono text-[10px] text-grey-light">Select GROUP from the toolbar to join these tables.</p>
-                  </div>
+                  <Panel variant="outline">
+                    <p className="font-mono text-xs text-grey-light">Select GROUP from the toolbar to join these tables.</p>
+                  </Panel>
                 )}
               </>
             )
           })() : selectedIds.length > 0 && selected ? (
             <>
               {selectedIds.length > 1 && (
-                <div className="border border-grey-mid p-3">
-                  <p className="font-mono text-[10px] text-accent uppercase">{selectedIds.length} ELEMENTS SELECTED</p>
+                <Panel variant="outline">
+                  <p className="font-mono text-xs text-accent uppercase">{selectedIds.length} ELEMENTS SELECTED</p>
                   <button onClick={deleteSelected}
-                    className="mt-2 font-mono text-[10px] text-danger hover:text-white uppercase border border-red-800/50 px-2 py-1 w-full">
+                    className="mt-2 font-mono text-xs text-danger hover:text-white uppercase border border-red-800/50 px-2 py-1 w-full">
                     DELETE {selectedIds.length}
                   </button>
-                </div>
+                </Panel>
               )}
               {selectedIds.length === 1 && (
                 <>
-                  <div className="border border-grey-mid p-3 space-y-2">
+                  <Panel variant="outline" className="space-y-2">
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 flex-shrink-0 border border-grey-mid" style={{ backgroundColor: selected.fillColour ?? '#666' }} />
                       <div className="min-w-0 flex-1">
@@ -1484,23 +1195,23 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                           className="font-mono text-xs font-bold text-white bg-transparent border-0 p-0 outline-none w-full" />
                       </div>
                       <button onClick={deleteSelected}
-                        className="font-mono text-[10px] text-danger hover:text-white uppercase border border-red-800/50 px-1.5 py-0.5 flex-shrink-0">
+                        className="font-mono text-xs text-danger hover:text-white uppercase border border-red-800/50 px-1.5 py-0.5 flex-shrink-0">
                         ×
                       </button>
                     </div>
                     {selected.sectionId && (
-                      <p className="font-mono text-[10px] text-grey-light uppercase pt-1 border-t border-grey-mid">
+                      <p className="font-mono text-xs text-grey-light uppercase pt-1 border-t border-grey-mid">
                         {sectionMap.get(selected.sectionId)?.name ?? selected.sectionId}
                       </p>
                     )}
-                  </div>
-                  <div className="border border-grey-mid p-3 space-y-2">
-                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">SIZE</p>
+                  </Panel>
+                  <Panel variant="outline" className="space-y-2">
+                    <p className="font-mono text-xs text-grey-light uppercase tracking-wider">SIZE</p>
                     <FloorplanInspector selectedElement={selected} elements={elements}
                       onChange={(patch) => updateElement(selected.id!, patch)} />
-                  </div>
-                  <div className="border border-grey-mid p-3 space-y-2">
-                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">LABEL & STYLE</p>
+                  </Panel>
+                  <Panel variant="outline" className="space-y-2">
+                    <p className="font-mono text-xs text-grey-light uppercase tracking-wider">LABEL & STYLE</p>
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 flex-shrink-0 border border-grey-mid" style={{ backgroundColor: selected.fillColour ?? '#666' }} />
                       <Input label="Fill" value={selected.fillColour ?? ''}
@@ -1508,7 +1219,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     </div>
                     <Input label="Label" value={selected.label ?? ''}
                       onChange={(e) => updateElement(selected.id!, { label: e.target.value.toUpperCase() || null })} />
-                    <label className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+                    <label className="flex items-center gap-2 font-mono text-xs text-grey-light cursor-pointer select-none">
                       <input type="checkbox" checked={selected.labelVisible !== false}
                         onChange={(e) => updateElement(selected.id!, { labelVisible: e.target.checked })}
                         className="accent-white" />
@@ -1516,7 +1227,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     </label>
                     {selected.shape === 'RECTANGLE' && (
                       <div>
-                        <p className="font-mono text-[10px] text-grey-light uppercase mb-1">Corner Radius</p>
+                        <p className="font-mono text-xs text-grey-light uppercase mb-1">Corner Radius</p>
                         <div className="grid grid-cols-4 gap-1">
                           {['TL', 'TR', 'BR', 'BL'].map((label, idx) => {
                             const cr: number[] = ((selected.style as any)?.cornerRadius) ?? [0, 0, 0, 0]
@@ -1538,20 +1249,20 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                       onChange={(e) => updateElement(selected.id!, { opacity: Math.min(1, Math.max(0, parseFloat(e.target.value) || 1)) })} />
                     <Input label="Label Scale" type="number" min="0.5" max="3" step="0.1" value={((selected.style as any)?.labelScale ?? 1).toString()}
                       onChange={(e) => updateElement(selected.id!, { style: { ...(selected.style ?? {}), labelScale: Math.max(0.5, Math.min(3, parseFloat(e.target.value) || 1)) } })} />
-                  </div>
-                  <div className="border border-grey-mid p-3 space-y-2">
-                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">ROTATION</p>
+                  </Panel>
+                  <Panel variant="outline" className="space-y-2">
+                    <p className="font-mono text-xs text-grey-light uppercase tracking-wider">ROTATION</p>
                     <div className="flex flex-wrap gap-1">
                       {[0, 45, 90, 135, 180, 270].map((angle) => (
                         <button key={angle} onClick={() => updateElement(selected.id!, { rotation: angle })}
-                          className={`font-mono text-[10px] px-2 py-1 border ${Math.round(selected.rotation ?? 0) === angle ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
+                          className={`font-mono text-xs px-2 py-1 border ${Math.round(selected.rotation ?? 0) === angle ? 'border-white text-white bg-grey-mid' : 'border-grey-mid text-grey-light hover:border-white'} transition-colors`}>
                           {angle}°
                         </button>
                       ))}
                     </div>
-                  </div>
-                  <div className="border border-grey-mid p-3 space-y-2">
-                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">POSITION</p>
+                  </Panel>
+                  <Panel variant="outline" className="space-y-2">
+                    <p className="font-mono text-xs text-grey-light uppercase tracking-wider">POSITION</p>
                     <div className="grid grid-cols-2 gap-2">
                       <Input label="X (cm)" type="number" step="10" value={Math.round(selected.x).toString()}
                         onChange={(e) => updateElement(selected.id!, { x: parseFloat(e.target.value) || 0 })}
@@ -1560,40 +1271,38 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                         onChange={(e) => updateElement(selected.id!, { y: parseFloat(e.target.value) || 0 })}
                         onBlur={() => { if (selected.id) updateElement(selected.id, { y: snap(selected.y, plan.gridUnit) }) }} />
                     </div>
-                  </div>
-                  {INVENTORY_TYPES.includes(selected.type) && (
-                    <div className="border border-grey-mid p-3">
-                      <button onClick={() => setShowInvTab(!showInvTab)}
-                        className="font-mono text-[10px] text-grey-light hover:text-white uppercase w-full text-left mb-2">
-                        {showInvTab ? '▼ INVENTORY' : '▶ INVENTORY'}
-                      </button>
-                      {showInvTab && selected.id ? (
-                        <ElementInventoryPanel elementId={selected.id} floorPlanId={plan.id} />
-                      ) : showInvTab ? null : null}
-                      <div className="space-y-2">
-                        <Select label="Section" value={selected.sectionId ?? ''}
-                          onChange={(e) => updateElement(selected.id!, { sectionId: e.target.value || null })}
-                          options={sections.map((s) => ({ value: s.id, label: s.name }))} placeholder="NONE" />
-                        <Input label="Capacity" type="number" value={selected.capacity?.toString() ?? ''}
-                          onChange={(e) => updateElement(selected.id!, { capacity: e.target.value ? parseInt(e.target.value) : null })} />
-                      </div>
+                  </Panel>
+                  <Panel variant="outline">
+                    <button onClick={() => setShowInvTab(!showInvTab)}
+                      className="font-mono text-xs text-grey-light hover:text-white uppercase w-full text-left mb-2">
+                      {showInvTab ? '▼ INVENTORY' : '▶ INVENTORY'}
+                    </button>
+                    {showInvTab && selected.id ? (
+                      <ElementInventoryPanel elementId={selected.id} floorPlanId={plan.id} />
+                    ) : showInvTab ? null : null}
+                    <div className="space-y-2">
+                      <Select label="Section" value={selected.sectionId ?? ''}
+                        onChange={(e) => updateElement(selected.id!, { sectionId: e.target.value || null })}
+                        options={sections.map((s) => ({ value: s.id, label: s.name }))} placeholder="NONE" />
+                      <Input label="Capacity" type="number" value={selected.capacity?.toString() ?? ''}
+                        onChange={(e) => updateElement(selected.id!, { capacity: e.target.value ? parseInt(e.target.value) : null })} />
                     </div>
-                  )}
+                  </Panel>
                   {selected.type === 'TABLE' && (
-                    <div className="border border-grey-mid p-3 space-y-2">
-                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">CHAIRS</p>
+                    <Panel variant="outline" className="space-y-2">
+                      <p className="font-mono text-xs text-grey-light uppercase tracking-wider">CHAIRS</p>
                       <Input label="Count" type="number" min="0" value={(selected.chairCount ?? 0).toString()}
                         onChange={(e) => updateElement(selected.id!, { chairCount: parseInt(e.target.value) || 0 })} />
                       <Select label="Style" value={((selected.style as any)?.chairStyle ?? 'bracket') as string}
                         onChange={(e) => updateElement(selected.id!, { style: { ...(selected.style ?? {}), chairStyle: e.target.value } })}
                         options={[{ value: 'round', label: 'ROUND' }, { value: 'bracket', label: 'BRACKET' }]} />
-                      <p className="font-mono text-[10px] text-grey-light uppercase">On Sides</p>
+                      <p className="font-mono text-xs text-grey-light uppercase">On Sides</p>
                       <div className="grid grid-cols-2 gap-1">
                         {['top', 'bottom', 'left', 'right'].map((side) => {
                           const sides: string[] = ((selected.style as any)?.chairSides) ?? ['top', 'bottom', 'left', 'right']
                           const checked = sides.includes(side)
                           return (
-                            <label key={side} className="flex items-center gap-1 font-mono text-[10px] text-grey-light cursor-pointer select-none">
+                            <label key={side} className="flex items-center gap-1 font-mono text-xs text-grey-light cursor-pointer select-none">
                               <input type="checkbox" checked={checked}
                                 onChange={() => {
                                   const next = checked ? sides.filter((s) => s !== side) : [...sides, side]
@@ -1605,16 +1314,16 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                           )
                         })}
                       </div>
-                    </div>
+                    </Panel>
                   )}
                   {selected.type === 'BOOTH_BENCH' && (
-                    <div className="border border-grey-mid p-3 space-y-2">
-                      <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider">SERVES TABLES</p>
+                    <Panel variant="outline" className="space-y-2">
+                      <p className="font-mono text-xs text-grey-light uppercase tracking-wider">SERVES TABLES</p>
                       {elements.filter((e) => e.type === 'TABLE').map((t) => {
                         const served: string[] = (selected.style as any)?.servedTableIds ?? []
                         const checked = served.includes(t.id!)
                         return (
-                          <label key={t.id} className="flex items-center gap-2 font-mono text-[10px] text-grey-light cursor-pointer select-none py-0.5">
+                          <label key={t.id} className="flex items-center gap-2 font-mono text-xs text-grey-light cursor-pointer select-none py-0.5">
                             <input type="checkbox" checked={checked}
                               onChange={() => {
                                 const s: string[] = [...served]
@@ -1628,13 +1337,13 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                         )
                       })}
                       {elements.filter((e) => e.type === 'TABLE').length === 0 && (
-                        <p className="font-mono text-[10px] text-grey-light italic">No tables on plan</p>
+                        <p className="font-mono text-xs text-grey-light italic">No tables on plan</p>
                       )}
-                    </div>
+                    </Panel>
                   )}
                   {selected.style !== undefined && (
                     <button onClick={() => updateElement(selected.id!, { style: null })}
-                      className="font-mono text-[10px] text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1 w-full">
+                      className="font-mono text-xs text-grey-light hover:text-white uppercase border border-grey-mid px-2 py-1 w-full">
                       RESET STYLE
                     </button>
                   )}
@@ -1645,7 +1354,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             <>
               <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider mb-3">SECTION SUMMARY</h2>
               {summary && summary.entries.length === 0 && (
-                <p className="font-mono text-[10px] text-grey-light">No elements placed yet.</p>
+                <p className="font-mono text-xs text-grey-light">No elements placed yet.</p>
               )}
               {summary && summary.entries.map((entry) => (
                 <div key={entry.sectionName} className="mb-3 pb-2 border-b border-grey-mid last:border-0">
@@ -1655,7 +1364,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   </div>
                   {Object.entries(entry.byType).map(([type, info]) => (
                     <div key={type}>
-                      <div className="flex justify-between font-mono text-[10px] text-grey-light pl-3">
+                      <div className="flex justify-between font-mono text-xs text-grey-light pl-3">
                         <span>{type}{info.totalCapacity > 0 ? ` (${info.totalCapacity} seats)` : ''}</span>
                         <span>×{info.count}</span>
                       </div>
@@ -1667,14 +1376,14 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                           return t?.label || '?'
                         })
                         return (
-                          <div key={bench.id} className="font-mono text-[9px] text-accent pl-5">
+                          <div key={bench.id} className="font-mono text-xs text-accent pl-5">
                             {bench.label || '?'} serves {tableLabels.join(', ')}
                           </div>
                         )
                       })}
                     </div>
                   ))}
-                  <div className="flex justify-between font-mono text-[10px] text-white mt-1 pl-3">
+                  <div className="flex justify-between font-mono text-xs text-white mt-1 pl-3">
                     <span>TOTAL</span>
                     <span>{entry.itemCount} items{entry.totalCapacity > 0 ? ` · ${entry.totalCapacity} seats` : ''}</span>
                   </div>
@@ -1687,7 +1396,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                     <span>{summary.grandTotal.itemCount} items{summary.grandTotal.totalCapacity > 0 ? ` · ${summary.grandTotal.totalCapacity} seats` : ''}</span>
                   </div>
                   {Object.entries(summary.grandTotal.byType).map(([type, info]) => (
-                    <div key={type} className="flex justify-between font-mono text-[10px] text-grey-light">
+                    <div key={type} className="flex justify-between font-mono text-xs text-grey-light">
                       <span>{type}</span>
                       <span>×{info.count}</span>
                     </div>
@@ -1695,17 +1404,17 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 </div>
               )}
             </>
-          ) : zoneDrawing ? (
+          ) : (zoneDrawing || zonePolyMode) ? (
             <>
-              <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider">SECTION ZONES</h2>
-              <p className="font-mono text-[10px] text-grey-light">Draw zones on canvas. Toggle POLYGON for custom shapes.</p>
-              <Button size="sm" variant="ghost" onClick={() => { setZonePolyMode(!zonePolyMode); setZonePolyPoints([]) }}
-                className={zonePolyMode ? 'border-accent text-accent' : ''}>
-                {zonePolyMode ? 'POLYGON · ON' : 'POLYGON'}
-              </Button>
+              <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider">{zonePolyMode ? 'POLYGON ZONE' : 'RECTANGLE ZONE'}</h2>
+              <p className="font-mono text-xs text-grey-light">
+                {zonePolyMode
+                  ? 'Click canvas to place vertices. Double-click or click SAVE below when done.'
+                  : 'Drag on canvas to draw a rectangle zone.'}
+              </p>
               {zonePolyMode && (
                 <div className="border border-accent/30 p-2 space-y-1">
-                  <p className="font-mono text-[9px] text-grey-light">{zonePolyPoints.length} VERTEX{zonePolyPoints.length !== 1 ? 'TICES' : ''}</p>
+                  <p className="font-mono text-xs text-grey-light">{zonePolyPoints.length} VERTEX{zonePolyPoints.length !== 1 ? 'TICES' : ''}</p>
                   <div className="flex gap-1">
                     <Button size="sm" onClick={() => {
                       if (zonePolyPoints.length < 3) return
@@ -1742,12 +1451,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                   }
                   return Array.from(deptMap.entries()).map(([dept, grp]) => (
                     <div key={dept}>
-                      <div className="font-mono text-[8px] uppercase text-grey-light px-1 py-0.5 border-b border-grey-mid/30">{dept}</div>
+                      <div className="font-mono text-xs uppercase text-grey-light px-1 py-0.5 border-b border-grey-mid/30">{dept}</div>
                       {grp.zones.map((z) => {
                         const sec = sectionMap.get(z.sectionId)
                         return (
                           <div key={z.id} onClick={() => setSelectedZoneId(z.id)}
-                            className={`flex items-center gap-2 p-1.5 cursor-pointer font-mono text-[10px] ${z.id === selectedZoneId ? 'bg-grey-mid text-white' : 'text-grey-light hover:text-white'}`}>
+                            className={`flex items-center gap-2 p-1.5 cursor-pointer font-mono text-xs ${z.id === selectedZoneId ? 'bg-grey-mid text-white' : 'text-grey-light hover:text-white'}`}>
                             <div className="w-3 h-3 flex-shrink-0" style={{ backgroundColor: sec?.colour ?? '#666' }} />
                             <span className="truncate flex-1">{sec?.name ?? '?'}</span>
                             <span>{Math.round(z.width)}×{Math.round(z.height)}</span>
@@ -1786,7 +1495,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                       setZones((prev) => prev.filter((x) => x.id !== selectedZoneId))
                       setSelectedZoneId(null)
                     }}
-                      className="font-mono text-[10px] text-danger hover:text-white uppercase border border-danger px-2 py-1 w-full">
+                      className="font-mono text-xs text-danger hover:text-white uppercase border border-danger px-2 py-1 w-full">
                       DELETE ZONE
                     </button>
                   </div>
@@ -1798,7 +1507,7 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             <>
               <h2 className="font-mono text-xs font-bold text-white uppercase tracking-wider">LAYERS</h2>
               {elements.length === 0 && (
-                <p className="font-mono text-[10px] text-grey-light">No elements on this plan.</p>
+                <p className="font-mono text-xs text-grey-light">No elements on this plan.</p>
               )}
               {(() => {
                 const grouped: Record<string, ElementData[]> = {}
@@ -1808,13 +1517,13 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 }
                 return Object.entries(grouped).map(([type, els]) => (
                   <div key={type}>
-                    <p className="font-mono text-[10px] text-grey-light uppercase tracking-wider border-b border-grey-mid pb-0.5 mb-0.5">{type} ({els.length})</p>
+                    <p className="font-mono text-xs text-grey-light uppercase tracking-wider border-b border-grey-mid pb-0.5 mb-0.5">{type} ({els.length})</p>
                     {els.map((el) => (
                       <div key={el.id} onClick={() => setSelectedIds([el.id!])}
                         className="flex items-center gap-2 py-0.5 cursor-pointer hover:bg-grey-mid px-1 rounded-sm">
                         <div className="w-2.5 h-2.5 flex-shrink-0 border border-grey-light" style={{ backgroundColor: el.fillColour ?? '#666' }} />
-                        <span className="font-mono text-[10px] text-white truncate flex-1">{el.label || el.type}</span>
-                        <span className="font-mono text-[8px] text-grey-light">{Math.round(el.width)}×{Math.round(el.depth)}</span>
+                        <span className="font-mono text-xs text-white truncate flex-1">{el.label || el.type}</span>
+                        <span className="font-mono text-xs text-grey-light">{Math.round(el.width)}×{Math.round(el.depth)}</span>
                       </div>
                     ))}
                   </div>

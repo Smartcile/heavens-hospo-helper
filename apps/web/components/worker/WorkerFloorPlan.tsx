@@ -121,10 +121,10 @@ export function WorkerFloorPlan() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-grey-mid">
           <div>
             <h1 className="font-mono text-sm font-bold uppercase tracking-widest text-white">FLOOR PLAN</h1>
-            <p className="font-mono text-[10px] text-grey-light uppercase">{plan.name}</p>
+            <p className="font-mono text-xs text-grey-light uppercase">{plan.name}</p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="font-mono text-[10px] text-grey-light">ZOOM: {Math.round(zoomLevel * 100)}%</span>
+            <span className="font-mono text-xs text-grey-light">ZOOM: {Math.round(zoomLevel * 100)}%</span>
             {views.length > 1 && (
               <select value={activeView ?? plan.slug} onChange={(e) => switchView(e.target.value)}
                 className="bg-grey-dark border border-grey-mid text-white font-mono text-xs uppercase p-2">
@@ -187,7 +187,7 @@ export function WorkerFloorPlan() {
                 </div>
               )}
               {infoPanel.capacity && <div className="font-mono text-xs text-grey-light">CAPACITY: {infoPanel.capacity}</div>}
-              <div className="font-mono text-[10px] text-grey-light">{Math.round(infoPanel.width)} × {Math.round(infoPanel.depth)} cm</div>
+              <div className="font-mono text-xs text-grey-light">{Math.round(infoPanel.width)} × {Math.round(infoPanel.depth)} cm</div>
             </div>
             <button onClick={() => setInfoPanel(null)} className="font-mono text-xs text-grey-light hover:text-white">CLOSE</button>
           </div>

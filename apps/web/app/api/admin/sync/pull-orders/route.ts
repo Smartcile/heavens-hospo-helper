@@ -1,14 +1,17 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { runOrderPull } from '@/lib/woo-orders-sync'
 
 // Manual PULL ORDERS NOW — fetch orders from WooCommerce for the current venue.
-export async function POST() {
+export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const results = await runOrderPull(session.user.venueId)
+  const body = await req.json().catch(() => ({}))
+  const venueId = session.user.role === 'MANAGER' ? session.user.venueId : (body.venueId || session.user.venueId)
+
+  const results = await runOrderPull(venueId)
   if (results.length === 0) {
     return NextResponse.json(
       { error: 'No active WooCommerce integration for this venue' },

@@ -18,7 +18,7 @@ export function ListBox({ title, count, action, children, className, bodyClassNa
         <div className="flex items-center justify-between px-3 py-2 border-b border-grey-mid">
           <div className="flex items-center gap-2">
             {title && <span className="font-mono text-xs font-bold text-white uppercase tracking-wider">{title}</span>}
-            {count != null && <span className="font-mono text-[10px] text-grey-light">({count})</span>}
+            {count != null && <span className="font-mono text-xs text-grey-light">({count})</span>}
           </div>
           {action}
         </div>

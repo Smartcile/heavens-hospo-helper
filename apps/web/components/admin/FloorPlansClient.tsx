@@ -91,7 +91,7 @@ export function FloorPlansClient({ role, venueId: sessionVenueId }: { role: stri
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="font-mono text-xl font-bold uppercase tracking-widest">FLOOR PLAN</h1>
@@ -116,7 +116,7 @@ export function FloorPlansClient({ role, venueId: sessionVenueId }: { role: stri
                   <div className="font-mono font-semibold text-sm uppercase text-white">{p.name}</div>
                   <div className="font-mono text-xs text-grey-light">/{p.slug}</div>
                 </div>
-                {p.isDefault && <span className="font-mono text-[10px] uppercase text-accent">DEFAULT</span>}
+                {p.isDefault && <span className="font-mono text-xs uppercase text-accent">DEFAULT</span>}
               </div>
               <div className="font-mono text-xs text-grey-light space-y-1">
                 <div>ROOM: {p.roomWidth} × {p.roomDepth} cm</div>

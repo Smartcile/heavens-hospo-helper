@@ -19,9 +19,12 @@ interface Props {
   onChange: (value: string) => void
   placeholder?: string
   className?: string
+  footerAction?: { label: string; onClick: () => void }
+  /** Shown inside the open list when there is nothing to pick. */
+  emptyLabel?: string
 }
 
-export function SearchSelect({ options, groups, value, onChange, placeholder, className }: Props) {
+export function SearchSelect({ options, groups, value, onChange, placeholder, className, footerAction, emptyLabel }: Props) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [highlightIdx, setHighlightIdx] = useState(0)
@@ -114,7 +117,7 @@ export function SearchSelect({ options, groups, value, onChange, placeholder, cl
           </button>
         )}
       </div>
-      {open && filtered.length > 0 && (
+      {open && (filtered.length > 0 || footerAction) && (
         <div className="absolute top-full left-0 right-0 z-50 mt-1 border border-grey-mid bg-black max-h-60 overflow-y-auto shadow-lg">
           {filtered.map((o, i) => {
             const fullIdx = allOptions.indexOf(o)
@@ -122,7 +125,7 @@ export function SearchSelect({ options, groups, value, onChange, placeholder, cl
             return (
               <div key={o.value}>
                 {groupHeader && (
-                  <div className="px-3 py-1 font-mono text-[9px] uppercase text-grey-light border-b border-grey-mid bg-grey-dark/30">
+                  <div className="px-3 py-1 font-mono text-xs uppercase text-grey-light border-b border-grey-mid bg-grey-dark/30">
                     {groupHeader.label}
                   </div>
                 )}
@@ -142,11 +145,19 @@ export function SearchSelect({ options, groups, value, onChange, placeholder, cl
               </div>
             )
           })}
+          {footerAction && (
+            <button
+              onClick={(e) => { e.preventDefault(); setOpen(false); setQuery(''); footerAction.onClick() }}
+              className="block w-full text-left px-3 py-2 font-mono text-xs uppercase text-info hover:bg-grey-mid/20 border-t border-grey-mid sticky bottom-0 bg-black"
+            >
+              + {footerAction.label}
+            </button>
+          )}
         </div>
       )}
-      {open && query.trim() && filtered.length === 0 && (
+      {open && filtered.length === 0 && !footerAction && (query.trim() || emptyLabel) && (
         <div className="absolute top-full left-0 right-0 z-50 mt-1 border border-grey-mid bg-black p-3">
-          <p className="font-mono text-xs text-grey-light uppercase">NO RESULTS</p>
+          <p className="font-mono text-xs text-grey-light uppercase">{query.trim() ? 'NO RESULTS' : emptyLabel}</p>
         </div>
       )}
     </div>

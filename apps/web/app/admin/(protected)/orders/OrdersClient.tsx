@@ -1,416 +1,333 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { pushToast } from '@/components/ui/Toast'
+import { DateNav } from '@/components/admin/DateNav'
+import { ServiceView, KitchenView, FohView, ProductionView, AllOrdersView } from '@/components/admin/OrdersViews'
+import { OrderDetailDrawer } from '@/components/admin/OrderDetailDrawer'
+import { NewOrderModal } from '@/components/admin/NewOrderModal'
+import { applyFilters, summarise, type OrderView, type OrderFilters } from '@/lib/order-views'
+import { hubUrl } from '@/lib/hub-tabs'
+import { getActiveVenueId } from '@/lib/active-venue'
+import type { DateRange } from '@/lib/date-nav'
 
-interface OrderItemView {
-  id: string; qty: number; unitPrice: number | null; notes: string | null
-  menuItem?: { id: string; name: string; price: number }
+type ViewType = 'SERVICE' | 'KITCHEN' | 'FOH' | 'PRODUCTION' | 'ALL'
+
+// Hint tooltips for these views live in OPS_SUB_TABS.orders (lib/hub-tabs.ts)
+// so the Ops Hub top bar can show them.
+const VIEW_KEYS: ViewType[] = ['ALL', 'SERVICE', 'KITCHEN', 'FOH', 'PRODUCTION']
+
+const OP_STATUSES = [
+  'NEW', 'CONFIRMED', 'IN_PREP', 'READY', 'ARRIVED',
+  'OUT_FOR_DELIVERY', 'HANDED_OVER', 'FINALISED', 'CANCELLED',
+]
+const PAYMENT_STATUSES = ['UNPAID', 'PARTIAL', 'PAID', 'REFUNDED']
+
+interface SavedView {
+  id: string
+  name: string
+  viewType: string
+  config: { filters?: OrderFilters; slotMinutes?: number }
 }
 
-interface Order {
-  id: string; wooOrderId: string; customerName: string | null; customerEmail: string | null
-  customerPhone: string | null; partySize: number | null; fulfillmentDate: string | null
-  status: string; totalAmount: number | null; notes: string | null
-  calendarEventId: string | null; syncedAt: string | null; createdAt: string
-  items?: OrderItemView[]
+function today(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-interface FohOrder {
-  id: string; wooOrderId: string; customerName: string | null; partySize: number | null
-  status: string; totalAmount: number | null; calendarEventId: string | null
-  tables: { number: string; capacity: number }[]
-  items: { id: string; menuItemName: string; dietaryInfo: string | null; recipeId: string | null; kitchenStatus: string; qty: number; unitPrice: number | null }[]
-}
-
-const STATUS_STYLES: Record<string, string> = {
-  PENDING: 'text-warning border-warning',
-  PROCESSING: 'text-accent border-accent',
-  COMPLETED: 'text-success border-success',
-  CANCELLED: 'text-danger border-danger',
-}
-
-const ORDER_STATUSES = ['PENDING', 'PROCESSING', 'COMPLETED', 'CANCELLED']
-
-export function OrdersClient() {
-  const [tab, setTab] = useState<'orders' | 'foh'>('orders')
-
-  const [orders, setOrders] = useState<Order[]>([])
+export function OrdersClient({ role, sessionVenueId, defaultVenueId, sub }: { role: string; sessionVenueId: string; defaultVenueId?: string | null; sub?: string }) {
+  const router = useRouter()
+  const [date, setDate] = useState(today)
+  const [dateRange, setDateRange] = useState<DateRange | null>(null)
+  const [orders, setOrders] = useState<OrderView[]>([])
+  const [categoryPairs, setCategoryPairs] = useState<[string, string[]][]>([])
+  const [undatedCount, setUndatedCount] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [reconciling, setReconciling] = useState(false)
-  const [updatingId, setUpdatingId] = useState<string | null>(null)
 
-  const [fohDate, setFohDate] = useState(() => {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  })
-  const [fohOrders, setFohOrders] = useState<FohOrder[]>([])
-  const [fohLoading, setFohLoading] = useState(false)
-  const [fohCategoryTotals, setFohCategoryTotals] = useState<Record<string, { total: number; items: { name: string; qty: number }[] }>>({})
-  const [fohExpandedId, setFohExpandedId] = useState<string | null>(null)
+  const [filters, setFilters] = useState<OrderFilters>({})
+  const [savedViews, setSavedViews] = useState<SavedView[]>([])
+  const [activeSavedId, setActiveSavedId] = useState<string | null>(null)
 
-  async function handleStatusChange(orderId: string, status: string) {
-    setUpdatingId(orderId)
-    try {
-      const r = await fetch(`/api/admin/orders/${orderId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      })
-      if (r.ok) {
-        setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status } : o)))
-        pushToast(`STATUS UPDATED — PUSHED TO WOOCOMMERCE`, 'success')
-      } else {
-        pushToast('STATUS UPDATE FAILED', 'error')
-      }
-    } catch {
-      pushToast('STATUS UPDATE FAILED', 'error')
-    }
-    setUpdatingId(null)
-  }
+  const [openOrderId, setOpenOrderId] = useState<string | null>(null)
+  const [showNew, setShowNew] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
 
-  async function handleReconcile() {
-    setReconciling(true)
-    try {
-      const r = await fetch('/api/admin/inventory/reconcile', { method: 'POST' })
-      if (r.ok) {
-        const d = await r.json()
-        pushToast(`RECONCILED ${d.reconciledCount} ITEMS ACROSS ${d.ordersProcessed} ORDERS`, 'success')
-        loadOrders()
-      } else {
-        pushToast('RECONCILIATION FAILED', 'error')
-      }
-    } catch {
-      pushToast('RECONCILIATION FAILED', 'error')
-    }
-    setReconciling(false)
-  }
+  // ALL / SERVICE / KITCHEN / FOH / PRODUCTION is URL-driven (`sub` on
+  // /admin/ops) — the Ops Hub top bar owns the switcher.
+  const view = (VIEW_KEYS.find((k) => k.toLowerCase() === sub) ?? 'SERVICE')
 
-  async function loadOrders() {
+  const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
+
+  const load = useCallback(async () => {
     setLoading(true)
-    const r = await fetch('/api/admin/orders')
-    if (r.ok) {
-      const data = await r.json()
-      setOrders(Array.isArray(data) ? data : [])
+    // The ALL view ignores the date — every synced order, newest first, so
+    // undated/unbooked orders that no day view can show are still inspectable.
+    const isRange = dateRange !== null && dateRange.start !== dateRange.end
+    const venueParam = venueId ? `&venueId=${venueId}` : ''
+    const url =
+      view === 'ALL'
+        ? `/api/admin/orders?scope=all${venueParam}`
+        : `/api/admin/orders?date=${date}${isRange ? `&endDate=${dateRange.end}` : ''}${venueParam}`
+    const res = await fetch(url)
+    if (res.ok) {
+      const d = await res.json()
+      setOrders(d.orders ?? [])
+      setCategoryPairs(d.categoryByMenuItem ?? [])
+      setUndatedCount(d.undatedCount ?? 0)
+    } else {
+      pushToast('FAILED TO LOAD ORDERS', 'error')
     }
     setLoading(false)
-  }
+  }, [date, view, dateRange, venueId])
 
-  async function loadFoh() {
-    setFohLoading(true)
-    const r = await fetch(`/api/admin/orders/foh?date=${fohDate}`)
-    if (r.ok) {
-      const data = await r.json()
-      setFohOrders(Array.isArray(data.orders) ? data.orders : [])
-      setFohCategoryTotals(data.categoryTotals ?? {})
-    }
-    setFohLoading(false)
-  }
-
-  useEffect(() => { loadOrders() }, [])
+  useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    if (tab === 'foh') loadFoh()
-  }, [fohDate, tab]) // eslint-disable-line react-hooks/exhaustive-deps
+    fetch('/api/admin/order-views').then(async (r) => {
+      if (r.ok) setSavedViews(await r.json())
+    })
+  }, [])
 
-  if (loading) {
-    return <div className="flex items-center justify-center h-64"><p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p></div>
+  const categoryByMenuItem = useMemo(() => new Map(categoryPairs), [categoryPairs])
+  const visible = useMemo(() => applyFilters(orders, filters), [orders, filters])
+  const stats = useMemo(() => summarise(visible), [visible])
+
+  const activeFilterCount =
+    (filters.opStatus?.length ? 1 : 0) +
+    (filters.paymentStatus?.length ? 1 : 0) +
+    (filters.allergensOnly ? 1 : 0) +
+    (filters.search ? 1 : 0)
+
+  function toggleIn(list: string[] | undefined, value: string): string[] {
+    const set = new Set(list ?? [])
+    if (set.has(value)) set.delete(value)
+    else set.add(value)
+    return [...set]
   }
+
+  function applySaved(v: SavedView) {
+    setActiveSavedId(v.id)
+    setFilters(v.config?.filters ?? {})
+    const next = (VIEW_KEYS.some((k) => k === v.viewType) ? v.viewType : 'SERVICE').toLowerCase()
+    // A saved view can preset a different renderer — switch the URL's sub so
+    // the top bar (and everything downstream) follows.
+    if (next !== sub) router.push(hubUrl('/admin/ops', 'orders', next), { scroll: false })
+  }
+
+  // The view is URL-driven, but a saved-view chip stays highlighted only while
+  // its own renderer is the active one — picking a view from the top bar drops
+  // the highlight.
+  useEffect(() => {
+    if (!activeSavedId) return
+    const saved = savedViews.find((s) => s.id === activeSavedId)
+    if (saved && saved.viewType.toLowerCase() !== view.toLowerCase()) setActiveSavedId(null)
+  }, [view, activeSavedId, savedViews])
+
+  async function saveCurrentView() {
+    const name = prompt('NAME THIS VIEW')?.toUpperCase().trim()
+    if (!name) return
+
+    const res = await fetch('/api/admin/order-views', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, viewType: view, config: { filters } }),
+    })
+    if (res.ok) {
+      const created = await res.json()
+      setSavedViews([...savedViews, created])
+      setActiveSavedId(created.id)
+      pushToast('VIEW SAVED', 'success')
+    } else pushToast('COULD NOT SAVE VIEW', 'error')
+  }
+
+  async function deleteSaved(id: string) {
+    if (!confirm('DELETE THIS SAVED VIEW?')) return
+    const res = await fetch(`/api/admin/order-views/${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setSavedViews(savedViews.filter((v) => v.id !== id))
+      if (activeSavedId === id) setActiveSavedId(null)
+      pushToast('VIEW DELETED', 'success')
+    } else pushToast('DELETE FAILED', 'error')
+  }
+
+  const openOrder = orders.find((o) => o.id === openOrderId) ?? null
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">ORDERS</h1>
-        <div className="flex items-center gap-3">
-          <Button size="sm" variant="ghost" onClick={handleReconcile} disabled={reconciling}>
-            {reconciling ? 'RUNNING...' : 'RUN EOD RECONCILIATION'}
-          </Button>
-          <span className="font-mono text-xs text-grey-light">{orders.length} ORDERS</span>
+        <Button size="sm" onClick={() => setShowNew(true)}>+ NEW ORDER</Button>
+      </div>
+
+      {/* Date bar */}
+      <div className="border border-grey-mid p-3 flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-4 font-mono text-xs pt-2">
+          <span className="text-grey-light">ORDERS <span className="text-white">{stats.orders}</span></span>
+          <span className="text-grey-light">COVERS <span className="text-white">{stats.covers}</span></span>
+          <span className="text-grey-light">REVENUE <span className="text-white">${stats.revenue.toFixed(2)}</span></span>
+          {stats.unpaid > 0 && (
+            <span className="text-grey-light">
+              UNPAID <span className="text-danger">{stats.unpaid} (${stats.outstanding.toFixed(2)})</span>
+            </span>
+          )}
         </div>
+        <DateNav
+          date={date}
+          range={dateRange ?? undefined}
+          onChange={(d, r) => {
+            setDate(d)
+            setDateRange(r)
+          }}
+        />
       </div>
 
-      <div className="flex items-center gap-0 border border-grey-mid">
-        <button
-          onClick={() => setTab('orders')}
-          className={`font-mono text-xs uppercase px-4 py-2 tracking-wider ${tab === 'orders' ? 'bg-white text-black' : 'text-grey-light hover:text-white'}`}
-        >
-          ORDERS
-        </button>
-        <button
-          onClick={() => setTab('foh')}
-          className={`font-mono text-xs uppercase px-4 py-2 tracking-wider ${tab === 'foh' ? 'bg-white text-black' : 'text-grey-light hover:text-white'}`}
-        >
-          FOH VIEW
-        </button>
-      </div>
-
-      {tab === 'orders' ? (
-        <OrdersTable
-          orders={orders}
-          expandedId={expandedId}
-          setExpandedId={setExpandedId}
-          updatingId={updatingId}
-          handleStatusChange={handleStatusChange}
-        />
-      ) : (
-        <FohView
-          fohDate={fohDate}
-          setFohDate={setFohDate}
-          fohOrders={fohOrders}
-          fohLoading={fohLoading}
-          fohCategoryTotals={fohCategoryTotals}
-          fohExpandedId={fohExpandedId}
-          setFohExpandedId={setFohExpandedId}
-        />
+      {undatedCount > 0 && (
+        <div className="border border-warning p-2.5 flex items-center justify-between gap-3 flex-wrap">
+          <p className="font-mono text-xs text-warning uppercase">
+            {undatedCount} ORDER{undatedCount === 1 ? '' : 'S'} HAVE NO SERVICE DATE AND CANNOT BE SHOWN ON A DAY.
+            CHECK THE ORDER FIELD MAPPING IN SETTINGS → WOOCOMMERCE.
+          </p>
+          <button
+            onClick={() => router.push(hubUrl('/admin/ops', 'orders', 'all'), { scroll: false })}
+            className="font-mono text-xs uppercase border border-warning text-warning hover:bg-warning hover:text-black px-2 py-1"
+          >
+            VIEW THEM
+          </button>
+        </div>
       )}
-    </div>
-  )
-}
 
-function OrdersTable({ orders, expandedId, setExpandedId, updatingId, handleStatusChange }: {
-  orders: Order[]
-  expandedId: string | null
-  setExpandedId: (id: string | null) => void
-  updatingId: string | null
-  handleStatusChange: (orderId: string, status: string) => Promise<void>
-}) {
-  if (orders.length === 0) {
-    return (
-      <div className="border border-grey-mid p-8 text-center">
-        <p className="font-mono text-xs text-grey-light uppercase">NO ORDERS YET</p>
-        <p className="font-mono text-[10px] text-grey-light mt-1">ORDERS SYNC FROM WOOCOMMERCE</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="border border-grey-mid">
-      <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2 border-b border-grey-mid bg-grey-dark/30 font-mono text-[10px] uppercase text-grey-light">
-        <div className="col-span-2">ORDER #</div>
-        <div className="col-span-2">CUSTOMER</div>
-        <div className="col-span-1">PARTY</div>
-        <div className="col-span-2">FULFILLMENT</div>
-        <div className="col-span-2">AMOUNT</div>
-        <div className="col-span-2">STATUS</div>
-        <div className="col-span-1">SEATED</div>
-      </div>
-
-      {orders.map((o) => {
-        const expanded = expandedId === o.id
-        const statusStyle = STATUS_STYLES[o.status] ?? 'text-grey-light border-grey-mid'
-        const hasEvent = !!o.calendarEventId
-
-        return (
-          <div key={o.id}>
-            <button
-              onClick={() => setExpandedId(expanded ? null : o.id)}
-              className="w-full grid grid-cols-1 md:grid-cols-12 gap-2 px-4 py-2.5 border-b border-grey-mid last:border-0 hover:bg-grey-mid/10 items-center text-left font-mono"
-            >
-              <div className="md:col-span-2 flex items-center gap-2">
-                <span className={`text-[10px] ${expanded ? 'text-white' : ''}`}>{expanded ? '▾' : '▸'}</span>
-                <span className="text-xs text-white">{o.wooOrderId}</span>
-              </div>
-              <div className="md:col-span-2">
-                <div className="text-xs text-white truncate">{o.customerName ?? '—'}</div>
-                <div className="text-[9px] text-grey-light truncate">{o.customerEmail ?? ''}</div>
-              </div>
-              <div className="md:col-span-1">
-                <span className="text-xs text-white">{o.partySize != null ? o.partySize : '—'}</span>
-              </div>
-              <div className="md:col-span-2">
-                <span className="text-xs text-white">
-                  {o.fulfillmentDate ? new Date(o.fulfillmentDate).toLocaleDateString() : '—'}
-                </span>
-              </div>
-              <div className="md:col-span-2">
-                <span className="text-xs text-white">${(o.totalAmount ?? 0).toFixed(2)}</span>
-              </div>
-              <div className="md:col-span-2">
-                <span className={`text-[10px] uppercase border px-1.5 py-0.5 ${statusStyle}`}>{o.status}</span>
-              </div>
-              <div className="md:col-span-1">
-                <span className={`text-[10px] font-mono ${hasEvent ? 'text-success' : 'text-grey-light'}`}>
-                  {hasEvent ? '✓' : '—'}
-                </span>
-              </div>
-            </button>
-
-            {expanded && (
-              <div className="border-t border-grey-mid bg-grey-dark/20 px-6 py-3">
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="font-mono text-[10px] text-grey-light uppercase">STATUS</span>
-                  <select
-                    value={o.status}
-                    disabled={updatingId === o.id}
-                    onChange={(e) => handleStatusChange(o.id, e.target.value)}
-                    className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white disabled:opacity-40 uppercase"
-                  >
-                    {ORDER_STATUSES.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                  <span className="font-mono text-[9px] text-grey-light uppercase">
-                    {updatingId === o.id ? 'PUSHING TO WOOCOMMERCE...' : 'CHANGES PUSH TO WOOCOMMERCE'}
-                  </span>
-                </div>
-                {o.items && o.items.length > 0 ? (
-                  <div className="space-y-1">
-                    <p className="font-mono text-[10px] text-grey-light uppercase mb-2">LINE ITEMS</p>
-                    {o.items.map((li) => (
-                      <div key={li.id} className="flex items-center gap-4 text-xs font-mono">
-                        <span className="flex-1 text-white uppercase">{li.menuItem?.name ?? '—'}</span>
-                        <span className="text-grey-light">×{li.qty}</span>
-                        <span className="text-grey-light">${((li.unitPrice ?? 0) * li.qty).toFixed(2)}</span>
-                      </div>
-                    ))}
-                    {hasEvent && (
-                      <p className="font-mono text-[10px] text-success uppercase mt-2 border-t border-grey-mid pt-2">
-                        AUTO-SEATED · LINKED TO EVENT
-                      </p>
-                    )}
-                    {o.notes && (
-                      <p className="font-mono text-[10px] text-grey-light mt-1 italic">{o.notes}</p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="font-mono text-xs text-grey-light">No line items.</p>
-                )}
-              </div>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function FohView({ fohDate, setFohDate, fohOrders, fohLoading, fohCategoryTotals, fohExpandedId, setFohExpandedId }: {
-  fohDate: string
-  setFohDate: (d: string) => void
-  fohOrders: FohOrder[]
-  fohLoading: boolean
-  fohCategoryTotals: Record<string, { total: number; items: { name: string; qty: number }[] }>
-  fohExpandedId: string | null
-  setFohExpandedId: (id: string | null) => void
-}) {
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-      <div className="lg:col-span-9 space-y-4">
-        <div className="flex items-center gap-3 border border-grey-mid p-3">
-          <span className="font-mono text-xs uppercase text-grey-light tracking-wider">DATE</span>
-          <input
-            type="date"
-            value={fohDate}
-            onChange={(e) => setFohDate(e.target.value)}
-            className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
-            style={{ colorScheme: 'dark' }}
-          />
-          <span className="font-mono text-xs text-grey-light ml-auto">{fohOrders.length} BOOKINGS</span>
-        </div>
-
-        {fohLoading ? (
-          <div className="flex items-center justify-center h-32">
-            <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
-          </div>
-        ) : fohOrders.length === 0 ? (
-          <div className="border border-grey-mid p-8 text-center">
-            <p className="font-mono text-xs text-grey-light uppercase">NO BOOKINGS FOR THIS DATE</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {fohOrders.map((o) => {
-              const expanded = fohExpandedId === o.id
-              return (
-                <div key={o.id} className="border border-grey-mid">
-                  <button
-                    onClick={() => setFohExpandedId(expanded ? null : o.id)}
-                    className="w-full px-4 py-3 text-left hover:bg-grey-mid/10 font-mono"
-                  >
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <div className="flex items-center gap-3">
-                        <span className={`text-[10px] ${expanded ? 'text-white' : ''}`}>{expanded ? '▾' : '▸'}</span>
-                        <span className="text-white font-bold uppercase text-sm">#{o.wooOrderId}</span>
-                        <span className="text-grey-light text-xs uppercase">{o.customerName || '—'}</span>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <span className="text-grey-light text-xs">PARTY: <span className="text-white">{o.partySize ?? '—'}</span></span>
-                        {o.tables.length > 0 && (
-                          <span className="text-grey-light text-xs">
-                            TABLES: <span className="text-success">{o.tables.map((t) => t.number).join(', ')}</span>
-                          </span>
-                        )}
-                        <span className={`text-[10px] uppercase border px-1.5 py-0.5 ${STATUS_STYLES[o.status] ?? ''}`}>{o.status}</span>
-                      </div>
-                    </div>
-                  </button>
-
-                  {expanded && (
-                    <div className="border-t border-grey-mid bg-grey-dark/20 px-6 py-3 space-y-2">
-                      <div className="flex flex-wrap gap-4 font-mono text-[10px] text-grey-light uppercase">
-                        <span>ORDER: {o.wooOrderId}</span>
-                        <span>PARTY SIZE: {o.partySize ?? '—'}</span>
-                        <span>AMOUNT: ${(o.totalAmount ?? 0).toFixed(2)}</span>
-                        {o.tables.length > 0 && (
-                          <span className="text-success">
-                            TABLES: {o.tables.map((t) => `${t.number}(${t.capacity}P)`).join(', ')}
-                          </span>
-                        )}
-                      </div>
-                      {o.items.length > 0 ? (
-                        <div className="space-y-1">
-                          <p className="font-mono text-[10px] text-grey-light uppercase">LINE ITEMS</p>
-                          {o.items.map((li) => (
-                            <div key={li.id} className="flex items-center gap-3 text-xs font-mono">
-                              <span className="flex-1 text-white uppercase">{li.menuItemName}</span>
-                              {li.dietaryInfo && (
-                                <span className="text-[#c4a530] border border-[#c4a530] px-1 text-[9px] uppercase">{li.dietaryInfo}</span>
-                              )}
-                              <span className="text-grey-light">×{li.qty}</span>
-                              <span className="text-grey-light">${((li.unitPrice ?? 0) * li.qty).toFixed(2)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="font-mono text-xs text-grey-light">NO LINE ITEMS</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+      {/* Filter + saved-view controls (the ALL/SERVICE/… renderer switcher
+          lives in the Ops Hub top bar) */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          className={`font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 tracking-wider ${
+            activeFilterCount > 0 ? 'text-info border-info' : 'text-grey-light hover:text-white hover:border-white'
+          }`}
+        >
+          FILTERS{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+        </button>
+        {savedViews.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-mono text-xs uppercase text-grey-light">SAVED</span>
+            {savedViews.map((v) => (
+              <span key={v.id} className="inline-flex items-center">
+                <button
+                  onClick={() => applySaved(v)}
+                  className={`font-mono text-xs uppercase border px-2 py-1 ${
+                    activeSavedId === v.id ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:text-white'
+                  }`}
+                >
+                  {v.name}
+                </button>
+                <button
+                  onClick={() => deleteSaved(v.id)}
+                  className="font-mono text-xs text-grey-light hover:text-danger border border-l-0 border-grey-mid px-1 py-1"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
           </div>
         )}
       </div>
 
-      <div className="lg:col-span-3">
-        <div className="border border-grey-mid p-4 space-y-3">
-          <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">TOTALS BY CATEGORY</h3>
-          {Object.keys(fohCategoryTotals).length === 0 ? (
-            <p className="font-mono text-[10px] text-grey-light uppercase">NO DATA FOR THIS DATE</p>
-          ) : (
-            <div className="space-y-3">
-              {Object.entries(fohCategoryTotals).map(([cat, data]) => (
-                <div key={cat}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-mono text-[11px] text-white uppercase">{cat}</span>
-                    <span className="font-mono text-sm text-white">{data.total}</span>
-                  </div>
-                  <div className="space-y-0.5">
-                    {data.items.map((item) => (
-                      <div key={item.name} className="flex items-center justify-between text-[10px] font-mono text-grey-light">
-                        <span className="uppercase">{item.name}</span>
-                        <span>×{item.qty}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+      {/* Filters */}
+      {showFilters && (
+        <div className="border border-grey-mid p-3 space-y-3">
+          <input
+            value={filters.search ?? ''}
+            onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+            placeholder="SEARCH REF, CUSTOMER, PHONE OR DISH..."
+            className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white placeholder:text-grey-light"
+          />
+
+          <div>
+            <p className="font-mono text-xs uppercase text-grey-light mb-1">PROGRESS</p>
+            <div className="flex flex-wrap gap-1">
+              {OP_STATUSES.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setFilters({ ...filters, opStatus: toggleIn(filters.opStatus, s) })}
+                  className={`font-mono text-xs uppercase border px-1.5 py-1 ${
+                    filters.opStatus?.includes(s)
+                      ? 'border-info text-info'
+                      : 'border-grey-mid text-grey-light hover:text-white'
+                  }`}
+                >
+                  {s.replace(/_/g, ' ')}
+                </button>
               ))}
             </div>
-          )}
+          </div>
+
+          <div>
+            <p className="font-mono text-xs uppercase text-grey-light mb-1">PAYMENT</p>
+            <div className="flex flex-wrap gap-1">
+              {PAYMENT_STATUSES.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setFilters({ ...filters, paymentStatus: toggleIn(filters.paymentStatus, s) })}
+                  className={`font-mono text-xs uppercase border px-1.5 py-1 ${
+                    filters.paymentStatus?.includes(s)
+                      ? 'border-info text-info'
+                      : 'border-grey-mid text-grey-light hover:text-white'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setFilters({ ...filters, allergensOnly: !filters.allergensOnly })}
+              className={`font-mono text-xs uppercase border px-2 py-1 ${
+                filters.allergensOnly ? 'border-danger text-danger' : 'border-grey-mid text-grey-light hover:text-white'
+              }`}
+            >
+              ⚠ ALLERGY ORDERS ONLY
+            </button>
+            <Button size="sm" variant="ghost" onClick={() => { setFilters({}); setActiveSavedId(null) }}>
+              CLEAR
+            </Button>
+            <Button size="sm" variant="ghost" onClick={saveCurrentView}>SAVE AS VIEW</Button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Body */}
+      {loading ? (
+        <div className="flex items-center justify-center h-48">
+          <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
+        </div>
+      ) : view === 'SERVICE' ? (
+        <ServiceView orders={visible} onOpen={setOpenOrderId} />
+      ) : view === 'KITCHEN' ? (
+        <KitchenView orders={visible} categoryByMenuItem={categoryByMenuItem} />
+      ) : view === 'FOH' ? (
+        <FohView orders={visible} onOpen={setOpenOrderId} />
+      ) : view === 'ALL' ? (
+        <AllOrdersView orders={visible} onOpen={setOpenOrderId} />
+      ) : (
+        <ProductionView orders={visible} />
+      )}
+
+      {openOrder && (
+        <OrderDetailDrawer
+          order={openOrder}
+          onClose={() => setOpenOrderId(null)}
+          onChanged={load}
+        />
+      )}
+
+      {showNew && (
+        <NewOrderModal date={date} venueId={venueId} onClose={() => setShowNew(false)} onCreated={load} />
+      )}
     </div>
   )
 }

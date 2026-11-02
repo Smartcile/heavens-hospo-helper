@@ -6,9 +6,17 @@ import type { WorkerTaskView } from '@hospo-ops/types'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
+import { DateInput } from '@/components/ui/DateInput'
 import { Combobox } from '@/components/ui/Combobox'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
+import { readingVerdict, criticalVerdict, describeBand } from '@/lib/food-safety'
+import { OUTCOME_LABELS, OUTCOME_DESCRIPTIONS, TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { moveItem } from '@/lib/array'
+import { resolveWorkerTaskAccess, type WorkerTaskAccess } from '@/lib/worker-task-access'
+import { Panel } from '@/components/ui/Panel'
+import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
+import { useGuidePopup } from '@/components/GuidePopup'
+import { useWorkerImmersive } from '@/components/worker/useWorkerImmersive'
 
 type TaskState = WorkerTaskView
 type ModalTask = TaskState | null
@@ -18,7 +26,10 @@ interface TaskForm {
   completionType: string; scheduleType: string
   scheduleDays: number[]; customCron: string
   intervalMonths: number; monthlyOption: string; monthlyDay: number
-  requiredTrainingIds: string[]
+  competencyGuideIds: string[]
+  allowedOutcomes: TaskOutcome[]
+  overrideOutcomes: boolean
+  requireOutcomeReason: boolean
 }
 
 interface TaskFull {
@@ -27,14 +38,20 @@ interface TaskFull {
   completionType: string; scheduleType: string; scheduleDays: number[]
   customCron: string | null; intervalMonths: number
   monthlyOption: string | null; monthlyDay: number | null; isActive: boolean
+  allowedOutcomes?: string[]; overrideOutcomes?: boolean; requireOutcomeReason?: boolean
   department: { id: string; name: string } | null
   section: { id: string; name: string } | null
   requiredTraining: { moduleId: string; module?: { kind: string } }[]
+  taskGuides?: { guideId: string; isRequiredForCompetency: boolean; guide?: { id: string; title: string } | null }[]
 }
 
 interface ChecklistFull {
   id: string; name: string; description: string | null; venueId: string
   departmentId: string | null; sectionId: string | null; appearFromTime: string | null
+  activatedOn?: string | null
+  activatedToday?: boolean
+  allowedOutcomes?: string[]
+  requireOutcomeReason?: boolean
   tasks: { id: string; title: string; isActive: boolean; version: number }[]
 }
 
@@ -46,7 +63,8 @@ interface GuideLite { id: string; title: string; venueId: string; isTracked: boo
 const EMPTY_TASK_FORM: TaskForm = {
   title: '', description: '', departmentId: '', sectionId: '',
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
-  intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, requiredTrainingIds: [],
+  intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, competencyGuideIds: [],
+  allowedOutcomes: [...TASK_OUTCOMES], overrideOutcomes: false, requireOutcomeReason: false,
 }
 
 const COMPLETION_OPTIONS = [
@@ -62,19 +80,33 @@ const SCHEDULE_OPTIONS = [
 ]
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
-let inactivityTimer: ReturnType<typeof setTimeout> | null = null
-
-export function WorkerTasksClient({ role, sessionVenueId }: { role: string | null; sessionVenueId: string | null }) {
+export function WorkerTasksClient({
+  role,
+  sessionVenueId,
+  access: accessProp,
+}: {
+  role: string | null
+  sessionVenueId: string | null
+  access?: WorkerTaskAccess | null
+}) {
   const router = useRouter()
-  const isAdminOrManager = role === 'ADMIN' || role === 'MANAGER'
+  const { requestGuide, nodes: guidePopupNodes } = useGuidePopup('worker')
+  // Server-computed flags, with a role fallback so an older page (or a test)
+  // still behaves exactly as before.
+  const [access, setAccess] = useState<WorkerTaskAccess>(
+    accessProp ?? resolveWorkerTaskAccess(role, []),
+  )
+  const canAuthor = access.canAuthor
 
   const [tasks, setTasks] = useState<TaskState[]>([])
-  const [checklists, setChecklists] = useState<{ id: string; name: string; appearFromTime: string | null; taskIds: string[] }[]>([])
+  const [checklists, setChecklists] = useState<{ id: string; name: string; appearFromTime: string | null; activatedToday: boolean; taskIds: string[] }[]>([])
   const [firstName, setFirstName] = useState('')
   const [loading, setLoading] = useState(true)
   const [activeTask, setActiveTask] = useState<ModalTask>(null)
   const [note, setNote] = useState('')
   const [photo, setPhoto] = useState<File | null>(null)
+  const [readingValue, setReadingValue] = useState('')
+  const [outcome, setOutcome] = useState<TaskOutcome>('DONE')
   const [completing, setCompleting] = useState(false)
   const [completionError, setCompletionError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
@@ -91,6 +123,9 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   // Task edit modal
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [taskEditing, setTaskEditing] = useState<TaskFull | null>(null)
+  // True when the task modal was opened from the checklist editor: on save the
+  // new task is appended to the open list and the list modal stays up.
+  const [taskForList, setTaskForList] = useState(false)
   const [taskForm, setTaskForm] = useState<TaskForm>(EMPTY_TASK_FORM)
   const [taskSaving, setTaskSaving] = useState(false)
   const [taskError, setTaskError] = useState('')
@@ -105,6 +140,8 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   const [clDeptId, setClDeptId] = useState('')
   const [clSectionId, setClSectionId] = useState('')
   const [clAppearFrom, setClAppearFrom] = useState('')
+  const [clAllowedOutcomes, setClAllowedOutcomes] = useState<TaskOutcome[]>([...TASK_OUTCOMES])
+  const [clRequireReason, setClRequireReason] = useState(false)
   const [clSelected, setClSelected] = useState<string[]>([])
   const [clSaving, setClSaving] = useState(false)
   const [clError, setClError] = useState('')
@@ -138,25 +175,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     }
   }
 
-  const expiryMinutes = Number(process.env.NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES ?? 15)
-
-  function resetInactivity() {
-    if (inactivityTimer) clearTimeout(inactivityTimer)
-    inactivityTimer = setTimeout(async () => {
-      await fetch('/api/worker/logout', { method: 'POST' })
-      router.push('/w/login')
-    }, expiryMinutes * 60 * 1000)
-  }
-
-  useEffect(() => {
-    const events = ['click', 'touchstart', 'keydown']
-    events.forEach((e) => document.addEventListener(e, resetInactivity, { passive: true }))
-    resetInactivity()
-    return () => {
-      events.forEach((e) => document.removeEventListener(e, resetInactivity))
-      if (inactivityTimer) clearTimeout(inactivityTimer)
-    }
-  }, [])
+  useWorkerImmersive(!!activeTask || taskModalOpen || clModalOpen)
 
   async function load() {
     const r = await fetch('/api/worker/tasks')
@@ -165,12 +184,14 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     setTasks(data.tasks)
     setChecklists(data.checklists ?? [])
     setFirstName(data.firstName)
+    if (data.access) setAccess(data.access as WorkerTaskAccess)
     setLoading(false)
   }
 
   useEffect(() => { load() }, [])
 
   async function loadEditData() {
+    if (!canAuthor) return
     const [dR, sR, tR, taskR, clR] = await Promise.all([
       fetch('/api/worker/departments'),
       fetch('/api/worker/sections'),
@@ -199,46 +220,79 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
 
   function openTask(t: TaskState) {
     if (isEditMode) return
-    if (t.isCompleted) return
+    if (t.isSettled) return
     setActiveTask(t)
     setNote('')
     setPhoto(null)
+    setReadingValue('')
+    setOutcome('DONE')
     setCompletionError('')
   }
 
+  const activeAllowedOutcomes: TaskOutcome[] = (activeTask?.allowedOutcomes?.length
+    ? activeTask.allowedOutcomes
+    : TASK_OUTCOMES) as TaskOutcome[]
+
   async function handleComplete() {
     if (!activeTask) return
+    if (outcome !== 'DONE' && activeTask.requireOutcomeReason && !note.trim()) {
+      setCompletionError('A REASON IS REQUIRED')
+      return
+    }
     setCompleting(true)
     setCompletionError('')
 
-    let r: Response
+    const readingValueForSubmit = outcome === 'DONE' ? readingValue : ''
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 20_000)
 
-    if (activeTask.completionType === 'TICK_PHOTO' && photo) {
-      const form = new FormData()
-      form.append('note', note)
-      form.append('photo', photo)
-      r = await fetch(`/api/worker/tasks/${activeTask.id}/complete`, {
-        method: 'POST',
-        body: form,
-      })
-    } else {
-      r = await fetch(`/api/worker/tasks/${activeTask.id}/complete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note: note || null }),
-      })
-    }
+    try {
+      let r: Response
 
-    if (!r.ok) {
-      const data = await r.json()
-      setCompletionError(data.error ?? 'FAILED TO COMPLETE TASK')
+      if (activeTask.completionType === 'TICK_PHOTO' && photo && outcome === 'DONE') {
+        const form = new FormData()
+        form.append('note', note)
+        form.append('outcome', outcome)
+        form.append('photo', photo)
+        if (readingValueForSubmit !== '') form.append('value', readingValueForSubmit)
+        r = await fetch(`/api/worker/tasks/${activeTask.id}/complete`, {
+          method: 'POST',
+          body: form,
+          signal: controller.signal,
+        })
+      } else {
+        r = await fetch(`/api/worker/tasks/${activeTask.id}/complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            note: note || null,
+            outcome,
+            value: readingValueForSubmit !== '' ? Number(readingValueForSubmit) : null,
+          }),
+          signal: controller.signal,
+        })
+      }
+
+      if (r.status === 401) {
+        router.push('/w/login')
+        return
+      }
+
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}))
+        setCompletionError(data.error ?? 'FAILED TO COMPLETE TASK')
+        return
+      }
+
+      setActiveTask(null)
+      await load()
+    } catch (err) {
+      const aborted = (err as Error)?.name === 'AbortError'
+      setCompletionError(aborted ? 'REQUEST TIMED OUT — TRY AGAIN' : 'COULD NOT CONNECT — TRY AGAIN')
+    } finally {
+      clearTimeout(timeout)
       setCompleting(false)
-      return
     }
-
-    setCompleting(false)
-    setActiveTask(null)
-    await load()
   }
 
   // ── Edit mode handlers ──
@@ -253,21 +307,28 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
   function toggleRequired(id: string) {
     setTaskForm(f => ({
       ...f,
-      requiredTrainingIds: f.requiredTrainingIds.includes(id)
-        ? f.requiredTrainingIds.filter(x => x !== id)
-        : [...f.requiredTrainingIds, id],
+      competencyGuideIds: f.competencyGuideIds.includes(id)
+        ? f.competencyGuideIds.filter(x => x !== id)
+        : [...f.competencyGuideIds, id],
     }))
   }
 
-  function openTaskCreate() {
+  function openTaskCreate(opts?: { fromList?: boolean }) {
     setTaskEditing(null)
-    setTaskForm({ ...EMPTY_TASK_FORM })
+    setTaskForList(!!opts?.fromList)
+    setTaskForm({
+      ...EMPTY_TASK_FORM,
+      // Pre-scope a task created from a list to that list's department/section.
+      departmentId: opts?.fromList ? clDeptId : '',
+      sectionId: opts?.fromList ? clSectionId : '',
+    })
     setRequireRetrain(false); setChangeSummary('')
     setTaskError(''); setTaskModalOpen(true)
   }
 
   function openTaskEdit(t: TaskFull) {
     setTaskEditing(t)
+    setTaskForList(false)
     setTaskForm({
       title: t.title, description: t.description ?? '',
       departmentId: t.departmentId ?? '', sectionId: t.sectionId ?? '',
@@ -276,13 +337,24 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
       intervalMonths: t.intervalMonths ?? 1,
       monthlyOption: t.monthlyOption ?? 'FIRST_DAY',
       monthlyDay: t.monthlyDay ?? 1,
-      requiredTrainingIds: (t.requiredTraining ?? []).map(r => r.moduleId),
+      // Same competency junction the admin form edits. Legacy
+      // TaskRequiredTraining rows are left untouched (not edited or deleted).
+      competencyGuideIds: (t.taskGuides ?? [])
+        .filter(g => g.isRequiredForCompetency)
+        .map(g => g.guideId),
+      allowedOutcomes: (t.allowedOutcomes?.length ? t.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[],
+      overrideOutcomes: !!t.overrideOutcomes,
+      requireOutcomeReason: !!t.requireOutcomeReason,
     })
     setRequireRetrain(false); setChangeSummary('')
     setTaskError(''); setTaskModalOpen(true)
   }
 
   async function handleTaskSave() {
+    if (taskEditing ? !access.canEditTask : !access.canCreateTask) {
+      setTaskError('NOT ALLOWED')
+      return
+    }
     if (!taskForm.title.trim()) { setTaskError('TITLE IS REQUIRED'); return }
     if (taskForm.scheduleType === 'WEEKLY' && taskForm.scheduleDays.length === 0) {
       setTaskError('SELECT AT LEAST ONE DAY FOR WEEKLY'); return
@@ -299,14 +371,22 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
         ...taskForm,
         departmentId: taskForm.departmentId || null,
         sectionId: taskForm.sectionId || null,
-        requiredTrainingIds: taskForm.requiredTrainingIds,
+        // Legacy `requiredTrainingIds` is deliberately not sent: the worker UI
+        // edits TaskGuide now, and omitting it leaves old links untouched.
+        competencyGuideIds: taskForm.competencyGuideIds,
         customCron: taskForm.scheduleType === 'CUSTOM' ? taskForm.customCron : null,
         scheduleDays: taskForm.scheduleType === 'DAILY' ? [] : taskForm.scheduleDays,
         ...(taskEditing ? { requireRetrain, changeSummary } : {}),
       }),
     })
     if (!r.ok) { const d = await r.json(); setTaskError(d.error ?? 'SAVE FAILED'); setTaskSaving(false); return }
+    const saved = await r.json().catch(() => null)
     setTaskSaving(false); setTaskModalOpen(false)
+    const addToList = taskForList && !taskEditing && saved?.id
+    setTaskForList(false)
+    if (addToList) {
+      setClSelected(prev => (prev.includes(saved.id) ? prev : [...prev, saved.id]))
+    }
     await load()
     await loadEditData()
   }
@@ -333,6 +413,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     setClName(''); setClDesc('')
     setClDeptId(''); setClSectionId(''); setClSelected([])
     setClAppearFrom(''); setClError(''); setClModalOpen(true)
+    setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false)
   }
 
   function openChecklistEdit(c: ChecklistFull) {
@@ -341,10 +422,16 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     setClDeptId(c.departmentId ?? ''); setClSectionId(c.sectionId ?? '')
     setClSelected(c.tasks.map(t => t.id))
     setClAppearFrom(c.appearFromTime ?? '')
+    setClAllowedOutcomes((c.allowedOutcomes?.length ? c.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[])
+    setClRequireReason(!!c.requireOutcomeReason)
     setClError(''); setClModalOpen(true)
   }
 
   async function saveChecklist() {
+    if (clEditing && clEditing !== 'new' ? !access.canEditList : !access.canCreateList) {
+      setClError('NOT ALLOWED')
+      return
+    }
     if (!clName.trim()) { setClError('NAME IS REQUIRED'); return }
     if (clSelected.length === 0) { setClError('ADD AT LEAST ONE TASK'); return }
     setClSaving(true); setClError('')
@@ -352,6 +439,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
       name: clName, description: clDesc,
       departmentId: clDeptId || null, sectionId: clSectionId || null,
       appearFromTime: clAppearFrom || null, taskIds: clSelected,
+      allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason,
     }
     const url = clEditing && clEditing !== 'new' ? `/api/worker/checklists/${clEditing.id}` : '/api/worker/checklists'
     const method = clEditing && clEditing !== 'new' ? 'PUT' : 'POST'
@@ -372,16 +460,42 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     await loadEditData()
   }
 
-  const pending = tasks.filter((t) => !t.isCompleted)
-  const done = tasks.filter((t) => t.isCompleted)
+  async function toggleChecklistActivation(active: boolean) {
+    if (!clEditing || clEditing === 'new' || !access.canEditList) return
+    setClError('')
+    const r = await fetch(`/api/worker/checklists/${clEditing.id}/activate`, {
+      method: active ? 'POST' : 'DELETE',
+    })
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setClError(d.error ?? 'FAILED')
+      return
+    }
+    const updated = await r.json().catch(() => null)
+    setClEditing({
+      ...clEditing,
+      activatedOn: updated?.activatedOn ?? null,
+      // The server owns the venue-local "today" verdict; we just toggled it.
+      activatedToday: updated?.activatedToday ?? active,
+    })
+    await load()
+    await loadEditData()
+  }
+
+  const pending = tasks.filter((t) => !t.isSettled)
+  const done = tasks.filter((t) => t.isDone)
+  const handled = tasks.filter((t) => t.isSettled && !t.isDone)
   const allDone = tasks.length > 0 && pending.length === 0
+  const allActuallyDone = allDone && handled.length === 0
 
   // Time-gate the lists
   const now = new Date()
   const nowHHmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  const isOpen = (t: string | null) => !t || nowHHmm >= t
+  // An admin can force a not-yet-due list open for today (activatedToday).
+  const isOpen = (cl: { appearFromTime: string | null; activatedToday: boolean }) =>
+    cl.activatedToday || !cl.appearFromTime || nowHHmm >= cl.appearFromTime
 
-  const listsByTask = new Map<string, { id: string; name: string; appearFromTime: string | null }[]>()
+  const listsByTask = new Map<string, { id: string; name: string; appearFromTime: string | null; activatedToday: boolean }[]>()
   for (const cl of checklists) {
     for (const tid of cl.taskIds) {
       const arr = listsByTask.get(tid) ?? []
@@ -397,7 +511,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
     const lists = listsByTask.get(t.id) ?? []
     if (lists.length === 0) { otherTasks.push(t); continue }
     const open = lists
-      .filter((l) => isOpen(l.appearFromTime))
+      .filter((l) => isOpen(l))
       .sort((a, b) => (a.appearFromTime ?? '').localeCompare(b.appearFromTime ?? '') || a.name.localeCompare(b.name))
     if (open.length === 0) {
       const next = lists.slice().sort((a, b) => (a.appearFromTime ?? '').localeCompare(b.appearFromTime ?? ''))[0]
@@ -428,10 +542,15 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
 
   const renderTask = (t: TaskState) => {
     if (isEditMode) {
+      const full = editTasks.find(et => et.id === t.id)
+      const guideTitles = (full?.taskGuides ?? [])
+        .filter(g => g.isRequiredForCompetency && g.guide)
+        .map(g => g.guide!.title)
       return (
-        <div
+        <Panel
           key={t.id}
-          className="w-full text-left bg-grey-dark border border-grey-mid p-3 flex items-center gap-3"
+          padding="md"
+          className="w-full text-left flex items-center gap-3"
         >
           <div className={`w-2 h-2 flex-shrink-0 ${t.isCompleted ? 'bg-success' : 'bg-grey-mid'}`} />
           <div className="min-w-0 flex-1">
@@ -440,33 +559,53 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <CompletionTypeIcon type={t.completionType} />
               {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
+              {guideTitles.map((title) => (
+                <span key={title} className="font-mono text-xs uppercase text-info truncate max-w-[10rem]">
+                  📖 {title}
+                </span>
+              ))}
               {(t.rolledOverFrom || (t.isOneOff && t.dueDate && !t.isCompleted)) && (
                 <span className="font-mono text-xs text-warning uppercase">⚠ ROLLED OVER</span>
               )}
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              onClick={() => { const full = editTasks.find(et => et.id === t.id); if (full) openTaskEdit(full) }}
-              className="font-mono text-xs uppercase text-warning hover:text-white transition-colors px-2 py-1"
-            >
-              EDIT
-            </button>
-            <button
-              onClick={() => handleTaskDelete(t.id)}
-              className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors px-2 py-1"
-            >
-              DEL
-            </button>
+            {full && access.canEditTask && (
+              <button
+                onClick={() => toggleTaskActive(full)}
+                className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors px-2 py-1"
+              >
+                {full.isActive ? 'OFF' : 'ON'}
+              </button>
+            )}
+            {access.canEditTask && (
+              <button
+                onClick={() => { if (full) openTaskEdit(full) }}
+                className="font-mono text-xs uppercase text-warning hover:text-white transition-colors px-2 py-1"
+              >
+                EDIT
+              </button>
+            )}
+            {access.canDeleteTask && (
+              <button
+                onClick={() => handleTaskDelete(t.id)}
+                className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors px-2 py-1"
+              >
+                DEL
+              </button>
+            )}
           </div>
-        </div>
+        </Panel>
       )
     }
     return (
-      <button
+      <div
         key={t.id}
+        role="button"
+        tabIndex={0}
         onClick={() => openTask(t)}
-        className="w-full text-left bg-grey-dark border border-grey-mid p-4 hover:border-white transition-colors active:bg-black"
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTask(t) } }}
+        className="w-full text-left bg-grey-dark border border-grey-mid p-4 hover:border-white transition-colors active:bg-black cursor-pointer"
       >
         <div className="flex items-start gap-3">
           <div className="w-5 h-5 border-2 border-grey-mid flex-shrink-0 mt-0.5" />
@@ -476,14 +615,30 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <CompletionTypeIcon type={t.completionType} />
               {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
-              {t.guide && <span className="font-mono text-xs text-grey-light">📖 GUIDE</span>}
+              {t.guide && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); requestGuide(t.guide!.id, t.guide!.title) }}
+                  className="font-mono text-xs text-info hover:text-white transition-colors"
+                >
+                  📖 GUIDE
+                </button>
+              )}
               {(t.rolledOverFrom || (t.isOneOff && t.dueDate && !t.isCompleted)) && (
                 <span className="font-mono text-xs text-warning uppercase">⚠ ROLLED OVER</span>
               )}
+              {t.inProgress && (
+                <span className="font-mono text-xs text-warning uppercase">
+                  IN PROGRESS{t.inProgress.byName ? ` · ${t.inProgress.byName}` : ''}
+                </span>
+              )}
             </div>
+            {t.inProgress?.note && (
+              <p className="font-sans text-xs text-warning/80 mt-1 truncate">{t.inProgress.note}</p>
+            )}
           </div>
         </div>
-      </button>
+      </div>
     )
   }
 
@@ -509,19 +664,26 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           <div />
         </div>
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-6">
-          <div className="w-16 h-16 border-4 border-success flex items-center justify-center">
-            <svg className="w-8 h-8 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
+          <Panel padding="none" className={`w-16 h-16 border-4 flex items-center justify-center ${allActuallyDone ? 'border-success' : 'border-warning'}`}>
+            {allActuallyDone ? (
+              <svg className="w-8 h-8 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <span className="font-mono text-2xl text-warning">!</span>
+            )}
+          </Panel>
           <div>
-            <h1 className="font-mono text-2xl font-bold uppercase tracking-widest text-success">
-              ALL DONE
+            <h1 className={`font-mono text-2xl font-bold uppercase tracking-widest ${allActuallyDone ? 'text-success' : 'text-warning'}`}>
+              {allActuallyDone ? 'ALL DONE' : 'ALL TASKS HANDLED'}
             </h1>
-            <p className="font-mono text-sm text-white mt-1 uppercase">NICE WORK, {firstName}!</p>
+            <p className="font-mono text-sm text-white mt-1 uppercase">
+              {allActuallyDone ? `NICE WORK, ${firstName}!` : `NOT EVERYTHING WAS DONE, ${firstName}`}
+            </p>
           </div>
           <p className="font-mono text-xs text-grey-light uppercase">
-            {tasks.length} TASK{tasks.length !== 1 ? 'S' : ''} COMPLETED TODAY
+            {done.length} DONE
+            {handled.length > 0 ? ` · ${handled.length} NOT DONE / NOT REQUIRED` : ''}
           </p>
         </div>
       </div>
@@ -538,7 +700,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               {getGreeting()}, {firstName}
             </h1>
             <p className="font-mono text-xs text-grey-light mt-0.5 uppercase">
-              {done.length} OF {tasks.length} TASKS COMPLETE
+              {done.length} OF {tasks.length} TASKS DONE{handled.length > 0 ? ` · ${handled.length} HANDLED` : ''}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -548,7 +710,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             >
               + QUICK TASK
             </button>
-            {isAdminOrManager && (
+            {canAuthor && (
               <button
                 onClick={() => { const next = !isEditMode; setIsEditMode(next); if (next && editDepts.length === 0) loadEditData() }}
                 className={`font-mono text-xs uppercase font-bold tracking-wider px-3 py-2 border transition-colors ${
@@ -563,7 +725,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
 
         {/* Quick task form */}
         {quickOpen && (
-          <div className="mt-3 border border-success/30 bg-grey-dark p-3 space-y-2">
+          <Panel padding="md" className="mt-3 border border-success/30 space-y-2">
             <h3 className="font-mono text-xs uppercase text-success tracking-wider">QUICK SIDE-WORK TASK</h3>
             <input
               value={quickTitle}
@@ -580,8 +742,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             />
             <div className="flex items-center gap-3 flex-wrap">
               <label className="flex items-center gap-2 font-mono text-xs text-grey-light">
-                <input type="date" value={quickDue} onChange={(e) => setQuickDue(e.target.value)}
-                  className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white" />
+                <DateInput value={quickDue} onChange={(e) => setQuickDue(e.target.value)} className="w-40" />
                 DUE DATE
               </label>
               <label className="flex items-center gap-2 font-mono text-xs text-grey-light cursor-pointer">
@@ -600,14 +761,14 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                 CANCEL
               </button>
             </div>
-          </div>
+          </Panel>
         )}
 
-        {isEditMode && isAdminOrManager && (
-          <div className="mt-3 py-2 px-3 border border-warning text-warning font-mono text-xs uppercase tracking-widest flex items-center gap-2">
+        {isEditMode && canAuthor && (
+          <Panel padding="none" className="mt-3 py-2 px-3 border border-warning text-warning font-mono text-xs uppercase tracking-widest flex items-center gap-2">
             <span className="inline-block w-2 h-2 bg-warning animate-pulse" />
-            MANAGER EDIT MODE ACTIVE // ARMED
-          </div>
+            EDIT MODE ACTIVE // ARMED
+          </Panel>
         )}
 
         {!isEditMode && (
@@ -620,16 +781,20 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
         )}
       </div>
 
-      {isEditMode && isAdminOrManager && (
+      {isEditMode && canAuthor && (
         <div className="px-4 pt-3 flex gap-2">
-          <button onClick={openTaskCreate}
-            className="font-mono text-xs uppercase font-bold tracking-wider px-4 py-2 border border-warning text-warning hover:bg-warning hover:text-black transition-colors">
-            + NEW TASK
-          </button>
-          <button onClick={openChecklistCreate}
-            className="font-mono text-xs uppercase font-bold tracking-wider px-4 py-2 border border-warning text-warning hover:bg-warning hover:text-black transition-colors">
-            + NEW CHECKLIST
-          </button>
+          {access.canCreateTask && (
+            <button onClick={() => openTaskCreate()}
+              className="font-mono text-xs uppercase font-bold tracking-wider px-4 py-2 border border-warning text-warning hover:bg-warning hover:text-black transition-colors">
+              + NEW TASK
+            </button>
+          )}
+          {access.canCreateList && (
+            <button onClick={openChecklistCreate}
+              className="font-mono text-xs uppercase font-bold tracking-wider px-4 py-2 border border-warning text-warning hover:bg-warning hover:text-black transition-colors">
+              + NEW CHECKLIST
+            </button>
+          )}
         </div>
       )}
 
@@ -645,15 +810,16 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           const isExpanded = expandedLists.has(lg.id)
           const extra = lg.tasks.length - maxVisible
           return (
-            <div key={lg.id} className="border border-grey-mid bg-grey-dark">
+            <Panel key={lg.id} padding="none">
               <div className="h-1.5 bg-grey-mid">
                 <div className="h-full bg-success transition-all duration-500" style={{ width: `${donePct}%` }} />
               </div>
               <div className="p-3 border-b border-grey-mid flex items-center justify-between gap-2">
                 <div className="font-mono text-xs uppercase tracking-widest text-white">{lg.name}</div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  {isEditMode && isAdminOrManager && (
+                  {isEditMode && access.canEditList && (
                     <button
+                      aria-label={`EDIT CHECKLIST ${lg.name}`}
                       onClick={() => { const full = editChecklists.find(c => c.id === lg.id); if (full) openChecklistEdit(full) }}
                       className="font-mono text-xs uppercase text-warning hover:text-white transition-colors px-1 py-0.5"
                     >
@@ -667,8 +833,12 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               <div className="divide-y divide-grey-mid">
                 {lg.tasks.slice(0, maxVisible).map((t) => (
                   isEditMode ? renderTask(t) : (
-                    <button key={t.id} onClick={() => openTask(t)}
-                      className="w-full text-left bg-grey-dark p-3 hover:border-white transition-colors active:bg-black flex items-center gap-3 border-0 border-b border-grey-mid last:border-0">
+                    <div key={t.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openTask(t)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTask(t) } }}
+                      className="w-full text-left bg-grey-dark p-3 hover:border-white transition-colors active:bg-black flex items-center gap-3 border-0 border-b border-grey-mid last:border-0 cursor-pointer">
                       <div className="w-5 h-5 border-2 border-grey-mid flex-shrink-0" />
                       <div className="min-w-0 flex-1">
                         <div className="font-mono font-semibold text-sm uppercase text-white">{t.title}</div>
@@ -676,13 +846,29 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                           <CompletionTypeIcon type={t.completionType} />
                           {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
-                          {t.guide && <span className="font-mono text-xs text-grey-light">📖 GUIDE</span>}
+                          {t.guide && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); requestGuide(t.guide!.id, t.guide!.title) }}
+                              className="font-mono text-xs text-info hover:text-white transition-colors"
+                            >
+                              📖 GUIDE
+                            </button>
+                          )}
                           {(t.rolledOverFrom || (t.isOneOff && t.dueDate && !t.isCompleted)) && (
                             <span className="font-mono text-xs text-warning uppercase">⚠ ROLLED OVER</span>
                           )}
+                          {t.inProgress && (
+                            <span className="font-mono text-xs text-warning uppercase">
+                              IN PROGRESS{t.inProgress.byName ? ` · ${t.inProgress.byName}` : ''}
+                            </span>
+                          )}
                         </div>
+                        {t.inProgress?.note && (
+                          <p className="font-sans text-xs text-warning/80 mt-1 truncate">{t.inProgress.note}</p>
+                        )}
                       </div>
-                    </button>
+                    </div>
                   )
                 ))}
                 {extra > 0 && !isEditMode && (
@@ -698,7 +884,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                   </button>
                 )}
               </div>
-            </div>
+            </Panel>
           )
         })}
 
@@ -715,12 +901,12 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
         ))}
 
         {upcoming.length > 0 && (
-          <div className="border border-grey-mid p-3">
+          <Panel variant="outline" padding="md">
             <div className="font-mono text-xs uppercase tracking-wider text-grey-light mb-1">OPENS LATER</div>
             {upcoming.map((u) => (
               <div key={u.name} className="font-mono text-xs text-grey-light">{u.name}{u.time ? ` · FROM ${u.time}` : ''}</div>
             ))}
-          </div>
+          </Panel>
         )}
       </div>
 
@@ -732,16 +918,45 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           </div>
           <div className="space-y-1">
             {done.map((t) => (
-              <div key={t.id} className="bg-grey-dark border border-grey-mid p-3 flex items-center gap-3 opacity-60">
-                <div className="w-5 h-5 border-2 border-success bg-success flex items-center justify-center flex-shrink-0">
+              <Panel key={t.id} padding="md" className="flex items-center gap-3 opacity-60">
+                <Panel padding="none" className="w-5 h-5 border-2 border-success bg-success flex items-center justify-center flex-shrink-0">
                   <svg className="w-3 h-3 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M5 13l4 4L19 7" />
                   </svg>
-                </div>
+                </Panel>
                 <span className="font-mono text-xs uppercase text-success line-through min-w-0 truncate">{t.title}</span>
                 {t.completedByName && <span className="font-mono text-xs uppercase text-grey-light ml-auto flex-shrink-0">BY {t.completedByName}</span>}
-              </div>
+              </Panel>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Settled but not done — NOT REQUIRED / DID NOT COMPLETE */}
+      {handled.length > 0 && (
+        <div className="px-4 pb-6">
+          <div className="font-mono text-xs text-grey-light uppercase mb-2 tracking-wider">
+            HANDLED — NOT DONE
+          </div>
+          <div className="space-y-1">
+            {handled.map((t) => {
+              const outcomeLabel = t.outcome === 'NOT_REQUIRED' ? 'NOT REQUIRED' : 'DID NOT COMPLETE'
+              const tone = t.outcome === 'NOT_REQUIRED' ? 'text-grey-light border-grey-mid' : 'text-danger border-danger/50'
+              return (
+                <Panel key={t.id} padding="md" className="space-y-1 opacity-80">
+                  <div className="flex items-center gap-3">
+                    <span className={`font-mono text-xs uppercase border px-1.5 py-0.5 flex-shrink-0 ${tone}`}>
+                      {outcomeLabel}
+                    </span>
+                    <span className="font-mono text-xs uppercase text-white min-w-0 truncate">{t.title}</span>
+                    {t.completedByName && <span className="font-mono text-xs uppercase text-grey-light ml-auto flex-shrink-0">BY {t.completedByName}</span>}
+                  </div>
+                  {t.completion?.note && (
+                    <p className="font-sans text-xs text-grey-light pl-1">{t.completion.note}</p>
+                  )}
+                </Panel>
+              )
+            })}
           </div>
         </div>
       )}
@@ -752,7 +967,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           <div className="flex items-center justify-between px-4 py-4 border-b border-grey-mid">
             <button
               onClick={() => setActiveTask(null)}
-              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors border border-grey-mid px-3 py-2 hover:border-white"
             >
               ← BACK
             </button>
@@ -770,7 +985,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               )}
               {activeTask.guide && (
                 <button
-                  onClick={() => router.push(`/w/guides?guide=${activeTask.guide!.id}`)}
+                  onClick={() => requestGuide(activeTask.guide!.id, activeTask.guide!.title)}
                   className="mt-3 inline-block font-mono text-xs uppercase border border-grey-mid px-3 py-2 text-white hover:border-white transition-colors"
                 >
                   VIEW GUIDE: {activeTask.guide.title}
@@ -778,21 +993,114 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               )}
             </div>
 
-            {(activeTask.completionType === 'TICK_NOTE' || activeTask.completionType === 'TICK_PHOTO') && (
+            {activeTask.inProgress && outcome === 'DONE' && (
+              <div className="border-l-4 border-l-warning pl-3 py-1">
+                <p className="font-mono text-xs text-warning uppercase">
+                  IN PROGRESS SINCE {new Date(activeTask.inProgress.since).toLocaleDateString()}
+                  {activeTask.inProgress.byName ? ` · ${activeTask.inProgress.byName}` : ''}
+                </p>
+                {activeTask.inProgress.note && (
+                  <p className="font-sans text-xs text-grey-light mt-1">{activeTask.inProgress.note}</p>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">
+                WHAT HAPPENED?
+              </label>
+              <div className="grid grid-cols-1 gap-2">
+                {activeAllowedOutcomes.map((o) => {
+                  const selected = outcome === o
+                  const tone =
+                    o === 'DONE'
+                      ? 'border-success text-success'
+                      : o === 'PARTIAL'
+                        ? 'border-warning text-warning'
+                        : o === 'DID_NOT_COMPLETE'
+                          ? 'border-danger text-danger'
+                          : 'border-grey-mid text-white'
+                  return (
+                    <button
+                      key={o}
+                      type="button"
+                      onClick={() => setOutcome(o)}
+                      className={`text-left border px-3 py-3 transition-colors ${selected ? 'bg-white text-black border-white' : `bg-transparent ${tone} hover:border-white hover:text-white`}`}
+                    >
+                      <div className="font-mono text-xs font-bold uppercase tracking-wider">{OUTCOME_LABELS[o]}</div>
+                      <div className={`font-mono text-xs uppercase mt-0.5 ${selected ? 'text-grey-dark' : 'text-grey-light'}`}>
+                        {OUTCOME_DESCRIPTIONS[o]}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {activeTask.completionType === 'READING' && outcome === 'DONE' && (
               <div className="space-y-2">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider">
-                  {activeTask.completionType === 'TICK_PHOTO' ? 'NOTE (OPTIONAL)' : 'NOTE'}
+                  READING — {describeBand(activeTask, activeTask.readingUnit)}
+                </label>
+                {activeTask.linkedItemName && (
+                  <p className="font-mono text-xs text-grey-light uppercase">{activeTask.linkedItemName}</p>
+                )}
+                <div className="flex items-stretch gap-2">
+                  <input
+                    type="number"
+                    step="0.1"
+                    inputMode="decimal"
+                    value={readingValue}
+                    onChange={(e) => setReadingValue(e.target.value)}
+                    placeholder={`TEMPERATURE ${activeTask.readingUnit ?? '°C'}`}
+                    className="flex-1 bg-grey-dark border border-grey-mid text-white font-mono text-2xl px-3 py-3 outline-none focus:border-white placeholder:text-grey-light"
+                  />
+                  <div
+                    className={`flex flex-col justify-center items-center px-4 border ${
+                      readingValue === ''
+                        ? 'border-grey-mid'
+                        : readingVerdict(Number(readingValue), activeTask) === 'PASS'
+                          ? 'border-success text-success'
+                          : 'border-danger text-danger'
+                    }`}
+                  >
+                    <span className="font-mono text-xs uppercase tracking-wider">
+                      {readingValue === ''
+                        ? '—'
+                        : readingVerdict(Number(readingValue), activeTask) === 'PASS'
+                          ? 'PASS'
+                          : 'FAIL'}
+                    </span>
+                  </div>
+                </div>
+                {readingValue !== '' && criticalVerdict(Number(readingValue), activeTask) && (
+                  <p className="font-mono text-xs text-danger uppercase">
+                    ⚠ CRITICAL — OUTSIDE THE DANGER BAND. AN URGENT NOTICE GOES TO THE FLOOR.
+                  </p>
+                )}
+                <p className="font-mono text-xs text-grey-light">
+                  PASS = {describeBand(activeTask, activeTask.readingUnit)} · THE READING IS SHARED BY THE WHOLE FLOOR
+                </p>
+              </div>
+            )}
+
+            {(activeTask.completionType === 'TICK_NOTE' || activeTask.completionType === 'TICK_PHOTO' || outcome !== 'DONE') && (
+              <div className="space-y-2">
+                <label className="font-mono text-xs uppercase text-grey-light tracking-wider">
+                  {outcome !== 'DONE'
+                    ? `REASON${activeTask.requireOutcomeReason ? ' (REQUIRED)' : ' (OPTIONAL)'}`
+                    : activeTask.completionType === 'TICK_PHOTO' ? 'NOTE (OPTIONAL)' : 'NOTE'}
                 </label>
                 <textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
-                  placeholder="ADD YOUR NOTES HERE..."
+                  placeholder={outcome !== 'DONE' ? 'WHY? (HELPS THE FOLLOW-UP REVIEW)...' : 'ADD YOUR NOTES HERE...'}
                   className="w-full bg-grey-dark border border-grey-mid text-white font-sans text-sm px-3 py-3 outline-none focus:border-white min-h-[120px] resize-none placeholder:text-grey-light"
                 />
               </div>
             )}
 
-            {activeTask.completionType === 'TICK_PHOTO' && (
+            {activeTask.completionType === 'TICK_PHOTO' && outcome === 'DONE' && (
               <div className="space-y-2">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider">PHOTO</label>
                 <input
@@ -836,9 +1144,23 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             <button
               onClick={handleComplete}
               disabled={completing}
-              className="w-full h-14 bg-success text-black font-mono font-bold text-sm uppercase tracking-widest hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+              className={`w-full h-14 font-mono font-bold text-sm uppercase tracking-widest hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed ${
+                outcome === 'DONE'
+                  ? 'bg-success text-black'
+                  : outcome === 'PARTIAL'
+                    ? 'bg-warning text-black'
+                    : outcome === 'DID_NOT_COMPLETE'
+                      ? 'bg-danger text-black'
+                      : 'bg-white text-black'
+              }`}
             >
-              {completing ? 'SAVING_' : 'MARK DONE'}
+              {completing
+                ? 'SAVING_'
+                : outcome === 'DONE'
+                  ? 'MARK DONE'
+                  : outcome === 'PARTIAL'
+                    ? 'SAVE PROGRESS'
+                    : `MARK ${OUTCOME_LABELS[outcome]}`}
             </button>
           </div>
         </div>
@@ -850,7 +1172,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           <div className="flex items-center justify-between px-4 py-4 border-b border-grey-mid">
             <button
               onClick={() => setTaskModalOpen(false)}
-              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors border border-grey-mid px-3 py-2 hover:border-white"
             >
               ← BACK
             </button>
@@ -904,6 +1226,15 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                 options={SCHEDULE_OPTIONS} />
             </div>
 
+            <OutcomeOptions
+              allowed={taskForm.allowedOutcomes}
+              requireReason={taskForm.requireOutcomeReason}
+              onChange={(allowedOutcomes, requireOutcomeReason) => setTaskForm({ ...taskForm, allowedOutcomes, requireOutcomeReason })}
+              canOverride
+              override={taskForm.overrideOutcomes}
+              onOverrideChange={(overrideOutcomes) => setTaskForm({ ...taskForm, overrideOutcomes })}
+            />
+
             {taskForm.scheduleType === 'WEEKLY' && (
               <div className="flex flex-col gap-1">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Active Days</label>
@@ -954,10 +1285,10 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
 
             {editGuides.length > 0 && (
               <Combobox
-                label="Required Training"
+                label="Required training (competency)"
                 options={editGuides.map(m => ({ value: m.id, label: m.title, description: m.description ?? undefined }))}
-                selected={taskForm.requiredTrainingIds}
-                onChange={(ids) => setTaskForm({ ...taskForm, requiredTrainingIds: ids })}
+                selected={taskForm.competencyGuideIds}
+                onChange={(ids) => setTaskForm({ ...taskForm, competencyGuideIds: ids })}
                 placeholder="Search guides..."
               />
             )}
@@ -983,7 +1314,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           </div>
 
           <div className="px-4 pb-8 pt-4 border-t border-grey-mid flex gap-2">
-            <button onClick={handleTaskSave} disabled={taskSaving}
+            <button data-testid="worker-task-save" onClick={handleTaskSave} disabled={taskSaving}
               className="flex-1 h-14 bg-warning text-black font-mono font-bold text-sm uppercase tracking-widest hover:opacity-90 transition-opacity disabled:opacity-40">
               {taskSaving ? 'SAVING_' : 'SAVE'}
             </button>
@@ -1000,7 +1331,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
         <div className="fixed inset-0 z-50 bg-black flex flex-col">
           <div className="flex items-center justify-between px-4 py-4 border-b border-grey-mid">
             <button onClick={() => setClModalOpen(false)}
-              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">
+              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors border border-grey-mid px-3 py-2 hover:border-white">
               ← BACK
             </button>
             <span className="font-mono text-xs font-bold uppercase text-warning tracking-widest">
@@ -1034,14 +1365,42 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
             <Input label="Appears from (time, optional)" type="time"
               value={clAppearFrom} onChange={(e) => setClAppearFrom(e.target.value)} />
             <p className="font-mono text-xs uppercase text-grey-light">
-              SHOWS ON THE FLOOR FROM THIS TIME &amp; STAYS UNTIL EVERY TASK IS DONE FOR THE DAY.
+              SHOWS ON THE FLOOR FROM THIS TIME &amp; STAYS UNTIL EVERY TASK IS SETTLED FOR THE DAY.
             </p>
+
+            {clEditing !== 'new' && clEditing?.appearFromTime && access.canEditList && (
+              <div className="flex items-center justify-between gap-2 border border-grey-mid p-2">
+                <span className="font-mono text-xs uppercase text-grey-light">
+                  {clEditing.activatedToday
+                    ? 'FORCED OPEN FOR TODAY'
+                    : 'NOT OPEN YET TODAY'}
+                </span>
+                {clEditing.activatedToday ? (
+                  <button onClick={() => toggleChecklistActivation(false)}
+                    className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white transition-colors">
+                    DEACTIVATE
+                  </button>
+                ) : (
+                  <button onClick={() => toggleChecklistActivation(true)}
+                    className="font-mono text-xs uppercase border border-success/40 px-2 py-1 text-success hover:bg-success hover:text-black transition-colors">
+                    ACTIVATE NOW
+                  </button>
+                )}
+              </div>
+            )}
+
+            <OutcomeOptions
+              allowed={clAllowedOutcomes}
+              requireReason={clRequireReason}
+              onChange={(allowedOutcomes, requireOutcomeReason) => { setClAllowedOutcomes(allowedOutcomes); setClRequireReason(requireOutcomeReason) }}
+              inheritedLabel="APPLIES TO EVERY TASK IN THIS LIST UNLESS THE TASK OVERRIDES IT"
+            />
 
             <div className="space-y-1">
               <label className="font-mono text-xs uppercase text-grey-light tracking-wider">
                 Tasks ({clSelected.length})
               </label>
-              <div className="border border-grey-mid divide-y divide-grey-mid">
+              <Panel variant="outline" padding="none" className="divide-y divide-grey-mid">
                 {clSelected.length === 0 ? (
                   <div className="p-4 text-center font-mono text-xs text-grey-light">
                     NO TASKS SELECTED
@@ -1055,6 +1414,12 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                           {i + 1}. {found?.title ?? '(task removed)'}
                         </span>
                         <div className="flex gap-2 flex-shrink-0">
+                          {found && access.canEditTask && (
+                            <button onClick={() => openTaskEdit(found)}
+                              className="font-mono text-xs uppercase text-grey-light hover:text-white px-1 py-0.5">
+                              EDIT
+                            </button>
+                          )}
                           <button disabled={i === 0}
                             onClick={() => setClSelected(moveItem(clSelected, i, i - 1))}
                             className="font-mono text-xs text-grey-light hover:text-white disabled:opacity-30 px-1 py-0.5">
@@ -1074,7 +1439,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                     )
                   })
                 )}
-              </div>
+              </Panel>
 
               <Combobox
                 options={editTasks.filter(et => !clSelected.includes(et.id)).map(et => ({ value: et.id, label: et.title, description: et.description }))}
@@ -1082,13 +1447,24 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
                 onChange={(ids) => setClSelected(ids)}
                 placeholder="+ ADD A TASK..."
               />
+              {access.canCreateTask && (
+                <div className="pt-1">
+                  <button data-testid="checklist-create-task" onClick={() => openTaskCreate({ fromList: true })}
+                    className="w-full border border-dashed border-grey-mid py-2 font-mono text-xs uppercase text-warning hover:border-warning transition-colors">
+                    + CREATE NEW TASK
+                  </button>
+                  <p className="font-mono text-xs uppercase text-grey-light mt-1">
+                    A NEW TASK SAVES IMMEDIATELY — CANCELLING THIS LIST WON&apos;T DELETE IT.
+                  </p>
+                </div>
+              )}
             </div>
 
             {clError && <p className="font-mono text-xs text-danger">{clError}</p>}
           </div>
 
           <div className="px-4 pb-8 pt-4 border-t border-grey-mid flex gap-2">
-            <button onClick={saveChecklist} disabled={clSaving}
+            <button data-testid="worker-checklist-save" onClick={saveChecklist} disabled={clSaving}
               className="flex-1 h-14 bg-warning text-black font-mono font-bold text-sm uppercase tracking-widest hover:opacity-90 disabled:opacity-40">
               {clSaving ? 'SAVING_' : 'SAVE'}
             </button>
@@ -1096,7 +1472,7 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
               className="flex-1 h-14 border border-grey-mid text-white font-mono font-bold text-sm uppercase tracking-widest hover:border-white transition-colors">
               CANCEL
             </button>
-            {clEditing !== 'new' && (
+            {clEditing !== 'new' && access.canDeleteList && (
               <button onClick={deleteChecklist}
                 className="h-14 px-4 border border-danger text-danger font-mono font-bold text-xs uppercase tracking-widest hover:bg-danger hover:text-black transition-colors">
                 DEL
@@ -1105,6 +1481,8 @@ export function WorkerTasksClient({ role, sessionVenueId }: { role: string | nul
           </div>
         </div>
       )}
+
+      {guidePopupNodes}
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { storageRoot } from '@/lib/storage'
 import { exec } from 'child_process'
 import { writeFile, readFile, unlink, readdir, stat, mkdir } from 'fs/promises'
 import { randomUUID } from 'crypto'
@@ -16,7 +17,7 @@ async function runCommand(cmd: string, timeout = 60_000): Promise<{ stdout: stri
 
 async function readUploads(): Promise<Record<string, string>> {
   const files: Record<string, string> = {}
-  const uploadsDir = join(process.cwd(), 'public', 'uploads')
+  const uploadsDir = storageRoot()
   try {
     const entries = await readdir(uploadsDir, { withFileTypes: true })
     for (const entry of entries) {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { pushToast } from '@/components/ui/Toast'
+import { getActiveVenueId } from '@/lib/active-venue'
 
 interface SyncLogRow {
   id: string
@@ -29,7 +30,8 @@ const DIRECTION_LABELS: Record<string, string> = {
 
 const REFRESH_MS = 10_000
 
-export function SyncClient() {
+export function SyncClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
+  const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
   const [logs, setLogs] = useState<SyncLogRow[]>([])
   const [loading, setLoading] = useState(true)
   const [pulling, setPulling] = useState(false)
@@ -41,6 +43,7 @@ export function SyncClient() {
 
   const load = useCallback(async () => {
     const params = new URLSearchParams()
+    if (venueId) params.set('venueId', venueId)
     if (directionFilter) params.set('direction', directionFilter)
     if (statusFilter) params.set('status', statusFilter)
     const r = await fetch(`/api/admin/sync/log?${params.toString()}`)
@@ -49,7 +52,7 @@ export function SyncClient() {
       setLogs(Array.isArray(data) ? data : [])
     }
     setLoading(false)
-  }, [directionFilter, statusFilter])
+  }, [venueId, directionFilter, statusFilter])
 
   useEffect(() => {
     setLoading(true)
@@ -61,7 +64,11 @@ export function SyncClient() {
   async function handlePull() {
     setPulling(true)
     try {
-      const r = await fetch('/api/admin/sync/pull', { method: 'POST' })
+      const r = await fetch('/api/admin/sync/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(venueId ? { venueId } : {}),
+      })
       const d = await r.json()
       if (r.ok) {
         pushToast(String(d.message ?? 'PULL COMPLETE').toUpperCase(), 'success')
@@ -78,7 +85,11 @@ export function SyncClient() {
   async function handlePullOrders() {
     setPullingOrders(true)
     try {
-      const r = await fetch('/api/admin/sync/pull-orders', { method: 'POST' })
+      const r = await fetch('/api/admin/sync/pull-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(venueId ? { venueId } : {}),
+      })
       const d = await r.json()
       if (r.ok) {
         pushToast(String(d.message ?? 'ORDER PULL COMPLETE').toUpperCase(), 'success')
@@ -95,7 +106,11 @@ export function SyncClient() {
   async function handlePush() {
     setPushing(true)
     try {
-      const r = await fetch('/api/admin/sync/push', { method: 'POST' })
+      const r = await fetch('/api/admin/sync/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(venueId ? { venueId } : {}),
+      })
       const d = await r.json()
       if (r.ok) {
         pushToast(String(d.message ?? 'PUSH COMPLETE').toUpperCase(), 'success')
@@ -163,13 +178,13 @@ export function SyncClient() {
         {logs.length === 0 ? (
           <div className="p-8 text-center">
             <p className="font-mono text-xs text-grey-light uppercase">NO SYNC ACTIVITY YET</p>
-            <p className="font-mono text-[10px] text-grey-light mt-1">
+            <p className="font-mono text-xs text-grey-light mt-1">
               EVENTS APPEAR HERE WHEN PRODUCTS OR ORDERS SYNC WITH WOOCOMMERCE
             </p>
           </div>
         ) : (
           <div>
-            <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2 border-b border-grey-mid bg-grey-dark/30 font-mono text-[10px] uppercase text-grey-light">
+            <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2 border-b border-grey-mid bg-grey-dark/30 font-mono text-xs uppercase text-grey-light">
               <div className="col-span-2">TIME</div>
               <div className="col-span-2">DIRECTION</div>
               <div className="col-span-1">ENTITY</div>
@@ -185,17 +200,17 @@ export function SyncClient() {
                     className="w-full grid grid-cols-1 md:grid-cols-12 gap-2 px-4 py-2 items-center font-mono text-left hover:bg-grey-mid/10"
                   >
                     <div className="md:col-span-2 flex items-center gap-2">
-                      <span className={`text-[10px] ${expanded ? 'text-white' : 'text-grey-light'}`}>{expanded ? '▾' : '▸'}</span>
-                      <span className="text-[10px] text-grey-light">{new Date(l.createdAt).toLocaleString()}</span>
+                      <span className={`text-xs ${expanded ? 'text-white' : 'text-grey-light'}`}>{expanded ? '▾' : '▸'}</span>
+                      <span className="text-xs text-grey-light">{new Date(l.createdAt).toLocaleString()}</span>
                     </div>
                     <div className="md:col-span-2">
-                      <span className="text-[10px] text-white uppercase">{DIRECTION_LABELS[l.direction] ?? l.direction}</span>
+                      <span className="text-xs text-white uppercase">{DIRECTION_LABELS[l.direction] ?? l.direction}</span>
                     </div>
                     <div className="md:col-span-1">
-                      <span className="text-[10px] text-grey-light uppercase">{l.entity}</span>
+                      <span className="text-xs text-grey-light uppercase">{l.entity}</span>
                     </div>
                     <div className="md:col-span-1">
-                      <span className={`text-[10px] uppercase border px-1.5 py-0.5 ${STATUS_STYLES[l.status] ?? ''}`}>
+                      <span className={`text-xs uppercase border px-1.5 py-0.5 ${STATUS_STYLES[l.status] ?? ''}`}>
                         {l.status}
                       </span>
                     </div>
@@ -207,17 +222,17 @@ export function SyncClient() {
                   {/* Expanded: full event detail */}
                   {expanded && (
                     <div className="border-t border-grey-mid bg-grey-dark/40 px-6 py-3 space-y-2">
-                      <div className="flex flex-wrap gap-6 font-mono text-[10px] text-grey-light uppercase">
+                      <div className="flex flex-wrap gap-6 font-mono text-xs text-grey-light uppercase">
                         <span>EXTERNAL ID: {l.externalId ?? '—'}</span>
                         <span>EVENT ID: {l.id}</span>
                         <span>{new Date(l.createdAt).toLocaleString()}</span>
                       </div>
                       {l.detail != null ? (
-                        <pre className="font-mono text-[10px] text-white whitespace-pre-wrap break-all bg-black border border-grey-mid p-3 max-h-64 overflow-y-auto">
+                        <pre className="font-mono text-xs text-white whitespace-pre-wrap break-all bg-black border border-grey-mid p-3 max-h-64 overflow-y-auto">
                           {JSON.stringify(l.detail, null, 2)}
                         </pre>
                       ) : (
-                        <p className="font-mono text-[10px] text-grey-light uppercase">NO ADDITIONAL DETAIL RECORDED FOR THIS EVENT</p>
+                        <p className="font-mono text-xs text-grey-light uppercase">NO ADDITIONAL DETAIL RECORDED FOR THIS EVENT</p>
                       )}
                     </div>
                   )}

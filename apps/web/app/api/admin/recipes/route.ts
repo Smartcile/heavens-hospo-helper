@@ -3,24 +3,36 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { pushProduct } from '@/lib/woo-push'
+import { guardAccess } from '@/lib/permissions'
+import { checkRecipeLineUnits } from '@/lib/recipe-line-kinds.server'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.recipes.view')
+  if (denied) return denied
+
+  const venueId = session.user.role === 'MANAGER'
+    ? session.user.venueId
+    : req.nextUrl.searchParams.get('venueId') || session.user.venueId
 
   const recipes = await prisma.recipe.findMany({
-    where: { venueId: session.user.venueId, deletedAt: null },
+    where: { venueId, deletedAt: null },
     include: {
       yieldUnit: { select: { id: true, name: true } },
       lineItems: {
         include: {
           inventoryItem: { select: { id: true, name: true, unit: true, allergyInfo: true } },
           childRecipe: { select: { id: true, name: true } },
+          ingredientReference: { select: { id: true, name: true, densityGramsPerMl: true, weightPerUnitGrams: true, notes: true } },
           uom: { select: { id: true, name: true } },
         },
         orderBy: { sortOrder: 'asc' },
       },
-      menuItems: { select: { id: true, price: true, wooProductId: true, wooCategoryId: true, dietaryInfo: true } },
+      menuItems: {
+        select: { id: true, price: true, wooProductId: true, wooCategoryId: true, imageUrl: true, shortDescription: true, isVariable: true, variations: true, dietaryInfo: true, swiftPosId: true, tastingNotes: true, vintage: true, howToServe: true },
+        where: { deletedAt: null },
+      },
     },
     orderBy: { name: 'asc' },
   })
@@ -35,16 +47,23 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.recipes.create')
+  if (denied) return denied
 
-  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, existingMenuItemId, dietaryInfo } = await req.json()
-  if (!name?.trim() || !yieldUnitId) {
-    return NextResponse.json({ error: 'name and yieldUnitId are required' }, { status: 400 })
+  const { name, yieldQty, yieldUnitId, instructions, prepTime, lineItems, linkToMenu, price, wooProductId, wooCategoryId, imageUrl, shortDescription, isVariable, variations, existingMenuItemId, dietaryInfo, swiftPosId, tastingNotes, vintage, howToServe, venueId: bodyVenueId } = await req.json()
+  if (!name?.trim()) {
+    return NextResponse.json({ error: 'name is required' }, { status: 400 })
   }
+
+  const lineError = await checkRecipeLineUnits(lineItems)
+  if (lineError) return NextResponse.json({ error: lineError }, { status: 400 })
+
+  const venueId = session.user.role === 'MANAGER' ? session.user.venueId : (bodyVenueId || session.user.venueId)
 
   const recipe = await prisma.$transaction(async (tx) => {
     const r = await tx.recipe.create({
       data: {
-        venueId: session.user.venueId,
+        venueId,
         name: name.toUpperCase().trim(),
         yieldQty: parseFloat(String(yieldQty)) || 1,
         yieldUnitId,
@@ -56,19 +75,19 @@ export async function POST(req: NextRequest) {
             uomId: li.uomId,
             inventoryItemId: li.inventoryItemId || null,
             childRecipeId: li.childRecipeId || null,
+            ingredientReferenceId: li.ingredientReferenceId || null,
             sortOrder: idx,
           })),
         } : undefined,
       },
       include: { lineItems: true, yieldUnit: { select: { id: true, name: true } } },
     })
-
     if (linkToMenu) {
       // Auto-generate wooProductId as max existing + 1 when not provided
       let effectiveWooProductId = wooProductId || null
       if (!effectiveWooProductId) {
         const max = await tx.menuItem.findFirst({
-          where: { wooProductId: { not: null }, venueId: session.user.venueId, deletedAt: null },
+          where: { wooProductId: { not: null }, venueId, deletedAt: null },
           orderBy: { wooProductId: 'desc' },
           select: { wooProductId: true },
         })
@@ -85,19 +104,35 @@ export async function POST(req: NextRequest) {
             recipeId: r.id,
             price: parseFloat(String(price)) || 0,
             wooCategoryId: wooCategoryId || null,
+            imageUrl: imageUrl || null,
+            shortDescription: shortDescription || null,
+            isVariable: isVariable || false,
+            variations: variations || null,
             dietaryInfo: dietaryInfo || null,
+            swiftPosId: swiftPosId || null,
+            tastingNotes: tastingNotes || null,
+            vintage: vintage ? String(vintage).trim() : null,
+            howToServe: howToServe || null,
           },
         })
       } else {
         await tx.menuItem.create({
           data: {
-            venueId: session.user.venueId,
+            venueId,
             name: name.toUpperCase().trim(),
             recipeId: r.id,
             price: parseFloat(String(price)) || 0,
             wooProductId: effectiveWooProductId,
             wooCategoryId: wooCategoryId || null,
+            imageUrl: imageUrl || null,
+            shortDescription: shortDescription || null,
+            isVariable: isVariable || false,
+            variations: variations || null,
             dietaryInfo: dietaryInfo || null,
+            swiftPosId: swiftPosId || null,
+            tastingNotes: tastingNotes || null,
+            vintage: vintage ? String(vintage).trim() : null,
+            howToServe: howToServe || null,
           },
         })
       }

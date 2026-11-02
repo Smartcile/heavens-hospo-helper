@@ -1,0 +1,69 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
+import { prisma } from '@hospo-ops/db'
+import { getManagerVenueId } from '@/lib/venue-scope'
+import { guardAccess } from '@/lib/permissions'
+import { approvalLockFields } from '@/lib/availability'
+import { cancelPendingAvailability } from '@/lib/availability.server'
+
+// Confirm, decline or cancel declared availability. `ids` reviews individual
+// days; `seriesId` (+ staffId) reviews every still-pending occurrence of a
+// weekly series in one action. DELETE cancels the declaration outright.
+export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'team.availability.approve')
+  if (denied) return denied
+
+  const body = await req.json().catch(() => null) as {
+    ids?: string[]
+    seriesId?: string
+    staffId?: string
+    venueId?: string
+    action?: 'APPROVE' | 'DECLINE' | 'DELETE'
+    reviewNote?: string | null
+  } | null
+
+  const venueId = getManagerVenueId(session, req) ?? body?.venueId ?? session.user.venueId
+  if (!venueId) return NextResponse.json({ error: 'venueId is required' }, { status: 400 })
+  const action = body?.action
+  if (action !== 'APPROVE' && action !== 'DECLINE' && action !== 'DELETE') {
+    return NextResponse.json({ error: 'action must be APPROVE, DECLINE or DELETE' }, { status: 400 })
+  }
+
+  const ids = Array.isArray(body?.ids) ? body.ids.filter((x): x is string => typeof x === 'string') : []
+  if (ids.length === 0 && !(body?.seriesId && body?.staffId)) {
+    return NextResponse.json({ error: 'ids or seriesId+staffId are required' }, { status: 400 })
+  }
+
+  if (action === 'DELETE') {
+    const deleted = await cancelPendingAvailability({
+      venueId,
+      ids,
+      staffId: body?.staffId ?? null,
+      seriesId: body?.seriesId ?? null,
+    })
+    return NextResponse.json({ deleted })
+  }
+
+  const where = ids.length > 0
+    ? { id: { in: ids } }
+    : { seriesId: body!.seriesId!, staffId: body!.staffId! }
+
+  // Confirming a declaration locks every approved day (a series is locked
+  // occurrence-by-occurrence). Declining never locks.
+  const approve = action === 'APPROVE'
+  const result = await prisma.staffAvailability.updateMany({
+    where: { ...where, venueId, deletedAt: null, status: 'PENDING' },
+    data: {
+      status: approve ? 'APPROVED' : 'DECLINED',
+      reviewedById: session.user.id,
+      reviewedAt: new Date(),
+      reviewNote: typeof body?.reviewNote === 'string' && body.reviewNote.trim() ? body.reviewNote.trim() : null,
+      ...approvalLockFields(approve, session.user.id),
+    },
+  })
+
+  return NextResponse.json({ updated: result.count })
+}

@@ -3,7 +3,8 @@ import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { getTodayDate } from '@/lib/utils'
 
-// A worker's own upcoming shifts + their time-off requests.
+// A worker's own upcoming (published) shifts. Time off now lives on the unified
+// availability calendar (`/w/availability`).
 export async function GET() {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -14,22 +15,31 @@ export async function GET() {
   })
   const today = getTodayDate(venue?.timezone)
 
-  const [shifts, timeOff] = await Promise.all([
-    prisma.shift.findMany({
-      where: { staffId: session.staffId, deletedAt: null, date: { gte: today } },
-      include: { department: { select: { name: true } } },
-      orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
-      take: 60,
-    }),
-    prisma.timeOffRequest.findMany({
-      where: { staffId: session.staffId, deletedAt: null },
-      orderBy: { startDate: 'desc' },
-      take: 30,
-    }),
-  ])
+  const shifts = await prisma.shift.findMany({
+    where: { staffId: session.staffId, deletedAt: null, status: 'PUBLISHED', date: { gte: today } },
+    include: { department: { select: { name: true } } },
+    orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
+    take: 60,
+  })
+
+  // Count of listed shifts this worker can pick up (dashboard tile badge).
+  const positions = await prisma.staffPosition.findMany({
+    where: { staffId: session.staffId },
+    select: { positionId: true },
+  })
+  const openShiftCount = await prisma.openShift.count({
+    where: {
+      venueId: session.venueId,
+      deletedAt: null,
+      status: 'OPEN',
+      date: { gte: today },
+      OR: [{ positionId: null }, { positionId: { in: positions.map((p) => p.positionId) } }],
+    },
+  })
 
   return NextResponse.json({
     firstName: session.firstName,
+    openShiftCount,
     shifts: shifts.map((s) => ({
       id: s.id,
       date: s.date,
@@ -37,14 +47,6 @@ export async function GET() {
       endTime: s.endTime,
       departmentName: s.department?.name ?? null,
       note: s.note,
-    })),
-    timeOff: timeOff.map((t) => ({
-      id: t.id,
-      startDate: t.startDate,
-      endDate: t.endDate,
-      reason: t.reason,
-      status: t.status,
-      reviewNote: t.reviewNote,
     })),
   })
 }

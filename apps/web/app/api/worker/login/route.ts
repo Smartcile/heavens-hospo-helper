@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import bcrypt from 'bcryptjs'
-import { createWorkerSession, workerCookieSecure } from '@/lib/worker-session'
+import {
+  createWorkerSession,
+  workerSessionCookieOptions,
+} from '@/lib/worker-session'
+import { resolveWorkerSessionMinutes } from '@/lib/worker-session-timeout'
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
@@ -14,11 +18,12 @@ export async function POST(req: NextRequest) {
   // Block login for disabled / demo-inactive venues
   const venue = await prisma.venue.findUnique({
     where: { id: venueId, deletedAt: null },
-    select: { isActive: true, isDemo: true },
+    select: { isActive: true, isDemo: true, workerSessionTimeoutMinutes: true },
   })
   if (!venue || !venue.isActive) {
     return NextResponse.json({ error: 'Venue not available' }, { status: 404 })
   }
+  const timeoutMinutes = resolveWorkerSessionMinutes(venue.workerSessionTimeoutMinutes)
 
   // Find staff matching PIN in this venue (home venue OR shared venue)
   const staffList = await prisma.staff.findMany({
@@ -53,16 +58,14 @@ export async function POST(req: NextRequest) {
     departmentId: matched.departmentId,
     firstName: matched.firstName,
     role: matched.role,
-  })
+  }, timeoutMinutes)
 
   const response = NextResponse.json({ success: true, firstName: matched.firstName })
-  response.cookies.set('hospo-worker-session', sessionToken, {
-    httpOnly: true,
-    secure: workerCookieSecure,
-    sameSite: 'lax',
-    maxAge: Number(process.env.WORKER_SESSION_EXPIRY_MINUTES ?? 15) * 60,
-    path: '/',
-  })
+  response.cookies.set(
+    'hospo-worker-session',
+    sessionToken,
+    workerSessionCookieOptions(timeoutMinutes)
+  )
 
   return response
 }

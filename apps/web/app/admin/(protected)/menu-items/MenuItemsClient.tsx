@@ -1,14 +1,16 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { SearchSelect } from '@/components/ui/SearchSelect'
+import { Modal } from '@/components/ui/Modal'
 
 interface MenuItem {
   id: string; name: string; recipeId: string; price: number
   wooProductId: string | null; wooCategoryId: string | null
-  imageUrl: string | null; description: string | null; isActive: boolean
+  imageUrl: string | null; shortDescription: string | null; description: string | null; isActive: boolean
   recipe?: { id: string; name: string }
   sharedFromVenueName?: string
   sharedFromVenueId?: string
@@ -34,19 +36,52 @@ export function MenuItemsClient() {
   const [formSharedPriceOverride, setFormSharedPriceOverride] = useState('')
   const [selectedIsShared, setSelectedIsShared] = useState(false)
 
+  const [wooCategories, setWooCategories] = useState<{ value: string; label: string }[]>([])
+  const [wooCategoriesLoaded, setWooCategoriesLoaded] = useState(false)
+
+  const [formImageUrl, setFormImageUrl] = useState<string | null>(null)
+  const [imageUploading, setImageUploading] = useState(false)
+  const imageFileRef = useRef<HTMLInputElement | null>(null)
+  const [formShortDescription, setFormShortDescription] = useState('')
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
+
   function resetForm() {
     setFormName(''); setFormRecipeId(''); setFormPrice('0')
-    setFormWooProductId(''); setFormWooCategoryId(''); setFormDescription('')
-    setFormSharedPriceOverride(''); setSelectedIsShared(false)
+    setFormWooProductId(''); setFormWooCategoryId(''); setFormDescription(''); setFormShortDescription('')
+    setFormSharedPriceOverride(''); setSelectedIsShared(false); setFormImageUrl(null)
   }
 
   function populateForm(m: MenuItem) {
     setFormName(m.name); setFormRecipeId(m.recipeId)
     setFormPrice(String(m.sharedPriceOverride ?? m.price))
     setFormWooProductId(m.wooProductId ?? ''); setFormWooCategoryId(m.wooCategoryId ?? '')
-    setFormDescription(m.description ?? '')
+    setFormDescription(m.description ?? ''); setFormShortDescription(m.shortDescription ?? '')
     setFormSharedPriceOverride(m.sharedPriceOverride != null ? String(m.sharedPriceOverride) : '')
     setSelectedIsShared(!!m.sharedFromVenueId)
+    setFormImageUrl(m.imageUrl ?? null)
+  }
+
+  async function uploadImage(file: File) {
+    setImageUploading(true)
+    const form = new FormData()
+    form.append('file', file)
+    const r = await fetch('/api/admin/upload', { method: 'POST', body: form })
+    setImageUploading(false)
+    if (r.ok) {
+      const data = await r.json()
+      setFormImageUrl(data.url)
+    }
+  }
+
+  async function loadWooCategories() {
+    if (wooCategoriesLoaded) return
+    const res = await fetch('/api/admin/woocommerce/categories')
+    if (res.ok) {
+      const data = await res.json()
+      const cats = data.categories ?? []
+      setWooCategories(cats.map((c: { id: number; name: string }) => ({ value: String(c.id), label: c.name })))
+    }
+    setWooCategoriesLoaded(true)
   }
 
   async function load() {
@@ -63,7 +98,7 @@ export function MenuItemsClient() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); loadWooCategories() }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (selectedId && !isCreating) {
@@ -95,6 +130,8 @@ export function MenuItemsClient() {
       price: parseFloat(formPrice) || 0,
       wooProductId: formWooProductId || null,
       wooCategoryId: formWooCategoryId || null,
+      imageUrl: formImageUrl || null,
+      shortDescription: formShortDescription || null,
       description: formDescription || null,
     }
     if (isCreating) {
@@ -136,10 +173,10 @@ export function MenuItemsClient() {
                   <span className="block truncate">
                     {m.name}
                     {m.sharedFromVenueName && (
-                      <span className="ml-1 font-mono text-[9px] text-[#60A5FA] normal-case">(SHARED FROM {m.sharedFromVenueName})</span>
+                      <span className="ml-1 font-mono text-xs text-info normal-case">(SHARED FROM {m.sharedFromVenueName})</span>
                     )}
                   </span>
-                  <span className="block text-[10px] text-grey-light normal-case">
+                  <span className="block text-xs text-grey-light normal-case">
                     ${(m.sharedPriceOverride ?? m.price).toFixed(2)} · {m.recipe?.name ?? 'NO RECIPE'}
                   </span>
                 </button>
@@ -172,7 +209,7 @@ export function MenuItemsClient() {
                   </div>
                   {selectedIsShared && (
                     <div>
-                      <label className="font-mono text-xs uppercase text-[#60A5FA] block mb-1">PRICE OVERRIDE</label>
+                      <label className="font-mono text-xs uppercase text-info block mb-1">PRICE OVERRIDE</label>
                       <Input type="number" step="0.01" value={formSharedPriceOverride} onChange={(e) => setFormSharedPriceOverride(e.target.value)} placeholder="LEAVE BLANK FOR SOURCE PRICE" />
                     </div>
                   )}
@@ -185,15 +222,20 @@ export function MenuItemsClient() {
 
                 {!selectedIsShared && (
                   <div className="border-t border-grey-mid pt-3">
-                    <p className="font-mono text-[10px] text-grey-light uppercase mb-3">WOOCOMMERCE SYNC</p>
+                    <p className="font-mono text-xs text-grey-light uppercase mb-3">WOOCOMMERCE SYNC</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
                         <label className="font-mono text-xs uppercase text-grey-light block mb-1">PRODUCT ID</label>
-                        <Input value={formWooProductId} onChange={(e) => setFormWooProductId(e.target.value)} placeholder="WOOCOMMERCE PRODUCT ID" />
+                        <Input value={formWooProductId} onChange={(e) => setFormWooProductId(e.target.value)} placeholder="AUTO-GENERATED" disabled={true} />
                       </div>
                       <div>
-                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">CATEGORY ID</label>
-                        <Input value={formWooCategoryId} onChange={(e) => setFormWooCategoryId(e.target.value)} placeholder="WOOCOMMERCE CATEGORY ID" />
+                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">CATEGORY</label>
+                        <SearchSelect
+                          options={wooCategories}
+                          value={formWooCategoryId}
+                          onChange={(v) => setFormWooCategoryId(v)}
+                          placeholder="SEARCH OR TYPE CATEGORY..."
+                        />
                       </div>
                     </div>
                   </div>
@@ -201,8 +243,54 @@ export function MenuItemsClient() {
 
                 {!selectedIsShared && (
                   <div>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">SHORT DESCRIPTION</label>
+                    <textarea value={formShortDescription} onChange={(e) => setFormShortDescription(e.target.value)}
+                      placeholder="BRIEF EXCERPT FOR PRODUCT LISTING..."
+                      rows={3}
+                      className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light resize-y" />
+                  </div>
+                )}
+
+                {!selectedIsShared && (
+                  <div>
                     <label className="font-mono text-xs uppercase text-grey-light block mb-1">DESCRIPTION</label>
                     <Input value={formDescription} onChange={(e) => setFormDescription(e.target.value)} placeholder="DESCRIPTION" />
+                  </div>
+                )}
+
+                {!selectedIsShared && (
+                  <div>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">PRODUCT IMAGE</label>
+                    <div className="flex items-center gap-2" onPaste={(e) => {
+                      const items = e.clipboardData?.items
+                      if (items) {
+                        for (const item of Array.from(items)) {
+                          if (item.type.startsWith('image/')) {
+                            const file = item.getAsFile()
+                            if (file) uploadImage(file)
+                            break
+                          }
+                        }
+                      }
+                    }}>
+                      <input ref={imageFileRef} type="file" accept="image/*" className="hidden"
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
+                      <button type="button" onClick={() => imageFileRef.current?.click()}
+                        className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors">
+                        {imageUploading ? 'UPLOADING_' : formImageUrl ? 'REPLACE IMAGE' : 'ADD IMAGE'}
+                      </button>
+                      <span className="font-mono text-xs text-grey-light/50 hidden sm:inline">OR PASTE (CTRL+V)</span>
+                      {formImageUrl && (
+                        <>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={formImageUrl} alt="product" className="h-10 w-10 object-cover border border-grey-mid cursor-pointer" onClick={() => setPreviewImage(formImageUrl)} />
+                          <button type="button" onClick={() => setFormImageUrl(null)}
+                            className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">
+                            REMOVE
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -216,6 +304,12 @@ export function MenuItemsClient() {
           </div>
         </div>
       </div>
+
+      <Modal isOpen={previewImage != null} onClose={() => setPreviewImage(null)} title="" size="lg">
+        {previewImage && (
+          <img src={previewImage} alt="Product preview" className="w-full border border-grey-mid" />
+        )}
+      </Modal>
     </div>
   )
 }

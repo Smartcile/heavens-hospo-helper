@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { postRetrainNotice } from '@/lib/retrain'
+import { guardAccess } from '@/lib/permissions'
+import { normaliseOutcomes } from '@/lib/task-outcomes'
 
 interface Params {
   params: { id: string }
@@ -11,6 +13,8 @@ interface Params {
 export async function GET(_req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'execution.tasks.view')
+  if (denied) return denied
 
   const task = await prisma.task.findUnique({
     where: { id: params.id },
@@ -19,17 +23,23 @@ export async function GET(_req: NextRequest, { params }: Params) {
       assignedToStaffId: true,
       completionType: true, scheduleType: true, scheduleDays: true, customCron: true,
       intervalMonths: true, monthlyOption: true, monthlyDay: true, isActive: true,
+      status: true, hsCategory: true, linkedItemId: true,
+      readingUnit: true, readingMin: true, readingMax: true, criticalMin: true, criticalMax: true,
+      allowedOutcomes: true, overrideOutcomes: true, requireOutcomeReason: true,
+      sections: { select: { sectionId: true } },
       requiredTraining: { select: { moduleId: true } },
       taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
     },
   })
   if (!task) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json(task)
+  return NextResponse.json({ ...task, sectionIds: task.sections.map((s) => s.sectionId) })
 }
 
 export async function PUT(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.tasks.edit')
+  if (denied) return denied
 
   const body = await req.json()
   const updates: Record<string, unknown> = {}
@@ -47,9 +57,31 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.monthlyDay !== undefined) updates.monthlyDay = body.monthlyDay != null ? (Number(body.monthlyDay) || 1) : null
   if (body.isActive !== undefined) updates.isActive = body.isActive
   if (body.sortOrder !== undefined) updates.sortOrder = body.sortOrder
+  // --- Food Health & Safety fields ---
+  if (body.status !== undefined) updates.status = body.status
+  if (body.hsCategory !== undefined) updates.hsCategory = body.hsCategory ?? null
+  if (body.linkedItemId !== undefined) updates.linkedItemId = body.linkedItemId || null
+  if (body.readingUnit !== undefined) updates.readingUnit = body.readingUnit ?? null
+  if (body.readingMin !== undefined) updates.readingMin = body.readingMin != null && Number.isFinite(body.readingMin) ? Number(body.readingMin) : null
+  if (body.readingMax !== undefined) updates.readingMax = body.readingMax != null && Number.isFinite(body.readingMax) ? Number(body.readingMax) : null
+  if (body.criticalMin !== undefined) updates.criticalMin = body.criticalMin != null && Number.isFinite(body.criticalMin) ? Number(body.criticalMin) : null
+  if (body.criticalMax !== undefined) updates.criticalMax = body.criticalMax != null && Number.isFinite(body.criticalMax) ? Number(body.criticalMax) : null
+  if (body.allowedOutcomes !== undefined) updates.allowedOutcomes = normaliseOutcomes(body.allowedOutcomes)
+  if (body.overrideOutcomes !== undefined) updates.overrideOutcomes = !!body.overrideOutcomes
+  if (body.requireOutcomeReason !== undefined) updates.requireOutcomeReason = !!body.requireOutcomeReason
 
+  // Multiple sections — replace the set; the first is primary (department).
+  if (body.sectionIds !== undefined) {
+    const ids: string[] = Array.isArray(body.sectionIds) ? [...new Set(body.sectionIds as string[])] : []
+    updates.sections = { deleteMany: {}, create: ids.map((sectionId) => ({ sectionId })) }
+    updates.sectionId = ids[0] ?? null
+    if (ids[0]) {
+      const section = await prisma.section.findFirst({ where: { id: ids[0], deletedAt: null }, select: { departmentId: true } })
+      if (section) updates.departmentId = section.departmentId
+    }
+  }
   // Section implies its department.
-  if (body.sectionId !== undefined) {
+  if (body.sectionId !== undefined && body.sectionIds === undefined) {
     updates.sectionId = body.sectionId || null
     if (body.sectionId) {
       const section = await prisma.section.findFirst({ where: { id: body.sectionId, deletedAt: null }, select: { departmentId: true } })
@@ -112,6 +144,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'execution.tasks.delete')
+  if (denied) return denied
 
   await prisma.task.update({
     where: { id: params.id },

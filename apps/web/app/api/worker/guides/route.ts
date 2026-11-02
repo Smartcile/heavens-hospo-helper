@@ -1,78 +1,133 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getWorkerSession } from '@/lib/worker-session'
+import { resolveStaffGuides } from '@/lib/guides'
+import { workerGuideAccess } from '@/lib/worker-guide-access'
+import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { prisma } from '@hospo-ops/db'
+import {
+  cleanBodyHtml,
+  cleanGuideSteps,
+  cleanTaskGuides,
+  guideStepsCreate,
+  guideTypeValue,
+  type GuideStepInput,
+  type GuideTaskLinkInput,
+} from '@/lib/guides.server'
 
 export async function GET(req: NextRequest) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Manager/admin editing tasks — return all published guides for the venue.
+  // Task authoring (or guide authoring) — return all guides for the venue
+  // (lite form) so competency links can be picked on the phone.
   if (req.nextUrl.searchParams.get('edit') === '1') {
-    if (session.role !== 'ADMIN' && session.role !== 'MANAGER') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const taskAccess = await workerTaskAccess(session)
+    if (!taskAccess.canAuthor) {
+      const guideAccess = await workerGuideAccess(session)
+      if (!guideAccess.canEdit) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
     }
     const guides = await prisma.guide.findMany({
       where: { venueId: session.venueId, deletedAt: null },
-      select: { id: true, title: true, venueId: true, isTracked: true, description: true },
+      select: { id: true, title: true, venueId: true, isTracked: true, description: true, guideType: true },
       orderBy: { title: 'asc' },
     })
     return NextResponse.json(guides)
   }
 
-  const staff = await prisma.staff.findUnique({
-    where: { id: session.staffId },
-    select: { departmentId: true, venueId: true },
-  })
-  if (!staff) return NextResponse.json({ error: 'Staff not found' }, { status: 404 })
+  const [resolved, access, folders] = await Promise.all([
+    resolveStaffGuides(session.staffId, { includeSteps: true }),
+    workerGuideAccess(session),
+    prisma.guideFolder.findMany({
+      where: { venueId: session.venueId, deletedAt: null },
+      select: { id: true, name: true, sortOrder: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    }),
+  ])
+  if (!resolved) return NextResponse.json({ error: 'Staff not found' }, { status: 404 })
 
-  const guides = await prisma.guide.findMany({
-    where: {
-      venueId: staff.venueId,
-      status: 'PUBLISHED',
-      isTracked: true,
-      deletedAt: null,
-      OR: [
-        { isOnboarding: true },
-        ...(staff.departmentId ? [{ departmentId: staff.departmentId }] : []),
-      ],
-    },
-    include: {
-      steps: { orderBy: { order: 'asc' } },
-      department: { select: { id: true, name: true } },
-    },
-    orderBy: [{ isOnboarding: 'desc' }, { title: 'asc' }],
-  })
-
-  // Check completion status per guide
-  const guideIds = guides.map((g) => g.id)
-  const completions = guideIds.length > 0
-    ? await prisma.guideCompletion.findMany({
-        where: { guideId: { in: guideIds }, staffId: session.staffId },
-        select: { guideId: true },
-      })
-    : []
-
-  const completedSet = new Set(completions.map((c) => c.guideId))
-
-  const items = guides.map((g) => ({
+  const shape = (g: (typeof resolved.items)[number]) => ({
     id: g.id,
     title: g.title,
     description: g.description,
     category: g.category,
+    guideType: g.guideType,
+    bodyHtml: g.bodyHtml,
+    pdfPath: g.pdfPath,
+    pdfUrl: g.pdfUrl,
     requiresSignOff: g.requiresSignOff,
     isOnboarding: g.isOnboarding,
-    source: g.isOnboarding ? 'ONBOARDING' : 'DEPARTMENT',
-    completed: completedSet.has(g.id),
+    isTracked: true,
+    source: g.source,
+    folderId: g.folderId,
+    completed: g.completed,
     department: g.department,
-    steps: g.steps.map((s) => ({
-      id: s.id,
-      order: s.order,
-      heading: s.heading,
-      content: s.content,
-      imageUrl: s.imageUrl,
-      videoUrl: s.videoUrl,
-    })),
-  }))
+    tableColumns: g.tableColumns,
+    tableRows: g.tableRows,
+    steps: g.steps,
+  })
 
-  return NextResponse.json({ firstName: session.firstName, items })
+  return NextResponse.json({
+    firstName: session.firstName,
+    canEdit: access.canEdit,
+    canPublish: access.canPublish,
+    folders,
+    items: resolved.items.map(shape),
+    // Untracked published guides — read-only reference documents in the BIBLE.
+    reference: resolved.reference.map((g) => ({
+      ...shape(g),
+      isTracked: false,
+      completed: false,
+    })),
+  })
+}
+
+// Create a guide from the worker app (managers / granted staff only).
+export async function POST(req: NextRequest) {
+  const session = await getWorkerSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const access = await workerGuideAccess(session)
+  if (!access.canEdit) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const body = await req.json()
+  const { title, description, category, guideType, bodyHtml, departmentId, isTracked, isOnboarding, requiresSignOff, steps, taskGuides } = body as {
+    title?: string
+    description?: string | null
+    category?: string | null
+    guideType?: string | null
+    bodyHtml?: string | null
+    departmentId?: string | null
+    isTracked?: boolean
+    isOnboarding?: boolean
+    requiresSignOff?: boolean
+    steps?: GuideStepInput[]
+    taskGuides?: GuideTaskLinkInput[]
+  }
+
+  if (!title?.trim()) return NextResponse.json({ error: 'TITLE IS REQUIRED' }, { status: 400 })
+
+  const cleanSteps = cleanGuideSteps(steps)
+  const tgs = cleanTaskGuides(taskGuides)
+
+  const guide = await prisma.guide.create({
+    data: {
+      title: String(title).toUpperCase().trim(),
+      description: description?.trim() || null,
+      category: category ? String(category).toUpperCase().trim() : null,
+      guideType: guideTypeValue(guideType),
+      bodyHtml: cleanBodyHtml(bodyHtml),
+      venueId: session.venueId,
+      departmentId: departmentId || null,
+      status: 'DRAFT',
+      isTracked: !!isTracked,
+      isOnboarding: !!isOnboarding,
+      requiresSignOff: !!requiresSignOff,
+      steps: cleanSteps.length ? { create: guideStepsCreate(cleanSteps) } : undefined,
+      taskGuides: tgs.length ? { create: tgs } : undefined,
+    },
+    include: { steps: { orderBy: { order: 'asc' } }, taskGuides: true },
+  })
+
+  return NextResponse.json(guide, { status: 201 })
 }

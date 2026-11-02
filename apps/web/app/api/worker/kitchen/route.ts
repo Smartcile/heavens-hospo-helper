@@ -30,6 +30,13 @@ export async function GET(req: NextRequest) {
       deletedAt: null,
     },
     include: {
+      booking: {
+        select: {
+          tables: {
+            include: { setupItem: { select: { assignedNumber: true } } },
+          },
+        },
+      },
       items: {
         include: {
           menuItem: { select: { id: true, name: true, dietaryInfo: true } },
@@ -67,7 +74,15 @@ export async function GET(req: NextRequest) {
   for (const order of orders) {
     const tables: string[] = []
 
-    if (order.calendarEventId) {
+    // A linked reservation is the authoritative seating — its tables win
+    // over any layout auto-generated for the order itself.
+    if (order.booking) {
+      for (const t of order.booking.tables) {
+        if (t.setupItem.assignedNumber) tables.push(t.setupItem.assignedNumber)
+      }
+    }
+
+    if (order.calendarEventId && tables.length === 0) {
       const eventSetups = setupsByEvent.get(order.calendarEventId) ?? []
       for (const setup of eventSetups) {
         for (const si of setup.items) {
@@ -78,7 +93,8 @@ export async function GET(req: NextRequest) {
 
     for (const item of order.items) {
       const entry = {
-        orderId: order.wooOrderId,
+        // Manual orders carry no wooOrderId — fall back to the local reference.
+        orderId: order.wooOrderId ?? order.orderNumber ?? order.id,
         name: item.menuItem?.name ?? 'UNKNOWN',
         dietaryInfo: item.menuItem?.dietaryInfo ?? null,
         qty: item.qty,

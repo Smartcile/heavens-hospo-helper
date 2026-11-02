@@ -1,0 +1,83 @@
+# Live local dev stack: Postgres + the app running `next dev` with hot reload.
+#
+#   docker compose -f docker-compose.dev.yml up -d --build
+#   docker compose -f docker-compose.dev.yml logs -f app
+#   docker compose -f docker-compose.dev.yml down
+#
+# The host repo is bind-mounted into the app, so saving a file reloads the page.
+# File watching uses polling (needed over a Windows bind mount). node_modules
+# and .next live in volumes so the host's Windows builds never leak in.
+#
+# This is separate from the production docker-compose.yml (which pulls a prebuilt
+# image and runs `next start`). Use one or the other, not both.
+name: hospo-dev
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: hospo123
+      POSTGRES_DB: hospo_ops
+    ports:
+      - "5432:5432"
+    volumes:
+      - hospo-dev-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hospo_ops"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    environment:
+      # Overrides the host's localhost URL — inside the network the db is `db`.
+      DATABASE_URL: postgresql://postgres:hospo123@db:5432/hospo_ops
+      # Hot reload over a Windows bind mount needs polling.
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      NODE_ENV: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/web:/app/apps/web
+      - ./packages/db:/app/packages/db
+      - ./packages/types:/app/packages/types
+      - ./packages/config:/app/packages/config
+      # Keep the image's baked node_modules out of the bind mounts, and keep the
+      # host's Windows .next/node_modules from leaking in.
+      - /app/apps/web/.next
+      - /app/apps/web/node_modules
+      - /app/packages/db/node_modules
+      - /app/packages/types/node_modules
+      - /app/packages/config/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+    # Sync the schema, then start the hot-reload dev server.
+    command: >
+      sh -c "cd /app/packages/db && npx prisma generate &&
+             npx prisma db push --accept-data-loss &&
+             cd /app/apps/web && exec npx next dev --turbo -H 0.0.0.0 -p 3000"
+
+  # One-shot prewarm: hits the public routes so the shared layout + Tailwind CSS
+  # are already compiled before you open the app. Admin routes are auth-gated
+  # (middleware redirects before the page compiles), so they can't be prewarmed.
+  warmup:
+    image: curlimages/curl:latest
+    depends_on:
+      - app
+    restart: "no"
+    command: >
+      sh -c "for p in / /w/login /manifest.webmanifest; do
+             for i in $$(seq 1 40); do
+               curl -sf -o /dev/null http://app:3000$$p && { echo \"warmed $$p\"; break; };
+               sleep 3;
+             done;
+             done"
+
+volumes:
+  hospo-dev-db:

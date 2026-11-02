@@ -40,6 +40,48 @@ npx prisma db push --schema=packages/db/prisma/schema.prisma --accept-data-loss 
 }
 
 echo ""
+echo "▸ Running furniture unification migration (post-sync)..."
+# Must run AFTER db push: it reads the deprecated TableProfile tables, which
+# only exist because they are still declared in schema.prisma. Idempotent.
+cd /app/packages/db
+npm run db:migrate-furniture || echo "⚠ Furniture migration step failed (see error above) — continuing to start the app."
+
+echo ""
+echo "▸ Backfilling UOM kinds + ingredient densities (post-sync)..."
+# Kind on UnitOfMeasure (VOLUME/MASS/COUNT) + the known-ingredient density
+# library. Reads only the new columns/tables created by db push. Idempotent.
+npm run db:migrate-uom || echo "⚠ UOM migration step failed (see error above) — continuing to start the app."
+
+echo ""
+echo "▸ Recovering guide step links + guide audiences (post-sync)..."
+# Also must run AFTER db push. migrate-step-links reads the deprecated
+# TrainingStep junctions to rebuild links that migrate-to-guides had to drop.
+# Both are idempotent.
+npm run db:migrate-step-links || echo "⚠ Step-link recovery failed (see error above) — continuing to start the app."
+npm run db:backfill-guide-audiences || echo "⚠ Guide audience backfill failed (see error above) — continuing to start the app."
+
+echo ""
+echo "▸ Moving legacy time-off requests onto the availability calendar (post-sync)..."
+# Time off now lives on StaffAvailability (timeOff flag). Each legacy request
+# becomes one all-day UNAVAILABLE row per date, then the request is
+# soft-deleted — idempotent, safe to re-run.
+npm run db:migrate-timeoff || echo "⚠ Time-off migration step failed (see error above) — continuing to start the app."
+
+echo ""
+echo "▸ Moving legacy Google/iCal venue URLs onto room calendar feeds (post-sync)..."
+# Each event space now has its own CalendarFeed row so the event roster can
+# group imported events by room. Venues that already have feeds are skipped and
+# the legacy venue columns are left untouched (still the sync fallback).
+npm run db:migrate-calendar-feeds || echo "⚠ Calendar-feed migration step failed (see error above) — continuing to start the app."
+
+echo ""
+echo "▸ Linking room feeds to first-class Areas (post-sync)..."
+# Each live CalendarFeed gets its own Area (name/colour/floor-plan copied) and
+# imported events inherit their feed's area, so the event roster groups by area
+# and a space can exist without a calendar. Idempotent.
+npm run db:migrate-areas || echo "⚠ Area migration step failed (see error above) — continuing to start the app."
+
+echo ""
 echo "▸ Seeding database (safe to re-run)..."
 cd /app/packages/db
 npm run db:seed || echo "⚠ Seed step failed (see error above) — continuing to start the app."

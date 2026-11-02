@@ -1,8 +1,5 @@
-import { FollowUpsClient } from '@/components/admin/FollowUpsClient'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { hubRedirect } from '@/lib/ops-redirect'
 
-export default async function FollowUpsPage() {
-  const session = await getServerSession(authOptions)
-  return <FollowUpsClient role={session!.user.role} />
+export default function FollowUpsPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
+  hubRedirect('/admin/execution', 'followups', null, searchParams)
 }

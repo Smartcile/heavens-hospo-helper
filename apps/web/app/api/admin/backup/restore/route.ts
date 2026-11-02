@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
       'ResourceSection', 'ResourceLink',
       'Checklist', 'ChecklistTask',
       'Notice',
-      'InventoryCategory', 'UnitOfMeasure', 'Supplier', 'SupplierItemCode', 'InventoryItem', 'ElementInventoryItem',
+      'InventoryCategory', 'UnitOfMeasure', 'IngredientReference', 'Supplier', 'SupplierItemCode', 'InventoryItem', 'ElementInventoryItem',
       'TableProfile', 'TableProfileItem', 'TableGroup',
       'FloorPlan', 'FloorPlanElement', 'FloorPlanSetup', 'SetupItem',
       'SectionBoundary',

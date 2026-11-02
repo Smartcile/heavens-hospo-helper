@@ -26,6 +26,23 @@ export async function GET(req: NextRequest) {
       deletedAt: null,
     },
     include: {
+      // A linked reservation is the authoritative seating — its tables win
+      // over any layout auto-generated for the order itself.
+      booking: {
+        select: {
+          tables: {
+            include: {
+              setupItem: {
+                select: {
+                  assignedNumber: true,
+                  tableProfile: { select: { capacity: true } },
+                  furnitureItem: { select: { defaultChairCount: true } },
+                },
+              },
+            },
+          },
+        },
+      },
       items: {
         include: {
           menuItem: { select: { id: true, name: true, price: true, dietaryInfo: true, recipeId: true } },
@@ -63,7 +80,18 @@ export async function GET(req: NextRequest) {
   for (const order of orders) {
     const tables: { number: string; capacity: number }[] = []
 
-    if (order.calendarEventId) {
+    if (order.booking) {
+      for (const t of order.booking.tables) {
+        if (t.setupItem.assignedNumber) {
+          tables.push({
+            number: t.setupItem.assignedNumber,
+            capacity: t.setupItem.tableProfile?.capacity ?? t.setupItem.furnitureItem?.defaultChairCount ?? 0,
+          })
+        }
+      }
+    }
+
+    if (order.calendarEventId && tables.length === 0) {
       const eventSetups = setupsByEvent.get(order.calendarEventId) ?? []
       for (const setup of eventSetups) {
         for (const si of setup.items) {

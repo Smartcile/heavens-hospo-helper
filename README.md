@@ -88,6 +88,31 @@ npm run dev
 
 App runs at `http://localhost:3000`.
 
+### Local development (Docker)
+
+Two local stacks are included (both bring up their own Postgres):
+
+- **Live / hot reload** — `docker-compose.dev.yml` runs `next dev` (Turbopack)
+  with your source bind-mounted, so edits reload the page:
+  ```bash
+  docker compose -f docker-compose.dev.yml up -d --build
+  docker compose -f docker-compose.dev.yml logs -f app
+  docker compose -f docker-compose.dev.yml down
+  ```
+- **Built image / fast start-stop** — `docker-compose.local.yml` builds a
+  production image (`hospo-ops:local`) and runs `next start`, so pages are
+  already compiled and start-up is instant. Use `build-local.cmd` (Windows) —
+  it rebuilds only when your source is newer than the image, then starts:
+  ```bash
+  ./build-local.cmd            # build if stale, then start
+  docker compose -f docker-compose.local.yml stop    # stop (instant)
+  docker compose -f docker-compose.local.yml start   # start again (instant)
+  ```
+  Trade-off: no hot reload — re-run `build-local.cmd` after code changes. Or
+  start/stop the `hospo-local-app` + `hospo-local-db` containers in Docker
+  Desktop. Both local stacks publish port 3000, so stop one before starting the
+  other.
+
 ---
 
 ## DEFAULT CREDENTIALS
@@ -164,6 +189,28 @@ has an **ADMIN PANEL** button that returns to the landing page.
 On a phone, the admin panel collapses to a **burger menu** (top-left) that slides
 out the navigation; on desktop the sidebar is always visible.
 
+### Install it on your phone (app mode)
+
+HOSPO OPS is a PWA — you can add it to the home screen and it opens full-screen,
+with no browser bars, like a native app:
+
+- **iPhone (Safari):** open the app URL, tap **Share → Add to Home Screen → Add**.
+- **Android (Chrome):** tap the **⋮** menu → **Install app** / **Add to Home Screen**.
+
+Launch it from the home-screen icon from then on. The status bar is black to
+match the app, and the bottom bars keep clear of the iPhone home indicator.
+This is the intended way to use the worker screens and the BEO/events builder
+on the floor. Reach the app over your LAN (`http://<your-ip>:3000`) — an
+`https://` URL is required for some PWA features on iOS.
+
+### Dark & light themes
+
+The app ships two themes and remembers your choice. Use the **LIGHT MODE /
+DARK MODE** toggle in the admin sidebar footer (or the mobile top bar), and in the
+worker hamburger menu. Dark is the default; the light theme uses white surfaces
+with dark-blue accents and borders. The preference is stored per browser, so it
+never flashes the wrong theme on load.
+
 ---
 
 ## HOW IT ALL LINKS TOGETHER
@@ -183,12 +230,13 @@ Venue → Department → Section → tasks + training/SOPs/FAQs → completion �
 - **Sections** (bar / coffee / cabinet / floor under a department) and **follow-up
   triggers** are built: a missed or incorrectly-done task auto-assigns its training,
   and a task done by an untrained person prompts a manager to upskill
-  (`/admin/followups`).
+  (`/admin/execution?tab=followups`).
 
-**See it live:** open **Admin → Structure** (`/admin/structure`). The **TREE** tab
-shows a collapsible tree of how your venues, departments, staff, tasks and training
-are linked; the **MAP** tab is an interactive link graph for mapping out workflows —
-click any node to trace how lists talk to tasks and training/SOP.
+**See it live:** open **Admin → Setup & Config → Settings → STRUCTURE**
+(`/admin/settings?tab=structure`). The **TREE** tab shows a collapsible tree of how
+your venues, departments, staff, tasks and training are linked; the **MAP** tab is an
+interactive link graph for mapping out workflows — click any node to trace how lists
+talk to tasks and training/SOP.
 
 The full model and the build plan are documented in
 [`ECOSYSTEM.md`](./ECOSYSTEM.md).
@@ -204,21 +252,21 @@ per-corner rounding, bracket chairs, section assignment, capacities, undo/redo, 
 furniture layouts (e.g. "WEDDING RECEPTION", "CONFERENCE"). Each setup can have its own table
 arrangement, saved independently from the base plan. Switch between setups in the toolbar.
 
-**Table Profiles & BOM:** Define table types at **Admin → Table Profiles**. Each profile has
+**Table Profiles & BOM:** Define table types at **Admin → OPS HUB → INVENTORY & STOCKTAKE → INVENTORY → TABLES**. Each profile has
 dimensions, colour, seat count, seating density (cm per chair), head chair caps, and a Bill of
 Materials (BOM) — linking to inventory items with per-chair or per-table quantities. Physical
 table numbers (e.g. "20", "21") are managed via tag input and auto-assigned on placement.
 
 **Two-layer editing:** The base plan (walls, fixtures, section zones) and the movable tables
 live on separate layers. Pick a setup from the SETUP dropdown and the base plan **dims and
-locks** so you only move furniture; the palette switches to your Table Profiles. Deselect the
-setup to edit the base plan again. Rubber-band lasso selection works across the canvas.
+locks** so you only move furniture. Deselect the setup to edit the base plan again.
+Rubber-band lasso selection works across the canvas.
 
-**Direct-manipulation tables:** Drag a Table Profile onto the canvas to place a table (with an
-auto-assigned number). Select it to **rotate via a drag handle** (or the preset angle buttons)
-and set chairs by **clicking the table's edges** — left-click adds a chair to that side,
-right-click removes one, up to the profile's capacity and head-of-table caps. Delete key or the
-panel button removes tables.
+**Direct-manipulation tables:** Tables are created and managed from the **inventory module**
+(`/admin/ops?tab=inventory&sub=inventory` → TABLES category). Select a table on the canvas to **rotate via a drag
+handle** (or the preset angle buttons) and set chairs by **clicking the table's edges** —
+left-click adds a chair to that side, right-click removes one, up to the profile's capacity
+and head-of-table caps. Delete key or the panel button removes tables.
 
 **Auto-join (banquet joinery):** Drag two same-profile tables flush together and they **snap
 and join automatically** into one banquet block (or use the GROUP button). A joined block moves
@@ -228,10 +276,6 @@ perimeter**, respecting head-of-table constraints (no cramming chairs on short s
 **Live per-area totals:** Each section zone shows a running `N TBL · M PAX` badge, and the setup
 toolbar shows the grand total — both update as you drag tables in and out. A table auto-tags to
 the zone its centre lands in.
-
-**Auto-generate a layout:** Click **⚡ GENERATE**, enter a party size, and the planner places and
-numbers enough tables to cover it (greedy first-fit bin-packing over your Table Profiles) for you
-to fine-tune.
 
 **Inventory Check:** The right panel INVENTORY CHECK runs `calculateSetupInventory` for the
 active setup — comparing required items (from each profile's BOM) against total venue stock and
@@ -246,8 +290,7 @@ management, SectionBoundary CRUD, and worker setup views.
 
 ### BUDGET SPLITTER
 
-The app includes a weighted, multi-category monthly budget tool. Go to **Admin → Budget**
-(or **Finance → Budget** in the sidebar) to set up monthly budgets per venue.
+The app includes a weighted, multi-category monthly budget tool. Go to **Admin → Performance → Budget**
 
 **Landing page** (`/admin/budget`) shows a 12-month grid — click any month to open its
 full editor at `/admin/budget/[year]/[month]`.
@@ -275,21 +318,176 @@ against actual working days and applies post-rounding correction so the total ne
 below budget.
 
 
-The app includes a full inventory management system. Go to **Admin → Inventory** to create
+The app includes a full inventory management system. Go to **Admin → OPS HUB → INVENTORY & STOCKTAKE** to create
 categories (7 built-in + custom per venue) and items with par levels. Furniture items are
 linked to Table Profiles via BOM (Bill of Materials) — each table type defines which
-inventory items it requires and in what quantities. **Admin → Table Profiles** manages
-the profile definitions. **Admin → Stocktake** creates stock counts, assigns them to a
-role or staff member, and tracks variance on sign-off. Staff complete stocktakes on their
-phone at **Menu → Stocktake** with a scrollable count list. The dashboard shows par level
-alerts for items below threshold. The **STOCK** tab in the inventory page shows a
-hierarchy tree (Section → Table → Inventory Items).
+inventory items it requires and in what quantities (defined in the INVENTORY tab's TABLES
+category). **Admin → OPS HUB → INVENTORY & STOCKTAKE → STOCKTAKE** creates stock counts,
+assigns them to a role or staff member, and tracks variance on sign-off. Staff complete
+stocktakes on their phone at **Menu → Stocktake** with a scrollable count list. The dashboard
+shows par level alerts for items below threshold. The **STOCK** tab in the inventory page
+shows a hierarchy tree (Section → Table → Inventory Items).
+
+### UNITS OF MEASURE — VOLUME ↔ WEIGHT ↔ COUNT
+
+Every unit of measure knows its dimension (**VOLUME** / **MASS** / **COUNT**) and converts
+to a canonical base (mL / g / ea) — CUP = 250 mL, TABLESPOON = 20 mL, TEASPOON = 5 mL,
+OUNCE = 28.35 g, POUND = 453.6 g and so on. An ingredient can carry a **density**
+(grams per mL) and a **per-unit weight** (1 egg ≈ 50 g), so the software can answer
+*"how many grams is 1 cup of flour?"* — per ingredient, not per unit (1 cup flour ≈ 132 g,
+1 cup sugar ≈ 211 g).
+
+**Setting it up is easy:**
+- **Admin → OPS HUB → INVENTORY & STOCKTAKE → edit an item → DENSITY** box: type a density (G/ML), or the friendlier
+  **"1 CUP = ___ G"** (e.g. 132) and the g/mL is computed for you, or **1 UNIT = ___ G**.
+- Typing a name auto-suggests the built-in library (86 known ingredients — FLOUR - 00,
+  FLOUR - SELF RAISING, sugars, dairy, oils, produce...): click **APPLY DENSITY?** and it
+  fills itself. **FROM LIBRARY** opens the searchable list; venues can save their own
+  items as references.
+- **HELP ME FIND OUT** opens a copy-paste prompt customised for the item — paste it into
+  any LLM, paste the answer back, and the density is filled in automatically.
+
+**On the Recipes page** (**Admin → OPS HUB → MENU & SERVICES → RECIPES**) the INGREDIENTS list has a **VOLUME / WEIGHT** switch — flip to
+WEIGHT and every line shows its gram equivalent (e.g. "×2 CUP · ≈ 264 G"). Changing a
+line's unit auto-converts the quantity, so the recipe stays the same physically. Recipe
+explosions (inventory deduction) now sum in grams whenever the item has density data,
+so a recipe using both 1 CUP and 500 G of the same item adds correctly.
+
+**PANTRY BIBLE.** The known-ingredient library lives in its own **PANTRY BIBLE**
+tab (OPS HUB → INVENTORY & STOCKTAKE → PANTRY BIBLE) — searchable, every reference
+showing a `BUILT-IN` or `CUSTOM` badge, and every regular stock item tagged
+`CUSTOM`. Pantry references are **usable as recipe ingredients**: the recipe editor's
+ingredient search has a PANTRY BIBLE group, and pantry lines show a gold badge in the
+recipe. They carry density/unit-weight knowledge but no stock, so they never count
+toward inventory deduction.
+
+### STAFF CLOCKS, ROSTER & NZ PAYROLL
+
+Three **Roster & Pay** pages (**Admin → Team & Execution → Roster & Pay**) cover the
+staff-cost workflow end to end:
+
+**Staff Clocks** (`/admin/team?tab=clocks`) — a per-day table of every clock-in/out session:
+TEAM MEMBER, ROLE, WHEN IN/OUT, BREAKS, TIME WORKED and RATE. Sessions arrive as
+**PENDING** and are **APPROVED / REJECTED** by a manager; only APPROVED, closed
+sessions count toward payroll. SHOW DELETED CLOCKS, VIEW EDITS (audit trail of every
+change), + ADD CLOCK for manual entries, and the same date navigation as Orders.
+
+**Roster Editor** (`/admin/team?tab=roster`) — a staff × 7-day grid of coloured shift blocks
+(time range + role/tag). DAY/WEEK view, filter by role, search, `< TODAY >` navigation,
+PRINT (A4 PDF), fullscreen, and a PUBLISH/DRAFT status — workers only see **PUBLISHED**
+shifts on their phone. The footer shows TOTAL COST, BUDGETED SALES (from the Budget
+module's daily REVENUE allocations), STAFFING RATIO and TOTAL PAID HOURS; ANALYZE and
+VISUALIZE open per-role and per-day breakdowns. Approved time-off requests visibly
+block day cells so nobody gets rostered onto their day off.
+
+Every shift block has a small **drag-copy handle** in its corner — drag it across days
+(or down onto other staff) to repeat the shift in one gesture — and the block itself can
+be **dragged onto another person or day** to move it. New shifts default the role to the
+person's main position. Workers set their availability from their phone, and a
+configurable **weekly request deadline** (Settings → General → Roster Availability) can
+flip changes made after the deadline into manager requests instead of auto-approving.
+
+**Payroll** (`/admin/team?tab=payroll`) — create pay periods (weekly / fortnightly / monthly),
+then **CLOSE PERIOD** runs the built-in NZ statutory engine over approved clocks:
+PAYE income tax (progressive brackets, tax-code aware M/S/SB/SH/ST/CAE + student loan
+variants), ACC earner levy, KiwiSaver (employee 3–10% + employer contribution), student
+loan repayments, **8% holiday pay for casuals** (paid out each period) vs **annual leave
+accrual** for permanent staff, **public holidays at 1.5× with an alternative day
+(day-in-lieu) ledger**, a minimum-wage floor, and optional contractual overtime.
+Per-staff PAYSLIP breakdowns, CSV export, a seeded national public-holiday list
+(editable per venue), and a SETTINGS tab — all statutory rates are configurable because
+they change annually.
+
+**Workers** clock in/out and take BREAK/BACK breaks from their phone; clocked break
+minutes deduct from paid time, and the payroll engine splits them into paid rest
+(10-min) vs unpaid meal (30-min) breaks per NZ entitlement.
+
+### FOOD HEALTH & SAFETY (COMPLIANCE HUB)
+
+A Chomp-style H&S area (**Admin → Compliance → Food Safety**, `/admin/compliance`)
+built around the shared task system — fridge/freezer temperatures, cooking/cooling
+checks, probe calibration, cleaning and pest control are all **Tasks**, so they
+appear on the same worker floor list as everything else. NZ GFMP defaults are
+seeded (fridge ≤ 5°C, freezer ≤ −18°C, hot hold ≥ 60°C, cook ≥ 75°C…), with each
+check having a **PASS band** and a wider **critical danger band**.
+
+- **TASKS** — the Task Manager: a health widget (TASKS PROVED / TASKS WITH ALERTS),
+  ACTIVE · DRAFT · ARCHIVED tabs, TABLE/GRID views, tasks grouped into
+  **FOOD / EQUIPMENT / TEAM / FACILITY** categories, `PASS: 3/3` badges from the
+  last 7 days, and a form with one-click GFMP presets plus a product/equipment
+  search that pre-fills the right temperature band from how the item is stored
+  (chilled / frozen / ambient).
+- **DELIVERIES** — record supplier receipts: vehicle temperature plus a per-product
+  temperature check on every line. Chilled goods must arrive ≤ 5°C, frozen ≤ −18°C
+  (set per product under **Inventory**); failing lines can be rejected and
+  automatically raise an alert. Workers record deliveries from their phone at
+  `/w/deliveries`.
+- **ALERTS** — every out-of-range reading or failed delivery line becomes an alert
+  (WARNING or CRITICAL). CRITICAL readings also post an URGENT notice to the floor.
+  Managers resolve alerts with a note.
+- **LOGGERS** — reserved for the upcoming sensor phase (ESP32 fridge/freezer
+  loggers with automatic min/max per day).
+
+Out-of-range readings are raised automatically when a worker logs the number on
+their phone — the verdict is computed on the server, so nothing can be silently
+recorded as a pass.
+
+---
+
+### BEO / EVENTS PLANNER
+
+Plan a banquet event end to end under **EVENTS → BEO Planner**
+(`/admin/events`).
+
+- **Build it from blocks.** An event is a header (date, times, guests, dining
+  style, contact, menu, layout, deposit) plus a body of blocks you drag in from
+  the library on the right — customer details, menu selection, drinks, dining
+  style, dietary requirements, room setup, run sheet, staffing, vendors,
+  transport, payment, notes and free text. Reorder, duplicate or remove them;
+  each block has its own editor. The event links to the menus, menu items and
+  floor-plan layouts you have already built.
+- **Templates.** Save any event as a reusable package (**SAVE AS TEMPLATE**), or
+  start a new event from a template under **TEMPLATES** — blocks, menu, layout,
+  pax and style come across, then you make the final changes.
+- **Live pricing.** Menu and drinks blocks are priced against your live menu
+  items, so the event shows subtotal, deposit and balance as you build it.
+- **Push to the floor.** **PUSH NOW** creates the booking, seats the party on
+  the service's table plan (or the layout you chose) and raises the pre-order,
+  all linked together.
+- **Share with the customer.** **SHARE** mints a private link (`/e/<token>`).
+  The customer sees the room setup, menu and drinks, dining style, guest count,
+  dietary needs, run sheet and pricing — but never your internal notes or
+  staffing — and can **approve**, **sign off** or **request a change**. Requests
+  land in the **REQUESTS** tab for you to accept or decline.
+- **Print it.** Download the BEO as a PDF in three versions: **FULL** (the
+  internal order), **CLIENT** (customer-safe) and **KITCHEN** (dietary first,
+  run sheet and dish totals).
+- **From the phone.** Managers (and staff granted EVENTS access under
+  Staff → ACCESS) can build and edit events from the worker app at `/w/events`.
+
+### SWIFTPOS INTEGRATION
+
+HOSPO OPS can read a **SwiftPOS** feed through **SwiftDOSnet**, a separate local
+service that mirrors the POS. It never talks to SwiftPOS directly.
+
+- **Settings → SWIFT POS** — set the SwiftDOSnet base URL. For a local Docker
+  stack use `http://host.docker.internal:<port>`; `localhost` inside the app
+  container is not the host.
+- **SALES** — pull a date range and see matched/unmatched products plus the
+  stock drawdown. Read-only; nothing is deducted.
+- **STAFF SYNC** — pull the POS clerks and LINK them to staff (setting
+  `Staff.swiftPosId`, and the worker PIN from the clerk id when the staff has no
+  PIN) or CREATE a floor profile (clerk number as the PIN).
+- **MENU LINKS** — map each SwiftPOS product to the local product carrying its
+  code; orphans and duplicate codes are flagged.
+- **Kitchen dockets** — **Ops → Orders → DOCKETS** shows live open sales,
+  refreshing every 30 seconds while visible (30/60/120 min / ALL LINES windows).
 
 ---
 
 ## HOW TO GENERATE AND PRINT A QR CODE
 
-1. Go to **Admin → QR Codes**
+1. Go to **Admin → Setup & Config → Settings → QR CODES**
 2. Click **+ GENERATE QR CODE**
 3. Select the venue and optionally a department
 4. Enter a label (e.g. "BAR MORNING ENTRY")
@@ -303,13 +501,20 @@ Workers scan the QR code with their phone camera — it opens the PIN login dire
 
 ## HOW TO ADD STAFF AND ASSIGN PINs
 
-1. Go to **Admin → Staff**
+1. Go to **Admin → Team & Execution → Roster & Pay → STAFF**
 2. Click **+ NEW STAFF**
 3. Fill in first name, last name, select a role, venue, and department
 4. Enter a 2–4 digit PIN for the staff member
-5. Click **SAVE**
+5. Set the **hourly rate** and **employment type** (FULL TIME / PART TIME / CASUAL —
+   casuals get 8% holiday pay paid out per payroll period)
+6. Under **NZ PAYROLL** set the tax code (M by default — S/SB/SH/ST/CAE for second
+   jobs, add "SL" for student loan), KiwiSaver rate (3–10%, or leave unenrolled),
+   and tick STUDENT LOAN if repayments should be withheld
+7. Click **SAVE**
 
 The PIN is immediately usable at any QR code login point for that venue/department.
+Set the venue's payroll defaults (minimum wage, ACC, tax code, overtime…) at
+**Admin → Team & Execution → Roster & Pay → PAYROLL → SETTINGS**.
 
 ---
 
@@ -330,7 +535,7 @@ for plain compose). Everything else is derived automatically.
 | `DB_USER` | No | `hospo_ops_user` | PostgreSQL username |
 | `DB_DATA` | No | `postgres_data` | Where PostgreSQL stores its data. Default is a named Docker volume (auto-scoped per stack). Set to a host path (e.g. `/mnt/data/db`) for a bind mount |
 | `UPLOADS_DATA` | No | `uploads_data` | Where task photos / uploads are stored. Default is a named Docker volume (auto-scoped per stack). Set to a host path (e.g. `/mnt/data/uploads`) for a bind mount |
-| `WORKER_SESSION_EXPIRY_MINUTES` | No | `15` | Worker auto-logout timeout |
+| `WORKER_SESSION_EXPIRY_MINUTES` | No | `15` | Fallback worker idle timeout when a venue leaves its WORKER SESSION setting blank/0 |
 | `INTERNAL_CRON` | No | `true` | Built-in scheduler (WooCommerce product sync every 15 min + daily expiry scan). Set `false` to use an external scheduler instead |
 | `CRON_SECRET` | No | — | Bearer token for the `/api/cron/*` endpoints — only needed for external schedulers or manual triggers |
 
@@ -349,13 +554,43 @@ product/order-status changes push back automatically. **No host crontab
 or OS access is needed**, so this works the same on Portainer, plain compose,
 or any managed container platform.
 
+Pairing is **one click**: install the HOSPO OPS WordPress plugin, paste the
+app URL + API key, and press **CONNECT** — the plugin creates its own Read/Write
+REST API key and registers the webhooks for you. The app shows the store as
+`MANAGED BY PLUGIN` (read-only, with a manual override) and re-connecting
+rotates the credentials.
+
 - Setup guide: [`SOP-WOOCOMMERCE.md`](SOP-WOOCOMMERCE.md)
-- Live sync monitor: **Admin → Woo Sync** (`/admin/sync`) — every pull, push,
+- Live sync monitor: **Admin → Setup & Config → Settings → SYNC** (`/admin/settings?tab=sync`) — every pull, push,
   and webhook is logged there with errors in red, plus manual PULL PRODUCTS / PULL ORDERS / PUSH buttons.
-- FOH operations view: **Admin → Orders → FOH VIEW** tab — bookings by date with table
-  assignments, dietary info, and category totals.
+- Order field mapping: **Admin → Settings → WooCommerce → ORDER FIELD MAPPING** —
+  tells HOSPO OPS which WooCommerce custom fields hold the service date, time slot,
+  party size and allergy note. Needed before the Orders page can group by day.
 - Kitchen view: workers access **Menu → KITCHEN** (`/w/kitchen`) for today's orders
   grouped by table with dietary badges.
+
+### Orders
+
+**Admin → OPS HUB → ORDERS** is a day view with four ways of reading the same data,
+switchable on the fly:
+
+| View | Shows |
+|------|-------|
+| SERVICE | Orders by time slot, with covers per slot |
+| KITCHEN | Allergy alerts first, then dish totals and a category rollup |
+| FOH | Grouped by table |
+| PRODUCTION | Flat pick list with tick boxes |
+
+Filter by progress, payment or allergy and save the combination as a named view.
+Orders can be raised by hand (**+ NEW ORDER**) for phone and walk-in business —
+these stay local and are never pushed to WooCommerce.
+
+**Payments are always taken in WooCommerce.** HOSPO OPS records what was paid,
+how, and when, but never handles money itself.
+
+**Admin → OPS HUB → MENU & SERVICES → MENUS & CATEGORIES** defines what can be ordered — e.g. a Friday Night Bistro menu
+and an Event Catering menu, each with a guest-count range and per-item minimum
+and maximum quantities.
 
 ---
 

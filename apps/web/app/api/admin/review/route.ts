@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 // End-of-day review summary: for a venue + date, each staff member's completed
 // task work that day plus any manager notes.
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.review.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const dateStr = searchParams.get('date')
@@ -42,6 +45,7 @@ export async function GET(req: NextRequest) {
         staffId: true,
         completedAt: true,
         note: true,
+        outcome: true,
         task: { select: { title: true } },
       },
       orderBy: { completedAt: 'asc' },
@@ -77,7 +81,7 @@ export async function GET(req: NextRequest) {
     departmentName: s.department?.name ?? null,
     completed: completions
       .filter((c) => c.staffId === s.id)
-      .map((c) => ({ taskTitle: c.task.title, completedAt: c.completedAt, note: c.note })),
+      .map((c) => ({ taskTitle: c.task.title, completedAt: c.completedAt, note: c.note, outcome: c.outcome })),
     notes: notes
       .filter((n) => n.staffId === s.id)
       .map((n) => ({

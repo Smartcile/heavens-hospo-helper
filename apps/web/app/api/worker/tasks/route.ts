@@ -3,10 +3,18 @@ import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { getTodayDate } from '@/lib/utils'
 import { isTaskDueOnDate } from '@/lib/scheduling'
+import { isActivatedOn } from '@/lib/checklist-activation'
+import { resolveOutcomePolicyForChecklists, normaliseOutcomes, type OutcomePolicyChecklist } from '@/lib/task-outcomes'
+import { applicableChecklistsForStaff } from '@/lib/checklist-applicability.server'
+import { workerTaskAccess } from '@/lib/worker-task-access.server'
+import { resolveCompetencyGuideIds } from '@/lib/task-guides'
+import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
 
 export async function GET(req: NextRequest) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const access = await workerTaskAccess(session)
 
   // Resolve linked department IDs — staff see tasks from their home department
   // AND any departments linked to it.
@@ -22,19 +30,24 @@ export async function GET(req: NextRequest) {
     ? [session.departmentId, ...linkedDepartmentIds]
     : null
 
+  // Authoring data for EDIT MODE (tasks + their Guide links). Whole venue, not
+  // just the worker's department, so any venue task can be added to a list —
+  // the same scope the admin Tasks page uses. Read-only until a grant passes.
   if (req.nextUrl.searchParams.get('edit') === '1') {
+    if (!access.canAuthor) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     const tasks = await prisma.task.findMany({
-      where: {
-        venueId: session.venueId,
-        isActive: true,
-        deletedAt: null,
-        ...(departmentIds ? { departmentId: { in: departmentIds } } : {}),
-      },
+      where: { venueId: session.venueId, deletedAt: null },
       include: {
         department: { select: { id: true, name: true } },
         section: { select: { id: true, name: true } },
         requiredTraining: { select: { moduleId: true, module: { select: { kind: true } } } },
-        taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
+        taskGuides: {
+          select: {
+            guideId: true,
+            isRequiredForCompetency: true,
+            guide: { select: { id: true, title: true } },
+          },
+        },
       },
       orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
     })
@@ -48,12 +61,20 @@ export async function GET(req: NextRequest) {
     select: { timezone: true },
   })
   const today = getTodayDate(venue?.timezone)
+  const nowHHmm = new Intl.DateTimeFormat('en-GB', {
+    timeZone: venue?.timezone ?? 'Pacific/Auckland',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date())
 
   // Show the WHOLE department's lists for the day — everyone on the floor sees
   // every list; completion is shared (global per task+date), so no double-ups.
+  // DRAFT/ARCHIVED tasks never reach the floor.
   const where = {
     venueId: session.venueId,
     isActive: true,
+    status: 'ACTIVE' as const,
     deletedAt: null,
     ...(departmentIds ? { departmentId: { in: departmentIds } } : {}),
   }
@@ -63,11 +84,15 @@ export async function GET(req: NextRequest) {
     include: {
       department: { select: { id: true, name: true, colour: true } },
       section: { select: { id: true, name: true } },
+      linkedItem: { select: { id: true, name: true } },
       taskCompletions: {
         where: { scheduledDate: today },
         include: { staff: { select: { firstName: true, lastName: true } } },
         orderBy: { completedAt: 'desc' },
         take: 1,
+      },
+      progress: {
+        include: { staff: { select: { firstName: true, lastName: true } } },
       },
       taskGuides: {
         include: {
@@ -84,7 +109,9 @@ export async function GET(req: NextRequest) {
     orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
   })
 
-  const todayTasks = tasks.filter((t) => isTaskDueOnDate(t, today))
+  // A task with an in-progress PARTIAL row stays visible even when it is not due
+  // today (a job that spans more than a day).
+  const todayTasks = tasks.filter((t) => isTaskDueOnDate(t, today) || !!t.progress)
 
   // ── Rollover handling ──
   // A rolled-over one-off completed on its dueDate should not reappear today.
@@ -95,7 +122,7 @@ export async function GET(req: NextRequest) {
         taskId: { in: rolledTasks.map((t) => t.id) },
         scheduledDate: { in: [...new Set(rolledTasks.map((t) => new Date(t.dueDate!)))] },
       },
-      select: { taskId: true, id: true, note: true, photoUrl: true, completedAt: true, staff: { select: { firstName: true, lastName: true } } },
+      select: { taskId: true, id: true, note: true, photoUrl: true, completedAt: true, outcome: true, staff: { select: { firstName: true, lastName: true } } },
       orderBy: { completedAt: 'desc' },
     })
     const completedMap = new Map(rolledCompletions.map((c) => [c.taskId, c]))
@@ -116,31 +143,53 @@ export async function GET(req: NextRequest) {
   const assigneeName = new Map(assignees.map((s) => [s.id, `${s.firstName} ${s.lastName}`]))
 
   // Checklists ("lists") for this floor — they gate visibility by appear-from
-  // time and stay until everything's done.
-  const checklists = await prisma.checklist.findMany({
-    where: {
-      deletedAt: null,
-      isActive: true,
-      venueId: session.venueId,
-      ...(departmentIds ? { OR: [{ departmentId: { in: departmentIds } }, { departmentId: null }] } : {}),
-    },
-    select: {
-      id: true,
-      name: true,
-      appearFromTime: true,
-      tasks: { select: { taskId: true }, orderBy: { sortOrder: 'asc' } },
-    },
-    orderBy: [{ appearFromTime: 'asc' }, { name: 'asc' }],
+  // time and stay until everything's settled. Audience/department rules live in
+  // `applicableChecklistsForStaff` so the completion endpoint agrees.
+  const { checklists } = await applicableChecklistsForStaff({
+    staffId: session.staffId,
+    venueId: session.venueId,
+    departmentId: session.departmentId,
+    linkedDepartmentIds,
   })
   const checklistResult = checklists.map((c) => ({
     id: c.id,
     name: c.name,
     appearFromTime: c.appearFromTime,
+    // Force-opened by an admin for today's venue-local day.
+    activatedToday: isActivatedOn(c.activatedOn, today),
     taskIds: c.tasks.map((ct) => ct.taskId),
   }))
 
+  // The policy hierarchy is checklist → task override. Build the per-task list
+  // once; the pure resolver picks the first open list, matching how the client
+  // groups tasks under a list.
+  const policyListsByTask = new Map<string, OutcomePolicyChecklist[]>()
+  for (const c of checklists) {
+    const policyList: OutcomePolicyChecklist = {
+      name: c.name,
+      appearFromTime: c.appearFromTime,
+      activatedOn: c.activatedOn,
+      allowedOutcomes: c.allowedOutcomes,
+      requireOutcomeReason: c.requireOutcomeReason,
+    }
+    for (const ct of c.tasks) {
+      const arr = policyListsByTask.get(ct.taskId) ?? []
+      arr.push(policyList)
+      policyListsByTask.set(ct.taskId, arr)
+    }
+  }
+
   const result = todayTasks.map((t) => {
     const c = t.taskCompletions[0]
+    const policy = resolveOutcomePolicyForChecklists(
+      {
+        overrideOutcomes: t.overrideOutcomes,
+        allowedOutcomes: t.allowedOutcomes,
+        requireOutcomeReason: t.requireOutcomeReason,
+      },
+      policyListsByTask.get(t.id) ?? [],
+      { today, nowHHmm },
+    )
     return {
       id: t.id,
       title: t.title,
@@ -150,32 +199,57 @@ export async function GET(req: NextRequest) {
       sectionName: t.section?.name ?? null,
       assigneeName: t.assignedToStaffId ? assigneeName.get(t.assignedToStaffId) ?? null : null,
       guide: (t.taskGuides?.[0]?.guide) ?? (t.trainingModules[0] ?? null),
-      isCompleted: t.taskCompletions.length > 0,
+      isCompleted: !!c,
+      isDone: c?.outcome === 'DONE',
+      isSettled: !!c,
+      outcome: c?.outcome ?? null,
+      allowedOutcomes: policy.allowed,
+      requireOutcomeReason: policy.requireReason,
+      inProgress: t.progress
+        ? {
+            note: t.progress.note,
+            byName: `${t.progress.staff.firstName} ${t.progress.staff.lastName}`,
+            since: t.progress.createdAt.toISOString(),
+          }
+        : null,
       completedByName: c ? `${c.staff.firstName} ${c.staff.lastName}` : null,
       completion: c
-        ? { id: c.id, note: c.note, photoUrl: c.photoUrl, completedAt: c.completedAt }
+        ? { id: c.id, note: c.note, photoUrl: c.photoUrl, completedAt: c.completedAt, outcome: c.outcome }
         : null,
       isOneOff: t.isOneOff,
       dueDate: t.dueDate,
       rolloverEnabled: t.rolloverEnabled,
       rolledOverFrom: t.rolledOverFrom,
+      // Reading-task fields for the worker capture modal
+      readingUnit: t.readingUnit,
+      readingMin: t.readingMin,
+      readingMax: t.readingMax,
+      criticalMin: t.criticalMin,
+      criticalMax: t.criticalMax,
+      linkedItemName: t.linkedItem?.name ?? null,
     }
   })
 
-  return NextResponse.json({ tasks: result, checklists: checklistResult, firstName: session.firstName })
+  return NextResponse.json({
+    tasks: result,
+    checklists: checklistResult,
+    firstName: session.firstName,
+    access,
+  })
 }
 
 export async function POST(req: NextRequest) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.role !== 'ADMIN' && session.role !== 'MANAGER')
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const access = await workerTaskAccess(session)
+  if (!access.canCreateTask) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
   const {
     title, description, departmentId, sectionId, completionType,
     scheduleType, scheduleDays, customCron, intervalMonths,
-    monthlyOption, monthlyDay, requiredTrainingIds,
+    monthlyOption, monthlyDay, requiredTrainingIds, competencyGuideIds,
+    allowedOutcomes, overrideOutcomes, requireOutcomeReason,
   } = body
 
   if (!title?.trim()) return NextResponse.json({ error: 'TITLE IS REQUIRED' }, { status: 400 })
@@ -184,12 +258,35 @@ export async function POST(req: NextRequest) {
   if (scheduleType === 'CUSTOM' && !customCron?.trim())
     return NextResponse.json({ error: 'CRON EXPRESSION IS REQUIRED FOR CUSTOM SCHEDULE' }, { status: 400 })
 
+  // `requiredTrainingIds` is the legacy name the old worker form posted — but
+  // it always carried GUIDE ids (the picker loaded from `/api/worker/guides`).
+  // Treat it as an alias so old clients write the same TaskGuide rows as admin
+  // instead of the long-dead TaskRequiredTraining/TrainingModule pair.
+  const guideIds = resolveCompetencyGuideIds({ competencyGuideIds, requiredTrainingIds }) ?? []
+
+  // Granted STAFF can now write tasks, so every ref must belong to their venue
+  // before it is used (a cross-venue section would otherwise infer its own
+  // department and write the task outside the worker's venue).
+  const refError = await validateWorkerTaskRefs({
+    venueId: session.venueId,
+    departmentId,
+    sectionId,
+    guideIds,
+  })
+  if (refError) return NextResponse.json({ error: refError }, { status: 400 })
+
   let resolvedDeptId = departmentId || null
   const resolvedSectionId = sectionId || null
   if (sectionId && !departmentId) {
     const s = await prisma.section.findUnique({ where: { id: sectionId }, select: { departmentId: true } })
     if (s) resolvedDeptId = s.departmentId
   }
+
+  const maxSort = await prisma.task.findFirst({
+    where: { venueId: session.venueId, departmentId: resolvedDeptId, deletedAt: null },
+    orderBy: { sortOrder: 'desc' },
+    select: { sortOrder: true },
+  })
 
   const task = await prisma.task.create({
     data: {
@@ -205,18 +302,21 @@ export async function POST(req: NextRequest) {
       intervalMonths: Math.max(1, intervalMonths || 1),
       monthlyOption: scheduleType === 'MONTHLY' ? (monthlyOption || 'FIRST_DAY') : null,
       monthlyDay: scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? (monthlyDay || 1) : null,
+      sortOrder: (maxSort?.sortOrder ?? -1) + 1,
+      allowedOutcomes: normaliseOutcomes(allowedOutcomes),
+      overrideOutcomes: !!overrideOutcomes,
+      requireOutcomeReason: !!requireOutcomeReason,
+      // Same competency junction the admin form writes.
+      taskGuides: guideIds.length
+        ? {
+            create: guideIds.map((guideId) => ({
+              guideId,
+              isRequiredForCompetency: true,
+            })),
+          }
+        : undefined,
     },
   })
-
-  if (requiredTrainingIds?.length) {
-    await prisma.taskRequiredTraining.createMany({
-      data: requiredTrainingIds.map((moduleId: string) => ({ taskId: task.id, moduleId })),
-    })
-    await prisma.trainingModule.updateMany({
-      where: { id: { in: requiredTrainingIds } },
-      data: { linkedTaskId: task.id },
-    })
-  }
 
   return NextResponse.json(task, { status: 201 })
 }

@@ -1,6 +1,6 @@
 {
   "name": "@hospo-ops/config",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "main": "./tailwind.config.ts",
   "devDependencies": {

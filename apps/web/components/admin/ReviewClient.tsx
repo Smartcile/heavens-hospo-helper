@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Badge } from '@/components/ui/Badge'
+import { DateInput } from '@/components/ui/DateInput'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { formatTime } from '@/lib/utils'
 
@@ -22,7 +23,7 @@ interface StaffRow {
   name: string
   role: string
   departmentName: string | null
-  completed: { taskTitle: string; completedAt: string; note: string | null }[]
+  completed: { taskTitle: string; completedAt: string; note: string | null; outcome: string }[]
   notes: Note[]
 }
 
@@ -53,7 +54,7 @@ export function ReviewClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [loading, setLoading] = useState(true)
 
   // Per-staff draft note form
-  const [draft, setDraft] = useState<Record<string, { category: string; content: string; assignModuleId: string }>>({})
+  const [draft, setDraft] = useState<Record<string, { category: string; content: string; assignGuideId: string }>>({})
   const [busy, setBusy] = useState<string | null>(null)
 
   async function load() {
@@ -67,7 +68,7 @@ export function ReviewClient({ role, sessionVenueId, defaultVenueId }: { role: s
   }
 
   async function loadMeta() {
-    const [vR, mR] = await Promise.all([fetch('/api/admin/venues'), fetch('/api/admin/training')])
+    const [vR, mR] = await Promise.all([fetch('/api/admin/venues'), fetch('/api/admin/guides')])
     const [vData, mData] = await Promise.all([vR.json(), mR.json()])
     setVenues(vData)
     setModules((mData ?? []).map((m: ModuleLite) => ({ id: m.id, title: m.title })))
@@ -76,9 +77,9 @@ export function ReviewClient({ role, sessionVenueId, defaultVenueId }: { role: s
   useEffect(() => { loadMeta() }, [])
   useEffect(() => { load() }, [date, venueId])
 
-  function setDraftFor(id: string, patch: Partial<{ category: string; content: string; assignModuleId: string }>) {
+  function setDraftFor(id: string, patch: Partial<{ category: string; content: string; assignGuideId: string }>) {
     setDraft((prev) => {
-      const current = prev[id] ?? { category: 'AREA TO WORK ON', content: '', assignModuleId: '' }
+      const current = prev[id] ?? { category: 'AREA TO WORK ON', content: '', assignGuideId: '' }
       return { ...prev, [id]: { ...current, ...patch } }
     })
   }
@@ -95,10 +96,10 @@ export function ReviewClient({ role, sessionVenueId, defaultVenueId }: { role: s
         shiftDate: date,
         category: d.category,
         content: d.content,
-        assignModuleId: d.assignModuleId || null,
+        assignGuideId: d.assignGuideId || null,
       }),
     })
-    setDraft((prev) => ({ ...prev, [staffId]: { category: 'AREA TO WORK ON', content: '', assignModuleId: '' } }))
+    setDraft((prev) => ({ ...prev, [staffId]: { category: 'AREA TO WORK ON', content: '', assignGuideId: '' } }))
     await load()
     setBusy(null)
   }
@@ -119,7 +120,7 @@ export function ReviewClient({ role, sessionVenueId, defaultVenueId }: { role: s
   }
 
   const moduleOptions = [
-    { value: '', label: 'NO TRAINING ASSIGNED' },
+    { value: '', label: 'NO GUIDE ASSIGNED' },
     ...modules.map((m) => ({ value: m.id, label: m.title })),
   ]
   const venueOptions = [{ value: '', label: 'ALL VENUES' }, ...venues.map((v) => ({ value: v.id, label: v.name }))]
@@ -139,12 +140,7 @@ export function ReviewClient({ role, sessionVenueId, defaultVenueId }: { role: s
               <Select value={venueId} onChange={(e) => setVenueId(e.target.value)} options={venueOptions} />
             </div>
           )}
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="bg-grey-dark border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white"
-          />
+          <DateInput value={date} onChange={(e) => setDate(e.target.value)} className="w-44" />
         </div>
       </div>
 
@@ -155,7 +151,7 @@ export function ReviewClient({ role, sessionVenueId, defaultVenueId }: { role: s
       ) : (
         <div className="space-y-3">
           {staff.map((s) => {
-            const d = draft[s.id] ?? { category: 'AREA TO WORK ON', content: '', assignModuleId: '' }
+            const d = draft[s.id] ?? { category: 'AREA TO WORK ON', content: '', assignGuideId: '' }
             return (
               <div key={s.id} className="bg-grey-dark border border-grey-mid">
                 <div className="p-4 border-b border-grey-mid flex items-center justify-between gap-2">
@@ -163,8 +159,9 @@ export function ReviewClient({ role, sessionVenueId, defaultVenueId }: { role: s
                     <span className="font-mono text-sm font-semibold uppercase text-white">{s.name}</span>
                     {s.departmentName && <Badge>{s.departmentName}</Badge>}
                   </div>
-                  <Badge variant={s.completed.length > 0 ? 'success' : 'warning'}>
-                    {s.completed.length} DONE
+                  <Badge variant={s.completed.some((c) => c.outcome === 'DONE') ? 'success' : 'warning'}>
+                    {s.completed.filter((c) => c.outcome === 'DONE').length} DONE
+                    {s.completed.some((c) => c.outcome !== 'DONE') ? ` · ${s.completed.filter((c) => c.outcome !== 'DONE').length} OTHER` : ''}
                   </Badge>
                 </div>
 
@@ -178,8 +175,13 @@ export function ReviewClient({ role, sessionVenueId, defaultVenueId }: { role: s
                       <ul className="space-y-1">
                         {s.completed.map((c, i) => (
                           <li key={i} className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 bg-success flex-shrink-0 mt-1.5" />
+                            <span className={`w-1.5 h-1.5 flex-shrink-0 mt-1.5 ${c.outcome === 'DONE' ? 'bg-success' : c.outcome === 'DID_NOT_COMPLETE' ? 'bg-danger' : 'bg-grey-light'}`} />
                             <span className="font-mono text-xs text-white">{c.taskTitle}</span>
+                            {c.outcome !== 'DONE' && (
+                              <span className="font-mono text-xs uppercase border border-grey-mid text-grey-light px-1 py-0.5 flex-shrink-0">
+                                {c.outcome === 'NOT_REQUIRED' ? 'NOT REQUIRED' : c.outcome === 'DID_NOT_COMPLETE' ? 'DID NOT COMPLETE' : c.outcome}
+                              </span>
+                            )}
                             <span className="font-mono text-xs text-grey-light ml-auto flex-shrink-0">{formatTime(c.completedAt)}</span>
                           </li>
                         ))}
@@ -219,7 +221,7 @@ export function ReviewClient({ role, sessionVenueId, defaultVenueId }: { role: s
                         placeholder="Add a note for this person..."
                         className="w-full bg-grey-dark border border-grey-mid text-white font-sans text-xs px-3 py-2 outline-none focus:border-white min-h-[60px] resize-y placeholder:text-grey-light"
                       />
-                      <Select value={d.assignModuleId} onChange={(e) => setDraftFor(s.id, { assignModuleId: e.target.value })} options={moduleOptions} />
+                      <Select value={d.assignGuideId} onChange={(e) => setDraftFor(s.id, { assignGuideId: e.target.value })} options={moduleOptions} />
                       <Button size="sm" onClick={() => addNote(s.id)} loading={busy === s.id} disabled={!d.content?.trim()}>
                         ADD NOTE
                       </Button>

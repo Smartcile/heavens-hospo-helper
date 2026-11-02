@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.inventory.edit')
+  if (denied) return denied
 
   const uom = await prisma.unitOfMeasure.findFirst({
     where: { id: params.id, deletedAt: null },
@@ -17,11 +20,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, baseUnit, conversionRatio } = await req.json()
+  const { name, baseUnit, conversionRatio, kind } = await req.json()
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = String(name).toUpperCase().trim()
   if (baseUnit !== undefined) data.baseUnit = String(baseUnit).toLowerCase().trim()
   if (conversionRatio !== undefined) data.conversionRatio = parseFloat(String(conversionRatio)) || 1
+  if (kind !== undefined && ['VOLUME', 'MASS', 'COUNT'].includes(kind)) data.kind = kind
 
   const updated = await prisma.unitOfMeasure.update({ where: { id: params.id }, data })
   return NextResponse.json(updated)
@@ -30,6 +34,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'ops.inventory.delete')
+  if (denied) return denied
 
   const uom = await prisma.unitOfMeasure.findFirst({
     where: { id: params.id, deletedAt: null },

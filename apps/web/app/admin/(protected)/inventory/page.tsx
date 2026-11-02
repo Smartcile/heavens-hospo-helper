@@ -1,11 +1,5 @@
-import { InventoryClient } from './InventoryClient'
+import { hubRedirect } from '@/lib/ops-redirect'
 
-export const dynamic = 'force-dynamic'
-
-export default function InventoryPage() {
-  return (
-    <div className="min-h-screen bg-black p-6">
-      <InventoryClient />
-    </div>
-  )
+export default function InventoryPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
+  hubRedirect('/admin/ops', 'inventory', 'inventory', searchParams)
 }

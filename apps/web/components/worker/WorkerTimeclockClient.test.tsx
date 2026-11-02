@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, waitFor } from '@testing-library/react'
+import { render, waitFor, fireEvent, screen } from '@testing-library/react'
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -35,6 +35,36 @@ describe('WorkerTimeclockClient', () => {
     const { findByText } = render(<WorkerTimeclockClient />)
     const btn = await findByText('CLOCK OUT')
     expect(btn).toBeDefined()
+  })
+
+  it('posts to the clock-out route and flips back to clocked-out', async () => {
+    const calls: string[] = []
+    let clockedIn = true
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+      calls.push(String(url))
+      if (String(url).endsWith('/api/worker/timeclock/out')) {
+        clockedIn = false
+        return { ok: true, status: 200, json: async () => ({}) } as Response
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          isClockedIn: clockedIn,
+          activeSession: clockedIn
+            ? { id: '1', clockIn: new Date().toISOString(), geoValid: true, staff: { firstName: 'J', lastName: 'D', department: null } }
+            : null,
+          todayMinutes: 0,
+          recentSessions: [],
+        }),
+      } as Response
+    })
+
+    render(<WorkerTimeclockClient />)
+    fireEvent.click(await screen.findByText('CLOCK OUT'))
+
+    await waitFor(() => expect(calls.some((c) => c.endsWith('/api/worker/timeclock/out'))).toBe(true))
+    await screen.findByText('CLOCK IN')
   })
 
   it('handles 401 redirect', async () => {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 interface IncomingItem {
   title: string
@@ -11,9 +12,11 @@ interface IncomingItem {
   scheduleDays?: number[]
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.tasks.view')
+  if (denied) return denied
 
   // Built-in templates (venueId null) are visible to everyone. Custom templates
   // are visible to admins (all) or to the manager's own venue.
@@ -42,6 +45,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.tasks.create')
+  if (denied) return denied
 
   const body = await req.json()
   const { name, description, category, items, venueId } = body as {

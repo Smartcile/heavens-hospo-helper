@@ -1,10 +1,31 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
+import { SETTINGS_TABS, resolveTab, hubUrl } from '@/lib/hub-tabs'
+import { LineTabs } from '@/components/admin/LineTabs'
+import { FileBrowser } from '@/components/admin/FileBrowser'
+import { StructureClient } from '@/components/admin/StructureClient'
+import { VenueSetupClient } from '@/components/admin/VenueSetupClient'
+import { FloorPlansClient } from '@/components/admin/FloorPlansClient'
+import { UomsClient } from '@/app/admin/(protected)/uoms/UomsClient'
+import { SuppliersClient } from '@/app/admin/(protected)/suppliers/SuppliersClient'
+import { QRCodesClient } from '@/components/admin/QRCodesClient'
+import { SyncClient } from '@/app/admin/(protected)/sync/SyncClient'
+import { SwiftPosSalesClient } from '@/components/admin/SwiftPosSalesClient'
+import {
+  AVAILABILITY_WEEKDAYS,
+  quarterHourEndOptions,
+  quarterHourOptions,
+  resolveAvailabilityPresets,
+  parseAvailabilityCutoff,
+  describeAvailabilityCutoff,
+  type AvailabilityPreset,
+} from '@/lib/availability'
 
 interface Venue {
   id: string
@@ -13,9 +34,48 @@ interface Venue {
   googleCalendarUrl: string | null
   icalFeedUrl: string | null
   externalRefreshMinutes: number
+  availabilityLockDays: number
+  availabilityCutoff: unknown
+  availabilityPresets: unknown
+  workerSessionTimeoutMinutes: number | null
   sharingEnabled: boolean
   sharedWooVenueId: string | null
 }
+
+interface RoomFeed {
+  id: string
+  areaId: string | null
+  name: string
+  url: string
+  source: 'GOOGLE' | 'ICAL'
+  colour: string | null
+  floorPlanId: string | null
+  floorPlanName: string | null
+  sortOrder: number
+  isActive: boolean
+  lastSyncedAt: string | null
+  notes: string | null
+}
+
+interface RoomArea {
+  id: string
+  name: string
+  colour: string | null
+  capacity: number | null
+  floorPlanId: string | null
+  sortOrder: number
+  notes: string | null
+  feedCount: number
+}
+
+interface FloorPlanOption {
+  id: string
+  name: string
+  slug: string
+}
+
+const PRESET_START_OPTIONS = quarterHourOptions().map((t) => ({ value: t, label: t }))
+const PRESET_END_OPTIONS = quarterHourEndOptions().map((t) => ({ value: t, label: t }))
 
 const REFRESH_OPTIONS = [
   { value: '0', label: 'MANUAL ONLY' },
@@ -25,18 +85,55 @@ const REFRESH_OPTIONS = [
   { value: '60', label: 'EVERY 60 MIN' },
 ]
 
+const META_FIELDS: { key: string; label: string; hint: string }[] = [
+  { key: 'serviceDate', label: 'SERVICE DATE', hint: 'THE DATE THE ORDER IS FOR' },
+  { key: 'serviceTime', label: 'SERVICE TIME', hint: 'TIME OR TIME SLOT' },
+  { key: 'partySize', label: 'PARTY SIZE', hint: 'NUMBER OF GUESTS' },
+  { key: 'allergens', label: 'ALLERGY NOTE', hint: 'CUSTOMER ALLERGY / DIETARY FIELD' },
+  { key: 'fulfillmentType', label: 'FULFILLMENT TYPE', hint: 'DINE IN / PICKUP / DELIVERY' },
+  { key: 'serviceId', label: 'SERVICE ID', hint: 'THE HOSPO OPS SERVICE UUID (PLUGIN FIELD)' },
+  { key: 'bookTable', label: 'BOOK A TABLE', hint: '"1" = CUSTOMER WANTS A TABLE BOOKED TOO (PLUGIN FIELD)' },
+  { key: 'giftCardMessage', label: 'GIFT CARD MESSAGE', hint: 'OPTIONAL MESSAGE ON THE GIFT CARD PDF (PLUGIN FIELD)' },
+]
+
+/** Server sends `{ field: string[] }`; the inputs edit comma-separated text. */
+function metaMapToText(map: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!map || typeof map !== 'object') return out
+  for (const [k, v] of Object.entries(map as Record<string, unknown>)) {
+    out[k] = Array.isArray(v) ? v.join(', ') : typeof v === 'string' ? v : ''
+  }
+  return out
+}
+
+function metaTextToMap(text: Record<string, string>): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const { key } of META_FIELDS) {
+    const keys = (text[key] ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    // Blank rows are left out entirely — the server then falls back to the
+    // defaults ("LEAVE BLANK TO USE THE DEFAULTS").
+    if (keys.length > 0) out[key] = keys
+  }
+  return out
+}
+
 export function SettingsClient({
   staffId,
   role,
   sessionVenueId,
   defaultVenueId,
   venueIsDemo,
+  grantedAreas,
 }: {
   staffId: string
   role: string
   sessionVenueId: string
   defaultVenueId: string | null | undefined
   venueIsDemo: boolean
+  grantedAreas?: string[]
 }) {
   // Change password
   const [newPassword, setNewPassword] = useState('')
@@ -61,11 +158,37 @@ export function SettingsClient({
   const [venues, setVenues] = useState<Venue[]>([])
   const [venueId, setVenueId] = useState(sessionVenueId)
   const [loadedUrl, setLoadedUrl] = useState('')
-  const [googleUrl, setGoogleUrl] = useState('')
-  const [icalUrl, setIcalUrl] = useState('')
   const [refresh, setRefresh] = useState('0')
   const [intSaving, setIntSaving] = useState(false)
   const [intMessage, setIntMessage] = useState('')
+  // Room calendars — one feed row per event space.
+  const [feeds, setFeeds] = useState<RoomFeed[]>([])
+  const [areas, setAreas] = useState<RoomArea[]>([])
+  const [floorPlanOptions, setFloorPlanOptions] = useState<FloorPlanOption[]>([])
+  const [feedBusy, setFeedBusy] = useState(false)
+  const [feedMessage, setFeedMessage] = useState('')
+  const [newFeedName, setNewFeedName] = useState('')
+  const [newFeedUrl, setNewFeedUrl] = useState('')
+  const [areaBusy, setAreaBusy] = useState(false)
+  const [areaMessage, setAreaMessage] = useState('')
+  const [newAreaName, setNewAreaName] = useState('')
+  const [newAreaCapacity, setNewAreaCapacity] = useState('')
+  const [newAreaFloorPlanId, setNewAreaFloorPlanId] = useState('')
+  const [newAreaUrl, setNewAreaUrl] = useState('')
+
+  // Roster availability cut-off + quick-pick presets
+  const [lockDays, setLockDays] = useState('0')
+  const [cutoffOn, setCutoffOn] = useState(false)
+  const [cutoffDay, setCutoffDay] = useState('4')
+  const [cutoffTime, setCutoffTime] = useState('17:00')
+  const [presets, setPresets] = useState<AvailabilityPreset[]>(() => resolveAvailabilityPresets(null))
+  const [lockSaving, setLockSaving] = useState(false)
+  const [lockMessage, setLockMessage] = useState('')
+
+  // Worker phone-session idle timeout
+  const [workerSessionMinutes, setWorkerSessionMinutes] = useState('15')
+  const [workerSessionSaving, setWorkerSessionSaving] = useState(false)
+  const [workerSessionMessage, setWorkerSessionMessage] = useState('')
 
   // WooCommerce
   const [wcVenueId, setWcVenueId] = useState<string>(() => {
@@ -91,6 +214,20 @@ export function SettingsClient({
   const [wcLastSync, setWcLastSync] = useState<string | null>(null)
   const [wcReadOnly, setWcReadOnly] = useState(false)
   const [wcSharedFrom, setWcSharedFrom] = useState<string | null>(null)
+  // True when the WordPress plugin's CONNECT flow owns these credentials —
+  // the section is read-only until MANUAL OVERRIDE is clicked.
+  const [wcManagedByPlugin, setWcManagedByPlugin] = useState(false)
+  const [wcPairedAt, setWcPairedAt] = useState<string | null>(null)
+  const [wcOverride, setWcOverride] = useState(false)
+  // Meta-field mapping — stored as comma-separated strings while editing.
+  const [wcMetaMap, setWcMetaMap] = useState<Record<string, string>>({})
+  const [wcMetaDefaults, setWcMetaDefaults] = useState<Record<string, string[]>>({})
+  const [wcShowMeta, setWcShowMeta] = useState(false)
+  // External API keys (public API used by the WordPress plugin)
+  const [extKeys, setExtKeys] = useState<{ id: string; name: string; masked: string; lastUsedAt: string | null }[]>([])
+  const [extKeyName, setExtKeyName] = useState('')
+  const [extNewKey, setExtNewKey] = useState<string | null>(null)
+  const [extKeyBusy, setExtKeyBusy] = useState(false)
 
   // Demo venue
   const [demoVenue, setDemoVenue] = useState<{ id: string; name: string; isActive: boolean } | null>(null)
@@ -138,8 +275,21 @@ export function SettingsClient({
           setWcLastSync(d.lastSyncAt ?? null)
           setWcReadOnly(d.readOnly ?? false)
           setWcSharedFrom(d.sharedWooVenueId ?? null)
+          setWcManagedByPlugin(d.managedByPlugin ?? false)
+          setWcPairedAt(d.pairedAt ?? null)
+          setWcOverride(false)
+          setWcMetaMap(metaMapToText(d.metaFieldMap))
+          setWcMetaDefaults(d.metaFieldDefaults ?? {})
         }
       })
+  }, [wcVenueId, role])
+
+  useEffect(() => {
+    const params = role === 'ADMIN' && wcVenueId ? `?venueId=${encodeURIComponent(wcVenueId)}` : ''
+    fetch(`/api/admin/api-keys${params}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setExtKeys)
+      .catch(() => {})
   }, [wcVenueId, role])
 
   useEffect(() => {
@@ -165,9 +315,14 @@ export function SettingsClient({
   function applyVenue(v: Venue) {
     setVenueId(v.id)
     setLoadedUrl(v.loadedRosterUrl ?? '')
-    setGoogleUrl(v.googleCalendarUrl ?? '')
-    setIcalUrl(v.icalFeedUrl ?? '')
     setRefresh(String(v.externalRefreshMinutes ?? 0))
+    setLockDays(String(v.availabilityLockDays ?? 0))
+    const cutoff = parseAvailabilityCutoff(v.availabilityCutoff)
+    setCutoffOn(!!cutoff)
+    setCutoffDay(String(cutoff?.day ?? 4))
+    setCutoffTime(cutoff?.time ?? '17:00')
+    setPresets(resolveAvailabilityPresets(v.availabilityPresets))
+    setWorkerSessionMinutes(String(v.workerSessionTimeoutMinutes ?? 0))
     setSharingEnabled(v.sharingEnabled ?? false)
     setSharedWooVenueId(v.sharedWooVenueId ?? '')
   }
@@ -175,6 +330,234 @@ export function SettingsClient({
   function onPickVenue(id: string) {
     const v = venues.find((x) => x.id === id)
     if (v) applyVenue(v)
+  }
+
+  useEffect(() => {
+    if (venueId) void loadFeeds(venueId)
+  }, [venueId])
+
+  async function loadFeeds(id: string) {
+    const r = await fetch(`/api/admin/calendar-feeds?venueId=${id}`)
+    if (!r.ok) {
+      setFeeds([])
+      setAreas([])
+      setFloorPlanOptions([])
+      return
+    }
+    const d = await r.json()
+    setFeeds(d.feeds ?? [])
+    setAreas(d.areas ?? [])
+    setFloorPlanOptions(d.floorPlans ?? [])
+  }
+
+  function patchFeed(id: string, patch: Partial<RoomFeed>) {
+    setFeeds((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)))
+  }
+
+  async function addFeed() {
+    if (!venueId) return
+    if (!newFeedName.trim() || !newFeedUrl.trim()) {
+      setFeedMessage('ROOM NAME AND CALENDAR LINK ARE REQUIRED')
+      return
+    }
+    setFeedBusy(true)
+    setFeedMessage('')
+    const r = await fetch('/api/admin/calendar-feeds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ venueId, name: newFeedName, url: newFeedUrl }),
+    })
+    const d = await r.json().catch(() => ({}))
+    setFeedBusy(false)
+    if (!r.ok) {
+      setFeedMessage((d.error ?? 'ADD FAILED').toUpperCase())
+      return
+    }
+    setNewFeedName('')
+    setNewFeedUrl('')
+    setFeedMessage('ROOM ADDED — SYNC CALENDARS ON THE ROSTER PAGE TO IMPORT IT')
+    void loadFeeds(venueId)
+  }
+
+  async function saveFeed(feed: RoomFeed) {
+    setFeedBusy(true)
+    setFeedMessage('')
+    const r = await fetch(`/api/admin/calendar-feeds/${feed.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: feed.name,
+        url: feed.url,
+        areaId: feed.areaId,
+        colour: feed.colour,
+        floorPlanId: feed.floorPlanId,
+        isActive: feed.isActive,
+      }),
+    })
+    const d = await r.json().catch(() => ({}))
+    setFeedBusy(false)
+    if (!r.ok) {
+      setFeedMessage((d.error ?? 'SAVE FAILED').toUpperCase())
+      return
+    }
+    setFeedMessage('SAVED')
+    void loadFeeds(venueId)
+  }
+
+  async function removeFeed(id: string) {
+    if (!confirm('REMOVE THIS ROOM? ITS IMPORTED EVENTS DISAPPEAR FROM THE EVENT ROSTER.')) return
+    setFeedBusy(true)
+    setFeedMessage('')
+    const r = await fetch(`/api/admin/calendar-feeds/${id}`, { method: 'DELETE' })
+    setFeedBusy(false)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setFeedMessage((d.error ?? 'REMOVE FAILED').toUpperCase())
+      return
+    }
+    void loadFeeds(venueId)
+  }
+
+  async function moveFeed(id: string, dir: -1 | 1) {
+    const index = feeds.findIndex((f) => f.id === id)
+    const target = index + dir
+    if (index < 0 || target < 0 || target >= feeds.length) return
+    const next = [...feeds]
+    const [row] = next.splice(index, 1)
+    next.splice(target, 0, row)
+    setFeeds(next)
+    await fetch('/api/admin/calendar-feeds/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ venueId, orderedIds: next.map((f) => f.id) }),
+    })
+  }
+
+  function patchArea(id: string, patch: Partial<RoomArea>) {
+    setAreas((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)))
+  }
+
+  async function addArea() {
+    if (!venueId) return
+    if (!newAreaName.trim()) { setAreaMessage('AREA NAME IS REQUIRED'); return }
+    setAreaBusy(true)
+    setAreaMessage('')
+    const r = await fetch('/api/admin/areas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        venueId,
+        name: newAreaName,
+        capacity: newAreaCapacity.trim() || null,
+        floorPlanId: newAreaFloorPlanId || null,
+        url: newAreaUrl.trim() || null,
+      }),
+    })
+    const d = await r.json().catch(() => ({}))
+    setAreaBusy(false)
+    if (!r.ok) {
+      setAreaMessage((d.error ?? 'ADD FAILED').toUpperCase())
+      return
+    }
+    setNewAreaName('')
+    setNewAreaCapacity('')
+    setNewAreaFloorPlanId('')
+    setNewAreaUrl('')
+    setAreaMessage('AREA ADDED')
+    void loadFeeds(venueId)
+  }
+
+  async function saveArea(area: RoomArea) {
+    setAreaBusy(true)
+    setAreaMessage('')
+    const r = await fetch(`/api/admin/areas/${area.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: area.name,
+        colour: area.colour,
+        capacity: area.capacity,
+        floorPlanId: area.floorPlanId,
+      }),
+    })
+    const d = await r.json().catch(() => ({}))
+    setAreaBusy(false)
+    if (!r.ok) {
+      setAreaMessage((d.error ?? 'SAVE FAILED').toUpperCase())
+      return
+    }
+    setAreaMessage('SAVED')
+    void loadFeeds(venueId)
+  }
+
+  async function removeArea(id: string) {
+    if (!confirm('REMOVE THIS AREA? ITS CALENDARS BECOME UNASSIGNED AND KEEP SYNCING; ITS EVENTS STAY BUT FALL BACK TO "OTHER".')) return
+    setAreaBusy(true)
+    setAreaMessage('')
+    const r = await fetch(`/api/admin/areas/${id}`, { method: 'DELETE' })
+    setAreaBusy(false)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setAreaMessage((d.error ?? 'REMOVE FAILED').toUpperCase())
+      return
+    }
+    void loadFeeds(venueId)
+  }
+
+  async function moveArea(id: string, dir: -1 | 1) {
+    const index = areas.findIndex((a) => a.id === id)
+    const target = index + dir
+    if (index < 0 || target < 0 || target >= areas.length) return
+    const next = [...areas]
+    const [row] = next.splice(index, 1)
+    next.splice(target, 0, row)
+    setAreas(next)
+    await fetch('/api/admin/areas/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ venueId, order: next.map((a) => a.id) }),
+    })
+  }
+
+  async function generateExtKey() {
+    setExtKeyBusy(true)
+    const res = await fetch('/api/admin/api-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: extKeyName || 'WEBSITE', venueId: role === 'ADMIN' ? wcVenueId : sessionVenueId }),
+    })
+    setExtKeyBusy(false)
+    if (res.ok) {
+      const data = await res.json()
+      setExtNewKey(data.key)
+      setExtKeyName('')
+      const params = role === 'ADMIN' && wcVenueId ? `?venueId=${encodeURIComponent(wcVenueId)}` : ''
+      fetch(`/api/admin/api-keys${params}`).then((r) => (r.ok ? r.json() : [])).then(setExtKeys).catch(() => {})
+    } else {
+      const err = await res.json().catch(() => ({}))
+      setWcMessage((err.error ?? 'GENERATE FAILED').toUpperCase())
+    }
+  }
+
+  async function revokeExtKey(id: string) {
+    if (!confirm('REVOKE THIS API KEY? THE WEBSITE PLUGIN WILL STOP WORKING.')) return
+    const res = await fetch(`/api/admin/api-keys/${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setExtKeys((prev) => prev.filter((k) => k.id !== id))
+      setWcMessage('KEY REVOKED')
+    } else {
+      setWcMessage('REVOKE FAILED')
+    }
+  }
+
+  async function copyExtKey() {
+    if (!extNewKey) return
+    try {
+      await navigator.clipboard.writeText(extNewKey)
+      setWcMessage('KEY COPIED')
+    } catch {
+      setWcMessage('COPY FAILED')
+    }
   }
 
   async function handleChangePassword() {
@@ -209,7 +592,7 @@ export function SettingsClient({
     const r = await fetch(`/api/admin/venues/${venueId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ loadedRosterUrl: loadedUrl, googleCalendarUrl: googleUrl, icalFeedUrl: icalUrl, externalRefreshMinutes: Number(refresh) }),
+      body: JSON.stringify({ loadedRosterUrl: loadedUrl, externalRefreshMinutes: Number(refresh) }),
     })
     setIntSaving(false)
     if (r.ok) {
@@ -217,6 +600,53 @@ export function SettingsClient({
       setVenues((prev) => prev.map((x) => (x.id === v.id ? { ...x, ...v } : x)))
       setIntMessage('SAVED')
     } else setIntMessage('SAVE FAILED')
+  }
+
+  async function saveAvailabilityLock() {
+    if (!venueId) return
+    setLockSaving(true); setLockMessage('')
+    const r = await fetch(`/api/admin/venues/${venueId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        availabilityLockDays: Math.max(0, Math.floor(Number(lockDays) || 0)),
+        availabilityCutoff: cutoffOn ? { day: Number(cutoffDay), time: cutoffTime } : null,
+        availabilityPresets: presets,
+      }),
+    })
+    setLockSaving(false)
+    if (r.ok) {
+      const v = await r.json()
+      setVenues((prev) => prev.map((x) => (x.id === v.id ? { ...x, ...v } : x)))
+      setLockMessage('SAVED')
+    } else setLockMessage('SAVE FAILED')
+  }
+
+  async function saveWorkerSession() {
+    if (!venueId) return
+    const raw = workerSessionMinutes.trim()
+    if (raw !== '' && raw !== '0') {
+      const n = Number(raw)
+      if (!Number.isFinite(n) || n < 5 || n > 480) {
+        setWorkerSessionMessage('ENTER 5–480 MINUTES (0 = SERVER DEFAULT)')
+        return
+      }
+    }
+    setWorkerSessionSaving(true); setWorkerSessionMessage('')
+    const r = await fetch(`/api/admin/venues/${venueId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workerSessionTimeoutMinutes: raw === '' || raw === '0' ? null : Math.round(Number(raw)),
+      }),
+    })
+    setWorkerSessionSaving(false)
+    if (r.ok) {
+      const v = await r.json()
+      setVenues((prev) => prev.map((x) => (x.id === v.id ? { ...x, ...v } : x)))
+      setWorkerSessionMinutes(String(v.workerSessionTimeoutMinutes ?? 0))
+      setWorkerSessionMessage('SAVED')
+    } else setWorkerSessionMessage('SAVE FAILED')
   }
 
   async function saveWooCommerce() {
@@ -227,8 +657,11 @@ export function SettingsClient({
       wcConsumerSecret: wcConsumerSecret,
       wcWebhookSecret: wcWebhookSecret,
       wcActive,
+      metaFieldMap: metaTextToMap(wcMetaMap),
     }
     if (role === 'ADMIN' && wcVenueId) body.venueId = wcVenueId
+    // Saving after MANUAL OVERRIDE hands the credentials back to the admin.
+    if (wcOverride) body.managedByPlugin = false
     const r = await fetch('/api/admin/settings/woocommerce', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -241,6 +674,10 @@ export function SettingsClient({
       setWcConsumerSecret(d.wcConsumerSecret ?? '')
       setWcWebhookSecret(d.wcWebhookSecret ?? '')
       setWcLastSync(d.lastSyncAt ?? null)
+      setWcManagedByPlugin(d.managedByPlugin ?? false)
+      setWcPairedAt(d.pairedAt ?? null)
+      setWcOverride(false)
+      setWcMetaMap(metaMapToText(d.metaFieldMap))
       setWcMessage('SAVED')
     } else {
       setWcMessage('SAVE FAILED')
@@ -320,26 +757,303 @@ export function SettingsClient({
     }
   }
 
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  // FILES is admin-only; FLOOR PLANS follows the same grant-gating as the
+  // sidebar item (restricted managers need the `floorplans` area). Neither
+  // group ever sees the tab nor lands on it — resolveTab falls back to the
+  // first visible tab when a hidden tab is requested by URL.
+  const settingsTabs = SETTINGS_TABS.filter((t) => {
+    if (t.id === 'files') return role === 'ADMIN'
+    if (t.id === 'floorplans') return !grantedAreas || grantedAreas.includes('floorplans')
+    return true
+  })
+  const { tab } = resolveTab(settingsTabs, searchParams.get('tab'), null)
+
+  // Plugin-managed credentials are read-only until MANUAL OVERRIDE is clicked.
+  const wcLocked = wcReadOnly || (wcManagedByPlugin && !wcOverride)
+
+  function go(nextTab: string) {
+    router.push(hubUrl('/admin/settings', nextTab), { scroll: false })
+  }
+
   return (
-    <div className="p-6 space-y-8">
-      <h1 className="font-mono text-xl font-bold uppercase tracking-widest">SETTINGS</h1>
+    <div className="min-h-screen bg-black flex flex-col">
+      <LineTabs tabs={settingsTabs} tab={tab} onNavigate={go} />
+      <div className="flex-1 p-4 md:p-6">
+        {tab === 'general' && (
+          <div className="space-y-8">
+            <h1 className="font-mono text-xl font-bold uppercase tracking-widest">SETTINGS</h1>
 
       {/* Integrations */}
       <div className="max-w-2xl border-l-4 border-l-white pl-4">
         <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">INTEGRATIONS</h2>
         <p className="font-mono text-xs text-grey-light mb-3">
-          GOOGLE CALENDAR + ANY ICAL FEED ARE IMPORTED ONTO THE PLANNER (RE-SYNCED ON THE INTERVAL — CHANGED EVENTS UPDATE, REMOVED ONES DROP OFF, NO DOUBLE-UPS). THE LOADED LINK STAYS A LIVE EMBED TAB.
+          AREAS ARE YOUR EVENT SPACES (MEETING ROOMS, FUNCTION ROOMS). EACH AREA CAN LINK TO A FLOOR PLAN AND, OPTIONALLY, ONE OR MORE CALENDAR FEEDS — IMPORTED EVENTS ARE GROUPED BY AREA ON THE ROSTER&apos;S EVENTS TAB (RE-SYNCED ON THE INTERVAL — CHANGED EVENTS UPDATE, REMOVED ONES DROP OFF, NO DOUBLE-UPS). THE LOADED LINK STAYS A LIVE EMBED TAB.
         </p>
         <div className="space-y-3">
           {role === 'ADMIN' && venues.length > 1 && (
             <Select label="Venue" value={venueId} onChange={(e) => onPickVenue(e.target.value)} options={venues.map((v) => ({ value: v.id, label: v.name }))} />
           )}
-          <Textarea label="Google Calendar — embed link (shown as EVENTS tab + imported to planner)" value={googleUrl} onChange={(e) => setGoogleUrl(e.target.value)} placeholder="https://calendar.google.com/calendar/embed?src=..." />
-          <Textarea label="iCal feed (.ics) — imported to planner (e.g. a roster 'subscribe to calendar' link)" value={icalUrl} onChange={(e) => setIcalUrl(e.target.value)} placeholder="https://…/basic.ics  or  webcal://…" />
+
+          {/* Areas */}
+          <div className="space-y-2">
+            <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">AREAS — EVENT SPACES (CALENDAR OPTIONAL)</div>
+            {areas.length === 0 && (
+              <p className="font-mono text-2xs uppercase text-grey-light">NO AREAS YET — ADD THE FIRST ONE BELOW.</p>
+            )}
+            {areas.map((a, i) => (
+              <div key={a.id} className="border border-grey-mid p-2 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="w-40">
+                    <Input value={a.name} onChange={(e) => patchArea(a.id, { name: e.target.value })} placeholder="AREA NAME" />
+                  </div>
+                  <input
+                    type="color"
+                    value={a.colour || '#0E7490'}
+                    onChange={(e) => patchArea(a.id, { colour: e.target.value })}
+                    title="AREA COLOUR"
+                    className="w-10 h-8 bg-black border border-grey-mid"
+                  />
+                  <div className="w-24">
+                    <Input
+                      type="number"
+                      min="0"
+                      value={a.capacity ?? ''}
+                      onChange={(e) => patchArea(a.id, { capacity: e.target.value.trim() === '' ? null : Number(e.target.value) })}
+                      placeholder="PAX MAX"
+                    />
+                  </div>
+                  <div className="flex-1 min-w-40">
+                    <Select
+                      value={a.floorPlanId ?? ''}
+                      onChange={(e) => patchArea(a.id, { floorPlanId: e.target.value || null })}
+                      options={[{ value: '', label: 'NO LAYOUT LINK' }, ...floorPlanOptions.map((p) => ({ value: p.id, label: p.name }))]}
+                    />
+                  </div>
+                  <span className="font-mono text-2xs uppercase text-grey-light">
+                    {a.feedCount} CALENDAR{a.feedCount === 1 ? '' : 'S'}
+                  </span>
+                  <div className="flex items-center gap-1 ml-auto">
+                    <button onClick={() => moveArea(a.id, -1)} disabled={i === 0} className="font-mono text-xs text-grey-light border border-grey-mid px-2 py-1 hover:border-white hover:text-white disabled:opacity-30">↑</button>
+                    <button onClick={() => moveArea(a.id, 1)} disabled={i === areas.length - 1} className="font-mono text-xs text-grey-light border border-grey-mid px-2 py-1 hover:border-white hover:text-white disabled:opacity-30">↓</button>
+                    <Button size="sm" variant="danger" onClick={() => removeArea(a.id)}>✕</Button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-2xs uppercase text-grey-light">
+                    {a.capacity !== null ? `CAPACITY ${a.capacity} PAX · OVER-CAPACITY PACKS WARN ON THE EVENT FORM` : 'NO CAPACITY SET'}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={() => saveArea(a)} loading={areaBusy}>SAVE AREA</Button>
+                </div>
+              </div>
+            ))}
+
+            <div className="border border-grey-mid p-2 space-y-2">
+              <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">+ ADD AREA</div>
+              <div className="flex flex-wrap gap-2">
+                <div className="w-40">
+                  <Input label="Area name" value={newAreaName} onChange={(e) => setNewAreaName(e.target.value)} placeholder="E.G. MEETING ROOM 1" />
+                </div>
+                <div className="w-24">
+                  <Input label="Pax max" type="number" min="0" value={newAreaCapacity} onChange={(e) => setNewAreaCapacity(e.target.value)} placeholder="OPTIONAL" />
+                </div>
+                <div className="w-44">
+                  <Select
+                    label="Floor plan"
+                    value={newAreaFloorPlanId}
+                    onChange={(e) => setNewAreaFloorPlanId(e.target.value)}
+                    options={[{ value: '', label: 'NO LAYOUT LINK' }, ...floorPlanOptions.map((p) => ({ value: p.id, label: p.name }))]}
+                  />
+                </div>
+                <div className="flex-1 min-w-48">
+                  <Input label="Calendar link (optional)" value={newAreaUrl} onChange={(e) => setNewAreaUrl(e.target.value)} placeholder="GOOGLE EMBED / .ICS / webcal://" />
+                </div>
+                <div className="flex items-end">
+                  <Button size="sm" variant="ghost" onClick={addArea} loading={areaBusy}>ADD AREA</Button>
+                </div>
+              </div>
+              <p className="font-mono text-2xs uppercase text-grey-light">
+                AN AREA NEEDS NO CALENDAR — LINK ONE NOW OR LATER. A MULTI-CALENDAR GOOGLE EMBED CREATES ONE FEED PER CALENDAR.
+              </p>
+            </div>
+
+            {areaMessage && <p className={`font-mono text-xs ${areaMessage === 'SAVED' || areaMessage === 'AREA ADDED' ? 'text-success' : 'text-danger'}`}>{areaMessage}</p>}
+          </div>
+
+          {/* Room calendars */}
+          <div className="space-y-2">
+            <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">CALENDAR FEEDS — ASSIGN EACH TO AN AREA</div>
+            {feeds.length === 0 && (
+              <p className="font-mono text-2xs uppercase text-grey-light">NO ROOM CALENDARS YET — ADD THE FIRST ONE BELOW.</p>
+            )}
+            {feeds.map((f, i) => (
+              <div key={f.id} className="border border-grey-mid p-2 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="w-40">
+                    <Input value={f.name} onChange={(e) => patchFeed(f.id, { name: e.target.value })} placeholder="ROOM NAME" />
+                  </div>
+                  <input
+                    type="color"
+                    value={f.colour || '#0E7490'}
+                    onChange={(e) => patchFeed(f.id, { colour: e.target.value })}
+                    title="ROOM COLOUR"
+                    className="w-10 h-8 bg-black border border-grey-mid"
+                  />
+                  <div className="w-40">
+                    <Select
+                      value={f.areaId ?? ''}
+                      onChange={(e) => patchFeed(f.id, { areaId: e.target.value || null })}
+                      options={[{ value: '', label: 'UNASSIGNED' }, ...areas.map((a) => ({ value: a.id, label: a.name }))]}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-40">
+                    <Select
+                      value={f.floorPlanId ?? ''}
+                      onChange={(e) => patchFeed(f.id, { floorPlanId: e.target.value || null })}
+                      options={[{ value: '', label: 'NO LAYOUT LINK' }, ...floorPlanOptions.map((p) => ({ value: p.id, label: p.name }))]}
+                    />
+                  </div>
+                  <span className="font-mono text-2xs uppercase text-grey-light">{f.source}</span>
+                  <div className="flex items-center gap-1 ml-auto">
+                    <button onClick={() => moveFeed(f.id, -1)} disabled={i === 0} className="font-mono text-xs text-grey-light border border-grey-mid px-2 py-1 hover:border-white hover:text-white disabled:opacity-30">↑</button>
+                    <button onClick={() => moveFeed(f.id, 1)} disabled={i === feeds.length - 1} className="font-mono text-xs text-grey-light border border-grey-mid px-2 py-1 hover:border-white hover:text-white disabled:opacity-30">↓</button>
+                    <Button size="sm" variant="danger" onClick={() => removeFeed(f.id)}>✕</Button>
+                  </div>
+                </div>
+                <Input value={f.url} onChange={(e) => patchFeed(f.id, { url: e.target.value })} placeholder="https://…/basic.ics  or  calendar embed link  or  webcal://…" />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono text-2xs uppercase text-grey-light">
+                    {f.lastSyncedAt ? `SYNCED ${new Date(f.lastSyncedAt).toLocaleString('en-NZ')}` : 'NOT YET SYNCED'}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={() => saveFeed(f)} loading={feedBusy}>SAVE ROOM</Button>
+                </div>
+              </div>
+            ))}
+
+            <div className="border border-grey-mid p-2 space-y-2">
+              <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">+ ADD ROOM</div>
+              <div className="flex flex-wrap gap-2">
+                <div className="w-40">
+                  <Input label="Room name" value={newFeedName} onChange={(e) => setNewFeedName(e.target.value)} placeholder="E.G. TE KAWAU ROOM" />
+                </div>
+                <div className="flex-1 min-w-48">
+                  <Input label="Calendar link" value={newFeedUrl} onChange={(e) => setNewFeedUrl(e.target.value)} placeholder="GOOGLE EMBED / .ICS / webcal://" />
+                </div>
+                <div className="flex items-end">
+                  <Button size="sm" variant="ghost" onClick={addFeed} loading={feedBusy}>ADD ROOM</Button>
+                </div>
+              </div>
+              <p className="font-mono text-2xs uppercase text-grey-light">
+                A GOOGLE EMBED LINK WITH MULTIPLE src CALENDARS CREATES ONE ROOM PER CALENDAR (RENAME THEM ABOVE).
+              </p>
+            </div>
+
+            {feedMessage && <p className={`font-mono text-xs ${feedMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{feedMessage}</p>}
+          </div>
+
           <Textarea label="Loaded roster — public link (live embed tab only)" value={loadedUrl} onChange={(e) => setLoadedUrl(e.target.value)} placeholder="https://loadedhub.com/App/PublicRoster#/roster/..." />
           <Select label="Auto-refresh / re-sync interval" value={refresh} onChange={(e) => setRefresh(e.target.value)} options={REFRESH_OPTIONS} />
           {intMessage && <p className={`font-mono text-xs ${intMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{intMessage}</p>}
           <Button onClick={saveIntegrations} loading={intSaving} size="sm">SAVE INTEGRATIONS</Button>
+        </div>
+      </div>
+
+      {/* Roster availability cut-off */}
+      <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">
+        <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">ROSTER AVAILABILITY</h2>
+        <p className="font-mono text-xs text-grey-light mb-3">
+          STAFF SET THEIR OWN AVAILABILITY FROM THE WORKER APP AND IT OVERLAYS THE ROSTER EDITOR. THIS CUT-OFF LOCKS NEAR-TERM DAYS SO AVAILABILITY CANNOT CHANGE WHILE YOU ARE BUILDING OR RUNNING A ROSTER. 0 = NO LOCK.
+        </p>
+        <div className="space-y-3">
+          <Input label="Lock-out (days before today)" type="number" min="0" value={lockDays} onChange={(e) => setLockDays(e.target.value)} />
+
+          <div className="border border-grey-mid p-3 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">Weekly request deadline</div>
+              <button
+                onClick={() => setCutoffOn(!cutoffOn)}
+                className={`font-mono text-xs uppercase px-3 py-1.5 border ${cutoffOn ? 'border-success text-success' : 'border-grey-mid text-grey-light'}`}
+              >
+                {cutoffOn ? 'ON' : 'OFF'}
+              </button>
+            </div>
+            <p className="font-mono text-2xs uppercase text-grey-light">
+              AFTER THIS DEADLINE, WORKER CHANGES FOR THE COMING ROSTER WEEK ARE SENT TO YOU AS REQUESTS INSTEAD OF AUTO-APPROVING.
+            </p>
+            {cutoffOn && (
+              <div className="grid grid-cols-2 gap-3">
+                <Select
+                  label="Deadline day"
+                  value={cutoffDay}
+                  onChange={(e) => setCutoffDay(e.target.value)}
+                  options={AVAILABILITY_WEEKDAYS.map((d, i) => ({ value: String(i), label: d }))}
+                />
+                <Select
+                  label="Deadline time"
+                  value={cutoffTime}
+                  onChange={(e) => setCutoffTime(e.target.value)}
+                  options={PRESET_START_OPTIONS}
+                />
+              </div>
+            )}
+            {cutoffOn && (
+              <p className="font-mono text-2xs uppercase text-white">
+                CHANGES AFTER {describeAvailabilityCutoff({ day: Number(cutoffDay), time: cutoffTime })} NEED MANAGER APPROVAL.
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">QUICK PICK PRESETS — MORNING / AFTERNOON / EVENING</div>
+            {presets.map((p, i) => (
+              <div key={p.key} className="flex items-center gap-2">
+                <span className="font-mono text-2xs uppercase text-white w-20">{p.label}</span>
+                <div className="flex-1">
+                  <Select
+                    value={p.startTime}
+                    onChange={(e) => setPresets(presets.map((x, j) => (j === i ? { ...x, startTime: e.target.value } : x)))}
+                    options={PRESET_START_OPTIONS}
+                  />
+                </div>
+                <span className="font-mono text-xs text-grey-light">–</span>
+                <div className="flex-1">
+                  <Select
+                    value={p.endTime}
+                    onChange={(e) => setPresets(presets.map((x, j) => (j === i ? { ...x, endTime: e.target.value } : x)))}
+                    options={PRESET_END_OPTIONS}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {lockMessage && <p className={`font-mono text-xs ${lockMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{lockMessage}</p>}
+          <Button onClick={saveAvailabilityLock} loading={lockSaving} size="sm">SAVE</Button>
+        </div>
+      </div>
+
+      {/* Worker phone session */}
+      <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">
+        <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">WORKER SESSION</h2>
+        <p className="font-mono text-xs text-grey-light mb-3">
+          HOW MANY MINUTES A STAFF MEMBER&apos;S PHONE STAYS SIGNED IN AFTER THEIR LAST TAP. ACTIVE USE KEEPS THE SESSION ALIVE; IDLE TIME SIGNS THEM OUT AND ASKS FOR THEIR PIN AGAIN. 5–480 MINUTES. 0 = SERVER DEFAULT.
+        </p>
+        <div className="space-y-3">
+          <Input
+            label="Inactivity timeout (minutes)"
+            type="number"
+            min="0"
+            max="480"
+            value={workerSessionMinutes}
+            onChange={(e) => setWorkerSessionMinutes(e.target.value)}
+          />
+          {workerSessionMessage && (
+            <p className={`font-mono text-xs ${workerSessionMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>
+              {workerSessionMessage}
+            </p>
+          )}
+          <Button onClick={saveWorkerSession} loading={workerSessionSaving} size="sm">SAVE</Button>
         </div>
       </div>
 
@@ -353,28 +1067,111 @@ export function SettingsClient({
           {role === 'ADMIN' && venues.length > 1 && (
             <Select label="Venue" value={wcVenueId} onChange={(e) => setWcVenueId(e.target.value)} options={venues.map((v) => ({ value: v.id, label: v.name }))} />
           )}
-          {wcReadOnly && <p className="font-mono text-xs text-[#FACC15]">READ-ONLY — WOOCOMMERCE IS MANAGED BY {wcSharedFrom ? venues.find((v) => v.id === wcSharedFrom)?.name ?? 'THE SOURCE VENUE' : 'ANOTHER VENUE'}</p>}
-          <Input label="STORE URL" value={wcStoreUrl} onChange={(e) => setWcStoreUrl(e.target.value)} placeholder="https://yourshop.co.nz" disabled={wcReadOnly} />
+          {wcReadOnly && <p className="font-mono text-xs text-warning">READ-ONLY — WOOCOMMERCE IS MANAGED BY {wcSharedFrom ? venues.find((v) => v.id === wcSharedFrom)?.name ?? 'THE SOURCE VENUE' : 'ANOTHER VENUE'}</p>}
+          {wcManagedByPlugin && (
+            <div className={`border p-3 space-y-2 ${wcOverride ? 'border-warning' : 'border-info'}`}>
+              <div className="font-mono text-xs uppercase tracking-wider text-white">
+                {wcOverride ? 'MANUAL OVERRIDE' : 'MANAGED BY PLUGIN'}
+              </div>
+              <p className="font-mono text-xs text-grey-light leading-relaxed">
+                {wcOverride
+                  ? 'SAVING WILL DISCONNECT THE WORDPRESS PLUGIN\'S MANAGEMENT. THE PLUGIN CAN RE-CONNECT AT ANY TIME AND WILL TAKE OVER AGAIN.'
+                  : `CREDENTIALS AND WEBHOOKS WERE SET UP BY THE HOSPO OPS WORDPRESS PLUGIN${wcPairedAt ? ` ON ${new Date(wcPairedAt).toLocaleString()}` : ''}. RE-CONNECT FROM THE PLUGIN TO ROTATE THEM.`}
+              </p>
+              {!wcOverride && (
+                <Button size="sm" variant="ghost" onClick={() => setWcOverride(true)}>MANUAL OVERRIDE</Button>
+              )}
+            </div>
+          )}
+          <Input label="STORE URL" value={wcStoreUrl} onChange={(e) => setWcStoreUrl(e.target.value)} placeholder="https://yourshop.co.nz" disabled={wcLocked} />
           <div className="grid grid-cols-2 gap-3">
-            <Input label="CONSUMER KEY" type="password" value={wcConsumerKey} onChange={(e) => setWcConsumerKey(e.target.value)} placeholder={wcConsumerKey ? '••••••••' : 'ck_...'} autoComplete="off" />
-            <Input label="CONSUMER SECRET" type="password" value={wcConsumerSecret} onChange={(e) => setWcConsumerSecret(e.target.value)} placeholder={wcConsumerSecret ? '••••••••' : 'cs_...'} autoComplete="off" />
+            <Input label="CONSUMER KEY" type="password" value={wcConsumerKey} onChange={(e) => setWcConsumerKey(e.target.value)} placeholder={wcConsumerKey ? '•••••••• — TYPE TO REPLACE' : 'ck_...'} autoComplete="off" disabled={wcLocked} />
+            <Input label="CONSUMER SECRET" type="password" value={wcConsumerSecret} onChange={(e) => setWcConsumerSecret(e.target.value)} placeholder={wcConsumerSecret ? '•••••••• — TYPE TO REPLACE' : 'cs_...'} autoComplete="off" disabled={wcLocked} />
           </div>
-          <Input label="WEBHOOK SECRET" type="password" value={wcWebhookSecret} onChange={(e) => setWcWebhookSecret(e.target.value)} placeholder={wcWebhookSecret ? '••••••••' : 'whsec_...'} autoComplete="off" />
+          <Input label="WEBHOOK SECRET" type="password" value={wcWebhookSecret} onChange={(e) => setWcWebhookSecret(e.target.value)} placeholder={wcWebhookSecret ? '•••••••• — TYPE TO REPLACE' : 'whsec_...'} autoComplete="off" disabled={wcLocked} />
           <div className="flex items-center gap-3">
             <button
               onClick={() => setWcActive(!wcActive)}
-              className={`font-mono text-xs uppercase px-3 py-1.5 border ${wcActive ? 'border-success text-success' : 'border-grey-mid text-grey-light'}`}
+              disabled={wcLocked}
+              className={`font-mono text-xs uppercase px-3 py-1.5 border ${wcActive ? 'border-success text-success' : 'border-grey-mid text-grey-light'} disabled:opacity-40`}
             >
               {wcActive ? 'ACTIVE' : 'INACTIVE'}
             </button>
             {wcLastSync && (
-              <span className="font-mono text-[10px] text-grey-light">
+              <span className="font-mono text-xs text-grey-light">
                 LAST SYNC: {new Date(wcLastSync).toLocaleString()}
               </span>
             )}
           </div>
+          {/* Meta-field mapping */}
+          <div className="border border-grey-mid">
+            <button
+              onClick={() => setWcShowMeta(!wcShowMeta)}
+              className="w-full flex items-center justify-between px-3 py-2 font-mono text-xs uppercase text-grey-light hover:text-white tracking-wider"
+            >
+              <span>ORDER FIELD MAPPING</span>
+              <span>{wcShowMeta ? '▾' : '▸'}</span>
+            </button>
+            {wcShowMeta && (
+              <div className="border-t border-grey-mid p-3 space-y-3">
+                <p className="font-mono text-xs text-grey-light leading-relaxed">
+                  DATE, TIME AND PARTY SIZE ARRIVE AS CUSTOM FIELDS ON THE ORDER. THE KEY
+                  DEPENDS ON YOUR PLUGIN AND THE LABEL YOU GAVE THE FIELD — SO MAP THEM HERE
+                  RATHER THAN RELYING ON A FIXED NAME. COMMA-SEPARATE SEVERAL KEYS TO TRY IN
+                  ORDER. LEAVE BLANK TO USE THE DEFAULTS.
+                </p>
+                {META_FIELDS.map((f) => (
+                  <div key={f.key}>
+                    <Input
+                      label={f.label}
+                      value={wcMetaMap[f.key] ?? ''}
+                      onChange={(e) => setWcMetaMap({ ...wcMetaMap, [f.key]: e.target.value })}
+                      placeholder={(wcMetaDefaults[f.key] ?? []).join(', ')}
+                      disabled={wcReadOnly}
+                    />
+                    <p className="font-mono text-xs text-grey-light mt-0.5">{f.hint}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {/* External API keys */}
+          <div className="border border-grey-mid p-3 space-y-2">
+            <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">EXTERNAL API</h3>
+            <p className="font-mono text-xs text-grey-light">
+              KEYS FOR EXTERNAL SYSTEMS (E.G. THE WORDPRESS BOOKING PLUGIN) TO READ THIS VENUE&apos;S SERVICES + AVAILABILITY AND CREATE BOOKINGS. THE KEY IS SHOWN ONCE — COPY IT NOW.
+            </p>
+            {extNewKey && (
+              <div className="border border-info p-3 space-y-2">
+                <div className="font-mono text-xs text-white break-all">{extNewKey}</div>
+                <Button size="sm" onClick={copyExtKey}>COPY KEY</Button>
+              </div>
+            )}
+            {extKeys.length > 0 && (
+              <div className="divide-y divide-grey-mid border border-grey-mid">
+                {extKeys.map((k) => (
+                  <div key={k.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                    <div>
+                      <div className="font-mono text-xs text-white uppercase">{k.name}</div>
+                      <div className="font-mono text-xs text-grey-light">
+                        {k.masked}
+                        {k.lastUsedAt ? ` · LAST USED ${k.lastUsedAt.slice(0, 10)}` : ' · NEVER USED'}
+                      </div>
+                    </div>
+                    <Button size="sm" variant="danger" onClick={() => revokeExtKey(k.id)}>REVOKE</Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <Input label="KEY NAME" value={extKeyName} onChange={(e) => setExtKeyName(e.target.value)} placeholder="WEBSITE PLUGIN" />
+              </div>
+              <Button size="sm" variant="ghost" onClick={generateExtKey} loading={extKeyBusy}>+ GENERATE</Button>
+            </div>
+          </div>
           {wcMessage && <p className={`font-mono text-xs ${wcMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{wcMessage}</p>}
-          <Button onClick={saveWooCommerce} loading={wcSaving} size="sm">SAVE WOOCOMMERCE</Button>
+          <Button onClick={saveWooCommerce} loading={wcSaving} size="sm">{wcOverride ? 'SAVE & TAKE OVER' : 'SAVE WOOCOMMERCE'}</Button>
         </div>
       </div>
 
@@ -416,7 +1213,7 @@ export function SettingsClient({
               <Button onClick={handleBackup} loading={backupLoading} size="sm" variant="ghost">DOWNLOAD BACKUP</Button>
               <label className="flex items-center gap-1 cursor-pointer">
                 <input type="checkbox" checked={includeUploads} onChange={(e) => setIncludeUploads(e.target.checked)} className="accent-white" />
-                <span className="font-mono text-[10px] uppercase text-grey-light">INCLUDE UPLOADED FILES</span>
+                <span className="font-mono text-xs uppercase text-grey-light">INCLUDE UPLOADED FILES</span>
               </label>
               {backupMessage && <span className="font-mono text-xs text-success">{backupMessage}</span>}
               {backupError && <span className="font-mono text-xs text-danger">{backupError}</span>}
@@ -489,7 +1286,7 @@ export function SettingsClient({
             />
           )}
 
-          <p className="font-mono text-[10px] text-grey-light">
+          <p className="font-mono text-xs text-grey-light">
             {sharingEnabled
               ? 'OTHER VENUES CAN NOW USE THIS VENUE AS THEIR WOOCOMMERCE SOURCE. SET THE WOOCOMMERCE SOURCE ABOVE TO PULL PRODUCTS AND ORDERS FROM ANOTHER VENUE.'
               : 'TURN ON SHARING TO ALLOW OTHER VENUES TO PULL FROM THIS VENUE.'}
@@ -580,6 +1377,30 @@ export function SettingsClient({
             <Button onClick={handleChangePin} loading={pinSaving} size="sm" variant="ghost">UPDATE PIN</Button>
           </div>
         </div>
+      </div>
+        </div>
+        )}
+        {tab === 'venue' && (
+          <VenueSetupClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId} />
+        )}
+        {tab === 'structure' && <StructureClient role={role} />}
+        {tab === 'floorplans' && (!grantedAreas || grantedAreas.includes('floorplans')) && (
+          <FloorPlansClient role={role} venueId={sessionVenueId} />
+        )}
+        {tab === 'uoms' && <UomsClient />}
+        {tab === 'suppliers' && <SuppliersClient />}
+        {tab === 'qrcodes' && <QRCodesClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId ?? undefined} />}
+        {tab === 'sync' && <SyncClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId ?? undefined} />}
+        {tab === 'swiftpos' && <SwiftPosSalesClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId ?? undefined} />}
+        {tab === 'files' && role === 'ADMIN' && (
+          <div className="max-w-4xl space-y-3">
+            <h1 className="font-mono text-xl font-bold uppercase tracking-widest">FILE MANAGER</h1>
+            <p className="font-mono text-xs text-grey-light">
+              BROWSE THE FILES THIS SERVER STORES — UPLOADED MEDIA AND KEPT BACKUP ARCHIVES. CLICK A FILE TO PREVIEW IT AND SEE WHERE IT&apos;S USED; LINKED FILES CANNOT BE DELETED.
+            </p>
+            <FileBrowser />
+          </div>
+        )}
       </div>
     </div>
   )

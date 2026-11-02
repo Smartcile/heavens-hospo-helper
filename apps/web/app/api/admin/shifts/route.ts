@@ -3,19 +3,31 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { isValidTime } from '@/lib/calendar'
+import { syncShiftSeatLinks } from '@/lib/open-shifts.server'
+import { guardAccess } from '@/lib/permissions'
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'calendar.calendar.edit')
+  if (denied) return denied
+  if (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER')
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { staffId, date, startTime, endTime, departmentId, note } = body as {
+  const { staffId, date, startTime, endTime, departmentId, positionId, colour, tag, breakMinutes, status, note, calendarEventId } = body as {
     staffId: string
     date: string
     startTime: string
     endTime: string
     departmentId?: string | null
+    positionId?: string | null
+    colour?: string | null
+    tag?: string | null
+    breakMinutes?: number
+    status?: string
     note?: string
+    calendarEventId?: string | null
   }
 
   if (!staffId || !date || !startTime || !endTime) {
@@ -31,11 +43,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  if (calendarEventId) {
+    const event = await prisma.calendarEvent.findFirst({
+      where: { id: calendarEventId, venueId: staff.venueId, deletedAt: null },
+      select: { id: true },
+    })
+    if (!event) return NextResponse.json({ error: 'Unknown event' }, { status: 400 })
+  }
+
   const shift = await prisma.shift.create({
     data: {
       staffId,
       venueId: staff.venueId,
       departmentId: departmentId ?? staff.departmentId ?? null,
+      positionId: positionId || null,
+      calendarEventId: calendarEventId || null,
+      colour: colour || null,
+      tag: tag?.trim() || null,
+      breakMinutes: Math.max(0, Math.round(Number(breakMinutes) || 0)),
+      status: status === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT',
       date: new Date(date),
       startTime,
       endTime,
@@ -43,6 +69,8 @@ export async function POST(req: NextRequest) {
       createdById: session.user.id,
     },
   })
+
+  await syncShiftSeatLinks({ shift, previousEventId: null })
 
   return NextResponse.json(shift, { status: 201 })
 }

@@ -2,10 +2,39 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
+import { cleanStorageLocations } from '@/lib/inventory-locations'
+
+// Single inventory item for the reference popup (photo, unit, cost, storage).
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.inventory.view')
+  if (denied) return denied
+
+  const item = await prisma.inventoryItem.findFirst({
+    where: { id: params.id, deletedAt: null },
+    include: {
+      category: { select: { id: true, name: true, tab: true } },
+      storageLocations: {
+        where: { deletedAt: null },
+        include: { section: { select: { name: true, department: { select: { name: true } } } } },
+      },
+    },
+  })
+  if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (session.user.role === 'MANAGER' && item.venueId !== session.user.venueId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  return NextResponse.json(item)
+}
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.inventory.edit')
+  if (denied) return denied
 
   const item = await prisma.inventoryItem.findFirst({
     where: { id: params.id, deletedAt: null },
@@ -16,7 +45,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, countingUnitQty, orderingUnitQty, parLevelUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrls, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId, shelfLifeDays, canFreeze, freezerShelfLifeDays } = await req.json()
+  const { name, categoryId, unit, defaultParLevel, totalQty, furnitureType, elementWidth, elementDepth, elementShape, defaultColour, defaultChairCount, countingUnitId, orderingUnitId, countingUnitQty, orderingUnitQty, parLevelUnitId, yieldPercentage, costPrice, expiryDate, fallbackCategoryId, allergyInfo, imageUrls, storageLocations, storageSectionId, storageNotes, serialNumber, purchaseDate, warrantyExpiry, serviceIntervalDays, lastServicedAt, nextServiceAt, maintenanceNotes, supplierId, shelfLifeDays, canFreeze, freezerShelfLifeDays, densityGramsPerMl, weightPerUnitGrams, menuItemIds, serviceSupplierIds } = await req.json()
 
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = name.toUpperCase().trim()
@@ -43,8 +72,26 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   // Equipment / tool tracking
   if (imageUrls !== undefined) data.imageUrls = Array.isArray(imageUrls) ? imageUrls : undefined
-  if (storageSectionId !== undefined) data.storageSectionId = storageSectionId || null
-  if (storageNotes !== undefined) data.storageNotes = storageNotes || null
+  // Linked menu items (products) replace the whole set.
+  if (menuItemIds !== undefined) {
+    const ids: string[] = Array.isArray(menuItemIds) ? [...new Set(menuItemIds as string[])] : []
+    data.menuLinks = { deleteMany: {}, create: ids.map((menuItemId) => ({ menuItemId })) }
+  }
+  if (serviceSupplierIds !== undefined) {
+    const ids: string[] = Array.isArray(serviceSupplierIds) ? [...new Set(serviceSupplierIds as string[])] : []
+    data.serviceSuppliers = { deleteMany: {}, create: ids.map((supplierId) => ({ supplierId })) }
+  }
+  // storageLocations replaces the whole set; the single storageSectionId/notes
+  // stay in sync as the first location for legacy readers.
+  if (storageLocations !== undefined) {
+    const locs = cleanStorageLocations(storageLocations)
+    data.storageLocations = { deleteMany: {}, create: locs }
+    data.storageSectionId = locs[0]?.sectionId ?? null
+    data.storageNotes = locs[0]?.notes ?? null
+  } else {
+    if (storageSectionId !== undefined) data.storageSectionId = storageSectionId || null
+    if (storageNotes !== undefined) data.storageNotes = storageNotes || null
+  }
   if (serialNumber !== undefined) data.serialNumber = serialNumber || null
   if (purchaseDate !== undefined) data.purchaseDate = purchaseDate ? new Date(purchaseDate) : null
   if (warrantyExpiry !== undefined) data.warrantyExpiry = warrantyExpiry ? new Date(warrantyExpiry) : null
@@ -67,6 +114,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (shelfLifeDays !== undefined) data.shelfLifeDays = shelfLifeDays ? parseInt(String(shelfLifeDays)) || null : null
   if (canFreeze !== undefined) data.canFreeze = !!canFreeze
   if (freezerShelfLifeDays !== undefined) data.freezerShelfLifeDays = freezerShelfLifeDays ? parseInt(String(freezerShelfLifeDays)) || null : null
+
+  // Density (volume ↔ mass ↔ count conversion)
+  if (densityGramsPerMl !== undefined) data.densityGramsPerMl = densityGramsPerMl != null && densityGramsPerMl !== '' ? parseFloat(String(densityGramsPerMl)) : null
+  if (weightPerUnitGrams !== undefined) data.weightPerUnitGrams = weightPerUnitGrams != null && weightPerUnitGrams !== '' ? parseFloat(String(weightPerUnitGrams)) : null
 
   const updated = await prisma.inventoryItem.update({
     where: { id: params.id },
@@ -91,6 +142,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.inventory.delete')
+  if (denied) return denied
 
   const permanent = req.nextUrl.searchParams.get('permanent') === '1'
 

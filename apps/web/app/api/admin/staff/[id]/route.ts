@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import bcrypt from 'bcryptjs'
+import { guardAccess } from '@/lib/permissions'
+import { dismissPendingSectionWorkForGrant } from '@/lib/section-work.server'
 
 interface Params {
   params: { id: string }
@@ -11,14 +13,22 @@ interface Params {
 export async function GET(_req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'team.staff.view')
+  if (denied) return denied
 
   const staff = await prisma.staff.findUnique({
     where: { id: params.id },
     select: {
       id: true, firstName: true, lastName: true, email: true, role: true, venueId: true,
       departmentId: true, isActive: true, hourlyRate: true, employmentType: true,
+      taxCode: true, kiwiSaverRate: true, studentLoan: true,
       swiftPosId: true, myHrId: true, loadedReportsId: true,
       sections: { select: { sectionId: true } },
+      sectionWorkReviews: {
+        where: { deletedAt: null, status: 'PENDING' },
+        select: { sectionId: true },
+      },
+      positions: { select: { positionId: true, hourlyRate: true } },
       staffVenues: { select: { venueId: true } },
     },
   })
@@ -29,6 +39,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
 export async function PUT(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'team.staff.edit')
+  if (denied) return denied
 
   const body = await req.json()
   const {
@@ -60,6 +72,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (isActive !== undefined) updates.isActive = isActive
   if (hourlyRate !== undefined) updates.hourlyRate = hourlyRate != null ? Number(hourlyRate) : null
   if (employmentType !== undefined) updates.employmentType = employmentType || null
+  if (body.taxCode !== undefined) updates.taxCode = body.taxCode?.trim() || null
+  if (body.kiwiSaverRate !== undefined) updates.kiwiSaverRate = body.kiwiSaverRate != null ? Number(body.kiwiSaverRate) : null
+  if (body.studentLoan !== undefined) updates.studentLoan = !!body.studentLoan
   if (defaultVenueId !== undefined) updates.defaultVenueId = defaultVenueId || null
   if (swiftPosId !== undefined) updates.swiftPosId = swiftPosId?.trim() || null
   if (myHrId !== undefined) updates.myHrId = myHrId?.trim() || null
@@ -69,6 +84,26 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.sectionIds !== undefined) {
     const ids: string[] = Array.isArray(body.sectionIds) ? body.sectionIds : []
     updates.sections = { deleteMany: {}, create: ids.map((sectionId: string) => ({ sectionId })) }
+  }
+
+  // Roles — a person can hold several, each with an optional per-role rate.
+  // `positions` (objects) supersedes `positionIds`.
+  if (body.positions !== undefined || body.positionIds !== undefined) {
+    const rows: { positionId: string; hourlyRate: number | null }[] = []
+    if (Array.isArray(body.positions)) {
+      const seen = new Set<string>()
+      for (const p of body.positions) {
+        const positionId = typeof p?.positionId === 'string' ? p.positionId : null
+        if (!positionId || seen.has(positionId)) continue
+        seen.add(positionId)
+        rows.push({ positionId, hourlyRate: typeof p?.hourlyRate === 'number' ? p.hourlyRate : null })
+      }
+    } else if (Array.isArray(body.positionIds)) {
+      for (const positionId of [...new Set(body.positionIds as string[])]) {
+        if (positionId) rows.push({ positionId, hourlyRate: null })
+      }
+    }
+    updates.positions = { deleteMany: {}, create: rows }
   }
 
   // PIN: empty/undefined leaves it unchanged; empty string clears it.
@@ -127,6 +162,14 @@ export async function PUT(req: NextRequest, { params }: Params) {
     },
   })
 
+  // A manual grant from the Staff modal supersedes a pending review.
+  if (body.sectionIds !== undefined) {
+    const grantedIds: string[] = Array.isArray(body.sectionIds) ? body.sectionIds : []
+    try {
+      await dismissPendingSectionWorkForGrant(params.id, grantedIds, session.user.id)
+    } catch { /* best-effort — the grant already succeeded */ }
+  }
+
   // Sync additional venue assignments
   if (venueIds !== undefined) {
     const ids: string[] = Array.isArray(venueIds) ? venueIds : []
@@ -144,6 +187,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'team.staff.delete')
+  if (denied) return denied
 
   await prisma.staff.update({
     where: { id: params.id },

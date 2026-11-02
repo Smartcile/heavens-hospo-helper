@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
@@ -6,7 +6,7 @@ import { getTodayDate, completionPercent } from '@/lib/utils'
 import { isTaskDueOnDate, formatDateKey } from '@/lib/scheduling'
 import type { DashboardStats } from '@hospo-ops/types'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -44,10 +44,14 @@ export async function GET() {
     allTaskIds.length > 0
       ? await prisma.taskCompletion.findMany({
           where: { taskId: { in: allTaskIds }, scheduledDate: { in: distinctDates } },
-          select: { taskId: true, scheduledDate: true },
+          select: { taskId: true, scheduledDate: true, outcome: true },
         })
       : []
-  const doneSet = new Set(completions.map((c) => `${c.taskId}|${formatDateKey(c.scheduledDate)}`))
+  const doneSet = new Set(
+    completions
+      .filter((c) => c.outcome === 'DONE')
+      .map((c) => `${c.taskId}|${formatDateKey(c.scheduledDate)}`),
+  )
 
   let totalTasksToday = 0
   let completedTasksToday = 0
@@ -142,6 +146,7 @@ export async function GET() {
       taskTitle: c.task.title,
       departmentName: c.task.department?.name ?? null,
       completedAt: c.completedAt,
+      outcome: c.outcome,
     })),
     parAlerts,
   }

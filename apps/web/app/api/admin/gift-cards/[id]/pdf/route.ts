@@ -3,10 +3,13 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import fs from 'fs'
+import { guardAccess } from '@/lib/permissions'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, _req, 'performance.giftcards.view')
+  if (denied) return denied
 
   const card = await prisma.giftCard.findFirst({
     where: { id: params.id, venueId: session.user.venueId, deletedAt: null },
@@ -17,10 +20,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   }
 
   const buffer = fs.readFileSync(card.pdfPath)
+  // `?inline=1` renders the PDF in an iframe (the card popup preview);
+  // the default stays an attachment download.
+  const inline = _req.nextUrl.searchParams.get('inline') === '1'
   return new NextResponse(buffer, {
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="Gift Card - ${card.number}.pdf"`,
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="Gift Card - ${card.number}.pdf"`,
     },
   })
 }

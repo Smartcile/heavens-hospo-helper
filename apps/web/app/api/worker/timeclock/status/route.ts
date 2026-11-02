@@ -11,6 +11,13 @@ export async function GET() {
     include: { staff: { select: { firstName: true, lastName: true, department: { select: { name: true } } } } },
   })
 
+  const activeBreak = active
+    ? await prisma.timeClockBreak.findFirst({
+        where: { timeClockId: active.id, endAt: null, deletedAt: null },
+        select: { id: true, startAt: true },
+      })
+    : null
+
   let todayMinutes = 0
   const todayStart = new Date()
   todayStart.setHours(0, 0, 0, 0)
@@ -41,6 +48,7 @@ export async function GET() {
   return NextResponse.json({
     isClockedIn: !!active,
     activeSession: active,
+    activeBreak,
     todayMinutes,
     recentSessions: recent,
   })

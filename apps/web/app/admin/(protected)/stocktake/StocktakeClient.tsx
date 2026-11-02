@@ -4,13 +4,15 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { getActiveVenueId } from '@/lib/active-venue'
 
 interface LineItem { id: string; itemId: string; countedQuantity: number; expectedQuantity: number; variance: number; item: { id: string; name: string; unit: string; category: { id: string; name: string } } }
 interface Staff { id: string; firstName: string; lastName: string }
 interface Record { id: string; date: string; status: string; notes: string | null; assignedRoleId: string | null; assignedStaffId: string | null; completedAt: string | null; completedBy: { id: string; firstName: string; lastName: string } | null; assignedStaff: Staff | null; _count: { lineItems: number } }
 interface FullRecord extends Record { lineItems: LineItem[] }
 
-export function StocktakeClient() {
+export function StocktakeClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
+  const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
   const [records, setRecords] = useState<Record[]>([])
   const [staff, setStaff] = useState<Staff[]>([])
   const [loading, setLoading] = useState(true)
@@ -23,9 +25,10 @@ export function StocktakeClient() {
 
   async function load() {
     setLoading(true)
+    const venueParam = venueId ? `?venueId=${venueId}` : ''
     const [rRes, sRes] = await Promise.all([
-      fetch('/api/admin/stocktake'),
-      fetch('/api/admin/staff?role=STAFF'),
+      fetch(`/api/admin/stocktake${venueParam}`),
+      fetch(`/api/admin/staff?role=STAFF${venueParam.replace('?', '&')}`),
     ])
     if (rRes.ok) setRecords(await rRes.json())
     if (sRes.ok) setStaff(await sRes.json())
@@ -39,7 +42,7 @@ export function StocktakeClient() {
     const r = await fetch('/api/admin/stocktake', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date: newDate, assignedStaffId: newAssignedStaff || null, notes: newNotes || null }),
+      body: JSON.stringify({ date: newDate, assignedStaffId: newAssignedStaff || null, notes: newNotes || null, ...(venueId ? { venueId } : {}) }),
     })
     if (r.ok) { setShowCreate(false); setNewAssignedStaff(''); setNewNotes(''); load() }
     setCreating(false)
@@ -107,7 +110,7 @@ export function StocktakeClient() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">STOCKTAKE</h1>
-            <p className="font-mono text-[10px] text-grey-light">{selected.date} · {selected.status}</p>
+            <p className="font-mono text-xs text-grey-light">{selected.date} · {selected.status}</p>
           </div>
           <div className="flex gap-2">
             <Button size="sm" variant="ghost" onClick={() => { updateCounts(); setSelected(null) }}>BACK</Button>
@@ -119,7 +122,7 @@ export function StocktakeClient() {
 
         {unresolved.length > 0 && (
           <div className="bg-danger/10 border border-danger p-2">
-            <p className="font-mono text-[10px] text-danger">{unresolved.length} item(s) with variance — total diff: {diff}</p>
+            <p className="font-mono text-xs text-danger">{unresolved.length} item(s) with variance — total diff: {diff}</p>
           </div>
         )}
 
@@ -128,10 +131,10 @@ export function StocktakeClient() {
             <div key={li.id} className={`flex items-center gap-3 bg-grey-dark border p-2 ${li.variance !== 0 ? 'border-danger/50' : 'border-grey-mid'}`}>
               <div className="flex-1 min-w-0">
                 <span className="font-mono text-xs text-white truncate">{li.item.name}</span>
-                <span className="font-mono text-[10px] text-grey-light ml-2">{li.item.category.name}</span>
+                <span className="font-mono text-xs text-grey-light ml-2">{li.item.category.name}</span>
               </div>
-              <span className="font-mono text-[10px] text-grey-light">{li.item.unit}</span>
-              <span className="font-mono text-[10px] text-grey-light">EXP: {li.expectedQuantity}</span>
+              <span className="font-mono text-xs text-grey-light">{li.item.unit}</span>
+              <span className="font-mono text-xs text-grey-light">EXP: {li.expectedQuantity}</span>
               {selected.status !== 'COMPLETED' ? (
                 <input type="number" value={li.countedQuantity}
                   onChange={(e) => updateCount(li.itemId, parseInt(e.target.value) || 0)}
@@ -139,7 +142,7 @@ export function StocktakeClient() {
               ) : (
                 <span className="font-mono text-xs text-white w-16 text-right">{li.countedQuantity}</span>
               )}
-              <span className={`font-mono text-[10px] w-12 text-right ${li.variance !== 0 ? 'text-danger' : 'text-success'}`}>
+              <span className={`font-mono text-xs w-12 text-right ${li.variance !== 0 ? 'text-danger' : 'text-success'}`}>
                 {li.variance > 0 ? '+' : ''}{li.variance}
               </span>
             </div>
@@ -182,13 +185,13 @@ export function StocktakeClient() {
             <div className="flex-1 min-w-0">
               <span className="font-mono text-xs text-white">{r.date}</span>
               {r.assignedStaff && (
-                <span className="font-mono text-[10px] text-grey-light ml-2">→ {r.assignedStaff.firstName} {r.assignedStaff.lastName}</span>
+                <span className="font-mono text-xs text-grey-light ml-2">→ {r.assignedStaff.firstName} {r.assignedStaff.lastName}</span>
               )}
             </div>
-            <span className={`font-mono text-[10px] px-1.5 py-0.5 ${badge(r.status)}`}>{r.status}</span>
-            <span className="font-mono text-[10px] text-grey-light">{r._count.lineItems} items</span>
+            <span className={`font-mono text-xs px-1.5 py-0.5 ${badge(r.status)}`}>{r.status}</span>
+            <span className="font-mono text-xs text-grey-light">{r._count.lineItems} items</span>
             {r.completedBy && (
-              <span className="font-mono text-[10px] text-grey-light">by {r.completedBy.firstName}</span>
+              <span className="font-mono text-xs text-grey-light">by {r.completedBy.firstName}</span>
             )}
           </div>
         ))}

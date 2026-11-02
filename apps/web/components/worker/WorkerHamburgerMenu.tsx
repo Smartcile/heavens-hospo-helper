@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { ThemeToggle } from '@/components/ui/ThemeToggle'
 
 interface Props {
   firstName: string
@@ -11,12 +12,17 @@ export function WorkerHamburgerMenu({ firstName }: Props) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [noticeCount, setNoticeCount] = useState(0)
+  const [giftCardsAllowed, setGiftCardsAllowed] = useState(false)
 
   useEffect(() => {
     if (!open) return
     fetch('/api/worker/notices')
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) setNoticeCount(d.unackedRequired ?? 0) })
+      .catch(() => {})
+    fetch('/api/worker/giftcards/access')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setGiftCardsAllowed(!!d.allowed) })
       .catch(() => {})
   }, [open])
 
@@ -67,7 +73,7 @@ export function WorkerHamburgerMenu({ firstName }: Props) {
     },
     {
       label: 'MY SCHEDULE',
-      sub: 'SHIFTS & TIME OFF',
+      sub: 'MY ROSTERED SHIFTS',
       icon: (
         <path strokeLinecap="square" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
       ),
@@ -75,19 +81,11 @@ export function WorkerHamburgerMenu({ firstName }: Props) {
     },
     {
       label: 'MY GUIDES',
-      sub: 'TRAINING & ONBOARDING',
+      sub: 'TREE, BIBLE & ONBOARDING',
       icon: (
         <path strokeLinecap="square" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
       ),
       action: () => go('/w/guides'),
-    },
-    {
-      label: 'SOPS & GUIDES',
-      sub: 'REFERENCE MATERIAL',
-      icon: (
-        <path strokeLinecap="square" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-      ),
-      action: () => go('/w/sops'),
     },
     {
       label: 'FLOOR PLAN',
@@ -115,6 +113,17 @@ export function WorkerHamburgerMenu({ firstName }: Props) {
     },
   ]
 
+  if (giftCardsAllowed) {
+    items.push({
+      label: 'GIFT CARDS',
+      sub: 'ISSUE & PRINT',
+      icon: (
+        <path strokeLinecap="square" strokeWidth={1.5} d="M12 21s-7-4.6-9.5-9A5.4 5.4 0 0112 6.2 5.4 5.4 0 0121.5 12c-2.5 4.4-9.5 9-9.5 9z" />
+      ),
+      action: () => go('/w/giftcards'),
+    })
+  }
+
   return (
     <>
       {/* Hamburger button */}
@@ -137,12 +146,15 @@ export function WorkerHamburgerMenu({ firstName }: Props) {
           {/* Header bar */}
           <div className="flex items-center justify-between px-4 py-4 border-b border-grey-mid">
             <span className="font-mono text-xs text-grey-light uppercase">{firstName}</span>
-            <button
-              onClick={() => setOpen(false)}
-              className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
-            >
-              CLOSE ✕
-            </button>
+            <div className="flex items-center gap-3">
+              <ThemeToggle />
+              <button
+                onClick={() => setOpen(false)}
+                className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+              >
+                CLOSE ✕
+              </button>
+            </div>
           </div>
 
           {/* Grid of blocks */}
@@ -164,7 +176,7 @@ export function WorkerHamburgerMenu({ firstName }: Props) {
                   )}
                 </div>
                 <span className="font-mono text-sm font-bold uppercase text-white">{item.label}</span>
-                <span className="font-mono text-[10px] uppercase text-grey-light">{item.sub}</span>
+                <span className="font-mono text-xs uppercase text-grey-light">{item.sub}</span>
               </button>
             ))}
           </div>

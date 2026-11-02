@@ -1,0 +1,629 @@
+<?php
+/**
+ * Checkout integration: the customer picks a service, date, time slot and
+ * party size on the checkout page. Values are written to the order as
+ * `_hospo_*` meta, which the app's ORDER FIELD MAPPING reads by default.
+ */
+class Hospo_Ops_Checkout {
+
+	const NONCE_ACTION = 'hospo_ops_public';
+
+	public static function init() {
+		add_action( 'woocommerce_after_order_notes', array( __CLASS__, 'render_fields' ) );
+		add_action( 'woocommerce_checkout_process', array( __CLASS__, 'validate_fields' ) );
+		add_action( 'woocommerce_checkout_create_order', array( __CLASS__, 'save_order_meta' ), 10, 2 );
+		add_action( 'woocommerce_email_after_order_table', array( __CLASS__, 'email_dining_details' ), 10, 3 );
+		add_action( 'woocommerce_order_details_after_order_table', array( __CLASS__, 'thankyou_dining_details' ), 10, 1 );
+		add_action( 'woocommerce_admin_order_data_after_order_details', array( __CLASS__, 'admin_order_details' ), 10, 1 );
+		add_action( 'woocommerce_process_shop_order_meta', array( __CLASS__, 'admin_save_order_details' ), 10, 2 );
+
+		// Billing is just name, email and phone for a dated order — the street
+		// address fields stay visible (both classic and Blocks checkout) but
+		// are never required.
+		add_filter( 'woocommerce_default_address_fields', array( __CLASS__, 'optional_address_fields' ) );
+
+		// Cash on delivery must be CONFIRMED before it counts: WooCommerce's
+		// default marks COD orders "processing" the moment they're placed
+		// (cash is collected on delivery), which surfaced in the app as an
+		// instant confirmation. Start COD orders at "pending" instead — the
+		// gift card PDF is only issued once the order is actually paid.
+		add_filter( 'woocommerce_cod_process_payment_order_status', array( __CLASS__, 'cod_order_status' ) );
+
+		// Classic checkout: drop the street address fields from billing
+		// entirely — the venue only ever needs name, email and phone.
+		add_filter( 'woocommerce_checkout_fields', array( __CLASS__, 'classic_billing_fields' ) );
+
+		// Pickup-only stores never need a shipping address. Without this,
+		// WC's address validation fails every order because the removed
+		// billing_country can no longer vouch for the empty shipping one.
+		add_filter( 'woocommerce_cart_needs_shipping', array( __CLASS__, 'pickup_needs_no_shipping' ), 20, 2 );
+
+		// Admin: a column on the orders list.
+		add_filter( 'manage_edit-shop_order_columns', array( __CLASS__, 'order_column' ) );
+		add_action( 'manage_shop_order_posts_custom_column', array( __CLASS__, 'order_column_content' ), 10, 2 );
+	}
+
+	/**
+	 * COD orders start at "pending" so cash is confirmed before the order is
+	 * treated as paid (default WooCommerce behaviour is "processing").
+	 *
+	 * @return string
+	 */
+	public static function cod_order_status() {
+		return 'pending';
+	}
+
+	/**
+	 * Street address, city, state, postcode and country become optional —
+	 * only name, email and phone stay required.
+	 *
+	 * @param array $fields Default address field definitions.
+	 * @return array
+	 */
+	public static function optional_address_fields( $fields ) {
+		foreach ( array( 'address_1', 'address_2', 'city', 'state', 'postcode', 'country' ) as $key ) {
+			if ( isset( $fields[ $key ] ) ) {
+				$fields[ $key ]['required'] = false;
+			}
+		}
+		return $fields;
+	}
+
+	/**
+	 * Classic shortcode checkout: remove the street address fields from the
+	 * billing section completely. Name, email and phone remain.
+	 *
+	 * @param array $fields Checkout field definitions.
+	 * @return array
+	 */
+	public static function classic_billing_fields( $fields ) {
+		foreach ( array( 'billing_address_1', 'billing_address_2', 'billing_city', 'billing_state', 'billing_postcode', 'billing_country' ) as $key ) {
+			unset( $fields['billing'][ $key ] );
+		}
+		return $fields;
+	}
+
+	/**
+	 * When every available shipping method is local pickup, the order needs no
+	 * shipping address at all — the venue doesn't ship.
+	 *
+	 * @param bool $needs_shipping Whether the cart needs shipping.
+	 * @return bool
+	 */
+	public static function pickup_needs_no_shipping( $needs_shipping ) {
+		if ( ! $needs_shipping ) {
+			return false;
+		}
+
+		$rates = array();
+		foreach ( WC()->shipping()->get_packages() as $package ) {
+			foreach ( $package['rates'] as $rate ) {
+				$rates[] = $rate->get_method_id();
+			}
+		}
+
+		// No rates at all is already handled by WC core; pickup-only is ours.
+		$only_pickup = ! empty( $rates ) && 0 === count( array_diff( $rates, array( 'local_pickup' ) ) );
+		return $only_pickup ? false : $needs_shipping;
+	}
+
+	// ── Checkout fields ──────────────────────────────────────────────────
+
+	public static function render_fields( $checkout ) {
+		if ( empty( hospo_ops_settings()['show_checkout'] ) ) {
+			return; // The venue places the HOSPO OPS Checkout Divi module instead.
+		}
+		echo self::render_section(); // phpcs:ignore
+	}
+
+	/**
+	 * The dining details block. `$relocate` marks it for the frontend script
+	 * to move inside the checkout form (Divi module placement) — the fields
+	 * must live in the form to submit with the order.
+	 *
+	 * The section only appears when the cart actually needs it:
+	 *   - a product from a category linked to an active service (menu mode), or
+	 *   - a gift card (the gift message field must survive gift-only carts).
+	 * Everything else (plain pickup/delivery carts) sees no booking widget.
+	 */
+	public static function render_section( $relocate = false ) {
+		// The auto-render hook only fires on the real checkout, so it can keep
+		// the is_checkout() gate. The Divi module CANNOT: WooCommerce's
+		// is_checkout() is page-ID based (a Divi-stored layout doesn't set the
+		// post content shortcode scan), so on a Divi-built checkout page the
+		// gate returned '' and the module rendered nothing at all.
+		if ( ! $relocate && ( ! function_exists( 'is_checkout' ) || ! is_checkout() ) ) {
+			return '';
+		}
+		if ( function_exists( 'is_order_received_page' ) && is_order_received_page() ) {
+			return '';
+		}
+
+		$config = self::config();
+		if ( is_wp_error( $config ) ) {
+			return '';
+		}
+
+		$menu_ids  = self::cart_service_menu_ids( $config );
+		$gift_card = self::cart_has_gift_card( $config );
+
+		if ( empty( $menu_ids ) && ! $gift_card ) {
+			return ''; // No service-menu product and no gift card — hide the widget.
+		}
+
+		ob_start();
+
+		// Gift-card-only cart: just the message field, no dining details and
+		// no `_hospo_service_*` inputs (so checkout validation skips them).
+		if ( empty( $menu_ids ) && $gift_card ) {
+			?>
+			<div class="hospo-ops-checkout" data-hospo-checkout data-hospo-gift-only<?php echo $relocate ? ' data-hospo-relocate' : ''; ?>>
+				<div class="hospo-ops-section">
+					<label class="hospo-ops-label" for="hospo_gift_card_message">Gift card message (optional)</label>
+					<textarea id="hospo_gift_card_message" name="_hospo_gift_card_message" rows="2" maxlength="500" placeholder="A message for the gift card recipient..."></textarea>
+					<p class="hospo-ops-hint">Printed on the gift card PDF that comes with your order email.</p>
+				</div>
+			</div>
+			<?php
+			return ob_get_clean();
+		}
+
+		if ( empty( $config['services'] ) ) {
+			return ''; // Not configured, or no active services — nothing to show.
+		}
+
+		ob_start();
+		?>
+		<div class="hospo-ops-checkout" data-hospo-checkout<?php echo $relocate ? ' data-hospo-relocate' : ''; ?> data-hospo-menu-ids="<?php echo esc_attr( wp_json_encode( $menu_ids ) ); ?>">
+			<h3>Dining details</h3>
+
+			<div class="hospo-ops-row">
+				<div class="hospo-ops-field">
+					<label for="hospo_order_party">Party size</label>
+					<input type="number" id="hospo_order_party" data-hospo-party min="1" max="30" step="1" value="2" />
+				</div>
+			</div>
+
+			<div class="hospo-ops-section">
+				<label class="hospo-ops-label">Service</label>
+				<div class="hospo-ops-services" data-hospo-services>
+					<?php echo Hospo_Ops_Booking_Widget::render_service_list( $config['services'], $menu_ids ); // phpcs:ignore ?>
+				</div>
+			</div>
+
+			<div class="hospo-ops-slots" data-hospo-slots></div>
+
+			<?php if ( $gift_card ) : ?>
+				<div class="hospo-ops-field">
+					<label for="hospo_gift_card_message">Gift card message (optional)</label>
+					<textarea id="hospo_gift_card_message" name="_hospo_gift_card_message" rows="2" maxlength="500" placeholder="A message for the gift card recipient..."></textarea>
+					<p class="hospo-ops-hint">Printed on the gift card PDF that comes with your order email.</p>
+				</div>
+			<?php endif; ?>
+
+			<p class="hospo-ops-message" data-hospo-message hidden></p>
+
+			<input type="hidden" name="_hospo_service_id" value="" />
+			<input type="hidden" name="_hospo_service_name" value="" />
+			<input type="hidden" name="_hospo_service_date" value="" />
+			<input type="hidden" name="_hospo_service_time" value="" />
+			<input type="hidden" name="_hospo_party_size" value="" />
+			<input type="hidden" name="_hospo_book_table" value="" />
+		</div>
+		<?php
+		return ob_get_clean();
+	}
+
+	/**
+	 * Menu mode: the cart contains products from one of the venue's service
+	 * menus (matched by WooCommerce category id). Returns the ids of the
+	 * services whose menu is in the cart — empty means the dining widget
+	 * stays hidden (the checkout only shows it for service-menu carts).
+	 */
+	public static function cart_service_menu_ids( $config = null ) {
+		if ( null === $config ) {
+			$config = self::config();
+			if ( is_wp_error( $config ) ) {
+				return array();
+			}
+		}
+		if ( ! function_exists( 'WC' ) || ! WC()->cart || WC()->cart->is_empty() ) {
+			return array();
+		}
+		$category_ids = array();
+		foreach ( WC()->cart->get_cart() as $item ) {
+			$product = isset( $item['data'] ) && $item['data'] instanceof WC_Product ? $item['data'] : null;
+			if ( ! $product ) {
+				continue;
+			}
+			foreach ( $product->get_category_ids() as $cid ) {
+				$category_ids[] = (string) $cid;
+			}
+		}
+		if ( empty( $category_ids ) ) {
+			return array();
+		}
+		$ids = array();
+		foreach ( $config['services'] as $service ) {
+			if ( ! empty( $service['wooCategoryId'] ) && in_array( (string) $service['wooCategoryId'], $category_ids, true ) ) {
+				$ids[] = $service['id'];
+			}
+		}
+		return $ids;
+	}
+
+	/**
+	 * True when the cart holds a product from the venue's GIFT CARDS category
+	 * (the category id is served by the app's /api/public/config) — the buyer
+	 * then gets the optional gift card message field.
+	 */
+	private static function cart_has_gift_card( $config ) {
+		$cat = ! empty( $config['giftCardCategoryId'] ) ? (string) $config['giftCardCategoryId'] : '';
+		if ( ! $cat ) {
+			return false;
+		}
+		return self::cart_has_category( $cat );
+	}
+
+	/** True when any cart line's product carries the given category id. */
+	private static function cart_has_category( $category_id ) {
+		if ( ! function_exists( 'WC' ) || ! WC()->cart || WC()->cart->is_empty() ) {
+			return false;
+		}
+		foreach ( WC()->cart->get_cart() as $item ) {
+			$product = isset( $item['data'] ) && $item['data'] instanceof WC_Product ? $item['data'] : null;
+			if ( ! $product ) {
+				continue;
+			}
+			foreach ( $product->get_category_ids() as $cid ) {
+				if ( (string) $cid === (string) $category_id ) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	public static function validate_fields() {
+		// Only when the dining section is actually on the page do we require it.
+		if ( ! isset( $_POST['_hospo_service_id'] ) ) {
+			return;
+		}
+
+		$service_id = isset( $_POST['_hospo_service_id'] ) ? sanitize_text_field( wp_unslash( $_POST['_hospo_service_id'] ) ) : '';
+		$date       = isset( $_POST['_hospo_service_date'] ) ? sanitize_text_field( wp_unslash( $_POST['_hospo_service_date'] ) ) : '';
+		$time       = isset( $_POST['_hospo_service_time'] ) ? sanitize_text_field( wp_unslash( $_POST['_hospo_service_time'] ) ) : '';
+
+		$config = self::config();
+		if ( is_wp_error( $config ) || empty( $config['services'] ) ) {
+			return; // Services not configured — the app simply won't have a service.
+		}
+
+		if ( ! $service_id || ! $date || ! $time ) {
+			wc_add_notice( 'Please choose your dining service, date and time slot.', 'error' );
+			return;
+		}
+		if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) ) {
+			wc_add_notice( 'Please pick a valid dining date.', 'error' );
+		}
+	}
+
+	public static function save_order_meta( $order, $data ) {
+		$fields = array(
+			'_hospo_service_id'           => 'sanitize_text_field',
+			'_hospo_service_name'         => 'sanitize_text_field',
+			'_hospo_service_date'         => 'sanitize_text_field',
+			'_hospo_service_time'         => 'sanitize_text_field',
+			'_hospo_party_size'           => 'absint',
+			'_hospo_book_table'           => 'sanitize_text_field',
+			'_hospo_gift_card_message'    => 'sanitize_textarea_field',
+		);
+
+		foreach ( $fields as $key => $sanitizer ) {
+			if ( isset( $_POST[ $key ] ) && '' !== $_POST[ $key ] ) {
+				$order->update_meta_data( $key, call_user_func( $sanitizer, wp_unslash( $_POST[ $key ] ) ) );
+			}
+		}
+
+		// Diagnostic: dining fields missing from the POST — the section is
+		// either not inside the checkout form, or the script never ran.
+		if ( ! isset( $_POST['_hospo_service_date'] ) && function_exists( 'wc_get_logger' ) ) {
+			wc_get_logger()->warning(
+				'HOSPO OPS: no _hospo_* fields in checkout POST (order ' . $order->get_id() . '). Check the checkout is classic shortcode, not Blocks, and the frontend script loaded.',
+				array( 'source' => 'hospo-ops' )
+			);
+		}
+	}
+
+	/**
+	 * Editable dining details on the admin order edit screen — same service
+	 * boxes + date buttons + time pills as the frontend, no calendar.
+	 *
+	 * Only orders that actually contain food from a service-linked category
+	 * get the panel: a gift-card-only or takeaway order has nothing to book,
+	 * so no service/date/time controls appear for it.
+	 */
+	public static function admin_order_details( $order ) {
+		if ( ! $order || ! method_exists( $order, 'get_meta' ) ) {
+			return;
+		}
+		$config = Hospo_Ops_Booking_Widget::cached_config();
+
+		if ( ! self::order_has_service_menu_item( $order, $config ) ) {
+			return; // No food from a service category on this order.
+		}
+
+		$date    = $order->get_meta( '_hospo_service_date' );
+		$time    = $order->get_meta( '_hospo_service_time' );
+		$party   = $order->get_meta( '_hospo_party_size' );
+		$no_cfg  = is_wp_error( $config ) || empty( $config['services'] );
+		?>
+		<div class="hospo-ops-checkout hospo-admin-dining" data-hospo-admin-panel style="margin-top:14px;padding-top:12px;border-top:1px dashed #d0d0d0;max-width:none;box-shadow:none;">
+			<h3 style="font-size:13px;font-weight:600;margin:0 0 10px;">DINING DETAILS</h3>
+
+			<?php if ( $date || $time ) : ?>
+				<p style="font-size:12px;color:#1d2327;margin:0 0 8px;">
+					<strong>BOOKED FOR:</strong> <?php echo esc_html( implode( ' @ ', array_filter( array( $date, $time ) ) ) ); ?>
+				</p>
+			<?php endif; ?>
+
+			<?php if ( $no_cfg ) : ?>
+				<p style="font-size:12px;color:#757575;margin:0;">
+					No services available from the app right now. You can still set a date and time by hand:
+				</p>
+				<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+					<input type="date" name="hospo_service_date" value="<?php echo esc_attr( $date ); ?>" style="width:100%;padding:4px 8px;border:1px solid #ddd;" />
+					<input type="time" name="hospo_service_time" value="<?php echo esc_attr( $time ); ?>" style="width:100%;padding:4px 8px;border:1px solid #ddd;" />
+				</div>
+			<?php else : ?>
+				<p style="font-size:12px;color:#757575;margin:0 0 8px;">Pick a service and a date — the times appear below.</p>
+				<div data-hospo-services>
+					<?php echo Hospo_Ops_Booking_Widget::render_service_list( $config['services'], array(), '' ); // phpcs:ignore ?>
+				</div>
+				<div data-hospo-slots></div>
+				<input type="hidden" name="hospo_service_id" value="" />
+				<input type="hidden" name="hospo_service_date" value="<?php echo esc_attr( $date ); ?>" />
+				<input type="hidden" name="hospo_service_time" value="<?php echo esc_attr( $time ); ?>" />
+				<input type="hidden" name="hospo_service_name" value="" />
+			<?php endif; ?>
+
+			<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;margin-top:10px;">
+				<p class="form-field" style="margin:0;">
+					<label style="display:block;font-size:12px;color:#757575;margin-bottom:2px;">Party size</label>
+					<input type="number" name="hospo_party_size" min="1" max="500" value="<?php echo esc_attr( $party ); ?>" data-hospo-party style="width:100%;padding:4px 8px;border:1px solid #ddd;" />
+				</p>
+			</div>
+			<p style="font-size:11px;color:#757575;margin:8px 0 0;">
+				Dine-in only — picking a date and time books the table. Saved with the order — the app picks the change up on its next sync.
+			</p>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Saves the admin-edited dining details. Runs inside WooCommerce's own
+	 * order save flow (nonce already verified).
+	 */
+	public static function admin_save_order_details( $order_id, $order ) {
+		if ( ! isset( $_POST['hospo_service_date'] ) && ! isset( $_POST['hospo_party_size'] ) ) {
+			return; // Panel not part of this form.
+		}
+		$order = wc_get_order( $order_id );
+		if ( ! $order ) {
+			return;
+		}
+
+		if ( isset( $_POST['hospo_service_id'] ) && '' !== $_POST['hospo_service_id'] ) {
+			$order->update_meta_data( '_hospo_service_id', sanitize_text_field( wp_unslash( $_POST['hospo_service_id'] ) ) );
+		}
+		if ( isset( $_POST['hospo_service_date'] ) ) {
+			$order->update_meta_data( '_hospo_service_date', sanitize_text_field( wp_unslash( $_POST['hospo_service_date'] ) ) );
+		}
+		if ( isset( $_POST['hospo_service_time'] ) ) {
+			$order->update_meta_data( '_hospo_service_time', sanitize_text_field( wp_unslash( $_POST['hospo_service_time'] ) ) );
+		}
+		if ( isset( $_POST['hospo_service_name'] ) && '' !== $_POST['hospo_service_name'] ) {
+			$order->update_meta_data( '_hospo_service_name', sanitize_text_field( wp_unslash( $_POST['hospo_service_name'] ) ) );
+		}
+		if ( isset( $_POST['hospo_party_size'] ) ) {
+			$party = absint( $_POST['hospo_party_size'] );
+			if ( $party > 0 ) {
+				$order->update_meta_data( '_hospo_party_size', $party );
+			}
+		}
+		// Dine-in only — a dated order always books a table.
+		$order->update_meta_data( '_hospo_book_table', '1' );
+		$order->save();
+	}
+
+	/**
+	 * Dining details in every order email (new order, processing, completed…).
+	 */
+	public static function email_dining_details( $order, $sent_to_admin, $plain_text ) {
+		if ( ! $order || ! method_exists( $order, 'get_meta' ) ) {
+			return;
+		}
+		$date = $order->get_meta( '_hospo_service_date' );
+		$time = $order->get_meta( '_hospo_service_time' );
+		if ( ! $date && ! $time ) {
+			return; // Not a dated order — nothing to show.
+		}
+
+		$service = $order->get_meta( '_hospo_service_name' );
+		$party   = $order->get_meta( '_hospo_party_size' );
+		$book    = in_array( strtolower( (string) $order->get_meta( '_hospo_book_table' ) ), array( '1', 'yes', 'true', 'on' ), true );
+
+		if ( $plain_text ) {
+			echo "\nDINING DETAILS\n";
+			if ( $service ) {
+				echo 'Service: ' . esc_html( $service ) . "\n";
+			}
+			echo 'Date: ' . esc_html( $date ) . "\n";
+			echo 'Time: ' . esc_html( $time ) . "\n";
+			if ( $party ) {
+				echo 'Party size: ' . esc_html( $party ) . "\n";
+			}
+			if ( $book ) {
+				echo "Table: booked\n";
+			}
+			echo "\n";
+			return;
+		}
+		?>
+		<div style="margin-top:24px;">
+			<h2 style="font-size:16px;font-weight:600;color:#202124;margin:0 0 8px;">DINING DETAILS</h2>
+			<table style="width:100%;border-collapse:collapse;border:1px solid #e0e0e0;font-size:14px;color:#202124;">
+				<?php if ( $service ) : ?>
+					<tr>
+						<td style="padding:8px 12px;border-bottom:1px solid #f1f1f1;color:#5f6368;">Service</td>
+						<td style="padding:8px 12px;border-bottom:1px solid #f1f1f1;font-weight:600;"><?php echo esc_html( $service ); ?></td>
+					</tr>
+				<?php endif; ?>
+				<tr>
+					<td style="padding:8px 12px;border-bottom:1px solid #f1f1f1;color:#5f6368;">Date</td>
+					<td style="padding:8px 12px;border-bottom:1px solid #f1f1f1;font-weight:600;"><?php echo esc_html( $date ); ?></td>
+				</tr>
+				<tr>
+					<td style="padding:8px 12px;border-bottom:1px solid #f1f1f1;color:#5f6368;">Time</td>
+					<td style="padding:8px 12px;border-bottom:1px solid #f1f1f1;font-weight:600;"><?php echo esc_html( $time ); ?></td>
+				</tr>
+				<?php if ( $party ) : ?>
+					<tr>
+						<td style="padding:8px 12px;border-bottom:1px solid #f1f1f1;color:#5f6368;">Party size</td>
+						<td style="padding:8px 12px;border-bottom:1px solid #f1f1f1;font-weight:600;"><?php echo esc_html( $party ); ?></td>
+					</tr>
+				<?php endif; ?>
+				<tr>
+					<td style="padding:8px 12px;color:#5f6368;">Table</td>
+					<td style="padding:8px 12px;font-weight:600;"><?php echo $book ? 'Booked for you' : 'Not required'; ?></td>
+				</tr>
+			</table>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Dining details on the order-received (confirmation) page and the
+	 * my-account order view. Dated orders show the booking; an undated order
+	 * (takeaway, once supported) shows a pickup note instead.
+	 */
+	public static function thankyou_dining_details( $order ) {
+		if ( ! $order || ! method_exists( $order, 'get_meta' ) ) {
+			return;
+		}
+		$date    = $order->get_meta( '_hospo_service_date' );
+		$time    = $order->get_meta( '_hospo_service_time' );
+		$service = $order->get_meta( '_hospo_service_name' );
+		$party   = $order->get_meta( '_hospo_party_size' );
+		$book    = in_array( strtolower( (string) $order->get_meta( '_hospo_book_table' ) ), array( '1', 'yes', 'true', 'on' ), true );
+
+		$pickup_only = ! $date && ! $time;
+		?>
+		<section class="woocommerce-customer-details">
+			<h2 class="woocommerce-column__title"><?php echo $pickup_only ? esc_html__( 'PICKUP ORDER', 'hospo-ops' ) : esc_html__( 'DINING DETAILS', 'hospo-ops' ); ?></h2>
+			<address>
+				<?php if ( $pickup_only ) : ?>
+					<p><?php esc_html_e( 'Your order will be ready for pickup at the venue. No table reservation is required.', 'hospo-ops' ); ?></p>
+				<?php else : ?>
+					<?php if ( $service ) : ?>
+						<p><?php esc_html_e( 'Service:', 'hospo-ops' ); ?> <strong><?php echo esc_html( $service ); ?></strong></p>
+					<?php endif; ?>
+					<p><?php esc_html_e( 'Date:', 'hospo-ops' ); ?> <strong><?php echo esc_html( date_i18n( get_option( 'date_format' ), strtotime( $date ) ) ); ?></strong></p>
+					<p><?php esc_html_e( 'Time:', 'hospo-ops' ); ?> <strong><?php echo esc_html( date_i18n( get_option( 'time_format' ), strtotime( $time ) ) ); ?></strong></p>
+					<?php if ( $party ) : ?>
+						<p><?php esc_html_e( 'Party size:', 'hospo-ops' ); ?> <strong><?php echo esc_html( $party ); ?></strong></p>
+					<?php endif; ?>
+					<p><?php esc_html_e( 'Table:', 'hospo-ops' ); ?> <strong><?php echo $book ? esc_html__( 'Booked for you', 'hospo-ops' ) : esc_html__( 'Not required', 'hospo-ops' ); ?></strong></p>
+				<?php endif; ?>
+			</address>
+		</section>
+		<?php
+	}
+
+	/**
+	 * True when the order contains a line whose product (or its parent, for
+	 * variable products) sits in a category linked to an active service —
+	 * i.e. this is a food order that can carry a booking.
+	 */
+	private static function order_has_service_menu_item( $order, $config ) {
+		if ( ! $order || ! method_exists( $order, 'get_items' ) || empty( $config['services'] ) ) {
+			return false;
+		}
+		$service_cats = array();
+		foreach ( $config['services'] as $service ) {
+			if ( ! empty( $service['wooCategoryId'] ) ) {
+				$service_cats[] = (string) $service['wooCategoryId'];
+			}
+		}
+		if ( empty( $service_cats ) ) {
+			return false;
+		}
+
+		foreach ( $order->get_items() as $item ) {
+			if ( ! method_exists( $item, 'get_product' ) ) {
+				continue;
+			}
+			$product = $item->get_product();
+			if ( ! $product ) {
+				continue;
+			}
+			// Variations carry no categories of their own — resolve the parent.
+			$parent_id = method_exists( $product, 'get_parent_id' ) ? $product->get_parent_id() : 0;
+			$lookup    = $parent_id ? wc_get_product( $parent_id ) : $product;
+			if ( ! $lookup ) {
+				$lookup = $product;
+			}
+			foreach ( $lookup->get_category_ids() as $cid ) {
+				if ( in_array( (string) $cid, $service_cats, true ) ) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	// ── Admin orders list column ─────────────────────────────────────────
+
+	public static function order_column( $columns ) {
+		$columns['hospo_service'] = 'Dining';
+		return $columns;
+	}
+
+	public static function order_column_content( $column, $order_id ) {
+		if ( 'hospo_service' !== $column ) {
+			return;
+		}
+		$order = wc_get_order( $order_id );
+		if ( ! $order ) {
+			return;
+		}
+		$date = $order->get_meta( '_hospo_service_date' );
+		$time = $order->get_meta( '_hospo_service_time' );
+		$book = $order->get_meta( '_hospo_book_table' );
+		if ( ! $date && ! $time ) {
+			echo '—';
+			return;
+		}
+		echo esc_html( implode( ' ', array_filter( array( $date, $time ) ) ) );
+		if ( in_array( strtolower( (string) $book ), array( '1', 'yes', 'true', 'on' ), true ) ) {
+			echo ' <span style="color:#7a9;">booked table</span>';
+		}
+	}
+
+	// ── Config cache (shared with the widget) ────────────────────────────
+
+	private static function config() {
+		$key   = 'hospo_ops_config_' . md5( hospo_ops_app_url() . '|' . hospo_ops_api_key() );
+		$cached = get_transient( $key );
+		if ( false !== $cached ) {
+			return $cached;
+		}
+		$config = Hospo_Ops_API::get_config();
+		if ( ! is_wp_error( $config ) ) {
+			set_transient( $key, $config, 5 * MINUTE_IN_SECONDS );
+		}
+		return $config;
+	}
+}
+
+Hospo_Ops_Checkout::init();

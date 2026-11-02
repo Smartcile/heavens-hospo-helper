@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { getManagerVenueId } from '@/lib/venue-scope'
 import { syncVenueCalendar, syncAllVenues } from '@/lib/external-sync'
 
 // POST /api/admin/calendar/sync  { venueId? }
 // Pulls external iCal feeds and reconciles them into CalendarEvent.
-// Manager → own venue only. Admin → given venue, or all venues if none given.
+// Manager → the venue they're viewing (admin-active-venue cookie), else their
+// own venue only. Admin → given venue, or all venues if none given.
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -15,7 +17,7 @@ export async function POST(req: NextRequest) {
   const requested: string | undefined = body.venueId || undefined
 
   if (role === 'MANAGER') {
-    const result = await syncVenueCalendar(session.user.venueId)
+    const result = await syncVenueCalendar(getManagerVenueId(session, req) ?? session.user.venueId)
     return NextResponse.json(result)
   }
 

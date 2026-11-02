@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import bcrypt from 'bcryptjs'
 import { getAccessibleVenueIds } from '@/lib/venue-scope'
+import { guardAccess } from '@/lib/permissions'
 
 const STAFF_SELECT = {
   id: true,
@@ -15,6 +16,7 @@ const STAFF_SELECT = {
   departmentId: true,
   profilePhotoUrl: true,
   isActive: true,
+  restricted: true,
   swiftPosId: true,
   myHrId: true,
   loadedReportsId: true,
@@ -22,12 +24,21 @@ const STAFF_SELECT = {
   venue: { select: { id: true, name: true } },
   department: { select: { id: true, name: true } },
   sections: { select: { sectionId: true } },
+  positions: {
+    select: {
+      positionId: true,
+      hourlyRate: true,
+      position: { select: { id: true, name: true, hourlyRate: true } },
+    },
+  },
   staffVenues: { select: { venueId: true } },
 } as const
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'team.staff.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const venueId = searchParams.get('venueId')
@@ -62,6 +73,8 @@ async function syncStaffVenues(staffId: string, venueIds: string[]) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'team.staff.create')
+  if (denied) return denied
 
   const body = await req.json()
   const {
@@ -77,6 +90,8 @@ export async function POST(req: NextRequest) {
     myHrId,
     loadedReportsId,
     sectionIds,
+    positionIds,
+    positions,
     venueIds,
   } = body
 
@@ -110,6 +125,22 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Roles + optional per-role rates. `positions` (objects) supersedes `positionIds`.
+  const positionRows: { positionId: string; hourlyRate: number | null }[] = []
+  if (Array.isArray(positions)) {
+    const seen = new Set<string>()
+    for (const p of positions) {
+      const positionId = typeof p?.positionId === 'string' ? p.positionId : null
+      if (!positionId || seen.has(positionId)) continue
+      seen.add(positionId)
+      positionRows.push({ positionId, hourlyRate: typeof p?.hourlyRate === 'number' ? p.hourlyRate : null })
+    }
+  } else if (Array.isArray(positionIds)) {
+    for (const positionId of [...new Set(positionIds as string[])]) {
+      if (positionId) positionRows.push({ positionId, hourlyRate: null })
+    }
+  }
+
   const normalisedEmail = email?.trim().toLowerCase() || null
   if (normalisedEmail) {
     const clash = await prisma.staff.findFirst({
@@ -137,6 +168,7 @@ export async function POST(req: NextRequest) {
       sections: Array.isArray(sectionIds) && sectionIds.length
         ? { create: sectionIds.map((sectionId: string) => ({ sectionId })) }
         : undefined,
+      positions: positionRows.length ? { create: positionRows } : undefined,
     },
     select: STAFF_SELECT,
   })

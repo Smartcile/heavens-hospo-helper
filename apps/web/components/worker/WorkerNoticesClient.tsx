@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { groupWorkerNotices } from '@/lib/notice-groups'
 
 interface Notice {
   id: string
@@ -43,6 +44,41 @@ export function WorkerNoticesClient() {
     return <div className="min-h-screen bg-black flex items-center justify-center"><p className="font-mono text-sm text-grey-light loading-cursor">LOADING</p></div>
   }
 
+  const { pinned, unread, acknowledged } = groupWorkerNotices(items)
+
+  const card = (n: Notice) => {
+    const bar = n.priority === 'URGENT' ? 'status-bar-danger' : n.priority === 'IMPORTANT' ? 'status-bar-warning' : ''
+    return (
+      <div key={n.id} className={`bg-grey-dark border border-grey-mid p-4 ${bar}`}>
+        <div className="flex items-center gap-2 flex-wrap">
+          {n.pinned && <span className="font-mono text-xs text-accent">📌</span>}
+          <span className="font-mono text-sm font-semibold uppercase text-white">{n.title}</span>
+          {n.priority !== 'INFO' && (
+            <span className={`font-mono text-xs uppercase ${n.priority === 'URGENT' ? 'text-danger' : 'text-warning'}`}>{n.priority}</span>
+          )}
+        </div>
+        <p className="font-sans text-sm text-grey-light mt-1 whitespace-pre-wrap">{n.body}</p>
+        {n.requiresAck && (
+          n.acked ? (
+            <div className="mt-2 font-mono text-xs text-success uppercase">✓ ACKNOWLEDGED</div>
+          ) : (
+            <button
+              onClick={() => ack(n.id)}
+              disabled={busy === n.id}
+              className="mt-3 w-full h-11 bg-white text-black font-mono font-bold text-xs uppercase tracking-widest hover:bg-accent transition-colors disabled:opacity-40"
+            >
+              {busy === n.id ? 'SAVING_' : 'GOT IT'}
+            </button>
+          )
+        )}
+      </div>
+    )
+  }
+
+  const sectionHead = (label: string) => (
+    <div className="pt-2 font-mono text-xs uppercase tracking-widest text-grey-light">{label}</div>
+  )
+
   return (
     <div className="min-h-screen bg-black">
       <div className="px-4 pt-6 pb-4 border-b border-grey-mid flex items-start justify-between">
@@ -53,34 +89,21 @@ export function WorkerNoticesClient() {
         {items.length === 0 ? (
           <p className="font-mono text-xs text-grey-light">NO NOTICES RIGHT NOW.</p>
         ) : (
-          items.map((n) => {
-            const bar = n.priority === 'URGENT' ? 'status-bar-danger' : n.priority === 'IMPORTANT' ? 'status-bar-warning' : ''
-            return (
-              <div key={n.id} className={`bg-grey-dark border border-grey-mid p-4 ${bar}`}>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {n.pinned && <span className="font-mono text-xs text-accent">📌</span>}
-                  <span className="font-mono text-sm font-semibold uppercase text-white">{n.title}</span>
-                  {n.priority !== 'INFO' && (
-                    <span className={`font-mono text-xs uppercase ${n.priority === 'URGENT' ? 'text-danger' : 'text-warning'}`}>{n.priority}</span>
-                  )}
-                </div>
-                <p className="font-sans text-sm text-grey-light mt-1 whitespace-pre-wrap">{n.body}</p>
-                {n.requiresAck && (
-                  n.acked ? (
-                    <div className="mt-2 font-mono text-xs text-success uppercase">✓ ACKNOWLEDGED</div>
-                  ) : (
-                    <button
-                      onClick={() => ack(n.id)}
-                      disabled={busy === n.id}
-                      className="mt-3 w-full h-11 bg-white text-black font-mono font-bold text-xs uppercase tracking-widest hover:bg-accent transition-colors disabled:opacity-40"
-                    >
-                      {busy === n.id ? 'SAVING_' : 'GOT IT'}
-                    </button>
-                  )
-                )}
-              </div>
-            )
-          })
+          <>
+            {pinned.length > 0 && (
+              <>
+                {sectionHead('PINNED')}
+                {pinned.map(card)}
+              </>
+            )}
+            {unread.map(card)}
+            {acknowledged.length > 0 && (
+              <>
+                {sectionHead('READ / ACKNOWLEDGED')}
+                {acknowledged.map(card)}
+              </>
+            )}
+          </>
         )}
       </div>
     </div>

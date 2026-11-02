@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
-type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'training' | 'sops' | 'floorplan' | 'stocktake' | 'timeclock'
+type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'shifts' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events'
 
 interface DashData {
   firstName: string
@@ -13,55 +13,77 @@ interface DashData {
   unackedNotices: number
   unreadNotices: number
   upcomingShifts: number
+  openShifts: number
   trainingDone: number
   trainingTotal: number
   sopCount: number
   newTraining: number
   pendingStocktakes: number
   isClockedIn: boolean
+  /** Managers / granted staff can build BEOs from the phone. */
+  eventsAllowed: boolean
 }
 
-let inactivityTimer: ReturnType<typeof setTimeout> | null = null
-
-export function WorkerDashboardClient() {
+export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
   const router = useRouter()
   const [data, setData] = useState<DashData | null>(null)
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<Widget>('dashboard')
+  const [immersive, setImmersive] = useState(false)
   const loaded = useRef(false)
 
-  const expiryMinutes = Number(process.env.NEXT_PUBLIC_WORKER_SESSION_EXPIRY_MINUTES ?? 15)
+  // The worker pages are rendered in an iframe. When one opens a full-screen
+  // task / availability day / guide view it posts `worker-immersive`, so the
+  // dashboard's bottom bar steps out of the way.
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (e.data?.type === 'worker-immersive') setImmersive(!!e.data.immersive)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
 
-  function resetInactivity() {
-    if (inactivityTimer) clearTimeout(inactivityTimer)
-    inactivityTimer = setTimeout(async () => {
-      await fetch('/api/worker/logout', { method: 'POST' })
-      router.push('/w/login')
-    }, expiryMinutes * 60 * 1000)
+  // Keep browser back inside the worker app: back returns to the dashboard and
+  // never drops someone out to the landing/login page by accident.
+  useEffect(() => {
+    const arm = () => history.pushState({ workerGuard: true }, '', '/w/dashboard')
+    arm()
+    function onPop() {
+      setView('dashboard')
+      setImmersive(false)
+      router.replace('/w/dashboard')
+      // Re-arm after the pop so the next back is also caught.
+      arm()
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [router])
+
+  function openView(next: Widget) {
+    setImmersive(false)
+    setView(next)
+    history.pushState({ workerView: next }, '', '/w/dashboard')
   }
 
-  useEffect(() => {
-    const events = ['click', 'touchstart', 'keydown']
-    events.forEach((e) => document.addEventListener(e, resetInactivity, { passive: true }))
-    resetInactivity()
-    return () => {
-      events.forEach((e) => document.removeEventListener(e, resetInactivity))
-      if (inactivityTimer) clearTimeout(inactivityTimer)
-    }
-  }, [])
+  function backToDashboard() {
+    setImmersive(false)
+    setView('dashboard')
+    history.replaceState({ workerGuard: true }, '', '/w/dashboard')
+  }
 
   async function load() {
     if (loaded.current) return
     loaded.current = true
 
-    const [tasksR, noticesR, calR, guidesR, sopsR, stocktakeR, clockR] = await Promise.all([
+    const [tasksR, noticesR, calR, guidesR, pathwayR, stocktakeR, clockR, eventsR] = await Promise.all([
       fetch('/api/worker/tasks'),
       fetch('/api/worker/notices'),
       fetch('/api/worker/calendar'),
       fetch('/api/worker/guides'),
-      fetch('/api/worker/sops'),
+      fetch('/api/worker/pathway'),
       fetch('/api/worker/stocktake'),
       fetch('/api/worker/timeclock/status'),
+      fetch('/api/worker/events/access'),
     ])
 
     if (tasksR.status === 401) { router.push('/w/login'); return }
@@ -70,9 +92,10 @@ export function WorkerDashboardClient() {
     const notices = await noticesR.json()
     const cal = await calR.json()
     const guides = await guidesR.json()
-    const sops = await sopsR.json()
+    const pathway = pathwayR.ok ? await pathwayR.json() : { pathway: null }
     const stocktakes = stocktakeR.ok ? await stocktakeR.json() : []
     const clock = clockR.ok ? await clockR.json() : { isClockedIn: false }
+    const eventsAccess = eventsR.ok ? await eventsR.json() : { allowed: false }
 
     const pending = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => !t.isCompleted).length
     const done = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => t.isCompleted).length
@@ -88,12 +111,15 @@ export function WorkerDashboardClient() {
       unackedNotices: notices.unackedRequired ?? 0,
       unreadNotices: notices.items?.length ?? 0,
       upcomingShifts: (cal.shifts ?? []).length,
+      openShifts: cal.openShiftCount ?? 0,
       trainingDone: guideItems.filter((t: { completed: boolean }) => t.completed).length,
       trainingTotal: guideItems.length,
-      sopCount: (sops.items ?? []).length,
+      // Points earned on their pathway — 0 when no pathway targets them.
+      sopCount: pathway.pathway?.progress?.earnedPoints ?? 0,
       newTraining: newGuides,
       pendingStocktakes: (stocktakes ?? []).length,
       isClockedIn: clock.isClockedIn ?? false,
+      eventsAllowed: !!eventsAccess.allowed,
     })
     setLoading(false)
   }
@@ -101,7 +127,14 @@ export function WorkerDashboardClient() {
   useEffect(() => { load() }, [])
 
   async function handleSignOut() {
-    await fetch('/api/worker/logout', { method: 'POST' })
+    // Explicit sign-out ends BOTH sessions (admin too). The inactivity timeout
+    // is owned by WorkerSessionGuard in the worker layout and only clears the
+    // worker cookie.
+    await fetch('/api/worker/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ all: true }),
+    })
     router.push('/w/login')
   }
 
@@ -158,14 +191,16 @@ export function WorkerDashboardClient() {
         <div className="flex-1">
           <iframe src={src} className="w-full h-full border-0" />
         </div>
-        <div className="p-3 bg-black border-t border-grey-mid">
-          <button
-            onClick={() => setView('dashboard')}
-            className="w-full h-12 bg-warning/10 border border-warning/30 text-warning font-mono text-sm font-bold uppercase tracking-widest hover:bg-warning/20 hover:border-warning/50 transition-colors"
-          >
-            ← BACK TO DASHBOARD
-          </button>
-        </div>
+        {!immersive && (
+          <div className="px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] bg-black border-t border-grey-mid">
+            <button
+              onClick={backToDashboard}
+              className="w-full h-12 bg-warning/10 border border-warning/30 text-warning font-mono text-sm font-bold uppercase tracking-widest hover:bg-warning/20 hover:border-warning/50 transition-colors"
+            >
+              ← BACK TO DASHBOARD
+            </button>
+          </div>
+        )}
       </div>
     )
   }
@@ -180,12 +215,22 @@ export function WorkerDashboardClient() {
             </h1>
             <p className="font-mono text-xs text-grey-light mt-0.5 uppercase">TAP A SECTION TO OPEN</p>
           </div>
-          <button
-            onClick={handleSignOut}
-            className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors px-2 py-1"
-          >
-            SIGN OUT
-          </button>
+          <div className="flex items-center gap-2">
+            {(role === 'ADMIN' || role === 'MANAGER') && (
+              <a
+                href="/admin"
+                className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white transition-colors"
+              >
+                ADMIN →
+              </a>
+            )}
+            <button
+              onClick={handleSignOut}
+              className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors px-2 py-1"
+            >
+              SIGN OUT
+            </button>
+          </div>
         </div>
       </div>
 
@@ -203,7 +248,7 @@ export function WorkerDashboardClient() {
           (data?.unackedNotices ?? 0) > 0 ? `${data?.unackedNotices} NEW` : null,
           'text-danger',
           'border-grey-mid',
-          () => setView('notices')
+          () => openView('notices')
         )}
 
         {card(
@@ -217,7 +262,7 @@ export function WorkerDashboardClient() {
           `${tasksDone}/${tasksTotal}`,
           'text-grey-light',
           allTasksDone ? 'border-success' : tasksPending > 0 ? 'border-danger' : 'border-grey-mid',
-          () => setView('tasks')
+          () => openView('tasks')
         )}
 
         {card(
@@ -231,7 +276,33 @@ export function WorkerDashboardClient() {
           `${data?.upcomingShifts} SHIFTS`,
           'text-grey-light',
           'border-grey-mid',
-          () => setView('calendar')
+          () => openView('calendar')
+        )}
+
+        {card(
+          'MY AVAILABILITY',
+          'SET WHEN YOU CAN WORK',
+          <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="square" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>,
+          null,
+          'text-grey-light',
+          'border-grey-mid',
+          () => openView('availability')
+        )}
+
+        {card(
+          'AVAILABLE SHIFTS',
+          data && data.openShifts > 0
+            ? `${data.openShifts} SHIFT${data.openShifts !== 1 ? 'S' : ''} TO PICK UP`
+            : 'NO SHIFTS TO PICK UP',
+          <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="square" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+          </svg>,
+          (data?.openShifts ?? 0) > 0 ? `${data?.openShifts} NEW` : null,
+          'text-accent',
+          (data?.openShifts ?? 0) > 0 ? 'border-accent' : 'border-grey-mid',
+          () => openView('shifts')
         )}
 
         {card(
@@ -247,21 +318,21 @@ export function WorkerDashboardClient() {
           `${data?.trainingDone}/${data?.trainingTotal}`,
           'text-grey-light',
           'border-grey-mid',
-          () => setView('training')
+          () => openView('guides')
         )}
 
         {card(
-          'SOPS & GUIDES',
+          'MY POINTS',
           data && data.sopCount > 0
-            ? `${data.sopCount} REFERENCE GUIDE${data.sopCount !== 1 ? 'S' : ''} AVAILABLE`
-            : 'NO GUIDES AVAILABLE YET',
+            ? `${data.sopCount} POINTS EARNED ON YOUR TREE`
+            : 'START YOUR TREE TO EARN POINTS',
           <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="square" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>,
-          `${data?.sopCount} GUIDES`,
+          `${data?.sopCount} PTS`,
           'text-grey-light',
           'border-grey-mid',
-          () => setView('sops')
+          () => openView('guides')
         )}
 
         {card(
@@ -273,7 +344,7 @@ export function WorkerDashboardClient() {
           null,
           'text-grey-light',
           'border-grey-mid',
-          () => setView('floorplan')
+          () => openView('floorplan')
         )}
 
         {card(
@@ -287,7 +358,7 @@ export function WorkerDashboardClient() {
           (data?.pendingStocktakes ?? 0) > 0 ? `${data?.pendingStocktakes} PENDING` : null,
           'text-accent',
           'border-grey-mid',
-          () => setView('stocktake')
+          () => openView('stocktake')
         )}
 
         {card(
@@ -299,7 +370,19 @@ export function WorkerDashboardClient() {
           data?.isClockedIn ? 'ON DUTY' : null,
           data?.isClockedIn ? 'text-success' : 'text-grey-light',
           data?.isClockedIn ? 'border-success' : 'border-grey-mid',
-          () => setView('timeclock')
+          () => openView('timeclock')
+        )}
+
+        {data?.eventsAllowed && card(
+          'EVENTS',
+          'BUILD & EDIT BEOS',
+          <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="square" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2zM9 16h6" />
+          </svg>,
+          null,
+          'text-grey-light',
+          'border-grey-mid',
+          () => openView('events')
         )}
       </div>
     </div>

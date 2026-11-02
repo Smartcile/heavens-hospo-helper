@@ -1,19 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
+import { normaliseOutcomes } from '@/lib/task-outcomes'
+import { workerTaskAccess } from '@/lib/worker-task-access.server'
+import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.role !== 'ADMIN' && session.role !== 'MANAGER')
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const access = await workerTaskAccess(session)
+  if (!access.canEditList) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const existing = await prisma.checklist.findUnique({ where: { id: params.id } })
   if (!existing || existing.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (existing.venueId !== session.venueId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason } = body
+
+  const refError = await validateWorkerTaskRefs({
+    venueId: session.venueId,
+    departmentId: departmentId !== undefined ? departmentId || null : undefined,
+    sectionId: sectionId !== undefined ? sectionId || null : undefined,
+  })
+  if (refError) return NextResponse.json({ error: refError }, { status: 400 })
+
+  let ids: string[] | undefined
+  if (taskIds !== undefined) {
+    const rawIds: string[] = Array.isArray(taskIds) ? taskIds : []
+    ids = [...new Set<string>(rawIds)]
+    if (ids.length !== rawIds.length) {
+      return NextResponse.json({ error: 'DUPLICATE TASKS IN THIS LIST' }, { status: 400 })
+    }
+    const venueTaskCount = await prisma.task.count({
+      where: { id: { in: ids }, venueId: session.venueId, deletedAt: null },
+    })
+    if (venueTaskCount !== ids.length) {
+      return NextResponse.json({ error: 'ONE OR MORE TASKS ARE NOT IN THIS VENUE' }, { status: 400 })
+    }
+  }
 
   const checklist = await prisma.checklist.update({
     where: { id: params.id },
@@ -23,10 +48,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       ...(departmentId !== undefined && { departmentId: departmentId || null }),
       ...(sectionId !== undefined && { sectionId: sectionId || null }),
       ...(appearFromTime !== undefined && { appearFromTime: appearFromTime || null }),
-      ...(taskIds !== undefined && {
+      ...(allowedOutcomes !== undefined && { allowedOutcomes: normaliseOutcomes(allowedOutcomes) }),
+      ...(requireOutcomeReason !== undefined && { requireOutcomeReason: !!requireOutcomeReason }),
+      ...(ids !== undefined && {
         tasks: {
           deleteMany: {},
-          create: taskIds.map((taskId: string, i: number) => ({ taskId, sortOrder: i })),
+          create: ids.map((taskId, i) => ({ taskId, sortOrder: i })),
         },
       }),
     },
@@ -38,8 +65,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.role !== 'ADMIN' && session.role !== 'MANAGER')
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const access = await workerTaskAccess(session)
+  if (!access.canDeleteList) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const existing = await prisma.checklist.findUnique({ where: { id: params.id } })
   if (!existing || existing.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })

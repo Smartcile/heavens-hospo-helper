@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { canAccess } from '@/lib/permissions'
+import { completionReportWheres } from '@/lib/report-filters'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ok =
+    (await canAccess(session, req, 'performance.reports.view')) ||
+    (await canAccess(session, req, 'performance.reports.export'))
+  if (!ok) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { searchParams } = new URL(req.url)
   const venueId = searchParams.get('venueId')
@@ -17,16 +23,14 @@ export async function GET(req: NextRequest) {
   const limit = Number(searchParams.get('limit') ?? 50)
   const exportCsv = searchParams.get('export') === 'csv'
 
-  const where = {
-    ...(venueId ? { task: { venueId } } : {}),
-    ...(departmentId ? { task: { departmentId } } : {}),
-    ...(staffId ? { staffId } : {}),
-    ...(from ? { scheduledDate: { gte: new Date(from) } } : {}),
-    ...(to ? { scheduledDate: { lte: new Date(to) } } : {}),
-    ...(session.user.role === 'MANAGER'
-      ? { task: { venueId: session.user.venueId } }
-      : {}),
-  }
+  const { all: where, done: doneWhere } = completionReportWheres({
+    venueId,
+    departmentId,
+    staffId,
+    from,
+    to,
+    managerVenueId: session.user.role === 'MANAGER' ? session.user.venueId : null,
+  })
 
   if (exportCsv) {
     const all = await prisma.taskCompletion.findMany({
@@ -44,7 +48,7 @@ export async function GET(req: NextRequest) {
     })
 
     const rows = [
-      ['Date', 'Staff', 'Task', 'Venue', 'Department', 'Completed At', 'Note'].join(','),
+      ['Date', 'Staff', 'Task', 'Venue', 'Department', 'Completed At', 'Outcome', 'Note'].join(','),
       ...all.map((c) =>
         [
           c.scheduledDate.toISOString().slice(0, 10),
@@ -53,6 +57,7 @@ export async function GET(req: NextRequest) {
           `"${c.task.venue.name}"`,
           `"${c.task.department?.name ?? ''}"`,
           c.completedAt.toISOString(),
+          c.outcome,
           `"${c.note?.replace(/"/g, '""') ?? ''}"`,
         ].join(',')
       ),
@@ -66,7 +71,10 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  const [total, completions] = await Promise.all([
+  // `total` is the DONE-only completion metric (matching the dashboard); the
+  // record list/pagination still shows every outcome for audit.
+  const [total, recordsTotal, completions] = await Promise.all([
+    prisma.taskCompletion.count({ where: doneWhere }),
     prisma.taskCompletion.count({ where }),
     prisma.taskCompletion.findMany({
       where,
@@ -87,9 +95,10 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     total,
+    recordsTotal,
     page,
     limit,
-    pages: Math.ceil(total / limit),
+    pages: Math.ceil(recordsTotal / limit),
     completions,
   })
 }

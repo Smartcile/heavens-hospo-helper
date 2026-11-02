@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'team.payroll.export')
+  if (denied) return denied
 
   const format = req.nextUrl.searchParams.get('format') ?? 'csv'
 
@@ -19,14 +22,26 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   })
 
   if (format === 'csv') {
-    const header = 'Name,Employment Type,Hours,Rate,Total Pay'
+    const header = 'Name,Employment Type,Ordinary Hours,Overtime Hours,Public Holiday Hours,Total Hours,Rate,Gross Pay,Holiday Pay,PAYE,ACC,KiwiSaver Employee,KiwiSaver Employer,Student Loan,Net Pay,Employer Cost,Alt Days Owed'
     const rows = entries.map((e) =>
       [
         `"${e.staff.firstName} ${e.staff.lastName}"`,
         e.staff.employmentType ?? '',
+        (e.ordinaryHours ?? 0).toFixed(2),
+        (e.overtimeHours ?? 0).toFixed(2),
+        (e.publicHolidayHours ?? 0).toFixed(2),
         e.totalHours.toFixed(2),
         e.hourlyRate.toFixed(2),
-        e.totalPay.toFixed(2),
+        (e.grossPay ?? e.totalPay).toFixed(2),
+        (e.holidayPay ?? 0).toFixed(2),
+        (e.paye ?? 0).toFixed(2),
+        (e.accLevy ?? 0).toFixed(2),
+        (e.kiwiSaverEmployee ?? 0).toFixed(2),
+        (e.kiwiSaverEmployer ?? 0).toFixed(2),
+        (e.studentLoan ?? 0).toFixed(2),
+        (e.netPay ?? 0).toFixed(2),
+        (e.employerCost ?? 0).toFixed(2),
+        e.alternativeDaysOwed ?? 0,
       ].join(',')
     )
     const csv = [header, ...rows].join('\n')

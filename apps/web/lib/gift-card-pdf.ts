@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf'
+import { pdfSafe } from '@/lib/pdf-safe'
 
 export interface GiftCardPdfData {
   number: string
@@ -67,7 +68,7 @@ export function generateGiftCardPdf(data: GiftCardPdfData): jsPDF {
   }
   y += 6
 
-  const personalMessage = data.message || 'Something special just for you - see you soon!'
+  const personalMessage = pdfSafe(data.message || 'Something special just for you - see you soon!')
   doc.setFont('helvetica', 'italic')
   doc.setFontSize(10)
   doc.text(personalMessage, pageW / 2, y, { align: 'center' })

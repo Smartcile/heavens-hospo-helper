@@ -3,8 +3,46 @@ import { logSync } from '@/lib/sync-log'
 import { wooAuthHeader } from '@/lib/woo-sync'
 import { oauthSignedUrl } from '@/lib/woo-oauth'
 import { explodeRecipe } from '@/lib/inventory-engine'
-import { getNextNumber } from '@/lib/gift-cards'
-import type { PrismaClient, OrderStatus } from '@prisma/client'
+import { issuePremade } from '@/lib/gift-cards'
+import { isGiftCardLine, categoryIdsFromString } from '@/lib/gift-cards-woo'
+import { logGiftCardEvent, logOrderEvent } from '@/lib/gift-card-history'
+import { resolveOrderMeta, type ResolvedOrderMeta } from '@/lib/woo-meta-map'
+import { resolveCustomer } from '@/lib/customer-match'
+import { autoLinkBooking } from '@/lib/order-booking-link'
+import { formatDateKey } from '@/lib/scheduling'
+import { addMinutesHHMM, slotEndForTime, type ServiceScheduleInput } from '@/lib/service-schedule'
+import { seatPartyOnServicePlan } from '@/lib/service-seating.server'
+import { withSeatLock } from '@/lib/seat-lock'
+import type { PrismaClient, OrderStatus, OrderOpStatus, PaymentStatus } from '@prisma/client'
+
+/**
+ * Resolve a Woo line's product to a local MenuItem. Variable products are
+ * ONE local row per PARENT: a line bought as a variation first tries the
+ * variation id (legacy simple products map 1:1), then falls back to the
+ * parent product id. Works with the pull transaction client or prisma.
+ */
+type MenuLookup = { menuItem: { findFirst: PrismaClient['menuItem']['findFirst'] } }
+async function resolveMenuProduct(
+  db: MenuLookup,
+  venueId: string,
+  productId: string,
+  variationId: string | null,
+) {
+  let menuItem = null
+  if (variationId) {
+    menuItem = await db.menuItem.findFirst({
+      where: { venueId, wooProductId: variationId, deletedAt: null },
+      select: { id: true },
+    })
+  }
+  if (!menuItem && productId) {
+    menuItem = await db.menuItem.findFirst({
+      where: { venueId, wooProductId: productId, deletedAt: null },
+      select: { id: true },
+    })
+  }
+  return menuItem
+}
 
 // ── Shared WooCommerce Order Processing ────────────────────────────────
 // Used by both the webhook handler (instant) and the REST API pull
@@ -16,6 +54,7 @@ export async function processWooOrder(
   venueId: string,
   integrationId: string,
   body: any,
+  metaFieldMap?: unknown,
 ): Promise<{ orderId: string; wooOrderId: string; lineItems: number }> {
   const wooOrderId = String(body.id)
   const wooStatus = body.status ?? 'pending'
@@ -28,9 +67,48 @@ export async function processWooOrder(
   const customerEmail = body.billing?.email ?? null
   const customerPhone = body.billing?.phone ?? null
   const metaData: any[] = body.meta_data ?? []
-  const partySize = extractMetaInt(metaData, ['party_size', 'partySize'])
-  const fulfillmentDate = extractMetaDate(metaData, ['pickup_date', 'fulfillment_date', 'event_date'])
+  const meta = resolveOrderMeta(metaData, metaFieldMap)
+  const partySize = meta.partySize
   const notes = body.customer_note?.trim() || null
+
+  // Auto-seating is opt-in per venue (default OFF — seats are assigned by
+  // hand). bookTable comes from the HOSPO OPS plugin's checkout.
+  const venue = await prisma.venue.findUnique({
+    where: { id: venueId },
+    select: { autoSeat: true },
+  })
+
+  // The service this order was placed against, resolved from the plugin's
+  // `_hospo_service_id` meta. An unknown id clears the link (explicitly).
+  const service = meta.serviceId
+    ? await prisma.service.findFirst({
+        where: { id: meta.serviceId, venueId, deletedAt: null },
+        select: { id: true },
+      })
+    : null
+
+  // Payment is WooCommerce's job — we only mirror what it reports.
+  // Prefer `date_paid_gmt`: `date_paid` is in the store's local timezone with no
+  // offset, so parsing it directly lands the stamp hours out.
+  const paidAt = parseWooDate(body.date_paid_gmt, body.date_paid)
+  const paymentMethod = body.payment_method_title?.trim() || null
+  const paymentStatus: PaymentStatus =
+    wooStatus === 'refunded' ? 'REFUNDED' : paidAt ? 'PAID' : 'UNPAID'
+
+  /*
+   * `fulfillmentDate` is still written alongside `serviceDate` because the FOH
+   * and kitchen routes filter on it. Phase 4 moves them across; until then,
+   * dropping it here would silently empty both screens.
+   */
+  const fulfillmentDate = combineDateTime(meta.serviceDate, meta.serviceTime)
+
+  // Deduped customer record — the same person ordering online, by phone, and
+  // via the booking form resolves to one row. See lib/customer-match.ts.
+  const customerId = await resolveCustomer(prisma, venueId, {
+    name: customerName,
+    email: customerEmail,
+    phone: customerPhone,
+  })
 
   const order = await prisma.$transaction(async (tx) => {
     const woo = await tx.wooOrder.upsert({
@@ -41,22 +119,46 @@ export async function processWooOrder(
         customerName: customerName || undefined,
         customerEmail,
         customerPhone,
+        customerId,
         partySize,
         fulfillmentDate,
+        serviceDate: meta.serviceDate,
+        serviceTime: meta.serviceTime,
+        paymentStatus,
+        paymentMethod,
+        paidAt,
         notes,
+        allergenNote: meta.allergens,
+        serviceId: meta.serviceId ? (service?.id ?? null) : undefined,
+        bookTable: meta.bookTable,
         syncedAt: new Date(),
+        // `opStatus` and `fulfillmentType` are deliberately NOT updated — they
+        // are our operational state. A staff member marking an order IN_PREP
+        // must not be reset by the next webhook or 15-minute pull.
       },
       create: {
         venueId,
         wooOrderId,
+        source: 'WOO',
         status: mapWooStatus(wooStatus) as OrderStatus,
+        opStatus: mapWooOpStatus(wooStatus),
+        fulfillmentType: meta.fulfillmentType ?? 'DINE_IN',
         totalAmount,
         customerName: customerName || null,
         customerEmail,
         customerPhone,
+        customerId,
         partySize,
         fulfillmentDate,
+        serviceDate: meta.serviceDate,
+        serviceTime: meta.serviceTime,
+        paymentStatus,
+        paymentMethod,
+        paidAt,
         notes,
+        allergenNote: meta.allergens,
+        serviceId: service?.id ?? null,
+        bookTable: meta.bookTable,
         syncedAt: new Date(),
       },
     })
@@ -73,26 +175,26 @@ export async function processWooOrder(
       const productId = String(li.product_id ?? li.id ?? '')
       const variationId = li.variation_id ? String(li.variation_id) : null
 
-      const menuItem = await tx.menuItem.findFirst({
-        where: {
-          venueId,
-          wooProductId: variationId ?? productId,
-          deletedAt: null,
-        },
-      })
+      const menuItem = await resolveMenuProduct(tx, venueId, productId, variationId)
 
       const qty = li.quantity ?? 1
       const unitPrice = parseFloat(li.price ?? li.total ?? '0')
 
       if (menuItem) {
+        // Key by the Woo line id when present — the same product can appear
+        // several times on one order (two gift denominations share the parent
+        // menu item) and each line must keep its own row.
+        const lineId = li.id != null ? String(li.id) : null
         const existing = await tx.wooOrderItem.findFirst({
-          where: { orderId: woo.id, menuItemId: menuItem.id },
+          where: lineId
+            ? { orderId: woo.id, wooLineItemId: lineId }
+            : { orderId: woo.id, menuItemId: menuItem.id },
         })
 
         if (existing) {
           await tx.wooOrderItem.update({
             where: { id: existing.id },
-            data: { qty, unitPrice, notes: li.name ?? null },
+            data: { qty, unitPrice, productName: li.name ?? null, wooLineItemId: lineId ?? undefined },
           })
           keptIds.add(existing.id)
         } else {
@@ -102,7 +204,8 @@ export async function processWooOrder(
               menuItemId: menuItem.id,
               qty,
               unitPrice,
-              notes: li.name ?? null,
+              productName: li.name ?? null,
+              wooLineItemId: lineId,
             },
           })
           keptIds.add(created.id)
@@ -127,14 +230,13 @@ export async function processWooOrder(
     const productId = String(li.product_id ?? li.id ?? '')
     const variationId = li.variation_id ? String(li.variation_id) : null
 
-    const menuItem = await prisma.menuItem.findFirst({
-      where: {
-        venueId,
-        wooProductId: variationId ?? productId,
-        deletedAt: null,
-      },
-      include: { recipe: true },
-    })
+    const resolved = await resolveMenuProduct(prisma, venueId, productId, variationId)
+    const menuItem = resolved
+      ? await prisma.menuItem.findUnique({
+          where: { id: resolved.id },
+          include: { recipe: true },
+        })
+      : null
 
     if (menuItem?.recipeId) {
       const qty = li.quantity ?? 1
@@ -155,13 +257,14 @@ export async function processWooOrder(
           await prisma.wooOrderItem.update({
             where: { id: orderItem.id },
             data: {
-              notes: JSON.stringify({
-                productName: li.name,
+              productName: li.name ?? null,
+              wooLineItemId: li.id != null ? String(li.id) : undefined,
+              explodedIngredients: {
                 recipeId: menuItem.recipeId,
                 recipeName: menuItem.recipe?.name,
                 orderQty: qty,
-                explodedIngredients: exploded,
-              }),
+                ingredients: exploded,
+              },
             },
           })
         }
@@ -169,10 +272,12 @@ export async function processWooOrder(
     }
   }
 
-  if (partySize && partySize > 0 && fulfillmentDate) {
+  // Auto-seating is off unless the venue explicitly opts in (Venue.autoSeat).
+  if (venue?.autoSeat && partySize && partySize > 0 && fulfillmentDate) {
     try {
-      await tryAutoSeat(order, venueId, partySize, fulfillmentDate)
-    } catch (e) {
+      // `wooOrderId` is nullable on the model (manual orders), but this path is
+      // only ever reached for a Woo-sourced order — pass the known-good local.
+      await tryAutoSeat({ ...order, wooOrderId }, venueId, partySize, fulfillmentDate)    } catch (e) {
       console.error('Auto-seating failed (non-blocking):', e)
       await logSync({
         venueId,
@@ -186,8 +291,57 @@ export async function processWooOrder(
     }
   }
 
+  // Dine-in only for now: picking a service date/time at checkout IS the
+  // booking, so every dated non-cancelled order books a table on the service's
+  // plan. Takeaway (order without a booking) comes later — the plugin no longer
+  // offers a "book a table too" choice.
+  if (
+    !order.bookingId &&
+    meta.serviceDate &&
+    meta.serviceTime &&
+    partySize &&
+    mapWooStatus(wooStatus) !== 'CANCELLED'
+  ) {
+    try {
+      await bookTableForOrder(order, venueId, meta, service, partySize)
+    } catch (e) {
+      console.error('Book-a-table failed (non-blocking):', e)
+      await logSync({
+        venueId,
+        direction: 'WEBHOOK',
+        entity: 'ORDER',
+        status: 'ERROR',
+        externalId: wooOrderId,
+        message: `BOOK-A-TABLE FAILED FOR ORDER #${wooOrderId} (ORDER STILL SYNCED)`,
+        detail: { error: String(e) },
+      })
+    }
+  }
+
+  // Attach the order to a table reservation for the same person, if one exists.
+  // Only when not already linked, so an operator's manual correction sticks.
+  if (!order.bookingId) {
+    try {
+      await autoLinkBooking(prisma, order.id, venueId, meta.serviceDate, {
+        customerId,
+        customerPhone,
+        customerEmail,
+        serviceTime: meta.serviceTime,
+      })
+    } catch (e) {
+      console.error('Booking auto-link failed (non-blocking):', e)
+    }
+  }
   try {
-    await detectGiftCards(lineItems, venueId, order, customerName, customerEmail)
+    await detectGiftCards(
+      lineItems,
+      venueId,
+      { ...order, wooOrderId },
+      customerName,
+      customerEmail,
+      meta.giftCardMessage,
+      paymentStatus === 'PAID',
+    )
   } catch (e) {
     console.error('Gift card detection failed (non-blocking):', e)
   }
@@ -203,6 +357,47 @@ export interface OrderPullResult {
   synced: number
   errors: number
   syncedAt: string
+}
+
+/** Fetch every order page for one store status (used by the Gift Cards
+ *  pending-orders module so it can show live unpaid orders without waiting
+ *  for a full sync). */
+export async function fetchWooOrdersByStatus(
+  storeUrl: string,
+  consumerKey: string,
+  consumerSecret: string,
+  status: string,
+): Promise<any[]> {
+  const baseUrl = storeUrl.replace(/\/+$/, '')
+  const orders: any[] = []
+  let page = 1
+
+  for (;;) {
+    const url = `${baseUrl}/wp-json/wc/v3/orders?per_page=100&page=${page}&status=${encodeURIComponent(status)}`
+    let response = await fetch(url, {
+      headers: { Authorization: wooAuthHeader(consumerKey, consumerSecret), 'Content-Type': 'application/json' },
+    })
+    if (response.status === 401) {
+      response = await fetch(
+        `${url}&consumer_key=${encodeURIComponent(consumerKey)}&consumer_secret=${encodeURIComponent(consumerSecret)}`,
+        { headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    if (response.status === 401) {
+      response = await fetch(oauthSignedUrl('GET', url, consumerKey, consumerSecret), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    if (!response.ok) {
+      throw new Error(`Store returned HTTP ${response.status} for status=${status}`)
+    }
+    const batch = JSON.parse(await response.text())
+    if (!Array.isArray(batch)) break
+    orders.push(...batch)
+    if (batch.length < 100) break
+    page++
+  }
+  return orders
 }
 
 async function fetchWooOrders(
@@ -296,7 +491,7 @@ export async function runOrderPull(venueId?: string): Promise<OrderPullResult[]>
 
       for (const order of orders) {
         try {
-          await processWooOrder(integration.venueId, integration.id, order)
+          await processWooOrder(integration.venueId, integration.id, order, integration.metaFieldMap)
           synced++
         } catch (e) {
           errors++
@@ -352,6 +547,122 @@ export async function runOrderPull(venueId?: string): Promise<OrderPullResult[]>
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
+/*
+ * Creates the reservation the customer asked for at checkout ("book a table
+ * too"). The slot's own end time is used when the service has one for that
+ * time; otherwise the booking is 90 minutes. Never assigns tables — seating
+ * stays manual.
+ *
+ * Runs under a per venue+service+date lock: two webhooks arriving at once
+ * must not both read an empty occupancy set and seat the same table.
+ */
+async function bookTableForOrder(
+  order: { id: string; customerName: string | null; customerEmail: string | null; customerPhone: string | null },
+  venueId: string,
+  meta: ResolvedOrderMeta,
+  service: { id: string } | null,
+  partySize: number,
+) {
+  const serviceDate = meta.serviceDate as Date
+  const serviceTime = meta.serviceTime as string
+
+  return withSeatLock(`seat:${venueId}:${service?.id ?? 'none'}:${formatDateKey(serviceDate)}`, async () => {
+    // A re-delivered webhook or an order.updated racing us may have already
+    // booked this order while we waited — never create a second booking.
+    const fresh = await prisma.wooOrder.findUnique({
+      where: { id: order.id },
+      select: { bookingId: true },
+    })
+    if (fresh?.bookingId) return
+
+    let endTime = addMinutesHHMM(serviceTime, 90)
+    if (service) {
+      const svc = await prisma.service.findUnique({
+        where: { id: service.id },
+        include: { slots: true, exceptions: true },
+      })
+      if (svc) {
+        const input: ServiceScheduleInput = {
+          slots: svc.slots.map((s) => ({
+            dayOfWeek: s.dayOfWeek,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            maxCovers: s.maxCovers,
+          })),
+          exceptions: svc.exceptions.map((e) => ({
+            date: e.date.toISOString().slice(0, 10),
+            closed: e.closed,
+            startTime: e.startTime,
+            endTime: e.endTime,
+            maxCovers: e.maxCovers,
+          })),
+        }
+        endTime = slotEndForTime(input, formatDateKey(serviceDate), serviceTime) ?? endTime
+      }
+    }
+
+    const bookingData: any = {
+      venueId,
+      date: serviceDate,
+      startTime: serviceTime,
+      endTime,
+      partySize,
+      contactName: order.customerName ?? 'WOO ORDER',
+      contactPhone: order.customerPhone,
+      contactEmail: order.customerEmail,
+      source: 'WOOCOMMERCE',
+      status: 'CONFIRMED',
+      serviceId: service?.id ?? null,
+    }
+
+    // The service's table plan seats this reservation against the layout's
+    // physical tables — same rules as a phone booking for that service. No
+    // plan (or a plan that can't seat the party) leaves the booking unseated;
+    // the venue seats manually, and the caller's catch logs it as non-blocking.
+    const seat = service
+      ? await seatPartyOnServicePlan({
+          serviceId: service.id,
+          venueId,
+          date: serviceDate,
+          startTime: serviceTime,
+          endTime,
+          partySize,
+        })
+      : null
+
+    if (seat?.ok) {
+      const calEvent = await prisma.calendarEvent.create({
+        data: {
+          venueId,
+          source: 'MANUAL',
+          uid: `booking-${crypto.randomUUID()}`,
+          title: `${(order.customerName ?? 'ORDER').toUpperCase()} — ${partySize} PAX`,
+          startsAt: combineDateTime(serviceDate, serviceTime) ?? serviceDate,
+          endsAt: combineDateTime(serviceDate, endTime) ?? serviceDate,
+          floorPlanSlug: seat.floorPlanSlug || undefined,
+          floorPlanName: seat.setupName,
+        },
+      })
+      bookingData.calendarEventId = calEvent.id
+      bookingData.seatingSetupId = seat.setupId
+      bookingData.tables = { create: seat.itemIds.map((id) => ({ setupItemId: id })) }
+    }
+
+    const booking = await prisma.booking.create({
+      data: bookingData,
+      include: { tables: true },
+    })
+
+    await prisma.wooOrder.update({
+      where: { id: order.id },
+      data: {
+        bookingId: booking.id,
+        ...(bookingData.calendarEventId ? { calendarEventId: bookingData.calendarEventId } : {}),
+      },
+    })
+  })
+}
+
 function mapWooStatus(status: string): string {
   const s = status.toLowerCase()
   const map: Record<string, string> = {
@@ -366,60 +677,234 @@ function mapWooStatus(status: string): string {
   return map[s] ?? 'PENDING'
 }
 
+/**
+ * Creates gift card rows for gift card line items on a WooCommerce order.
+ *
+ * Detection is category-based when the venue has a configured GIFT CARDS
+ * category (Venue.giftCardWooCategoryId — the product's MenuItem.wooCategoryId
+ * must contain it, variation-aware); legacy SKU "GIFT" heuristic otherwise.
+ * Each card is auto-issued: the PDF is generated immediately so the store's
+ * order email (which fetches it from the public endpoint) always finds it.
+ *
+ * Idempotent: a re-delivered webhook or re-pull for the same order never
+ * mints duplicate cards.
+ *
+ * Payment-gated: the card (and its PDF) is only created once the order is
+ * PAID (`date_paid` present). Unpaid cash-on-delivery orders stay pending —
+ * every re-sync logs a SKIPPED row so "why no card yet?" is answerable, and
+ * the moment payment lands the next webhook/pull issues the card.
+ */
 async function detectGiftCards(
   lineItems: any[],
   venueId: string,
   order: { id: string; wooOrderId: string },
   customerName: string,
   customerEmail: string | null,
+  giftCardMessage: string | null,
+  paid: boolean,
 ) {
+  if (!paid) {
+    await logSync({
+      venueId,
+      direction: 'PULL',
+      entity: 'ORDER',
+      status: 'SKIPPED',
+      externalId: order.wooOrderId,
+      message: `GIFT CARD NOT ISSUED — PAYMENT NOT CONFIRMED (ORDER #${order.wooOrderId})`,
+    })
+    return
+  }
+
+  const venue = await prisma.venue.findUnique({
+    where: { id: venueId },
+    select: { giftCardWooCategoryId: true },
+  })
+  const categoryId = venue?.giftCardWooCategoryId ?? null
+
+  const existing = await prisma.giftCard.findFirst({
+    where: { venueId, wooOrderId: order.id, deletedAt: null },
+    select: { id: true },
+  })
+  if (existing) return
+
+  // ONE card per order: every gift line's total (qty × price) is summed, so
+  // buying several denominations together becomes a single combined card
+  // ($50 + $100 → one $150 card; qty 2 on a line counts twice).
+  let totalValue = 0
   for (const li of lineItems) {
-    const sku = String(li.sku ?? li.product_id ?? '').toUpperCase()
-    if (!sku.includes('GIFT')) continue
+    const productId = String(li.product_id ?? li.id ?? '')
+    const variationId = li.variation_id ? String(li.variation_id) : null
 
-    const amount = parseFloat(li.total ?? li.price ?? '0')
-    if (amount <= 0) continue
+    // Resolve the product's store categories from its local MenuItem row.
+    // An unresolved product is NOT a gift card for a category-configured
+    // venue — the category is the signal, never a guess.
+    // Variable products: the app holds ONE row for the parent product, so a
+    // variation purchase must fall back from the variation id to the parent.
+    let productCategories: string[] | null = null
+    if (variationId || productId) {
+      let menuItem = null
+      if (variationId) {
+        menuItem = await prisma.menuItem.findFirst({
+          where: { venueId, wooProductId: variationId, deletedAt: null },
+          select: { wooCategoryId: true },
+        })
+      }
+      if (!menuItem && productId) {
+        menuItem = await prisma.menuItem.findFirst({
+          where: { venueId, wooProductId: productId, deletedAt: null },
+          select: { wooCategoryId: true },
+        })
+      }
+      productCategories = menuItem ? categoryIdsFromString(menuItem.wooCategoryId) : null
+    }
 
-    const qty = li.quantity ?? 1
-    for (let i = 0; i < qty; i++) {
-      const year = new Date().getFullYear()
-      const number = await getNextNumber(venueId, year)
+    if (!isGiftCardLine({ sku: li.sku }, categoryId, productCategories)) continue
 
-      await prisma.giftCard.create({
-        data: {
-          venueId,
-          number,
-          amount: amount / qty,
-          customerName: customerName || null,
-          customerEmail,
-          wooOrderId: order.wooOrderId,
-          notes: `Auto-created from WooCommerce order #${order.wooOrderId} (SKU: ${sku})`,
+    const lineTotal = parseFloat(li.total ?? li.price ?? '0')
+    if (lineTotal > 0) totalValue += lineTotal
+  }
+
+  if (totalValue <= 0) return
+  totalValue = Math.round(totalValue * 100) / 100
+
+  // The next PREMADE card is consumed (one is premade in the current year's
+  // series when none remain) — issuing never invents a number.
+  let card: { id: string; number: string; amount: number; status: string }
+  try {
+    card = await issuePremade(venueId, {
+      amount: totalValue,
+      customerName: customerName || null,
+      customerEmail,
+      message: giftCardMessage || null,
+      wooOrderId: order.id,
+      notes: categoryId
+        ? `Auto-created from WooCommerce order #${order.wooOrderId} (CATEGORY #${categoryId})`
+        : `Auto-created from WooCommerce order #${order.wooOrderId} (SKU)`,
+    })
+  } catch (e) {
+    await logSync({
+      venueId,
+      direction: 'PULL',
+      entity: 'ORDER',
+      status: 'SKIPPED',
+      externalId: order.wooOrderId,
+      message: `GIFT CARD NOT ISSUED — ${(e as Error).message} (ORDER #${order.wooOrderId})`,
+    })
+    return
+  }
+
+  await logGiftCardEvent(
+    card.id,
+    'AUTO_ISSUED',
+    `AUTO-ISSUED FROM WOOCOMMERCE ORDER #${order.wooOrderId} — $${totalValue.toFixed(2)} COMBINED INTO ONE CARD`,
+  )
+  await logOrderEvent(
+    order.id,
+    'CARD_ISSUED',
+    `GIFT CARD #${card.number} ISSUED — $${totalValue.toFixed(2)} (ORDER #${order.wooOrderId})`,
+  )
+}
+
+/**
+ * Mint + issue the gift card for a LOCAL order after the app confirms its
+ * cash payment. Idempotent (a card already on the order returns issued:true).
+ * Used by the Gift Cards page's CONFIRM PAYMENT — WooCommerce's REST API
+ * cannot record `date_paid` itself, so the app is the authority here.
+ */
+export async function issueGiftCardForOrder(
+  venueId: string,
+  localOrderId: string,
+): Promise<{ issued: boolean; error?: string }> {
+  try {
+    const venue = await prisma.venue.findUnique({
+      where: { id: venueId },
+      select: { giftCardWooCategoryId: true },
+    })
+    const giftCat = venue?.giftCardWooCategoryId
+    if (!giftCat) return { issued: false, error: 'NO GIFT CARD CATEGORY LINKED' }
+
+    const order = await prisma.wooOrder.findFirst({
+      where: { id: localOrderId, venueId, deletedAt: null },
+      include: {
+        items: {
+          select: { qty: true, unitPrice: true, menuItem: { select: { wooCategoryId: true } } },
         },
-      })
-    }
+      },
+    })
+    if (!order) return { issued: false, error: 'ORDER NOT FOUND' }
+
+    const existing = await prisma.giftCard.findFirst({
+      where: { venueId, wooOrderId: order.id, deletedAt: null },
+      select: { id: true },
+    })
+    if (existing) return { issued: true }
+
+    const giftLines = order.items.filter(
+      (it) => it.menuItem && categoryIdsFromString(it.menuItem.wooCategoryId).includes(String(giftCat)),
+    )
+    if (giftLines.length === 0) return { issued: false, error: 'NO GIFT LINES ON THIS ORDER' }
+    const totalValue = Math.round(giftLines.reduce((sum, l) => sum + (l.qty ?? 0) * (l.unitPrice ?? 0), 0) * 100) / 100
+
+    // The next PREMADE card is consumed (one is premade when none remain).
+    const card = await issuePremade(venueId, {
+      amount: totalValue,
+      customerName: order.customerName,
+      customerEmail: order.customerEmail,
+      wooOrderId: order.id,
+      notes: `Payment confirmed in the app — WooCommerce order #${order.wooOrderId}`,
+    })
+    await logGiftCardEvent(card.id, 'AUTO_ISSUED', `CONFIRMED IN THE APP — ORDER #${order.wooOrderId} — $${totalValue.toFixed(2)}`)
+    await logOrderEvent(
+      order.id,
+      'PAYMENT_CONFIRMED',
+      `PAYMENT CONFIRMED IN THE APP — GIFT CARD #${card.number} ISSUED — $${totalValue.toFixed(2)}`,
+    )
+    return { issued: true }
+  } catch (e) {
+    console.error('issueGiftCardForOrder failed (non-blocking):', e)
+    return { issued: false, error: String(e) }
   }
 }
 
-function extractMetaInt(meta: any[], keys: string[]): number | null {
-  for (const key of keys) {
-    const m = meta.find((x: any) => x.key === key)
-    if (m?.value != null) {
-      const n = parseInt(String(m.value))
-      if (!isNaN(n)) return n
-    }
+/*
+ * Our operational lifecycle seeded from the Woo status. Only ever applied when
+ * an order is first created — see the upsert above for why.
+ */
+function mapWooOpStatus(status: string): OrderOpStatus {
+  const map: Record<string, OrderOpStatus> = {
+    pending: 'NEW',
+    'on-hold': 'NEW',
+    processing: 'CONFIRMED',
+    completed: 'CONFIRMED',
+    cancelled: 'CANCELLED',
+    refunded: 'CANCELLED',
+    failed: 'CANCELLED',
   }
-  return null
+  return map[status.toLowerCase()] ?? 'NEW'
 }
 
-function extractMetaDate(meta: any[], keys: string[]): Date | null {
-  for (const key of keys) {
-    const m = meta.find((x: any) => x.key === key)
-    if (m?.value) {
-      const d = new Date(m.value)
-      if (!isNaN(d.getTime())) return d
-    }
-  }
-  return null
+/*
+ * WooCommerce emits `*_gmt` fields as naive strings that are actually UTC, so
+ * they need an explicit Z before parsing. Falls back to the local-time variant
+ * when the GMT one is absent.
+ */
+function parseWooDate(gmt?: string | null, local?: string | null): Date | null {
+  const raw = gmt || local
+  if (!raw) return null
+  const iso = gmt && !/[Zz]|[+-]\d{2}:?\d{2}$/.test(gmt) ? `${gmt}Z` : raw
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? null : d
+}
+
+/** Fold a "HH:mm" onto a UTC-midnight date for the legacy `fulfillmentDate`. */
+function combineDateTime(date: Date | null, time: string | null): Date | null {
+  if (!date) return null
+  if (!time) return date
+
+  const [h, m] = time.split(':').map(Number)
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), h, m),
+  )
 }
 
 async function assignTableNumber(
@@ -454,11 +939,22 @@ async function assignTableNumber(
 }
 
 async function tryAutoSeat(
-  order: { id: string; wooOrderId: string; customerName: string | null; venueId: string },
+  order: { id: string; wooOrderId: string; customerName: string | null; venueId: string; bookTable: boolean; serviceId: string | null },
   venueId: string,
   partySize: number,
   fulfillmentDate: Date,
 ) {
+  // A dated dine-in order seats via its reservation on the service's table plan
+  // (see bookTableForOrder). Building a throwaway layout here too would double
+  // up — skip when the service has a plan; the booking path owns the seating.
+  if (order.serviceId) {
+    const svc = await prisma.service.findUnique({
+      where: { id: order.serviceId },
+      select: { tablePlanSetupId: true },
+    })
+    if (svc?.tablePlanSetupId) return
+  }
+
   const defaultPlan = await prisma.floorPlan.findFirst({
     where: { venueId, isDefault: true, deletedAt: null, isActive: true },
   })

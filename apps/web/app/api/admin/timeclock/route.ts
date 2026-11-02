@@ -2,24 +2,44 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
+import { resolveClockPosition } from '@/lib/clock-position.server'
+
+const staffSelect = {
+  select: {
+    firstName: true,
+    lastName: true,
+    department: { select: { name: true } },
+    positions: { select: { position: { select: { id: true, name: true, colour: true } } } },
+  },
+}
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'team.clocks.view')
+  if (denied) return denied
 
   const url = req.nextUrl
   const activeOnly = url.searchParams.get('active') === '1'
+  const showDeleted = url.searchParams.get('deleted') === '1'
+  const statusFilter = url.searchParams.get('status') // PENDING | APPROVED | REJECTED
   const venueId = url.searchParams.get('venueId') || session.user.venueId
   const from = url.searchParams.get('from')
   const to = url.searchParams.get('to')
   const limit = Number(url.searchParams.get('limit') ?? 500)
 
-  const where: Record<string, unknown> = {
-    venueId,
-    deletedAt: null,
+  const where: Record<string, unknown> = { venueId }
+  if (showDeleted) {
+    where.deletedAt = { not: null }
+  } else {
+    where.deletedAt = null
   }
   if (activeOnly) {
     where.isActive = true
+  }
+  if (statusFilter) {
+    where.approvalStatus = statusFilter
   }
   if (from) {
     where.clockIn = { ...(where.clockIn as Record<string, unknown> ?? {}), gte: new Date(from) }
@@ -32,9 +52,7 @@ export async function GET(req: NextRequest) {
 
   const sessions = await prisma.timeClock.findMany({
     where,
-    include: {
-      staff: { select: { firstName: true, lastName: true, department: { select: { name: true } } } },
-    },
+    include: { staff: staffSelect },
     orderBy: { clockIn: 'desc' },
     take: Math.min(limit, 2000),
   })
@@ -45,11 +63,11 @@ export async function GET(req: NextRequest) {
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER')
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const denied = await guardAccess(session, req as NextRequest, 'team.clocks.manual')
+  if (denied) return denied
 
   const body = await req.json()
-  const { staffId, clockIn, clockOut, note } = body
+  const { staffId, clockIn, clockOut, note, breaksMinutes } = body
 
   if (!staffId || !clockIn) {
     return NextResponse.json({ error: 'STAFF AND CLOCK-IN TIME ARE REQUIRED' }, { status: 400 })
@@ -60,17 +78,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Staff not found' }, { status: 404 })
   }
 
+  const clockInDate = new Date(clockIn)
   const tc = await prisma.timeClock.create({
     data: {
       staffId,
       venueId: session.user.venueId,
-      clockIn: new Date(clockIn),
+      positionId: await resolveClockPosition(staffId, session.user.venueId, clockInDate),
+      clockIn: clockInDate,
       clockOut: clockOut ? new Date(clockOut) : null,
       isActive: !clockOut,
       geoValid: true,
       note: note?.trim() || 'MANUAL ENTRY',
+      source: 'ADMIN',
+      approvalStatus: 'APPROVED', // manager-entered entries are pre-approved
+      approvedById: session.user.id,
+      approvedAt: new Date(),
+      breaksMinutes: Math.max(0, Math.round(Number(breaksMinutes) || 0)),
     },
-    include: { staff: { select: { firstName: true, lastName: true, department: { select: { name: true } } } } },
+    include: { staff: staffSelect },
   })
 
   return NextResponse.json(tc, { status: 201 })

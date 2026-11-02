@@ -2,7 +2,8 @@
 // Kept dependency-free so they can be unit-tested without mounting React Flow.
 
 export type StructureNodeType =
-  | 'venue' | 'department' | 'section' | 'staff' | 'task' | 'checklist' | 'training'
+  | 'venue' | 'department' | 'section' | 'position' | 'staff'
+  | 'task' | 'checklist' | 'guide' | 'pathway'
 
 export interface StructureGNode {
   id: string
@@ -31,7 +32,8 @@ export interface LaidOutEdge extends StructureGEdge {
 
 // Column order (left → right) so the workflow reads naturally.
 export const STRUCTURE_COLUMN: Record<StructureNodeType, number> = {
-  venue: 0, department: 1, section: 2, staff: 3, checklist: 4, task: 5, training: 6,
+  venue: 0, department: 1, section: 2, position: 3, staff: 4,
+  pathway: 5, checklist: 6, task: 7, guide: 8,
 }
 export const STRUCTURE_COL_X = 340
 export const STRUCTURE_ROW_Y = 92

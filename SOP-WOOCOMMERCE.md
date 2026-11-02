@@ -8,11 +8,37 @@
 |------|-----------|-------|
 | Orders (Woo → HOSPO OPS) | Webhook + built-in 15-minute REST API pull | Instant / 15 min worst case |
 | Products (Woo → HOSPO OPS) | Webhooks + built-in 15-minute pull | Instant / 15 min worst case |
-| Products (HOSPO OPS → Woo) | Automatic push on save + manual PUSH button | Instant |
+| Products (HOSPO OPS → Woo) | Automatic push on save (auto-creates on WooCommerce if needed) + manual PUSH button | Instant |
 | Order status (HOSPO OPS → Woo) | Automatic push on status change | Instant |
+| Payments | **WooCommerce only** — HOSPO OPS records what was paid, never takes money | — |
+
+**What arrives with an order (2026-07):**
+- **Customer details** are deduped into **Admin → Customers** on every sync —
+  matched by email, then phone (country-code and formatting agnostic). The same
+  person ordering online, by phone, and via the booking form stays one record.
+- **Service date, time slot, party size, allergy note and fulfillment type** are
+  read from the order's custom fields using the mapping in Phase 2b.
+- **Payment method and paid time** are mirrored from WooCommerce.
+- **Internal progress** (`IN PREP`, `READY`, `HANDED OVER`…) is HOSPO OPS's own
+  and is **never overwritten by a sync** — a webhook or 15-minute pull will not
+  reset what the kitchen has marked.
+- **Manual orders** raised in HOSPO OPS stay local and are never pushed to Woo.
+
+**Product sync refinements (2026-07):**
+- **Categories** are stored as numeric IDs, not names — ensures reliable push-back to WooCommerce.
+- **Category picker** shows a dropdown of all existing WooCommerce categories — names in the UI, IDs under the hood. Both the Recipes & Menu Items page and the Menu Items page use this.
+- **Featured images** are downloaded from WooCommerce and stored locally on pull.
+- **Product images** can be uploaded via ADD IMAGE in the recipe LINK TO WOO section or menu item WOOCOMMERCE SYNC section — served locally and pushed back to WooCommerce (relative URLs auto-resolved to absolute).
+- **Short description** field is synced both ways — pulled from WooCommerce's `short_description` (product excerpt) and pushed back on save.
+- **Variable products** — toggle VARIABLE PRODUCT in the recipe LINK TO WOO section, add size/pricing rows. On push, the product becomes a variable product on WooCommerce with these size options. Variation prices sync back to WooCommerce automatically on save when a Woo Variation ID is present (pulled from the store). Pulling products also fetches variation data.
+- **Images** are downloaded with content-addressed filenames to prevent duplicate uploads. Images over 2 MB are kept as remote URLs.
+- **Images, prices, categories, short descriptions, and variation prices** are all pushed back to WooCommerce on save.
+- **New products auto-create on WooCommerce** — if a menu item has no `wooProductId` (freshly created locally), the push POSTs it as a new product on WooCommerce and stores the returned product ID automatically.
+- **Woo Product ID is read-only** in the UI — auto-generated as `max(existing) + 1` when creating a new item, then updated with the real WooCommerce ID after the first push.
+- **HTML entities decoded** on pull (`&amp;` → `&`) so names like "SALT & PEPPER" don't double-encode on push-back.
 
 Every sync event (in both directions) is recorded on the **SYNC dashboard**
-(**HOSPO OPS → Woo Sync**), including errors — use it to watch the integration
+(**HOSPO OPS → Setup & Config → Settings → SYNC**), including errors — use it to watch the integration
 live while testing.
 
 The scheduler is **built into the app container** — there is nothing to
@@ -25,50 +51,90 @@ platform (Portainer, Railway, Render, Fly.io, etc.).
 
 ---
 
-## Phase 1: WordPress / WooCommerce Prep
+## Phase 1: Pair the store (one click)
 
-1. Log into **WordPress Admin** (`/wp-admin`).
-2. Navigate to **WooCommerce → Settings → Advanced → REST API**.
-3. Click **Add Key**.
-   - **Description:** `HOSPO OPS`
-   - **User:** Select an admin-level user.
-   - **Permissions:** `Read/Write`
-4. Click **Generate API Key**.
-5. Copy the **Consumer Key** and **Consumer Secret**. Keep this tab open.
+The WordPress plugin does the whole WooCommerce side for you — no REST keys to
+copy, no webhooks to hand-create.
 
-> **Note:** `Read/Write` permissions are required — HOSPO OPS pushes product
-> and order-status changes back to WooCommerce.
+1. In the app, generate an API key for the venue: **Settings → WOOCOMMERCE →
+   EXTERNAL API → + GENERATE** (name it e.g. `WEBSITE PLUGIN`) and copy it —
+   it is shown once.
+2. Log into **WordPress Admin** (`/wp-admin`) and open **HOSPO OPS** in the
+   admin menu.
+3. Enter the **HOSPO OPS APP URL** (e.g. `https://hospo.example.com`) and the
+   **API KEY**, then click **SAVE**.
+4. Click **TEST CONNECTION** — you should see your venue and its services.
+5. Click **CONNECT TO HOSPO OPS**. The plugin creates a Read/Write WooCommerce
+   REST API key, registers it with the app, and creates the four
+   order/product webhooks with the app-issued secret. The pairing panel then
+   shows the venue, the masked key/secret, and each webhook's status.
+
+The app's **Settings → WOOCOMMERCE** section shows `MANAGED BY PLUGIN` and is
+read-only while paired (ORDER FIELD MAPPING stays editable). **MANUAL
+OVERRIDE** hands the credentials back to you; the plugin takes over again on
+its next connect.
+
+- **RE-CONNECT (ROTATE CREDENTIALS)** — mints a fresh key and webhook secret,
+  updates the webhooks, and revokes the previous key.
+- **DISCONNECT** — revokes the key, removes the HOSPO OPS webhooks and clears
+  the app's credentials.
+
+> **Older plugin (pre-0.5.0)?** Use the manual fallback at the end of this
+> document. The plugin adopts webhooks named `HOSPO OPS …` on its next
+> connect, so upgrading later is seamless.
 
 ---
 
-## Phase 2: HOSPO OPS Configuration
+## Phase 2: Order Field Mapping (required for the Orders page)
 
-1. Log into the **HOSPO OPS Admin** dashboard.
-2. Navigate to **Settings** (sidebar under the Settings group).
-3. Scroll to the **WOOCOMMERCE** section.
-4. Enter the following fields:
+The date an order is **for**, its time slot, party size and any allergy note
+arrive as custom fields (`meta_data`) on the WooCommerce order. The key depends
+on which plugin you use **and on the label you gave the field** — so it is
+mapped, not hardcoded.
 
-   | Field | Source | Example |
-   |-------|--------|---------|
-   | **STORE URL** | Your WordPress site URL | `https://mybar.co.nz` |
-   | **CONSUMER KEY** | From Phase 1, Step 5 | `ck_...` |
-   | **CONSUMER SECRET** | From Phase 1, Step 5 | `cs_...` |
-   | **WEBHOOK SECRET** | Generate a new random string (password manager recommended) | `whsec_abc123...` |
+### Install a date plugin
 
-5. Toggle the button to **ACTIVE**.
-6. Click **SAVE WOOCOMMERCE**.
+If you are not already collecting an order date, install
+**[Order Delivery Date for WooCommerce – Lite](https://wordpress.org/plugins/order-delivery-date-for-woocommerce/)**
+(free, Tyche Softwares). It writes `_orddd_lite_timestamp`. The Pro version adds
+time slots and per-slot order caps, which is worth it for catering.
+
+### Map the fields
+
+1. Go to **Settings → WOOCOMMERCE → ORDER FIELD MAPPING**.
+2. Each row takes a comma-separated list of candidate keys, tried in order.
+   Leave a row blank to use the defaults.
+3. Click **SAVE WOOCOMMERCE**.
+
+| Field | Defaults tried |
+|-------|----------------|
+| SERVICE DATE | `_orddd_lite_timestamp`, `_orddd_timestamp`, `delivery_date`, `pickup_date`, `fulfillment_date`, `event_date` |
+| SERVICE TIME | `orddd_time_slot`, `_orddd_timeslot`, `delivery_time`, `pickup_time`, `time_slot` |
+| PARTY SIZE | `party_size`, `guests`, `number_of_guests`, `pax` |
+| ALLERGY NOTE | `allergies`, `allergens`, `dietary_requirements`, `dietary` |
+| FULFILLMENT TYPE | `fulfillment_type`, `order_type`, `service_type` |
+
+Matching ignores case, spaces, underscores and dashes — `Delivery Date`,
+`delivery_date` and `deliverydate` are the same key.
+
+### Finding the real key
+
+Place a test order on the store, then pull orders on `/admin/settings?tab=sync`. If the
+Orders page banners **"N ORDERS HAVE NO SERVICE DATE"**, the mapping is wrong.
+To find the actual key, open the order in WooCommerce REST
+(`/wp-json/wc/v3/orders/<id>`) and look at the `meta_data` array — or check the
+plugin's own documentation for its meta key.
+
+> **Dates are read day-first.** `15/08/2026` is 15 August, not 8 March. Unix
+> timestamps (seconds or milliseconds) and ISO dates are also accepted, and a
+> slot like `"6:00 PM - 6:30 PM"` is stored as its start time, `18:00`.
 
 ---
 
-## Phase 3: Webhook Handshake (WooCommerce → HOSPO OPS)
+## Phase 3: Webhooks (automatic)
 
-Create the following webhooks in **WordPress Admin → WooCommerce → Settings →
-Advanced → Webhooks → Add Webhook**. All of them share the same settings:
-
-- **Status:** `Active`
-- **Delivery URL:** `https://<your-app-domain>/api/webhooks/woocommerce`
-- **Secret:** Paste the exact **Webhook Secret** you generated in Phase 2, Step 4.
-- **API Version:** `WP REST API Integration v3`
+CONNECT in Phase 1 creates all four webhooks with the app-issued secret —
+nothing to do here. For reference, they are:
 
 | # | Name | Topic | Purpose |
 |---|------|-------|---------|
@@ -76,6 +142,11 @@ Advanced → Webhooks → Add Webhook**. All of them share the same settings:
 | 2 | `HOSPO OPS Product Created` | `Product created` | Instant product import |
 | 3 | `HOSPO OPS Product Updated` | `Product updated` | Instant product changes |
 | 4 | `HOSPO OPS Product Deleted` | `Product deleted` | Removes the linked menu item |
+
+All share: **Status** `Active`, **Delivery URL**
+`https://<your-app-domain>/api/webhooks/woocommerce`, **API Version**
+`WP REST API Integration v3`, and the pairing's webhook secret. The HOSPO OPS
+plugin page shows each webhook's status and failure count.
 
 > **Note:** The product webhooks give you near-instant product sync. Even if a
 > webhook delivery fails, the built-in 15-minute product pull catches up
@@ -117,25 +188,33 @@ EventBridge, etc.):
 
 ## Phase 5: Verify Setup (use the SYNC dashboard)
 
-Open **HOSPO OPS → Woo Sync** (`/admin/sync`). The activity feed auto-refreshes
+Open **HOSPO OPS → Setup & Config → Settings → SYNC** (`/admin/settings?tab=sync`). The activity feed auto-refreshes
 every 10 seconds and shows every pull, push, and webhook — errors in red.
 
 1. Click **↓ PULL PRODUCTS NOW** — you should see a `PULLED N PRODUCTS...`
    SUCCESS row, and the imported products under **Recipes & Menu Items**.
-2. Click **↓ PULL ORDERS NOW** — historical orders populate the **Orders** page
-   and the **FOH VIEW** tab.
-3. Create a test order in WooCommerce — a `ORDER #... SYNCED (ORDER.UPDATED)`
-   WEBHOOK row appears within seconds, and the order shows on **Orders**.
-3. Edit a product in WooCommerce — a `PRODUCT #... UPDATED FROM WEBHOOK` row
+2. Click **↓ PULL ORDERS NOW** — historical orders populate the **Orders** page.
+3. Open **Orders** and set the date to a day you know has orders. If the page is
+   empty but a yellow banner reads **"N ORDERS HAVE NO SERVICE DATE"**, the sync
+   worked but the **order field mapping** is wrong — go back to Phase 2b.
+4. Create a test order in WooCommerce — an `ORDER #... SYNCED (ORDER.UPDATED)`
+   WEBHOOK row appears within seconds, and the order shows on **Orders** on its
+   service date.
+5. Check the order's detail drawer — the customer's name, phone and email should
+   be there, and **Admin → Customers** should show them exactly once (order the
+   same person again with a differently formatted phone number to confirm no
+   duplicate appears).
+6. Edit a product in WooCommerce — a `PRODUCT #... UPDATED FROM WEBHOOK` row
    appears and the menu item updates.
-4. Edit a linked menu item's price in HOSPO OPS — a `PUSHED ... TO WOOCOMMERCE`
+7. Edit a linked menu item's price in HOSPO OPS — a `PUSHED ... TO WOOCOMMERCE`
    row appears and the price changes on the store.
-5. Change an order's status on the **Orders** page (expand the order → STATUS
-   dropdown) — a `PUSHED ORDER #... STATUS` row appears and the WooCommerce
-   order updates.
-6. Verify the **WOOCOMMERCE** section in **Settings** shows `LAST SYNC: <timestamp>`.
-7. Link each imported product to a **Recipe** to enable inventory explosion on
-   order.
+8. Change an order's **WOOCOMMERCE STATUS** in the detail drawer — a
+   `PUSHED ORDER #... STATUS` row appears and the WooCommerce order updates.
+   (The **PROGRESS** buttons above it are internal and deliberately do *not*
+   push — they are your kitchen/floor state, not the store's.)
+9. Verify the **WOOCOMMERCE** section in **Settings** shows `LAST SYNC: <timestamp>`.
+10. Link each imported product to a **Recipe** to enable inventory explosion on
+    order.
 
 ---
 
@@ -186,14 +265,16 @@ crontab -e
 
 ### 4. Add the new product webhooks in WooCommerce
 
-Your existing `Order updated` webhook keeps working unchanged. Add webhooks
-**2–4** from Phase 3 (`Product created` / `Product updated` /
-`Product deleted`) using the **same Webhook Secret** so product changes sync
-instantly instead of overnight.
+**Easiest:** update the WordPress plugin (0.5.0+) and click **RE-CONNECT
+(ROTATE CREDENTIALS)** on the HOSPO OPS page — it creates any missing
+webhooks, adopts the existing `HOSPO OPS Order Sync`, and rotates the
+credentials. Prefer the manual route? Add webhooks **2–4** from Phase 3
+(`Product created` / `Product updated` / `Product deleted`) using the **same
+Webhook Secret** so product changes sync instantly instead of overnight.
 
 ### 5. Verify
 
-Open **HOSPO OPS → Woo Sync** (new sidebar entry under Operations) and run
+Open **HOSPO OPS → Setup & Config → Settings → SYNC** and run
 through Phase 5. Container logs should show `[internal-cron] started` on boot,
 and a product pull appears in the feed within ~15 seconds of startup.
 
@@ -203,16 +284,23 @@ and a product pull appears in the feed within ~15 seconds of startup.
 
 | Issue | Check |
 |-------|-------|
-| `Delivery URL returned response code: 401` when SAVING a webhook in wp-admin | Update HOSPO OPS — older versions rejected WooCommerce's unsigned activation ping. Current versions acknowledge it (a `WEBHOOK ACTIVATION PING ACKNOWLEDGED` row appears on `/admin/sync`). After updating, re-save the webhook and set its Status back to Active. |
+| `Delivery URL returned response code: 401` when SAVING a webhook in wp-admin | Update HOSPO OPS — older versions rejected WooCommerce's unsigned activation ping. Current versions acknowledge it (a `WEBHOOK ACTIVATION PING ACKNOWLEDGED` row appears on `/admin/settings?tab=sync`). After updating, re-save the webhook and set its Status back to Active. |
+| CONNECT TO HOSPO OPS fails | The app must be reachable from WordPress at the configured APP URL. The plugin revokes the key it just created when the app call fails, so re-trying is safe. Check the API key belongs to the right venue. |
+| Webhooks show Disabled/Paused after CONNECT | WooCommerce disables a webhook after 5 consecutive delivery failures. Fix app reachability (or the delivery URL, if the app moved), then RE-CONNECT. |
+| App shows MANAGED BY PLUGIN and the keys need editing | Click **MANUAL OVERRIDE** in Settings → WOOCOMMERCE, then save. The plugin takes over again on its next CONNECT. |
 | Nothing on the SYNC dashboard | Verify the integration is ACTIVE in Settings and credentials are saved. Check container logs for `[internal-cron] started`. |
-| Orders not appearing | Click **↓ PULL ORDERS NOW** on `/admin/sync` to fetch historical orders via the REST API. For webhook issues, look for red `WEBHOOK REJECTED` rows on `/admin/sync`. `SIGNATURE DID NOT MATCH` means the webhook Secret in WordPress doesn't exactly match the Webhook Secret in Settings. No rows at all → verify the Delivery URL is reachable from WordPress (WooCommerce → Settings → Advanced → Webhooks → Logs). |
+| Orders sync but the Orders page is empty / banner says "N ORDERS HAVE NO SERVICE DATE" | The sync is fine — the **order field mapping** is wrong, so we cannot tell what day the order is for. Go to **Settings → WooCommerce → ORDER FIELD MAPPING** and set the SERVICE DATE key to whatever your date plugin actually writes (see Phase 2 for how to find it). Re-pull orders afterwards. |
+| Order date is a day out, or 15/08 imported as 8 March | Day-first formats are handled, but check the plugin isn't emitting a timezone-shifted local time. Prefer a plugin that writes a unix timestamp (e.g. `_orddd_lite_timestamp`). |
+| Same customer appearing twice in Admin → Customers | Matching is by email first, then phone. Two records mean neither matched — usually one order had no email and a phone typo. Merge by correcting the contact details on the order (this re-runs the match). Note customers are **per venue** by design, so the same person at two venues is intentionally two records. |
+| Kitchen marked an order IN PREP and it reset | Should not happen — sync never touches internal progress. If it does, check nobody is editing the order through the old `/api/admin/orders/foh` endpoint or a script. |
+| Orders not appearing | Click **↓ PULL ORDERS NOW** on `/admin/settings?tab=sync` to fetch historical orders via the REST API. For webhook issues, look for red `WEBHOOK REJECTED` rows on `/admin/settings?tab=sync`. `SIGNATURE DID NOT MATCH` means the webhook Secret in WordPress doesn't exactly match the Webhook Secret in Settings. No rows at all → verify the Delivery URL is reachable from WordPress (WooCommerce → Settings → Advanced → Webhooks → Logs). |
 | Webhooks blocked behind Cloudflare Access | Add a **Bypass** policy for `/api/webhooks/*` — WordPress can't pass a Cloudflare login. The endpoint is HMAC-verified by the app itself. |
 | Products not syncing instantly | Verify the three product webhooks from Phase 3 exist and are Active. The 15-minute pull will still catch changes. |
-| Product pull empty / PULL FAILED | Click the event row on `/admin/sync` — the dark detail box shows the exact response. `HTTP 401`: many hosts strip the Authorization header; the app automatically retries with query-string auth, so a persistent 401 means the Consumer Key/Secret are wrong (re-paste BOTH in Settings — masked dots keep the old value) or lack Read/Write permission. Also check STORE URL has no trailing slash. |
+| Product pull empty / PULL FAILED | Click the event row on `/admin/settings?tab=sync` — the dark detail box shows the exact response. `HTTP 401`: many hosts strip the Authorization header; the app automatically retries with query-string auth, so a persistent 401 means the Consumer Key/Secret are wrong (re-paste BOTH in Settings — masked dots keep the old value) or lack Read/Write permission. Also check STORE URL has no trailing slash. |
 | `woocommerce_rest_cannot_view` (WordPress behind Cloudflare Tunnel / proxy) | WordPress can't detect HTTPS (`is_ssl()` is false), so WooCommerce rejects plain credentials. The app automatically falls back to OAuth 1.0a signed requests, which work regardless. You can also fix WordPress itself — add to `wp-config.php` above `/* That's all */`: `if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') { $_SERVER['HTTPS'] = 'on'; }` |
 | `PRODUCT UPSERT FAILED ... MenuItem_recipeId_fkey` | Fixed in current versions (imported products no longer require a recipe). Update the app — the schema change applies automatically on redeploy. |
 | Pushes failing (`PUSH FAILED — HTTP 401`) | Consumer Key permissions must be `Read/Write`, not `Read`. |
-| `PUSH SKIPPED — NO LINKED WOOCOMMERCE PRODUCT` | The menu item has no WOO PRODUCT ID — link it on the Recipes & Menu Items page. |
+| Categories showing as numbers | Fixed in current versions — categories are now pulled and stored as names. To update existing items, re-pull products. |
 | Sync loops (same change bouncing back and forth) | Should not happen — pushes are stamped with `_updated_by: hospo-ops` and echo webhooks within 2 minutes are skipped (logged as `SKIPPED — ECHO OF OUR OWN PUSH`). |
 | 401 Unauthorized on /api/cron | Verify `CRON_SECRET` env var is set and matches the `Authorization: Bearer` header exactly. |
 | Secrets masked after save | This is by design. To update a secret, type the new value in the password field and save. Leaving it as dots preserves the existing secret. |
@@ -228,3 +316,41 @@ When a WooCommerce order includes `partySize` and `fulfillmentDate` in its `meta
 3. Tables are auto-assigned from available `TableProfile` pools using a greedy fit algorithm.
 4. All tables are grouped into a `TableGroup` on the PixiJS canvas.
 5. The order shows `✓` (seated) on the Orders dashboard.
+
+---
+
+## Manual fallback (pre-0.5.0 plugins)
+
+Only needed if you can't update the WordPress plugin. Updating is strongly
+preferred — the current plugin adopts these webhooks and keys on its next
+CONNECT.
+
+### Create the REST API key by hand
+
+1. Log into **WordPress Admin** (`/wp-admin`).
+2. Navigate to **WooCommerce → Settings → Advanced → REST API**.
+3. Click **Add Key**.
+   - **Description:** `HOSPO OPS`
+   - **User:** Select an admin-level user.
+   - **Permissions:** `Read/Write`
+4. Click **Generate API Key**.
+5. Copy the **Consumer Key** and **Consumer Secret**. Keep this tab open.
+
+> **Note:** `Read/Write` permissions are required — HOSPO OPS pushes product
+> and order-status changes back to WooCommerce.
+
+### Configure the app
+
+1. Log into the **HOSPO OPS Admin** dashboard.
+2. Navigate to **Settings → WOOCOMMERCE**.
+3. Enter the **STORE URL**, **CONSUMER KEY**, **CONSUMER SECRET** and a
+   **WEBHOOK SECRET** (a new random string), toggle **ACTIVE**, and click
+   **SAVE WOOCOMMERCE**.
+
+### Create the webhooks by hand
+
+Create each webhook from the Phase 3 table in **WordPress Admin → WooCommerce
+→ Settings → Advanced → Webhooks → Add Webhook**, using the **same Webhook
+Secret** you entered in the app, Delivery URL
+`https://<your-app-domain>/api/webhooks/woocommerce`, and API Version
+`WP REST API Integration v3`.

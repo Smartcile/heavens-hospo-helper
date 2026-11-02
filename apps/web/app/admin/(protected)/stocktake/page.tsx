@@ -1,11 +1,5 @@
-import { StocktakeClient } from './StocktakeClient'
+import { hubRedirect } from '@/lib/ops-redirect'
 
-export const dynamic = 'force-dynamic'
-
-export default function StocktakePage() {
-  return (
-    <div className="min-h-screen bg-black p-6">
-      <StocktakeClient />
-    </div>
-  )
+export default function StocktakePage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
+  hubRedirect('/admin/ops', 'inventory', 'stocktake', searchParams)
 }

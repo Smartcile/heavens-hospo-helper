@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { isWithinGeoFence } from '@/lib/geo'
+import { resolveClockPosition } from '@/lib/clock-position.server'
 
 export async function POST(req: Request) {
   const session = await getWorkerSession()
@@ -27,12 +28,15 @@ export async function POST(req: Request) {
     : true
 
   const note = lat == null || lon == null ? 'GPS NOT AVAILABLE' : geoValid ? null : 'OUTSIDE VENUE GEO-FENCE'
+  const now = new Date()
+  const positionId = await resolveClockPosition(session.staffId, session.venueId, now)
 
   const tc = await prisma.timeClock.create({
     data: {
       staffId: session.staffId,
       venueId: session.venueId,
-      clockIn: new Date(),
+      positionId,
+      clockIn: now,
       clockInLat: lat ?? null,
       clockInLon: lon ?? null,
       geoValid,

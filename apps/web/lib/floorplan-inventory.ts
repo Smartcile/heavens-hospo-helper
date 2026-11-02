@@ -1,4 +1,5 @@
 import polygonClipping from 'polygon-clipping'
+import { setupItemFurnitureKey } from './furniture'
 import type { SetupItemInput, InventoryShortage, ChairPlacement, RectangleTable } from '@hospo-ops/types'
 
 export type {
@@ -24,6 +25,18 @@ export interface InventoryStock {
   itemId: string
   name: string
   available: number
+}
+
+/**
+ * Look up the furniture behind a placement, tolerating rows that still carry
+ * only the old `tableProfileId` because the furniture migration hasn't run yet.
+ */
+function profileFor(
+  profiles: Map<string, TableProfileWithBom>,
+  item: SetupItemInput,
+): TableProfileWithBom | undefined {
+  const key = setupItemFurnitureKey(item)
+  return key ? profiles.get(key) : undefined
 }
 
 type Pair = [number, number]
@@ -261,7 +274,7 @@ export function calculateSetupInventory(
 
   for (const [key, members] of groups) {
     if (members.length <= 1) continue
-    const profileIds = new Set(members.map((m) => m.tableProfileId))
+    const profileIds = new Set(members.map(setupItemFurnitureKey))
     if (profileIds.size > 1) {
       groups.delete(key)
       for (const m of members) {
@@ -273,8 +286,8 @@ export function calculateSetupInventory(
   const tally = new Map<string, number>()
 
   for (const [, members] of groups) {
-    const profileId = members[0].tableProfileId
-    const profile = profiles.get(profileId)
+    const profileId = setupItemFurnitureKey(members[0])
+    const profile = profileId ? profiles.get(profileId) : undefined
     if (!profile) continue
 
     let chairCount: number
@@ -349,7 +362,13 @@ function zoneSectionAt(cx: number, cy: number, zones: SectionZoneRect[]): string
   return null
 }
 
+/**
+ * Seats on one placement. Chairs positioned around the outline are the truth
+ * when present; per-edge counts are still read so pre-migration rows keep
+ * reporting real numbers instead of dropping to the furniture default.
+ */
 function soloSeats(item: SetupItemInput, profile?: TableProfileWithBom): number {
+  if (Array.isArray(item.chairs)) return item.chairs.length
   const e = item.chairEdges
   if (e) return (e.top ?? 0) + (e.bottom ?? 0) + (e.left ?? 0) + (e.right ?? 0)
   return profile?.chairCount ?? 0
@@ -385,17 +404,17 @@ export function computeSetupSectionTotals(
 
   for (const item of solos) {
     const c = centreOf(item)
-    bump(zoneSectionAt(c.x, c.y, zones), 1, soloSeats(item, profiles.get(item.tableProfileId)))
+    bump(zoneSectionAt(c.x, c.y, zones), 1, soloSeats(item, profileFor(profiles, item)))
   }
 
   for (const members of groups.values()) {
     if (members.length === 1) {
       const item = members[0]
       const c = centreOf(item)
-      bump(zoneSectionAt(c.x, c.y, zones), 1, soloSeats(item, profiles.get(item.tableProfileId)))
+      bump(zoneSectionAt(c.x, c.y, zones), 1, soloSeats(item, profileFor(profiles, item)))
       continue
     }
-    const profile = profiles.get(members[0].tableProfileId)
+    const profile = profileFor(profiles, members[0])
     const tables: RectangleTable[] = members.map((m) => ({ x: m.x, y: m.y, width: m.width, depth: m.depth, rotation: m.rotation }))
     const seats = profile
       ? computeEffectiveChairs(tables, {

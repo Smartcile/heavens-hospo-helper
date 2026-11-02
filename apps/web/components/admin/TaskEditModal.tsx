@@ -7,7 +7,9 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
 import { Combobox } from '@/components/ui/Combobox'
+import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
 import { MONTHLY_OPTIONS } from '@/lib/scheduling'
+import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string }
@@ -19,6 +21,7 @@ interface TaskData {
   departmentId: string | null; sectionId: string | null
   completionType: string; scheduleType: string; scheduleDays: number[]
   customCron: string | null; intervalMonths: number; monthlyOption: string | null; monthlyDay: number | null
+  allowedOutcomes?: string[]; overrideOutcomes?: boolean; requireOutcomeReason?: boolean
   requiredTraining: { moduleId: string }[]
   taskGuides?: { guideId: string; isRequiredForCompetency: boolean }[]
 }
@@ -98,6 +101,9 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
         intervalMonths: task.intervalMonths, monthlyOption: task.monthlyOption, monthlyDay: task.monthlyDay,
         requiredTrainingIds: [],
         competencyGuideIds,
+        allowedOutcomes: task.allowedOutcomes,
+        overrideOutcomes: !!task.overrideOutcomes,
+        requireOutcomeReason: !!task.requireOutcomeReason,
         requireRetrain, changeSummary,
       }),
     })
@@ -146,6 +152,15 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
             <Select label="Completion Type" value={task.completionType} onChange={(e) => patch({ completionType: e.target.value })} options={COMPLETION_OPTIONS} />
             <Select label="Schedule" value={task.scheduleType} onChange={(e) => patch({ scheduleType: e.target.value, scheduleDays: [] })} options={SCHEDULE_OPTIONS} />
           </div>
+
+          <OutcomeOptions
+            allowed={(task.allowedOutcomes?.length ? task.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[]}
+            requireReason={!!task.requireOutcomeReason}
+            onChange={(allowed, requireReason) => patch({ allowedOutcomes: allowed, requireOutcomeReason: requireReason })}
+            canOverride
+            override={!!task.overrideOutcomes}
+            onOverrideChange={(v) => patch({ overrideOutcomes: v })}
+          />
 
           {task.scheduleType === 'MONTHLY' && (
             <div className="space-y-3">

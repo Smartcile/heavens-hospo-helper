@@ -1,0 +1,44 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
+import { prisma } from '@hospo-ops/db'
+import { getManagerVenueId } from '@/lib/venue-scope'
+import { guardAccess } from '@/lib/permissions'
+import { applyEditRequest, discardEditRequest, markEditRequestApplied } from '@/lib/availability.server'
+
+// Apply, discard or mark applied a worker's edit request to an approved
+// availability day or series. APPLY executes the stored plan with manager
+// authority; DISCARD leaves the approved rows as they are; MARK_APPLIED only
+// retires a request the manager already superseded with their own override.
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'team.availability.approve')
+  if (denied) return denied
+
+  const body = await req.json().catch(() => null) as {
+    action?: 'APPLY' | 'DISCARD' | 'MARK_APPLIED'
+    reviewNote?: string | null
+  } | null
+  const action = body?.action
+  if (action !== 'APPLY' && action !== 'DISCARD' && action !== 'MARK_APPLIED') {
+    return NextResponse.json({ error: 'action must be APPLY, DISCARD or MARK_APPLIED' }, { status: 400 })
+  }
+
+  const request = await prisma.availabilityEditRequest.findUnique({ where: { id: params.id } })
+  if (!request || request.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const managerVenueId = getManagerVenueId(session, req)
+  if (managerVenueId && request.venueId !== managerVenueId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const ok = action === 'APPLY'
+    ? await applyEditRequest(params.id, session.user.id, body?.reviewNote)
+    : action === 'MARK_APPLIED'
+      ? await markEditRequestApplied(params.id, session.user.id, body?.reviewNote)
+      : await discardEditRequest(params.id, session.user.id, body?.reviewNote)
+
+  if (!ok) return NextResponse.json({ error: 'REQUEST ALREADY RESOLVED' }, { status: 409 })
+  return NextResponse.json({ success: true })
+}

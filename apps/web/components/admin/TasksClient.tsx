@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -8,9 +8,13 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { Combobox } from '@/components/ui/Combobox'
+import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
 import { moveItem } from '@/lib/array'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
+import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { getActiveVenueId } from '@/lib/active-venue'
+import { isActivatedOn, isChecklistHidden } from '@/lib/checklist-activation'
+import { useGuidePopup } from '@/components/GuidePopup'
 
 interface Task {
   id: string
@@ -28,11 +32,20 @@ interface Task {
   monthlyDay: number | null
   isActive: boolean
   sortOrder: number
+  allowedOutcomes?: string[]
+  overrideOutcomes?: boolean
+  requireOutcomeReason?: boolean
   department: { id: string; name: string; colour: string | null } | null
   section: { id: string; name: string } | null
   requiredTraining: { moduleId: string; module?: { kind: string } }[]
-  taskGuides?: { guideId: string; isRequiredForCompetency: boolean }[]
+  taskGuides?: { guideId: string; isRequiredForCompetency: boolean; guide?: { id: string; title: string } | null }[]
   trainingModules?: { kind: string }[]
+  progress?: {
+    note: string | null
+    outcome: string
+    updatedAt: string
+    staff: { firstName: string; lastName: string }
+  } | null
   _count?: { checklistLinks: number }
 }
 
@@ -50,6 +63,9 @@ interface Checklist {
   departmentId: string | null
   sectionId: string | null
   appearFromTime: string | null
+  activatedOn: string | null
+  allowedOutcomes?: string[]
+  requireOutcomeReason?: boolean
   department: { id: string; name: string } | null
   section: { id: string; name: string } | null
   tasks: ChecklistCardTask[]
@@ -70,12 +86,16 @@ interface FormState {
   monthlyDay: number
   requiredTrainingIds: string[]
   competencyGuideIds: string[]
+  allowedOutcomes: TaskOutcome[]
+  overrideOutcomes: boolean
+  requireOutcomeReason: boolean
 }
 
 const EMPTY_FORM: FormState = {
   title: '', description: '', venueId: '', departmentId: '', sectionId: '',
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
   intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, requiredTrainingIds: [], competencyGuideIds: [],
+  allowedOutcomes: [...TASK_OUTCOMES], overrideOutcomes: false, requireOutcomeReason: false,
 }
 
 const COMPLETION_OPTIONS = [
@@ -90,8 +110,40 @@ const SCHEDULE_OPTIONS = [
   { value: 'CUSTOM', label: 'CUSTOM (CRON)' },
 ]
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+const TASKS_SCROLL_KEY = 'hospo-tasks-scroll'
+
+// #16: keep the window and the sticky checklist panel where they were when the
+// page is re-entered. A scoped fix — no SPA rewrite, no polling.
+function useTasksScrollRestoration(panelRef: RefObject<HTMLDivElement>, ready: boolean) {
+  useEffect(() => {
+    // Restoring while the lists are still empty (and the panel is not mounted)
+    // scrolls the window only, then the loaded content reflows and loses it.
+    if (!ready) return
+    const winKey = `${TASKS_SCROLL_KEY}:window`
+    const panelKey = `${TASKS_SCROLL_KEY}:panel`
+    const savedWindow = sessionStorage.getItem(winKey)
+    if (savedWindow) window.scrollTo(0, Number(savedWindow))
+    const panel = panelRef.current
+    const savedPanel = sessionStorage.getItem(panelKey)
+    if (panel && savedPanel) panel.scrollTop = Number(savedPanel)
+
+    const save = () => {
+      sessionStorage.setItem(winKey, String(window.scrollY))
+      if (panel) sessionStorage.setItem(panelKey, String(panel.scrollTop))
+    }
+    window.addEventListener('scroll', save, { passive: true })
+    panel?.addEventListener('scroll', save, { passive: true })
+    return () => {
+      save()
+      window.removeEventListener('scroll', save)
+      panel?.removeEventListener('scroll', save)
+    }
+  }, [panelRef, ready])
+}
 
 export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
+  const { requestGuide, nodes: guidePopupNodes } = useGuidePopup('admin')
+  const checklistPanelRef = useRef<HTMLDivElement>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -99,6 +151,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [guides, setGuides] = useState<GuideLite[]>([])
   const [checklists, setChecklists] = useState<Checklist[]>([])
   const [loading, setLoading] = useState(true)
+  useTasksScrollRestoration(checklistPanelRef, !loading)
 
   // Task create/edit modal
   const [modalOpen, setModalOpen] = useState(false)
@@ -123,10 +176,16 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [clSectionId, setClSectionId] = useState('')
   const [clSelected, setClSelected] = useState<string[]>([])
   const [clAppearFrom, setClAppearFrom] = useState('')
+  const [clAllowedOutcomes, setClAllowedOutcomes] = useState<TaskOutcome[]>([...TASK_OUTCOMES])
+  const [clRequireReason, setClRequireReason] = useState(false)
   const [clSaving, setClSaving] = useState(false)
   const [clError, setClError] = useState('')
+  const [activateError, setActivateError] = useState('')
   const [dropActive, setDropActive] = useState(false)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
+
+  // PDF export popup
+  const [pdfOpen, setPdfOpen] = useState(false)
 
   async function load() {
     const params = new URLSearchParams()
@@ -171,6 +230,9 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       intervalMonths: t.intervalMonths ?? 1, monthlyOption: t.monthlyOption ?? 'FIRST_DAY', monthlyDay: t.monthlyDay ?? 1,
       requiredTrainingIds: (t.requiredTraining ?? []).map((r) => r.moduleId),
       competencyGuideIds: (t.taskGuides ?? []).filter((g) => g.isRequiredForCompetency).map((g) => g.guideId),
+      allowedOutcomes: (t.allowedOutcomes?.length ? t.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[],
+      overrideOutcomes: !!t.overrideOutcomes,
+      requireOutcomeReason: !!t.requireOutcomeReason,
     })
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
@@ -223,12 +285,16 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClName(''); setClDesc('')
     setClVenueId(role === 'MANAGER' ? sessionVenueId : (filterVenue || venues[0]?.id || ''))
     setClDeptId(''); setClSectionId(''); setClSelected([]); setClAppearFrom(''); setClError('')
+    setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false)
+    setFilterUsage('notinthis')
   }
   function openChecklistEdit(c: Checklist) {
     setClEditing(c)
     setClName(c.name); setClDesc(c.description ?? '')
     setClVenueId(c.venueId); setClDeptId(c.departmentId ?? ''); setClSectionId(c.sectionId ?? '')
     setClSelected(c.tasks.map((t) => t.id)); setClAppearFrom(c.appearFromTime ?? ''); setClError('')
+    setClAllowedOutcomes((c.allowedOutcomes?.length ? c.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[])
+    setClRequireReason(!!c.requireOutcomeReason)
     // Auto-scope left panel filters to match this checklist
     if (c.venueId) setFilterVenue(c.venueId)
     if (c.departmentId) setFilterDept(c.departmentId)
@@ -238,28 +304,45 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   function addToChecklist(id: string) {
     setClSelected((prev) => (prev.includes(id) ? prev : [...prev, id]))
   }
+  function closeChecklist() {
+    setClEditing(null)
+    // Reset to a value that always exists in USAGE_OPTIONS, otherwise the
+    // Select keeps rendering a phantom "NOT IN THIS LIST".
+    setFilterUsage('nolist')
+  }
   async function saveChecklist() {
     if (!clName.trim() || !clVenueId) { setClError('NAME AND VENUE ARE REQUIRED'); return }
     if (clSelected.length === 0) { setClError('ADD AT LEAST ONE TASK'); return }
     setClSaving(true); setClError('')
-    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clAppearFrom || null, taskIds: clSelected }
+    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clAppearFrom || null, taskIds: clSelected, allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason }
     const url = clEditing && clEditing !== 'new' ? `/api/admin/checklists/${clEditing.id}` : '/api/admin/checklists'
     const method = clEditing && clEditing !== 'new' ? 'PUT' : 'POST'
     const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     setClSaving(false)
     if (!r.ok) { const d = await r.json(); setClError(d.error ?? 'SAVE FAILED'); return }
-    setClEditing(null); load()
+    closeChecklist(); load()
   }
   async function deleteChecklist() {
     if (!clEditing || clEditing === 'new') return
     if (!confirm(`DELETE CHECKLIST "${clEditing.name}"? (the tasks themselves are kept)`)) return
     await fetch(`/api/admin/checklists/${clEditing.id}`, { method: 'DELETE' })
-    setClEditing(null); load()
+    closeChecklist(); load()
+  }
+  async function clearProgress(id: string) {
+    if (!confirm('CLEAR THE STALE IN-PROGRESS (PARTIAL) STATE FOR THIS TASK?')) return
+    await fetch(`/api/admin/tasks/${id}/progress`, { method: 'DELETE' })
+    load()
+  }
+  async function toggleChecklistActivation(c: Checklist, active: boolean) {
+    setActivateError('')
+    const r = await fetch(`/api/admin/checklists/${c.id}/activate`, { method: active ? 'POST' : 'DELETE' })
+    if (!r.ok) { const d = await r.json().catch(() => ({})); setActivateError(d.error ?? 'FAILED'); return }
+    load()
   }
 
   // --- Derived ---
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
-  const selClass = (v: string) => v ? 'border-[#60A5FA]' : ''
+  const selClass = (v: string) => v ? 'border-info' : ''
   const filterDeptOptions = [{ value: '', label: 'ALL DEPARTMENTS' }, ...departments.filter((d) => !filterVenue || d.venueId === filterVenue).map((d) => ({ value: d.id, label: d.name }))]
   const formDeptOptions = [{ value: '', label: 'NO DEPARTMENT' }, ...departments.filter((d) => d.venueId === form.venueId).map((d) => ({ value: d.id, label: d.name }))]
   const formSectionOptions = [{ value: '', label: 'NO SECTION' }, ...sections.filter((s) => s.departmentId === form.departmentId).map((s) => ({ value: s.id, label: s.name }))]
@@ -296,7 +379,10 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (search.trim() && !t.title.toLowerCase().includes(search.trim().toLowerCase())) return false
     if (filterUsage === 'list' && !(t._count?.checklistLinks)) return false
     if (filterUsage === 'nolist' && (t._count?.checklistLinks ?? 0) > 0) return false
-    if (filterUsage === 'notinthis' && clEditing && clEditing !== 'new' && clEditing.tasks?.some((ct) => ct.id === t.id)) return false
+    // #19: filter against the LIVE selection, not the snapshot taken when the
+    // editor opened. A task dropped this session must leave the left list too;
+    // this also covers a brand-new list (`clEditing === 'new'`).
+    if (filterUsage === 'notinthis' && clSelected.includes(t.id)) return false
     if (filterUsage === 'training' && !hasTrainingUse(t)) return false
     return true
   })
@@ -314,6 +400,12 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (kinds.has('HOWTO') || kinds.has('FAQ')) out.push({ text: 'GUIDE', cls: 'text-grey-light' })
     return out
   }
+
+  // Time-gated lists the floor can't see yet — surfaced at the bottom of the
+  // checklists panel so an admin can force one open for today.
+  const nowHHmm = `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`
+  const today = new Date()
+  const gatedLists = checklists.filter((c) => isChecklistHidden(c.appearFromTime, c.activatedOn, today, nowHHmm))
 
   // Group tasks: Department → Section, with a per-department "general" bucket.
   const deptGroups: { key: string; name: string; colour: string | null; sections: { id: string; name: string; tasks: Task[] }[]; loose: Task[] }[] = []
@@ -335,6 +427,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     return (
       <div
         key={t.id}
+        data-testid={`available-task-${t.id}`}
         draggable
         onDragStart={(e) => { e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'copy' }}
         className="bg-grey-dark border border-grey-mid px-3 py-2.5 flex items-center gap-2 cursor-grab active:cursor-grabbing"
@@ -344,11 +437,29 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           <div className="font-mono text-sm font-semibold uppercase text-white truncate">{t.title}</div>
           {t.description && <p className="font-mono text-xs text-grey-light truncate">{t.description}</p>}
           <div className="flex flex-wrap gap-1.5 mt-0.5 items-center">
-            <span className="font-mono text-[10px] uppercase text-grey-light border border-grey-mid px-1 py-0.5">{describeSchedule(t)}</span>
-            {labels.map((l) => <span key={l.text} className={`font-mono text-[10px] uppercase ${l.cls}`}>{l.text}</span>)}
+            <span className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1 py-0.5">{describeSchedule(t)}</span>
+            {labels.map((l) => <span key={l.text} className={`font-mono text-xs uppercase ${l.cls}`}>{l.text}</span>)}
+            {(t.taskGuides ?? []).filter((g) => g.guide).map((g) => (
+              <button
+                key={g.guideId}
+                type="button"
+                onClick={() => requestGuide(g.guide!.id, g.guide!.title)}
+                className="font-mono text-xs uppercase text-info hover:text-white transition-colors max-w-[12rem] truncate"
+              >
+                📖 {g.guide!.title}
+              </button>
+            ))}
+            {t.progress && (
+              <span className="font-mono text-xs uppercase text-warning">
+                IN PROGRESS · {t.progress.staff.firstName} {t.progress.staff.lastName}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {t.progress && (
+            <button onClick={() => clearProgress(t.id)} className="font-mono text-xs uppercase text-warning hover:text-white transition-colors">CLEAR</button>
+          )}
           <button onClick={() => toggleActive(t)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">{t.isActive ? 'OFF' : 'ON'}</button>
           <button onClick={() => openEdit(t)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">EDIT</button>
           <button onClick={() => handleDelete(t.id)} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">DEL</button>
@@ -359,11 +470,14 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <h1 className="font-mono text-xl font-bold uppercase tracking-widest">TASKS &amp; CHECKLISTS</h1>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h1 className="font-mono text-xl font-bold uppercase tracking-widest">TASKS &amp; CHECKLISTS</h1>
+        <Button variant="ghost" size="sm" onClick={() => setPdfOpen(true)}>⬇ PDF</Button>
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" style={{ height: 'calc(100vh - 10rem)', overflow: 'hidden' }}>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         {/* LEFT — tasks grouped by department → section */}
-        <div className="space-y-4 overflow-y-auto pr-2">
+        <div className="space-y-4 pr-2">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <h2 className="font-mono text-sm uppercase tracking-widest text-grey-light">TASKS</h2>
             <Button onClick={openCreate} size="sm">+ NEW TASK</Button>
@@ -384,12 +498,12 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 <Select value={filterSection} onChange={(e) => setFilterSection(e.target.value)} options={filterSectionOptions} className={selClass(filterSection)} />
               </div>
               <div className="w-40">
-                <Select value={filterUsage} onChange={(e) => setFilterUsage(e.target.value)} options={USAGE_OPTIONS} className={selClass(filterUsage)} />
+                <Select data-testid="usage-filter" value={filterUsage} onChange={(e) => setFilterUsage(e.target.value)} options={USAGE_OPTIONS} className={selClass(filterUsage)} />
               </div>
             </div>
           </div>
 
-          {clEditing && <p className="font-mono text-[10px] uppercase text-accent">DRAG A TASK INTO THE CHECKLIST ON THE RIGHT →</p>}
+          {clEditing && <p className="font-mono text-xs uppercase text-accent">DRAG A TASK INTO THE CHECKLIST ON THE RIGHT →</p>}
 
           {loading ? (
             <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
@@ -405,13 +519,13 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                   </div>
                   {dg.sections.map((sg) => (
                     <div key={sg.id} className="space-y-1 pl-3 border-l border-grey-mid">
-                      <div className="font-mono text-[10px] uppercase tracking-wider text-accent">{sg.name}</div>
+                      <div className="font-mono text-xs uppercase tracking-wider text-accent">{sg.name}</div>
                       {sg.tasks.map(taskRow)}
                     </div>
                   ))}
                   {dg.loose.length > 0 && (
                     <div className="space-y-1 pl-3 border-l border-grey-mid">
-                      {dg.sections.length > 0 && <div className="font-mono text-[10px] uppercase tracking-wider text-grey-light">GENERAL (NO SECTION)</div>}
+                      {dg.sections.length > 0 && <div className="font-mono text-xs uppercase tracking-wider text-grey-light">GENERAL (NO SECTION)</div>}
                       {dg.loose.map(taskRow)}
                     </div>
                   )}
@@ -423,12 +537,12 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
 
         {/* RIGHT — checklists list OR inline editor (sticky so it follows long task lists) */}
         <div className="lg:border-l lg:border-grey-mid lg:pl-6">
-          <div className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
+          <div ref={checklistPanelRef} className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
           {clEditing ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="font-mono text-sm uppercase tracking-widest text-white">{clEditing === 'new' ? 'NEW CHECKLIST' : 'EDIT CHECKLIST'}</h2>
-                <button onClick={() => setClEditing(null)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">CLOSE</button>
+                <button onClick={closeChecklist} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">CLOSE</button>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -444,12 +558,20 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
               </div>
               <div>
                 <Input label="Appears from (time, optional)" type="time" value={clAppearFrom} onChange={(e) => setClAppearFrom(e.target.value)} />
-                <p className="font-mono text-[10px] uppercase text-grey-light mt-1">SHOWS ON THE FLOOR FROM THIS TIME &amp; STAYS UNTIL EVERY TASK IS DONE FOR THE DAY.</p>
+                <p className="font-mono text-xs uppercase text-grey-light mt-1">SHOWS ON THE FLOOR FROM THIS TIME &amp; STAYS UNTIL EVERY TASK IS SETTLED FOR THE DAY.</p>
               </div>
+
+              <OutcomeOptions
+                allowed={clAllowedOutcomes}
+                requireReason={clRequireReason}
+                onChange={(allowedOutcomes, requireOutcomeReason) => { setClAllowedOutcomes(allowedOutcomes); setClRequireReason(requireOutcomeReason) }}
+                inheritedLabel="APPLIES TO EVERY TASK IN THIS LIST UNLESS THE TASK OVERRIDES IT"
+              />
 
               <div className="space-y-1">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Tasks in this checklist (drag in from the left)</label>
                 <div
+                  data-testid="cl-dropzone"
                   onDragOver={(e) => { e.preventDefault(); setDropActive(true) }}
                   onDragLeave={() => setDropActive(false)}
                   onDrop={(e) => { e.preventDefault(); setDropActive(false); const id = e.dataTransfer.getData('text/plain'); if (id) addToChecklist(id) }}
@@ -495,7 +617,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
               {clError && <p className="font-mono text-xs text-danger">{clError}</p>}
               <div className="flex gap-2 pt-1">
                 <Button onClick={saveChecklist} loading={clSaving} size="sm">SAVE CHECKLIST</Button>
-                <Button variant="ghost" size="sm" onClick={() => setClEditing(null)}>CANCEL</Button>
+                <Button variant="ghost" size="sm" onClick={closeChecklist}>CANCEL</Button>
                 {clEditing !== 'new' && (
                   <button onClick={deleteChecklist} className="ml-auto font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">DELETE</button>
                 )}
@@ -507,7 +629,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 <h2 className="font-mono text-sm uppercase tracking-widest text-grey-light">CHECKLISTS</h2>
                 <Button onClick={openChecklistCreate} size="sm">+ NEW CHECKLIST</Button>
               </div>
-              <p className="font-mono text-[10px] uppercase text-grey-light">CHECKLISTS REFERENCE LIVE TASKS — EDIT A TASK ONCE AND EVERY LIST UPDATES.</p>
+              <p className="font-mono text-xs uppercase text-grey-light">CHECKLISTS REFERENCE LIVE TASKS — EDIT A TASK ONCE AND EVERY LIST UPDATES.</p>
               {checklists.length === 0 ? (
                 <p className="font-mono text-xs text-grey-light">NO CHECKLISTS YET — CREATE ONE AND DRAG TASKS IN.</p>
               ) : (
@@ -516,11 +638,12 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                     <div key={c.id} className="bg-grey-dark border border-grey-mid p-3 space-y-1">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono font-semibold text-sm uppercase text-white truncate">{c.name}</span>
-                        <button onClick={() => openChecklistEdit(c)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors flex-shrink-0">EDIT</button>
+                        <button aria-label={`EDIT CHECKLIST ${c.name}`} onClick={() => openChecklistEdit(c)} className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors flex-shrink-0">EDIT</button>
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
                         {c.section ? <Badge>{c.section.name}</Badge> : c.department ? <Badge>{c.department.name}</Badge> : <Badge>WHOLE VENUE</Badge>}
                         {c.appearFromTime && <Badge variant="warning">FROM {c.appearFromTime}</Badge>}
+                        {c.appearFromTime && isActivatedOn(c.activatedOn, today) && nowHHmm < c.appearFromTime && <Badge variant="success">ACTIVE TODAY</Badge>}
                         <span className="font-mono text-xs text-grey-light">{c.tasks.length} TASK{c.tasks.length !== 1 ? 'S' : ''}</span>
                       </div>
                       <ol className="font-mono text-xs text-grey-light list-decimal list-inside">
@@ -529,6 +652,38 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                       </ol>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {gatedLists.length > 0 && (
+                <div className="pt-2 space-y-2">
+                  <div className="font-mono text-xs uppercase tracking-widest text-grey-light">
+                    HIDDEN — NOT OPEN YET ({gatedLists.length})
+                  </div>
+                  <p className="font-mono text-xs uppercase text-grey-light">
+                    THESE LISTS HAVE A &ldquo;FROM&rdquo; TIME LATER TODAY. ACTIVATE ONE TO SHOW IT ON THE FLOOR NOW — IT RESETS TOMORROW.
+                  </p>
+                  {gatedLists.map((c) => {
+                    const active = isActivatedOn(c.activatedOn, today)
+                    return (
+                      <div key={c.id} className="bg-grey-dark border border-grey-mid p-3 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-mono font-semibold text-sm uppercase text-white truncate">{c.name}</div>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                            <Badge variant="warning">FROM {c.appearFromTime}</Badge>
+                            {c.section ? <Badge>{c.section.name}</Badge> : c.department ? <Badge>{c.department.name}</Badge> : <Badge>WHOLE VENUE</Badge>}
+                            {active && <Badge variant="success">ACTIVE TODAY</Badge>}
+                          </div>
+                        </div>
+                        {active ? (
+                          <button onClick={() => toggleChecklistActivation(c, false)} className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white transition-colors flex-shrink-0">DEACTIVATE</button>
+                        ) : (
+                          <button onClick={() => toggleChecklistActivation(c, true)} className="font-mono text-xs uppercase border border-success/40 px-2 py-1 text-success hover:bg-success hover:text-black transition-colors flex-shrink-0">ACTIVATE NOW</button>
+                        )}
+                      </div>
+                    )
+                  })}
+                  {activateError && <p className="font-mono text-xs text-danger">{activateError}</p>}
                 </div>
               )}
             </div>
@@ -555,7 +710,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
               options={guideOptions.map((g) => ({ value: g.id, label: g.title, description: g.description ?? undefined }))}
               selected={form.competencyGuideIds}
               onChange={(ids) => setForm({ ...form, competencyGuideIds: ids })}
-              onPreview={(id) => window.open(`/admin/guides?guide=${id}`, '_blank')}
+              onPreview={(id) => requestGuide(id, guideOptions.find((g) => g.id === id)?.title ?? null)}
               placeholder="Search guides..."
             />
           )}
@@ -564,6 +719,15 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
             <Select label="Completion Type" value={form.completionType} onChange={(e) => setForm({ ...form, completionType: e.target.value })} options={COMPLETION_OPTIONS} />
             <Select label="Schedule" value={form.scheduleType} onChange={(e) => setForm({ ...form, scheduleType: e.target.value, scheduleDays: [] })} options={SCHEDULE_OPTIONS} />
           </div>
+
+          <OutcomeOptions
+            allowed={form.allowedOutcomes}
+            requireReason={form.requireOutcomeReason}
+            onChange={(allowedOutcomes, requireOutcomeReason) => setForm({ ...form, allowedOutcomes, requireOutcomeReason })}
+            canOverride
+            override={form.overrideOutcomes}
+            onOverrideChange={(overrideOutcomes) => setForm({ ...form, overrideOutcomes })}
+          />
 
           {form.scheduleType === 'MONTHLY' && (
             <div className="space-y-3">
@@ -616,6 +780,31 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           </div>
         </div>
       </Modal>
+
+      <Modal isOpen={pdfOpen} onClose={() => setPdfOpen(false)} title="DOWNLOAD CHECKLISTS (PDF)">
+        <div className="space-y-3">
+          <p className="font-mono text-xs uppercase text-grey-light">PICK A CHECKLIST TO DOWNLOAD AS A PRINTABLE CHECKBOX PDF.</p>
+          {checklists.length === 0 ? (
+            <p className="font-mono text-xs text-grey-light">NO CHECKLISTS YET.</p>
+          ) : (
+            <div className="space-y-2">
+              {checklists.map((c) => (
+                <div key={c.id} className="bg-black border border-grey-mid p-3 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-mono font-semibold text-sm uppercase text-white truncate">{c.name}</div>
+                    <div className="font-mono text-xs text-grey-light mt-0.5">
+                      {c.section ? c.section.name : c.department ? c.department.name : 'WHOLE VENUE'} · {c.tasks.length} TASK{c.tasks.length !== 1 ? 'S' : ''}
+                    </div>
+                  </div>
+                  <Button size="sm" onClick={() => window.open(`/api/admin/checklists/${c.id}/pdf`, '_blank')}>DOWNLOAD</Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {guidePopupNodes}
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { monthDays } from '@/lib/calendar'
+import { guardAccess } from '@/lib/permissions'
 
 function flattenAllocations(period: {
   categories: { id: string; name: string; allocations: { budgetDayId: string; amount: number; note: string | null; day: { date: Date } }[] }[]
@@ -32,6 +33,8 @@ function flattenAllocations(period: {
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'performance.budget.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const now = new Date()
@@ -95,6 +98,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'performance.budget.edit')
+  if (denied) return denied
 
   const body = await req.json()
   const { venueId, year, month, totalBudget } = body as {

@@ -1,75 +1,115 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { signOut } from 'next-auth/react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { VenueSwitcher } from '@/components/admin/VenueSwitcher'
+import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import version from '@/version.json'
 
 interface NavItem { href: string; label: string; exact?: boolean }
 interface NavGroup { label: string; items: NavItem[]; href?: string }
 
+// Nav item → permission area. Items without a mapping are always visible.
+const NAV_ITEM_AREAS: Record<string, string> = {
+  '/admin/calendar': 'calendar',
+  '/w/kitchen': 'orders',
+  '/admin/ops?tab=menu': 'ops',
+  '/admin/ops?tab=bookings': 'ops',
+  '/admin/ops?tab=orders': 'ops',
+  '/admin/ops?tab=customers': 'ops',
+  '/admin/ops?tab=inventory': 'ops',
+  '/admin/events?tab=events': 'events',
+  '/admin/events?tab=templates': 'events',
+  '/admin/events?tab=requests': 'events',
+  '/admin/team': 'team',
+  '/admin/execution': 'execution',
+  '/admin/training': 'training',
+  '/admin/notices': 'notices',
+  '/admin/compliance': 'compliance',
+  '/admin/reports': 'performance',
+  '/admin/budget': 'performance',
+  '/admin/gift-cards': 'performance',
+  '/admin/tips': 'performance',
+  '/admin/settings?tab=floorplans': 'floorplans',
+}
+
 const NAV_GROUPS: NavGroup[] = [
-  { label: 'Overview', href: '/admin', items: [
-    { href: '/admin', label: 'Dashboard', exact: true },
-    { href: '/admin/structure', label: 'Structure' },
+  { label: 'Dashboard', href: '/admin', items: [
+    { href: '/admin', label: 'Overview', exact: true },
     { href: '/admin/calendar', label: 'Calendar' },
-  ] },
-  { label: 'Venue', href: '/admin/venues', items: [
-    { href: '/admin/staff', label: 'Staff' },
-    { href: '/admin/floorplan', label: 'Floor Plans' },
-    { href: '/admin/suppliers', label: 'Suppliers' },
-    { href: '/admin/uoms', label: 'Units of Measure' },
-  ] },
-  { label: 'Operations', items: [
-    { href: '/admin/stocktake', label: 'Stocktake' },
-    { href: '/admin/inventory', label: 'Inventory' },
-    { href: '/admin/recipes', label: 'Recipes & Menu Items' },
-    { href: '/admin/orders', label: 'Orders' },
-    { href: '/admin/bookings', label: 'Bookings' },
-    { href: '/admin/customers', label: 'Customers' },
-    { href: '/admin/sync', label: 'Woo Sync' },
     { href: '/w/kitchen', label: 'Kitchen' },
   ] },
-  { label: 'Work', items: [
-    { href: '/admin/guides', label: 'Playbook' },
-    { href: '/admin/tasks', label: 'Tasks & Checklists' },
-    { href: '/admin/training', label: 'Training & SOPs' },
-    { href: '/admin/qrcodes', label: 'QR Codes' },
+  // Every group header deep-links to its first subpage (incl. the default
+  // sub-tab where one exists); the ▸/▾ button beside it still collapses.
+  { label: 'Ops hub', href: '/admin/ops?tab=menu&sub=recipes', items: [
+    { href: '/admin/ops?tab=menu', label: 'Menu & Services' },
+    { href: '/admin/ops?tab=bookings', label: 'Bookings' },
+    { href: '/admin/ops?tab=orders', label: 'Orders' },
+    { href: '/admin/ops?tab=customers', label: 'Customers' },
+    { href: '/admin/ops?tab=inventory', label: 'Inventory & Stocktake' },
   ] },
-  { label: 'Daily ops', items: [
+  { label: 'Events', href: '/admin/events?tab=events', items: [
+    { href: '/admin/events?tab=events', label: 'BEO Planner' },
+    { href: '/admin/events?tab=templates', label: 'Event Templates' },
+    { href: '/admin/events?tab=requests', label: 'Requests' },
+  ] },
+  { label: 'Team & execution', href: '/admin/team?tab=staff', items: [
+    { href: '/admin/team', label: 'Roster & Pay' },
+    { href: '/admin/execution', label: 'Daily Tasks' },
+    { href: '/admin/training', label: 'Training' },
     { href: '/admin/notices', label: 'Notices' },
-    { href: '/admin/review', label: 'Review' },
-    { href: '/admin/followups', label: 'Follow-ups' },
   ] },
-  { label: 'Finance', items: [
-    { href: '/admin/budget', label: 'Budget' },
-    { href: '/admin/payroll', label: 'Payroll' },
+  { label: 'Compliance', href: '/admin/compliance?tab=tasks', items: [
+    { href: '/admin/compliance', label: 'Food Safety' },
+  ] },
+  { label: 'Performance', href: '/admin/reports', items: [
     { href: '/admin/reports', label: 'Reports' },
+    { href: '/admin/budget', label: 'Budget' },
+    { href: '/admin/tips', label: 'Tips' },
     { href: '/admin/gift-cards', label: 'Gift Cards' },
+  ] },
+  { label: 'Setup & config', href: '/admin/settings?tab=general', items: [
+    { href: '/admin/settings?tab=floorplans', label: 'Floor Plans' },
+    { href: '/admin/settings?tab=general', label: 'Settings' },
   ] },
 ]
 
-const SETTINGS_ITEM: NavItem = { href: '/admin/settings', label: 'Settings' }
+function hrefBase(href: string) {
+  const i = href.indexOf('?')
+  return i === -1 ? href : href.slice(0, i)
+}
 
-function isItemActive(item: NavItem, pathname: string) {
+// Query-carrying hrefs (the five ops areas) match against pathname + search
+// so only the area whose ?tab= is current lights up.
+function isItemActive(item: NavItem, pathname: string, location: string) {
+  if (item.href.includes('?')) return location.startsWith(item.href)
   return item.exact ? pathname === item.href : pathname.startsWith(item.href)
 }
 
-function groupForPath(pathname: string): string | null {
+// Group headers deep-link to their first subpage (?tab=…): active when the
+// current location falls under that link or the bare path is visited (e.g.
+// /admin/ops typed without params still opens the Ops hub group). Plain-href
+// groups keep exact-path matching so /admin never claims /admin/venues.
+function isGroupActive(href: string, pathname: string, location: string) {
+  if (href.includes('?')) return location.startsWith(href) || pathname === hrefBase(href)
+  return pathname === href
+}
+
+function groupForPath(pathname: string, location: string): string | null {
   // Find the last (most specific) matching group — avoids /admin
   // matching both Overview and Venue when path is /admin/venues.
   const match = [...NAV_GROUPS].reverse().find((grp) =>
-    grp.items.some((it) => isItemActive(it, pathname)) ||
-    (grp.href && pathname.startsWith(grp.href))
+    grp.items.some((it) => isItemActive(it, pathname, location)) ||
+    (grp.href && isGroupActive(grp.href, pathname, location))
   )
   return match?.label ?? null
 }
 
-function ItemLink({ item, pathname, onNavigate }: { item: NavItem; pathname: string; onNavigate?: () => void }) {
-  const active = isItemActive(item, pathname)
+function ItemLink({ item, pathname, location, onNavigate }: { item: NavItem; pathname: string; location: string; onNavigate?: () => void }) {
+  const active = isItemActive(item, pathname, location)
   return (
     <Link
       href={item.href}
@@ -87,25 +127,33 @@ function ItemLink({ item, pathname, onNavigate }: { item: NavItem; pathname: str
 }
 
 function NavGroups({
+  groups,
   pathname,
+  location,
   openGroups,
   toggleGroup,
   onNavigate,
+  expandOnly,
 }: {
+  groups: NavGroup[]
   pathname: string
+  location: string
   openGroups: Set<string>
   toggleGroup: (label: string) => void
   onNavigate?: () => void
+  /** Mobile drawer: tapping a group header only expands it — navigating (and
+   *  closing the drawer) is reserved for tapping a sub-item. */
+  expandOnly?: boolean
 }) {
   return (
     <nav className="flex-1 py-2 overflow-y-auto">
-      {NAV_GROUPS.map((group) => {
+      {groups.map((group) => {
         const open = openGroups.has(group.label)
-        const hasActive = group.items.some((it) => isItemActive(it, pathname))
-          || (group.href ? pathname === group.href : false)
+        const hasActive = group.items.some((it) => isItemActive(it, pathname, location))
+          || (group.href ? isGroupActive(group.href, pathname, location) : false)
         return (
           <div key={group.label} className="mb-1">
-            {group.href ? (
+            {group.href && !expandOnly ? (
               <div className="flex items-center">
                 <Link
                   href={group.href}
@@ -137,14 +185,11 @@ function NavGroups({
               </button>
             )}
             {open && group.items.map((item) => (
-              <ItemLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
+              <ItemLink key={item.href} item={item} pathname={pathname} location={location} onNavigate={onNavigate} />
             ))}
           </div>
         )
       })}
-      <div className="mt-1 border-t border-grey-mid pt-1">
-        <ItemLink item={SETTINGS_ITEM} pathname={pathname} onNavigate={onNavigate} />
-      </div>
     </nav>
   )
 }
@@ -161,34 +206,74 @@ function Brand({ appName, role, venueId, defaultVenueId, availableVenueIds }: { 
   )
 }
 
+// Signing out of the admin panel also ends the worker session (and vice versa
+// from the worker UI), per the "log out of one = logged out of both" rule.
+async function signOutBoth() {
+  try { await fetch('/api/worker/logout', { method: 'POST' }) } catch { /* cookie clear is best-effort */ }
+  await signOut({ callbackUrl: '/' })
+}
+
+// Admin/manager → worker view: mints a worker session for the signed-in staff
+// member (no PIN needed) and lands on the worker dashboard.
+async function switchToWorkerView() {
+  const r = await fetch('/api/worker/switch', { method: 'POST' })
+  if (r.ok) window.location.href = '/w/dashboard'
+}
+
 function SignOutButton() {
   return (
-    <div className="p-4 border-t border-grey-mid">
+    <div className="p-4 border-t border-grey-mid space-y-3">
       <button
-        onClick={() => signOut({ callbackUrl: '/' })}
-        className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors tracking-wider"
+        onClick={switchToWorkerView}
+        className="w-full font-mono text-xs uppercase border border-grey-mid px-2 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors tracking-wider"
       >
-        SIGN OUT
+        WORKER VIEW →
       </button>
+      <div className="flex items-center justify-between gap-2">
+        <ThemeToggle />
+        <button
+          onClick={signOutBoth}
+          className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors tracking-wider"
+        >
+          SIGN OUT
+        </button>
+      </div>
     </div>
   )
 }
 
-export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds }: { role: string; venueId: string; defaultVenueId: string | null | undefined; availableVenueIds: string[] }) {
+export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds, grantedAreas }: { role: string; venueId: string; defaultVenueId: string | null | undefined; availableVenueIds: string[]; grantedAreas?: string[] }) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [open, setOpen] = useState(false)
+  // Query-carrying hrefs (the ops areas) are matched against pathname+search.
+  const location = searchParams.toString() ? `${pathname}?${searchParams.toString()}` : pathname
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
-    const active = groupForPath(pathname)
+    const active = groupForPath(pathname, location)
     return new Set(active ? [active] : [NAV_GROUPS[0].label])
   })
   const appName = process.env.NEXT_PUBLIC_APP_NAME ?? 'HOSPO OPS'
 
+  // Restricted managers only see nav items whose area is granted.
+  const visibleGroups = useMemo(
+    () =>
+      grantedAreas
+        ? NAV_GROUPS.map((group) => ({
+            ...group,
+            items: group.items.filter(
+              (item) => !NAV_ITEM_AREAS[item.href] || grantedAreas.includes(NAV_ITEM_AREAS[item.href]),
+            ),
+          })).filter((group) => group.items.length > 0)
+        : NAV_GROUPS,
+    [grantedAreas],
+  )
+
   // Close the mobile drawer on route change, and ensure the active group is open.
   useEffect(() => {
     setOpen(false)
-    const active = groupForPath(pathname)
+    const active = groupForPath(pathname, location)
     if (active) setOpenGroups(new Set([active]))
-  }, [pathname])
+  }, [pathname, location])
 
   function toggleGroup(label: string) {
     setOpenGroups((prev) => {
@@ -202,7 +287,7 @@ export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds }: {
       {/* Desktop sidebar */}
       <aside className="hidden md:flex w-56 sticky top-0 h-screen bg-grey-dark border-r border-grey-mid flex-col">
         <Brand appName={appName} role={role} venueId={venueId} defaultVenueId={defaultVenueId} availableVenueIds={availableVenueIds} />
-        <NavGroups pathname={pathname} openGroups={openGroups} toggleGroup={toggleGroup} />
+        <NavGroups groups={visibleGroups} pathname={pathname} location={location} openGroups={openGroups} toggleGroup={toggleGroup} />
         <SignOutButton />
       </aside>
 
@@ -216,18 +301,21 @@ export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds }: {
           </svg>
         </button>
         <div className="font-mono font-bold text-sm uppercase tracking-widest text-white truncate">{appName}</div>
-        <button onClick={() => signOut({ callbackUrl: '/' })} className="font-mono text-[10px] uppercase tracking-wider text-grey-light hover:text-danger transition-colors px-1">
-          EXIT
-        </button>
+        <div className="flex items-center gap-3">
+          <ThemeToggle />
+          <button onClick={signOutBoth} className="font-mono text-xs uppercase tracking-wider text-grey-light hover:text-danger transition-colors px-1">
+            EXIT
+          </button>
+        </div>
       </header>
 
       {/* Mobile drawer */}
       {open && (
         <div className="md:hidden fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/70" onClick={() => setOpen(false)} aria-hidden />
+          <div className="absolute inset-0 bg-scrim" onClick={() => setOpen(false)} aria-hidden />
           <aside className="absolute left-0 top-0 h-full w-64 bg-grey-dark border-r border-grey-mid flex flex-col shadow-2xl">
             <Brand appName={appName} role={role} venueId={venueId} defaultVenueId={defaultVenueId} availableVenueIds={availableVenueIds} />
-            <NavGroups pathname={pathname} openGroups={openGroups} toggleGroup={toggleGroup} onNavigate={() => setOpen(false)} />
+            <NavGroups groups={visibleGroups} pathname={pathname} location={location} openGroups={openGroups} toggleGroup={toggleGroup} onNavigate={() => setOpen(false)} expandOnly />
             <SignOutButton />
           </aside>
         </div>

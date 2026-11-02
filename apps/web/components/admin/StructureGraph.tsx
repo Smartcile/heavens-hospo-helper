@@ -30,16 +30,20 @@ const TYPE_META: Record<NodeType, { label: string; colour: string }> = {
   venue: { label: 'VENUE', colour: '#FFFFFF' },
   department: { label: 'DEPARTMENT', colour: '#FACC15' },
   section: { label: 'SECTION', colour: '#60A5FA' },
+  position: { label: 'POSITION', colour: '#F472B6' },
   staff: { label: 'STAFF', colour: '#C084FC' },
+  pathway: { label: 'PATHWAY', colour: '#22D3EE' },
   checklist: { label: 'LIST', colour: '#4ADE80' },
   task: { label: 'TASK', colour: '#E8E8E8' },
-  training: { label: 'TRAINING/SOP', colour: '#F97316' },
+  guide: { label: 'GUIDE', colour: '#F97316' },
 }
 
 const EDGE_META: Record<string, { label: string; colour: string; dashed?: boolean }> = {
   contains: { label: 'CONTAINS', colour: '#3A3A3A' },
   member: { label: 'MEMBER OF', colour: '#3A3A3A' },
   works: { label: 'WORKS SECTION', colour: '#6B4A8A', dashed: true },
+  holds: { label: 'HOLDS ROLE', colour: '#F472B6', dashed: true },
+  step: { label: 'PATHWAY STEP', colour: '#22D3EE' },
   scope: { label: 'SCOPED TO', colour: '#2E2E2E', dashed: true },
   assigned: { label: 'ASSIGNED', colour: '#C084FC' },
   'list-task': { label: 'LIST → TASK', colour: '#4ADE80' },
@@ -65,11 +69,11 @@ function EntityNode({ data, selected }: NodeProps) {
       }}
     >
       <Handle type="target" position={Position.Left} style={{ background: '#2E2E2E', width: 6, height: 6 }} />
-      <div className="font-mono text-[9px] uppercase tracking-widest" style={{ color: meta.colour }}>
+      <div className="font-mono text-2xs uppercase tracking-widest" style={{ color: meta.colour }}>
         {meta.label}
       </div>
-      <div className="font-mono text-[11px] text-white leading-tight truncate">{d.node.label}</div>
-      {d.node.sub && <div className="font-mono text-[9px] uppercase text-grey-light truncate">{d.node.sub}</div>}
+      <div className="font-mono text-2xs text-white leading-tight truncate">{d.node.label}</div>
+      {d.node.sub && <div className="font-mono text-2xs uppercase text-grey-light truncate">{d.node.sub}</div>}
       <Handle type="source" position={Position.Right} style={{ background: '#2E2E2E', width: 6, height: 6 }} />
     </div>
   )
@@ -170,7 +174,7 @@ export function StructureGraph() {
               <button
                 key={t}
                 onClick={() => toggleType(t)}
-                className="font-mono text-[10px] uppercase tracking-wider border px-1.5 py-0.5 transition-colors"
+                className="font-mono text-2xs uppercase tracking-wider border px-1.5 py-0.5 transition-colors"
                 style={{
                   borderColor: on ? TYPE_META[t].colour : '#2E2E2E',
                   color: on ? TYPE_META[t].colour : '#6B6B6B',
@@ -185,14 +189,14 @@ export function StructureGraph() {
         {focusId && (
           <button
             onClick={() => setFocusId(null)}
-            className="font-mono text-[10px] uppercase tracking-wider border border-grey-mid px-2 py-0.5 text-grey-light hover:text-white hover:border-white transition-colors"
+            className="font-mono text-2xs uppercase tracking-wider border border-grey-mid px-2 py-0.5 text-grey-light hover:text-white hover:border-white transition-colors"
           >
             CLEAR FOCUS ✕
           </button>
         )}
       </div>
 
-      <p className="font-mono text-[10px] text-grey-light uppercase">
+      <p className="font-mono text-2xs text-grey-light uppercase">
         CLICK A NODE TO TRACE ITS LINKS · DRAG TO REARRANGE · SCROLL TO ZOOM
       </p>
 
@@ -230,7 +234,7 @@ export function StructureGraph() {
       {/* Link legend */}
       <div className="flex items-center gap-x-4 gap-y-1 flex-wrap">
         {Object.entries(EDGE_META).map(([kind, meta]) => (
-          <span key={kind} className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-grey-light">
+          <span key={kind} className="flex items-center gap-1.5 font-mono text-2xs uppercase tracking-wider text-grey-light">
             <span
               className="inline-block w-4"
               style={{ borderTop: `2px ${meta.dashed ? 'dashed' : 'solid'} ${meta.colour}` }}

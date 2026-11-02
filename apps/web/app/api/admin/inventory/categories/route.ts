@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
 
 const BUILT_IN: { name: string; tab: string | null; showDeepFields: boolean; showEquipmentFields: boolean }[] = [
   // FOOD
@@ -34,6 +35,8 @@ const BUILT_IN_NAMES = BUILT_IN.map((b) => b.name)
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.inventory.view')
+  if (denied) return denied
 
   // Auto-seed any missing built-in categories
   const current = await prisma.inventoryCategory.findMany({ where: { name: { in: BUILT_IN_NAMES }, deletedAt: null } })
@@ -45,11 +48,10 @@ export async function GET(req: NextRequest) {
   }
 
   const where: any = { deletedAt: null }
-  if (session.user.role === 'ADMIN') {
-    where.OR = [{ venueId: null, isBuiltIn: true }, { venueId: session.user.venueId }]
-  } else {
-    where.OR = [{ venueId: null, isBuiltIn: true }, { venueId: session.user.venueId }]
-  }
+  const venueId = session.user.role === 'MANAGER'
+    ? session.user.venueId
+    : (req.nextUrl.searchParams.get('venueId') || session.user.venueId)
+  where.OR = [{ venueId: null, isBuiltIn: true }, { venueId }]
 
   const categories = await prisma.inventoryCategory.findMany({
     where,
@@ -61,9 +63,13 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'ops.inventory.edit')
+  if (denied) return denied
 
-  const { name, tab, showDeepFields, showEquipmentFields } = await req.json()
+  const { name, tab, showDeepFields, showEquipmentFields, venueId: bodyVenueId } = await req.json()
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
+
+  const venueId = session.user.role === 'MANAGER' ? session.user.venueId : (bodyVenueId || session.user.venueId)
 
   const upper = name.toUpperCase().trim()
   if (BUILT_IN_NAMES.includes(upper)) {
@@ -71,7 +77,7 @@ export async function POST(req: NextRequest) {
   }
 
   const existing = await prisma.inventoryCategory.findFirst({
-    where: { venueId: session.user.venueId, name: upper, deletedAt: null },
+    where: { venueId, name: upper, deletedAt: null },
   })
   if (existing) {
     return NextResponse.json({ error: 'CATEGORY ALREADY EXISTS' }, { status: 409 })
@@ -79,7 +85,7 @@ export async function POST(req: NextRequest) {
 
   const cat = await prisma.inventoryCategory.create({
     data: {
-      venueId: session.user.venueId,
+      venueId,
       name: upper,
       tab: tab || null,
       showDeepFields: !!showDeepFields,

@@ -4,11 +4,28 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { monthDays, formatDateKey, dateKeysBetween } from '@/lib/calendar'
 import { isTaskDueOnDate } from '@/lib/scheduling'
+import { guardAccess } from '@/lib/permissions'
 
 interface DayData {
   shifts: { id: string; staffId: string; staffName: string; departmentName: string | null; startTime: string; endTime: string }[]
   timeOff: { id: string; staffId: string; staffName: string; status: string }[]
-  events: { id: string; title: string; time: string | null; allDay: boolean; location: string | null; source: string }[]
+  events: {
+    id: string
+    title: string
+    description: string | null
+    time: string | null
+    allDay: boolean
+    location: string | null
+    source: string
+    areaId: string | null
+    areaName: string | null
+    areaColour: string | null
+    pax: number | null
+    pdfPath: string | null
+    pdfUrl: string | null
+    startsAt: string
+    endsAt: string | null
+  }[]
   dutiesRequired: boolean
 }
 
@@ -19,6 +36,8 @@ function utcTime(d: Date): string {
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'calendar.calendar.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const now = new Date()
@@ -39,12 +58,12 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { startTime: 'asc' },
     }),
-    prisma.timeOffRequest.findMany({
+    prisma.staffAvailability.findMany({
       where: {
         deletedAt: null,
+        timeOff: true,
         status: { in: ['APPROVED', 'PENDING'] },
-        startDate: { lte: last },
-        endDate: { gte: first },
+        date: { gte: first, lte: last },
         ...(venueScope ? { venueId: venueScope } : {}),
       },
       include: { staff: { select: { firstName: true, lastName: true } } },
@@ -60,6 +79,10 @@ export async function GET(req: NextRequest) {
         ...(venueScope ? { venueId: venueScope } : {}),
       },
       orderBy: { startsAt: 'asc' },
+      include: {
+        area: { select: { id: true, name: true, colour: true } },
+        feed: { select: { area: { select: { id: true, name: true, colour: true } } } },
+      },
     }),
   ])
 
@@ -87,9 +110,14 @@ export async function GET(req: NextRequest) {
   }
 
   for (const t of timeOff) {
-    const name = `${t.staff.firstName} ${t.staff.lastName}`
-    for (const key of dateKeysBetween(t.startDate, t.endDate)) {
-      if (dayMap[key]) dayMap[key].timeOff.push({ id: t.id, staffId: t.staffId, staffName: name, status: t.status })
+    const key = formatDateKey(t.date)
+    if (dayMap[key]) {
+      dayMap[key].timeOff.push({
+        id: t.id,
+        staffId: t.staffId,
+        staffName: `${t.staff.firstName} ${t.staff.lastName}`,
+        status: t.status,
+      })
     }
   }
 
@@ -98,34 +126,34 @@ export async function GET(req: NextRequest) {
     let rangeEnd = ev.endsAt ?? ev.startsAt
     if (ev.allDay && ev.endsAt) rangeEnd = new Date(ev.endsAt.getTime() - 86400000)
     if (rangeEnd.getTime() < ev.startsAt.getTime()) rangeEnd = ev.startsAt
+    const area = ev.area ?? ev.feed?.area ?? null
     const entry = {
       id: ev.id,
       title: ev.title,
+      description: ev.description,
       time: ev.allDay ? null : utcTime(ev.startsAt),
       allDay: ev.allDay,
       location: ev.location,
       source: ev.source,
+      areaId: area?.id ?? null,
+      areaName: area?.name ?? null,
+      areaColour: area?.colour ?? null,
+      pax: ev.pax,
+      pdfPath: ev.pdfPath,
+      pdfUrl: ev.pdfUrl,
+      startsAt: ev.startsAt.toISOString(),
+      endsAt: ev.endsAt ? ev.endsAt.toISOString() : null,
     }
     for (const key of dateKeysBetween(ev.startsAt, rangeEnd)) {
       if (dayMap[key]) dayMap[key].events.push(entry)
     }
   }
 
-  const pending = timeOff
-    .filter((t) => t.status === 'PENDING')
-    .map((t) => ({
-      id: t.id,
-      staffName: `${t.staff.firstName} ${t.staff.lastName}`,
-      startDate: t.startDate,
-      endDate: t.endDate,
-      reason: t.reason,
-    }))
-    // de-dup (pending appears once per request, not per day)
-    .filter((v, i, arr) => arr.findIndex((x) => x.id === v.id) === i)
+  const pendingCount = timeOff.filter((t) => t.status === 'PENDING').length
 
   const lastSyncedAt = venueScope
     ? (await prisma.venue.findUnique({ where: { id: venueScope }, select: { lastExternalSyncAt: true } }))?.lastExternalSyncAt ?? null
     : null
 
-  return NextResponse.json({ year, month, days: dayMap, pending, lastSyncedAt })
+  return NextResponse.json({ year, month, days: dayMap, pendingCount, lastSyncedAt })
 }

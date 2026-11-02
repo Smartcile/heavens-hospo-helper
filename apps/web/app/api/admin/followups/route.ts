@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { generateVenueFollowUps } from '@/lib/followups'
+import { guardAccess } from '@/lib/permissions'
 
 // GET /api/admin/followups?generate=1
 // Lists OPEN follow-ups. When generate=1, first runs the MISSED-task scan for
@@ -10,6 +11,8 @@ import { generateVenueFollowUps } from '@/lib/followups'
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.followups.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const generate = searchParams.get('generate') === '1'
@@ -31,7 +34,8 @@ export async function GET(req: NextRequest) {
     include: {
       staff: { select: { firstName: true, lastName: true } },
       task: { select: { title: true } },
-      module: { select: { title: true } },
+      guide: { select: { title: true } },
+      module: { select: { title: true } }, // legacy rows raised before the guide rewire
       venue: { select: { name: true } },
     },
     orderBy: { createdAt: 'desc' },
@@ -47,8 +51,8 @@ export async function GET(req: NextRequest) {
       staffName: `${f.staff.firstName} ${f.staff.lastName}`,
       staffId: f.staffId,
       taskTitle: f.task?.title ?? null,
-      moduleId: f.moduleId,
-      moduleTitle: f.module?.title ?? null,
+      guideId: f.guideId ?? f.moduleId,
+      guideTitle: f.guide?.title ?? f.module?.title ?? null,
       venueName: f.venue.name,
       createdAt: f.createdAt,
     }))

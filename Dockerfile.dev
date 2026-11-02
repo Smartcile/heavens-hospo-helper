@@ -1,0 +1,23 @@
+# Dev image — dependencies baked in, source bind-mounted at runtime so `next dev`
+# hot-reloads every edit. Never used in production (that's apps/web/Dockerfile).
+FROM node:22-alpine
+
+RUN apk add --no-cache libc6-compat openssl ffmpeg
+
+WORKDIR /app
+
+# Install dependencies first — cached until a package.json changes.
+COPY package.json package-lock.json ./
+COPY packages/db/package.json packages/db/
+COPY packages/types/package.json packages/types/
+COPY packages/config/package.json packages/config/
+COPY apps/web/package.json apps/web/
+RUN npm install --legacy-peer-deps
+
+# Source is bind-mounted over this at run time; the copy is only so the image
+# is runnable stand-alone (and to warm the Prisma client).
+COPY . .
+RUN cd packages/db && npx prisma generate
+
+EXPOSE 3000
+CMD ["sh", "-c", "cd /app/packages/db && npx prisma generate && npx prisma db push --accept-data-loss && cd /app/apps/web && exec npx next dev -H 0.0.0.0 -p 3000"]

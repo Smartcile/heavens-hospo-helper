@@ -1,11 +1,5 @@
-import { UomsClient } from './UomsClient'
+import { hubRedirect } from '@/lib/ops-redirect'
 
-export const dynamic = 'force-dynamic'
-
-export default function UomsPage() {
-  return (
-    <div className="min-h-screen bg-black p-4 md:p-6">
-      <UomsClient />
-    </div>
-  )
+export default function UomsPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
+  hubRedirect('/admin/settings', 'uoms', null, searchParams)
 }

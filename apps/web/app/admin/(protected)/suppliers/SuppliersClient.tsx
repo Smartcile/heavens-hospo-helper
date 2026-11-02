@@ -85,7 +85,7 @@ export function SuppliersClient() {
                 <button key={s.id} onClick={() => { setIsCreating(false); setSelectedId(s.id) }}
                   className={`w-full text-left px-2 py-1.5 font-mono text-xs uppercase border ${selectedId === s.id && !isCreating ? 'border-white text-white' : 'border-transparent text-grey-light hover:border-grey-mid hover:text-white'}`}>
                   <span className="block truncate">{s.name}</span>
-                  {s.contact && <span className="block text-[10px] text-grey-light normal-case">{s.contact}</span>}
+                  {s.contact && <span className="block text-xs text-grey-light normal-case">{s.contact}</span>}
                 </button>
               ))}
               {suppliers.length === 0 && <p className="font-mono text-xs text-grey-light px-2 py-1">No suppliers yet.</p>}

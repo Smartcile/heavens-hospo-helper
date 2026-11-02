@@ -1,14 +1,21 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
 import { Combobox } from '@/components/ui/Combobox'
 import { AllergenPicker } from '@/components/ui/AllergenPicker'
+import { Panel } from '@/components/ui/Panel'
 import { ALLERGENS } from '@/lib/allergens'
-import { TableProfileForm } from '@/components/admin/TableProfileForm'
+import { cupToDensity, findKnownIngredient } from '@/lib/unit-convert'
+import { buildDensityPrompt, parseDensityFromAnswer } from '@/lib/llm-prompt'
+import { FurnitureForm } from '@/components/admin/FurnitureForm'
+import { MultiImagePicker } from '@/components/ui/MultiImagePicker'
+import { inventoryItemUsageKey } from '@/lib/image-annotations'
+import { getActiveVenueId } from '@/lib/active-venue'
+import type { FurnitureView } from '@hospo-ops/types'
 
 interface Category { id: string; name: string; isBuiltIn: boolean; venueId: string | null; tab: string | null; showDeepFields: boolean; showEquipmentFields: boolean }
 interface Item {
@@ -17,13 +24,18 @@ interface Item {
   elementShape?: string | null; defaultColour?: string | null; defaultChairCount?: number
   countingUnitId?: string | null; orderingUnitId?: string | null; yieldPercentage?: number | null; costPrice?: number | null; expiryDate?: string | null; fallbackCategoryId?: string | null; allergyInfo?: string | null
   shelfLifeDays?: number | null; canFreeze?: boolean; freezerShelfLifeDays?: number | null
+  densityGramsPerMl?: number | null; weightPerUnitGrams?: number | null
   // Equipment / tool tracking
   imageUrls?: string[] | null; storageSectionId?: string | null; storageNotes?: string | null
+  storageLocations?: { sectionId: string; qty: number | null; notes: string | null; section?: { id: string; name: string } | null }[]
+  menuLinks?: { menuItemId: string; menuItem: { id: string; name: string } }[]
+  serviceSuppliers?: { supplierId: string; supplier: { id: string; name: string } }[]
   serialNumber?: string | null; purchaseDate?: string | null; warrantyExpiry?: string | null
   serviceIntervalDays?: number | null; lastServicedAt?: string | null; nextServiceAt?: string | null
   maintenanceNotes?: string | null; supplierId?: string | null
 }
-interface Uom { id: string; name: string; baseUnit: string }
+interface Uom { id: string; name: string; baseUnit: string; kind?: string }
+interface IngredientRef { id: string; name: string; densityGramsPerMl: number | null; weightPerUnitGrams: number | null; notes: string | null; isBuiltIn: boolean }
 interface SectionLite { id: string; name: string; department: { id: string; name: string } }
 interface SupplierLite { id: string; name: string }
 
@@ -31,7 +43,13 @@ interface StockItem { id: string; name: string; quantity: number; unit: string }
 interface StockTable { id: string; label: string; width: number; depth: number; planName: string; planId: string; inventoryItems: StockItem[] }
 interface StockSection { id: string; name: string; tables: StockTable[] }
 
-export function InventoryClient() {
+interface PantryRef {
+  id: string; name: string; densityGramsPerMl: number | null
+  weightPerUnitGrams: number | null; notes: string | null
+}
+
+export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
+  const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<Item[]>([])
   const [loading, setLoading] = useState(true)
@@ -43,7 +61,6 @@ export function InventoryClient() {
   const [editingCat, setEditingCat] = useState<Category | null>(null)
   const [showDeleted, setShowDeleted] = useState(false)
   const [deletedItems, setDeletedItems] = useState<Item[]>([])
-  const [previewImage, setPreviewImage] = useState<string | null>(null)
   const [maintLogs, setMaintLogs] = useState<{ id: string; note: string; createdAt: string; staffName: string | null }[]>([])
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [showCatDropdown, setShowCatDropdown] = useState(false)
@@ -55,6 +72,12 @@ export function InventoryClient() {
     return 'OTHER'
   })
   const [uoms, setUoms] = useState<Uom[]>([])
+  const uomById = useMemo(() => new Map(uoms.map((u) => [u.id, u])), [uoms])
+  // Group the list by physical kind so volumes / weights / counts are easy to scan.
+  const kindOf = (item: Item): string =>
+    (item.countingUnitId ? uomById.get(item.countingUnitId)?.kind : null) ?? 'COUNT'
+  const KIND_LABEL: Record<string, string> = { VOLUME: 'VOLUME', MASS: 'WEIGHT', COUNT: 'COUNT / EACH' }
+  const KIND_ORDER: Record<string, number> = { VOLUME: 0, MASS: 1, COUNT: 2 }
 
   // Property editor (non-furniture items)
   const [selectedItem, setSelectedItem] = useState<Item | null>(null)
@@ -79,14 +102,22 @@ export function InventoryClient() {
   const [formShelfLifeDays, setFormShelfLifeDays] = useState('')
   const [formCanFreeze, setFormCanFreeze] = useState(false)
   const [formFreezerShelfLifeDays, setFormFreezerShelfLifeDays] = useState('')
-  const [formCountingUnitQty, setFormCountingUnitQty] = useState('')
-  const [formOrderingUnitQty, setFormOrderingUnitQty] = useState('')
-  const [formParLevelUnitId, setFormParLevelUnitId] = useState('')
+
+
+  // Density (volume ↔ mass ↔ count conversion)
+  const [formDensity, setFormDensity] = useState('')
+  const [formCupWeight, setFormCupWeight] = useState('')
+  const [formWeightPerUnit, setFormWeightPerUnit] = useState('')
+  const [ingredientRefs, setIngredientRefs] = useState<IngredientRef[]>([])
+  const [knownSuggestion, setKnownSuggestion] = useState<IngredientRef | null>(null)
+  const [showRefPicker, setShowRefPicker] = useState(false)
+  const [refSearch, setRefSearch] = useState('')
+  const [showLlmModal, setShowLlmModal] = useState(false)
+  const [llmAnswer, setLlmAnswer] = useState('')
 
   // Equipment / tool tracking
   const [formImageUrls, setFormImageUrls] = useState<string[]>([])
-  const [formStorageSectionId, setFormStorageSectionId] = useState('')
-  const [formStorageNotes, setFormStorageNotes] = useState('')
+  const [formStorageLocations, setFormStorageLocations] = useState<{ sectionId: string; qty: string; notes: string }[]>([])
   const [formSerialNumber, setFormSerialNumber] = useState('')
   const [formPurchaseDate, setFormPurchaseDate] = useState('')
   const [formWarrantyExpiry, setFormWarrantyExpiry] = useState('')
@@ -97,24 +128,29 @@ export function InventoryClient() {
   const [formMaintenanceNotes, setFormMaintenanceNotes] = useState('')
   const [formSupplierId, setFormSupplierId] = useState('')
   const [formAltSupplierIds, setFormAltSupplierIds] = useState<string[]>([])
+  const [formMenuItemIds, setFormMenuItemIds] = useState<string[]>([])
+  const [formServiceSupplierIds, setFormServiceSupplierIds] = useState<string[]>([])
   const [showEquipmentFields, setShowEquipmentFields] = useState(true)
   const [catShowDeep, setCatShowDeep] = useState(false)
   const [catShowEquip, setCatShowEquip] = useState(false)
-  const [formUploadingImg, setFormUploadingImg] = useState(false)
   const [sections, setSections] = useState<SectionLite[]>([])
   const [suppliers, setSuppliers] = useState<SupplierLite[]>([])
+  const [menuItems, setMenuItems] = useState<{ id: string; name: string }[]>([])
+  const [pantryRefs, setPantryRefs] = useState<PantryRef[]>([])
 
-  // Table profile editor
+  // Furniture editor. Furniture is an InventoryItem with geometry set, so the
+  // id here is just the item's id — there is no separate profile record.
   const [showTableProfile, setShowTableProfile] = useState(false)
   const [editProfileId, setEditProfileId] = useState<string | null>(null)
-  const [profiles, setProfiles] = useState<any[]>([])
+  const [profiles, setProfiles] = useState<FurnitureView[]>([])
 
   function resetForm() {
     setFormName(''); setFormCat(''); setFormUnit('EA'); setFormPar('0'); setFormTotalQty('0')
     setFormCountingUnitId(''); setFormOrderingUnitId(''); setFormYield(''); setFormCostPrice('')
     setFormExpiryDate(''); setFormFallbackCatId(''); setFormAllergyInfo(''); setShowDeepFields(true)
     setFormShelfLifeDays(''); setFormCanFreeze(false); setFormFreezerShelfLifeDays('')
-    setFormImageUrls([]); setFormStorageSectionId(''); setFormStorageNotes('')
+    setFormDensity(''); setFormCupWeight(''); setFormWeightPerUnit(''); setKnownSuggestion(null); setLlmAnswer('')
+    setFormImageUrls([]); setFormStorageLocations([]); setFormMenuItemIds([]); setFormServiceSupplierIds([])
     setFormSerialNumber(''); setFormPurchaseDate(''); setFormWarrantyExpiry('')
     setFormServiceIntervalDays(''); setFormLastServicedAt(''); setFormNextServiceAt('')
     setFormMaintenanceNotes(''); setFormSupplierId(''); setShowEquipmentFields(false)
@@ -131,9 +167,19 @@ export function InventoryClient() {
     setFormShelfLifeDays(item.shelfLifeDays != null ? String(item.shelfLifeDays) : '')
     setFormCanFreeze(!!item.canFreeze)
     setFormFreezerShelfLifeDays(item.freezerShelfLifeDays != null ? String(item.freezerShelfLifeDays) : '')
+    setFormDensity(item.densityGramsPerMl != null ? String(item.densityGramsPerMl) : '')
+    setFormCupWeight('')
+    setFormWeightPerUnit(item.weightPerUnitGrams != null ? String(item.weightPerUnitGrams) : '')
+    setKnownSuggestion(null); setLlmAnswer('')
     setFormImageUrls(Array.isArray(item.imageUrls) ? item.imageUrls : item.imageUrls ? [item.imageUrls as any] : [])
-    setFormStorageSectionId(item.storageSectionId ?? '')
-    setFormStorageNotes(item.storageNotes ?? '')
+    const locs = Array.isArray(item.storageLocations) && item.storageLocations.length
+      ? item.storageLocations
+      : item.storageSectionId
+        ? [{ sectionId: item.storageSectionId, qty: null as number | null, notes: item.storageNotes ?? null }]
+        : []
+    setFormStorageLocations(locs.map((l) => ({ sectionId: l.sectionId, qty: l.qty != null ? String(l.qty) : '', notes: l.notes ?? '' })))
+    setFormMenuItemIds(Array.isArray(item.menuLinks) ? item.menuLinks.map((l) => l.menuItemId) : [])
+    setFormServiceSupplierIds(Array.isArray(item.serviceSuppliers) ? item.serviceSuppliers.map((s) => s.supplierId) : [])
     setFormSerialNumber(item.serialNumber ?? '')
     setFormPurchaseDate(item.purchaseDate ? String(item.purchaseDate).slice(0, 10) : '')
     setFormWarrantyExpiry(item.warrantyExpiry ? String(item.warrantyExpiry).slice(0, 10) : '')
@@ -155,13 +201,16 @@ export function InventoryClient() {
 
   async function load() {
     setLoading(true)
-    const [catRes, itemRes, prRes, uomRes, secRes, supRes] = await Promise.all([
-      fetch('/api/admin/inventory/categories'),
-      fetch('/api/admin/inventory'),
-      fetch('/api/admin/table-profiles'),
-      fetch('/api/admin/uoms'),
-      fetch('/api/admin/sections'),
-      fetch('/api/admin/suppliers'),
+    const venueParam = venueId ? `?venueId=${venueId}` : ''
+    const [catRes, itemRes, prRes, uomRes, secRes, supRes, refRes, menuRes] = await Promise.all([
+      fetch(`/api/admin/inventory/categories${venueParam}`),
+      fetch(`/api/admin/inventory${venueParam}`),
+      fetch(`/api/admin/furniture${venueParam}`),
+      fetch(`/api/admin/uoms${venueParam}`),
+      fetch(`/api/admin/sections${venueParam}`),
+      fetch(`/api/admin/suppliers${venueParam}`),
+      fetch(`/api/admin/ingredient-references${venueParam}`),
+      fetch(`/api/admin/menu-items${venueParam}`),
     ])
     if (catRes.ok) setCategories(await catRes.json())
     if (itemRes.ok) setItems(await itemRes.json())
@@ -181,18 +230,26 @@ export function InventoryClient() {
       const data = await supRes.json()
       setSuppliers(Array.isArray(data) ? data : [])
     }
+    if (refRes.ok) {
+      const data = await refRes.json()
+      setIngredientRefs(Array.isArray(data) ? data : [])
+    }
+    if (menuRes.ok) {
+      const data = await menuRes.json()
+      setMenuItems(Array.isArray(data) ? data.map((m: { id: string; name: string }) => ({ id: m.id, name: m.name })) : [])
+    }
     setLoading(false)
   }
 
   async function loadStock() {
     setStockLoading(true)
-    const r = await fetch('/api/admin/stock/hierarchy')
+    const r = await fetch(`/api/admin/stock/hierarchy${venueId ? `?venueId=${venueId}` : ''}`)
     if (r.ok) setStock((await r.json()).sections)
     setStockLoading(false)
   }
 
   async function loadDeleted() {
-    const r = await fetch('/api/admin/inventory?deleted=true')
+    const r = await fetch(`/api/admin/inventory?deleted=true${venueId ? `&venueId=${venueId}` : ''}`)
     if (r.ok) setDeletedItems(await r.json())
   }
 
@@ -209,6 +266,13 @@ export function InventoryClient() {
 
   useEffect(() => { load(); loadStock() }, [])
 
+  // Auto-suggest a known ingredient's density when the name matches the library
+  useEffect(() => {
+    const name = formName.toUpperCase().trim()
+    if (!name || formDensity || formCupWeight) { setKnownSuggestion(null); return }
+    setKnownSuggestion(findKnownIngredient(name, ingredientRefs))
+  }, [formName, ingredientRefs, formDensity, formCupWeight])
+
   useEffect(() => {
     if (loading) return
     setCollapsed((prev) => {
@@ -222,13 +286,43 @@ export function InventoryClient() {
     })
   }, [loading])
 
-  async function uploadImage(file: File) {
-    setFormUploadingImg(true)
-    const form = new FormData()
-    form.append('file', file)
-    const r = await fetch('/api/admin/upload', { method: 'POST', body: form })
-    setFormUploadingImg(false)
-    if (r.ok) { const data = await r.json(); setFormImageUrls((prev) => [...prev, data.url]) }
+  function cupWeightToDensity(v: string) {
+    const g = parseFloat(v)
+    return g > 0 ? cupToDensity(g) : null
+  }
+
+  function applyRef(ref: IngredientRef) {
+    setFormDensity(ref.densityGramsPerMl != null ? String(ref.densityGramsPerMl) : '')
+    setFormCupWeight('')
+    setFormWeightPerUnit(ref.weightPerUnitGrams != null ? String(ref.weightPerUnitGrams) : '')
+    setKnownSuggestion(null)
+    setShowRefPicker(false)
+  }
+
+  async function saveAsReference() {
+    const d = formDensity !== '' ? parseFloat(formDensity) : formCupWeight !== '' ? cupWeightToDensity(formCupWeight) : null
+    if (!formName.trim() || (d == null && formWeightPerUnit === '')) return
+    const r = await fetch('/api/admin/ingredient-references', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: formName.trim().toUpperCase(),
+        densityGramsPerMl: d != null && isFinite(d) && d > 0 ? d : null,
+        weightPerUnitGrams: formWeightPerUnit !== '' ? parseFloat(formWeightPerUnit) : null,
+        notes: formCupWeight !== '' ? `1 CUP ≈ ${formCupWeight}G` : null,
+        ...(venueId ? { venueId } : {}),
+      }),
+    })
+    if (r.ok) {
+      const refRes = await fetch(`/api/admin/ingredient-references${venueId ? `?venueId=${venueId}` : ''}`)
+      if (refRes.ok) setIngredientRefs(await refRes.json())
+    }
+  }
+
+  async function deleteReference(id: string) {
+    await fetch(`/api/admin/ingredient-references?id=${id}`, { method: 'DELETE' })
+    const refRes = await fetch(`/api/admin/ingredient-references${venueId ? `?venueId=${venueId}` : ''}`)
+    if (refRes.ok) setIngredientRefs(await refRes.json())
   }
 
   async function handleSave() {
@@ -239,6 +333,9 @@ export function InventoryClient() {
       defaultParLevel: parseInt(formPar) || 0,
       totalQty: parseInt(formTotalQty) || 0,
       countingUnitId: formCountingUnitId || null,
+      // Par level is always in the counting unit — only the ORDERING UOM may
+      // differ (supplier-dependent).
+      parLevelUnitId: formCountingUnitId || null,
       orderingUnitId: formOrderingUnitId || null,
       yieldPercentage: formYield ? parseFloat(formYield) : null,
       costPrice: formCostPrice ? parseFloat(formCostPrice) : null,
@@ -246,8 +343,11 @@ export function InventoryClient() {
       fallbackCategoryId: formFallbackCatId || null,
       allergyInfo: formAllergyInfo || null,
       imageUrls: formImageUrls.length ? formImageUrls : null,
-      storageSectionId: formStorageSectionId || null,
-      storageNotes: formStorageNotes || null,
+      storageLocations: formStorageLocations
+        .filter((l) => l.sectionId)
+        .map((l) => ({ sectionId: l.sectionId, qty: l.qty.trim() ? Number(l.qty) : null, notes: l.notes || null })),
+      menuItemIds: formMenuItemIds,
+      serviceSupplierIds: formServiceSupplierIds,
       serialNumber: formSerialNumber || null,
       purchaseDate: formPurchaseDate || null,
       warrantyExpiry: formWarrantyExpiry || null,
@@ -259,6 +359,10 @@ export function InventoryClient() {
       shelfLifeDays: formShelfLifeDays ? parseInt(formShelfLifeDays) : null,
       canFreeze: formCanFreeze,
       freezerShelfLifeDays: formFreezerShelfLifeDays ? parseInt(formFreezerShelfLifeDays) : null,
+      // Density: the cup-weight helper ("1 CUP = X G") is converted to g/mL on save
+      densityGramsPerMl: formDensity != null && formDensity !== '' ? parseFloat(formDensity) : (formCupWeight != null && formCupWeight !== '' ? cupWeightToDensity(formCupWeight) : null),
+      weightPerUnitGrams: formWeightPerUnit != null && formWeightPerUnit !== '' ? parseFloat(formWeightPerUnit) : null,
+      ...(venueId ? { venueId } : {}),
     }
     if (isCreating) {
       if (!body.name || !body.categoryId) return
@@ -272,7 +376,7 @@ export function InventoryClient() {
   }
 
   async function addCategory() {
-    const r = await fetch('/api/admin/inventory/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName, tab: activeTab === 'OTHER' ? null : activeTab }) })
+    const r = await fetch('/api/admin/inventory/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName, tab: activeTab === 'OTHER' ? null : activeTab, ...(venueId ? { venueId } : {}) }) })
     if (!r.ok) { const d = await r.json(); alert(d.error); return }
     setNewCatName(''); setShowNewCat(false); load()
   }
@@ -316,7 +420,7 @@ export function InventoryClient() {
     }
   }
 
-  const editingProfileName = editProfileId ? profiles.find((p: any) => p.id === editProfileId)?.name : null
+  const editingProfileName = editProfileId ? profiles.find((p) => p.id === editProfileId)?.name : null
 
   const tabCategories = categories.filter((c) => {
     if (activeTab === 'FOOD') return c.tab === 'FOOD'
@@ -342,14 +446,14 @@ export function InventoryClient() {
           <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">INVENTORY</h1>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center border border-grey-mid">
+          <Panel variant="outline" padding="none" className="flex items-center">
             {([['FOOD', 'FOOD'], ['BEVERAGE', 'BEVERAGE'], ['OTHER', 'OTHER']] as const).map(([key, label]) => (
               <button key={key} onClick={() => { setActiveTab(key); localStorage.setItem('hospo-inventory-tab', key) }}
-                className={`font-mono text-[10px] uppercase px-3 py-1.5 border-r border-grey-mid last:border-r-0 ${activeTab === key ? 'bg-grey-mid/30 text-white' : 'text-grey-light hover:text-white'}`}>
+                className={`font-mono text-xs uppercase px-3 py-1.5 border-r border-grey-mid last:border-r-0 ${activeTab === key ? 'bg-grey-mid/30 text-white' : 'text-grey-light hover:text-white'}`}>
                 {label}
               </button>
             ))}
-          </div>
+          </Panel>
           <Button size="sm" onClick={() => { setEditingCat(null); setNewCatName(''); setNewCatTab('FOOD'); setShowCatModal(true) }} variant="ghost">+ CATEGORY</Button>
           <Button size="sm" onClick={() => { if (!showDeleted) loadDeleted(); setShowDeleted(!showDeleted) }} variant="ghost">{showDeleted ? 'HIDE DELETED' : 'SHOW DELETED'}</Button>
         </div>
@@ -363,14 +467,14 @@ export function InventoryClient() {
             <div className="relative" onClick={(e) => e.stopPropagation()}>
               <Button size="sm" variant="ghost" onClick={() => setShowCatDropdown(!showCatDropdown)}>+ ADD ITEM</Button>
               {showCatDropdown && (
-                <div className="absolute top-full left-0 mt-1 z-50 border border-grey-mid bg-black p-1 min-w-[200px] shadow-lg">
+                <Panel variant="outline" padding="none" className="absolute top-full left-0 mt-1 z-50 bg-black p-1 min-w-[200px] shadow-lg">
                   {tabCategories.map((c) => (
                     <button key={c.id} onClick={() => startCreate(c.id)}
                       className="block w-full text-left px-3 py-1.5 font-mono text-xs uppercase text-grey-light hover:text-white hover:bg-grey-mid/30">
                       {c.name}
                     </button>
                   ))}
-                </div>
+                </Panel>
               )}
             </div>
           </div>
@@ -379,23 +483,27 @@ export function InventoryClient() {
             const catItemList = catItems.get(cat.id) ?? []
             const isCollapsed = collapsed.has(cat.name)
             const isFurniture = cat.name === 'TABLES'
+            const orderedItems = [...catItemList].sort(
+              (a, b) => (KIND_ORDER[kindOf(a)] ?? 2) - (KIND_ORDER[kindOf(b)] ?? 2),
+            )
+            const showKindHeaders = new Set(orderedItems.map(kindOf)).size > 1
             return (
-              <div key={cat.id} className="border border-grey-mid">
+              <Panel key={cat.id} variant="outline" padding="none">
                 <div className="flex items-center">
                   <button onClick={() => toggleCollapse(cat.name)}
                     className="flex-1 flex items-center justify-between px-3 py-2 hover:bg-grey-mid/20 text-left">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-xs text-grey-light">{isCollapsed ? '▸' : '▾'}</span>
                       <span className="font-mono text-xs font-bold text-white uppercase">{cat.name}</span>
-                      <span className="font-mono text-[10px] text-grey-light">({catItemList.length})</span>
+                      <span className="font-mono text-xs text-grey-light">({catItemList.length})</span>
                     </div>
                   </button>
                   <button onClick={(e) => { e.stopPropagation(); startCreate(cat.id) }}
-                    className="font-mono text-[10px] uppercase text-grey-light hover:text-white px-3 py-2 border-l border-grey-mid">
+                    className="font-mono text-xs uppercase text-grey-light hover:text-white px-3 py-2 border-l border-grey-mid">
                     {isFurniture ? '+ ADD TABLE' : '+ ADD'}
                   </button>
                   <button onClick={(e) => { e.stopPropagation(); setEditingCat(cat); setNewCatName(cat.name); setNewCatTab(cat.tab ?? 'OTHER'); setShowCatModal(true) }}
-                    className="font-mono text-[10px] uppercase text-[#c4a530] hover:text-white px-2 py-2 border-l border-grey-mid">
+                    className="font-mono text-xs uppercase text-gold hover:text-white px-2 py-2 border-l border-grey-mid">
                     EDIT
                   </button>
                 </div>
@@ -405,16 +513,24 @@ export function InventoryClient() {
                     {catItemList.length === 0 && (
                       <p className="font-mono text-xs text-grey-light px-3 py-3">No items yet.</p>
                     )}
-                    {catItemList.map((item, idx) => {
+                    {orderedItems.map((item, idx) => {
                       const isFurnitureItem = item.furnitureType != null
                       const avail = Math.max(0, (item.totalQty ?? 0) - (item.placedCount ?? 0))
-                      const isEditing = selectedItem?.id === item.id || (showTableProfile && editingProfileName === item.name)
-                      const matchingProfile = isFurnitureItem ? profiles.find((p: any) => p.name === item.name) : null
-                      const profileNumbers: string[] = Array.isArray((matchingProfile as any)?.tableNumbers) ? (matchingProfile as any).tableNumbers : []
-                      const profileCapacity = (matchingProfile as any)?.capacity ?? 0
+                      const isEditing = selectedItem?.id === item.id || (showTableProfile && editProfileId === item.id)
+                      // Furniture IS the inventory item now — matched by id, not
+                      // by name. The old name match silently detached geometry
+                      // from stock the moment either side was renamed.
+                      const matchingProfile = isFurnitureItem ? profiles.find((p) => p.id === item.id) : null
+                      const profileNumbers: string[] = matchingProfile?.tableNumbers ?? []
+                      const profileCapacity = matchingProfile?.defaultChairCount ?? 0
 
                       return (
-                        <div key={item.id}>
+                        <Fragment key={item.id}>
+                          {showKindHeaders && (idx === 0 || kindOf(orderedItems[idx - 1]) !== kindOf(item)) && (
+                            <div className="px-3 pt-2 font-mono text-xs uppercase tracking-wider text-grey-light">
+                              {KIND_LABEL[kindOf(item)] ?? kindOf(item)}
+                            </div>
+                          )}
                           <div className={`flex items-center gap-3 py-2 px-3 ${isEditing ? 'bg-grey-mid/20' : ''}`}>
                             {isFurnitureItem && item.defaultColour && (
                               <div className="w-4 h-4 flex-shrink-0 border border-grey-light" style={{ backgroundColor: item.defaultColour }} />
@@ -426,47 +542,38 @@ export function InventoryClient() {
                             <div className="flex-1 min-w-0">
                               <span className="font-mono text-xs text-white block truncate">
                                 {item.name}
+                                <span className="inline-block ml-1 font-mono text-xs text-grey-light border border-grey-mid px-1 align-middle">CUSTOM</span>
                                 {item.allergyInfo && item.allergyInfo.split(',').map((a: string) => a.trim()).filter(Boolean).map((allergen: string) => (
-                                  <span key={allergen} className="inline-block ml-1 font-mono text-[8px] text-[#c4a530] border border-[#c4a530] px-1 align-middle">{allergen}</span>
+                                  <span key={allergen} className="inline-block ml-1 font-mono text-xs text-gold border border-gold px-1 align-middle">{allergen}</span>
                                 ))}
                               </span>
                               {isFurnitureItem && (
                                 <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                                  <span className="font-mono text-[10px] text-grey-light border border-grey-mid px-1.5 py-px">{item.elementWidth}×{item.elementDepth}</span>
+                                  <span className="font-mono text-xs text-grey-light border border-grey-mid px-1.5 py-px">{item.elementWidth}×{item.elementDepth}</span>
                                   {(item.defaultChairCount ?? 0) > 0 && (
-                                    <span className="font-mono text-[10px] text-grey-light border border-grey-mid px-1.5 py-px">{(item.defaultChairCount ?? 0)}/{profileCapacity || (item.defaultChairCount ?? 0)}</span>
+                                    <span className="font-mono text-xs text-grey-light border border-grey-mid px-1.5 py-px">{(item.defaultChairCount ?? 0)}/{profileCapacity || (item.defaultChairCount ?? 0)}</span>
                                   )}
                                   {profileNumbers.map((n: string, i: number) => (
-                                    <span key={i} className="font-mono text-[10px] text-white border border-grey-mid px-1.5 py-px bg-grey-dark/50">{n}</span>
+                                    <span key={i} className="font-mono text-xs text-white border border-grey-mid px-1.5 py-px bg-grey-dark/50">{n}</span>
                                   ))}
-      <Modal isOpen={previewImage != null} onClose={() => setPreviewImage(null)} title="" size="lg">
-        {previewImage && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={previewImage} alt="Preview" className="w-full border border-grey-mid" />
-        )}
-      </Modal>
-    </div>
+                                </div>
                               )}
                             </div>
                             <div className="flex items-center gap-3 text-right flex-shrink-0">
-                              <span className="font-mono text-[10px] text-grey-light w-10">QTY {item.totalQty ?? 0}</span>
+                              <span className="font-mono text-xs text-grey-light w-10">QTY {item.totalQty ?? 0}</span>
                               {item.costPrice != null && (
-                                <span className="font-mono text-[10px] text-grey-light w-14 text-right">${item.costPrice.toFixed(2)}</span>
+                                <span className="font-mono text-xs text-grey-light w-14 text-right">${item.costPrice.toFixed(2)}</span>
                               )}
                               {isFurnitureItem && (
-                                <span className={`font-mono text-[10px] w-10 ${avail > 0 ? 'text-accent' : 'text-danger'}`}>AVAIL {avail}</span>
+                                <span className={`font-mono text-xs w-10 ${avail > 0 ? 'text-accent' : 'text-danger'}`}>AVAIL {avail}</span>
                               )}
                               <button onClick={() => {
                                 if (isFurnitureItem) {
-                                  const profile = profiles.find((p: any) => p.name === item.name)
-                                  if (profile) {
-                                    if (showTableProfile && editProfileId === profile.id) {
-                                      setShowTableProfile(false); setEditProfileId(null)
-                                    } else {
-                                      setEditProfileId(profile.id); setShowTableProfile(true)
-                                    }
+                                  // The furniture form edits this very row.
+                                  if (showTableProfile && editProfileId === item.id) {
+                                    setShowTableProfile(false); setEditProfileId(null)
                                   } else {
-                                    setSelectedItem(item); populateForm(item)
+                                    setEditProfileId(item.id); setShowTableProfile(true)
                                   }
                                 } else {
                                   if (showTableProfile) { setShowTableProfile(false); setEditProfileId(null) }
@@ -477,27 +584,28 @@ export function InventoryClient() {
                                   }
                                 }
                               }}
-                                className="font-mono text-[10px] text-[#c4a530] border border-[#c4a530] px-1.5 py-0.5 hover:text-white hover:border-white uppercase"                                >EDIT</button>
+                                className="font-mono text-xs text-gold border border-gold px-1.5 py-0.5 hover:text-white hover:border-white uppercase"                                >EDIT</button>
                               <button onClick={() => deleteItem(item.id)}
-                                className="font-mono text-[10px] text-danger hover:text-white border border-grey-mid px-1.5 py-0.5">DLT</button>
+                                className="font-mono text-xs text-danger hover:text-white border border-grey-mid px-1.5 py-0.5">DLT</button>
                             </div>
                           </div>
-                          {idx < catItemList.length - 1 && (
+                          {idx < orderedItems.length - 1 && (
                             <div className="mx-3 border-b border-grey-mid" />
                           )}
-                        </div>
+                        </Fragment>
                       )
                     })}
                   </div>
                 )}
-              </div>
+              </Panel>
             )
           })}
+
         </div>
 
         {/* Restore deleted items */}
         {showDeleted && (
-          <div className="border border-grey-mid border-dashed">
+          <Panel variant="outline" padding="none" className="border-dashed">
             <div className="px-3 py-2 border-b border-grey-mid font-mono text-xs font-bold text-white uppercase bg-grey-dark/50">DELETED ITEMS</div>
             {deletedItems.length === 0 ? (
               <p className="px-3 py-3 font-mono text-xs text-grey-light">No deleted items.</p>
@@ -507,21 +615,21 @@ export function InventoryClient() {
                   <div key={item.id} className="flex items-center justify-between px-3 py-2">
                     <span className="font-mono text-xs text-grey-light line-through">{item.name}</span>
                     <div className="flex gap-2">
-                      <button onClick={() => restoreItem(item.id)} className="font-mono text-[10px] text-success hover:text-white border border-grey-mid px-1.5 py-0.5">RESTORE</button>
-                      <button onClick={() => purgeItem(item.id)} className="font-mono text-[10px] text-danger hover:text-white border border-grey-mid px-1.5 py-0.5">PURGE</button>
+                      <button onClick={() => restoreItem(item.id)} className="font-mono text-xs text-success hover:text-white border border-grey-mid px-1.5 py-0.5">RESTORE</button>
+                      <button onClick={() => purgeItem(item.id)} className="font-mono text-xs text-danger hover:text-white border border-grey-mid px-1.5 py-0.5">PURGE</button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
-          </div>
+          </Panel>
         )}
 
         {/* Right: Summary + TableProfileForm */}
         <div className="lg:col-span-4 space-y-4">
           {/* Category stock summary for FOOD/BEVERAGE */}
           {(activeTab === 'FOOD' || activeTab === 'BEVERAGE') && (
-          <div className="border border-grey-mid p-4">
+          <Panel variant="outline" padding="lg">
             <h2 className="font-mono text-xs font-bold text-white uppercase mb-3">{activeTab} SUMMARY</h2>
             {tabCategories.length === 0 ? (
               <p className="font-mono text-xs text-grey-light">No categories yet.</p>
@@ -540,49 +648,44 @@ export function InventoryClient() {
                 })}
               </div>
             )}
-          </div>
+          </Panel>
           )}
           {activeTab === 'OTHER' && (
-          <div className="border border-grey-mid p-4">
+          <Panel variant="outline" padding="lg">
             <h2 className="font-mono text-xs font-bold text-white uppercase mb-3">INVENTORY SUMMARY</h2>
             {stockLoading && <p className="font-mono text-xs text-grey-light">LOADING...</p>}
             {!stockLoading && stock.length === 0 && <p className="font-mono text-xs text-grey-light">No stock hierarchy found. Create sections and place tables on floor plans first.</p>}
             {!stockLoading && stock.map((sec) => (
               <div key={sec.id} className="mb-2">
-                <h3 className="font-mono text-[11px] font-bold text-accent uppercase">{sec.name}</h3>
-                {sec.tables.length === 0 && <p className="font-mono text-[9px] text-grey-light italic ml-3">No tables in this section.</p>}
+                <h3 className="font-mono text-xs font-bold text-accent uppercase">{sec.name}</h3>
+                {sec.tables.length === 0 && <p className="font-mono text-xs text-grey-light italic ml-3">No tables in this section.</p>}
                 {sec.tables.map((tbl) => (
                   <div key={tbl.id} className="ml-3 border-l border-grey-mid pl-3 py-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[10px] text-white">{tbl.label}</span>
-                      <span className="font-mono text-[8px] text-grey-light">{tbl.width}×{tbl.depth} cm · {tbl.planName}</span>
+                      <span className="font-mono text-xs text-white">{tbl.label}</span>
+                      <span className="font-mono text-xs text-grey-light">{tbl.width}×{tbl.depth} cm · {tbl.planName}</span>
                     </div>
-                    {tbl.inventoryItems.length === 0 && <p className="font-mono text-[8px] text-grey-light ml-2 italic">No equipment linked.</p>}
+                    {tbl.inventoryItems.length === 0 && <p className="font-mono text-xs text-grey-light ml-2 italic">No equipment linked.</p>}
                     {tbl.inventoryItems.map((inv) => (
                       <div key={inv.id} className="flex items-center gap-2 ml-2">
-                        <span className="font-mono text-[9px] text-grey-light">{inv.name}</span>
-                        <span className="font-mono text-[8px] text-accent">×{inv.quantity}</span>
+                        <span className="font-mono text-xs text-grey-light">{inv.name}</span>
+                        <span className="font-mono text-xs text-accent">×{inv.quantity}</span>
                       </div>
                     ))}
                   </div>
                 ))}
               </div>
             ))}
-          </div>
+          </Panel>
           )}
 
           {showTableProfile && (
-            <Modal isOpen={showTableProfile} onClose={() => { setShowTableProfile(false); setEditProfileId(null) }} title={editProfileId ? 'EDIT TABLE' : 'NEW TABLE'} size="lg">
-              <TableProfileForm
+            <Modal isOpen={showTableProfile} onClose={() => { setShowTableProfile(false); setEditProfileId(null) }} title={editProfileId ? 'EDIT FURNITURE' : 'NEW FURNITURE'} size="lg">
+              <FurnitureForm
+                furnitureId={editProfileId}
                 onSaved={() => { setShowTableProfile(false); setEditProfileId(null); load() }}
                 onCancel={() => { setShowTableProfile(false); setEditProfileId(null) }}
-                profileId={editProfileId}
-                onDelete={async () => {
-                  if (editProfileId) {
-                    await fetch(`/api/admin/table-profiles/${editProfileId}`, { method: 'DELETE' })
-                    setShowTableProfile(false); setEditProfileId(null); load()
-                  }
-                }}
+                onDeleted={() => { setShowTableProfile(false); setEditProfileId(null); load() }}
               />
             </Modal>
           )}
@@ -597,11 +700,11 @@ export function InventoryClient() {
           <div className="flex flex-wrap gap-2">
             <label className="flex items-center gap-1 cursor-pointer">
               <input type="checkbox" checked={!showDeepFields} onChange={(e) => setShowDeepFields(!e.target.checked)} className="accent-white" />
-              <span className="font-mono text-[10px] uppercase text-grey-light">DEEP INVENTORY FIELDS</span>
+              <span className="font-mono text-xs uppercase text-grey-light">DEEP INVENTORY FIELDS</span>
             </label>
             <label className="flex items-center gap-1 cursor-pointer">
               <input type="checkbox" checked={showEquipmentFields} onChange={(e) => setShowEquipmentFields(e.target.checked)} className="accent-white" />
-              <span className="font-mono text-[10px] uppercase text-grey-light">EQUIPMENT / TOOL TRACKING</span>
+              <span className="font-mono text-xs uppercase text-grey-light">EQUIPMENT / TOOL TRACKING</span>
             </label>
           </div>
           <div className="flex gap-2">
@@ -610,7 +713,7 @@ export function InventoryClient() {
               if (editingCat) {
                 await fetch(`/api/admin/inventory/categories/${editingCat.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName, tab: newCatTab === 'OTHER' ? null : newCatTab, showDeepFields: !showDeepFields, showEquipmentFields }) })
               } else {
-                await fetch('/api/admin/inventory/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName, tab: newCatTab === 'OTHER' ? null : newCatTab, showDeepFields: !showDeepFields, showEquipmentFields }) })
+                await fetch('/api/admin/inventory/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName, tab: newCatTab === 'OTHER' ? null : newCatTab, showDeepFields: !showDeepFields, showEquipmentFields, ...(venueId ? { venueId } : {}) }) })
               }
               setShowCatModal(false); load()
             }} disabled={!newCatName}>{editingCat ? 'SAVE' : 'CREATE'}</Button>
@@ -631,29 +734,23 @@ export function InventoryClient() {
                 disabled={!!selectedItem?.furnitureType} />
             </div>
           </div>
-          <div className="grid grid-cols-6 gap-2">
-            {catShowDeep ? (
-              <div className="col-span-6">
+          {!catShowDeep && (
+            <div className="grid grid-cols-6 gap-2">
+              <div className="col-span-2">
+                <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
+                  options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
+              </div>
+              <div className="col-span-2">
+                <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
+              </div>
+              <div className="col-span-2">
                 <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
               </div>
-            ) : (
-              <>
-                <div className="col-span-2">
-                  <Select label="UNIT" value={formUnit} onChange={(e) => setFormUnit(e.target.value)}
-                    options={[{ value: 'EA', label: 'EA' }, { value: 'SET', label: 'SET' }, { value: 'PAIR', label: 'PAIR' }]} />
-                </div>
-                <div className="col-span-2">
-                  <Input label="TOTAL QTY" type="number" value={formTotalQty} onChange={(e) => setFormTotalQty(e.target.value)} />
-                </div>
-                <div className="col-span-2">
-                  <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
-                </div>
-              </>
-            )}
-          </div>
+            </div>
+          )}
           {catShowDeep && (
             <button onClick={() => setShowDeepFields(!showDeepFields)}
-              className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
+              className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
               {showDeepFields ? '▾ DEEP INVENTORY' : '▸ DEEP INVENTORY'}
             </button>
           )}
@@ -663,22 +760,17 @@ export function InventoryClient() {
                 <Select label="COUNTING UOM" value={formCountingUnitId} onChange={(e) => setFormCountingUnitId(e.target.value)}
                   options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
               </div>
-              <div className="col-span-1">
-                <Input label="QTY" type="number" step="0.01" value={formCountingUnitQty} onChange={(e) => setFormCountingUnitQty(e.target.value)} placeholder="1" />
-              </div>
               <div className="col-span-2">
                 <Select label="ORDERING UOM" value={formOrderingUnitId} onChange={(e) => setFormOrderingUnitId(e.target.value)}
                   options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
               </div>
-              <div className="col-span-1">
-                <Input label="QTY" type="number" step="0.01" value={formOrderingUnitQty} onChange={(e) => setFormOrderingUnitQty(e.target.value)} placeholder="1" />
-              </div>
               <div className="col-span-2">
-                <Select label="PAR LEVEL UOM" value={formParLevelUnitId} onChange={(e) => setFormParLevelUnitId(e.target.value)}
-                  options={uoms.map((u) => ({ value: u.id, label: u.name }))} placeholder="—" />
-              </div>
-              <div className="col-span-1">
-                <Input label="PAR LEVEL" type="number" value={formPar} onChange={(e) => setFormPar(e.target.value)} />
+                <Input
+                  label={`PAR LEVEL (${uoms.find((u) => u.id === formCountingUnitId)?.name ?? 'COUNTING UOM'})`}
+                  type="number"
+                  value={formPar}
+                  onChange={(e) => setFormPar(e.target.value)}
+                />
               </div>
               <div className="col-span-2">
                 <Input label="YIELD %" type="number" step="0.1" value={formYield} onChange={(e) => setFormYield(e.target.value)} />
@@ -692,7 +784,7 @@ export function InventoryClient() {
               <div className="col-span-3">
                 <label className="flex items-center gap-2 cursor-pointer pt-1">
                   <input type="checkbox" checked={formCanFreeze} onChange={(e) => setFormCanFreeze(e.target.checked)} className="accent-white" />
-                  <span className="font-mono text-[10px] uppercase text-grey-light">CAN BE FROZEN</span>
+                  <span className="font-mono text-xs uppercase text-grey-light">CAN BE FROZEN</span>
                 </label>
               </div>
               {formCanFreeze && (
@@ -700,6 +792,57 @@ export function InventoryClient() {
                   <Input label="FREEZER SHELF LIFE (DAYS)" type="number" value={formFreezerShelfLifeDays} onChange={(e) => setFormFreezerShelfLifeDays(e.target.value)} placeholder="e.g. 90" />
                 </div>
               )}
+              <Panel variant="outline" padding="md" className="col-span-6 space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">DENSITY — CONVERTS VOLUME ↔ WEIGHT</h3>
+                  <div className="flex gap-1">
+                    <button onClick={() => { setRefSearch(''); setShowRefPicker(true) }}
+                      className="font-mono text-xs uppercase border border-grey-mid px-1.5 py-0.5 text-grey-light hover:border-white hover:text-white">
+                      FROM LIBRARY
+                    </button>
+                    <button onClick={() => { setLlmAnswer(''); setShowLlmModal(true) }}
+                      className="font-mono text-xs uppercase border border-info/50 px-1.5 py-0.5 text-info hover:border-info hover:text-white">
+                      HELP ME FIND OUT
+                    </button>
+                  </div>
+                </div>
+                {knownSuggestion && (
+                  <div className="flex items-center gap-2 border border-gold/50 bg-gold/10 px-2 py-1.5">
+                    <span className="font-mono text-xs text-gold flex-1 truncate">
+                      KNOWN: {knownSuggestion.name} · {knownSuggestion.notes ?? (knownSuggestion.densityGramsPerMl != null ? `1 CUP ≈ ${Math.round(knownSuggestion.densityGramsPerMl * 250)}G` : knownSuggestion.weightPerUnitGrams != null ? `1 EA ≈ ${knownSuggestion.weightPerUnitGrams}G` : '')}
+                    </span>
+                    <button onClick={() => applyRef(knownSuggestion)}
+                      className="font-mono text-xs uppercase text-white border border-gold px-1.5 py-0.5 hover:bg-gold hover:text-black shrink-0">
+                      APPLY DENSITY?
+                    </button>
+                  </div>
+                )}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="col-span-1">
+                    <Input label="DENSITY (G/ML)" type="number" step="0.001" value={formDensity}
+                      onChange={(e) => { setFormDensity(e.target.value); if (e.target.value) setFormCupWeight('') }} placeholder="e.g. 0.528" />
+                  </div>
+                  <div className="col-span-1">
+                    <Input label="1 CUP = ___ G" type="number" step="1" value={formCupWeight}
+                      onChange={(e) => { setFormCupWeight(e.target.value); if (e.target.value) setFormDensity('') }} placeholder="e.g. 132" />
+                  </div>
+                  <div className="col-span-1">
+                    <Input label="1 UNIT = ___ G" type="number" step="1" value={formWeightPerUnit}
+                      onChange={(e) => setFormWeightPerUnit(e.target.value)} placeholder="e.g. 50 (EGG)" />
+                  </div>
+                </div>
+                <p className="font-mono text-xs text-grey-light">
+                  {(() => {
+                    const d = formDensity !== '' ? parseFloat(formDensity) : formCupWeight !== '' ? cupWeightToDensity(formCupWeight) : null
+                    if (d == null || !isFinite(d) || d <= 0) {
+                      return formWeightPerUnit !== '' ? `1 EA ≈ ${parseFloat(formWeightPerUnit) || 0}G — COUNT → WEIGHT ONLY` : 'ENTER G/ML OR A CUP WEIGHT — "1 CUP FLOUR ≈ 132 G", "1 CUP SUGAR ≈ 211 G"'
+                    }
+                    const cupG = Math.round(d * 250)
+                    const unit = formWeightPerUnit !== '' ? ` · 1 EA ≈ ${parseFloat(formWeightPerUnit) || 0}G` : ''
+                    return `1 CUP ≈ ${cupG}G · 1 TBSP ≈ ${Math.round(d * 20)}G · 1 TSP ≈ ${Math.round(d * 5)}G${unit}`
+                  })()}
+                </p>
+              </Panel>
               <div className="col-span-6">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider block mb-1">ALLERGENS</label>
                 <div className="space-y-1.5">
@@ -718,7 +861,7 @@ export function InventoryClient() {
                       if (visible.length === 0) return null
                       return (
                         <div key={grp.label}>
-                          <div className="font-mono text-[8px] uppercase text-grey-light mb-0.5">{grp.label}</div>
+                          <div className="font-mono text-xs uppercase text-grey-light mb-0.5">{grp.label}</div>
                           <div className="flex flex-wrap gap-1">
                             {visible.map((a) => {
                               const on = selected.includes(a)
@@ -728,7 +871,7 @@ export function InventoryClient() {
                                     const next = on ? selected.filter((x: string) => x !== a) : [...selected, a]
                                     setFormAllergyInfo(next.join(', '))
                                   }}
-                                  className={`font-mono text-[9px] uppercase px-1.5 py-0.5 border transition-colors ${on ? 'bg-[#c4a530]/10 text-[#c4a530] border-[#c4a530]/50' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>
+                                  className={`font-mono text-xs uppercase px-1.5 py-0.5 border transition-colors ${on ? 'bg-gold/10 text-gold border-gold/50' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>
                                   {on ? '✓ ' : ''}{a}
                                 </button>
                               )
@@ -745,50 +888,18 @@ export function InventoryClient() {
             {catShowEquip && (
               <>
                 <button onClick={() => setShowEquipmentFields(!showEquipmentFields)}
-                  className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
+                  className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
                   {showEquipmentFields ? '▾ EQUIPMENT / TOOL TRACKING' : '▸ EQUIPMENT / TOOL TRACKING'}
                 </button>
                 {showEquipmentFields && (
-                  <div className="border-t border-grey-mid pt-3 space-y-3" onPaste={(e) => {
-                    const items = e.clipboardData?.items
-                    if (items) {
-                      for (const item of Array.from(items)) {
-                        if (item.type.startsWith('image/')) {
-                          const file = item.getAsFile()
-                          if (file) uploadImage(file)
-                          break
-                        }
-                      }
-                    }
-                  }}>
-                  <div className="flex items-center gap-2">
-                    <input id="inv-img-upload" type="file" accept="image/*" className="hidden"
-                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
-                    <button type="button" onClick={() => document.getElementById('inv-img-upload')?.click()}
-                      className="font-mono text-[10px] uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white">
-                      {formUploadingImg ? 'UPLOADING_' : 'ADD PHOTO'}
-                    </button>
-                    <span className="font-mono text-[9px] text-grey-light/50">OR PASTE IMAGE (CTRL+V)</span>
-                  </div>
-                  {formImageUrls.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {formImageUrls.map((url, i) => (
-                        <div key={i} className="relative group">
-                          <img src={url} alt={`photo ${i + 1}`} className="h-16 w-16 object-cover border border-grey-mid cursor-pointer"
-                            onClick={() => setPreviewImage(url)} />
-                          <button onClick={() => setFormImageUrls((prev) => prev.filter((_, idx) => idx !== i))}
-                            className="absolute -top-1 -right-1 w-4 h-4 bg-danger text-black font-mono text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <div className="border-t border-grey-mid pt-3 space-y-3">
+                  <MultiImagePicker
+                    label="PHOTOS"
+                    value={formImageUrls}
+                    onChange={setFormImageUrls}
+                    usageKey={selectedItem ? inventoryItemUsageKey(selectedItem.id) : undefined}
+                  />
                   <div className="grid grid-cols-6 gap-2">
-                    <div className="col-span-3">
-                      <Select label="STORAGE SECTION" value={formStorageSectionId} onChange={(e) => setFormStorageSectionId(e.target.value)}
-                        options={sections.map((s) => ({ value: s.id, label: `${s.department?.name ?? ''} → ${s.name}` }))} placeholder="—" />
-                    </div>
                     <div className="col-span-3">
                       <Select label="SUPPLIER" value={formSupplierId} onChange={(e) => setFormSupplierId(e.target.value)}
                         options={suppliers.map((s) => ({ value: s.id, label: s.name }))} placeholder="—" />
@@ -803,8 +914,72 @@ export function InventoryClient() {
                       />
                     </div>
                     <div className="col-span-6">
-                      <Input label="STORAGE NOTES" value={formStorageNotes} onChange={(e) => setFormStorageNotes(e.target.value)} placeholder="TOP SHELF, ABOVE THE COFFEE STATION" />
+                      <Combobox label="LINKED PRODUCTS (MENU ITEMS)"
+                        options={menuItems.map((m) => ({ value: m.id, label: m.name }))}
+                        selected={formMenuItemIds}
+                        onChange={setFormMenuItemIds}
+                        placeholder="Search products this stock feeds..."
+                        hideTags
+                      />
                     </div>
+                    <div className="col-span-6">
+                      <Combobox label="SERVICE SUPPLIERS (REPAIRS / PARTS)"
+                        options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+                        selected={formServiceSupplierIds}
+                        onChange={setFormServiceSupplierIds}
+                        placeholder="Search suppliers..."
+                        hideTags
+                      />
+                    </div>
+                    <Panel variant="outline" padding="xs" className="col-span-6 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-xs uppercase text-grey-light tracking-wider">Storage locations</span>
+                        <button
+                          type="button"
+                          onClick={() => setFormStorageLocations((prev) => [...prev, { sectionId: '', qty: '', notes: '' }])}
+                          className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+                        >
+                          + ADD LOCATION
+                        </button>
+                      </div>
+                      {formStorageLocations.length === 0 && (
+                        <p className="font-mono text-xs text-grey-light">WHERE THIS ITEM IS KEPT — ADD A SECTION PER PLACE (BAR, STOREROOM, KITCHEN).</p>
+                      )}
+                      {formStorageLocations.map((loc, i) => (
+                        <div key={i} className="flex flex-wrap items-center gap-2">
+                          <select
+                            value={loc.sectionId}
+                            onChange={(e) => setFormStorageLocations((prev) => prev.map((x, idx) => (idx === i ? { ...x, sectionId: e.target.value } : x)))}
+                            className="flex-1 min-w-[10rem] bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
+                          >
+                            <option value="">— SECTION —</option>
+                            {sections.map((s) => (
+                              <option key={s.id} value={s.id}>{`${s.department?.name ?? ''} → ${s.name}`}</option>
+                            ))}
+                          </select>
+                          <input
+                            value={loc.qty}
+                            onChange={(e) => setFormStorageLocations((prev) => prev.map((x, idx) => (idx === i ? { ...x, qty: e.target.value } : x)))}
+                            placeholder="QTY"
+                            inputMode="decimal"
+                            className="w-20 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 text-right outline-none focus:border-white placeholder:text-grey-light"
+                          />
+                          <input
+                            value={loc.notes}
+                            onChange={(e) => setFormStorageLocations((prev) => prev.map((x, idx) => (idx === i ? { ...x, notes: e.target.value } : x)))}
+                            placeholder="NOTE (OPTIONAL)"
+                            className="flex-1 min-w-[10rem] bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white placeholder:text-grey-light"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setFormStorageLocations((prev) => prev.filter((_, idx) => idx !== i))}
+                            className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </Panel>
                     <div className="col-span-3">
                       <Input label="SERIAL NUMBER" value={formSerialNumber} onChange={(e) => setFormSerialNumber(e.target.value)} placeholder="SN-12345" />
                     </div>
@@ -844,31 +1019,94 @@ export function InventoryClient() {
             {maintLogs.length > 0 && (
               <div className="border-t border-grey-mid pt-3">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider block mb-2">MAINTENANCE HISTORY</label>
-                <div className="border border-grey-mid max-h-40 overflow-y-auto">
+                <Panel variant="outline" padding="none" className="max-h-40 overflow-y-auto">
                   <table className="w-full text-left">
                     <thead>
                       <tr className="border-b border-grey-mid bg-grey-dark/30">
-                        <th className="font-mono text-[9px] uppercase text-grey-light px-2 py-1">DATE</th>
-                        <th className="font-mono text-[9px] uppercase text-grey-light px-2 py-1">BY</th>
-                        <th className="font-mono text-[9px] uppercase text-grey-light px-2 py-1">NOTE</th>
+                        <th className="font-mono text-xs uppercase text-grey-light px-2 py-1">DATE</th>
+                        <th className="font-mono text-xs uppercase text-grey-light px-2 py-1">BY</th>
+                        <th className="font-mono text-xs uppercase text-grey-light px-2 py-1">NOTE</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-grey-mid/30">
                       {maintLogs.map((l) => (
                         <tr key={l.id}>
-                          <td className="font-mono text-[9px] text-white px-2 py-1 whitespace-nowrap">{String(l.createdAt).slice(0, 10)}</td>
-                          <td className="font-mono text-[9px] text-grey-light px-2 py-1 whitespace-nowrap">{l.staffName || '—'}</td>
-                          <td className="font-mono text-[9px] text-white px-2 py-1">{l.note}</td>
+                          <td className="font-mono text-xs text-white px-2 py-1 whitespace-nowrap">{String(l.createdAt).slice(0, 10)}</td>
+                          <td className="font-mono text-xs text-grey-light px-2 py-1 whitespace-nowrap">{l.staffName || '—'}</td>
+                          <td className="font-mono text-xs text-white px-2 py-1">{l.note}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </Panel>
               </div>
             )}
             <div className="flex gap-2 pt-2">
               <Button onClick={handleSave} disabled={!formName || !formCat}>{isCreating ? 'CREATE' : 'SAVE'}</Button>
               <Button variant="ghost" onClick={() => { setSelectedItem(null); setIsCreating(false); resetForm() }}>CANCEL</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Known-ingredient library picker */}
+      <Modal isOpen={showRefPicker} onClose={() => setShowRefPicker(false)} title="KNOWN INGREDIENTS" size="md">
+        <div className="space-y-3">
+          <Input value={refSearch} onChange={(e) => setRefSearch(e.target.value.toUpperCase())} placeholder="SEARCH LIBRARY..." />
+          <Panel variant="outline" padding="none" className="max-h-[40vh] overflow-y-auto divide-y divide-grey-mid/50">
+            {ingredientRefs.filter((r) => !refSearch || r.name.includes(refSearch)).map((r) => (
+              <div key={r.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-grey-dark/40">
+                <button onClick={() => applyRef(r)} className="flex-1 min-w-0 text-left">
+                  <span className="block font-mono text-xs uppercase text-white truncate">{r.name}</span>
+                  <span className="block font-mono text-xs text-grey-light">{r.notes ?? (r.densityGramsPerMl != null ? `1 CUP ≈ ${Math.round(r.densityGramsPerMl * 250)}G` : r.weightPerUnitGrams != null ? `1 EA ≈ ${r.weightPerUnitGrams}G` : '')}</span>
+                </button>
+                {!r.isBuiltIn && (
+                  <button onClick={() => deleteReference(r.id)} className="font-mono text-xs text-grey-light hover:text-danger shrink-0">✕</button>
+                )}
+              </div>
+            ))}
+            {ingredientRefs.length === 0 && <p className="font-mono text-xs text-grey-light px-2 py-2">LIBRARY EMPTY.</p>}
+          </Panel>
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-mono text-xs text-grey-light flex-1">CLICK A ROW TO APPLY ITS DENSITY TO THIS ITEM.</p>
+            <Button size="sm" onClick={saveAsReference} disabled={!formName.trim() || (formDensity === '' && formCupWeight === '' && formWeightPerUnit === '')}>
+              + SAVE CURRENT AS REFERENCE
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* LLM density helper */}
+      <Modal isOpen={showLlmModal} onClose={() => setShowLlmModal(false)} title="FIND THE DENSITY" size="lg">
+        <div className="space-y-3">
+          <p className="font-mono text-xs text-grey-light leading-relaxed">
+            COPY THE PROMPT BELOW INTO ANY LLM (CHATGPT, CLAUDE, GEMINI...). IT ASKS
+            FOR THE DENSITY OF &quot;{formName.toUpperCase().trim() || 'THIS ITEM'}&quot; — PASTE THE ANSWER BACK
+            AND WE WILL FILL IN THE DENSITY FIELD.
+          </p>
+          <textarea readOnly value={buildDensityPrompt({ itemName: formName.toUpperCase().trim() || 'THIS ITEM' })}
+            onFocus={(e) => e.target.select()}
+            rows={10}
+            className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white resize-y" />
+          <Button size="sm" onClick={async () => {
+            try { await navigator.clipboard.writeText(buildDensityPrompt({ itemName: formName.toUpperCase().trim() || 'THIS ITEM' })) } catch { /* clipboard unavailable */ }
+          }}>COPY PROMPT</Button>
+          <div>
+            <label className="font-mono text-xs uppercase text-grey-light block mb-1">PASTE THE LLM&apos;S ANSWER HERE</label>
+            <textarea value={llmAnswer} onChange={(e) => setLlmAnswer(e.target.value)}
+              rows={6}
+              placeholder={'DENSITY: 0.528 g/mL (ESTIMATE)\n1 CUP: 132 g\n...'}
+              className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light resize-y" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => {
+              const d = parseDensityFromAnswer(llmAnswer)
+              if (d != null) {
+                setFormDensity(String(d)); setFormCupWeight(''); setLlmAnswer(''); setShowLlmModal(false)
+              } else {
+                alert('COULD NOT FIND A DENSITY (G/ML) IN THE ANSWER — TRY AGAIN OR ENTER IT MANUALLY.')
+              }
+            }}>APPLY DENSITY</Button>
+            <Button variant="ghost" size="sm" onClick={() => setShowLlmModal(false)}>CLOSE</Button>
           </div>
         </div>
       </Modal>

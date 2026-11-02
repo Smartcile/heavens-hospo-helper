@@ -11,19 +11,25 @@ describe('Button', () => {
   it('applies primary variant by default', () => {
     const { container } = render(<Button>OK</Button>)
     const btn = container.querySelector('button')
-    expect(btn?.className).toContain('bg-white')
+    expect(btn?.className).toContain('btn-primary')
   })
 
   it('applies ghost variant', () => {
     const { container } = render(<Button variant="ghost">OK</Button>)
     const btn = container.querySelector('button')
-    expect(btn?.className).toContain('bg-transparent')
+    expect(btn?.className).toContain('btn-ghost')
   })
 
   it('applies danger variant', () => {
     const { container } = render(<Button variant="danger">OK</Button>)
     const btn = container.querySelector('button')
-    expect(btn?.className).toContain('text-danger')
+    expect(btn?.className).toContain('btn-danger')
+  })
+
+  it('applies the requested size', () => {
+    const { container } = render(<Button size="lg">OK</Button>)
+    const btn = container.querySelector('button')
+    expect(btn?.className).toContain('btn-lg')
   })
 
   it('disables when loading', () => {

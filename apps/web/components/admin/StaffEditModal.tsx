@@ -14,15 +14,31 @@ interface StaffData {
   id: string; firstName: string; lastName: string; email: string | null; role: string
   venueId: string; departmentId: string | null
   hourlyRate: number | null; employmentType: string | null
+  taxCode: string | null; kiwiSaverRate: number | null; studentLoan: boolean
   swiftPosId: string | null; myHrId: string | null; loadedReportsId: string | null
   sections: { sectionId: string }[]
+  sectionWorkReviews?: { sectionId: string }[]
+  positions?: { positionId: string; hourlyRate: number | null }[]
   staffVenues: { venueId: string }[]
 }
+
+interface PositionOption { id: string; name: string; venueId: string; hourlyRate?: number | null }
 
 const ROLE_OPTIONS = [
   { value: 'STAFF', label: 'STAFF' },
   { value: 'MANAGER', label: 'MANAGER' },
   { value: 'ADMIN', label: 'ADMIN' },
+]
+
+const TAX_CODE_OPTIONS = ['M', 'M SL', 'S', 'S SL', 'SB', 'SB SL', 'SH', 'SH SL', 'ST', 'ST SL', 'CAE', 'CAE SL'].map((c) => ({ value: c, label: c }))
+
+const KIWISAVER_OPTIONS = [
+  { value: '', label: 'NOT ENROLLED' },
+  { value: '3', label: '3%' },
+  { value: '4', label: '4%' },
+  { value: '6', label: '6%' },
+  { value: '8', label: '8%' },
+  { value: '10', label: '10%' },
 ]
 
 export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: string; role: string; onClose: () => void; onSaved: () => void }) {
@@ -32,6 +48,9 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
   const [departments, setDepartments] = useState<Department[]>([])
   const [sections, setSections] = useState<Section[]>([])
   const [sectionIds, setSectionIds] = useState<string[]>([])
+  const [allPositions, setAllPositions] = useState<PositionOption[]>([])
+  const [positionIds, setPositionIds] = useState<string[]>([])
+  const [positionRates, setPositionRates] = useState<Record<string, string>>({})
   const [venueIds, setVenueIds] = useState<string[]>([])
   const [pin, setPin] = useState('')
   const [password, setPassword] = useState('')
@@ -46,10 +65,18 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
       fetch('/api/admin/venues').then((r) => r.json()),
       fetch('/api/admin/departments').then((r) => r.json()),
       fetch('/api/admin/sections').then((r) => r.json()),
-    ]).then(([s, v, d, sec]) => {
+      fetch('/api/admin/positions').then((r) => (r.ok ? r.json() : [])),
+    ]).then(([s, v, d, sec, pos]) => {
       if (!active) return
       setStaff(s)
       setSectionIds((s.sections ?? []).map((x: { sectionId: string }) => x.sectionId))
+      setPositionIds((s.positions ?? []).map((x: { positionId: string }) => x.positionId))
+      setPositionRates(Object.fromEntries(
+        (s.positions ?? [])
+          .filter((x: { hourlyRate: number | null }) => x.hourlyRate != null)
+          .map((x: { positionId: string; hourlyRate: number }) => [x.positionId, String(x.hourlyRate)]),
+      ))
+      setAllPositions(Array.isArray(pos) ? pos : [])
       setVenueIds((s.staffVenues ?? []).map((x: { venueId: string }) => x.venueId))
       setVenues(Array.isArray(v) ? v : [])
       setDepartments(Array.isArray(d) ? d : [])
@@ -64,6 +91,9 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
   }
   function toggleSection(id: string) {
     setSectionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+  function togglePosition(id: string) {
+    setPositionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
   function toggleVenue(id: string) {
     setVenueIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
@@ -82,8 +112,13 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
       firstName: staff.firstName, lastName: staff.lastName,
       email: staff.email || null, departmentId: staff.departmentId || null,
       hourlyRate: staff.hourlyRate, employmentType: staff.employmentType || null,
+      taxCode: staff.taxCode || null, kiwiSaverRate: staff.kiwiSaverRate, studentLoan: staff.studentLoan,
       swiftPosId: staff.swiftPosId || null, myHrId: staff.myHrId || null, loadedReportsId: staff.loadedReportsId || null,
       sectionIds,
+      positions: positionIds.map((positionId) => ({
+        positionId,
+        hourlyRate: positionRates[positionId]?.trim() ? Number(positionRates[positionId]) : null,
+      })),
       venueIds,
     }
     if (pin) body.pin = pin
@@ -99,6 +134,10 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
     ? [{ value: '', label: 'NO DEPARTMENT' }, ...departments.filter((d) => d.venueId === staff.venueId).map((d) => ({ value: d.id, label: d.name }))]
     : []
   const formSections = staff ? sections.filter((s) => s.venueId === staff.venueId) : []
+  const formPositions = staff ? allPositions.filter((p) => p.venueId === staff.venueId) : []
+  const pendingSectionIds = new Set(
+    (staff?.sectionWorkReviews ?? []).map((r) => r.sectionId),
+  )
 
   return (
     <Modal isOpen onClose={onClose} title="EDIT STAFF" size="md">
@@ -111,7 +150,7 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
             <Input label="Last Name" value={staff.lastName} onChange={(e) => patch({ lastName: e.target.value })} placeholder="SMITH" />
           </div>
           {isAdmin && (
-            <Select label="Role" value={staff.role} onChange={(e) => patch({ role: e.target.value })} options={ROLE_OPTIONS} />
+            <Select label="Software Role" value={staff.role} onChange={(e) => patch({ role: e.target.value })} options={ROLE_OPTIONS} />
           )}
           {isAdmin && (
             <Select label="Venue" value={staff.venueId} onChange={(e) => patch({ venueId: e.target.value, departmentId: '' })} options={venues.map((v) => ({ value: v.id, label: v.name }))} placeholder="SELECT VENUE" />
@@ -127,6 +166,18 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
             ]} />
           </div>
 
+          <div className="border-l-4 border-l-grey-mid pl-3 space-y-3">
+            <p className="font-mono text-xs uppercase tracking-wider text-grey-light">NZ PAYROLL</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Select label="Tax Code" value={staff.taxCode ?? ''} onChange={(e) => patch({ taxCode: e.target.value || null })} options={[{ value: '', label: 'VENUE DEFAULT' }, ...TAX_CODE_OPTIONS]} />
+              <Select label="KiwiSaver" value={staff.kiwiSaverRate != null ? String(staff.kiwiSaverRate) : ''} onChange={(e) => patch({ kiwiSaverRate: e.target.value ? Number(e.target.value) : null })} options={KIWISAVER_OPTIONS} />
+            </div>
+            <label className="flex items-center gap-2 font-mono text-xs uppercase text-grey-light cursor-pointer">
+              <input type="checkbox" checked={staff.studentLoan} onChange={(e) => patch({ studentLoan: e.target.checked })} className="accent-white" />
+              STUDENT LOAN (12% WITHHELD)
+            </label>
+          </div>
+
           {formSections.length > 0 && (
             <div className="flex flex-col gap-1">
               <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Sections worked (optional)</label>
@@ -135,6 +186,63 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
                   <button key={s.id} type="button" onClick={() => toggleSection(s.id)} className={`font-mono text-xs px-2 py-1.5 border transition-colors ${sectionIds.includes(s.id) ? 'bg-white text-black border-white' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>{s.name}</button>
                 ))}
               </div>
+              {formSections.some((s) => pendingSectionIds.has(s.id) && !sectionIds.includes(s.id)) && (
+                <div className="flex flex-wrap gap-1">
+                  {formSections
+                    .filter((s) => pendingSectionIds.has(s.id) && !sectionIds.includes(s.id))
+                    .map((s) => (
+                      <span key={`pending-${s.id}`} className="font-mono text-xs uppercase px-2 py-1.5 border border-warning/60 text-warning">
+                        {s.name} · PENDING REVIEW
+                      </span>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {formPositions.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-baseline justify-between gap-2">
+                <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Positions held (optional)</label>
+                <button
+                  type="button"
+                  onClick={() => setPositionIds(
+                    positionIds.length === formPositions.length ? [] : formPositions.map((p) => p.id)
+                  )}
+                  className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors"
+                >
+                  {positionIds.length === formPositions.length ? 'CLEAR ALL' : 'SELECT ALL'}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {formPositions.map((p) => (
+                  <button key={p.id} type="button" onClick={() => togglePosition(p.id)} className={`font-mono text-xs px-2 py-1.5 border transition-colors ${positionIds.includes(p.id) ? 'bg-white text-black border-white' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>{p.name}</button>
+                ))}
+              </div>
+              {positionIds.length > 0 && (
+                <div className="space-y-1.5 mt-2 border-t border-grey-mid pt-2">
+                  <div className="font-mono text-xs uppercase text-grey-light">Per-position rate (blank = position rate, then base)</div>
+                  {positionIds.map((pid) => {
+                    const p = formPositions.find((x) => x.id === pid)
+                    if (!p) return null
+                    return (
+                      <div key={pid} className="flex items-center gap-2">
+                        <span className="font-mono text-xs uppercase text-grey-light w-36 truncate" title={p.name}>{p.name}</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={positionRates[pid] ?? ''}
+                          onChange={(e) => setPositionRates((prev) => ({ ...prev, [pid]: e.target.value }))}
+                          placeholder={p.hourlyRate != null ? String(p.hourlyRate) : 'BASE'}
+                          className="w-24 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 text-right outline-none focus:border-white placeholder:text-grey-light"
+                        />
+                        <span className="font-mono text-xs text-grey-light">/HR</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
 

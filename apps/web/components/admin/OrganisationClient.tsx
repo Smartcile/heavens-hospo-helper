@@ -380,7 +380,7 @@ export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { r
                             {dept.isActive ? 'ON' : 'OFF'}
                           </span>
                           {(dept.linkedTo ?? []).length > 0 && (
-                            <span className="font-mono text-[10px] text-[#60A5FA]">
+                            <span className="font-mono text-xs text-info">
                               LINKED: {(dept.linkedTo ?? []).map((l) => l.toDepartment.name).join(', ')}
                             </span>
                           )}
@@ -405,7 +405,7 @@ export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { r
                                   <div className="w-2 h-2 flex-shrink-0 border border-grey-mid" style={{ backgroundColor: sec.colour }} />
                                 )}
                                 <span className="font-mono text-xs uppercase text-white">{sec.name}</span>
-                                {!sec.isActive && <span className="font-mono text-[10px] text-danger">OFF</span>}
+                                {!sec.isActive && <span className="font-mono text-xs text-danger">OFF</span>}
                               </div>
                               <div className="flex items-center gap-2 flex-shrink-0">
                                 <button onClick={() => openSecEdit(sec, dept.id)}
@@ -468,7 +468,7 @@ export function OrganisationClient({ role, sessionVenueId, defaultVenueId }: { r
           {deptEditing && (
             <div>
               <label className="font-mono text-xs uppercase text-grey-light tracking-wider mb-1 block">LINKED DEPARTMENTS</label>
-              <p className="font-mono text-[10px] text-grey-light mb-2">
+              <p className="font-mono text-xs text-grey-light mb-2">
                 TASKS AND CHECKLISTS FROM LINKED DEPARTMENTS WILL ALSO SHOW FOR THIS DEPARTMENT&apos;S STAFF.
               </p>
 

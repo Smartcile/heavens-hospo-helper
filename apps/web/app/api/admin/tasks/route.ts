@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
+import { guardAccess } from '@/lib/permissions'
+import { normaliseOutcomes } from '@/lib/task-outcomes'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.tasks.view')
+  if (denied) return denied
 
   const { searchParams } = new URL(req.url)
   const venueId = searchParams.get('venueId')
@@ -34,20 +38,35 @@ export async function GET(req: NextRequest) {
     include: {
       department: { select: { id: true, name: true, colour: true } },
       section: { select: { id: true, name: true } },
+      sections: { select: { sectionId: true } },
       requiredTraining: { select: { moduleId: true, module: { select: { kind: true } } } },
-      taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
+      taskGuides: {
+        select: { guideId: true, isRequiredForCompetency: true, guide: { select: { id: true, title: true } } },
+      },
       trainingModules: { select: { kind: true } }, // modules whose how-to is this task
+      progress: {
+        select: {
+          note: true,
+          outcome: true,
+          updatedAt: true,
+          staff: { select: { firstName: true, lastName: true } },
+        },
+      },
       _count: { select: { checklistLinks: true } },
     },
     orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
   })
 
-  return NextResponse.json(tasks)
+  return NextResponse.json(
+    tasks.map((t) => ({ ...t, sectionIds: t.sections.map((s) => s.sectionId) })),
+  )
 }
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.tasks.create')
+  if (denied) return denied
 
   const body = await req.json()
   const {
@@ -56,6 +75,7 @@ export async function POST(req: NextRequest) {
     venueId,
     departmentId,
     sectionId,
+    sectionIds,
     assignedToStaffId,
     completionType,
     scheduleType,
@@ -66,16 +86,32 @@ export async function POST(req: NextRequest) {
     monthlyDay,
     requiredTrainingIds,
     competencyGuideIds,
+    status,
+    hsCategory,
+    linkedItemId,
+    readingUnit,
+    readingMin,
+    readingMax,
+    criticalMin,
+    criticalMax,
+    allowedOutcomes,
+    overrideOutcomes,
+    requireOutcomeReason,
   } = body
 
   if (!title?.trim() || !venueId) {
     return NextResponse.json({ error: 'Title and venueId are required' }, { status: 400 })
   }
 
-  // A section implies its department — keep them consistent.
+  // A task can cover several sections; the first is the primary (drives the
+  // department and the classic sectionId field), all are stored as TaskSection.
+  const sectionSet: string[] = Array.isArray(sectionIds) && sectionIds.length
+    ? [...new Set(sectionIds as string[])]
+    : sectionId ? [sectionId] : []
+  const primarySectionId = sectionSet[0] ?? null
   let finalDepartmentId: string | null = departmentId ?? null
-  if (sectionId) {
-    const section = await prisma.section.findFirst({ where: { id: sectionId, deletedAt: null }, select: { departmentId: true } })
+  if (primarySectionId) {
+    const section = await prisma.section.findFirst({ where: { id: primarySectionId, deletedAt: null }, select: { departmentId: true } })
     if (section) finalDepartmentId = section.departmentId
   }
 
@@ -93,7 +129,8 @@ export async function POST(req: NextRequest) {
       description: description?.trim() ?? null,
       venueId,
       departmentId: finalDepartmentId,
-      sectionId: sectionId || null,
+      sectionId: primarySectionId,
+      sections: sectionSet.length ? { create: sectionSet.map((sectionId) => ({ sectionId })) } : undefined,
       assignedToStaffId: assignedToStaffId ?? null,
       completionType: completionType ?? 'TICK',
       scheduleType: scheduleType ?? 'DAILY',
@@ -103,6 +140,17 @@ export async function POST(req: NextRequest) {
       monthlyOption: scheduleType === 'MONTHLY' ? (monthlyOption ?? 'FIRST_DAY') : null,
       monthlyDay: scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? (Number(monthlyDay) || 1) : null,
       sortOrder: (maxSort?.sortOrder ?? -1) + 1,
+      status: status ?? 'ACTIVE',
+      hsCategory: hsCategory ?? null,
+      linkedItemId: linkedItemId || null,
+      readingUnit: readingUnit ?? null,
+      readingMin: readingMin != null && Number.isFinite(readingMin) ? Number(readingMin) : null,
+      readingMax: readingMax != null && Number.isFinite(readingMax) ? Number(readingMax) : null,
+      criticalMin: criticalMin != null && Number.isFinite(criticalMin) ? Number(criticalMin) : null,
+      criticalMax: criticalMax != null && Number.isFinite(criticalMax) ? Number(criticalMax) : null,
+      allowedOutcomes: normaliseOutcomes(allowedOutcomes),
+      overrideOutcomes: !!overrideOutcomes,
+      requireOutcomeReason: !!requireOutcomeReason,
       requiredTraining: { create: reqIds.map((moduleId) => ({ moduleId })) },
       taskGuides: Array.isArray(competencyGuideIds) && competencyGuideIds.length
         ? { create: competencyGuideIds.map((guideId: string) => ({ guideId, isRequiredForCompetency: true })) }

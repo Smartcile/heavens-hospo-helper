@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { Modal } from '@/components/ui/Modal'
 import { TaskEditModal } from '@/components/admin/TaskEditModal'
-import { TrainingEditModal } from '@/components/admin/TrainingEditModal'
 import { StaffEditModal } from '@/components/admin/StaffEditModal'
+import { thumbUrl } from '@/lib/image-thumb'
 
 const StructureGraph = dynamic(
   () => import('@/components/admin/StructureGraph').then((m) => m.StructureGraph),
@@ -16,7 +16,7 @@ interface StaffNode { id: string; name: string; role: string }
 interface TaskLink { label: string; colour: string; kind: string; targetId: string; targetType: string; targetSub: string }
 interface TaskNode { id: string; title: string; schedule: string; active: boolean; scope: string; assignee: string | null; links?: TaskLink[] }
 interface TrainingNode { id: string; title: string; kind: string; signOff: boolean; linkedToTask: boolean }
-interface SectionNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; floorPlan?: { tables: number; chairs: number; equip: number }; inventoryItems?: { id: string; name: string; unit: string; storageNotes: string | null; totalQty: number; imageUrls: string[] | null }[] }
+interface SectionNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; training?: TrainingNode[]; floorPlan?: { tables: number; chairs: number; equip: number }; inventoryItems?: { id: string; name: string; unit: string; storageNotes: string | null; totalQty: number; imageUrls: string[] | null }[] }
 interface DeptNode { id: string; name: string; colour: string | null; staff: StaffNode[]; tasks: TaskNode[]; training: TrainingNode[]; sections: SectionNode[]; linkedDepartments?: { id: string; name: string; colour: string | null }[] }
 interface VenueNode {
   id: string
@@ -31,12 +31,12 @@ function Chevron({ open }: { open: boolean }) {
 }
 
 function Count({ children }: { children: React.ReactNode }) {
-  return <span className="font-mono text-[10px] uppercase text-grey-light border border-grey-mid px-1.5 py-0.5">{children}</span>
+  return <span className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1.5 py-0.5">{children}</span>
 }
 
 function ScopeTag({ scope }: { scope: string }) {
   const cls = scope === 'PERSON' ? 'text-accent' : scope === 'DEPARTMENT' ? 'text-success' : 'text-grey-light'
-  return <span className={`font-mono text-[10px] uppercase ${cls}`}>{scope}</span>
+  return <span className={`font-mono text-xs uppercase ${cls}`}>{scope}</span>
 }
 
 export function StructureClient({ role }: { role: string }) {
@@ -77,7 +77,7 @@ export function StructureClient({ role }: { role: string }) {
       for (const d of v.departments) {
         keys.push(`d:${d.id}`, `ds:${d.id}`, `dt:${d.id}`, `dr:${d.id}`)
         for (const sec of d.sections) {
-          keys.push(`s:${sec.id}`, `ss:${sec.id}`, `st:${sec.id}`, `sf:${sec.id}`, `si:${sec.id}`)
+          keys.push(`s:${sec.id}`, `ss:${sec.id}`, `st:${sec.id}`, `sr:${sec.id}`, `sf:${sec.id}`, `si:${sec.id}`)
         }
       }
     }
@@ -106,7 +106,7 @@ export function StructureClient({ role }: { role: string }) {
             className={`font-mono text-xs text-white py-1 flex items-center gap-2 ${editMode ? 'cursor-pointer hover:bg-grey-mid/20 -mx-2 px-2' : ''}`}
           >
             <span>{s.name} <span className="text-grey-light">· {s.role}</span></span>
-            {editMode && <span className="ml-auto font-mono text-[10px] uppercase text-accent">EDIT</span>}
+            {editMode && <span className="ml-auto font-mono text-xs uppercase text-accent">EDIT</span>}
           </div>
         ))}
       </div>
@@ -123,21 +123,21 @@ export function StructureClient({ role }: { role: string }) {
           >
             <span className={t.active ? '' : 'text-grey-light line-through'}>{t.title}</span>
             <ScopeTag scope={t.scope} />
-            <span className="text-grey-light text-[10px] uppercase">{t.schedule}</span>
-            {t.assignee && <span className="text-accent text-[10px]">→ {t.assignee}</span>}
+            <span className="text-grey-light text-xs uppercase">{t.schedule}</span>
+            {t.assignee && <span className="text-accent text-xs">→ {t.assignee}</span>}
             {(t.links ?? []).map((l, i) => (
               <button
                 key={i}
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setConnection({ task: t, link: l }) }}
-                className="inline-flex items-center gap-1 font-mono text-[10px] uppercase px-1.5 py-0.5 border-l-2 hover:bg-grey-mid/30 transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1 font-mono text-xs uppercase px-1.5 py-0.5 border-l-2 hover:bg-grey-mid/30 transition-colors cursor-pointer"
                 style={{ borderColor: l.colour, color: l.colour }}
                 title={`${l.kind === 'requires' ? 'REQUIRES TRAINING' : l.kind === 'how-to' ? 'HOW-TO GUIDE' : 'IN LIST'}: ${l.label} — CLICK FOR DETAILS`}
               >
                 {l.kind === 'requires' ? '⊢ ' : l.kind === 'how-to' ? '↳ ' : '☰ '}{l.label}
               </button>
             ))}
-            {editMode && <span className="ml-auto font-mono text-[10px] uppercase text-accent">EDIT</span>}
+            {editMode && <span className="ml-auto font-mono text-xs uppercase text-accent">EDIT</span>}
           </div>
         ))}
       </div>
@@ -149,14 +149,14 @@ export function StructureClient({ role }: { role: string }) {
         {items.map((t) => (
           <div
             key={t.id}
-            onClick={editMode ? () => setEditTarget({ type: 'training', id: t.id }) : undefined}
+            onClick={editMode ? () => window.open(`/admin/guides?guide=${t.id}`, '_blank') : undefined}
             className={`font-mono text-xs text-white flex flex-wrap items-center gap-2 py-1 ${editMode ? 'cursor-pointer hover:bg-grey-mid/20 -mx-2 px-2' : ''}`}
           >
             {t.title}
-            <span className="text-grey-light text-[10px] uppercase">{t.kind}</span>
-            {t.signOff && <span className="text-warning text-[10px] uppercase">sign-off</span>}
-            {t.linkedToTask && <span className="text-success text-[10px] uppercase">↔ task</span>}
-            {editMode && <span className="ml-auto font-mono text-[10px] uppercase text-accent">EDIT</span>}
+            <span className="text-grey-light text-xs uppercase">{t.kind}</span>
+            {t.signOff && <span className="text-warning text-xs uppercase">sign-off</span>}
+            {t.linkedToTask && <span className="text-success text-xs uppercase">↔ task</span>}
+            {editMode && <span className="ml-auto font-mono text-xs uppercase text-accent">EDIT</span>}
           </div>
         ))}
       </div>
@@ -230,7 +230,7 @@ export function StructureClient({ role }: { role: string }) {
                     {/* Venue-wide bucket */}
                     {vwTotal > 0 && (
                       <div className="border-l-2 border-grey-mid pl-3">
-                        <div className="font-mono text-[10px] uppercase tracking-widest text-grey-light mb-1">VENUE-WIDE (NO DEPARTMENT)</div>
+                        <div className="font-mono text-xs uppercase tracking-widest text-grey-light mb-1">VENUE-WIDE (NO DEPARTMENT)</div>
                         <Group k={`vws:${v.id}`} label="Staff" count={v.venueWide.staff.length} />
                         {isOpen(`vws:${v.id}`) && <StaffList items={v.venueWide.staff} />}
                         <Group k={`vwt:${v.id}`} label="Tasks" count={v.venueWide.tasks.length} />
@@ -252,7 +252,7 @@ export function StructureClient({ role }: { role: string }) {
                               {d.colour && <span className="inline-block w-2.5 h-2.5 border border-grey-mid" style={{ backgroundColor: d.colour }} />}
                               {d.name}
                               {d.linkedDepartments && d.linkedDepartments.length > 0 && (
-                                <span className="font-mono text-[9px] text-[#60A5FA] normal-case">
+                                <span className="font-mono text-xs text-info normal-case">
                                   → {d.linkedDepartments.map((l) => l.name).join(', ')}
                                 </span>
                               )}
@@ -268,12 +268,12 @@ export function StructureClient({ role }: { role: string }) {
                             <div className="pl-5 py-1 space-y-1">
                               {/* Sections within this department */}
                               {d.sections.length === 0 ? (
-                                <div className="font-mono text-[10px] uppercase text-grey-light italic">NO SECTIONS YET — ADD UNDER SECTIONS</div>
+                                <div className="font-mono text-xs uppercase text-grey-light italic">NO SECTIONS YET — ADD UNDER SECTIONS</div>
                               ) : (
                                 d.sections.map((sec) => (
                                   <div key={sec.id} className="border-l-2 pl-3" style={{ borderColor: sec.colour ?? '#6B6B6B' }}>
                                     <button onClick={() => toggle(`s:${sec.id}`)} className="w-full flex items-center justify-between gap-2 py-0.5 text-left">
-                                      <span className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-white">
+                                      <span className="flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-white">
                                         <Chevron open={isOpen(`s:${sec.id}`)} />
                                         {sec.colour && <span className="inline-block w-2 h-2 border border-grey-mid" style={{ backgroundColor: sec.colour }} />}
                                         {sec.name}
@@ -293,6 +293,12 @@ export function StructureClient({ role }: { role: string }) {
                                         <Group k={`st:${sec.id}`} label="Tasks" count={sec.tasks.length} />
                                         {isOpen(`st:${sec.id}`) && <TaskList items={sec.tasks} />
                                         }
+                                        {(sec.training ?? []).length > 0 && (
+                                          <>
+                                            <Group k={`sr:${sec.id}`} label="Guides" count={sec.training!.length} />
+                                            {isOpen(`sr:${sec.id}`) && <TrainingList items={sec.training!} />}
+                                          </>
+                                        )}
                                         {(sec.inventoryItems ?? []).length > 0 && (
                                           <>
                                             <Group k={`si:${sec.id}`} label="Stored Items" count={sec.inventoryItems!.length} />
@@ -302,11 +308,11 @@ export function StructureClient({ role }: { role: string }) {
                                                   <div key={inv.id} className="flex items-center gap-2 py-1 font-mono text-xs text-white">
                                                     {inv.imageUrls && Array.isArray(inv.imageUrls) && inv.imageUrls.length > 0 && (
                                                       // eslint-disable-next-line @next/next/no-img-element
-                                                      <img src={inv.imageUrls[0]} alt={inv.name} className="w-5 h-5 object-cover border border-grey-mid" />
+                                                      <img src={thumbUrl(inv.imageUrls[0], 96) ?? inv.imageUrls[0]} alt={inv.name} loading="lazy" decoding="async" className="w-5 h-5 object-cover border border-grey-mid" />
                                                     )}
                                                     <span>{inv.name}</span>
-                                                    <span className="text-grey-light text-[10px]">{inv.unit} · QTY {inv.totalQty}</span>
-                                                    {inv.storageNotes && <span className="text-grey-light text-[10px] truncate max-w-[200px]">{inv.storageNotes}</span>}
+                                                    <span className="text-grey-light text-xs">{inv.unit} · QTY {inv.totalQty}</span>
+                                                    {inv.storageNotes && <span className="text-grey-light text-xs truncate max-w-[200px]">{inv.storageNotes}</span>}
                                                   </div>
                                                 ))}
                                               </div>
@@ -318,8 +324,8 @@ export function StructureClient({ role }: { role: string }) {
                                             <Group k={`sf:${sec.id}`} label="Floor Plan" count={sec.floorPlan.tables + sec.floorPlan.chairs} />
                                             {isOpen(`sf:${sec.id}`) && (
                                               <div className="pl-5 space-y-0.5">
-                                                <div className="font-mono text-[10px] text-white">{sec.floorPlan.tables} TABLES{sec.floorPlan.tables > 0 ? ` · ${sec.floorPlan.equip} EQUIPMENT ITEMS` : ''}</div>
-                                                <div className="font-mono text-[10px] text-white">{sec.floorPlan.chairs} CHAIRS</div>
+                                                <div className="font-mono text-xs text-white">{sec.floorPlan.tables} TABLES{sec.floorPlan.tables > 0 ? ` · ${sec.floorPlan.equip} EQUIPMENT ITEMS` : ''}</div>
+                                                <div className="font-mono text-xs text-white">{sec.floorPlan.chairs} CHAIRS</div>
                                               </div>
                                             )}
                                           </>
@@ -351,14 +357,11 @@ export function StructureClient({ role }: { role: string }) {
       )}
 
       {role === 'MANAGER' && (
-        <p className="font-mono text-[10px] text-grey-light">SHOWING YOUR VENUE ONLY.</p>
+        <p className="font-mono text-xs text-grey-light">SHOWING YOUR VENUE ONLY.</p>
       )}
 
       {editTarget?.type === 'task' && (
         <TaskEditModal taskId={editTarget.id} role={role} onClose={() => setEditTarget(null)} onSaved={() => { setEditTarget(null); load() }} />
-      )}
-      {editTarget?.type === 'training' && (
-        <TrainingEditModal moduleId={editTarget.id} onClose={() => setEditTarget(null)} onSaved={() => { setEditTarget(null); load() }} />
       )}
       {editTarget?.type === 'staff' && (
         <StaffEditModal staffId={editTarget.id} role={role} onClose={() => setEditTarget(null)} onSaved={() => { setEditTarget(null); load() }} />
@@ -368,9 +371,9 @@ export function StructureClient({ role }: { role: string }) {
         {connection && (() => {
           const { task, link } = connection
           const meta = link.kind === 'requires'
-            ? { title: 'REQUIRES TRAINING', desc: 'This task can only be completed by staff who hold this training (competency). Staff without it are flagged for follow-up.', from: task.title, arrow: 'REQUIRES', to: link.label, href: `/admin/training?module=${link.targetId}` }
+            ? { title: 'REQUIRES TRAINING', desc: 'This task can only be completed by staff who hold this training (competency). Staff without it are flagged for follow-up.', from: task.title, arrow: 'REQUIRES', to: link.label, href: `/admin/guides?guide=${link.targetId}` }
             : link.kind === 'how-to'
-            ? { title: 'HOW-TO GUIDE', desc: 'This training/SOP is the how-to guide for the task. It surfaces alongside the task so staff can learn how to do it.', from: link.label, arrow: 'GUIDES', to: task.title, href: `/admin/training?module=${link.targetId}` }
+            ? { title: 'HOW-TO GUIDE', desc: 'This training/SOP is the how-to guide for the task. It surfaces alongside the task so staff can learn how to do it.', from: link.label, arrow: 'GUIDES', to: task.title, href: `/admin/guides?guide=${link.targetId}` }
             : { title: 'IN CHECKLIST', desc: 'This task is part of the checklist. Editing the task updates it everywhere the checklist is used.', from: link.label, arrow: 'INCLUDES', to: task.title, href: `/admin/tasks` }
           return (
             <div className="space-y-4">
@@ -380,14 +383,14 @@ export function StructureClient({ role }: { role: string }) {
               </div>
               <div className="border border-grey-mid divide-y divide-grey-mid">
                 <div className="px-3 py-2 font-mono text-xs text-white uppercase">{meta.from}</div>
-                <div className="px-3 py-1 font-mono text-[10px] uppercase tracking-widest" style={{ color: link.colour }}>↓ {meta.arrow}</div>
+                <div className="px-3 py-1 font-mono text-xs uppercase tracking-widest" style={{ color: link.colour }}>↓ {meta.arrow}</div>
                 <div className="px-3 py-2 font-mono text-xs text-white uppercase">{meta.to}</div>
               </div>
               <p className="font-mono text-xs text-grey-light">{meta.desc}</p>
               <div className="border-l-2 pl-3 py-1 space-y-0.5" style={{ borderColor: link.colour }}>
-                <div className="font-mono text-[10px] uppercase tracking-wider text-grey-light">YOU CLICKED · {link.targetType}</div>
+                <div className="font-mono text-xs uppercase tracking-wider text-grey-light">YOU CLICKED · {link.targetType}</div>
                 <div className="font-mono text-xs text-white uppercase">{link.label}</div>
-                <div className="font-mono text-[10px] uppercase text-grey-light">{link.targetSub}</div>
+                <div className="font-mono text-xs uppercase text-grey-light">{link.targetSub}</div>
               </div>
               <div className="flex gap-2 pt-1">
                 <a href={meta.href} target="_blank" rel="noreferrer" className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-white hover:border-white transition-colors">OPEN ↗</a>
