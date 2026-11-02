@@ -4,7 +4,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
 import { WorkerAvailabilityClient } from '@/components/worker/WorkerAvailabilityClient'
-import { keyOfDay, MONTH_ABBR, parseDay, shiftMonth } from '@/lib/date-nav'
+import { keyOfDay, parseDay } from '@/lib/date-nav'
 import { DEFAULT_AVAILABILITY_PRESETS } from '@/lib/availability'
 
 const todayKey = keyOfDay(new Date())
@@ -259,53 +259,32 @@ describe('WorkerAvailabilityClient', () => {
     })
   })
 
-  it('bulk clears selected days with THIS scope after confirmation', async () => {
-    useMonthView()
-    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (_url: unknown, init?: RequestInit) => {
-      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({ mode: 'SAVED', skipped: [] }) } as Response
-      return { ok: true, status: 200, json: async () => payload } as Response
-    })
-
-    render(<WorkerAvailabilityClient />)
-    await screen.findByText('MY AVAILABILITY')
-
-    fireEvent.click(screen.getByText('SELECT DAYS'))
-    fireEvent.click(screen.getByText(String(parseDay(todayKey).getUTCDate())))
-    expect(screen.getByText('1 SELECTED')).toBeDefined()
-
-    fireEvent.click(screen.getByText('CLEAR'))
-    await screen.findByText('CLEAR SELECTED DAYS')
-    const clears = screen.getAllByRole('button', { name: 'CLEAR' })
-    fireEvent.click(clears[clears.length - 1])
-
-    await waitFor(() => {
-      const post = spy.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')
-      expect(post).toBeDefined()
-      expect(String(post![0])).toBe('/api/worker/availability/clear')
-      const body = JSON.parse((post![1] as RequestInit).body as string)
-      expect(body).toMatchObject({ date: todayKey, scope: 'THIS' })
-    })
-    expect(await screen.findByText(/1 DAY CLEARED/)).toBeDefined()
-  })
-
-  it('shift-click selects a contiguous day range', async () => {
+  it('does not offer a worker clear action on the page or in the editor', async () => {
     useMonthView()
     vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => payload } as Response)
 
     render(<WorkerAvailabilityClient />)
     await screen.findByText('MY AVAILABILITY')
 
-    const now = parseDay(todayKey)
-    const next = shiftMonth(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)
+    expect(screen.queryByText('SELECT DAYS')).toBeNull()
 
-    fireEvent.click(screen.getByText('SELECT DAYS'))
-    fireEvent.click(screen.getByText('>'))
-    // Wait for the next month's grid (the load is async) before selecting.
-    await screen.findByText(`${MONTH_ABBR[next.month - 1]} ${next.year}`)
-    fireEvent.click(screen.getByText('1'))
-    fireEvent.click(screen.getByText('3'), { shiftKey: true })
+    fireEvent.click(screen.getByText(String(parseDay(todayKey).getUTCDate())))
+    expect(await screen.findByText('TIME OFF REQUEST')).toBeDefined()
+    expect(screen.queryByText('CLEAR')).toBeNull()
+    expect(screen.queryByText('CLEAR SELECTED DAYS')).toBeNull()
+  })
 
-    expect(screen.getByText('3 SELECTED')).toBeDefined()
+  it('shift-click still opens the day editor instead of selecting days', async () => {
+    useMonthView()
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => payload } as Response)
+
+    render(<WorkerAvailabilityClient />)
+    await screen.findByText('MY AVAILABILITY')
+
+    fireEvent.click(screen.getByText(String(parseDay(todayKey).getUTCDate())), { shiftKey: true })
+
+    expect(await screen.findByText('TIME OFF REQUEST')).toBeDefined()
+    expect(screen.queryByText(/SELECTED/)).toBeNull()
   })
   it('does not offer drag-copy on a filled editable day', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => payload } as Response)

@@ -408,6 +408,56 @@ export function addWindow(windows: AvailabilityWindow[], next: AvailabilityWindo
   return autoComplement([...trimmed, next])
 }
 
+/** Same window list, in the same order. */
+function sameWindows(a: AvailabilityWindow[], b: AvailabilityWindow[]): boolean {
+  return a.length === b.length && a.every((w, i) =>
+    w.type === b[i].type && w.startTime === b[i].startTime && w.endTime === b[i].endTime)
+}
+
+/**
+ * Add a window from the editor's `+ ADD WINDOW` button, so the button still
+ * yields an editable row. A plain `addWindow` silently returns the same list
+ * when the requested window is already AVAILABLE (e.g. the usual
+ * 00:00–09:00 / 09:00–17:00 / 17:00–24:00 full-day partition), which made the
+ * button look dead. In that case split the covering AVAILABLE block so a new,
+ * independently editable row appears without changing what the day means.
+ */
+export function addWorkingWindow(
+  windows: AvailabilityWindow[],
+  preferred: AvailabilityWindow = { type: 'AVAILABLE', startTime: '09:00', endTime: '17:00' },
+): AvailabilityWindow[] {
+  const before = normaliseWindows(windows)
+  const added = addWindow(before, preferred)
+  if (!sameWindows(before, added)) return added
+
+  const preferredStart = minutesOfTime(preferred.startTime)
+  const preferredEnd = minutesOfTime(preferred.endTime)
+  let index = before.findIndex((w) =>
+    w.type === 'AVAILABLE'
+    && minutesOfTime(w.startTime) <= preferredStart
+    && minutesOfTime(w.endTime) >= preferredEnd)
+  if (index < 0) index = before.findIndex((w) => w.type === 'AVAILABLE')
+  if (index < 0) return added
+
+  const target = before[index]
+  const start = minutesOfTime(target.startTime)
+  const end = minutesOfTime(target.endTime)
+  if (end - start < SLOT_MINUTES * 2) return added
+
+  let mid = Math.floor(((start + end) / 2) / SLOT_MINUTES) * SLOT_MINUTES
+  if (mid <= start) mid = start + SLOT_MINUTES
+  if (mid >= end) mid = end - SLOT_MINUTES
+
+  const next = [...before]
+  next.splice(
+    index,
+    1,
+    { ...target, endTime: fromMinutes(mid) },
+    { ...target, startTime: fromMinutes(mid) },
+  )
+  return next
+}
+
 /**
  * Edit a window in a PARTITION (a list that covers the day, e.g. the
  * 00:00–09:00 / 09:00–17:00 / 17:00–24:00 shape) by moving the boundary with
@@ -446,6 +496,16 @@ export function removeWindow(windows: AvailabilityWindow[], index: number): Avai
 /** A partition (an AVAILABLE window exists) cannot drop its gap windows. */
 export function windowsArePartition(windows: AvailabilityWindow[]): boolean {
   return windows.some((w) => w.type === 'AVAILABLE')
+}
+
+/**
+ * True when the list is already its normalised shape. `addWorkingWindow` can
+ * deliberately return two adjacent AVAILABLE rows so a full day gains an
+ * editable row; those are NOT a partition for editing purposes — an edit must
+ * go through `addWindow`, not `spliceWindow` (which would merge them back).
+ */
+export function windowsAreNormalised(windows: AvailabilityWindow[]): boolean {
+  return sameWindows(normaliseWindows(windows), windows)
 }
 
 /** "07:00–15:00" for one window. */

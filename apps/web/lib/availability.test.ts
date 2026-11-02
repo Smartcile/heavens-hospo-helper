@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   addWindow,
+  addWorkingWindow,
   approvalLockFields,
   autoComplement,
   availabilityMeta,
@@ -47,6 +48,7 @@ import {
   statusMeta,
   summariseSeries,
   weeksForSeries,
+  windowsAreNormalised,
   windowsArePartition,
   windowsOverlap,
   type AvailabilityEntry,
@@ -384,6 +386,71 @@ describe('addWindow / removeWindow', () => {
   it('identifies a full partition', () => {
     expect(windowsArePartition([w('UNAVAILABLE', '12:00', '14:00')])).toBe(false)
     expect(windowsArePartition([w('AVAILABLE', '12:00', '14:00')])).toBe(true)
+  })
+})
+
+describe('addWorkingWindow', () => {
+  it('behaves like addWindow when the preferred window is not already covered', () => {
+    expect(addWorkingWindow([])).toEqual(addWindow([], w('AVAILABLE', '09:00', '17:00')))
+  })
+
+  it('adds an editable row instead of no-oping on a full-day partition', () => {
+    const partition = [
+      w('UNAVAILABLE', '00:00', '09:00'),
+      w('AVAILABLE', '09:00', '17:00'),
+      w('UNAVAILABLE', '17:00', '24:00'),
+    ]
+
+    const next = addWorkingWindow(partition)
+
+    expect(next).toHaveLength(4)
+    expect(next.filter((x) => x.type === 'AVAILABLE')).toEqual([
+      w('AVAILABLE', '09:00', '13:00'),
+      w('AVAILABLE', '13:00', '17:00'),
+    ])
+    // Availability is unchanged — only the row count/editing shape is.
+    expect(freeWindows({ isAllDay: false, windows: next })).toEqual([
+      w('AVAILABLE', '09:00', '17:00'),
+    ])
+  })
+
+  it('splits a fully available day so the button always does something', () => {
+    const next = addWorkingWindow([w('AVAILABLE', '00:00', '24:00')])
+
+    expect(next).toEqual([
+      w('AVAILABLE', '00:00', '12:00'),
+      w('AVAILABLE', '12:00', '24:00'),
+    ])
+  })
+
+  it('never produces a zero-length split', () => {
+    const tiny = w('AVAILABLE', '09:00', '09:15')
+    const partition = [
+      w('UNAVAILABLE', '00:00', '09:00'),
+      tiny,
+      w('UNAVAILABLE', '09:15', '24:00'),
+    ]
+    expect(addWorkingWindow(partition, tiny)).toEqual(partition)
+  })
+
+  it('adds a preset to an unavailable-only day normally', () => {
+    expect(addWorkingWindow([w('UNAVAILABLE', '12:00', '14:00')])).toEqual([
+      w('UNAVAILABLE', '00:00', '09:00'),
+      w('AVAILABLE', '09:00', '17:00'),
+      w('UNAVAILABLE', '17:00', '24:00'),
+    ])
+  })
+
+  it('marks a same-type split as not normalised', () => {
+    expect(windowsAreNormalised([
+      w('AVAILABLE', '09:00', '13:00'),
+      w('AVAILABLE', '13:00', '17:00'),
+    ])).toBe(false)
+    expect(windowsAreNormalised([
+      w('UNAVAILABLE', '00:00', '09:00'),
+      w('AVAILABLE', '09:00', '17:00'),
+      w('UNAVAILABLE', '17:00', '24:00'),
+    ])).toBe(true)
   })
 })
 

@@ -580,7 +580,7 @@ today, only the free time still ahead of the current clock. Prisma work in
 `lib/availability.server.ts` (23 tests — plan→execute model, cut-off gate). Workers declare at
 `/w/availability` (`WorkerAvailabilityClient` + shared
 `components/availability/`). AVAILABLE-only days auto-approve and stay editable;
-any change/clear touching an APPROVED UNAVAILABLE/time-off row is stored as an
+any worker change touching an APPROVED UNAVAILABLE/time-off row is stored as an
 `AvailabilityEditRequest` (scope THIS/FROM/ALL) for a manager to APPLY or
 DISCARD. A **THIS** edit on a series day **detaches** it: the row is written
 with `seriesId: null` as a standalone day, so later FROM/ALL changes to the
@@ -598,8 +598,9 @@ its stored plan. FILTER STAFF narrows the grid only (never the approvals queue)
 and groups with no matching staff are hidden. Notes show on worker month/week
 cells, the admin grid, edit-request previews and worker pending-request cards.
 Routes: `/api/admin/availability` (+ `/clear`, `/review`, `/[id]` PATCH
-notes/lock, `/requests/[id]`), `/api/worker/availability` (+ `/clear`, `/[id]`
-PATCH notes + DELETE, `/requests/[id]`). Guards:
+notes/lock, `/requests/[id]`), `/api/worker/availability` (`/[id]` PATCH notes;
+the worker `/clear` and `/[id]` DELETE both return 403 — clearing is a manager
+action — plus `/requests/[id]`). Guards:
 `team.availability.view|edit|approve`.
 
 **Day-level lock (#12/#14)** — `StaffAvailability.lockedAt` / `lockedById` /
@@ -610,7 +611,7 @@ locked, and applying an admin override opened from a declaration/request sends
 `lock: true`. A plain grid override does not change the lock; auto-approved
 pure-AVAILABLE worker saves never lock. A locked day:
 
-- files a worker save/clear as an `AvailabilityEditRequest` (same path as an
+- files a worker save as an `AvailabilityEditRequest` (same path as an
   approved block-out) — see `rowsTouchedByPlan` in `lib/availability.server.ts`;
 - is **stripped** from admin writes and reported in `skipped`; a single-day
   write that only touched locked dates returns 409 `{ error: 'LOCKED — UNLOCK FIRST', locked: [...] }`;
@@ -624,21 +625,30 @@ The shared `AvailabilityDayEditor` renders locked days read-only for admins
 (`LOCKED — UNLOCK TO EDIT`, `SAVE NOTE`, `UNLOCK`) and lets workers submit a
 change request (`SEND CHANGE REQUEST`).
 
-**Worker series edits (#20) + bulk clear (#13) + weekly default (#7) +
-in-place refresh (#16)** — worker writes pass `forceScopeThis: true`, so a
-series edit/clear always detaches **just the clicked day** (`seriesId: null`,
+**Worker series edits (#20) + admin bulk clear (#13) + weekly default (#7) +
+in-place refresh (#16)** - worker writes pass `forceScopeThis: true`, so a
+series edit always detaches **just the clicked day** (`seriesId: null`,
 `syncSeriesId` keeps the remaining series end correct); the worker editor hides
-FROM/ALL and CHANGE SERIES END and says `THIS DAY LEAVES THE SERIES`. Both
-availability grids support **bulk clear**: admins shift-click a range on one
-staff row (or use `SELECT DAYS`), workers use `SELECT DAYS` on mobile or
-shift-click on desktop, then `CLEAR SELECTED (n)` with confirmation; clearing
-loops the existing `/clear` route one day at a time with `scope: 'THIS'` (no
-bulk API). Users with `team.availability.edit` also get **`LOCK SELECTED (n)`**
-beside clear: a small confirmation modal takes an optional reason, then loops
-`PATCH /api/admin/availability/[id]` with `{ locked: true, lockedReason }` for
-each populated, unlocked selected day (blank and already-locked days are
-skipped and counted). There is no bulk-lock API and no worker-side bulk lock.
-Selection is one row/range and clears on navigation. The worker view
+FROM/ALL and CHANGE SERIES END and says `THIS DAY LEAVES THE SERIES`. **Workers
+edit a day, they never clear it**: the worker UI has no per-day `CLEAR` and no
+`SELECT DAYS` bulk clear, and `/api/worker/availability/clear` plus
+`DELETE /api/worker/availability/[id]` return 403. Only the admin grid supports
+**bulk clear** (shift-click a range on one staff row, or `SELECT DAYS`, then
+`CLEAR SELECTED (n)` with confirmation); clearing loops the existing `/clear`
+route one day at a time with `scope: 'THIS'` (no bulk API). Users with
+`team.availability.edit` also get **`LOCK SELECTED (n)`** and
+**`UNLOCK SELECTED (n)`** beside clear: a small confirmation modal takes an
+optional reason for locking, then loops
+`PATCH /api/admin/availability/[id]` with `{ locked: true, lockedReason }` (or
+`{ locked: false, lockedReason: null }` to unlock) for each populated selected
+day (blank and already in the target state are skipped and counted). There is
+no bulk-lock/bulk-unlock API and no worker-side lock action.
+Selection is one row/range and clears on navigation. `+ ADD WINDOW` uses
+`addWorkingWindow` so a day whose windows already cover all 24 hours (where a
+plain `addWindow` would silently no-op) gains an editable row. A non-normalised
+split is edited through `addWindow`, so moving the new row's edge opens a real
+gap that persists instead of merging straight back.
+The worker view
 defaults to **WEEKLY** and remembers the toggle in
 `sessionStorage['hospo-worker-availability-view']` (validated, falls back to
 week). Live pages refresh in place: `AvailabilityAdminClient` and `RosterClient`
@@ -651,8 +661,8 @@ reloads, restoring scroll via `lib/use-scroll-restore.ts`
 **Weekly request cut-off** — `Venue.availabilityCutoff Json?`
 (`{ day: 0-6 (Sun-Sat), time: "HH:mm" }`), set in Settings → GENERAL →
 ROSTER AVAILABILITY. For each roster week the deadline is the chosen weekday +
-time in the week *before*; once it passes, a worker's save/clear for that week
-files an `AvailabilityEditRequest` even when no protected row is touched
+time in the week *before*; once it passes, a worker's save for that week files
+an `AvailabilityEditRequest` even when no protected row is touched
 (auto-approval stops). Pure helpers `parseAvailabilityCutoff` /
 `cutoffDeadlineKey` / `isPastCutoff` / `describeAvailabilityCutoff` + the
 `planPastCutoff` gate check (gate carries `cutoff` + venue-local `nowMinutes`).
@@ -2764,7 +2774,7 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/beo-links.ts` / `beo-pdf.ts` — link grouping / BEO PDF variants | ✅ (8 + 11) |
 | `lib/event-flow.ts` / `event-pricing.ts` / `event-share.ts` | ✅ (6 + 10 + 8) |
 | `lib/service-schedule.ts` / `service-windows.ts` / `service-seating.ts` | ✅ (19 + 20 + 11) |
-| `lib/availability.ts` / `availability.server.ts` — window algebra, free-window state (PARTIAL) + plan→execute + weekly cut-off gate + series-day detach + edit-proposal→entry mapping | ✅ (72 + 43) |
+| `lib/availability.ts` / `availability.server.ts` — window algebra, free-window state (PARTIAL) + plan→execute + weekly cut-off gate + series-day detach + edit-proposal→entry mapping + add-window splitting | ✅ (78 + 43) |
 | `lib/event-roster.ts` — area resolution + per-day event buckets | ✅ (11 tests) |
 | `lib/manual-event.ts` — validation, UTC date/time mapping, capacity check | ✅ (9 tests) |
 | `lib/calendar-feeds.ts` — feed URL expansion, room naming | ✅ (9 tests) |

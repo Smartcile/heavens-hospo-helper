@@ -898,6 +898,85 @@ describe('AvailabilityAdminClient', () => {
     expect(await screen.findByText('1 DAY LOCKED · 2 SKIPPED')).toBeDefined()
   })
 
+  it('bulk unlocks every locked selected day', async () => {
+    const spy = mockFetch({
+      ...data,
+      entries: [
+        avEntry('e1', monday, '2026-10-20T01:00:00.000Z'),
+        avEntry('e3', shiftDay(monday, 2), '2026-10-20T01:00:00.000Z'),
+      ],
+      queue: { pending: [], requests: [] },
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    await selectRangeTo([0, 2])
+
+    expect(screen.queryByText('LOCK SELECTED (2)')).toBeNull()
+    fireEvent.click(screen.getByText('UNLOCK SELECTED (2)'))
+    expect(await screen.findByText('UNLOCK SELECTED DAYS')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'UNLOCK' }))
+
+    await waitFor(() => {
+      const patches = spy.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'PATCH')
+      expect(patches).toHaveLength(2)
+      expect(patches.map((c) => String(c[0])).sort()).toEqual([
+        '/api/admin/availability/e1',
+        '/api/admin/availability/e3',
+      ])
+      for (const patch of patches) {
+        expect(JSON.parse((patch[1] as RequestInit).body as string)).toEqual({
+          locked: false,
+          lockedReason: null,
+        })
+      }
+    })
+    expect(await screen.findByText(/2 DAYS UNLOCKED/)).toBeDefined()
+  })
+
+  it('shows both lock and unlock counts for a mixed selection', async () => {
+    mockFetch({
+      ...data,
+      entries: [
+        avEntry('e1', monday),
+        avEntry('e2', shiftDay(monday, 1), '2026-10-20T01:00:00.000Z'),
+      ],
+      queue: { pending: [], requests: [] },
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    await selectRangeTo([0, 1])
+
+    expect(screen.getByText('LOCK SELECTED (1)')).toBeDefined()
+    expect(screen.getByText('UNLOCK SELECTED (1)')).toBeDefined()
+  })
+
+  it('surfaces a failed bulk unlock inline', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      if (init?.method === 'PATCH') {
+        return { ok: false, status: 409, json: async () => ({ error: 'UNLOCK REJECTED' }) } as Response
+      }
+      return {
+        ok: true, status: 200,
+        json: async () => ({
+          ...data,
+          entries: [avEntry('e1', monday, '2026-10-20T01:00:00.000Z')],
+          queue: { pending: [], requests: [] },
+        }),
+      } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('SELECT DAYS'))
+    fireEvent.click(document.querySelectorAll('[data-fill-col]')[0])
+    fireEvent.click(screen.getByText('UNLOCK SELECTED (1)'))
+    fireEvent.click(await screen.findByRole('button', { name: 'UNLOCK' }))
+
+    expect(await screen.findByText(/FAILED TO UNLOCK — UNLOCK REJECTED/)).toBeDefined()
+  })
+
   it('surfaces a failed bulk lock inline', async () => {
     vi.spyOn(global, 'fetch').mockImplementation(async (_url: unknown, init?: RequestInit) => {
       if (init?.method === 'PATCH') {
@@ -914,6 +993,22 @@ describe('AvailabilityAdminClient', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'LOCK' }))
 
     expect(await screen.findByText(/FAILED TO LOCK — LOCK REJECTED/)).toBeDefined()
+  })
+
+  it('hides the bulk-unlock action without the edit grant', async () => {
+    mockFetch({
+      ...data,
+      entries: [avEntry('e1', monday, '2026-10-20T01:00:00.000Z')],
+      queue: { pending: [], requests: [] },
+    })
+    render(<AvailabilityAdminClient role="MANAGER" sessionVenueId="v1" defaultVenueId="v1" canEdit={false} />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('SELECT DAYS'))
+    fireEvent.click(document.querySelectorAll('[data-fill-col]')[0])
+
+    expect(screen.getByText('CLEAR SELECTED (1)')).toBeDefined()
+    expect(screen.queryByText(/UNLOCK SELECTED/)).toBeNull()
   })
 
   it('hides the bulk-lock action without the edit grant', async () => {

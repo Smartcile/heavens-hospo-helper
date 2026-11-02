@@ -82,9 +82,10 @@ export async function GET(req: NextRequest) {
   })
 }
 
-// Save availability for a day / weekly series, or clear it. Changing a day
-// whose row a manager has APPROVED files an edit request instead of touching
-// it; past and locked days are protected server-side.
+// Save availability for a day / weekly series (workers edit, they do not
+// clear). Changing a day whose row a manager has APPROVED files an edit
+// request instead of touching it; past and locked days are protected
+// server-side.
 export async function POST(req: NextRequest) {
   const session = await getWorkerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

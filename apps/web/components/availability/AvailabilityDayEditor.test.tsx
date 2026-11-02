@@ -129,12 +129,19 @@ describe('AvailabilityDayEditor', () => {
     expect(onSave.mock.calls[0][1].scope).toBeNull()
   })
 
-  it('clears through the provided scope callback', () => {
-    const { onClear } = renderEditor({ entry: entry({ seriesId: 's1' }), series })
+  it('clears through the provided scope callback for an admin', () => {
+    const { onClear } = renderEditor({ entry: entry({ seriesId: 's1' }), series, canOverride: true })
 
     fireEvent.click(screen.getByText('ALL IN THE SERIES'))
     fireEvent.click(screen.getByText('CLEAR'))
     expect(onClear).toHaveBeenCalledWith({ scope: 'ALL', reason: null })
+  })
+
+  it('never offers CLEAR to a worker', () => {
+    const { onClear } = renderEditor({ entry: entry({ seriesId: 's1' }), series, allowSeriesScope: false })
+
+    expect(screen.queryByText('CLEAR')).toBeNull()
+    expect(onClear).not.toHaveBeenCalled()
   })
 
   it('shows the resulting end date when putting an end on a no-end series', () => {
@@ -248,6 +255,57 @@ describe('AvailabilityDayEditor', () => {
       { type: 'UNAVAILABLE', startTime: '00:00', endTime: '09:00' },
       { type: 'AVAILABLE', startTime: '09:00', endTime: '18:00' },
       { type: 'UNAVAILABLE', startTime: '18:00', endTime: '24:00' },
+    ])
+  })
+
+  it('adds a new window on a full-day partition instead of doing nothing', () => {
+    const { onSave } = renderEditor({
+      entry: entry({
+        type: 'AVAILABLE',
+        isAllDay: false,
+        windows: [
+          { type: 'UNAVAILABLE', startTime: '00:00', endTime: '09:00' },
+          { type: 'AVAILABLE', startTime: '09:00', endTime: '17:00' },
+          { type: 'UNAVAILABLE', startTime: '17:00', endTime: '24:00' },
+        ],
+      }),
+    })
+
+    fireEvent.click(screen.getByText('+ ADD WINDOW'))
+    fireEvent.click(screen.getByText('SAVE'))
+
+    expect(onSave.mock.calls[0][0].windows).toEqual([
+      { type: 'UNAVAILABLE', startTime: '00:00', endTime: '09:00' },
+      { type: 'AVAILABLE', startTime: '09:00', endTime: '13:00' },
+      { type: 'AVAILABLE', startTime: '13:00', endTime: '17:00' },
+      { type: 'UNAVAILABLE', startTime: '17:00', endTime: '24:00' },
+    ])
+  })
+
+  it('can turn the new row into a real gap that survives save', () => {
+    const { onSave } = renderEditor({
+      entry: entry({
+        type: 'AVAILABLE',
+        isAllDay: false,
+        windows: [
+          { type: 'UNAVAILABLE', startTime: '00:00', endTime: '09:00' },
+          { type: 'AVAILABLE', startTime: '09:00', endTime: '17:00' },
+          { type: 'UNAVAILABLE', startTime: '17:00', endTime: '24:00' },
+        ],
+      }),
+    })
+
+    fireEvent.click(screen.getByText('+ ADD WINDOW'))
+    // The new row is the second AVAILABLE block (index 2): push its start to 14:00.
+    fireEvent.change(screen.getAllByRole('combobox')[4], { target: { value: '14:00' } })
+    fireEvent.click(screen.getByText('SAVE'))
+
+    expect(onSave.mock.calls[0][0].windows).toEqual([
+      { type: 'UNAVAILABLE', startTime: '00:00', endTime: '09:00' },
+      { type: 'AVAILABLE', startTime: '09:00', endTime: '13:00' },
+      { type: 'UNAVAILABLE', startTime: '13:00', endTime: '14:00' },
+      { type: 'AVAILABLE', startTime: '14:00', endTime: '17:00' },
+      { type: 'UNAVAILABLE', startTime: '17:00', endTime: '24:00' },
     ])
   })
 })

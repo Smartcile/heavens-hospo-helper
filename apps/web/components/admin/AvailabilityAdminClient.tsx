@@ -143,6 +143,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
   const [selectionAnchor, setSelectionAnchor] = useState<{ staffId: string; date: string } | null>(null)
   const [clearSelectionOpen, setClearSelectionOpen] = useState(false)
   const [lockSelectionOpen, setLockSelectionOpen] = useState(false)
+  const [unlockSelectionOpen, setUnlockSelectionOpen] = useState(false)
   const [lockReason, setLockReason] = useState('')
   const [notice, setNotice] = useState('')
   const { capture: captureScroll, restore: restoreScroll } = useScrollRestore()
@@ -239,6 +240,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
   }, [selection, entryIndex])
 
   const lockableCount = selectedEntries.filter((t) => !isEntryLocked(t.entry)).length
+  const unlockableCount = selectedEntries.filter((t) => isEntryLocked(t.entry)).length
 
   // A pinned day floats people with free time to the top: free all day, free
   // part of the day (SPLIT), or — for today — still free after the current
@@ -500,6 +502,51 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
     }
 
     setNotice(`${targets.length} DAY${targets.length === 1 ? '' : 'S'} LOCKED${skipped > 0 ? ` · ${skipped} SKIPPED` : ''}`)
+  }
+
+  // Bulk unlock: every selected day that is currently locked is PATCHed back to
+  // unlocked. Blank and already-unlocked days are skipped and reported.
+  async function unlockSelected() {
+    const targets = selectedEntries.filter((t) => isEntryLocked(t.entry))
+    const skipped = selection.size - targets.length
+
+    setUnlockSelectionOpen(false)
+    setSelectMode(false)
+    setSelection(new Set())
+    setSelectionAnchor(null)
+    setNotice('')
+
+    if (targets.length === 0) {
+      setError(skipped > 0
+        ? `${skipped} SELECTED DAY${skipped === 1 ? '' : 'S'} SKIPPED — NO ENTRY OR ALREADY UNLOCKED`
+        : 'NOTHING TO UNLOCK IN THE SELECTION')
+      return
+    }
+
+    setBusy(true); setError('')
+    const results = await Promise.all(targets.map((t) =>
+      fetch(`/api/admin/availability/${t.entry.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locked: false, lockedReason: null }),
+      }),
+    ))
+    setBusy(false)
+    const failedResults = results.filter((r) => !r.ok)
+    await load(true)
+
+    if (failedResults.length > 0) {
+      let detail = ''
+      for (const r of failedResults) {
+        const d = await r.json().catch(() => ({}))
+        if (!detail && typeof d.error === 'string') detail = d.error
+      }
+      const saved = targets.length - failedResults.length
+      setError(`${saved} UNLOCKED · ${failedResults.length} DAY${failedResults.length === 1 ? '' : 'S'} FAILED TO UNLOCK${detail ? ` — ${detail.toUpperCase()}` : ''}`)
+      return
+    }
+
+    setNotice(`${targets.length} DAY${targets.length === 1 ? '' : 'S'} UNLOCKED${skipped > 0 ? ` · ${skipped} SKIPPED` : ''}`)
   }
 
   // Person-centred approvals: group pending declarations (by series) and edit
@@ -1228,6 +1275,17 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
                   LOCK SELECTED ({lockableCount})
                 </button>
               )}
+              {canEdit && unlockableCount > 0 && (
+                <button
+                  type="button"
+                  disabled={busy || unlockableCount === 0}
+                  title={unlockableCount === 0 ? 'NO LOCKED DAYS IN THE SELECTION' : 'UNLOCK EVERY SELECTED LOCKED DAY'}
+                  onClick={() => { setError(''); setNotice(''); setUnlockSelectionOpen(true) }}
+                  className="font-mono text-xs uppercase px-3 py-1.5 border border-success text-success hover:bg-success hover:text-black transition-colors disabled:opacity-40"
+                >
+                  UNLOCK SELECTED ({unlockableCount})
+                </button>
+              )}
               <button
                 type="button"
                 disabled={busy || selection.size === 0}
@@ -1449,6 +1507,27 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
           <div className="flex gap-2">
             <Button size="sm" variant="primary" loading={busy} onClick={lockSelected}>LOCK</Button>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setLockSelectionOpen(false)}>CANCEL</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Bulk-unlock confirmation */}
+      <Modal
+        isOpen={unlockSelectionOpen}
+        onClose={() => { if (!busy) setUnlockSelectionOpen(false) }}
+        title="UNLOCK SELECTED DAYS"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="font-mono text-sm text-white uppercase">
+            UNLOCK {unlockableCount} SELECTED DAY{unlockableCount === 1 ? '' : 'S'}?
+          </p>
+          <p className="font-mono text-2xs uppercase text-grey-light">
+            ONLY DAYS THAT ARE CURRENTLY LOCKED ARE UNLOCKED. THE DAY KEEPS ITS AVAILABILITY.
+          </p>
+          <div className="flex gap-2">
+            <Button size="sm" variant="primary" loading={busy} onClick={unlockSelected}>UNLOCK</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setUnlockSelectionOpen(false)}>CANCEL</Button>
           </div>
         </div>
       </Modal>
