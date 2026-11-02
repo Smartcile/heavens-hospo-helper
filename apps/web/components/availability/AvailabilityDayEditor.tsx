@@ -11,6 +11,7 @@ import { AvailabilityBar } from '@/components/availability/AvailabilityBar'
 import { formatDateLong } from '@/lib/date-nav'
 import {
   addWindow,
+  addWorkingWindow,
   describeSeriesEnd,
   minutesOfTime,
   presetWindow,
@@ -21,6 +22,7 @@ import {
   spliceWindow,
   statusMeta,
   weeksForSeries,
+  windowsAreNormalised,
   windowsArePartition,
   type AvailabilityEntry,
   type AvailabilityPreset,
@@ -111,7 +113,8 @@ export function AvailabilityDayEditor({
   busy?: boolean
   error?: string | null
   onSave: (draft: EditorDraft, options: EditorSaveOptions) => void
-  onClear: (options: { scope: AvailabilityScope | null; reason: string | null }) => void
+  /** Admin only — workers edit a day rather than removing it. */
+  onClear?: (options: { scope: AvailabilityScope | null; reason: string | null }) => void
   /** Notes-only PATCH — works on locked/past days, applies immediately. */
   onSaveNote?: (notes: string | null) => void
   /** Admin only: set/clear the day-level lock (optional reason). */
@@ -134,7 +137,9 @@ export function AvailabilityDayEditor({
   const [scope, setScope] = useState<AvailabilityScope>(allowSeriesScope ? initialScope : 'THIS')
   const [lockReason, setLockReason] = useState('')
 
-  const partition = windowsArePartition(windows)
+  // A split created by + ADD WINDOW is intentionally not normalised; editing it
+  // must use addWindow so the edit can open a real gap instead of merging back.
+  const partition = windowsArePartition(windows) && windowsAreNormalised(windows)
   const managerLocked = !!entry?.lockedAt
   const adminReadOnly = managerLocked && canOverride
   const locked = !!entry && entry.status === 'APPROVED' && !canOverride
@@ -152,7 +157,7 @@ export function AvailabilityDayEditor({
   function setWindowAt(index: number, next: AvailabilityWindow) {
     if (minutesOfTime(next.endTime) <= minutesOfTime(next.startTime)) return
     setWindows((prev) =>
-      windowsArePartition(prev)
+      windowsArePartition(prev) && windowsAreNormalised(prev)
         // A partition edits by moving the boundary: the neighbouring window's
         // edge follows, so the day never splits into an extra block.
         ? spliceWindow(prev, index, next)
@@ -332,7 +337,7 @@ export function AvailabilityDayEditor({
           <div className="flex items-center justify-between gap-2">
             <button
               type="button"
-              onClick={() => setWindows(addWindow(windows, { type: 'AVAILABLE', startTime: '09:00', endTime: '17:00' }))}
+              onClick={() => setWindows(addWorkingWindow(windows))}
               className="font-mono text-2xs uppercase text-grey-light hover:text-white transition-colors"
             >
               + ADD WINDOW
@@ -528,7 +533,7 @@ export function AvailabilityDayEditor({
             {busy ? 'SAVING_' : managerLocked ? 'SEND CHANGE REQUEST' : locked ? 'SAVE (ASKS A MANAGER)' : 'SAVE'}
           </button>
         )}
-        {!adminReadOnly && entry && (
+        {canOverride && !adminReadOnly && entry && onClear && (
           <button
             type="button"
             onClick={() => onClear({ scope: series ? (allowSeriesScope ? scope : 'THIS') : null, reason: note.trim() || null })}

@@ -66,20 +66,20 @@ describe('PATCH /api/worker/availability/[id]', () => {
 })
 
 describe('DELETE /api/worker/availability/[id]', () => {
-  it('refuses to clear a manager-locked day with 409', async () => {
-    db.staffAvailability.findUnique.mockResolvedValueOnce({
-      id: 'row1',
-      staffId: 'st1',
-      deletedAt: null,
-      lockedAt: new Date('2026-10-20T01:00:00.000Z'),
-      status: 'PENDING',
-      date: new Date('2026-10-22T00:00:00Z'),
-      venue: { timezone: 'Pacific/Auckland', availabilityLockDays: 0 },
-    })
+  it('refuses to let a worker clear a day', async () => {
+    const res = await DELETE()
 
-    const res = await DELETE({} as NextRequest, { params: { id: 'row1' } })
-
-    expect(res.status).toBe(409)
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: 'CLEARING IS A MANAGER ACTION — EDIT THE DAY INSTEAD' })
+    expect(db.staffAvailability.findUnique).not.toHaveBeenCalled()
     expect(db.staffAvailability.update).not.toHaveBeenCalled()
+  })
+
+  it('still requires a worker session', async () => {
+    getWorkerSession.mockResolvedValueOnce(null)
+
+    const res = await DELETE()
+
+    expect(res.status).toBe(401)
   })
 })
