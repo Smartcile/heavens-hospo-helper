@@ -222,6 +222,12 @@ async function switchToWorkerView() {
 function SignOutButton() {
   return (
     <div className="p-4 border-t border-grey-mid space-y-3">
+      <Link
+        href="/admin/help"
+        className="block w-full text-center font-mono text-xs uppercase border border-grey-mid px-2 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors tracking-wider"
+      >
+        <span className="text-danger">✕</span> HEAVENLY HELP
+      </Link>
       <button
         onClick={switchToWorkerView}
         className="w-full font-mono text-xs uppercase border border-grey-mid px-2 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors tracking-wider"

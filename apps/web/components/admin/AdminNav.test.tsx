@@ -64,6 +64,11 @@ describe('AdminNav', () => {
     expect(container).toBeTruthy()
   })
 
+  it('renders the Heavenly Help link at the bottom', () => {
+    renderNav()
+    expect(linkHref('✕ HEAVENLY HELP')).toBe('/admin/help')
+  })
+
   it('renders navigation group labels', () => {
     const { getByText } = renderNav()
     expect(getByText('Dashboard')).toBeTruthy()

@@ -87,6 +87,10 @@ cd /app/packages/db
 npm run db:seed || echo "⚠ Seed step failed (see error above) — continuing to start the app."
 
 echo ""
+echo "▸ Syncing Heavenly Help (writes only changed articles)..."
+npm run db:seed-help || echo "⚠ Help sync step failed (see error above) — continuing to start the app."
+
+echo ""
 echo "▸ Starting Next.js on 0.0.0.0:${PORT:-3000}..."
 cd /app/apps/web
 exec npx next start -H 0.0.0.0 -p ${PORT:-3000}
