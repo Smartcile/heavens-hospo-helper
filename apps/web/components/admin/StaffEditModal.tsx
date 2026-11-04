@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
+import { useDirty } from '@/lib/use-dirty'
 
 interface Department { id: string; name: string; venueId: string }
 interface Section { id: string; name: string; venueId: string; departmentId: string }
@@ -57,6 +58,10 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const { dirty, markClean } = useDirty(
+    { staff, sectionIds, positionIds, positionRates, venueIds, pin, password },
+    { enabled: !loading },
+  )
 
   useEffect(() => {
     let active = true
@@ -127,6 +132,7 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
     const r = await fetch(`/api/admin/staff/${staff.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     setSaving(false)
     if (!r.ok) { const d = await r.json(); setError(d.error ?? 'SAVE FAILED'); return }
+    markClean()
     onSaved()
   }
 
@@ -140,7 +146,7 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
   )
 
   return (
-    <Modal isOpen onClose={onClose} title="EDIT STAFF" size="md">
+    <Modal isOpen onClose={onClose} title="EDIT STAFF" size="md" dirty={dirty}>
       {loading || !staff ? (
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
       ) : (

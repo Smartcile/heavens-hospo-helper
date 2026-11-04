@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
 import { Combobox } from '@/components/ui/Combobox'
 import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
+import { useDirty } from '@/lib/use-dirty'
 import { MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 
@@ -51,6 +52,10 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
   const [error, setError] = useState('')
   const [requireRetrain, setRequireRetrain] = useState(false)
   const [changeSummary, setChangeSummary] = useState('')
+  const { dirty, markClean } = useDirty(
+    { task, competencyGuideIds, requireRetrain, changeSummary },
+    { enabled: !loading },
+  )
 
   useEffect(() => {
     let active = true
@@ -109,6 +114,7 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
     })
     setSaving(false)
     if (!r.ok) { const d = await r.json(); setError(d.error ?? 'SAVE FAILED'); return }
+    markClean()
     onSaved()
   }
 
@@ -122,7 +128,7 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
   const guideOptions = task ? guides.filter((g) => g.venueId === task.venueId) : []
 
   return (
-    <Modal isOpen onClose={onClose} title="EDIT TASK" size="lg">
+    <Modal isOpen onClose={onClose} title="EDIT TASK" size="lg" dirty={dirty}>
       {loading || !task ? (
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
       ) : (

@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { MenuItemEquipmentEditor } from '@/components/admin/MenuItemEquipmentEditor'
+import { useDirty } from '@/lib/use-dirty'
 
 interface Props {
   menuItemId: string
@@ -31,6 +32,10 @@ export function MenuItemDetailsModal({ menuItemId, menuItemName, venueId, onClos
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [messageTone, setMessageTone] = useState<'success' | 'error'>('success')
+  const { dirty, markClean } = useDirty(
+    { tastingNotes, vintage, howToServe, swiftPosId },
+    { enabled: !loading },
+  )
 
   useEffect(() => { load() }, [menuItemId])
 
@@ -96,6 +101,7 @@ export function MenuItemDetailsModal({ menuItemId, menuItemName, venueId, onClos
 
       setMessage(linkError ? `DETAILS SAVED — ${linkError}` : 'SAVED')
       setMessageTone(linkError ? 'error' : 'success')
+      if (!linkError) markClean()
       onSaved?.()
     } catch {
       setMessage('SAVE FAILED')
@@ -106,7 +112,7 @@ export function MenuItemDetailsModal({ menuItemId, menuItemName, venueId, onClos
   }
 
   return (
-    <Modal isOpen onClose={onClose} title={`PRODUCT INFO — ${menuItemName}`} size="lg">
+    <Modal isOpen onClose={onClose} title={`PRODUCT INFO — ${menuItemName}`} size="lg" dirty={dirty}>
       {loading ? (
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
       ) : (
