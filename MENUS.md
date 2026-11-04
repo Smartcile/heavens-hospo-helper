@@ -457,3 +457,26 @@ linked **recipe** is costed per yield unit; otherwise its **first serve** (a
 stock pour or a recipe) is costed. `POST /api/admin/menus/cogs` batches it for
 the ids the builder is showing, so a menu page never explodes every recipe up
 front. `priceExGst` (15% NZ default) and `grossMarginPct` render the comparison.
+
+## 9 – Menu import from a PDF
+
+The app has no backend LLM. `⬆ IMPORT MENU` (Menus page) implements the same
+copy-paste pattern as the Pantry Bible density helper:
+
+1. Copy the generated prompt (or download it as `.md`) into any LLM with the PDF
+   menu attached.
+2. Paste the JSON answer back (or load a `.md`/`.json`/`.txt` file).
+3. Review the grouped preview — match badges (`MATCH` / `NEW` / `AMBIGUOUS`),
+   include/skip per line, warnings for missing prices and unknown dietary tags.
+4. Import into a **new** menu or append to an **existing** menu.
+
+**What gets written:** `MenuItem` (name, price, description, `dietaryInfo`),
+`Menu`, `MenuGroup`, `MenuMenuItem`. No schema change.
+
+**What does NOT happen:** no WooCommerce writes (`wooProductId` stays null and the
+route never calls `pushProduct`), no recipes, no stock drawdown, no sizes. New
+products surface under Recipes → **IMPORT PRODUCTS** so a recipe/serve can be
+attached later. "Dietary" is the 24-allergen vocabulary (`dietaryInfo`), not V/VE/GF
+claims; unknown tokens are dropped and reported. Prices are GST-inclusive NZD.
+Existing products keep their current price and description when matched by name.
+

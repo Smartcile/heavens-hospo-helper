@@ -2420,6 +2420,20 @@ preview. A menu **is** a WooCommerce category (`Menu.wooCategoryId`; contract
 REMOVED). `lib/menu-sync.ts` (9 tests) keeps `MenuItem.wooCategoryId` = the
 union of its live menus' categories and only pushes when it actually changed.
 
+**Menu import from a PDF (#49)** — `⬆ IMPORT MENU` on `/admin/ops?tab=menu&sub=menus`
+opens `MenuImportModal`. `lib/menu-import.ts` (pure, 7 tests) builds a copy-paste
+LLM prompt (`buildMenuImportPrompt`), tolerantly parses the pasted answer
+(`parseMenuImportAnswer` — plain/fenced/prose-wrapped JSON, `$16.50` → `16.5`,
+uppercases, dedupes, flags missing prices and unknown dietary tags) and classifies
+items as `MATCH` / `NEW` / `AMBIGUOUS` (`matchImportItems`). `POST
+/api/admin/menus/import` (guard `ops.menus.create`) re-validates server-side and,
+in one transaction, finds/creates products by name (existing products keep their
+price/description), finds/creates groups and menu lines, and revives a soft-deleted
+menu. New products are `recipeId: null` + `wooProductId: null` — this route never
+calls `pushProduct`, so the import creates nothing on WooCommerce; they appear in
+Recipes → IMPORT PRODUCTS for later recipe/stock setup. "Dietary" means the 24
+allergens (`dietaryInfo`), not V/VE/GF claims.
+
 **COGS** — `lib/menu-cogs.ts` (8 tests, pure): `costPrice` is per ONE stock
 `unit`; `costExploded` converts to grams via the density bridge;
 `lib/menu-cogs.server.ts` `cogsForMenuItems(ids)` is lazy + batched, and marks
