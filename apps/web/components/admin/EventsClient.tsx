@@ -10,29 +10,37 @@ import { EventRequestsPanel } from '@/components/admin/EventRequestsPanel'
 import { BlockLibraryPanel } from '@/components/admin/BlockLibraryPanel'
 import { EnquiriesPanel } from '@/components/admin/EnquiriesPanel'
 import { PipelinePanel } from '@/components/admin/PipelinePanel'
+import { FloorPlansClient } from '@/components/admin/FloorPlansClient'
+import { RoomsPanel } from '@/components/admin/RoomsPanel'
+import { RoomSetupsPanel } from '@/components/admin/RoomSetupsPanel'
 
 interface EventsClientProps {
   role: string
   sessionVenueId: string
   defaultVenueId?: string | null
+  /** Restricted-manager granted areas; null/undefined = unrestricted. */
+  grantedAreas?: string[] | null
 }
 
-export function EventsClient({ role, sessionVenueId, defaultVenueId }: EventsClientProps) {
+export function EventsClient({ role, sessionVenueId, defaultVenueId, grantedAreas }: EventsClientProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { tab } = resolveTab(EVENTS_TABS, searchParams.get('tab'), null)
+  const canSeeRooms = !grantedAreas || grantedAreas.includes('floorplans')
+  const tabs = canSeeRooms ? EVENTS_TABS : EVENTS_TABS.filter((t) => t.id !== 'rooms')
+  const { tab, sub } = resolveTab(tabs, searchParams.get('tab'), searchParams.get('sub'))
   // Lets the templates/requests tabs hand an event to the planner.
   const [openEventId, setOpenEventId] = useState<string | null>(null)
 
-  function go(nextTab: string) {
-    router.push(hubUrl('/admin/events', nextTab), { scroll: false })
+  function go(nextTab: string, nextSub?: string) {
+    router.push(hubUrl('/admin/events', nextTab, nextSub), { scroll: false })
   }
 
   const venueProps = { role, sessionVenueId, defaultVenueId: defaultVenueId ?? undefined }
+  const venueId = defaultVenueId ?? sessionVenueId
 
   return (
     <div className="min-h-screen bg-black flex flex-col">
-      <LineTabs tabs={EVENTS_TABS} tab={tab} onNavigate={go} />
+      <LineTabs tabs={tabs} tab={tab} sub={sub} onNavigate={go} />
 
       <div className="flex-1 p-4 md:p-6">
         {tab === 'enquiries' && (
@@ -79,6 +87,11 @@ export function EventsClient({ role, sessionVenueId, defaultVenueId }: EventsCli
           />
         )}
         {tab === 'library' && <BlockLibraryPanel {...venueProps} />}
+        {tab === 'rooms' && sub === 'rooms' && <RoomsPanel venueId={venueId} />}
+        {tab === 'rooms' && sub === 'room-setups' && <RoomSetupsPanel venueId={venueId} />}
+        {tab === 'rooms' && sub === 'table-plans' && (
+          <FloorPlansClient role={role} venueId={sessionVenueId} />
+        )}
       </div>
     </div>
   )

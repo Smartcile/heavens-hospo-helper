@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
       id: true,
       name: true,
       roomName: true,
+      areaId: true,
       guestCapacity: true,
       setupStyle: true,
       imageUrls: true,

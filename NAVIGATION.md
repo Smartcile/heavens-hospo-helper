@@ -39,8 +39,7 @@ with its default sub-tab, e.g. OPS HUB → Menu & Services → RECIPES); the
 │ ▾ PERFORMANCE (the "Results")                                 │
 │     REPORTS · BUDGET · GIFT CARDS                             │
 │ ▾ SETUP & CONFIG (the "Plumbing" — bottom)                    │
-│     FLOOR PLANS       /admin/settings?tab=floorplans          │
-│     SETTINGS          /admin/settings — 9 tabs (below)        │
+│     SETTINGS          /admin/settings — 8 tabs (below)        │
 │ SIGN OUT                                                     │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -77,6 +76,7 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 | **Event Templates** | `/admin/events?tab=templates` | Reusable packages: named block sets + default menu/service/layout + default pax/style. Create/edit in a modal (block library + per-block config), APPLY creates a DRAFT event (jumps to the planner). Built-in templates are read-only; a venue template can be set as the enquiry **MASTER** (one per venue) |
 | **Requests** | `/admin/events?tab=requests` | Customer-submitted queue (edit requests / approvals): PENDING/ACCEPTED/DECLINED filters, ACCEPT/DECLINE with a response note, OPEN EVENT. An accepted approval/sign-off stamps the event as customer-approved |
 | **Block Library** | `/admin/events?tab=library` | Edit the block library: built-in blocks are listed read-only; **+ NEW BLOCK** authors a venue custom block (label → auto key, group, description, field builder for text/long text/number/dropdown/table-rows). Every area — built-in or custom — has **LINKS** to attach playbook guides, tasks and checklists |
+| **Rooms & Plans** | `/admin/events?tab=rooms` | Sub-tabs: **TABLE PLANS** (the to-scale PixiJS editor — walls, doors, section zones, tables, setups, room photos), **ROOMS** (event spaces / `Area` records + their calendar feeds, moved from Settings), **ROOM SETUPS** (venue-wide list of every named setup with pax/style/photos, linked to a room via `areaId`). `/admin/floorplan` and `/admin/settings?tab=floorplans` redirect here |
 
 ### TEAM & EXECUTION group
 
@@ -105,8 +105,7 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 
 | Item | URL | What it does |
 |---|---|---|
-| **Floor Plans** | `/admin/settings?tab=floorplans` | To-scale venue editor (PixiJS canvas): walls, doors, section zones, tables. BASE layer + SETUPS (event layouts), now photo-backed **room setups** (room, pax, style, photos + linked table plan via `EDIT SETUP`). Furniture from inventory palette, snapping, auto-join groups, BOM shortages, zone pax totals, undo/redo, PDF export. Lives as a tab of SETTINGS — `/admin/floorplan` redirects here |
-| **Settings** | `/admin/settings` | 10 tabs — GENERAL · VENUE SETUP · STRUCTURE · FLOOR PLANS · UNITS OF MEASURE · SUPPLIERS · QR CODES · SYNC · SWIFT POS (SALES / STAFF SYNC / MENU LINKS) · FILES (admin) (section 3) |
+| **Settings** | `/admin/settings` | 8 tabs — GENERAL · VENUE SETUP · STRUCTURE · UNITS OF MEASURE · SUPPLIERS · QR CODES · SYNC · SWIFT POS (SALES / STAFF SYNC / MENU LINKS) · FILES (admin) (section 3). Floor plans / rooms now live under Events → Rooms & Plans |
 
 ---
 
@@ -141,14 +140,13 @@ keeping other query params.
 
 ---
 
-## 3. SETTINGS — the 9 tabs (`/admin/settings`)
+## 3. SETTINGS — the 8 tabs (`/admin/settings`)
 
 | Tab | What it does |
 |---|---|
-| **GENERAL** | Integrations (ROOM CALENDARS — one feed row per event space with name/colour/floor-plan link/order + Loaded embed + refresh), WooCommerce (store keys, webhook secret, order field mapping, API keys — plugin-paired stores show MANAGED BY PLUGIN read-only with MANUAL OVERRIDE), DEMO VENUE, BACKUP & RESTORE, VENUE SHARING, NZ break entitlements, default venue, change password/PIN |
+| **GENERAL** | Integrations (legacy ROOM CALENDARS editor — the canonical home is now Events → Rooms & Plans → ROOMS; Loaded embed + refresh), WooCommerce (store keys, webhook secret, order field mapping, API keys — plugin-paired stores show MANAGED BY PLUGIN read-only with MANUAL OVERRIDE), DEMO VENUE, BACKUP & RESTORE, VENUE SHARING, NZ break entitlements, default venue, change password/PIN |
 | **VENUE SETUP** | Stand up a venue in one place: **venues** (add / remove test ones), **roles** (Positions — with training requirements, team readiness, default access, per-role rate) and **departments** |
 | **STRUCTURE** | The org tree + workflow node map (TREE/MAP) — moved here from the sidebar |
-| **FLOOR PLANS** | The to-scale venue layout editor (list + PixiJS canvas) — moved here from the sidebar; grant-gated like the old sidebar item |
 | **UNITS OF MEASURE** | UOM list + CRUD with base-unit ratios and kind (VOLUME/MASS/COUNT) |
 | **SUPPLIERS** | Supplier list + CRUD (used by inventory equipment tracking) |
 | **QR CODES** | Worker login QR generation/download per venue |
@@ -227,7 +225,7 @@ Every page merged into a hub keeps its URL as a redirect that forwards query par
 | `/admin/suppliers` | `/admin/settings?tab=suppliers` |
 | `/admin/qrcodes` | `/admin/settings?tab=qrcodes` |
 | `/admin/sync` | `/admin/settings?tab=sync` |
-| `/admin/floorplan` | `/admin/settings?tab=floorplans` |
+| `/admin/floorplan` | `/admin/events?tab=rooms&sub=table-plans` |
 
 | URL | Status | Notes |
 |---|---|---|

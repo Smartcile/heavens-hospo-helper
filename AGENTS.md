@@ -722,10 +722,12 @@ Rectangle math in `lib/cell-fill.ts`. Routes: `GET /api/admin/roster`,
 **Areas + event staffing + open shifts (built 2026-10, reworked 2026-10).**
 `Area` is a physical event space (name, colour, optional floor-plan link,
 optional capacity, order, notes) that **exists without a calendar**: zero or
-more `CalendarFeed` rows attach via `CalendarFeed.areaId`. Areas are created in
-Settings → GENERAL → INTEGRATIONS (`/api/admin/areas` CRUD + `/reorder`), where
-each feed row also picks its area; a multi-`src` Google embed still expands to
-one feed per calendar. `db:migrate-areas` (wired into `docker-entrypoint.sh`
+more `CalendarFeed` rows attach via `CalendarFeed.areaId`. Areas are managed in
+**Events → ROOMS & PLANS → ROOMS** (`RoomsPanel`, `/api/admin/areas` CRUD +
+`/reorder`), where each feed row also picks its area; a multi-`src` Google embed
+still expands to one feed per calendar. (The old Settings → GENERAL → INTEGRATIONS
+block still renders for compatibility; the Events panel is the canonical home.)
+`db:migrate-areas` (wired into `docker-entrypoint.sh`
 after db push) creates one area per existing feed and backfills
 `CalendarEvent.areaId`; `external-sync.ts` stamps `areaId` on imported events
 and prefers the area's floor plan, so the worker floor plan auto-switches.
@@ -1116,13 +1118,18 @@ records. Available/pool
 counts are shown as badges (`3/5`). Canvas rubber-band selection works for setup items.
 
 **Room setups (photo-backed, built 2026-11).** A room setup is a `FloorPlanSetup`
-with presentation metadata — `roomName`, `guestCapacity`, `setupStyle` and
-`imageUrls String[]` — while the setup geometry stays the single table plan.
+with presentation metadata — `roomName`, `areaId`, `guestCapacity`, `setupStyle`
+and `imageUrls String[]` — while the setup geometry stays the single table plan.
 `lib/room-setup.ts` (pure) renders the label (`[ROOM] - 22PAX SIT DOWN`, falling
 back to the setup name), normalises the editor payload and sanitises photo URLs.
 The admin editor's `+ NEW SETUP` / `EDIT SETUP` open the shared
 `RoomSetupModal` (name, room, pax, style, notes, photos via `MultiImagePicker`)
 instead of the old `window.prompt`; the setup bar shows the label and thumbnails.
+**Events → ROOMS & PLANS** (`RoomsPanel` / `RoomSetupsPanel`) is the canonical
+home: TABLE PLANS embeds `FloorPlansClient`, ROOMS edits Areas + calendar feeds,
+and ROOM SETUPS is a venue-wide list (`GET /api/admin/floorplan-setups`) that
+links each setup to a room via `FloorPlanSetup.areaId` and edits presentation
+fields. `/admin/floorplan` and `/admin/settings?tab=floorplans` redirect there.
 Events carry `setupId` as before; the event header and the BEO `ROOM_SETUP` block
 render a `RoomSetupCard` (label, pax/style, photos, and a read-only
 `SetupPlanThumbnail` SVG of the linked layout). Customer share pages stay
@@ -1485,9 +1492,9 @@ fixed mobile bar.
 
 Nav groups: **Dashboard** (Overview, Calendar, Kitchen) · **Ops hub** (Menu &
 Services, Bookings, Orders, Customers, Inventory & Stocktake) · **Events** (BEO
-Planner, Event Templates, Requests) · **Team & execution** (Roster & Pay, Daily
+Planner, Event Templates, Requests, Rooms & Plans) · **Team & execution** (Roster & Pay, Daily
 Tasks, Training, Notices) · **Compliance** (Food Safety) · **Performance**
-(Reports, Budget, Tips, Gift Cards) · **Setup & config** (Floor Plans, Settings).
+(Reports, Budget, Tips, Gift Cards) · **Setup & config** (Settings).
 Nav items are filtered by permission area when the session is a restricted
 manager (`NAV_ITEM_AREAS` + `sessionGrantedAreas`).
 

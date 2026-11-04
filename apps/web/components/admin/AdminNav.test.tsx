@@ -82,7 +82,10 @@ describe('AdminNav', () => {
     expect(linkHref('Setup & config')).toBe('/admin/settings?tab=general')
     toggleGroup('Setup & config')
     expect(linkHref('Settings')).toBe('/admin/settings?tab=general')
-    expect(linkHref('Floor Plans')).toBe('/admin/settings?tab=floorplans')
+    // Floor Plans moved under Events → Rooms & Plans.
+    expect(linkHref('Floor Plans')).toBeNull()
+    toggleGroup('Events')
+    expect(linkHref('Rooms & Plans')).toBe('/admin/events?tab=rooms')
   })
 
   it('renders the five ops areas as sidebar items once the group opens', () => {

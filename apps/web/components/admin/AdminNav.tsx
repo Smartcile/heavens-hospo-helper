@@ -24,6 +24,7 @@ const NAV_ITEM_AREAS: Record<string, string> = {
   '/admin/events?tab=events': 'events',
   '/admin/events?tab=templates': 'events',
   '/admin/events?tab=requests': 'events',
+  '/admin/events?tab=rooms': 'floorplans',
   '/admin/team': 'team',
   '/admin/execution': 'execution',
   '/admin/training': 'training',
@@ -33,9 +34,7 @@ const NAV_ITEM_AREAS: Record<string, string> = {
   '/admin/budget': 'performance',
   '/admin/gift-cards': 'performance',
   '/admin/tips': 'performance',
-  '/admin/settings?tab=floorplans': 'floorplans',
 }
-
 const NAV_GROUPS: NavGroup[] = [
   { label: 'Dashboard', href: '/admin', items: [
     { href: '/admin', label: 'Overview', exact: true },
@@ -55,6 +54,7 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/admin/events?tab=events', label: 'BEO Planner' },
     { href: '/admin/events?tab=templates', label: 'Event Templates' },
     { href: '/admin/events?tab=requests', label: 'Requests' },
+    { href: '/admin/events?tab=rooms', label: 'Rooms & Plans' },
   ] },
   { label: 'Team & execution', href: '/admin/team?tab=staff', items: [
     { href: '/admin/team', label: 'Roster & Pay' },
@@ -72,7 +72,6 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/admin/gift-cards', label: 'Gift Cards' },
   ] },
   { label: 'Setup & config', href: '/admin/settings?tab=general', items: [
-    { href: '/admin/settings?tab=floorplans', label: 'Floor Plans' },
     { href: '/admin/settings?tab=general', label: 'Settings' },
   ] },
 ]

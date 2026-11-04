@@ -1001,10 +1001,11 @@ model Area {
   updatedAt   DateTime @updatedAt
   deletedAt   DateTime?
 
-  venue     Venue           @relation(fields: [venueId], references: [id])
-  floorPlan FloorPlan?      @relation(fields: [floorPlanId], references: [id])
-  feeds     CalendarFeed[]
-  events    CalendarEvent[]
+    venue     Venue           @relation(fields: [venueId], references: [id])
+    floorPlan FloorPlan?      @relation(fields: [floorPlanId], references: [id])
+    feeds     CalendarFeed[]
+    events    CalendarEvent[]
+    setups    FloorPlanSetup[]
 
   @@index([venueId])
   @@index([venueId, sortOrder])
@@ -2370,8 +2371,11 @@ model FloorPlanSetup {
   /// pax it seats, the service style, and photos of the dressed room. The setup
   /// geometry (SetupItem) remains the single table plan — these fields only
   /// describe how the room looks so events can show a photo card.
-  roomName        String?
-  guestCapacity   Int?
+    roomName        String?
+    /// Optional link to the physical room (Area) this setup is for. A room can
+    /// own many named setups; the free-text roomName stays for legacy rows.
+    areaId          String?
+    guestCapacity   Int?
   setupStyle      String?
   imageUrls       String[]  @default([])
   /// Every floor plan has exactly one default layout: the venue's everyday
@@ -2386,14 +2390,16 @@ model FloorPlanSetup {
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
-  floorPlan FloorPlan    @relation(fields: [floorPlanId], references: [id])
-  items     SetupItem[]
-  groups    TableGroup[]
-  services  Service[] // a dated Service can use this layout as its table plan
-  events    Event[] // an Event can pin this layout as its room setup
+      floorPlan FloorPlan    @relation(fields: [floorPlanId], references: [id])
+      area      Area?        @relation(fields: [areaId], references: [id], onDelete: SetNull)
+      items     SetupItem[]
+    groups    TableGroup[]
+    services  Service[] // a dated Service can use this layout as its table plan
+    events    Event[] // an Event can pin this layout as its room setup
 
-  @@index([floorPlanId])
-}
+    @@index([floorPlanId])
+    @@index([areaId])
+  }
 
 model SetupItem {
   id              String    @id @default(uuid())
