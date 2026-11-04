@@ -648,6 +648,17 @@ Selection is one row/range and clears on navigation. `+ ADD WINDOW` uses
 plain `addWindow` would silently no-op) gains an editable row. A non-normalised
 split is edited through `addWindow`, so moving the new row's edge opens a real
 gap that persists instead of merging straight back.
+
+**Popup has no CLEAR; ADMIN series delete.** The day editor
+(`AvailabilityDayEditor`) no longer renders a CLEAR button (worker or admin) —
+clearing is main-screen only (`SELECT DAYS` → `CLEAR SELECTED (n)`). A series day
+gets **`DELETE SERIES`** for **ADMIN** only, opening a warning modal with
+`JUST THIS DAY` / `FROM THIS DAY ONWARDS` / `WHOLE SERIES`. It posts to
+`POST /api/admin/availability/delete-series` (strict ADMIN; reuses
+`clearAvailability` with `bypass`, soft-deletes), skips locked days (reported as
+`skipped`) and dismisses pending `AvailabilityEditRequest` rows for the removed
+dates. Managers keep the grid clear; the old `/clear` route is unchanged.
+
 The worker view
 defaults to **WEEKLY** and remembers the toggle in
 `sessionStorage['hospo-worker-availability-view']` (validated, falls back to

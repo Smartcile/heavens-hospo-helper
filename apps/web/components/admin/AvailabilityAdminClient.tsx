@@ -144,6 +144,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
   const [clearSelectionOpen, setClearSelectionOpen] = useState(false)
   const [lockSelectionOpen, setLockSelectionOpen] = useState(false)
   const [unlockSelectionOpen, setUnlockSelectionOpen] = useState(false)
+  const [deleteSeriesOpen, setDeleteSeriesOpen] = useState(false)
   const [lockReason, setLockReason] = useState('')
   const [notice, setNotice] = useState('')
   const { capture: captureScroll, restore: restoreScroll } = useScrollRestore()
@@ -792,41 +793,38 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
     load(true)
   }
 
-  async function clear(target: EditorTarget, options: { scope: AvailabilityScope | null }) {
+  // Admin-only: delete a weekly series (this day / from this day / whole series).
+  // Locked days are skipped server-side and reported back.
+  async function deleteSeries(target: EditorTarget, scope: AvailabilityScope) {
     const entry = target.entry ?? entryFor(target.staffId, target.date)
-    setBusy(true); setError('')
-    const r = await fetch('/api/admin/availability/clear', {
+    if (!entry?.seriesId) { setError('THIS DAY IS NOT PART OF A SERIES'); return }
+    setBusy(true); setError(''); setNotice('')
+    const r = await fetch('/api/admin/availability/delete-series', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         venueId,
         staffId: target.staffId,
         date: target.date,
-        scope: options.scope ?? target.scope ?? null,
-        seriesId: entry?.seriesId ?? null,
+        scope,
+        seriesId: entry.seriesId,
       }),
     })
     if (!r.ok) {
       setBusy(false)
       const d = await r.json().catch(() => ({}))
-      setError((d.error ?? 'CLEAR FAILED').toUpperCase())
+      const locked = Array.isArray(d.locked) && d.locked.length > 0
+        ? ` ${d.locked.length} LOCKED DAY${d.locked.length === 1 ? '' : 'S'} SKIPPED — UNLOCK FIRST.`
+        : ''
+      setError(((d.error ?? 'DELETE FAILED') + locked).toUpperCase())
       return
     }
-    if (target.requestId) {
-      const mark = await fetch(`/api/admin/availability/requests/${target.requestId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'MARK_APPLIED', reviewNote: target.requestReviewNote ?? null }),
-      })
-      if (!mark.ok) {
-        setBusy(false)
-        await load(true)
-        setError('CLEARED — BUT THE REQUEST COULD NOT BE MARKED APPLIED. CHECK THE REQUEST IN THE QUEUE.')
-        return
-      }
-    }
+    const out = await r.json().catch(() => ({}))
+    const skipped = Array.isArray(out.skipped) ? out.skipped.length : 0
     setBusy(false)
+    setDeleteSeriesOpen(false)
     setEditor(null)
+    if (skipped > 0) setNotice(`${skipped} LOCKED DAY${skipped === 1 ? '' : 'S'} SKIPPED — UNLOCK FIRST.`)
     load(true)
   }
 
@@ -1472,11 +1470,41 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
             busy={busy}
             error={error || null}
             onSave={(draft, options) => save(editor, draft, options)}
-            onClear={(options) => clear(editor, options)}
             onSaveNote={(notes) => saveNote(editor, notes)}
             onToggleLock={(locked, reason) => toggleLock(editor, locked, reason)}
-            onClose={() => { if (!busy) setEditor(null) }}
+            canDeleteSeries={role === 'ADMIN'}
+            onRequestDeleteSeries={() => setDeleteSeriesOpen(true)}
+            onClose={() => { if (!busy) { setEditor(null); setDeleteSeriesOpen(false) } }}
           />
+        )}
+      </Modal>
+
+      {/* Delete-series confirmation (ADMIN only) */}
+      <Modal
+        isOpen={deleteSeriesOpen}
+        onClose={() => { if (!busy) setDeleteSeriesOpen(false) }}
+        title="DELETE AVAILABILITY SERIES"
+        size="sm"
+      >
+        {editor && (
+          <div className="space-y-4">
+            <p className="font-mono text-sm text-white uppercase">
+              {staffName(editor.staffId)} — {formatDateLong(editor.date)}
+            </p>
+            <p className="font-mono text-2xs uppercase text-danger border border-danger/60 bg-danger/10 px-2 py-1.5">
+              WARNING: THIS DELETES THE AVAILABILITY PERMANENTLY. LOCKED DAYS ARE SKIPPED — UNLOCK THEM FIRST.
+            </p>
+            <p className="font-mono text-2xs uppercase text-grey-light">
+              CHOOSE HOW MUCH OF THE SERIES TO REMOVE:
+            </p>
+            <div className="grid grid-cols-1 gap-2">
+              <Button size="sm" variant="danger" disabled={busy} onClick={() => void deleteSeries(editor, 'THIS')}>JUST THIS DAY</Button>
+              <Button size="sm" variant="danger" disabled={busy} onClick={() => void deleteSeries(editor, 'FROM')}>FROM THIS DAY ONWARDS</Button>
+              <Button size="sm" variant="danger" disabled={busy} onClick={() => void deleteSeries(editor, 'ALL')}>WHOLE SERIES</Button>
+            </div>
+            {error && <p className="font-mono text-xs text-danger">{error}</p>}
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDeleteSeriesOpen(false)}>CANCEL</Button>
+          </div>
         )}
       </Modal>
 

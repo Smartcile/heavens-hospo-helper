@@ -97,10 +97,11 @@ export function AvailabilityDayEditor({
   busy = false,
   error,
   onSave,
-  onClear,
   onSaveNote,
   onToggleLock,
   onClose,
+  canDeleteSeries = false,
+  onRequestDeleteSeries,
 }: {
   dateKey: string
   entry: AvailabilityEntry | null
@@ -113,12 +114,13 @@ export function AvailabilityDayEditor({
   busy?: boolean
   error?: string | null
   onSave: (draft: EditorDraft, options: EditorSaveOptions) => void
-  /** Admin only — workers edit a day rather than removing it. */
-  onClear?: (options: { scope: AvailabilityScope | null; reason: string | null }) => void
   /** Notes-only PATCH — works on locked/past days, applies immediately. */
   onSaveNote?: (notes: string | null) => void
   /** Admin only: set/clear the day-level lock (optional reason). */
   onToggleLock?: (locked: boolean, reason: string | null) => void
+  /** Admin only: open the delete-series warning (scope is chosen there). */
+  canDeleteSeries?: boolean
+  onRequestDeleteSeries?: () => void
   onClose: () => void
 }) {
   const [isAllDay, setIsAllDay] = useState(entry ? entry.isAllDay : true)
@@ -533,14 +535,14 @@ export function AvailabilityDayEditor({
             {busy ? 'SAVING_' : managerLocked ? 'SEND CHANGE REQUEST' : locked ? 'SAVE (ASKS A MANAGER)' : 'SAVE'}
           </button>
         )}
-        {canOverride && !adminReadOnly && entry && onClear && (
+        {canDeleteSeries && onRequestDeleteSeries && (series || entry?.seriesId) && (
           <button
             type="button"
-            onClick={() => onClear({ scope: series ? (allowSeriesScope ? scope : 'THIS') : null, reason: note.trim() || null })}
+            onClick={onRequestDeleteSeries}
             disabled={busy}
             className="h-12 px-4 border border-danger text-danger font-mono font-bold text-sm uppercase hover:bg-danger hover:text-black transition-colors disabled:opacity-40"
           >
-            CLEAR
+            DELETE SERIES
           </button>
         )}
         {adminReadOnly && onToggleLock && (
