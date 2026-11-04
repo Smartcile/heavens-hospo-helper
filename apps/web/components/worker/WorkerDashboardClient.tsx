@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
-type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'shifts' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events'
+type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'shifts' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events' | 'help'
 
 interface DashData {
   firstName: string
@@ -333,6 +333,18 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           'text-grey-light',
           'border-grey-mid',
           () => openView('guides')
+        )}
+
+        {card(
+          'HEAVENLY HELP',
+          'HOW TO USE THE APP',
+          <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="square" strokeWidth={1.5} d="M6 6l12 12M18 6L6 18" />
+          </svg>,
+          null,
+          'text-danger',
+          'border-grey-mid',
+          () => openView('help')
         )}
 
         {card(

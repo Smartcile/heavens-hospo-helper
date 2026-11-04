@@ -211,6 +211,15 @@ worker hamburger menu. Dark is the default; the light theme uses white surfaces
 with dark-blue accents and borders. The preference is stored per browser, so it
 never flashes the wrong theme on load.
 
+### Heavenly Help
+
+The in-app help catalogue lives at **✕ HEAVENLY HELP** in the admin sidebar footer
+(and as a dashboard tile for workers). It is searchable, split into admin and
+worker audiences, and covers getting started through every hub. The content is
+shipped with the app and re-synced on deploy, so it always matches the version
+you are running — no per-venue setup.
+
+
 ---
 
 ## HOW IT ALL LINKS TOGETHER

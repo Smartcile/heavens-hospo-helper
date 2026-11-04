@@ -3904,3 +3904,31 @@ model TipsPeriod {
   @@index([venueId])
   @@index([venueId, fromDate])
 }
+
+// -- HEAVENLY HELP (#50) -------------------------------------------------
+// A global, read-only user-help catalogue. Not venue-scoped: every install
+// reads the same repo-authored content pack, synced on deploy by db:seed-help.
+enum HelpAudience {
+  EVERYONE
+  ADMIN
+  WORKER
+}
+
+model HelpArticle {
+  id          String       @id @default(uuid())
+  slug        String       @unique
+  title       String
+  summary     String?
+  category    String
+  audience    HelpAudience @default(EVERYONE)
+  sortOrder   Int          @default(0)
+  bodyHtml    String?
+  contentHash String
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  @@index([audience, category])
+  @@index([sortOrder])
+}

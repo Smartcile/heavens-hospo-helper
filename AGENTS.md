@@ -137,7 +137,8 @@ BudgetDayAllocation shape) → `prisma db push --accept-data-loss` (with a
 `--force-reset` fallback for ancient DBs) → `db:migrate-furniture` →
 `db:migrate-uom` → `db:migrate-step-links` + `db:backfill-guide-audiences` →
 `db:migrate-timeoff` → `db:migrate-calendar-feeds` → `db:migrate-areas` →
-`db:seed` (idempotent) → `next start -H 0.0.0.0 -p 3000`.
+`db:seed` (idempotent) → `db:seed-help` (Heavenly Help sync, writes only
+changed articles) → `next start -H 0.0.0.0 -p 3000`.
 Every migration step is non-fatal (`|| echo …`) except the db push reset. No
 manual migrate/seed step is needed.
 
@@ -1505,6 +1506,29 @@ preserves non-tab query params. Old standalone URLs (`/admin/recipes`,
 `/admin/orders`, `/admin/staff`, `/admin/review`, `/admin/guides`, …) are thin
 redirect stubs into their hub — **add new pages as hub tabs, not new sidebar
 entries**.
+
+### Heavenly Help (#50)
+
+The in-app user help is a **global, read-only catalogue**, not per-venue guides.
+
+- `HelpArticle` (`slug @unique`, `title`, `summary`, `category`, `audience
+  EVERYONE|ADMIN|WORKER`, `sortOrder`, `bodyHtml`, `contentHash`, soft delete) is
+  global — no `venueId`.
+- Content is the repo pack `apps/web/content/help/articles.ts`. **Edit the
+  matching article in the same PR as a feature** (the coverage test asserts every
+  required slug exists). `packages/db/prisma/seed-help.ts`
+  (`npm run db:seed-help`, wired into `docker-entrypoint.sh` after `db:seed`)
+  upserts by slug and writes only when `helpContentHash` changes; removed slugs
+  are soft-deleted.
+- `lib/help.ts` (pure) is the single audience/search/group/hash authority.
+  `helpVisibleTo`: admins see EVERYONE + ADMIN, workers EVERYONE + WORKER.
+- `GET /api/admin/help` (session) and `GET /api/worker/help` (worker session) are
+  auth-only — no `training.playbook.view` grant, so restricted managers still get
+  help. Both re-sanitise `bodyHtml` with `lib/rich-text.ts`.
+- `HelpClient` renders `/admin/help` and `/w/help`. `AdminNav` has a bottom
+  `✕ HEAVENLY HELP` link; the worker dashboard has a HEAVENLY HELP tile.
+
+
 
 ### Checklists (live task references) + re-train
 - **Merged Tasks + Checklists.** The old copy-based `TaskTemplate` is retired from

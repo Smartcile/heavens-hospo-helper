@@ -1,0 +1,205 @@
+// Heavenly Help content pack. This is the source of truth for the in-app help
+// catalogue — edit these articles in the same PR as the feature they describe.
+// `db:seed-help` syncs them into `HelpArticle` on deploy (only when the content
+// hash changes), so the help a venue sees always matches the shipped app.
+
+export type HelpAudience = 'EVERYONE' | 'ADMIN' | 'WORKER'
+
+export interface HelpArticleSeed {
+  slug: string
+  title: string
+  summary: string
+  category: string
+  audience: HelpAudience
+  sortOrder: number
+  bodyHtml: string
+}
+
+export const HELP_ARTICLES: HelpArticleSeed[] = [
+  {
+    slug: 'getting-started',
+    title: 'GETTING STARTED',
+    summary: 'First login, the sidebar, and where everything lives.',
+    category: 'START HERE',
+    audience: 'EVERYONE',
+    sortOrder: 10,
+    bodyHtml: [
+      '<h2>Welcome to HOSPO OPS</h2>',
+      '<p>The app runs the venue from one place: menus, orders, events, staff, tasks, training, inventory and settings.</p>',
+      '<h3>Log in</h3>',
+      '<ul><li><strong>Admin / manager:</strong> sign in with your email and password.</li><li><strong>Floor staff:</strong> open the worker link, pick your venue and enter your PIN (or scan the venue QR code).</li></ul>',
+      '<h3>The sidebar</h3>',
+      '<p>Groups are ordered by how you work: <strong>Dashboard</strong> → <strong>Ops hub</strong> → <strong>Events</strong> → <strong>Team &amp; execution</strong> → <strong>Compliance</strong> → <strong>Performance</strong> → <strong>Setup &amp; config</strong>.</p>',
+      '<p>Each hub shows its own tabs across the top. The URL keeps the tab (for example <code>?tab=availability</code>), so bookmarks and the back button work.</p>',
+      '<h3>Need help later?</h3>',
+      '<p>Open <strong>Heavenly Help</strong> from the bottom of the sidebar (or the worker dashboard) at any time.</p>',
+    ].join(''),
+  },
+  {
+    slug: 'dashboard',
+    title: 'DASHBOARD',
+    summary: 'The daily overview, widgets and quick actions.',
+    category: 'START HERE',
+    audience: 'EVERYONE',
+    sortOrder: 20,
+    bodyHtml: [
+      '<h2>Dashboard</h2>',
+      '<p>The overview brings today’s work together: bookings, orders, events, tasks, training, stock, food-safety alerts and who is clocked in.</p>',
+      '<h3>Customise it</h3>',
+      '<p>Use <strong>CUSTOMIZE</strong> to drag widgets into the order you want and hide the ones you do not use. The layout is saved per staff member.</p>',
+      '<h3>Attention items</h3>',
+      '<p>Anything overdue or out of range is surfaced here first. Click through to fix it at the source.</p>',
+    ].join(''),
+  },
+  {
+    slug: 'ops-menu',
+    title: 'MENUS & PRODUCTS',
+    summary: 'Build menus, edit products, serves and import a menu from a PDF.',
+    category: 'OPS',
+    audience: 'EVERYONE',
+    sortOrder: 100,
+    bodyHtml: [
+      '<h2>Menus &amp; products</h2>',
+      '<p><strong>Ops → Menu &amp; Services</strong> has three tabs: RECIPES (products), MENUS &amp; CATEGORIES (the menu builder), and SERVICES (bookable windows).</p>',
+      '<h3>Build a menu</h3>',
+      '<p>Open a menu, add product or stock lines, group them and drag to reorder. A menu is also a WooCommerce category when the store is connected.</p>',
+      '<h3>Import a menu from a PDF</h3>',
+      '<ol><li>Click <strong>IMPORT MENU</strong>.</li><li>Copy the prompt into an LLM with the PDF attached.</li><li>Paste the JSON answer back (or load the file).</li><li>Review the preview, choose a new or existing menu, then import.</li></ol>',
+      '<p>Imported products have no recipe or store link yet — set those up in RECIPES → IMPORT PRODUCTS.</p>',
+    ].join(''),
+  },
+  {
+    slug: 'ops-orders-bookings',
+    title: 'ORDERS & BOOKINGS',
+    summary: 'The service board, kitchen view, tables and bookings.',
+    category: 'OPS',
+    audience: 'EVERYONE',
+    sortOrder: 110,
+    bodyHtml: [
+      '<h2>Orders &amp; bookings</h2>',
+      '<p><strong>Ops → Bookings</strong> is a table reservation diary. Click a slot or drag on the table view to create a booking; the app seats it automatically against the room’s table plan.</p>',
+      '<p><strong>Ops → Orders</strong> has four views over the same day: SERVICE (time slots), KITCHEN (dish totals and allergy alerts), FOH (by table) and PRODUCTION (a tick list).</p>',
+      '<p>When SwiftPOS is connected, <strong>DOCKETS</strong> shows the live kitchen pass.</p>',
+    ].join(''),
+  },
+  {
+    slug: 'inventory',
+    title: 'INVENTORY & STOCKTAKE',
+    summary: 'Stock levels, equipment, furniture and the Pantry Bible.',
+    category: 'OPS',
+    audience: 'EVERYONE',
+    sortOrder: 120,
+    bodyHtml: [
+      '<h2>Inventory &amp; stocktake</h2>',
+      '<p><strong>Ops → Inventory</strong> holds food, beverage, equipment and furniture. Each item tracks the quantity you own; furniture also carries its footprint, shape and chairs for the floor planner.</p>',
+      '<h3>Pantry Bible</h3>',
+      '<p>The Pantry Bible stores known ingredient densities and unit weights, so recipes can mix cups, grams and millilitres safely.</p>',
+      '<h3>Stocktake</h3>',
+      '<p>Floor staff count stock from the worker link. Submit as IN PROGRESS or COMPLETED; the count is kept with who counted it and when.</p>',
+    ].join(''),
+  },
+  {
+    slug: 'events',
+    title: 'EVENTS & BEOs',
+    summary: 'From enquiry to confirmed event, blocks, templates and the customer share link.',
+    category: 'EVENTS',
+    audience: 'EVERYONE',
+    sortOrder: 200,
+    bodyHtml: [
+      '<h2>Events &amp; BEOs</h2>',
+      '<p>An event starts as an <strong>ENQUIRY</strong>. Convert it to a BEO when the customer is ready, then move it through TENTATIVE, CONFIRMED and COMPLETED.</p>',
+      '<h3>Blocks</h3>',
+      '<p>A BEO is a stack of blocks: customer details, dining style, menus, drinks, dietary needs, room setup, timeline, staffing, payments and notes. Drag blocks from the library; set the ones you use.</p>',
+      '<h3>Push to bookings</h3>',
+      '<p>When an event is confirmed, <strong>PUSH NOW</strong> creates the calendar entry, seating and pre-order. <strong>SHARE</strong> gives the customer a read-only link where they can approve or request changes.</p>',
+    ].join(''),
+  },
+  {
+    slug: 'rooms-plans',
+    title: 'ROOMS & PLANS',
+    summary: 'Table plans, event spaces and room setups.',
+    category: 'EVENTS',
+    audience: 'EVERYONE',
+    sortOrder: 210,
+    bodyHtml: [
+      '<h2>Rooms &amp; plans</h2>',
+      '<p>Everything about the physical venue lives in <strong>Events → Rooms &amp; Plans</strong>.</p>',
+      '<ul><li><strong>TABLE PLANS</strong> — draw walls, doors, sections and tables to scale. Add furniture from inventory, snap tables together and save named setups.</li><li><strong>ROOMS</strong> — your event spaces (function rooms, bar, terrace) and the calendars that import their events.</li><li><strong>ROOM SETUPS</strong> — every named setup across all plans. Link each to a room and edit its pax, style, notes and photos.</li></ul>',
+      '<p>The old <code>/admin/floorplan</code> link now opens this tab.</p>',
+    ].join(''),
+  },
+  {
+    slug: 'team-roster-availability',
+    title: 'ROSTER & AVAILABILITY',
+    summary: 'Shifts, availability, clocks and payroll.',
+    category: 'TEAM',
+    audience: 'EVERYONE',
+    sortOrder: 300,
+    bodyHtml: [
+      '<h2>Roster &amp; availability</h2>',
+      '<p><strong>Team</strong> has five tabs: STAFF, ROSTER, AVAILABILITY, CLOCKS and PAYROLL.</p>',
+      '<h3>Roster</h3>',
+      '<p>Build the week by staff position, drag shifts to copy or move them, then PUBLISH. Only published shifts reach workers.</p>',
+      '<h3>Availability</h3>',
+      '<p>Workers declare availability from their phone. Managers confirm or decline it here, resolve edit requests, and can override any day. Locked days need an unlock before they can change.</p>',
+      '<p>Admins can delete a whole availability series — just this day, from this day onwards, or the whole series — from a series day in the grid editor.</p>',
+    ].join(''),
+  },
+  {
+    slug: 'tasks-guides',
+    title: 'TASKS & TRAINING',
+    summary: 'Daily lists, checklists, playbook guides and pathways.',
+    category: 'TEAM',
+    audience: 'EVERYONE',
+    sortOrder: 310,
+    bodyHtml: [
+      '<h2>Tasks &amp; training</h2>',
+      '<p><strong>Daily Tasks</strong> builds recurring tasks and the checklists that group them. Floor staff see the whole department’s due list and anyone can tick a job off once.</p>',
+      '<h3>Outcomes</h3>',
+      '<p>Opening a task asks what happened: DONE, PARTIAL, NOT REQUIRED or DID NOT COMPLETE. PARTIAL keeps the task visible until it is settled.</p>',
+      '<h3>Playbook</h3>',
+      '<p>Guides are your how-tos and SOPs. Workers read them in the BIBLE and follow their MY TREE pathway. Managers can require sign-off and track completion on the STATUS board.</p>',
+    ].join(''),
+  },
+  {
+    slug: 'worker-app',
+    title: 'THE WORKER APP',
+    summary: 'What floor staff see on their phone.',
+    category: 'WORKER',
+    audience: 'WORKER',
+    sortOrder: 400,
+    bodyHtml: [
+      '<h2>The worker app</h2>',
+      '<p>Log in with the venue QR code or the worker link plus your PIN. The dashboard shows your shift, tasks, notices, stocktake, shifts to pick up and more.</p>',
+      '<h3>Everyday actions</h3>',
+      '<ul><li>Tick off today’s tasks (one tick completes a job for the whole team).</li><li>Declare availability and request time off.</li><li>Clock in and out, and take breaks.</li><li>Read guides and your training pathway.</li><li>Count stock and claim open shifts.</li></ul>',
+      '<p>Your session signs you out after the venue’s idle timeout.</p>',
+    ].join(''),
+  },
+  {
+    slug: 'settings',
+    title: 'SETTINGS',
+    summary: 'Venue setup, integrations, sync, users and files.',
+    category: 'ADMIN',
+    audience: 'ADMIN',
+    sortOrder: 500,
+    bodyHtml: [
+      '<h2>Settings</h2>',
+      '<p><strong>Setup &amp; config → Settings</strong> holds the venue-wide configuration.</p>',
+      '<ul><li><strong>GENERAL</strong> — venue details, WooCommerce, demo venue, backups, sharing, availability cut-off, worker session timeout and your password/PIN.</li><li><strong>VENUE SETUP</strong> — venues, positions (roles) and departments.</li><li><strong>STRUCTURE</strong> — the organisation tree and workflow map.</li><li><strong>UNITS, SUPPLIERS, QR CODES</strong> — inventory units, suppliers and worker login codes.</li><li><strong>SYNC</strong> — pull/products and orders, push products, and the sync log.</li><li><strong>SWIFT POS</strong> — sales, staff sync and menu links.</li><li><strong>FILES</strong> — the media browser (admin only).</li></ul>',
+    ].join(''),
+  },
+  {
+    slug: 'compliance',
+    title: 'FOOD SAFETY',
+    summary: 'Temperature readings, deliveries and alerts.',
+    category: 'COMPLIANCE',
+    audience: 'EVERYONE',
+    sortOrder: 600,
+    bodyHtml: [
+      '<h2>Food safety</h2>',
+      '<p><strong>Compliance → Food Safety</strong> has four tabs: TASKS, DELIVERIES, ALERTS and LOGGERS.</p>',
+      '<ul><li><strong>TASKS</strong> — reading tasks (fridge, freezer, hot hold) with pass/fail ranges. A fail raises an alert.</li><li><strong>DELIVERIES</strong> — record a delivery, its temperatures and what was accepted or rejected.</li><li><strong>ALERTS</strong> — every out-of-range reading or rejected delivery, open until resolved with a note.</li><li><strong>LOGGERS</strong> — reserved for the sensor phase.</li></ul>',
+    ].join(''),
+  },
+]

@@ -107,6 +107,8 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 |---|---|---|
 | **Settings** | `/admin/settings` | 8 tabs — GENERAL · VENUE SETUP · STRUCTURE · UNITS OF MEASURE · SUPPLIERS · QR CODES · SYNC · SWIFT POS (SALES / STAFF SYNC / MENU LINKS) · FILES (admin) (section 3). Floor plans / rooms now live under Events → Rooms & Plans |
 
+**Bottom utility links:** `✕ HEAVENLY HELP` → `/admin/help` (global in-app help catalogue, seeded from the repo and searchable) and `WORKER VIEW →`.
+
 ---
 
 ## 2. OPS HUB — one sticky top bar per area (`/admin/ops`)
@@ -190,6 +192,7 @@ keeping other query params.
 | **Available Shifts** | `/w/shifts` | Event shifts listed for pickup — only seats for positions I hold (or with no role requirement), never past dates. MONTH grid (per-day count badge) + WEEK list, tap a day → shift cards with role, event, breaks, and an AVAILABILITY CONFLICT warning; CLAIM sends a note-bearing request for the manager to confirm (WITHDRAW while pending, CONFIRMED panel after). Dashboard tile shows the count |
 | **Floor Plan** | `/w/floorplan` | Read-only plan: zoom/pan, setup switcher, event-mode banner. Active room setup shows its label, pax/style and photos to all staff; managers also get `EDIT SETUP` |
 | **Notices** | `/w/notices` | Announcements with GOT IT acknowledgement |
+| **Heavenly Help** | `/w/help` | Searchable in-app help (worker articles): getting started, the worker app, tasks, availability and more. Also a dashboard tile (✕ HEAVENLY HELP) |
 | **Timeclock** | `/w/timeclock` | Clock in/out, breaks (NZ rules), today's hours, history |
 | **Gift Cards** | /w/giftcards | Issue a physical gift card (permission-only tile): shows the lowest-numbered draft, buyer + amount, ISSUE → VIEW / PRINT PDF |
 | **Events** | `/w/events` | Build & edit enquiries and BEOs from the phone (permission-only tile — ADMIN/MANAGER always, STAFF need EVENTS create/edit): list with an ENQUIRIES / EVENTS / ALL filter → full-screen editor with the same typed blocks (click to add from the library, reorder, edit config, REFERENCE viewer for linked playbook guides), menu/layout pickers, and **+ NEW** offering ENQUIRY (from the master template) or a blank event. An enquiry shows **CONVERT** to move it into the BEO lifecycle. Venue is always the worker's own |

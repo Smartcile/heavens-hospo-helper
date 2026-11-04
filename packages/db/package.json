@@ -8,6 +8,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed-help": "tsx prisma/seed-help.ts",
     "db:migrate-budget": "tsx prisma/migrate-budget-day-allocations.ts",
     "db:migrate-guides": "tsx prisma/migrate-to-guides.ts",
     "db:migrate-step-links": "tsx prisma/migrate-step-links.ts",
