@@ -9,6 +9,7 @@ import { describePaxRange } from '@/lib/menu-rules'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { MenuItemServesEditor } from '@/components/admin/MenuItemServesEditor'
 import { MenuBuilder, type MenuOptionProduct, type MenuOptionStock } from '@/components/admin/MenuBuilder'
+import { MenuImportModal } from '@/components/admin/MenuImportModal'
 import type { MenuShape } from '@/lib/menu-lines'
 import { thumbUrl } from '@/lib/image-thumb'
 
@@ -27,6 +28,7 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [newCatName, setNewCatName] = useState('')
   const [creatingCategory, setCreatingCategory] = useState(false)
   const [servesItem, setServesItem] = useState<{ id: string; name: string } | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -155,7 +157,10 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
         <div className="flex items-center gap-3">
           <span className="font-mono text-xs text-grey-light">{menus.length} MENUS</span>
           {tab === 'menus' && selectedId == null && (
-            <Button size="sm" variant="ghost" onClick={() => setSelectedId('new')}>+ NEW MENU</Button>
+            <>
+              <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)}>⬆ IMPORT MENU</Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedId('new')}>+ NEW MENU</Button>
+            </>
           )}
         </div>
       </div>
@@ -293,6 +298,16 @@ export function MenusClient({ role, sessionVenueId, defaultVenueId }: { role: st
           <MenuItemServesEditor menuItemId={servesItem.id} menuItemName={servesItem.name} venueId={venueId ?? ''} />
         )}
       </Modal>
+
+      {importOpen && (
+        <MenuImportModal
+          venueId={venueId ?? ''}
+          menus={menus.map((m) => ({ id: m.id, name: m.name }))}
+          products={products.map((p) => ({ id: p.id, name: p.name }))}
+          onClose={() => setImportOpen(false)}
+          onImported={(id) => { setImportOpen(false); setSelectedId(id); void load() }}
+        />
+      )}
     </div>
   )
 }
