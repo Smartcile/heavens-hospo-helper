@@ -8,7 +8,7 @@ export default async function EventsPage() {
   const session = await getServerSession(authOptions)
   if (!session) return null
 
-  const activeVenueId = cookies().get('admin-active-venue')?.value ?? session.user.defaultVenueId ?? undefined
+  const activeVenueId = cookies().get('admin-active-venue')?.value ?? session.user.defaultVenueId ?? null
   const grantedAreas = await sessionGrantedAreas(session, activeVenueId)
 
   return (
