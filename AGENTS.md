@@ -2095,6 +2095,26 @@ Active:     border-[#60A5FA] (blue border) when a non-default value is selected 
 
 Sizes: `sm` (text-xs px-3 py-1.5), `md` (text-sm px-4 py-2 — default), `lg` (text-base px-6 py-3)
 
+### Unsaved-changes guard (#47)
+
+`components/ui/Modal` (and `Drawer`) accept `dirty?: boolean`. When true,
+backdrop click, Escape and `[ESC]` open a themed `DISCARD CHANGES?` confirm
+(`DISCARD` / `KEEP EDITING`) instead of closing; only DISCARD calls `onClose`.
+Explicit `CANCEL`/`CLOSE` buttons still call `onClose` directly (two-click
+cancel is worse UX). Body scroll lock is reference-counted so a nested confirm
+never unlocks the page under an open modal.
+
+Editors opt in with `lib/use-dirty.ts`:
+- `useDirty(value, { enabled })` → `{ dirty, markClean }`. Pass
+  `enabled: !loading` so the baseline is captured with the loaded values (an
+  async load never looks dirty); call `markClean()` after a successful save.
+- `useBeforeUnload(dirty)` prompts on browser refresh/close.
+
+Wired so far: `StaffEditModal`, `TaskEditModal`, `MenuItemDetailsModal`,
+`CalendarEventFormModal`. Bespoke `fixed inset-0` editors do not use the shared
+primitive; wire them (or migrate them to `Modal`) with the same pattern. Read-only
+pickers/previews must not set `dirty`.
+
 ### Layout patterns
 
 **2-column dashboard** — use for setup/configuration pages:

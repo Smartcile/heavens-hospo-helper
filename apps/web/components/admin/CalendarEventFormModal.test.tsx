@@ -82,4 +82,29 @@ describe('CalendarEventFormModal', () => {
     expect(puts[0]).toMatchObject({ title: 'BOARD MEETING', date: '2026-10-12', allDay: false, pax: 8 })
     expect((puts[0].staffing as { count: number }[])[0].count).toBe(2)
   })
+
+  it('confirms before closing a backdrop click with unsaved changes', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/api/admin/areas')) return jsonRes({ areas: [] })
+      return jsonRes([])
+    })
+
+    const onClose = vi.fn()
+    render(<CalendarEventFormModal venueId="v1" defaultDate="2026-10-12" onClose={onClose} onSaved={() => {}} />)
+
+    fireEvent.change(await screen.findByPlaceholderText('BOARD MEETING'), { target: { value: 'DRAFT EVENT' } })
+    const backdrop = screen.getByText('NEW EVENT').closest('.fixed') as HTMLElement
+    fireEvent.click(backdrop)
+
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByText('DISCARD CHANGES?')).toBeDefined()
+
+    fireEvent.click(screen.getByText('KEEP EDITING'))
+    expect(screen.queryByText('DISCARD CHANGES?')).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+
+    fireEvent.click(backdrop)
+    fireEvent.click(screen.getByText('DISCARD'))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
 })

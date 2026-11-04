@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { isOverCapacity } from '@/lib/manual-event'
+import { useDirty } from '@/lib/use-dirty'
 import {
   draftFromStaffingLine,
   newStaffingDraft,
@@ -78,6 +79,15 @@ export function CalendarEventFormModal({
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [removePdf, setRemovePdf] = useState(false)
   const [draftLines, setDraftLines] = useState<StaffingDraftLine[]>([newStaffingDraft()])
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const { dirty, markClean } = useDirty(
+    { title, description, areaId, date, allDay, startTime, endTime, pax, pdfUrl, pdfPath, pdfFile, removePdf, draftLines },
+    { enabled: !loading },
+  )
+  const requestClose = () => {
+    if (dirty) setConfirmDiscard(true)
+    else onClose()
+  }
 
   useEffect(() => {
     let alive = true
@@ -193,6 +203,7 @@ export function CalendarEventFormModal({
         const ud = await up.json().catch(() => ({}))
         setBusy(false)
         setError((ud.error ?? 'PDF UPLOAD FAILED').toUpperCase())
+        markClean()
         onSaved()
         return
       }
@@ -200,11 +211,12 @@ export function CalendarEventFormModal({
       await fetch(`/api/admin/calendar-events/${id}/attachment`, { method: 'DELETE' })
     }
     setBusy(false)
+    markClean()
     onSaved()
   }
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4" onClick={requestClose}>
       <div className="bg-grey-dark border border-grey-mid p-5 w-full max-w-2xl space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <h2 className="font-mono text-xs uppercase tracking-widest text-white">
           {editing ? 'EDIT EVENT' : 'NEW EVENT'}
@@ -303,6 +315,25 @@ export function CalendarEventFormModal({
           <Button size="sm" variant="ghost" onClick={onClose}>CANCEL</Button>
         </div>
       </div>
+
+      {confirmDiscard && (
+        <div
+          className="fixed inset-0 z-[70] bg-black/80 flex items-center justify-center p-4"
+          onClick={(e) => {
+            e.stopPropagation()
+            if (e.target === e.currentTarget) setConfirmDiscard(false)
+          }}
+        >
+          <div className="bg-grey-dark border border-grey-mid p-4 w-full max-w-sm space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-mono font-semibold uppercase tracking-wider text-sm">DISCARD CHANGES?</h2>
+            <p className="font-mono text-xs uppercase text-grey-light">YOU HAVE UNSAVED CHANGES. CLOSE WITHOUT SAVING?</p>
+            <div className="flex gap-2">
+              <Button size="sm" variant="danger" onClick={onClose}>DISCARD</Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfirmDiscard(false)}>KEEP EDITING</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
