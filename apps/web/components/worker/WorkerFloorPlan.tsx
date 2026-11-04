@@ -3,6 +3,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { FloorPlanPixiCanvas, type ViewState } from '@/components/admin/floorplan-pixi'
 import type { ElementData } from '@/components/admin/floorplan-elements'
+import { Button } from '@/components/ui/Button'
+import {
+  RoomSetupModal,
+  roomSetupDraftFrom,
+  roomSetupPayload,
+  type RoomSetupDraft,
+} from '@/components/RoomSetupModal'
+import { roomSetupLabel } from '@/lib/room-setup'
 
 interface View { slug: string; name: string; isDefault: boolean }
 interface SectionInfo { id: string; name: string; colour: string | null }
@@ -27,6 +35,11 @@ export function WorkerFloorPlan() {
   const [activeSetupId, setActiveSetupId] = useState<string | null>(null)
   const [setupItems, setSetupItems] = useState<any[]>([])
   const [setupBanner, setSetupBanner] = useState<string | null>(null)
+  const [role, setRole] = useState<string | null>(null)
+  const [setupModalOpen, setSetupModalOpen] = useState(false)
+  const [setupDraft, setSetupDraft] = useState<RoomSetupDraft>(roomSetupDraftFrom({ name: '' }))
+  const [setupSaving, setSetupSaving] = useState(false)
+  const [setupError, setSetupError] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<ViewState>({ baseScale: 1, ox: 0, oy: 0, zoom: 1, panX: 0, panY: 0 })
 
@@ -47,7 +60,15 @@ export function WorkerFloorPlan() {
     if (r.ok) setViews(await r.json())
   }
 
-  useEffect(() => { loadViews(); loadPlan() }, [])
+  useEffect(() => {
+    loadViews()
+    loadPlan()
+    // Manager-only affordances are cosmetic; the API enforces the role.
+    fetch('/api/worker/session')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => setRole(s?.role ?? null))
+      .catch(() => setRole(null))
+  }, [])
 
   useEffect(() => {
     const el = containerRef.current
@@ -77,6 +98,39 @@ export function WorkerFloorPlan() {
       setSetupItems(data.items ?? [])
       setSetupBanner(data.name)
     }
+  }
+
+  const activeSetup = setups.find((s) => s.id === activeSetupId) ?? null
+  const canManage = role === 'ADMIN' || role === 'MANAGER'
+
+  function openEditSetup() {
+    if (!activeSetup) return
+    setSetupDraft(roomSetupDraftFrom(activeSetup))
+    setSetupError('')
+    setSetupModalOpen(true)
+  }
+
+  async function saveSetup() {
+    if (!activeSetup) return
+    const payload = roomSetupPayload(setupDraft)
+    if (!payload.name) { setSetupError('A SETUP NAME IS REQUIRED.'); return }
+    setSetupSaving(true)
+    setSetupError('')
+    const r = await fetch(`/api/worker/floorplan/setups/${activeSetup.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    setSetupSaving(false)
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      setSetupError(err.error ?? 'COULD NOT SAVE THE SETUP.')
+      return
+    }
+    const saved = await r.json()
+    setSetups((prev) => prev.map((s) => (s.id === saved.id ? { ...s, ...saved } : s)))
+    setSetupBanner(saved.name)
+    setSetupModalOpen(false)
   }
 
   if (loading) {
@@ -144,6 +198,33 @@ export function WorkerFloorPlan() {
           </div>
         </div>
 
+      {activeSetup && (
+        <div className="border-b border-grey-mid bg-grey-dark/60 px-4 py-2 flex items-start gap-3 flex-wrap">
+          <div className="min-w-0 space-y-1">
+            <p className="font-mono text-sm font-bold uppercase text-white truncate">{roomSetupLabel(activeSetup)}</p>
+            <p className="font-mono text-xs uppercase text-grey-light">
+              {activeSetup.guestCapacity ? `${activeSetup.guestCapacity} PAX` : 'PAX NOT SET'}
+              {activeSetup.setupStyle ? ` · ${String(activeSetup.setupStyle).toUpperCase()}` : ''}
+            </p>
+            {activeSetup.notes && (
+              <p className="font-mono text-xs text-grey-light max-w-xl">{activeSetup.notes}</p>
+            )}
+          </div>
+          <span className="flex-1" />
+          {Array.isArray(activeSetup.imageUrls) && activeSetup.imageUrls.length > 0 && (
+            <div className="flex gap-1 flex-wrap">
+              {activeSetup.imageUrls.map((url: string) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key={url} src={url} alt="" className="h-14 w-14 object-cover border border-grey-mid" />
+              ))}
+            </div>
+          )}
+          {canManage && (
+            <Button size="sm" variant="ghost" onClick={openEditSetup}>EDIT SETUP</Button>
+          )}
+        </div>
+      )}
+
       <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
         <div ref={containerRef} className="w-full h-full" />
         <FloorPlanPixiCanvas
@@ -174,6 +255,18 @@ export function WorkerFloorPlan() {
             setupSelectedIds={[]}
           />
       </div>
+
+      <RoomSetupModal
+        isOpen={setupModalOpen}
+        title="EDIT ROOM SETUP"
+        value={setupDraft}
+        onChange={setSetupDraft}
+        onClose={() => setSetupModalOpen(false)}
+        onSave={saveSetup}
+        saving={setupSaving}
+        error={setupError}
+        uploadEndpoint="/api/worker/upload"
+      />
 
       {infoPanel && (
         <div className="fixed bottom-0 inset-x-0 bg-grey-dark border-t border-grey-mid p-4 z-50">

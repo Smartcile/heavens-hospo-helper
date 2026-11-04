@@ -22,7 +22,15 @@ export async function GET(req: NextRequest) {
 
   const setups = await prisma.floorPlanSetup.findMany({
     where: { deletedAt: null, floorPlan: { venueId, deletedAt: null } },
-    select: { id: true, name: true, floorPlan: { select: { id: true, name: true, slug: true } } },
+    select: {
+      id: true,
+      name: true,
+      roomName: true,
+      guestCapacity: true,
+      setupStyle: true,
+      imageUrls: true,
+      floorPlan: { select: { id: true, name: true, slug: true } },
+    },
     orderBy: [{ floorPlan: { isDefault: 'desc' } }, { floorPlan: { name: 'asc' } }, { name: 'asc' }],
   })
 

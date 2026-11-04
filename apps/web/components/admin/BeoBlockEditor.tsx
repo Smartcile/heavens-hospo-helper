@@ -9,9 +9,11 @@ import { blockDef, type BeoBlockField, type BeoRowColumn, type BlockLibrary } fr
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
+import { RoomSetupCard, type RoomSetupOption } from '@/components/RoomSetupCard'
+import { roomSetupLabel } from '@/lib/room-setup'
 
 export interface BeoMenuOption { id: string; name: string; price?: number }
-export interface BeoSetupOption { id: string; name: string }
+export type BeoSetupOption = RoomSetupOption
 
 export interface BeoBlockEditorProps {
   type: string
@@ -235,12 +237,18 @@ export function BeoBlockEditor({
               />
             )}
             {field.kind === 'setup' && (
-              <Select
-                value={String(value ?? '')}
-                disabled={disabled}
-                onChange={(e) => set(e.target.value)}
-                options={[{ value: '', label: '— NONE —' }, ...setups.map((s) => ({ value: s.id, label: s.name }))]}
-              />
+              <div className="space-y-2">
+                <Select
+                  value={String(value ?? '')}
+                  disabled={disabled}
+                  onChange={(e) => set(e.target.value)}
+                  options={[{ value: '', label: '— NONE —' }, ...setups.map((s) => ({ value: s.id, label: roomSetupLabel(s) }))]}
+                />
+                {(() => {
+                  const picked = setups.find((s) => s.id === String(value ?? ''))
+                  return picked ? <RoomSetupCard setup={picked} /> : null
+                })()}
+              </div>
             )}
             {field.kind === 'rows' && (
               <RowsEditor

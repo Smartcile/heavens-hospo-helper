@@ -11,8 +11,18 @@ export async function GET(req: NextRequest) {
   if (!planId) return NextResponse.json({ error: 'planId is required' }, { status: 400 })
 
   const setups = await prisma.floorPlanSetup.findMany({
-    where: { floorPlanId: planId, deletedAt: null },
-    select: { id: true, name: true, eventDate: true },
+    // Scope by the worker's venue, not just the plan id — a manager switching
+    // venues must not read another venue's room photos.
+    where: { floorPlanId: planId, deletedAt: null, floorPlan: { venueId: session.venueId, deletedAt: null } },
+    select: {
+      id: true,
+      name: true,
+      eventDate: true,
+      roomName: true,
+      guestCapacity: true,
+      setupStyle: true,
+      imageUrls: true,
+    },
     orderBy: { createdAt: 'desc' },
   })
 

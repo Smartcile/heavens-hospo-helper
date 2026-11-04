@@ -875,7 +875,9 @@ Venues author custom block types via `BeoBlockDef` (`/api/admin/beo-block-defs`)
 `BeoBlockLink` attaches guides/tasks/checklists to a block **area** (polymorphic
 `targetId`, no FK — a purged target simply disappears). Admin keeps blocks in
 the builder (`EventBuilder` + `BeoBlockEditor` / `BeoBlockLibrary` /
-`BeoBlockReferences`), plus `BlockLibraryPanel` for custom defs.
+`BeoBlockReferences`), plus `BlockLibraryPanel` for custom defs. The event header
+and the `ROOM_SETUP` block render the selected setup as a `RoomSetupCard` (room
+label, pax/style, photos, and a table-plan thumbnail) — see "Room setups".
 
 **Templates** — `BeoTemplate` (`venueId null` = built-in global; blocks stored
 as JSON without ids). One venue template can be flagged `isMaster` — the enquiry
@@ -1102,6 +1104,24 @@ inventory module (`/admin/ops?tab=inventory` → TABLES category), added to plan
 records. Available/pool
 counts are shown as badges (`3/5`). Canvas rubber-band selection works for setup items.
 
+**Room setups (photo-backed, built 2026-11).** A room setup is a `FloorPlanSetup`
+with presentation metadata — `roomName`, `guestCapacity`, `setupStyle` and
+`imageUrls String[]` — while the setup geometry stays the single table plan.
+`lib/room-setup.ts` (pure) renders the label (`[ROOM] - 22PAX SIT DOWN`, falling
+back to the setup name), normalises the editor payload and sanitises photo URLs.
+The admin editor's `+ NEW SETUP` / `EDIT SETUP` open the shared
+`RoomSetupModal` (name, room, pax, style, notes, photos via `MultiImagePicker`)
+instead of the old `window.prompt`; the setup bar shows the label and thumbnails.
+Events carry `setupId` as before; the event header and the BEO `ROOM_SETUP` block
+render a `RoomSetupCard` (label, pax/style, photos, and a read-only
+`SetupPlanThumbnail` SVG of the linked layout). Customer share pages stay
+unchanged — room photos are internal and are **not** added to the share view.
+Managers (ADMIN/MANAGER) can also edit a room setup from the worker floor plan:
+`WorkerFloorPlan` shows the photos to all staff and an `EDIT SETUP` button for
+managers, saving through `PUT /api/worker/floorplan/setups/[id]` (venue-checked,
+presentation fields only; floor staff get 403). The worker session GET returns
+`role` so the UI can hide the write affordance.
+
 **Magnetic Edge Snapping + auto-join:** When a `SetupItem` is dragged close to another
 same-furniture item, the canvas detects edge proximity (parallelism, distance, facing, overlap)
 and snaps the item flush against the target edge (`snapThreshold`, default 15cm; fires on
@@ -1147,8 +1167,8 @@ on the narrow ends of banquet tables.
 | `/api/admin/floorplan/[id]/setups/[setupId]/groups/[groupId]` | GET, PUT, DELETE | Group CRUD |
 | `/api/admin/floorplan/[id]/section-boundaries` | GET, PUT | Section boundary CRUD |
 | `/api/admin/floorplan-setups` | GET | Cross-plan setup list (default layouts etc.) |
-| `/api/worker/floorplan/setups` | GET | Worker setup list |
-| `/api/worker/floorplan/setups/[id]` | GET | Worker setup detail |
+| `/api/worker/floorplan/setups` | GET | Worker setup list (venue-checked, includes room metadata/photos) |
+| `/api/worker/floorplan/setups/[id]` | GET, PUT | Worker setup detail; PUT is manager-only room-setup metadata/photos |
 
 > **Removed:** `/api/admin/table-profiles*` and the `/admin/table-profiles` page
 > are gone — furniture lives on `InventoryItem` (see "Furniture Unification").
@@ -1156,7 +1176,8 @@ on the narrow ends of banquet tables.
 **Worker View:** `WorkerFloorPlan` has been extended with a setup switcher dropdown (alongside
 the existing view switcher). Workers can switch between the base plan and any setup. Setup
 items render on the read-only canvas with auto-assigned numbers as labels. A setup banner
-shows the active setup name.
+shows the active setup name. The active room setup also renders its label, pax/style, notes
+and photos for every staff member; managers additionally get `EDIT SETUP` (see "Room setups").
 
 **Interactive overhaul (2026-07):** the setup layer became the single interactive table layer
 and the loop was closed end-to-end:
@@ -2790,6 +2811,7 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/guide-pdf.ts` / `guide-types.ts` / `guide-folders.ts` / `guides.server.ts` / `guide-media.ts` | ✅ (13 + 4 + 7 + 3 + 6) |
 | `lib/reference-table.ts` — derived MENU_FIELD columns + sanitisation | ✅ (19 tests) |
 | `lib/rich-text.ts` — `sanitiseRichText` allowlist | ✅ (13 tests) |
+| `lib/room-setup.ts` — room label, pax/style, photo URL sanitising, input normalisation | ✅ (9 tests) |
 | `lib/checklist-activation.ts` — venue-local date activation | ✅ (6 tests) |
 | `lib/task-outcomes.ts` — outcome hierarchy, DONE-always, reason validation, open-list policy | ✅ (12 tests) |
 | `lib/position-requirements.ts` — required guides + readiness resolver | ✅ (6 tests) |
@@ -2854,6 +2876,7 @@ pushing, run: `npm run lint && npm run test`.
 | `CalendarEventFormModal.tsx` — create + staffing POST, capacity warning, edit load/PUT | ✅ (2 tests) |
 | `WorkerShiftsClient.tsx` — pickup grid, claim/withdraw, conflict warning, confirmed panel | ✅ (5 tests) |
 | `TrainingStatusClient.tsx` — status rows + SECTION REVIEWS strip, CONFIRM/DISMISS/error surfacing, position grouping, guide titles, MANAGE GUIDES modal | ✅ (6 tests) |
+| `RoomSetupModal.tsx` / `RoomSetupCard.tsx` — editor payload, label preview, photo card, table-plan thumbnail | ✅ (3 + 3 tests) |
 | `StaffAccessDrawer.tsx` / `OpsClient.tsx` / `MenusClient` builder components | ✅ (4 + 7 + tested) |
 | `SwiftPosMenuLinks.tsx` / `KitchenDocketsClient.tsx` / `MenuItemDetailsModal.tsx` / `SwiftPosStaffSync.tsx` | ✅ (4 + 4 + 1 + 2) |
 | `EventShareClient.tsx` / `WorkerEventsClient.tsx` / `WorkerTimeclockClient.tsx` | ✅ (4 + tested) |

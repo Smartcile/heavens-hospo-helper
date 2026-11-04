@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { normaliseRoomSetupInput } from '@/lib/room-setup'
 
 interface Params { params: { id: string; setupId: string } }
 
@@ -63,7 +64,22 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.name !== undefined) data.name = String(body.name).toUpperCase().trim()
   if (body.eventDate !== undefined) data.eventDate = body.eventDate ? new Date(body.eventDate) : null
   if (body.calendarEventId !== undefined) data.calendarEventId = body.calendarEventId
-  if (body.notes !== undefined) data.notes = body.notes
+  if (body.notes !== undefined) {
+    data.notes = typeof body.notes === 'string' ? body.notes.trim() || null : body.notes
+  }
+  if (
+    body.roomName !== undefined ||
+    body.guestCapacity !== undefined ||
+    body.setupStyle !== undefined ||
+    body.imageUrls !== undefined
+  ) {
+    // Only presentation fields — geometry is saved through the setup-items route.
+    const room = normaliseRoomSetupInput(body)
+    if (body.roomName !== undefined) data.roomName = room.roomName
+    if (body.guestCapacity !== undefined) data.guestCapacity = room.guestCapacity
+    if (body.setupStyle !== undefined) data.setupStyle = room.setupStyle
+    if (body.imageUrls !== undefined) data.imageUrls = room.imageUrls
+  }
 
   // Promoting a layout to default demotes the incumbent in the same
   // transaction — two defaults would make "what does the room revert to?"

@@ -8,7 +8,9 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
-import { BeoBlockEditor } from '@/components/admin/BeoBlockEditor'
+import { BeoBlockEditor, type BeoSetupOption } from '@/components/admin/BeoBlockEditor'
+import { RoomSetupCard } from '@/components/RoomSetupCard'
+import { roomSetupLabel } from '@/lib/room-setup'
 import { BeoBlockLibrary, BEO_BLOCK_DRAG_PREFIX } from '@/components/admin/BeoBlockLibrary'
 import { BeoBlockReferences } from '@/components/admin/BeoBlockReferences'
 import { BEO_BLOCKS, blockLabel, defaultConfigFor, moveBlock, summariseBlock, type BlockLibrary } from '@/lib/beo-blocks'
@@ -55,7 +57,7 @@ export interface BeoRefs {
   menus: Option[]
   menuItems: (Option & { price?: number })[]
   services: Option[]
-  setups: Option[]
+  setups: BeoSetupOption[]
 }
 
 interface Draft extends Omit<EventDetail, 'blocks' | 'eventDate' | 'depositAmount'> {
@@ -373,12 +375,17 @@ export function EventBuilder({
           <Input label="Guests" type="number" value={String(draft.guestCount)} onChange={(e) => patch({ guestCount: Number(e.target.value) })} />
           <Input label="Dining style" value={draft.diningStyle ?? ''} placeholder="PLATED" onChange={(e) => patch({ diningStyle: e.target.value })} />
           <Select
-            label="Layout"
+            label="Room setup"
             value={draft.setupId ?? ''}
-            options={[{ value: '', label: '— NONE —' }, ...refs.setups.map((s) => ({ value: s.id, label: s.name }))]}
+            options={[{ value: '', label: '— NONE —' }, ...refs.setups.map((s) => ({ value: s.id, label: roomSetupLabel(s) }))]}
             onChange={(e) => patch({ setupId: e.target.value || null })}
           />
         </div>
+
+        {(() => {
+          const picked = refs.setups.find((s) => s.id === draft.setupId)
+          return picked ? <RoomSetupCard setup={picked} /> : null
+        })()}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <Input label="Contact name" value={draft.contactName ?? ''} onChange={(e) => patch({ contactName: e.target.value })} />

@@ -105,7 +105,7 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 
 | Item | URL | What it does |
 |---|---|---|
-| **Floor Plans** | `/admin/settings?tab=floorplans` | To-scale venue editor (PixiJS canvas): walls, doors, section zones, tables. BASE layer + SETUPS (event layouts). Furniture from inventory palette, snapping, auto-join groups, BOM shortages, zone pax totals, undo/redo, PDF export. Lives as a tab of SETTINGS — `/admin/floorplan` redirects here |
+| **Floor Plans** | `/admin/settings?tab=floorplans` | To-scale venue editor (PixiJS canvas): walls, doors, section zones, tables. BASE layer + SETUPS (event layouts), now photo-backed **room setups** (room, pax, style, photos + linked table plan via `EDIT SETUP`). Furniture from inventory palette, snapping, auto-join groups, BOM shortages, zone pax totals, undo/redo, PDF export. Lives as a tab of SETTINGS — `/admin/floorplan` redirects here |
 | **Settings** | `/admin/settings` | 10 tabs — GENERAL · VENUE SETUP · STRUCTURE · FLOOR PLANS · UNITS OF MEASURE · SUPPLIERS · QR CODES · SYNC · SWIFT POS (SALES / STAFF SYNC / MENU LINKS) · FILES (admin) (section 3) |
 
 ---
@@ -190,7 +190,7 @@ keeping other query params.
 | **Calendar** | `/w/calendar` | My upcoming (published) shifts + a pointer to the availability calendar |
 | **Availability** | `/w/availability` | Declare when I can work: MONTH grid + WEEK view, tap a day → AVAILABLE / UNAVAILABLE, all-day or multiple 15-minute windows (an AVAILABLE window auto-fills the rest of the day UNAVAILABLE), MORNING/AFTERNOON/EVENING quick picks, TIME OFF REQUEST tick, repeat weekly (end date/weeks or NO END DATE) and JUST THIS / FROM THIS DAY ONWARDS / ALL IN THE SERIES when editing a series. UNAVAILABLE + time off go PENDING for manager confirmation; approved or past days can only be changed by asking for an edit. Time off now lives here, not on the calendar |
 | **Available Shifts** | `/w/shifts` | Event shifts listed for pickup — only seats for positions I hold (or with no role requirement), never past dates. MONTH grid (per-day count badge) + WEEK list, tap a day → shift cards with role, event, breaks, and an AVAILABILITY CONFLICT warning; CLAIM sends a note-bearing request for the manager to confirm (WITHDRAW while pending, CONFIRMED panel after). Dashboard tile shows the count |
-| **Floor Plan** | `/w/floorplan` | Read-only plan: zoom/pan, setup switcher, event-mode banner |
+| **Floor Plan** | `/w/floorplan` | Read-only plan: zoom/pan, setup switcher, event-mode banner. Active room setup shows its label, pax/style and photos to all staff; managers also get `EDIT SETUP` |
 | **Notices** | `/w/notices` | Announcements with GOT IT acknowledgement |
 | **Timeclock** | `/w/timeclock` | Clock in/out, breaks (NZ rules), today's hours, history |
 | **Gift Cards** | /w/giftcards | Issue a physical gift card (permission-only tile): shows the lowest-numbered draft, buyer + amount, ISSUE → VIEW / PRINT PDF |

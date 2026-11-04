@@ -8,9 +8,10 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
-import { BeoBlockEditor } from '@/components/admin/BeoBlockEditor'
+import { BeoBlockEditor, type BeoSetupOption } from '@/components/admin/BeoBlockEditor'
 import { BeoBlockLibrary, BEO_BLOCK_DRAG_PREFIX } from '@/components/admin/BeoBlockLibrary'
 import { blockLabel, defaultConfigFor, moveBlock } from '@/lib/beo-blocks'
+import { roomSetupLabel } from '@/lib/room-setup'
 import { useBlockLibrary } from '@/lib/use-block-library'
 
 interface TemplateRow {
@@ -74,7 +75,7 @@ export function EventTemplatesPanel({
 
   const [templates, setTemplates] = useState<TemplateRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [refs, setRefs] = useState<{ menus: Option[]; services: Option[]; setups: Option[] }>({
+  const [refs, setRefs] = useState<{ menus: Option[]; services: Option[]; setups: BeoSetupOption[] }>({
     menus: [],
     services: [],
     setups: [],
@@ -114,7 +115,7 @@ export function EventTemplatesPanel({
       const [menus, services, setups] = await Promise.all([
         safeArray<Option>(`/api/admin/menus?venueId=${venueId}`),
         safeArray<Option>(`/api/admin/services?venueId=${venueId}`),
-        safeArray<Option>(`/api/admin/floorplan-setups?venueId=${venueId}`),
+        safeArray<BeoSetupOption>(`/api/admin/floorplan-setups?venueId=${venueId}`),
       ])
       if (alive) setRefs({ menus, services, setups })
     })()
@@ -312,7 +313,7 @@ export function EventTemplatesPanel({
             <Input label="Default style" value={style} placeholder="PLATED" onChange={(e) => setStyle(e.target.value)} />
             <Select label="Default menu" value={defaultMenuId} options={[{ value: '', label: '— NONE —' }, ...refs.menus.map((m) => ({ value: m.id, label: m.name }))]} onChange={(e) => setDefaultMenuId(e.target.value)} />
             <Select label="Default service" value={defaultServiceId} options={[{ value: '', label: '— NONE —' }, ...refs.services.map((s) => ({ value: s.id, label: s.name }))]} onChange={(e) => setDefaultServiceId(e.target.value)} />
-            <Select label="Default layout" value={defaultSetupId} options={[{ value: '', label: '— NONE —' }, ...refs.setups.map((s) => ({ value: s.id, label: s.name }))]} onChange={(e) => setDefaultSetupId(e.target.value)} />
+            <Select label="Default layout" value={defaultSetupId} options={[{ value: '', label: '— NONE —' }, ...refs.setups.map((s) => ({ value: s.id, label: roomSetupLabel(s) }))]} onChange={(e) => setDefaultSetupId(e.target.value)} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_16rem] gap-3 items-start">

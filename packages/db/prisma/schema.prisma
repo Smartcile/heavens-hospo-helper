@@ -2366,6 +2366,14 @@ model FloorPlanSetup {
   id              String    @id @default(uuid())
   floorPlanId     String
   name            String
+  /// Presentation metadata for "room setups": the room the layout is for, the
+  /// pax it seats, the service style, and photos of the dressed room. The setup
+  /// geometry (SetupItem) remains the single table plan — these fields only
+  /// describe how the room looks so events can show a photo card.
+  roomName        String?
+  guestCapacity   Int?
+  setupStyle      String?
+  imageUrls       String[]  @default([])
   /// Every floor plan has exactly one default layout: the venue's everyday
   /// arrangement. It owns the real table numbers, can't be deleted, and is what
   /// the venue reverts to when no event layout is active.

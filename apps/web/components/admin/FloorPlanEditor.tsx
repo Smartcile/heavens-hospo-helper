@@ -27,6 +27,14 @@ import { FloorplanInspector } from '@/components/admin/FloorplanInspector'
 import { calculateSetupInventory, unionTablePolygons, computeGroupChairs, computeSetupSectionTotals, type TableProfileWithBom } from '@/lib/floorplan-inventory'
 import { defaultEdgeChairs, adjustEdgeChairs, emptyEdgeChairs, type TableEdge } from '@/lib/floorplan-chairs'
 import { pushToast, ToastContainer } from '@/components/ui/Toast'
+import {
+  RoomSetupModal,
+  emptyRoomSetupDraft,
+  roomSetupDraftFrom,
+  roomSetupPayload,
+  type RoomSetupDraft,
+} from '@/components/RoomSetupModal'
+import { roomSetupLabel } from '@/lib/room-setup'
 
 interface SectionZone {
   id: string
@@ -78,7 +86,18 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   const [textScale, setTextScale] = useState(1)
 
   // ── Setup layer state ──
-  const [setups, setSetups] = useState<{ id: string; name: string; eventDate?: string; isDefault?: boolean }[]>([])
+  type SetupRow = {
+    id: string
+    name: string
+    eventDate?: string
+    isDefault?: boolean
+    roomName?: string | null
+    guestCapacity?: number | null
+    setupStyle?: string | null
+    imageUrls?: string[] | null
+    notes?: string | null
+  }
+  const [setups, setSetups] = useState<SetupRow[]>([])
   const [activeSetupId, setActiveSetupId] = useState<string | null>(null)
   const [setupItems, setSetupItems] = useState<SetupItemInput[]>([])
   const [ghostItems, setGhostItems] = useState<SetupItemInput[]>([])
@@ -206,18 +225,57 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     setSetupItems(items)
   }
 
-  async function handleNewSetup() {
-    const name = prompt('Name this event layout:')
-    if (!name?.trim()) return
-    const r = await fetch(`/api/admin/floorplan/${plan.id}/setups`, {
-      method: 'POST',
+  const [setupModalOpen, setSetupModalOpen] = useState(false)
+  const [editingSetupId, setEditingSetupId] = useState<string | null>(null)
+  const [setupDraft, setSetupDraft] = useState<RoomSetupDraft>(emptyRoomSetupDraft())
+  const [setupSaving, setSetupSaving] = useState(false)
+  const [setupError, setSetupError] = useState('')
+
+  function openNewSetup() {
+    setEditingSetupId(null)
+    setSetupDraft(emptyRoomSetupDraft())
+    setSetupError('')
+    setSetupModalOpen(true)
+  }
+
+  function openEditSetup() {
+    const target = setups.find((s) => s.id === activeSetupId)
+    if (!target) return
+    setEditingSetupId(target.id)
+    setSetupDraft(roomSetupDraftFrom(target))
+    setSetupError('')
+    setSetupModalOpen(true)
+  }
+
+  async function saveSetupModal() {
+    const payload = roomSetupPayload(setupDraft)
+    if (!payload.name) {
+      setSetupError('A SETUP NAME IS REQUIRED.')
+      return
+    }
+    setSetupSaving(true)
+    setSetupError('')
+    const isEdit = Boolean(editingSetupId)
+    const url = isEdit
+      ? `/api/admin/floorplan/${plan.id}/setups/${editingSetupId}`
+      : `/api/admin/floorplan/${plan.id}/setups`
+    const r = await fetch(url, {
+      method: isEdit ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name.trim().toUpperCase() }),
+      body: JSON.stringify(payload),
     })
-    if (!r.ok) { pushToast('COULD NOT CREATE THE LAYOUT.', 'error'); return }
-    const created = await r.json()
-    setSetups(prev => [...prev, created])
-    handleSetupChange(created.id)
+    setSetupSaving(false)
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      setSetupError(err.error ?? 'COULD NOT SAVE THE SETUP.')
+      return
+    }
+    const saved = await r.json()
+    setSetups((prev) => isEdit
+      ? prev.map((s) => (s.id === saved.id ? { ...s, ...saved } : s))
+      : [...prev, saved])
+    setSetupModalOpen(false)
+    if (!isEdit) handleSetupChange(saved.id)
   }
 
   async function handleDeleteSetup() {
@@ -744,6 +802,16 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   return (
     <div tabIndex={0} onKeyDown={handleKeyDown} className="flex flex-col h-full outline-none">
       <ToastContainer />
+      <RoomSetupModal
+        isOpen={setupModalOpen}
+        title={editingSetupId ? 'EDIT ROOM SETUP' : 'NEW ROOM SETUP'}
+        value={setupDraft}
+        onChange={setSetupDraft}
+        onClose={() => setSetupModalOpen(false)}
+        onSave={saveSetupModal}
+        saving={setupSaving}
+        error={setupError}
+      />
       {/* ── TOP BAR ── */}
       <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-grey-mid bg-black">
         <div className="flex items-center gap-3">
@@ -802,12 +870,18 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 className="bg-grey-dark border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none"
               >
                 {setups.map(s => (
-                  <option key={s.id} value={s.id}>{s.isDefault ? `★ ${s.name} (DEFAULT)` : s.name}</option>
+                  <option key={s.id} value={s.id}>
+                    {s.isDefault ? `★ ${roomSetupLabel(s)} (DEFAULT)` : roomSetupLabel(s)}
+                  </option>
                 ))}
               </select>
-              <button onClick={handleNewSetup}
+              <button onClick={openEditSetup}
                 className="font-mono text-xs text-grey-light hover:text-white uppercase px-1.5 py-0.5 border border-grey-mid">
-                + EVENT
+                EDIT SETUP
+              </button>
+              <button onClick={openNewSetup}
+                className="font-mono text-xs text-grey-light hover:text-white uppercase px-1.5 py-0.5 border border-grey-mid">
+                + NEW SETUP
               </button>
               {/* The default layout is what the room reverts to between events,
                   so it is editable but never removable. */}
@@ -820,10 +894,21 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
             </div>
           )}
         </div>
-        {activeSetup?.isDefault && (
-          <span className="font-mono text-xs uppercase text-grey-light tracking-wider">
-            EVERYDAY LAYOUT · OWNS TABLE NUMBERS
-          </span>
+        {activeSetup && (
+          <div className="flex items-center gap-2 min-w-0">
+            {activeSetup?.isDefault && (
+              <span className="font-mono text-xs uppercase text-grey-light tracking-wider">
+                EVERYDAY LAYOUT
+              </span>
+            )}
+            <span className="font-mono text-xs uppercase text-white tracking-wider truncate">
+              {roomSetupLabel(activeSetup)}
+            </span>
+            {(activeSetup.imageUrls ?? []).slice(0, 4).map((url) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img key={url} src={url} alt="" className="h-7 w-7 object-cover border border-grey-mid" />
+            ))}
+          </div>
         )}
         {activeSetupId && (
           <span className="font-mono text-xs uppercase text-success tracking-wider">

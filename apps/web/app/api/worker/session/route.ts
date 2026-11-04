@@ -46,5 +46,8 @@ export async function GET() {
     timeoutMinutes,
     expiresAt: session.expiresAt ?? 0,
     refreshAfterMs: workerSessionRefreshIntervalMs(timeoutMinutes),
+    // Lets the worker UI show manager-only affordances (e.g. editing room
+    // setups). The API still enforces the role on every write.
+    role: session.role,
   })
 }

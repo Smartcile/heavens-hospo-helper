@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { ensureDefaultSetup } from '@/lib/furniture-server'
 import { guardAccess } from '@/lib/permissions'
+import { normaliseRoomSetupInput } from '@/lib/room-setup'
 
 interface Params { params: { id: string } }
 
@@ -55,6 +56,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'name is required' }, { status: 400 })
   }
 
+  const room = normaliseRoomSetupInput(body)
   const setup = await prisma.floorPlanSetup.create({
     data: {
       floorPlanId: params.id,
@@ -62,6 +64,10 @@ export async function POST(req: NextRequest, { params }: Params) {
       eventDate: body.eventDate ? new Date(body.eventDate) : null,
       calendarEventId: body.calendarEventId ?? null,
       notes: body.notes ?? null,
+      roomName: room.roomName,
+      guestCapacity: room.guestCapacity,
+      setupStyle: room.setupStyle,
+      imageUrls: room.imageUrls,
     },
   })
 
