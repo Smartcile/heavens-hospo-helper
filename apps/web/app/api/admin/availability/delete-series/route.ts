@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
   }
 
   // The removed days cannot still be sitting in the approvals queue.
-  const removed = out.plan?.removeDates ?? []
+  const removed = out.mode === 'SAVED' ? out.plan.removeDates : []
   if (removed.length > 0) {
     await prisma.availabilityEditRequest.updateMany({
       where: {
