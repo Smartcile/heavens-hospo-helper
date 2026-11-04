@@ -3,8 +3,18 @@ import { getServerSession } from 'next-auth'
 import { cookies } from 'next/headers'
 import { authOptions } from '@/lib/auth'
 import { sessionGrantedAreas } from '@/lib/permissions'
+import { hubRedirect } from '@/lib/ops-redirect'
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Record<string, string | string[] | undefined>
+}) {
+  // Floor plans moved to Events → Rooms & Plans.
+  if (searchParams?.tab === 'floorplans') {
+    hubRedirect('/admin/events', 'rooms', 'table-plans', searchParams)
+  }
+
   const session = await getServerSession(authOptions)
   const cookieStore = cookies()
   const activeVenueId = cookieStore.get('admin-active-venue')?.value ?? session!.user.defaultVenueId ?? null

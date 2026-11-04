@@ -64,6 +64,17 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.name !== undefined) data.name = String(body.name).toUpperCase().trim()
   if (body.eventDate !== undefined) data.eventDate = body.eventDate ? new Date(body.eventDate) : null
   if (body.calendarEventId !== undefined) data.calendarEventId = body.calendarEventId
+  if (body.areaId !== undefined) {
+    if (body.areaId) {
+      const area = await prisma.area.findFirst({
+        where: { id: String(body.areaId), venueId: setup.floorPlan.venueId, deletedAt: null },
+        select: { id: true },
+      })
+      data.areaId = area ? area.id : null
+    } else {
+      data.areaId = null
+    }
+  }
   if (body.notes !== undefined) {
     data.notes = typeof body.notes === 'string' ? body.notes.trim() || null : body.notes
   }

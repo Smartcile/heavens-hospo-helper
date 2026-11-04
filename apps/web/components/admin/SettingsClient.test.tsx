@@ -33,11 +33,13 @@ describe('SettingsClient tabs', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders all 9 tab labels with GENERAL active by default', () => {
+  it('renders the settings tab labels with GENERAL active by default', () => {
     render(<SettingsClient {...props} />)
-    for (const label of ['GENERAL', 'STRUCTURE', 'FLOOR PLANS', 'UNITS OF MEASURE', 'SUPPLIERS', 'QR CODES', 'SYNC', 'SWIFT POS', 'FILES']) {
+    for (const label of ['GENERAL', 'STRUCTURE', 'UNITS OF MEASURE', 'SUPPLIERS', 'QR CODES', 'SYNC', 'SWIFT POS', 'FILES']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy()
     }
+    // Floor plans moved to Events → Rooms & Plans.
+    expect(screen.queryByRole('button', { name: 'FLOOR PLANS' })).toBeNull()
     expect(screen.getByText('INTEGRATIONS')).toBeTruthy()
   })
 
@@ -49,7 +51,7 @@ describe('SettingsClient tabs', () => {
     expect(screen.getByText('INTEGRATIONS')).toBeTruthy()
   })
 
-  it('hides FLOOR PLANS from restricted managers without the floorplans grant', () => {
+  it('no longer exposes a FLOOR PLANS tab', () => {
     mocks.params = new URLSearchParams('tab=floorplans')
     render(<SettingsClient {...props} role="MANAGER" grantedAreas={['compliance']} />)
     expect(screen.queryByRole('button', { name: 'FLOOR PLANS' })).toBeNull()
@@ -57,11 +59,11 @@ describe('SettingsClient tabs', () => {
     expect(screen.getByText('INTEGRATIONS')).toBeTruthy()
   })
 
-  it('shows FLOOR PLANS to a restricted manager who holds the grant', () => {
+  it('lets a floorplans-granted manager still open settings (fallback to GENERAL)', () => {
     mocks.params = new URLSearchParams('tab=floorplans')
     render(<SettingsClient {...props} role="MANAGER" grantedAreas={['floorplans']} />)
-    expect(screen.getByRole('button', { name: 'FLOOR PLANS' })).toBeTruthy()
-    expect(screen.getByText('TO-SCALE VENUE LAYOUT EDITOR')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'FLOOR PLANS' })).toBeNull()
+    expect(screen.getByText('INTEGRATIONS')).toBeTruthy()
   })
 
   it('switching a tab pushes the settings URL', () => {

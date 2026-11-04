@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   OPS_AREAS, OPS_SUB_TABS, resolveOps,
-  TEAM_TABS, EXECUTION_TABS, TRAINING_TABS, SETTINGS_TABS, COMPLIANCE_TABS,
+  TEAM_TABS, EXECUTION_TABS, TRAINING_TABS, SETTINGS_TABS, COMPLIANCE_TABS, EVENTS_TABS,
   resolveTab, forwardSearch, hubUrl,
 } from './hub-tabs'
 
@@ -26,8 +26,11 @@ describe('hub-tabs', () => {
     expect(TEAM_TABS.map((t) => t.id)).toEqual(['staff', 'roster', 'availability', 'clocks', 'payroll'])
     expect(EXECUTION_TABS.map((t) => t.id)).toEqual(['tasks', 'review', 'followups'])
     expect(TRAINING_TABS.map((t) => t.id)).toEqual(['playbook', 'pathways', 'status'])
-    // FLOOR PLANS is grant-gated and FILES is admin-only — SettingsClient hides both.
-    expect(SETTINGS_TABS.map((t) => t.id)).toEqual(['general', 'venue', 'structure', 'floorplans', 'uoms', 'suppliers', 'qrcodes', 'sync', 'swiftpos', 'files'])
+    // Floor plans moved to Events → Rooms & Plans; FILES is admin-only.
+    expect(SETTINGS_TABS.map((t) => t.id)).toEqual(['general', 'venue', 'structure', 'uoms', 'suppliers', 'qrcodes', 'sync', 'swiftpos', 'files'])
+    expect(EVENTS_TABS.map((t) => t.id)).toContain('rooms')
+    expect(resolveTab(EVENTS_TABS, 'rooms', null)).toEqual({ tab: 'rooms', sub: 'table-plans' })
+    expect(resolveTab(EVENTS_TABS, 'rooms', 'rooms')).toEqual({ tab: 'rooms', sub: 'rooms' })
   })
 
   it('COMPLIANCE has the Chomp-style tab set', () => {
