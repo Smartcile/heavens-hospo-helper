@@ -196,7 +196,7 @@ describe('AvailabilityAdminClient', () => {
     })
   })
 
-  it('opens a CLEAR request day and retires the request after clearing', async () => {
+  it('applies an old CLEAR request from the queue', async () => {
     const clearRequest = {
       ...data,
       entries: [
@@ -216,19 +216,14 @@ describe('AvailabilityAdminClient', () => {
 
     await screen.findAllByText('TAYLOR REED')
     fireEvent.click(screen.getByText('OPEN →'))
-    fireEvent.click(screen.getByText('OPEN CURRENT DAY'))
-    fireEvent.click(screen.getByText('CLEAR'))
+    expect(await screen.findByText('CLEAR THIS DAY')).toBeDefined()
+    fireEvent.click(screen.getByText('APPLY'))
 
     await waitFor(() => {
-      const clear = spy.mock.calls.find((c) =>
-        String(c[0]).endsWith('/api/admin/availability/clear') && (c[1] as RequestInit | undefined)?.method === 'POST')
-      expect(clear).toBeDefined()
-    })
-    await waitFor(() => {
-      const mark = spy.mock.calls.find((c) => String(c[0]).includes('/requests/req1'))
-      expect(mark).toBeDefined()
-      const body = JSON.parse((mark![1] as RequestInit).body as string)
-      expect(body.action).toBe('MARK_APPLIED')
+      const post = spy.mock.calls.find((c) => String(c[0]).includes('/requests/req1'))
+      expect(post).toBeDefined()
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body.action).toBe('APPLY')
     })
   })
 
@@ -372,33 +367,61 @@ describe('AvailabilityAdminClient', () => {
     })
   })
 
-  it('deletes an approved day from the override editor', async () => {
-    const withEntry = {
+  it('offers an ADMIN a series delete with a scope warning and no popup CLEAR', async () => {
+    const withSeries = {
       ...data,
       entries: [
         {
           id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
           windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
-          seriesId: null, seriesEndDate: null, lockedAt: null, lockedById: null, lockedReason: null,
+          seriesId: 's1', seriesEndDate: shiftDay(monday, 21), lockedAt: null, lockedById: null, lockedReason: null,
         },
       ],
+      series: [{ id: 's1', startDate: monday, endDate: shiftDay(monday, 21), dates: [monday] }],
       queue: { pending: [], requests: [] },
     }
-    const spy = mockFetch(withEntry)
+    const spy = mockFetch(withSeries)
     render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 
     await screen.findAllByText('TAYLOR REED')
     fireEvent.click(screen.getByText('00:00–24:00'))
-    fireEvent.click(await screen.findByText('CLEAR'))
+
+    expect(await screen.findByText('DELETE SERIES')).toBeDefined()
+    expect(screen.queryByText('CLEAR')).toBeNull()
+
+    fireEvent.click(screen.getByText('DELETE SERIES'))
+    expect(await screen.findByText('DELETE AVAILABILITY SERIES')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'WHOLE SERIES' }))
 
     await waitFor(() => {
       const post = spy.mock.calls.find((c) =>
-        String(c[0]).endsWith('/api/admin/availability/clear') && (c[1] as RequestInit | undefined)?.method === 'POST')
+        String(c[0]).endsWith('/api/admin/availability/delete-series') && (c[1] as RequestInit | undefined)?.method === 'POST')
       expect(post).toBeDefined()
       const body = JSON.parse((post![1] as RequestInit).body as string)
-      expect(body.staffId).toBe('st1')
-      expect(body.date).toBe(monday)
+      expect(body).toMatchObject({ staffId: 'st1', date: monday, scope: 'ALL', seriesId: 's1' })
     })
+  })
+
+  it('does not offer DELETE SERIES to a manager', async () => {
+    const withSeries = {
+      ...data,
+      entries: [
+        {
+          id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+          seriesId: 's1', seriesEndDate: shiftDay(monday, 21), lockedAt: null, lockedById: null, lockedReason: null,
+        },
+      ],
+      series: [{ id: 's1', startDate: monday, endDate: shiftDay(monday, 21), dates: [monday] }],
+      queue: { pending: [], requests: [] },
+    }
+    mockFetch(withSeries)
+    render(<AvailabilityAdminClient role="MANAGER" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('00:00–24:00'))
+
+    expect(screen.queryByText('DELETE SERIES')).toBeNull()
   })
 
   it('shows a stored note on an approved grid day', async () => {

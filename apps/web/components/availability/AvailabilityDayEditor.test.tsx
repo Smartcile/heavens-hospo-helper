@@ -30,7 +30,6 @@ function entry(over: Partial<AvailabilityEntry> = {}): AvailabilityEntry {
 
 function renderEditor(props: Partial<Parameters<typeof AvailabilityDayEditor>[0]> = {}) {
   const onSave = vi.fn()
-  const onClear = vi.fn()
   const onClose = vi.fn()
   render(
     <AvailabilityDayEditor
@@ -39,12 +38,11 @@ function renderEditor(props: Partial<Parameters<typeof AvailabilityDayEditor>[0]
       series={null}
       presets={DEFAULT_AVAILABILITY_PRESETS}
       onSave={onSave}
-      onClear={onClear}
       onClose={onClose}
       {...props}
     />,
   )
-  return { onSave, onClear, onClose }
+  return { onSave, onClose }
 }
 
 describe('AvailabilityDayEditor', () => {
@@ -129,19 +127,38 @@ describe('AvailabilityDayEditor', () => {
     expect(onSave.mock.calls[0][1].scope).toBeNull()
   })
 
-  it('clears through the provided scope callback for an admin', () => {
-    const { onClear } = renderEditor({ entry: entry({ seriesId: 's1' }), series, canOverride: true })
-
-    fireEvent.click(screen.getByText('ALL IN THE SERIES'))
-    fireEvent.click(screen.getByText('CLEAR'))
-    expect(onClear).toHaveBeenCalledWith({ scope: 'ALL', reason: null })
-  })
-
-  it('never offers CLEAR to a worker', () => {
-    const { onClear } = renderEditor({ entry: entry({ seriesId: 's1' }), series, allowSeriesScope: false })
+  it('never shows a CLEAR button in the day popup', () => {
+    renderEditor({ entry: entry({ seriesId: 's1' }), series })
 
     expect(screen.queryByText('CLEAR')).toBeNull()
-    expect(onClear).not.toHaveBeenCalled()
+  })
+
+  it('shows DELETE SERIES only for a series when the admin allows it', () => {
+    const onRequestDeleteSeries = vi.fn()
+    renderEditor({
+      entry: entry({ seriesId: 's1' }),
+      series,
+      canDeleteSeries: true,
+      onRequestDeleteSeries,
+    })
+
+    fireEvent.click(screen.getByText('DELETE SERIES'))
+    expect(onRequestDeleteSeries).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides DELETE SERIES on a standalone day and for a worker', () => {
+    renderEditor({ entry: entry(), canDeleteSeries: true, onRequestDeleteSeries: vi.fn() })
+    expect(screen.queryByText('DELETE SERIES')).toBeNull()
+
+    renderEditor({ entry: entry({ seriesId: 's1' }), series })
+    expect(screen.queryByText('DELETE SERIES')).toBeNull()
+  })
+
+  it('never offers CLEAR or DELETE SERIES to a worker', () => {
+    renderEditor({ entry: entry({ seriesId: 's1' }), series, allowSeriesScope: false })
+
+    expect(screen.queryByText('CLEAR')).toBeNull()
+    expect(screen.queryByText('DELETE SERIES')).toBeNull()
   })
 
   it('shows the resulting end date when putting an end on a no-end series', () => {
