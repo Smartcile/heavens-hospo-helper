@@ -4,6 +4,7 @@ import { getWorkerSession } from '@/lib/worker-session'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
+import { cleanNoticeAudiences } from '@/lib/notice-audience'
 import { validateSchedules } from '@/lib/checklist-activation'
 import {
   parseEventIds,
@@ -22,7 +23,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (existing.venueId !== session.venueId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason, schedules, eventIds } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason, schedules, eventIds, audiences } = body
 
   let scheduleData: ReturnType<typeof validateSchedules> | null = null
   if (schedules !== undefined) {
@@ -70,6 +71,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       ...(appearFromTime !== undefined && { appearFromTime: appearFromTime || null }),
       ...(allowedOutcomes !== undefined && { allowedOutcomes: normaliseOutcomes(allowedOutcomes) }),
       ...(requireOutcomeReason !== undefined && { requireOutcomeReason: !!requireOutcomeReason }),
+      ...(audiences !== undefined && {
+        audiences: { deleteMany: {}, create: cleanNoticeAudiences(audiences) },
+      }),
       ...(scheduleData && {
         schedules: {
           updateMany: { where: { deletedAt: null }, data: { deletedAt: new Date() } },

@@ -66,6 +66,7 @@ interface ChecklistFull {
   opensNext?: string | null
   allowedOutcomes?: string[]
   requireOutcomeReason?: boolean
+  audiences?: { kind: string; targetId: string }[]
   tasks: { id: string; title: string; isActive: boolean; version: number }[]
 }
 
@@ -176,6 +177,12 @@ export function WorkerTasksClient({
   // Editable schedule rows; `toTime: ''` means "open to end of day".
   const [clSchedules, setClSchedules] = useState<{ dayOfWeek: number; fromTime: string; toTime: string }[]>([])
   const [clEventIds, setClEventIds] = useState<string[]>([])
+  const [clAudiences, setClAudiences] = useState<{ kind: string; targetId: string }[]>([])
+  const [editAudienceOptions, setEditAudienceOptions] = useState<{
+    departments: { id: string; name: string }[]
+    sections: { id: string; name: string; departmentId: string }[]
+    positions: { id: string; name: string }[]
+  }>({ departments: [], sections: [], positions: [] })
   const [clAllowedOutcomes, setClAllowedOutcomes] = useState<TaskOutcome[]>([...TASK_OUTCOMES])
   const [clRequireReason, setClRequireReason] = useState(false)
   const [clSelected, setClSelected] = useState<string[]>([])
@@ -231,7 +238,7 @@ export function WorkerTasksClient({
 
   async function loadEditData() {
     if (!canAuthor) return null
-    const [dR, sR, tR, taskR, clR, evR, asR] = await Promise.all([
+    const [dR, sR, tR, taskR, clR, evR, asR, audR] = await Promise.all([
       fetch('/api/worker/departments'),
       fetch('/api/worker/sections'),
       fetch('/api/worker/guides?edit=1'),
@@ -239,10 +246,11 @@ export function WorkerTasksClient({
       fetch('/api/worker/checklists'),
       fetch('/api/worker/calendar-events'),
       fetch('/api/worker/tasks/assignees'),
+      fetch('/api/worker/tasks/audiences'),
     ])
     if (dR.status === 401) { router.push('/w/login'); return null }
-    const [depts, sections, guides, editTasksData, checklistsData, eventsData, assigneesData] =
-      await Promise.all([dR.json(), sR.json(), tR.json(), taskR.json(), clR.json(), evR.json(), asR.json()])
+    const [depts, sections, guides, editTasksData, checklistsData, eventsData, assigneesData, audiencesData] =
+      await Promise.all([dR.json(), sR.json(), tR.json(), taskR.json(), clR.json(), evR.json(), asR.json(), audR.json()])
     // The list endpoint is authoring-gated and should always return an array,
     // but a failed/odd response must not crash the management strip.
     const checklists = Array.isArray(checklistsData) ? (checklistsData as ChecklistFull[]) : []
@@ -253,6 +261,11 @@ export function WorkerTasksClient({
     setEditChecklists(checklists)
     setEditCalendarEvents(Array.isArray(eventsData) ? (eventsData as CalendarEventSummary[]) : [])
     setEditAssignees(Array.isArray(assigneesData) ? assigneesData : [])
+    setEditAudienceOptions({
+      departments: Array.isArray(audiencesData?.departments) ? audiencesData.departments : [],
+      sections: Array.isArray(audiencesData?.sections) ? audiencesData.sections : [],
+      positions: Array.isArray(audiencesData?.positions) ? audiencesData.positions : [],
+    })
     return { checklists }
   }
 
@@ -492,7 +505,7 @@ export function WorkerTasksClient({
     setClName(''); setClDesc('')
     setClDeptId(''); setClSectionId(''); setClSelected([])
     setClAppearFrom(''); setClGlobalTo(''); setClError(''); setClModalOpen(true)
-    setClSchedules([]); setClEventIds([])
+    setClSchedules([]); setClEventIds([]); setClAudiences([])
     setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false)
   }
 
@@ -505,6 +518,7 @@ export function WorkerTasksClient({
     setClGlobalTo(c.schedules?.[0]?.toTime ?? '')
     setClSchedules((c.schedules ?? []).map(s => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime ?? '' })))
     setClEventIds((c.events ?? []).filter((e) => !e.deletedAt).map((e) => e.id))
+    setClAudiences(c.audiences ?? [])
     setClAllowedOutcomes((c.allowedOutcomes?.length ? c.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[])
     setClRequireReason(!!c.requireOutcomeReason)
     setClError(''); setClModalOpen(true)
@@ -554,6 +568,7 @@ export function WorkerTasksClient({
       appearFromTime: clSchedules.length ? null : (clAppearFrom || null), taskIds: clSelected,
       schedules: clSchedules.map(s => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })),
       eventIds: clEventIds,
+      audiences: clAudiences,
       allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason,
     }
     const url = clEditing && clEditing !== 'new' ? `/api/worker/checklists/${clEditing.id}` : '/api/worker/checklists'
@@ -621,6 +636,11 @@ export function WorkerTasksClient({
     if (full) openChecklistEdit(full)
   }
 
+  const audienceOptionList = [
+    ...editAudienceOptions.departments.map((d) => ({ value: `DEPARTMENT:${d.id}`, label: `DEPARTMENT: ${d.name}` })),
+    ...editAudienceOptions.sections.map((s) => ({ value: `SECTION:${s.id}`, label: `SECTION: ${s.name}` })),
+    ...editAudienceOptions.positions.map((p) => ({ value: `POSITION:${p.id}`, label: `POSITION: ${p.name}` })),
+  ]
   const pending = tasks.filter((t) => !t.isSettled)
   const done = tasks.filter((t) => t.isDone)
   const handled = tasks.filter((t) => t.isSettled && !t.isDone)
@@ -1591,35 +1611,38 @@ export function WorkerTasksClient({
               </div>
             )}
 
-            {editGuides.length > 0 && (
+            <div className="border border-grey-mid p-3 space-y-3">
+              <span className="font-mono text-xs uppercase text-grey-light tracking-wider">Links</span>
+              {editGuides.length > 0 && (
+                <Combobox
+                  label="Required training (competency)"
+                  options={editGuides.map(m => ({ value: m.id, label: m.title, description: m.description ?? undefined }))}
+                  selected={taskForm.competencyGuideIds}
+                  onChange={(ids) => setTaskForm({ ...taskForm, competencyGuideIds: ids })}
+                  placeholder="Search guides..."
+                />
+              )}
+
               <Combobox
-                label="Required training (competency)"
-                options={editGuides.map(m => ({ value: m.id, label: m.title, description: m.description ?? undefined }))}
-                selected={taskForm.competencyGuideIds}
-                onChange={(ids) => setTaskForm({ ...taskForm, competencyGuideIds: ids })}
-                placeholder="Search guides..."
+                label="Lists (which checklists this task appears in)"
+                options={editChecklists.map(c => ({ value: c.id, label: c.name }))}
+                selected={taskForm.checklistIds}
+                onChange={(ids) => setTaskForm({ ...taskForm, checklistIds: ids })}
+                placeholder="Search lists..."
               />
-            )}
 
-            <Combobox
-              label="Lists (which checklists this task appears in)"
-              options={editChecklists.map(c => ({ value: c.id, label: c.name }))}
-              selected={taskForm.checklistIds}
-              onChange={(ids) => setTaskForm({ ...taskForm, checklistIds: ids })}
-              placeholder="Search lists..."
-            />
-
-            <Combobox
-              label="Assigned to (optional)"
-              multiple={false}
-              options={editAssignees.map(a => ({ value: a.id, label: a.name }))}
-              selected={taskForm.assignedToStaffId ? [taskForm.assignedToStaffId] : []}
-              onChange={(ids) => setTaskForm({ ...taskForm, assignedToStaffId: ids[0] ?? '' })}
-              placeholder="Search people..."
-            />
-            <p className="font-mono text-xs uppercase text-grey-light">
-              DEPARTMENT/SECTION SCOPE THE TASK. LISTS DECIDE WHICH CHECKLISTS SHOW IT.
-            </p>
+              <Combobox
+                label="Assigned to (optional)"
+                multiple={false}
+                options={editAssignees.map(a => ({ value: a.id, label: a.name }))}
+                selected={taskForm.assignedToStaffId ? [taskForm.assignedToStaffId] : []}
+                onChange={(ids) => setTaskForm({ ...taskForm, assignedToStaffId: ids[0] ?? '' })}
+                placeholder="Search people..."
+              />
+              <p className="font-mono text-xs uppercase text-grey-light">
+                DEPARTMENT/SECTION SCOPE THE TASK. LISTS DECIDE WHICH CHECKLISTS SHOW IT.
+              </p>
+            </div>
 
             {taskEditing && (
               <div className="border-l-4 border-l-warning pl-3 space-y-2">
@@ -1786,8 +1809,18 @@ export function WorkerTasksClient({
               </p>
             </div>
 
-            <div className="border border-grey-mid p-3 space-y-2">
-              <span className="font-mono text-xs uppercase text-grey-light tracking-wider">Calendar events (optional)</span>
+            <div className="border border-grey-mid p-3 space-y-3">
+              <span className="font-mono text-xs uppercase text-grey-light tracking-wider">Links</span>
+              <Combobox
+                label="People / audience (who sees this list)"
+                options={audienceOptionList}
+                selected={clAudiences.map((a) => `${a.kind}:${a.targetId}`)}
+                onChange={(keys) => setClAudiences(keys.map((key) => {
+                  const i = key.indexOf(':')
+                  return { kind: key.slice(0, i), targetId: key.slice(i + 1) }
+                }))}
+                placeholder="Search departments, sections, positions..."
+              />
               <Combobox
                 options={clEventOptions}
                 selected={clEventIds}
@@ -1796,6 +1829,9 @@ export function WorkerTasksClient({
               />
               <p className="font-mono text-xs uppercase text-grey-light">
                 THE LIST OPENS ACROSS EACH LINKED EVENT&apos;S DATE/TIME AND CLOSES AFTER IT.
+              </p>
+              <p className="font-mono text-xs uppercase text-grey-light">
+                A LIST WITH NO AUDIENCE KEEPS THE LEGACY DEPARTMENT/SECTION SCOPING.
               </p>
             </div>
 

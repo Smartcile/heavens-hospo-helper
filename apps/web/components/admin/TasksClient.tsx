@@ -84,6 +84,7 @@ interface Checklist {
   requireOutcomeReason?: boolean
   department: { id: string; name: string } | null
   section: { id: string; name: string } | null
+  audiences?: { kind: string; targetId: string }[]
   tasks: ChecklistCardTask[]
 }
 
@@ -205,6 +206,12 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   // Editable schedule rows; `toTime: ''` means "open to end of day".
   const [clSchedules, setClSchedules] = useState<{ dayOfWeek: number; fromTime: string; toTime: string }[]>([])
   const [clEventIds, setClEventIds] = useState<string[]>([])
+  const [clAudiences, setClAudiences] = useState<{ kind: string; targetId: string }[]>([])
+  const [audienceOptions, setAudienceOptions] = useState<{
+    departments: { id: string; name: string }[]
+    sections: { id: string; name: string; departmentId: string }[]
+    positions: { id: string; name: string }[]
+  }>({ departments: [], sections: [], positions: [] })
   const [clAllowedOutcomes, setClAllowedOutcomes] = useState<TaskOutcome[]>([...TASK_OUTCOMES])
   const [clRequireReason, setClRequireReason] = useState(false)
   const [clSaving, setClSaving] = useState(false)
@@ -366,12 +373,27 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   }
 
   // --- Checklist editor ---
+  async function loadAudienceOptions(venueId: string) {
+    if (!venueId) {
+      setAudienceOptions({ departments: [], sections: [], positions: [] })
+      return
+    }
+    const r = await fetch(`/api/admin/tasks/audiences?venueId=${encodeURIComponent(venueId)}`)
+    const data = r.ok ? await r.json().catch(() => null) : null
+    setAudienceOptions({
+      departments: Array.isArray(data?.departments) ? data.departments : [],
+      sections: Array.isArray(data?.sections) ? data.sections : [],
+      positions: Array.isArray(data?.positions) ? data.positions : [],
+    })
+  }
   function openChecklistCreate() {
+    const venueId = role === 'MANAGER' ? sessionVenueId : (filterVenue || venues[0]?.id || '')
     setClEditing('new')
     setClName(''); setClDesc('')
-    setClVenueId(role === 'MANAGER' ? sessionVenueId : (filterVenue || venues[0]?.id || ''))
+    setClVenueId(venueId)
     setClDeptId(''); setClSectionId(''); setClSelected([]); setClAppearFrom(''); setClGlobalTo(''); setClError('')
-    setClSchedules([]); setClEventIds([])
+    setClSchedules([]); setClEventIds([]); setClAudiences([])
+    void loadAudienceOptions(venueId)
     setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false)
     setFilterUsage('notinthis')
   }
@@ -385,6 +407,8 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClError('')
     setClSchedules((c.schedules ?? []).map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime ?? '' })))
     setClEventIds((c.events ?? []).filter((e) => !e.deletedAt).map((e) => e.id))
+    setClAudiences(c.audiences ?? [])
+    void loadAudienceOptions(c.venueId)
     setClAllowedOutcomes((c.allowedOutcomes?.length ? c.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[])
     setClRequireReason(!!c.requireOutcomeReason)
     // Auto-scope left panel filters to match this checklist
@@ -434,7 +458,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (!clName.trim() || !clVenueId) { setClError('NAME AND VENUE ARE REQUIRED'); return }
     if (clSelected.length === 0) { setClError('ADD AT LEAST ONE TASK'); return }
     setClSaving(true); setClError('')
-    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clSchedules.length ? null : (clAppearFrom || null), schedules: clSchedules.map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })), eventIds: clEventIds, taskIds: clSelected, allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason }
+    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clSchedules.length ? null : (clAppearFrom || null), schedules: clSchedules.map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })), eventIds: clEventIds, audiences: clAudiences, taskIds: clSelected, allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason }
     const url = clEditing && clEditing !== 'new' ? `/api/admin/checklists/${clEditing.id}` : '/api/admin/checklists'
     const method = clEditing && clEditing !== 'new' ? 'PUT' : 'POST'
     const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -483,6 +507,11 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       label: `${e.title} · ${e.date}${e.allDay ? ' ALL DAY' : ` ${e.startTime}`}`,
       description: e.endTime ? `ENDS ${e.endTime}` : null,
     }))
+  const audienceOptionList = [
+    ...audienceOptions.departments.map((d) => ({ value: `DEPARTMENT:${d.id}`, label: `DEPARTMENT: ${d.name}` })),
+    ...audienceOptions.sections.map((s) => ({ value: `SECTION:${s.id}`, label: `SECTION: ${s.name}` })),
+    ...audienceOptions.positions.map((p) => ({ value: `POSITION:${p.id}`, label: `POSITION: ${p.name}` })),
+  ]
   // Add-a-task dropdown is scoped to the checklist's department/section (drag in
   // from the left to add anything else).
   const clAddOptions = [
@@ -702,7 +731,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
               <div className="grid grid-cols-2 gap-3">
                 <Input label="Name" value={clName} onChange={(e) => setClName(e.target.value)} placeholder="BAR OPEN" />
                 {role === 'ADMIN' && (
-                  <Select label="Venue" value={clVenueId} onChange={(e) => { setClVenueId(e.target.value); setClDeptId(''); setClSectionId(''); setClSelected([]) }} options={venueOptions} placeholder="SELECT VENUE" />
+                  <Select label="Venue" value={clVenueId} onChange={(e) => { const v = e.target.value; setClVenueId(v); setClDeptId(''); setClSectionId(''); setClSelected([]); setClAudiences([]); void loadAudienceOptions(v) }} options={venueOptions} placeholder="SELECT VENUE" />
                 )}
               </div>
               <Textarea label="Description (optional)" value={clDesc} onChange={(e) => setClDesc(e.target.value)} />
@@ -806,9 +835,20 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 </p>
               </div>
 
-              <div className="border border-grey-mid p-3 space-y-2">
-                <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">Calendar events (optional)</h3>
+              <div className="border border-grey-mid p-3 space-y-3">
+                <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">Links</h3>
                 <Combobox
+                  label="People / audience (who sees this list)"
+                  options={audienceOptionList}
+                  selected={clAudiences.map((a) => `${a.kind}:${a.targetId}`)}
+                  onChange={(keys) => setClAudiences(keys.map((key) => {
+                    const i = key.indexOf(':')
+                    return { kind: key.slice(0, i), targetId: key.slice(i + 1) }
+                  }))}
+                  placeholder="Search departments, sections, positions..."
+                />
+                <Combobox
+                  label="Calendar events (optional)"
                   options={clEventOptions}
                   selected={clEventIds}
                   onChange={setClEventIds}
@@ -816,6 +856,9 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 />
                 <p className="font-mono text-xs uppercase text-grey-light">
                   THE LIST OPENS ACROSS EACH LINKED EVENT&apos;S DATE/TIME AND CLOSES AFTER IT. A LINKED LIST IS CLOSED OUTSIDE ITS EVENTS UNLESS A SCHEDULE OR APPEARS-FROM TIME ALSO OPENS IT.
+                </p>
+                <p className="font-mono text-xs uppercase text-grey-light">
+                  A LIST WITH NO AUDIENCE KEEPS THE LEGACY DEPARTMENT/SECTION SCOPING.
                 </p>
               </div>
 
@@ -1013,36 +1056,39 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
             )}
           </div>
 
-          {guideOptions.length > 0 && (
+          <div className="border border-grey-mid p-3 space-y-3">
+            <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">Links</h3>
+            {guideOptions.length > 0 && (
+              <Combobox
+                label="Required training (competency)"
+                options={guideOptions.map((g) => ({ value: g.id, label: g.title, description: g.description ?? undefined }))}
+                selected={form.competencyGuideIds}
+                onChange={(ids) => setForm({ ...form, competencyGuideIds: ids })}
+                onPreview={(id) => requestGuide(id, guideOptions.find((g) => g.id === id)?.title ?? null)}
+                placeholder="Search guides..."
+              />
+            )}
+
             <Combobox
-              label="Required training (competency)"
-              options={guideOptions.map((g) => ({ value: g.id, label: g.title, description: g.description ?? undefined }))}
-              selected={form.competencyGuideIds}
-              onChange={(ids) => setForm({ ...form, competencyGuideIds: ids })}
-              onPreview={(id) => requestGuide(id, guideOptions.find((g) => g.id === id)?.title ?? null)}
-              placeholder="Search guides..."
+              label="Lists (which checklists this task appears in)"
+              options={checklists.filter((c) => c.venueId === form.venueId).map((c) => ({ value: c.id, label: c.name }))}
+              selected={form.checklistIds}
+              onChange={(ids) => setForm({ ...form, checklistIds: ids })}
+              placeholder="Search lists..."
             />
-          )}
 
-          <Combobox
-            label="Lists (which checklists this task appears in)"
-            options={checklists.filter((c) => c.venueId === form.venueId).map((c) => ({ value: c.id, label: c.name }))}
-            selected={form.checklistIds}
-            onChange={(ids) => setForm({ ...form, checklistIds: ids })}
-            placeholder="Search lists..."
-          />
-
-          <Combobox
-            label="Assigned to (optional)"
-            multiple={false}
-            options={assignees.map((a) => ({ value: a.id, label: a.name }))}
-            selected={form.assignedToStaffId ? [form.assignedToStaffId] : []}
-            onChange={(ids) => setForm({ ...form, assignedToStaffId: ids[0] ?? '' })}
-            placeholder="Search people..."
-          />
-          <p className="font-mono text-xs uppercase text-grey-light">
-            DEPARTMENT/SECTION SCOPE THE TASK. LISTS DECIDE WHICH CHECKLISTS SHOW IT. ASSIGNING A PERSON TAGS IT FOR THEM.
-          </p>
+            <Combobox
+              label="Assigned to (optional)"
+              multiple={false}
+              options={assignees.map((a) => ({ value: a.id, label: a.name }))}
+              selected={form.assignedToStaffId ? [form.assignedToStaffId] : []}
+              onChange={(ids) => setForm({ ...form, assignedToStaffId: ids[0] ?? '' })}
+              placeholder="Search people..."
+            />
+            <p className="font-mono text-xs uppercase text-grey-light">
+              DEPARTMENT/SECTION SCOPE THE TASK. LISTS DECIDE WHICH CHECKLISTS SHOW IT. ASSIGNING A PERSON TAGS IT FOR THEM.
+            </p>
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <Select label="Completion Type" value={form.completionType} onChange={(e) => setForm({ ...form, completionType: e.target.value })} options={COMPLETION_OPTIONS} />
