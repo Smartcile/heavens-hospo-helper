@@ -12,6 +12,7 @@ import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { readingVerdict, criticalVerdict, describeBand } from '@/lib/food-safety'
 import { OUTCOME_LABELS, OUTCOME_DESCRIPTIONS, TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { moveItem } from '@/lib/array'
+import { availableParentTasks, orderTasksWithChildren, subtasksOutsideList } from '@/lib/task-subtasks'
 import { resolveWorkerTaskAccess, type WorkerTaskAccess } from '@/lib/worker-task-access'
 import { Panel } from '@/components/ui/Panel'
 import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
@@ -31,6 +32,7 @@ interface TaskForm {
   allowedOutcomes: TaskOutcome[]
   overrideOutcomes: boolean
   requireOutcomeReason: boolean
+  parentTaskId: string
 }
 
 interface TaskFull {
@@ -40,6 +42,8 @@ interface TaskFull {
   customCron: string | null; intervalMonths: number
   monthlyOption: string | null; monthlyDay: number | null; isActive: boolean
   allowedOutcomes?: string[]; overrideOutcomes?: boolean; requireOutcomeReason?: boolean
+  parentTaskId?: string | null; parentTitle?: string | null; subtaskOrder?: number
+  subtasks?: { id: string; title: string; isActive: boolean; subtaskOrder: number }[]
   department: { id: string; name: string } | null
   section: { id: string; name: string } | null
   requiredTraining: { moduleId: string; module?: { kind: string } }[]
@@ -84,6 +88,7 @@ const EMPTY_TASK_FORM: TaskForm = {
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
   intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, competencyGuideIds: [],
   allowedOutcomes: [...TASK_OUTCOMES], overrideOutcomes: false, requireOutcomeReason: false,
+  parentTaskId: '',
 }
 
 const COMPLETION_OPTIONS = [
@@ -235,7 +240,7 @@ export function WorkerTasksClient({
     setEditDepts(depts as Department[])
     setEditSections(sections as Section[])
     setEditGuides(guides as GuideLite[])
-    setEditTasks(editTasksData as TaskFull[])
+    setEditTasks(Array.isArray(editTasksData) ? (editTasksData as TaskFull[]) : [])
     setEditChecklists(checklists)
     setEditCalendarEvents(Array.isArray(eventsData) ? (eventsData as CalendarEventSummary[]) : [])
     return { checklists }
@@ -377,6 +382,30 @@ export function WorkerTasksClient({
       allowedOutcomes: (t.allowedOutcomes?.length ? t.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[],
       overrideOutcomes: !!t.overrideOutcomes,
       requireOutcomeReason: !!t.requireOutcomeReason,
+      parentTaskId: t.parentTaskId ?? '',
+    })
+    setRequireRetrain(false); setChangeSummary('')
+    setTaskError(''); setTaskModalOpen(true)
+  }
+
+  // Pre-fill a child from its parent (department/section/schedule/completion),
+  // then let the author edit it before saving.
+  function openSubtaskCreate(parent: TaskFull) {
+    setTaskEditing(null)
+    setTaskForList(false)
+    setTaskForm({
+      ...EMPTY_TASK_FORM,
+      title: '',
+      departmentId: parent.departmentId ?? '',
+      sectionId: parent.sectionId ?? '',
+      completionType: parent.completionType,
+      scheduleType: parent.scheduleType,
+      scheduleDays: parent.scheduleDays ?? [],
+      customCron: parent.customCron ?? '',
+      intervalMonths: parent.intervalMonths ?? 1,
+      monthlyOption: parent.monthlyOption ?? 'FIRST_DAY',
+      monthlyDay: parent.monthlyDay ?? 1,
+      parentTaskId: parent.id,
     })
     setRequireRetrain(false); setChangeSummary('')
     setTaskError(''); setTaskModalOpen(true)
@@ -403,6 +432,7 @@ export function WorkerTasksClient({
         ...taskForm,
         departmentId: taskForm.departmentId || null,
         sectionId: taskForm.sectionId || null,
+        parentTaskId: taskForm.parentTaskId || null,
         // Legacy `requiredTrainingIds` is deliberately not sent: the worker UI
         // edits TaskGuide now, and omitting it leaves old links untouched.
         competencyGuideIds: taskForm.competencyGuideIds,
@@ -631,7 +661,23 @@ export function WorkerTasksClient({
     sg.tasks.push(t)
   }
 
-  const renderTask = (t: TaskState) => {
+  const renderTask = (t: TaskState, opts?: { depth?: number; sameListIds?: Set<string> }) => {
+    const depth = opts?.depth ?? 0
+    const parentInSameList = t.parentTaskId ? !!opts?.sameListIds?.has(t.parentTaskId) : true
+    const showPartOf = !!t.parentTaskId && !parentInSameList
+    const showSubtasksElsewhere = !!opts?.sameListIds && !!t.subtasks?.length &&
+      subtasksOutsideList(t.subtasks.map((s) => s.id), [...opts.sameListIds]).length > 0
+    const indentClass = depth > 0 ? 'ml-4 border-l-2 border-l-info pl-3' : ''
+    const subtaskLabels = (
+      <>
+        {showPartOf && (
+          <span className="font-mono text-xs uppercase text-grey-light">PART OF {t.parentTitle ?? 'PARENT'}</span>
+        )}
+        {showSubtasksElsewhere && (
+          <span className="font-mono text-xs uppercase text-info">SUBTASKS IN OTHER LISTS</span>
+        )}
+      </>
+    )
     if (isEditMode) {
       const full = editTasks.find(et => et.id === t.id)
       const guideTitles = (full?.taskGuides ?? [])
@@ -641,11 +687,11 @@ export function WorkerTasksClient({
         <Panel
           key={t.id}
           padding="md"
-          className="w-full text-left flex items-center gap-3"
+          className={`w-full text-left flex items-center gap-3 ${indentClass}`}
         >
           <div className={`w-2 h-2 flex-shrink-0 ${t.isCompleted ? 'bg-success' : 'bg-grey-mid'}`} />
           <div className="min-w-0 flex-1">
-            <div className="font-mono font-semibold text-sm uppercase text-white truncate">{t.title}</div>
+            <div className="font-mono font-semibold text-sm uppercase text-white truncate">{depth > 0 ? '↳ ' : ''}{t.title}</div>
             {t.description && <p className="font-sans text-xs text-grey-light mt-0.5">{t.description}</p>}
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <CompletionTypeIcon type={t.completionType} />
@@ -658,6 +704,7 @@ export function WorkerTasksClient({
               {(t.rolledOverFrom || (t.isOneOff && t.dueDate && !t.isCompleted)) && (
                 <span className="font-mono text-xs text-warning uppercase">⚠ ROLLED OVER</span>
               )}
+              {subtaskLabels}
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -696,12 +743,12 @@ export function WorkerTasksClient({
         tabIndex={0}
         onClick={() => openTask(t)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTask(t) } }}
-        className="w-full text-left bg-grey-dark border border-grey-mid p-4 hover:border-white transition-colors active:bg-black cursor-pointer"
+        className={`w-full text-left bg-grey-dark border border-grey-mid p-4 hover:border-white transition-colors active:bg-black cursor-pointer ${indentClass}`}
       >
         <div className="flex items-start gap-3">
           <div className="w-5 h-5 border-2 border-grey-mid flex-shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <div className="font-mono font-semibold text-sm uppercase text-white">{t.title}</div>
+            <div className="font-mono font-semibold text-sm uppercase text-white">{depth > 0 ? '↳ ' : ''}{t.title}</div>
             {t.description && <p className="font-sans text-xs text-grey-light mt-0.5">{t.description}</p>}
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <CompletionTypeIcon type={t.completionType} />
@@ -723,6 +770,7 @@ export function WorkerTasksClient({
                   IN PROGRESS{t.inProgress.byName ? ` · ${t.inProgress.byName}` : ''}
                 </span>
               )}
+              {subtaskLabels}
             </div>
             {t.inProgress?.note && (
               <p className="font-sans text-xs text-warning/80 mt-1 truncate">{t.inProgress.note}</p>
@@ -780,6 +828,11 @@ export function WorkerTasksClient({
       </div>
     )
   }
+
+  const parentTaskOptions = availableParentTasks(editTasks, {
+    venueId: taskEditing?.venueId ?? sessionVenueId ?? editTasks[0]?.venueId ?? '',
+    taskId: taskEditing?.id,
+  })
 
   const clEventOptions = editCalendarEvents.map((e) => ({
     value: e.id,
@@ -980,6 +1033,7 @@ export function WorkerTasksClient({
           const doneCount = allInList.filter((t) => t.isCompleted).length
           const totalCount = allInList.length
           const donePct = totalCount > 0 ? (doneCount / totalCount) * 100 : 0
+          const sameListIds = new Set(lg.tasks.map((t) => t.id))
           const maxVisible = (isEditMode || expandedLists.has(lg.id)) ? 999 : 5
           const isExpanded = expandedLists.has(lg.id)
           const extra = lg.tasks.length - maxVisible
@@ -1012,46 +1066,9 @@ export function WorkerTasksClient({
                 </div>
               </div>
               <div className="divide-y divide-grey-mid">
-                {lg.tasks.slice(0, maxVisible).map((t) => (
-                  isEditMode ? renderTask(t) : (
-                    <div key={t.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openTask(t)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTask(t) } }}
-                      className="w-full text-left bg-grey-dark p-3 hover:border-white transition-colors active:bg-black flex items-center gap-3 border-0 border-b border-grey-mid last:border-0 cursor-pointer">
-                      <div className="w-5 h-5 border-2 border-grey-mid flex-shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <div className="font-mono font-semibold text-sm uppercase text-white">{t.title}</div>
-                        {t.description && <p className="font-sans text-xs text-grey-light mt-0.5">{t.description}</p>}
-                        <div className="flex items-center gap-2 mt-1 flex-wrap">
-                          <CompletionTypeIcon type={t.completionType} />
-                          {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
-                          {t.guide && (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); requestGuide(t.guide!.id, t.guide!.title) }}
-                              className="font-mono text-xs text-info hover:text-white transition-colors"
-                            >
-                              📖 GUIDE
-                            </button>
-                          )}
-                          {(t.rolledOverFrom || (t.isOneOff && t.dueDate && !t.isCompleted)) && (
-                            <span className="font-mono text-xs text-warning uppercase">⚠ ROLLED OVER</span>
-                          )}
-                          {t.inProgress && (
-                            <span className="font-mono text-xs text-warning uppercase">
-                              IN PROGRESS{t.inProgress.byName ? ` · ${t.inProgress.byName}` : ''}
-                            </span>
-                          )}
-                        </div>
-                        {t.inProgress?.note && (
-                          <p className="font-sans text-xs text-warning/80 mt-1 truncate">{t.inProgress.note}</p>
-                        )}
-                      </div>
-                    </div>
-                  )
-                ))}
+                {orderTasksWithChildren(lg.tasks).slice(0, maxVisible).map(({ task, depth }) =>
+                  renderTask(task, { depth, sameListIds }),
+                )}
                 {extra > 0 && !isEditMode && (
                   <button onClick={() => toggleExpandList(lg.id)} className="w-full p-3 text-center hover:bg-grey-dark/50 transition-colors">
                     <span className="font-mono text-xs text-grey-light hover:text-white transition-colors">
@@ -1075,7 +1092,7 @@ export function WorkerTasksClient({
             {dg.sections.map((sg) => (
               <div key={sg.key} className="space-y-2">
                 {sg.name && <div className="font-mono text-xs uppercase tracking-wider text-accent pt-1">{sg.name}</div>}
-                {sg.tasks.map(renderTask)}
+                {orderTasksWithChildren(sg.tasks).map(({ task, depth }) => renderTask(task, { depth }))}
               </div>
             ))}
           </div>
@@ -1385,7 +1402,7 @@ export function WorkerTasksClient({
               ← BACK
             </button>
             <span className="font-mono text-xs font-bold uppercase text-warning tracking-widest">
-              {taskEditing ? 'EDIT TASK' : 'NEW TASK'}
+              {taskEditing ? 'EDIT TASK' : taskForm.parentTaskId ? 'NEW SUBTASK' : 'NEW TASK'}
             </span>
             <div className="w-10" />
           </div>
@@ -1424,6 +1441,61 @@ export function WorkerTasksClient({
                 ...editSections.filter(s => s.departmentId === taskForm.departmentId).map(s => ({ value: s.id, label: s.name })),
               ]}
             />
+
+            <Select
+              data-testid="task-parent-select"
+              label="Parent task (optional)"
+              value={taskForm.parentTaskId}
+              onChange={(e) => setTaskForm({ ...taskForm, parentTaskId: e.target.value })}
+              options={[
+                { value: '', label: 'NONE (TOP-LEVEL TASK)' },
+                ...parentTaskOptions.map(t => ({ value: t.id, label: t.title })),
+              ]}
+              disabled={(taskEditing?.subtasks?.length ?? 0) > 0}
+            />
+            <p className="font-mono text-xs uppercase text-grey-light">
+              LINK THIS TASK UNDER A PARENT. SUBTASKS CANNOT HAVE THEIR OWN SUBTASKS.
+            </p>
+
+            {taskEditing && !taskEditing.parentTaskId && (
+              <div className="border border-grey-mid p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs uppercase text-grey-light tracking-wider">
+                    Subtasks ({taskEditing.subtasks?.length ?? 0})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => openSubtaskCreate(taskEditing)}
+                    className="font-mono text-xs uppercase text-info hover:text-white transition-colors"
+                  >
+                    + ADD SUBTASK
+                  </button>
+                </div>
+                {(taskEditing.subtasks?.length ?? 0) === 0 ? (
+                  <p className="font-mono text-xs uppercase text-grey-light">NO SUBTASKS YET.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {taskEditing.subtasks!.map((s) => {
+                      const full = editTasks.find(et => et.id === s.id)
+                      return (
+                        <div key={s.id} className="flex items-center justify-between gap-2 border border-grey-mid px-2 py-1.5">
+                          <span className="font-mono text-xs uppercase text-white truncate">{s.title}</span>
+                          {full && (
+                            <button
+                              type="button"
+                              onClick={() => openTaskEdit(full)}
+                              className="font-mono text-xs uppercase text-grey-light hover:text-white flex-shrink-0"
+                            >
+                              EDIT
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <Select label="Completion Type" value={taskForm.completionType}

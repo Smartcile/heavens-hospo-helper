@@ -12,6 +12,7 @@ import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
 import { moveItem } from '@/lib/array'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
+import { availableParentTasks, orderTasksWithChildren } from '@/lib/task-subtasks'
 import { getActiveVenueId } from '@/lib/active-venue'
 import {
   isActivatedOn,
@@ -37,6 +38,10 @@ interface Task {
   monthlyDay: number | null
   isActive: boolean
   sortOrder: number
+  parentTaskId?: string | null
+  parentTitle?: string | null
+  subtaskOrder?: number
+  subtasks?: { id: string; title: string; isActive: boolean; subtaskOrder: number }[]
   allowedOutcomes?: string[]
   overrideOutcomes?: boolean
   requireOutcomeReason?: boolean
@@ -97,6 +102,7 @@ interface FormState {
   allowedOutcomes: TaskOutcome[]
   overrideOutcomes: boolean
   requireOutcomeReason: boolean
+  parentTaskId: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -104,6 +110,7 @@ const EMPTY_FORM: FormState = {
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
   intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, requiredTrainingIds: [], competencyGuideIds: [],
   allowedOutcomes: [...TASK_OUTCOMES], overrideOutcomes: false, requireOutcomeReason: false,
+  parentTaskId: '',
 }
 
 const COMPLETION_OPTIONS = [
@@ -195,6 +202,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [activateError, setActivateError] = useState('')
   const [dropActive, setDropActive] = useState(false)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [collapsedParents, setCollapsedParents] = useState<Set<string>>(new Set())
 
   // PDF export popup
   const [pdfOpen, setPdfOpen] = useState(false)
@@ -247,9 +255,46 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       allowedOutcomes: (t.allowedOutcomes?.length ? t.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[],
       overrideOutcomes: !!t.overrideOutcomes,
       requireOutcomeReason: !!t.requireOutcomeReason,
+      parentTaskId: t.parentTaskId ?? '',
     })
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
+  }
+  // Open the edit modal for a subtask that may be outside the current filters.
+  async function openEditById(id: string) {
+    const local = tasks.find((t) => t.id === id)
+    if (local) { openEdit(local); return }
+    const r = await fetch(`/api/admin/tasks/${id}`)
+    if (!r.ok) return
+    openEdit((await r.json()) as Task)
+  }
+  function openSubtaskCreate(parent: Task) {
+    setEditing(null)
+    setForm({
+      ...EMPTY_FORM,
+      title: '',
+      venueId: parent.venueId,
+      departmentId: parent.departmentId ?? '',
+      sectionId: parent.sectionId ?? '',
+      completionType: parent.completionType,
+      scheduleType: parent.scheduleType,
+      scheduleDays: parent.scheduleDays ?? [],
+      customCron: parent.customCron ?? '',
+      intervalMonths: parent.intervalMonths ?? 1,
+      monthlyOption: parent.monthlyOption ?? 'FIRST_DAY',
+      monthlyDay: parent.monthlyDay ?? 1,
+      parentTaskId: parent.id,
+    })
+    setRequireRetrain(false); setChangeSummary('')
+    setError(''); setModalOpen(true)
+  }
+  function toggleParentCollapse(id: string) {
+    setCollapsedParents((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   async function handleSave() {
@@ -265,6 +310,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
         ...form,
         departmentId: form.departmentId || null,
         sectionId: form.sectionId || null,
+        parentTaskId: form.parentTaskId || null,
         requiredTrainingIds: form.requiredTrainingIds,
         competencyGuideIds: form.competencyGuideIds,
         customCron: form.scheduleType === 'CUSTOM' ? form.customCron : null,
@@ -384,6 +430,11 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const guideOptions = guides.filter((g) => g.venueId === form.venueId)
 
   const taskById = new Map(tasks.map((t) => [t.id, t]))
+  const editingLive = editing ? taskById.get(editing.id) ?? editing : null
+  const parentSelectOptions = [
+    { value: '', label: 'NONE (TOP-LEVEL TASK)' },
+    ...availableParentTasks(tasks, { venueId: form.venueId, taskId: editing?.id }).map((t) => ({ value: t.id, label: t.title })),
+  ]
   const clDeptOptions = [{ value: '', label: 'WHOLE VENUE' }, ...departments.filter((d) => d.venueId === clVenueId).map((d) => ({ value: d.id, label: d.name }))]
   const clSectionOptions = [{ value: '', label: 'NO SECTION' }, ...sections.filter((s) => s.departmentId === clDeptId).map((s) => ({ value: s.id, label: s.name }))]
   const clEventOptions = calendarEvents
@@ -465,23 +516,33 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   }
   for (const dg of deptGroups) dg.sections.sort((a, b) => a.name.localeCompare(b.name))
 
-  const taskRow = (t: Task) => {
+  const taskRow = (t: Task, depth = 0) => {
     const labels = taskLabels(t)
+    const subtaskCount = t.subtasks?.length ?? 0
+    const collapsed = collapsedParents.has(t.id)
     return (
       <div
         key={t.id}
         data-testid={`available-task-${t.id}`}
         draggable
         onDragStart={(e) => { e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'copy' }}
-        className="bg-grey-dark border border-grey-mid px-3 py-2.5 flex items-center gap-2 cursor-grab active:cursor-grabbing"
+        className={`bg-grey-dark border border-grey-mid px-3 py-2.5 flex items-center gap-2 cursor-grab active:cursor-grabbing ${depth > 0 ? 'ml-4 border-l-2 border-l-info' : ''}`}
       >
         <div className={`w-1.5 h-1.5 flex-shrink-0 ${t.isActive ? 'bg-success' : 'bg-grey-mid'}`} />
         <div className="min-w-0 flex-1">
-          <div className="font-mono text-sm font-semibold uppercase text-white truncate">{t.title}</div>
+          <div className="font-mono text-sm font-semibold uppercase text-white truncate">
+            {depth > 0 ? '↳ ' : ''}{t.title}
+          </div>
           {t.description && <p className="font-mono text-xs text-grey-light truncate">{t.description}</p>}
           <div className="flex flex-wrap gap-1.5 mt-0.5 items-center">
             <span className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1 py-0.5">{describeSchedule(t)}</span>
             {labels.map((l) => <span key={l.text} className={`font-mono text-xs uppercase ${l.cls}`}>{l.text}</span>)}
+            {subtaskCount > 0 && (
+              <span className="font-mono text-xs uppercase text-info">{subtaskCount} SUBTASK{subtaskCount !== 1 ? 'S' : ''}</span>
+            )}
+            {depth === 0 && t.parentTaskId && (
+              <span className="font-mono text-xs uppercase text-grey-light">SUBTASK OF {t.parentTitle ?? 'PARENT'}</span>
+            )}
             {(t.taskGuides ?? []).filter((g) => g.guide).map((g) => (
               <button
                 key={g.guideId}
@@ -500,6 +561,11 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {subtaskCount > 0 && (
+            <button onClick={() => toggleParentCollapse(t.id)} className="font-mono text-xs uppercase text-info hover:text-white transition-colors">
+              {collapsed ? '▸ SHOW' : '▾ HIDE'}
+            </button>
+          )}
           {t.progress && (
             <button onClick={() => clearProgress(t.id)} className="font-mono text-xs uppercase text-warning hover:text-white transition-colors">CLEAR</button>
           )}
@@ -510,6 +576,12 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       </div>
     )
   }
+
+  const renderTaskRows = (list: Task[]) =>
+    orderTasksWithChildren(list).map(({ task, depth }) => {
+      if (depth > 0 && task.parentTaskId && collapsedParents.has(task.parentTaskId)) return null
+      return taskRow(task, depth)
+    })
 
   return (
     <div className="p-4 md:p-6 space-y-4">
@@ -563,13 +635,13 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                   {dg.sections.map((sg) => (
                     <div key={sg.id} className="space-y-1 pl-3 border-l border-grey-mid">
                       <div className="font-mono text-xs uppercase tracking-wider text-accent">{sg.name}</div>
-                      {sg.tasks.map(taskRow)}
+                      {renderTaskRows(sg.tasks)}
                     </div>
                   ))}
                   {dg.loose.length > 0 && (
                     <div className="space-y-1 pl-3 border-l border-grey-mid">
                       {dg.sections.length > 0 && <div className="font-mono text-xs uppercase tracking-wider text-grey-light">GENERAL (NO SECTION)</div>}
-                      {dg.loose.map(taskRow)}
+                      {renderTaskRows(dg.loose)}
                     </div>
                   )}
                 </div>
@@ -822,7 +894,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
         </div>
       </div>
 
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'EDIT TASK' : 'NEW TASK'} size="lg">
+      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'EDIT TASK' : form.parentTaskId ? 'NEW SUBTASK' : 'NEW TASK'} size="lg">
         <div className="space-y-4">
           <Input label="Task Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="WIPE DOWN ALL BAR SURFACES" />
           <Textarea label="Description (optional)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Additional instructions for this task..." />
@@ -833,6 +905,54 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
             <Select label="Department" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value, sectionId: '' })} options={formDeptOptions} />
           </div>
           <Select label="Section (optional)" value={form.sectionId} onChange={(e) => setForm({ ...form, sectionId: e.target.value })} options={formSectionOptions} />
+
+          <div className="space-y-2">
+            <Select
+              data-testid="task-parent-select"
+              label="Parent task (optional)"
+              value={form.parentTaskId}
+              onChange={(e) => setForm({ ...form, parentTaskId: e.target.value })}
+              options={parentSelectOptions}
+              disabled={!!editingLive && (editingLive.subtasks?.length ?? 0) > 0}
+            />
+            <p className="font-mono text-xs uppercase text-grey-light">
+              LINK THIS TASK UNDER A PARENT. SUBTASKS CANNOT HAVE THEIR OWN SUBTASKS.
+            </p>
+            {editing && (
+              <div className="border border-grey-mid p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs uppercase text-grey-light tracking-wider">
+                    Subtasks ({editingLive?.subtasks?.length ?? 0})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => openSubtaskCreate(editingLive ?? editing)}
+                    className="font-mono text-xs uppercase text-info hover:text-white transition-colors"
+                  >
+                    + ADD SUBTASK
+                  </button>
+                </div>
+                {(editingLive?.subtasks?.length ?? 0) === 0 ? (
+                  <p className="font-mono text-xs uppercase text-grey-light">NO SUBTASKS YET.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {editingLive!.subtasks!.map((s) => (
+                      <div key={s.id} className="flex items-center justify-between gap-2 border border-grey-mid px-2 py-1.5">
+                        <span className="font-mono text-xs uppercase text-white truncate">{s.title}</span>
+                        <button
+                          type="button"
+                          onClick={() => openEditById(s.id)}
+                          className="font-mono text-xs uppercase text-grey-light hover:text-white flex-shrink-0"
+                        >
+                          EDIT
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {guideOptions.length > 0 && (
             <Combobox

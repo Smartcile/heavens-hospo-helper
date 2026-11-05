@@ -11,6 +11,7 @@ import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
 import { useDirty } from '@/lib/use-dirty'
 import { MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
+import { availableParentTasks } from '@/lib/task-subtasks'
 
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string }
@@ -23,6 +24,9 @@ interface TaskData {
   completionType: string; scheduleType: string; scheduleDays: number[]
   customCron: string | null; intervalMonths: number; monthlyOption: string | null; monthlyDay: number | null
   allowedOutcomes?: string[]; overrideOutcomes?: boolean; requireOutcomeReason?: boolean
+  isActive?: boolean
+  parentTaskId?: string | null; parentTitle?: string | null
+  subtasks?: { id: string; title: string; isActive: boolean; subtaskOrder: number }[]
   requiredTraining: { moduleId: string }[]
   taskGuides?: { guideId: string; isRequiredForCompetency: boolean }[]
 }
@@ -41,7 +45,11 @@ const SCHEDULE_OPTIONS = [
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
 export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: string; role: string; onClose: () => void; onSaved: () => void }) {
+  // Switching between a parent and its subtasks happens inside this modal, so
+  // the fetch/save target is state (seeded from the prop) rather than the prop.
+  const [activeId, setActiveId] = useState(taskId)
   const [task, setTask] = useState<TaskData | null>(null)
+  const [allTasks, setAllTasks] = useState<TaskData[]>([])
   const [competencyGuideIds, setCompetencyGuideIds] = useState<string[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -59,13 +67,15 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
 
   useEffect(() => {
     let active = true
+    setLoading(true)
     Promise.all([
-      fetch(`/api/admin/tasks/${taskId}`).then((r) => r.json()),
+      fetch(`/api/admin/tasks/${activeId}`).then((r) => r.json()),
       fetch('/api/admin/venues').then((r) => r.json()),
       fetch('/api/admin/departments').then((r) => r.json()),
       fetch('/api/admin/sections').then((r) => r.json()),
       fetch('/api/admin/guides').then((r) => r.json()),
-    ]).then(([t, v, d, s, m]) => {
+      fetch('/api/admin/tasks').then((r) => r.json()),
+    ]).then(([t, v, d, s, m, all]) => {
       if (!active) return
       setTask(t)
       // Read competency from TaskGuide (new) or fall back to old requiredTraining
@@ -75,10 +85,11 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
       setDepartments(Array.isArray(d) ? d : [])
       setSections(Array.isArray(s) ? s : [])
       setGuides(Array.isArray(m) ? m : [])
+      setAllTasks(Array.isArray(all) ? all : [])
       setLoading(false)
     })
     return () => { active = false }
-  }, [taskId])
+  }, [activeId])
 
   function patch(p: Partial<TaskData>) {
     setTask((prev) => (prev ? { ...prev, ...p } : prev))
@@ -100,6 +111,7 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
       body: JSON.stringify({
         title: task.title, description: task.description,
         departmentId: task.departmentId || null, sectionId: task.sectionId || null,
+        parentTaskId: task.parentTaskId || null,
         completionType: task.completionType, scheduleType: task.scheduleType,
         scheduleDays: task.scheduleType === 'DAILY' ? [] : task.scheduleDays,
         customCron: task.scheduleType === 'CUSTOM' ? task.customCron : null,
@@ -118,7 +130,41 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
     onSaved()
   }
 
+  async function addSubtask() {
+    if (!task) return
+    setSaving(true); setError('')
+    const r = await fetch('/api/admin/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: `${task.title} SUBTASK`,
+        venueId: task.venueId,
+        departmentId: task.departmentId || null,
+        sectionId: task.sectionId || null,
+        completionType: task.completionType,
+        scheduleType: task.scheduleType,
+        scheduleDays: task.scheduleDays,
+        customCron: task.customCron,
+        intervalMonths: task.intervalMonths,
+        monthlyOption: task.monthlyOption,
+        monthlyDay: task.monthlyDay,
+        parentTaskId: task.id,
+      }),
+    })
+    setSaving(false)
+    if (!r.ok) { const d = await r.json(); setError(d.error ?? 'COULD NOT ADD SUBTASK'); return }
+    const created = await r.json()
+    markClean()
+    setActiveId(created.id)
+  }
+
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
+  const parentSelectOptions = task
+    ? [
+        { value: '', label: 'NONE (TOP-LEVEL TASK)' },
+        ...availableParentTasks(allTasks, { venueId: task.venueId, taskId: task.id }).map((t) => ({ value: t.id, label: t.title })),
+      ]
+    : []
   const deptOptions = task
     ? [{ value: '', label: 'NO DEPARTMENT' }, ...departments.filter((d) => d.venueId === task.venueId).map((d) => ({ value: d.id, label: d.name }))]
     : []
@@ -142,6 +188,55 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
             <Select label="Department" value={task.departmentId ?? ''} onChange={(e) => patch({ departmentId: e.target.value, sectionId: '' })} options={deptOptions} />
           </div>
           <Select label="Section (optional)" value={task.sectionId ?? ''} onChange={(e) => patch({ sectionId: e.target.value })} options={sectionOptions} />
+
+          <div className="space-y-2">
+            <Select
+              data-testid="task-parent-select"
+              label="Parent task (optional)"
+              value={task.parentTaskId ?? ''}
+              onChange={(e) => patch({ parentTaskId: e.target.value })}
+              options={parentSelectOptions}
+              disabled={(task.subtasks?.length ?? 0) > 0}
+            />
+            <p className="font-mono text-xs uppercase text-grey-light">
+              LINK THIS TASK UNDER A PARENT. SUBTASKS CANNOT HAVE THEIR OWN SUBTASKS.
+            </p>
+            {!task.parentTaskId && (
+              <div className="border border-grey-mid p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs uppercase text-grey-light tracking-wider">
+                    Subtasks ({task.subtasks?.length ?? 0})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={addSubtask}
+                    disabled={saving}
+                    className="font-mono text-xs uppercase text-info hover:text-white transition-colors disabled:opacity-40"
+                  >
+                    + ADD SUBTASK
+                  </button>
+                </div>
+                {(task.subtasks?.length ?? 0) === 0 ? (
+                  <p className="font-mono text-xs uppercase text-grey-light">NO SUBTASKS YET.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {task.subtasks!.map((s) => (
+                      <div key={s.id} className="flex items-center justify-between gap-2 border border-grey-mid px-2 py-1.5">
+                        <span className="font-mono text-xs uppercase text-white truncate">{s.title}</span>
+                        <button
+                          type="button"
+                          onClick={() => setActiveId(s.id)}
+                          className="font-mono text-xs uppercase text-grey-light hover:text-white flex-shrink-0"
+                        >
+                          EDIT
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {guideOptions.length > 0 && (
             <Combobox

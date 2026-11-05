@@ -571,6 +571,83 @@ describe('WorkerTasksClient', () => {
     })
   })
 
+  it('indents a child under its parent when both are in the same open list', async () => {
+    const parent = {
+      ...BASE_TASK, id: 'p1', title: 'NEWSPAPERS', parentTaskId: null,
+      subtasks: [{ id: 'c1', title: 'THROW OUT PAPERS', isActive: true, subtaskOrder: 0, isCompleted: false, isDone: false, inProgress: false }],
+    }
+    const child = {
+      ...BASE_TASK, id: 'c1', title: 'THROW OUT PAPERS', parentTaskId: 'p1', parentTitle: 'NEWSPAPERS',
+    }
+    mockEditApi({
+      floorTasks: [parent, child],
+      checklists: [{ ...CHECKLIST_SUMMARY, openNow: true, taskIds: ['p1', 'c1'] }],
+      fullChecklists: [{ ...CHECKLIST_FULL, tasks: [{ id: 'p1', title: 'NEWSPAPERS', isActive: true, version: 1 }, { id: 'c1', title: 'THROW OUT PAPERS', isActive: true, version: 1 }] }],
+    })
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('NEWSPAPERS')).toBeDefined())
+    expect(screen.getByText('↳ THROW OUT PAPERS')).toBeDefined()
+    expect(screen.queryByText(/PART OF NEWSPAPERS/)).toBeNull()
+  })
+
+  it('labels a child PART OF its parent when they are in different lists', async () => {
+    const parent = {
+      ...BASE_TASK, id: 'p1', title: 'NEWSPAPERS', parentTaskId: null,
+      subtasks: [{ id: 'c1', title: 'THROW OUT PAPERS', isActive: true, subtaskOrder: 0, isCompleted: false, isDone: false, inProgress: false }],
+    }
+    const child = {
+      ...BASE_TASK, id: 'c1', title: 'THROW OUT PAPERS', parentTaskId: 'p1', parentTitle: 'NEWSPAPERS',
+    }
+    mockEditApi({
+      floorTasks: [parent, child],
+      checklists: [
+        { ...CHECKLIST_SUMMARY, id: 'c1', name: 'SETUP', openNow: true, taskIds: ['p1'] },
+        { ...CHECKLIST_SUMMARY, id: 'c2', name: 'CLOSE', openNow: true, taskIds: ['c1'] },
+      ],
+      fullChecklists: [
+        { ...CHECKLIST_FULL, id: 'c1', name: 'SETUP', tasks: [{ id: 'p1', title: 'NEWSPAPERS', isActive: true, version: 1 }] },
+        { ...CHECKLIST_FULL, id: 'c2', name: 'CLOSE', tasks: [{ id: 'c1', title: 'THROW OUT PAPERS', isActive: true, version: 1 }] },
+      ],
+    })
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('NEWSPAPERS')).toBeDefined())
+    expect(screen.getByText('THROW OUT PAPERS')).toBeDefined()
+    expect(screen.getByText(/PART OF NEWSPAPERS/)).toBeDefined()
+    expect(screen.getByText('SUBTASKS IN OTHER LISTS')).toBeDefined()
+  })
+
+  it('creates a linked child from ADD SUBTASK in the worker task modal', async () => {
+    const fetchMock = mockEditApi()
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" access={FULL_ACCESS} />)
+
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    fireEvent.click(screen.getByText('EDIT MODE'))
+    await waitFor(() => expect(screen.getByText('EDIT MODE ACTIVE // ARMED')).toBeDefined())
+    const editButtons = screen.getAllByText('EDIT')
+    fireEvent.click(editButtons[editButtons.length - 1])
+    await waitFor(() => expect(screen.getByText('EDIT TASK')).toBeDefined())
+
+    fireEvent.click(screen.getByText('+ ADD SUBTASK'))
+    await waitFor(() => expect(screen.getByText('NEW SUBTASK')).toBeDefined())
+
+    fireEvent.change(screen.getByPlaceholderText('WIPE DOWN ALL BAR SURFACES'), {
+      target: { value: 'THROW OUT PAPERS' },
+    })
+    fireEvent.click(screen.getByTestId('worker-task-save'))
+
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/worker/tasks' && init?.method === 'POST',
+      )
+      expect(post).toBeDefined()
+      const body = JSON.parse(String((post![1] as RequestInit).body))
+      expect(body.parentTaskId).toBe('t1')
+      expect(body.departmentId).toBe('d1')
+    })
+  })
+
   it('shows settled non-done outcomes separately from completed work', async () => {
     mockTasks([
       { ...BASE_TASK, id: 't1', title: 'STILL TO DO' },

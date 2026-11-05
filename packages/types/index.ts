@@ -199,6 +199,19 @@ export interface WorkerTaskView {
   criticalMin: number | null
   criticalMax: number | null
   linkedItemName: string | null
+  // Linked subtasks (max depth 1)
+  parentTaskId?: string | null
+  parentTitle?: string | null
+  subtaskOrder?: number
+  subtasks?: {
+    id: string
+    title: string
+    isActive: boolean
+    subtaskOrder: number
+    isCompleted: boolean
+    isDone: boolean
+    inProgress: boolean
+  }[]
 }
 
 // ── FLOOR PLAN SPATIAL ENGINE ──

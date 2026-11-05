@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { postRetrainNotice } from '@/lib/retrain'
 import { guardAccess } from '@/lib/permissions'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
+import { parentLinkError, nextSubtaskOrder, hasLiveSubtasks, softDeleteTask } from '@/lib/task-subtasks.server'
 
 interface Params {
   params: { id: string }
@@ -26,13 +27,25 @@ export async function GET(_req: NextRequest, { params }: Params) {
       status: true, hsCategory: true, linkedItemId: true,
       readingUnit: true, readingMin: true, readingMax: true, criticalMin: true, criticalMax: true,
       allowedOutcomes: true, overrideOutcomes: true, requireOutcomeReason: true,
+      parentTaskId: true, subtaskOrder: true,
       sections: { select: { sectionId: true } },
       requiredTraining: { select: { moduleId: true } },
       taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
+      parent: { select: { id: true, title: true, deletedAt: true } },
+      subtasks: {
+        where: { deletedAt: null },
+        select: { id: true, title: true, isActive: true, subtaskOrder: true },
+        orderBy: [{ subtaskOrder: 'asc' }, { title: 'asc' }],
+      },
     },
   })
   if (!task) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json({ ...task, sectionIds: task.sections.map((s) => s.sectionId) })
+  const { parent, ...rest } = task
+  return NextResponse.json({
+    ...rest,
+    sectionIds: task.sections.map((s) => s.sectionId),
+    parentTitle: parent && !parent.deletedAt ? parent.title : null,
+  })
 }
 
 export async function PUT(req: NextRequest, { params }: Params) {
@@ -43,6 +56,31 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   const body = await req.json()
   const updates: Record<string, unknown> = {}
+
+  const existing = await prisma.task.findUnique({
+    where: { id: params.id },
+    select: { id: true, venueId: true, parentTaskId: true },
+  })
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Parent link (max depth 1). Clearing a parent resets its child ordering.
+  if (body.parentTaskId !== undefined) {
+    const parentId = body.parentTaskId ? String(body.parentTaskId) : null
+    const childHasSubtasks = parentId ? await hasLiveSubtasks(params.id) : false
+    const parentError = await parentLinkError({
+      parentTaskId: parentId,
+      taskId: params.id,
+      taskVenueId: existing.venueId,
+      childHasSubtasks,
+    })
+    if (parentError) return NextResponse.json({ error: parentError }, { status: 400 })
+    updates.parentTaskId = parentId
+    if (parentId && parentId !== existing.parentTaskId) {
+      updates.subtaskOrder = await nextSubtaskOrder(parentId)
+    } else if (!parentId) {
+      updates.subtaskOrder = 0
+    }
+  }
 
   if (body.title !== undefined) updates.title = String(body.title).toUpperCase().trim()
   if (body.description !== undefined) updates.description = body.description?.trim() ?? null
@@ -147,10 +185,9 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   const denied = await guardAccess(session, _req, 'execution.tasks.delete')
   if (denied) return denied
 
-  await prisma.task.update({
-    where: { id: params.id },
-    data: { deletedAt: new Date(), isActive: false },
-  })
+  // Soft-delete the task; its children are unparented and stay usable as
+  // top-level tasks. Never hard-delete.
+  await softDeleteTask(params.id, true)
 
   return NextResponse.json({ success: true })
 }

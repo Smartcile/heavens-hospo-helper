@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
+import { parentLinkError, nextSubtaskOrder } from '@/lib/task-subtasks.server'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -44,6 +45,12 @@ export async function GET(req: NextRequest) {
         select: { guideId: true, isRequiredForCompetency: true, guide: { select: { id: true, title: true } } },
       },
       trainingModules: { select: { kind: true } }, // modules whose how-to is this task
+      parent: { select: { id: true, title: true, deletedAt: true } },
+      subtasks: {
+        where: { deletedAt: null },
+        select: { id: true, title: true, isActive: true, subtaskOrder: true },
+        orderBy: [{ subtaskOrder: 'asc' }, { title: 'asc' }],
+      },
       progress: {
         select: {
           note: true,
@@ -58,7 +65,14 @@ export async function GET(req: NextRequest) {
   })
 
   return NextResponse.json(
-    tasks.map((t) => ({ ...t, sectionIds: t.sections.map((s) => s.sectionId) })),
+    tasks.map((t) => {
+      const { parent, ...rest } = t
+      return {
+        ...rest,
+        sectionIds: t.sections.map((s) => s.sectionId),
+        parentTitle: parent && !parent.deletedAt ? parent.title : null,
+      }
+    }),
   )
 }
 
@@ -97,11 +111,19 @@ export async function POST(req: NextRequest) {
     allowedOutcomes,
     overrideOutcomes,
     requireOutcomeReason,
+    parentTaskId,
   } = body
 
   if (!title?.trim() || !venueId) {
     return NextResponse.json({ error: 'Title and venueId are required' }, { status: 400 })
   }
+
+  // Max depth 1: the parent must exist, belong to this venue, and not already
+  // be a subtask itself. The parent stays a normal completable task.
+  const parentId: string | null = parentTaskId ? String(parentTaskId) : null
+  const parentError = await parentLinkError({ parentTaskId: parentId, taskVenueId: venueId })
+  if (parentError) return NextResponse.json({ error: parentError }, { status: 400 })
+  const subtaskOrder = parentId ? await nextSubtaskOrder(parentId) : 0
 
   // A task can cover several sections; the first is the primary (drives the
   // department and the classic sectionId field), all are stored as TaskSection.
@@ -140,6 +162,8 @@ export async function POST(req: NextRequest) {
       monthlyOption: scheduleType === 'MONTHLY' ? (monthlyOption ?? 'FIRST_DAY') : null,
       monthlyDay: scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? (Number(monthlyDay) || 1) : null,
       sortOrder: (maxSort?.sortOrder ?? -1) + 1,
+      parentTaskId: parentId,
+      subtaskOrder,
       status: status ?? 'ACTIVE',
       hsCategory: hsCategory ?? null,
       linkedItemId: linkedItemId || null,

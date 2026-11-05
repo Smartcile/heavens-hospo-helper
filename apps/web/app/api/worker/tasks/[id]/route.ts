@@ -5,6 +5,7 @@ import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { resolveCompetencyGuideIds } from '@/lib/task-guides'
 import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
+import { parentLinkError, nextSubtaskOrder, hasLiveSubtasks, softDeleteTask } from '@/lib/task-subtasks.server'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getWorkerSession()
@@ -69,6 +70,25 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (overrideOutcomes !== undefined) update.overrideOutcomes = !!overrideOutcomes
   if (requireOutcomeReason !== undefined) update.requireOutcomeReason = !!requireOutcomeReason
 
+  // Parent link (max depth 1). Clearing a parent resets its child ordering.
+  if (body.parentTaskId !== undefined) {
+    const parentId = body.parentTaskId ? String(body.parentTaskId) : null
+    const childHasSubtasks = parentId ? await hasLiveSubtasks(params.id) : false
+    const parentError = await parentLinkError({
+      parentTaskId: parentId,
+      taskId: params.id,
+      taskVenueId: existing.venueId,
+      childHasSubtasks,
+    })
+    if (parentError) return NextResponse.json({ error: parentError }, { status: 400 })
+    update.parentTaskId = parentId
+    if (parentId && parentId !== existing.parentTaskId) {
+      update.subtaskOrder = await nextSubtaskOrder(parentId)
+    } else if (!parentId) {
+      update.subtaskOrder = 0
+    }
+  }
+
   if (requireRetrain) {
     update.version = existing.version + 1
     try {
@@ -116,6 +136,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (!existing || existing.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (existing.venueId !== session.venueId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  await prisma.task.update({ where: { id: params.id }, data: { deletedAt: new Date() } })
+  // Soft-delete the task; its children are unparented and stay usable.
+  await softDeleteTask(params.id)
   return NextResponse.json({ success: true })
 }
