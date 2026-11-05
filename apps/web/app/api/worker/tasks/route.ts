@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
         return {
           ...rest,
           parentTitle: parent && !parent.deletedAt ? parent.title : null,
-          checklistIds: checklistLinks.map((l) => l.checklistId),
+          checklistIds: (checklistLinks ?? []).map((l) => l.checklistId),
         }
       }),
     )
