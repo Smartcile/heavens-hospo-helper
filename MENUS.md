@@ -493,36 +493,47 @@ from the product/recipe, never from an LLM answer. Matched products keep their
 stored `dietaryInfo`; new products start blank. The preview and summary both show
 **DIETARY NOT IMPORTED**.
 
-### Options are detected but not imported yet (Phases 1–2)
+### Options are imported (Phase 3)
 
-Option groups and choice upcharges are parsed and displayed with their deltas.
-The relational option model and authoring editor are built (see §12); the import
-**mapping** onto that model is Phase 3, so imported options are still labelled
-**not yet imported**.
+Parsed option groups/choices are mapped onto the product option model (§12).
+Each group is sanitised with `lib/menu-options.ts` (`normaliseOptionGroups` +
+`validateOptionGroup`); an invalid group (no choices, `maxSelect` beyond the
+choice count, etc.) is **skipped and reported** in the summary warnings.
+
+- **New products** get every valid group and choice.
+- **Matched products** are **additive upsert by name**: missing groups and
+  missing choices are created, soft-deleted rows are revived by their unique
+  key, and the product's existing curated groups/choices are never overwritten
+  or removed. Re-importing the same answer creates no duplicate option rows.
+- The preview/summary no longer say options are "not yet imported"; the result
+  card reports `optionGroupsAdded / optionChoicesAdded / optionsSkipped`.
 
 ### What gets written
 
 - New products: `name`, `price` (falls back to the first size price), `description`,
-  and `variations` built from the imported sizes with `isVariable: true`.
-  `dietaryInfo` stays `null`.
-- Matched products (same normalised name) keep their current price, description
-  and allergens; no duplicate product is created.
+  `variations` built from the imported sizes with `isVariable: true`, and their
+  parsed option groups/choices.
+- Matched products (same normalised name) keep their current price, description,
+  allergens and curated options; no duplicate product or duplicate option is
+  created, and only missing option groups/choices are added.
 - `Menu`, `MenuGroup`, `MenuMenuItem`. A **re-import upserts the
   `(menuId, menuItemId)` line**, so it re-files/reorders the existing line instead
   of skipping it. Only lines included in the preview are touched.
 - The response is the summary `{ menuId, created, matched, linesAdded,
-  linesUpdated, skipped, warnings }`.
+  linesUpdated, skipped, optionGroupsAdded, optionChoicesAdded, optionsSkipped,
+  warnings }`.
 - Several existing products sharing the normalised name are reported
   **AMBIGUOUS** and skipped — never guessed.
 
 ### What does NOT happen
 
 No WooCommerce writes (`wooProductId` stays null and the route never calls
-`pushProduct`), no recipes, no stock drawdown, no option rows, no dietary writes.
-New products surface under Recipes → **IMPORT PRODUCTS** so a recipe/serve can be
-attached later. Prices are GST-inclusive NZD. Re-importing the same answer
-produces 0 created products and 0 new lines; counts only move when the edited
-preview re-files or reorders a line.
+`pushProduct`), no recipes, no stock drawdown, no dietary writes. Options are
+price-only (no per-choice recipe/inventory links yet). New products surface
+under Recipes → **IMPORT PRODUCTS** so a recipe/serve can be attached later.
+Prices are GST-inclusive NZD. Re-importing the same answer produces 0 created
+products, 0 new lines and 0 new option rows; counts only move when the edited
+preview re-files/reorders a line or genuinely adds a missing option.
 
 ## 12 · Product option groups & choices (Phase 2, built 2026-11)
 
@@ -568,9 +579,15 @@ invalid input is floored to 0.
   `lib/menu-lines.server.ts` `menuInclude`), and both `MenuLineEditor` and the
   live `MenuPreview` render the group rule + choices + deltas.
 
-### Not in Phase 2
+### Import mapping & demo data (Phases 3–4, built 2026-11)
+
+The PDF import now maps parsed options onto these rows (§11) and the demo seed
+creates `FISH & CHIPS` with a required `SIDE` group (`FRIES $0 / SALAD $0 /
+FRIES + SALAD +$3.00`) using fixed demo UUIDs. Re-running the seed revives the
+demo rows instead of duplicating them.
+
+### Not in Phases 2–4
 
 Order/POS selection, kitchen modifiers, per-choice recipe/stock drawdown and
-WooCommerce pushes remain out of scope. Import mapping onto these rows is
-Phase 3, and demo seed data is Phase 4.
+WooCommerce pushes remain out of scope (Phase 5, deferred).
 

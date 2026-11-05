@@ -178,6 +178,9 @@ export function MenuImportModal({
       linesAdded: Number(out.linesAdded ?? 0),
       linesUpdated: Number(out.linesUpdated ?? 0),
       skipped: Number(out.skipped ?? 0),
+      optionGroupsAdded: Number(out.optionGroupsAdded ?? 0),
+      optionChoicesAdded: Number(out.optionChoicesAdded ?? 0),
+      optionsSkipped: Number(out.optionsSkipped ?? 0),
       warnings: Array.isArray(out.warnings) ? out.warnings.map(String) : [],
     })
   }
@@ -241,12 +244,15 @@ export function MenuImportModal({
         {summary && (
           <div className="border border-grey-mid p-3 space-y-3">
             <span className="font-mono text-2xs uppercase tracking-wider text-grey-light">IMPORT SUMMARY</span>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <SummaryStat label="CREATED" value={summary.created} />
               <SummaryStat label="MATCHED" value={summary.matched} />
               <SummaryStat label="LINES ADDED" value={summary.linesAdded} />
               <SummaryStat label="LINES UPDATED" value={summary.linesUpdated} />
-              <SummaryStat label="SKIPPED" value={summary.skipped} />
+              <SummaryStat label="OPTION GROUPS ADDED" value={summary.optionGroupsAdded} />
+              <SummaryStat label="OPTION CHOICES ADDED" value={summary.optionChoicesAdded} />
+              <SummaryStat label="OPTIONS SKIPPED" value={summary.optionsSkipped} />
+              <SummaryStat label="ITEMS SKIPPED" value={summary.skipped} />
             </div>
             <div className="border border-warning/60 bg-warning/10 px-2 py-1.5 space-y-0.5">
               {summary.warnings.length === 0 && (
@@ -274,7 +280,7 @@ export function MenuImportModal({
                 DIETARY NOT IMPORTED — ALLERGENS COME FROM THE PRODUCT
               </p>
               <p className="font-mono text-2xs uppercase text-warning">
-                OPTIONS ARE DETECTED FOR REVIEW ONLY — NOT YET IMPORTED
+                OPTIONS ARE IMPORTED — EXISTING PRODUCTS GAIN ONLY MISSING GROUPS/CHOICES
               </p>
               {[
                 ...parsed.issues.filter((issue) => issue.kind !== 'DIETARY_IGNORED'),

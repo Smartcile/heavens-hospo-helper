@@ -65,7 +65,7 @@ async function parseAnswer() {
 describe('MenuImportModal', () => {
   afterEach(() => { vi.restoreAllMocks() })
 
-  it('shows area, sizes, option deltas and the not-imported notes', async () => {
+  it('shows area, sizes, option deltas and the import notes', async () => {
     renderModal()
     await parseAnswer()
 
@@ -74,7 +74,7 @@ describe('MenuImportModal', () => {
     expect(screen.getByText(/SIZES: 300G \$32\.50/)).toBeInTheDocument()
     expect(screen.getByText(/SIDE · REQUIRED: FRIES \$0 \/ SALAD \+\$3\.00/)).toBeInTheDocument()
     expect(screen.getByText('DIETARY NOT IMPORTED — ALLERGENS COME FROM THE PRODUCT')).toBeInTheDocument()
-    expect(screen.getByText('OPTIONS ARE DETECTED FOR REVIEW ONLY — NOT YET IMPORTED')).toBeInTheDocument()
+    expect(screen.getByText('OPTIONS ARE IMPORTED — EXISTING PRODUCTS GAIN ONLY MISSING GROUPS/CHOICES')).toBeInTheDocument()
     // The parsed dietary value must never reach the rendered preview (the raw
     // pasted answer textarea still contains the operator's input).
     expect(screen.queryByText(/MILK/, { selector: 'span,p' })).toBeNull()
@@ -145,6 +145,9 @@ describe('MenuImportModal', () => {
         linesAdded: 3,
         linesUpdated: 4,
         skipped: 5,
+        optionGroupsAdded: 2,
+        optionChoicesAdded: 6,
+        optionsSkipped: 1,
         warnings: ['DIETARY NOT IMPORTED — ALLERGENS COME FROM THE PRODUCT', 'AMBIGUOUS NAME "FISH" — 2 PRODUCTS, SKIPPED'],
       }),
     }) as Response)
@@ -155,6 +158,9 @@ describe('MenuImportModal', () => {
 
     expect(await screen.findByText('IMPORT SUMMARY')).toBeInTheDocument()
     expect(screen.getByText('LINES UPDATED')).toBeInTheDocument()
+    expect(screen.getByText('OPTION GROUPS ADDED')).toBeInTheDocument()
+    expect(screen.getByText('OPTION CHOICES ADDED')).toBeInTheDocument()
+    expect(screen.getByText('OPTIONS SKIPPED')).toBeInTheDocument()
     expect(screen.getByText('3')).toBeInTheDocument()
     expect(screen.getByText(/AMBIGUOUS NAME "FISH"/)).toBeInTheDocument()
     expect(onImported).not.toHaveBeenCalled()
