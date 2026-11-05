@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { SETTINGS_TABS, resolveTab, hubUrl } from '@/lib/hub-tabs'
 import { LineTabs } from '@/components/admin/LineTabs'
 import { FileBrowser } from '@/components/admin/FileBrowser'
+import { ReleaseUpdatesClient } from '@/components/admin/ReleaseUpdatesClient'
 import { StructureClient } from '@/components/admin/StructureClient'
 import { VenueSetupClient } from '@/components/admin/VenueSetupClient'
 import { FloorPlansClient } from '@/components/admin/FloorPlansClient'
@@ -637,7 +638,7 @@ export function SettingsClient({
   // group ever sees the tab nor lands on it — resolveTab falls back to the
   // first visible tab when a hidden tab is requested by URL.
   const settingsTabs = SETTINGS_TABS.filter((t) => {
-    if (t.id === 'files') return role === 'ADMIN'
+    if (t.id === 'files' || t.id === 'updates') return role === 'ADMIN'
     if (t.id === 'floorplans') return !grantedAreas || grantedAreas.includes('floorplans')
     return true
   })
@@ -1180,6 +1181,7 @@ export function SettingsClient({
             <FileBrowser />
           </div>
         )}
+        {tab === 'updates' && role === 'ADMIN' && <ReleaseUpdatesClient />}
       </div>
     </div>
   )

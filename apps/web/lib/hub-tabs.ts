@@ -97,6 +97,7 @@ export const SETTINGS_TABS: TabDef[] = [
   { id: 'qrcodes', label: 'QR CODES' },
   { id: 'swiftpos', label: 'SWIFT POS' },
   { id: 'files', label: 'FILES' }, // admin-only — see SettingsClient
+  { id: 'updates', label: 'UPDATES' }, // admin-only — see SettingsClient
 ]
 
 // Food Health & Safety (NZ GFMP) — Chomp-style hub. LOGGERS arrives with the

@@ -34,7 +34,7 @@ describe('SettingsClient tabs', () => {
 
   it('renders the settings tab labels with GENERAL active by default', () => {
     render(<SettingsClient {...props} />)
-    for (const label of ['GENERAL', 'STRUCTURE', 'UNITS OF MEASURE', 'SUPPLIERS', 'QR CODES', 'SWIFT POS', 'FILES']) {
+    for (const label of ['GENERAL', 'STRUCTURE', 'UNITS OF MEASURE', 'SUPPLIERS', 'QR CODES', 'SWIFT POS', 'FILES', 'UPDATES']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy()
     }
     expect(screen.queryByRole('button', { name: 'SYNC' })).toBeNull()
@@ -48,6 +48,13 @@ describe('SettingsClient tabs', () => {
     render(<SettingsClient {...props} role="MANAGER" />)
     expect(screen.queryByRole('button', { name: 'FILES' })).toBeNull()
     // A manager landing on ?tab=files falls back to the GENERAL tab.
+    expect(screen.getByText('INTEGRATIONS')).toBeTruthy()
+  })
+
+  it('hides the admin-only UPDATES tab from managers', () => {
+    mocks.params = new URLSearchParams('tab=updates')
+    render(<SettingsClient {...props} role="MANAGER" />)
+    expect(screen.queryByRole('button', { name: 'UPDATES' })).toBeNull()
     expect(screen.getByText('INTEGRATIONS')).toBeTruthy()
   })
 

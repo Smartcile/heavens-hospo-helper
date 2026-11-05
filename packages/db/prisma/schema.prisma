@@ -490,6 +490,7 @@ model Staff {
   permissions          StaffPermission[]
   openShiftsFilled     OpenShift[]      @relation("OpenShiftFilledBy")
   openShiftClaims      OpenShiftClaim[]
+  updateConfirmations  UpdateConfirmation[]
 }
 
 // A single granted function within the permission tree (area → sub-area →
@@ -3972,4 +3973,26 @@ model HelpArticle {
 
   @@index([audience, category])
   @@index([sortOrder])
+}
+
+// -- RELEASE UPDATE VERIFICATION (#76) --------------------------------
+// A global, per-admin tick for every GitHub issue in the committed release
+// snapshot (`apps/web/content/release-updates.json`). Content lives in the
+// snapshot, so there is no ReleaseUpdate/ReleaseBatch table. `version` is the
+// snapshot build: ticks stay stored against the release they were made for.
+model UpdateConfirmation {
+  id          String    @id @default(uuid())
+  version     String
+  issueNumber Int
+  staffId     String
+  confirmedAt DateTime  @default(now())
+  note        String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@unique([version, issueNumber, staffId])
+  @@index([staffId, version])
 }
