@@ -32,6 +32,19 @@ const MENU: MenuShape = {
         { label: '400ML', price: 16.5 },
         { label: '1.4L', price: 56 },
       ],
+      options: [
+        {
+          id: 'og1',
+          name: 'SIDE',
+          minSelect: 1,
+          maxSelect: 1,
+          choices: [
+            { id: 'c1', name: 'FRIES', priceDelta: 0, isDefault: true },
+            { id: 'c2', name: 'SALAD', priceDelta: 0, isDefault: false },
+            { id: 'c3', name: 'FRIES + SALAD', priceDelta: 3, isDefault: false },
+          ],
+        },
+      ],
     },
   ],
 }
@@ -69,6 +82,8 @@ describe('MenuBuilder', () => {
     expect(screen.getAllByText('ASAHI 5%').length).toBeGreaterThan(0)
     expect(screen.getByText('400ML')).toBeTruthy()
     expect(screen.getByText('1.4L')).toBeTruthy()
+    expect(screen.getByText(/SIDE \(CHOOSE 1\)/)).toBeTruthy()
+    expect(screen.getByText(/FRIES \+ SALAD \+\$3\.00/)).toBeTruthy()
   })
 
   it('adds a group', () => {

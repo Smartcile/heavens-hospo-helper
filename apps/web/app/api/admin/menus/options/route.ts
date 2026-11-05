@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { isGiftCardCategorized } from '@/lib/gift-cards-woo'
+import { optionGroupInclude } from '@/lib/menu-lines.server'
 
 /**
  * Everything the menu builder can add to a menu, in one call: products
@@ -24,12 +25,12 @@ export async function GET(req: NextRequest) {
   const [local, shared, inventory] = await Promise.all([
     prisma.menuItem.findMany({
       where: { venueId, deletedAt: null },
-      select: { id: true, name: true, price: true, wooCategoryId: true, imageUrl: true, dietaryInfo: true, isActive: true, variations: true },
+      select: { id: true, name: true, price: true, wooCategoryId: true, imageUrl: true, dietaryInfo: true, isActive: true, variations: true, optionGroups: optionGroupInclude },
       orderBy: { name: 'asc' },
     }),
     prisma.menuItemVenue.findMany({
       where: { venueId, isActive: true },
-      include: { menuItem: { select: { id: true, name: true, price: true, wooCategoryId: true, imageUrl: true, dietaryInfo: true, isActive: true, variations: true, venueId: true } } },
+      include: { menuItem: { select: { id: true, name: true, price: true, wooCategoryId: true, imageUrl: true, dietaryInfo: true, isActive: true, variations: true, venueId: true, optionGroups: optionGroupInclude } } },
     }),
     prisma.inventoryItem.findMany({
       where: { venueId, deletedAt: null, furnitureType: null },

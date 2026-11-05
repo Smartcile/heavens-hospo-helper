@@ -11,6 +11,7 @@ import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
 import { MenuItemDetailsModal } from '@/components/admin/MenuItemDetailsModal'
 import { type MenuLineDraft, type MenuSize } from '@/lib/menu-lines'
+import { describeOptionGroup, summariseOptionChoices } from '@/lib/menu-options'
 import { priceExGst, grossMarginPct, type CogsResult } from '@/lib/menu-cogs'
 
 export interface MenuLineEditorProps {
@@ -19,10 +20,11 @@ export interface MenuLineEditorProps {
   cogs: CogsResult | null
   onPatch: (key: string, patch: Partial<MenuLineDraft>) => void
   onOpenServes?: (line: { id: string; name: string }) => void
+  onOpenOptions?: (line: MenuLineDraft) => void
   onClose: () => void
 }
 
-export function MenuLineEditor({ line, groupOptions, cogs, onPatch, onOpenServes, onClose }: MenuLineEditorProps) {
+export function MenuLineEditor({ line, groupOptions, cogs, onPatch, onOpenServes, onOpenOptions, onClose }: MenuLineEditorProps) {
   const [detailsOpen, setDetailsOpen] = useState(false)
   const basePrice = line.price ?? line.sizes[0]?.price ?? null
   const exGst = basePrice != null ? priceExGst(basePrice) : null
@@ -70,6 +72,17 @@ export function MenuLineEditor({ line, groupOptions, cogs, onPatch, onOpenServes
             <p className="font-mono text-xs uppercase text-warning mt-1.5">~ SOME INGREDIENTS HAVE NO COST PRICE</p>
           )}
         </div>
+
+        {line.kind === 'PRODUCT' && line.options.length > 0 && (
+          <div className="border border-grey-mid p-3 space-y-1">
+            <div className="font-mono text-xs uppercase tracking-wider text-grey-light">OPTION GROUPS — SHARED ON THE PRODUCT</div>
+            {line.options.map((group, i) => (
+              <div key={group.id ?? `${group.name}-${i}`} className="font-mono text-xs uppercase text-white">
+                {describeOptionGroup(group)}: <span className="text-grey-light">{summariseOptionChoices(group)}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {line.kind === 'PRODUCT' && (
           <Input
@@ -152,6 +165,16 @@ export function MenuLineEditor({ line, groupOptions, cogs, onPatch, onOpenServes
                 title="How this product consumes stock (the item link)"
               >
                 ITEM LINK
+              </button>
+            )}
+            {line.kind === 'PRODUCT' && line.menuItemId && onOpenOptions && (
+              <button
+                type="button"
+                onClick={() => onOpenOptions(line)}
+                className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white"
+                title="Customer choices and upcharges"
+              >
+                OPTIONS
               </button>
             )}
             {line.kind === 'PRODUCT' && line.menuItemId && (

@@ -12,10 +12,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { Modal } from '@/components/ui/Modal'
 import { pushToast } from '@/components/ui/Toast'
 import { MenuPreview } from '@/components/admin/MenuPreview'
 import { MenuLineEditor } from '@/components/admin/MenuLineEditor'
+import { MenuItemOptionsEditor } from '@/components/admin/MenuItemOptionsEditor'
 import { cleanSizes, variationSizes, formatSizePrice, type MenuShape, type ShapedMenuLine, type MenuLineDraft, type MenuGroupDraft } from '@/lib/menu-lines'
+import { normaliseOptionGroups, type MenuOptionGroup } from '@/lib/menu-options'
 import { priceExGst, grossMarginPct, type CogsResult } from '@/lib/menu-cogs'
 
 export interface MenuOptionProduct {
@@ -26,6 +29,7 @@ export interface MenuOptionProduct {
   dietaryInfo: string | null
   isActive: boolean
   variations: unknown
+  optionGroups?: MenuOptionGroup[]
 }
 
 export interface MenuOptionStock {
@@ -52,6 +56,7 @@ function toDraftLine(l: ShapedMenuLine, key: string): MenuLineDraft {
     unit: l.unit,
     sizes: l.sizes,
     sizesDirty: false,
+    options: l.options ?? [],
     minQty: l.minQty != null ? String(l.minQty) : '',
     maxQty: l.maxQty != null ? String(l.maxQty) : '',
   }
@@ -91,6 +96,7 @@ export function MenuBuilder({
   const [addGroupKey, setAddGroupKey] = useState<string | null>(groups[0]?.key ?? null)
   const [saving, setSaving] = useState(false)
   const [editingKey, setEditingKey] = useState<string | null>(null)
+  const [optionsLine, setOptionsLine] = useState<{ menuItemId: string; name: string; options: MenuOptionGroup[] } | null>(null)
   const [dragKey, setDragKey] = useState<string | null>(null)
   const [cogs, setCogs] = useState<Record<string, CogsResult | null>>({})
 
@@ -163,6 +169,7 @@ export function MenuBuilder({
         unit: null,
         sizes: variationSizes(p.variations),
         sizesDirty: false,
+        options: normaliseOptionGroups(p.optionGroups),
         minQty: '',
         maxQty: '',
       },
@@ -185,6 +192,7 @@ export function MenuBuilder({
         unit: s.unit,
         sizes: [],
         sizesDirty: false,
+        options: [],
         minQty: '',
         maxQty: '',
       },
@@ -197,6 +205,11 @@ export function MenuBuilder({
   }
   function removeLine(key: string) {
     setLines((l) => l.filter((x) => x.key !== key))
+  }
+  function openOptions(line: MenuLineDraft) {
+    if (!line.menuItemId) return
+    setEditingKey(null)
+    setOptionsLine({ menuItemId: line.menuItemId, name: line.name, options: line.options })
   }
 
   // Drop a line just before/after another — adopting the target's group.
@@ -331,6 +344,7 @@ export function MenuBuilder({
     sortOrder: i,
     dietaryInfo: l.dietaryInfo,
     unit: l.unit,
+    options: l.options,
   }))
 
   function priceText(l: MenuLineDraft): string {
@@ -563,9 +577,31 @@ export function MenuBuilder({
           cogs={editingLine.menuItemId ? cogs[editingLine.menuItemId] ?? null : null}
           onPatch={patchLine}
           onOpenServes={onOpenServes}
+          onOpenOptions={openOptions}
           onClose={() => setEditingKey(null)}
         />
       )}
+
+      <Modal
+        isOpen={!!optionsLine}
+        onClose={() => setOptionsLine(null)}
+        title={optionsLine ? `OPTIONS — ${optionsLine.name}` : 'OPTIONS'}
+        size="lg"
+      >
+        {optionsLine && (
+          <MenuItemOptionsEditor
+            menuItemId={optionsLine.menuItemId}
+            menuItemName={optionsLine.name}
+            initialOptions={optionsLine.options}
+            onSaved={(saved) => {
+              setLines((prev) =>
+                prev.map((l) => (l.menuItemId === optionsLine.menuItemId ? { ...l, options: saved } : l)),
+              )
+              setOptionsLine(null)
+            }}
+          />
+        )}
+      </Modal>
     </div>
   )
 }

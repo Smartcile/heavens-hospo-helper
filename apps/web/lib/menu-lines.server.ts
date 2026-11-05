@@ -5,8 +5,21 @@
 
 import { Prisma } from '@hospo-ops/db'
 import { cleanSizes, variationSizes, type ShapedMenuLine } from './menu-lines'
+import { normaliseOptionGroups } from './menu-options'
 
 export type { ShapedMenuLine }
+
+/** Product-level option groups + their live choices, ordered for display. */
+export const optionGroupInclude = {
+  where: { deletedAt: null },
+  orderBy: { sortOrder: 'asc' as const },
+  include: {
+    choices: {
+      where: { deletedAt: null },
+      orderBy: { sortOrder: 'asc' as const },
+    },
+  },
+}
 
 /** Prisma include for a menu with its groups and both kinds of line. */
 export const menuInclude = {
@@ -21,7 +34,16 @@ export const menuInclude = {
     },
     include: {
       menuItem: {
-        select: { id: true, name: true, price: true, dietaryInfo: true, isActive: true, imageUrl: true, variations: true },
+        select: {
+          id: true,
+          name: true,
+          price: true,
+          dietaryInfo: true,
+          isActive: true,
+          imageUrl: true,
+          variations: true,
+          optionGroups: optionGroupInclude,
+        },
       },
       inventoryItem: { select: { id: true, name: true, unit: true, isActive: true } },
     },
@@ -46,6 +68,7 @@ type RawLine = {
     isActive: boolean
     imageUrl: string | null
     variations: unknown
+    optionGroups?: unknown
   } | null
   inventoryItem?: { id: string; name: string; unit: string; isActive: boolean } | null
 }
@@ -70,5 +93,6 @@ export function shapeMenuLine(l: RawLine): ShapedMenuLine {
     maxQty: l.maxQty,
     sortOrder: l.sortOrder,
     sizes: isProduct ? variationSizes(l.menuItem?.variations) : cleanSizes(l.sizeOptions),
+    options: isProduct ? normaliseOptionGroups(l.menuItem?.optionGroups) : [],
   }
 }

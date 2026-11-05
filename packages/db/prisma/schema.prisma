@@ -3130,6 +3130,7 @@ model MenuItem {
   guideTableRows GuideTableRow[]
   inventoryLinks MenuItemInventoryItem[]
   serves         MenuItemServe[]
+  optionGroups   MenuItemOptionGroup[]
 
   @@index([venueId])
   @@index([wooProductId])
@@ -3200,6 +3201,47 @@ model MenuItemServe {
   @@index([venueId])
   @@index([recipeId])
   @@index([inventoryItemId])
+}
+
+// A customer-facing choice group on a product — "SIDE: FRIES / SALAD /
+// FRIES + SALAD (+$3)". Product-level, so every menu the product appears on
+// shares the same options. `minSelect`/`maxSelect` describe the selection rule
+// (0/1 = optional single choice, 1/1 = required single choice, 1/3 = choose up
+// to three). Upcharges are additive only (`priceDelta >= 0`).
+model MenuItemOptionGroup {
+  id         String    @id @default(uuid())
+  menuItemId String
+  name       String
+  minSelect  Int       @default(0)
+  maxSelect  Int       @default(1)
+  sortOrder  Int       @default(0)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  menuItem MenuItem               @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  choices  MenuItemOptionChoice[]
+
+  @@unique([menuItemId, name])
+  @@index([menuItemId])
+}
+
+// One choice inside a product option group, with its upcharge.
+model MenuItemOptionChoice {
+  id         String   @id @default(uuid())
+  groupId    String
+  name       String
+  priceDelta Float    @default(0)
+  isDefault  Boolean  @default(false)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  deletedAt  DateTime?
+
+  group MenuItemOptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, name])
+  @@index([groupId])
 }
 
 // ── Multiple-link junctions (a thing that applies to several things) ─────────
