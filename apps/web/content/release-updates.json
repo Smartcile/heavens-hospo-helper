@@ -1,0 +1,564 @@
+{
+  "version": "1005",
+  "generatedAt": "2026-11-05T04:31:31.257Z",
+  "repo": "Smartcile/heavens-hospo-helper",
+  "issues": [
+    {
+      "number": 3,
+      "title": "[ROSTER] Verify admin-only drag fill confirmations and no series",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/3",
+      "closedAt": "2026-10-27T04:12:01Z",
+      "labels": [
+        "bug",
+        "Feature Update",
+        "agent:planned"
+      ]
+    },
+    {
+      "number": 4,
+      "title": "Tasks & Lists - Worker View",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/4",
+      "closedAt": "2026-10-27T06:23:03Z",
+      "labels": [
+        "bug",
+        "Feature Update",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 5,
+      "title": "[SWIFTPOS] Verify staff sync and add menu linking + kitchen dockets",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/5",
+      "closedAt": "2026-10-29T01:23:37Z",
+      "labels": [
+        "Feature Request",
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 6,
+      "title": "[AVAILABILITY] Show availability notes everywhere",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/6",
+      "closedAt": "2026-10-26T09:12:13Z",
+      "labels": [
+        "bug",
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 7,
+      "title": "[AVAILABILITY] Default worker view to weekly",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/7",
+      "closedAt": "2026-10-27T06:22:42Z",
+      "labels": [
+        "Feature Update",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 8,
+      "title": "[TASKS] Let authorised workers create and edit tasks and lists",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/8",
+      "closedAt": "2026-10-27T06:22:53Z",
+      "labels": [
+        "bug",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 9,
+      "title": "[UI] Keep phone sessions alive with a venue-set idle timeout",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/9",
+      "closedAt": "2026-10-27T06:23:16Z",
+      "labels": [
+        "bug",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 10,
+      "title": "[UI] Stop iOS input zoom when editing text",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/10",
+      "closedAt": "2026-10-26T07:47:26Z",
+      "labels": [
+        "bug",
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 11,
+      "title": "[UI] Improve admin login tap target on iPhone",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/11",
+      "closedAt": "2026-10-26T07:47:20Z",
+      "labels": [
+        "bug",
+        "agent:planned",
+        "agent:approved",
+        "agent:merged",
+        "needs:screenshot"
+      ]
+    },
+    {
+      "number": 12,
+      "title": "[AVAILABILITY] Add day-level lock with auto-lock on approval",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/12",
+      "closedAt": "2026-10-27T06:22:21Z",
+      "labels": [
+        "Feature Update",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 13,
+      "title": "[AVAILABILITY] Bulk clear selected availability days",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/13",
+      "closedAt": "2026-10-27T06:22:36Z",
+      "labels": [
+        "Feature Update",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 14,
+      "title": "[AVAILABILITY] Lock approved days and block series overwrites",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/14",
+      "closedAt": "2026-10-27T06:22:26Z",
+      "labels": [
+        "Feature Update",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 15,
+      "title": "[AVAILABILITY] Filter availability grid by staff",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/15",
+      "closedAt": "2026-10-26T09:12:08Z",
+      "labels": [
+        "Feature Update",
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 16,
+      "title": "[AVAILABILITY] Preserve scroll and state on refresh",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/16",
+      "closedAt": "2026-10-27T06:22:47Z",
+      "labels": [
+        "bug",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 17,
+      "title": "[TRAINING] Require manager confirmation before granting a section",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/17",
+      "closedAt": "2026-10-27T06:23:22Z",
+      "labels": [
+        "bug",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 18,
+      "title": "[GUIDES] Show step annotations in worker guide popups",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/18",
+      "closedAt": "2026-10-27T06:23:10Z",
+      "labels": [
+        "bug",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 19,
+      "title": "[TASKS] Remove dropped tasks from the available task list",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/19",
+      "closedAt": "2026-10-27T06:22:59Z",
+      "labels": [
+        "bug",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 20,
+      "title": "[AVAILABILITY] Restrict worker series edits to the selected day",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/20",
+      "closedAt": "2026-10-27T06:22:31Z",
+      "labels": [
+        "bug",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 21,
+      "title": "[AVAILABILITY] Redesign approvals by person",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/21",
+      "closedAt": "2026-10-26T09:12:03Z",
+      "labels": [
+        "Feature Update",
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 31,
+      "title": "[AVAILABILITY] Bulk lock selected availability days with a reason",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/31",
+      "closedAt": "2026-10-27T08:16:00Z",
+      "labels": [
+        "Feature Update",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 33,
+      "title": "[TASKS] Fix worker task completion stuck on SAVING",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/33",
+      "closedAt": "2026-10-29T00:19:55Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 34,
+      "title": "[AVAILABILITY] Show the original day on edit requests outside the range",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/34",
+      "closedAt": "2026-10-29T00:19:32Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 35,
+      "title": "Avalibilty",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/35",
+      "closedAt": "2026-10-28T23:42:45Z",
+      "labels": []
+    },
+    {
+      "number": 36,
+      "title": "[TRAINING] Manage training from the status board",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/36",
+      "closedAt": "2026-10-29T00:20:15Z",
+      "labels": [
+        "Feature Update",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 41,
+      "title": "[AVAILABILITY] Bulk unlock selected availability days",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/41",
+      "closedAt": "2026-11-02T02:07:05Z",
+      "labels": [
+        "bug",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 42,
+      "title": "[AVAILABILITY] Stop workers clearing availability days",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/42",
+      "closedAt": "2026-11-02T02:07:09Z",
+      "labels": [
+        "bug",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 43,
+      "title": "[AVAILABILITY] Fix add window on a fully covered day",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/43",
+      "closedAt": "2026-11-02T02:07:14Z",
+      "labels": [
+        "bug",
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 45,
+      "title": "[EVENTS] Add photo-backed room setups and improve table-plan UI",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/45",
+      "closedAt": "2026-11-04T00:37:13Z",
+      "labels": [
+        "Feature Update",
+        "agent:planned",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 46,
+      "title": "[AVAILABILITY] Remove popup clear and add admin series delete",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/46",
+      "closedAt": "2026-11-04T10:03:03Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 47,
+      "title": "[UI] Confirm before discarding unsaved modal changes",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/47",
+      "closedAt": "2026-11-04T10:25:43Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 48,
+      "title": "[EVENTS] Move table plans, rooms and room setups into Events",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/48",
+      "closedAt": "2026-11-04T10:26:27Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 49,
+      "title": "[ORDERS] Import a menu from a pasted LLM markdown output",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/49",
+      "closedAt": "2026-11-04T10:27:16Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 50,
+      "title": "[OTHER] Add in-app Heavenly Help knowledge base",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/50",
+      "closedAt": "2026-11-04T10:50:36Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 57,
+      "title": "[GUIDES] Match worker guide editor to admin layout and links",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/57",
+      "closedAt": "2026-11-05T00:59:07Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 58,
+      "title": "[GUIDES] Remove onboarding and department targeting from guide editor",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/58",
+      "closedAt": "2026-11-05T00:43:10Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 59,
+      "title": "[AVAILABILITY] Let staff edit weekly series and request removal",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/59",
+      "closedAt": "2026-11-05T00:43:16Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 60,
+      "title": "[OTHER] Retire WooCommerce and decouple local menus",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/60",
+      "closedAt": "2026-11-05T01:25:31Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 61,
+      "title": "[AVAILABILITY] Surface and edit review notes on availability days",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/61",
+      "closedAt": "2026-11-05T00:59:13Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 66,
+      "title": "[GUIDES] Add require re-training when editing guides",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/66",
+      "closedAt": "2026-11-05T02:39:57Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 68,
+      "title": "[TASKS] Unlock lists, custom schedules, event activation, subtasks",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/68",
+      "closedAt": "2026-11-05T03:44:35Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 71,
+      "title": "[ORDERS] Add product options and editable menu import",
+      "state": "OPEN",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/71",
+      "closedAt": null,
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:working"
+      ]
+    },
+    {
+      "number": 73,
+      "title": "[UI] Rework admin and worker navigation IA",
+      "state": "OPEN",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/73",
+      "closedAt": null,
+      "labels": [
+        "enhancement",
+        "agent:planned",
+        "agent:approved",
+        "agent:working"
+      ]
+    },
+    {
+      "number": 76,
+      "title": "[UI] Add an admin update verification page for GitHub issues",
+      "state": "OPEN",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/76",
+      "closedAt": null,
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:working"
+      ]
+    }
+  ]
+}

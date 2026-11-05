@@ -16,6 +16,7 @@
     "db:seed": "turbo run db:seed",
     "db:reset": "turbo run db:reset",
     "docs:check": "node scripts/check-docs.mjs",
+    "sync:updates": "node scripts/sync-github-updates.mjs",
     "prepush": "npm run docs:check"
   },
   "dependencies": {

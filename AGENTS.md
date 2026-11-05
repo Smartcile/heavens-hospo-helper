@@ -57,7 +57,7 @@ hospo-ops/
 ├── packages/
 │   ├── db/                         # Prisma 7 schema + PG adapter + seed
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma       # 134 models (as of 2026-10)
+│   │   │   ├── schema.prisma       # 139 models (as of 2026-11)
 │   │   │   ├── seed.ts             # Idempotent demo/sample data
 │   │   │   ├── migrate-*.ts        # One-off migrations wired into docker-entrypoint.sh
 │   │   │   └── migrations/         # Legacy 0_init migration (kept for reference)
@@ -2385,7 +2385,7 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 > (`MenuItem.variations`), orders (`WooOrder` as the local order store), gift
 > cards, SwiftPOS and `ApiKey` public routes are unaffected.
 
-### Schema: 135 models (as of 2026-11)
+### Schema: 139 models (as of 2026-11)
 Core ERP models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`,
 `RecipeLineItem` (recursive BOM), `IngredientReference` (Pantry Bible),
 `WooIntegration`, `MenuItem` (+ `MenuItemServe`, `MenuItemVenue`), `Menu`,
@@ -2737,6 +2737,40 @@ files still in use. `MediaLibraryModal` reuses existing uploads.
 Usage keys: `guide-step:<id>`, `guide-row:<id>:<col>`, `menu-item:<id>`,
 `inventory-item:<id>`. Routes: `/api/admin/image-annotations` GET/PUT (PUT with
 empty data soft-deletes the layer).
+
+### Release update verification (#76, built 2026-11)
+An ADMIN-only **Settings → UPDATES** tab (no sidebar entry) is the
+"verify every shipped change in production" worklist. Content is the committed
+GitHub snapshot `apps/web/content/release-updates.json`, so production never
+calls GitHub and no token is needed.
+
+- **Snapshot** — `scripts/sync-github-updates.mjs` (`npm run sync:updates`)
+  runs `gh issue list --state all --limit 500 --json
+  number,title,state,labels,url,closedAt`, writes the snapshot with
+  `version` from `apps/web/version.json` (fallback: timestamp) plus
+  `generatedAt`/`repo`. Review the JSON diff in the PR before shipping; the page
+  shows `RELEASE <version>` + `GENERATED <date>`.
+- **State** — `UpdateConfirmation` (global, no `venueId`): `version`,
+  `issueNumber`, `staffId`, `confirmedAt`, optional `note`, soft delete,
+  `@@unique([version, issueNumber, staffId])`, index `(staffId, version)` +
+  `Staff.updateConfirmations`. Per-admin (mirrors `NoticeAck`), so one admin's
+  tick never hides work from another. Ticks stay keyed to the version they were
+  made against; a new snapshot starts a new batch and old ticks remain audit
+  data.
+- **Pure helpers** — `lib/release-updates.ts`: `parseArea` (`[AREA]` title
+  prefix → uppercase; no prefix = `OTHER`), `normaliseSnapshot` (tolerant parse,
+  drops bad/duplicate rows), `filterReleaseIssues` (CLOSED/OPEN + search),
+  `groupReleaseIssues` (workflow order, OTHER last), `releaseProgress`,
+  `versionMatches`, `confirmedIssueSet`.
+- **Routes** — `GET /api/admin/updates` returns the snapshot + this admin's
+  confirmations + progress over CLOSED issues; a stale `?version=` returns 409.
+  `PUT /api/admin/updates/[issueNumber]` `{ version, confirmed, note? }`
+  validates the issue exists, upserts on confirm (reviving a soft-deleted row)
+  and soft-deletes on untick. Both are ADMIN-only (401/403).
+- **UI** — `ReleaseUpdatesClient`: grouped by `[AREA]`, CLOSED by default with
+  an OPEN toggle, search, progress bar, issue links, live per-row checkbox
+  (optimistic tick → `SAVING…`/`SAVED`, revert + inline error on failure).
+  `START NEW RELEASE` re-fetches the current committed snapshot.
 
 ### EOD Reconciliation (`/api/admin/inventory/reconcile`)
 Aggregates exploded ingredients from completed orders, tallies `requiredBaseQty` per inventory item. Returned as reconciliation report. Deferred inventory deduction (Phase 5).
