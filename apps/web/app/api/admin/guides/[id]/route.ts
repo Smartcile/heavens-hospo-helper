@@ -159,7 +159,12 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const guide = await prisma.guide.update({
     where: { id: params.id },
     data: updates,
-    include: { steps: { orderBy: { order: 'asc' } }, tableRows: { orderBy: { sortOrder: 'asc' } }, taskGuides: true },
+    include: {
+      steps: { orderBy: { order: 'asc' } },
+      tableRows: { orderBy: { sortOrder: 'asc' } },
+      taskGuides: true,
+      audiences: { select: { kind: true, targetId: true } },
+    },
   })
 
   // Links are synced after the step diff, because a newly created step has no id
@@ -170,13 +175,18 @@ export async function PUT(req: NextRequest, { params }: Params) {
     await syncStepLinks(guide.steps, cleanSteps)
   }
 
-  if (requireRetrain) {
+  // A draft cannot be opened by workers, and a guide with no audience/department
+  // has nobody to target — bump the version but do not post a meaningless notice.
+  const hasAudienceTarget =
+    (guide.audiences?.length ?? 0) > 0 || guide.departmentId != null || guide.isOnboarding
+  if (requireRetrain && guide.status === 'PUBLISHED' && hasAudienceTarget) {
     try {
       await postRetrainNotice({
         venueId: guide.venueId,
         departmentId: guide.departmentId,
         title: guide.title,
         summary: body.changeSummary ?? null,
+        audiences: guide.audiences,
         createdById: session.user.id,
       })
     } catch { /* never block the save */ }

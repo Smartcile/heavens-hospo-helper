@@ -4,18 +4,22 @@
 // existing notice + ack infrastructure rather than inventing a new surface.
 
 import { prisma } from '@hospo-ops/db'
+import { cleanNoticeAudiences } from '@/lib/notice-audience'
 
 export async function postRetrainNotice(opts: {
   venueId: string
   departmentId: string | null
   title: string
   summary?: string | null
+  /** Mirror of the guide/task audiences; when empty, the department/venue fallback applies. */
+  audiences?: readonly { kind: string; targetId: string }[] | null
   createdById?: string | null
 }): Promise<void> {
   const summary = opts.summary?.trim()
   const body = summary
     ? `WHAT CHANGED: ${summary}\n\nReview the update, then tap GOT IT to confirm you're across it.`
     : `"${opts.title}" was updated. Review the change, then tap GOT IT to confirm you're across it.`
+  const audiences = cleanNoticeAudiences(opts.audiences)
 
   await prisma.notice.create({
     data: {
@@ -28,6 +32,7 @@ export async function postRetrainNotice(opts: {
       pinned: true,
       startsAt: new Date(),
       createdById: opts.createdById ?? null,
+      ...(audiences.length ? { audiences: { create: audiences } } : {}),
     },
   })
 }

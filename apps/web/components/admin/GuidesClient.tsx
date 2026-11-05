@@ -170,6 +170,8 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [linkTargets, setLinkTargets] = useState<LinkTargets>(EMPTY_TARGETS)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [requireRetrain, setRequireRetrain] = useState(false)
+  const [changeSummary, setChangeSummary] = useState('')
   const linkedRef = useRef<ComboboxHandle>(null)
   const compRef = useRef<ComboboxHandle>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -369,6 +371,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setLinkedTaskIds([]); setCompetencyTaskIds([])
     setSteps([emptyStep()]); setTableColumns([]); setTableRows([]); setSourceMenuId(''); setAudiences([])
     setVenueId(getActiveVenueId(role, sessionVenueId, defaultVenueId))
+    setRequireRetrain(false); setChangeSummary('')
     setError(''); setOpen(true)
   }
 
@@ -409,6 +412,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
       })),
     )
     setAudiences(g.audiences ?? [])
+    setRequireRetrain(false); setChangeSummary('')
     setError(''); setOpen(true)
   }
 
@@ -470,6 +474,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
       })),
       taskGuides,
       audiences,
+      ...(editing ? { requireRetrain, changeSummary: changeSummary || null } : {}),
       ...(guideType === 'PRODUCT_REFERENCE'
         ? {
             tableColumns,
@@ -827,6 +832,25 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
 
           {!isTracked && (
             <p className="font-mono text-xs text-grey-light">REFERENCE GUIDES ARE NOT TRACKED. SIGN-OFF DOES NOT APPLY.</p>
+          )}
+
+          {editing && (
+            <div className="border-l-4 border-l-warning pl-3 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={requireRetrain} onChange={(e) => setRequireRetrain(e.target.checked)} className="w-4 h-4 accent-white" />
+                <span className="font-mono text-xs uppercase text-white">Require re-training (notify staff of this change)</span>
+              </label>
+              {requireRetrain && (
+                <Input label="What changed? (optional)" value={changeSummary} onChange={(e) => setChangeSummary(e.target.value)} placeholder="e.g. NEW GLASS-RINSE STEP ADDED" />
+              )}
+              <p className="font-mono text-xs text-grey-light">POSTS A MUST-ACKNOWLEDGE NOTICE TO THE RELEVANT GROUP; STAFF TAP GOT IT TO CONFIRM.</p>
+              {requireRetrain && editing.status === 'DRAFT' && (
+                <p className="font-mono text-xs text-warning">DRAFT — NO NOTICE IS SENT UNTIL THIS GUIDE IS PUBLISHED.</p>
+              )}
+              {requireRetrain && audiences.length === 0 && !editing.departmentId && !editing.isOnboarding && (
+                <p className="font-mono text-xs text-warning">NO AUDIENCE — ADD AN AUDIENCE TO NOTIFY. VERSION IS BUMPED, BUT NO NOTICE IS POSTED.</p>
+              )}
+            </div>
           )}
 
           <div className="border border-grey-mid p-3 space-y-1">

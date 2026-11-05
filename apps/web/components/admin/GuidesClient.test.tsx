@@ -350,4 +350,60 @@ describe('GuidesClient', () => {
       ])
     })
   })
+
+  it('only offers the re-training control when editing an existing guide', async () => {
+    render(<GuidesClient role="ADMIN" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FOOD SAFETY BASICS')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('+ NEW GUIDE'))
+    expect(screen.queryByText(/Require re-training/)).toBeNull()
+    fireEvent.click(screen.getByText('CANCEL'))
+
+    const card = cardFor('FOOD SAFETY BASICS')
+    fireEvent.click([...card.querySelectorAll('button')].find((b) => b.textContent === 'EDIT')!)
+    expect(await screen.findByText(/Require re-training/)).toBeTruthy()
+  })
+
+  it('sends requireRetrain + changeSummary on PUT, but never on POST', async () => {
+    render(<GuidesClient role="ADMIN" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FOOD SAFETY BASICS')).toBeTruthy())
+
+    // POST omits both fields.
+    fireEvent.click(screen.getByText('+ NEW GUIDE'))
+    fireEvent.change(screen.getByPlaceholderText('HOW TO CLEAN THE COFFEE MACHINE'), {
+      target: { value: 'NEW GUIDE' },
+    })
+    fireEvent.click(screen.getByText('SAVE GUIDE'))
+    await waitFor(() => {
+      const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      const post = calls.find(
+        (c) => String(c[0]) === '/api/admin/guides' && (c[1] as RequestInit | undefined)?.method === 'POST',
+      )
+      expect(post).toBeTruthy()
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body).not.toHaveProperty('requireRetrain')
+      expect(body).not.toHaveProperty('changeSummary')
+    })
+
+    // PUT carries both.
+    const card = cardFor('FOOD SAFETY BASICS')
+    fireEvent.click([...card.querySelectorAll('button')].find((b) => b.textContent === 'EDIT')!)
+    await screen.findByText(/Require re-training/)
+    fireEvent.click(screen.getByText(/Require re-training/))
+    fireEvent.change(screen.getByPlaceholderText('e.g. NEW GLASS-RINSE STEP ADDED'), {
+      target: { value: 'Added rinse step' },
+    })
+    fireEvent.click(screen.getByText('SAVE GUIDE'))
+
+    await waitFor(() => {
+      const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      const put = calls.find(
+        (c) => String(c[0]) === '/api/admin/guides/g1' && (c[1] as RequestInit | undefined)?.method === 'PUT',
+      )
+      expect(put).toBeTruthy()
+      const body = JSON.parse((put![1] as RequestInit).body as string)
+      expect(body.requireRetrain).toBe(true)
+      expect(body.changeSummary).toBe('Added rinse step')
+    })
+  })
 })

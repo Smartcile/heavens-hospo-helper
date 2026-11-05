@@ -106,17 +106,22 @@ const CHECK = 'flex items-center gap-2 font-mono text-xs uppercase text-grey-lig
 export function WorkerGuideEditor({
   guideId,
   canPublish,
+  role,
   onClose,
   onSaved,
 }: {
   guideId: string | null
   canPublish: boolean
+  role: string
   onClose: () => void
   onSaved: () => void
 }) {
+  const canNotify = role === 'ADMIN' || role === 'MANAGER'
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [requireRetrain, setRequireRetrain] = useState(false)
+  const [changeSummary, setChangeSummary] = useState('')
   const [form, setForm] = useState<FormState>(blankForm)
   const [stepDragIdx, setStepDragIdx] = useState<number | null>(null)
   const [options, setOptions] = useState<EditorOptions>({
@@ -130,6 +135,8 @@ export function WorkerGuideEditor({
   useEffect(() => {
     let cancelled = false
     async function load() {
+      setRequireRetrain(false)
+      setChangeSummary('')
       const [oR, gR] = await Promise.all([
         fetch('/api/worker/guides/options'),
         guideId ? fetch(`/api/worker/guides/${guideId}`) : Promise.resolve(null),
@@ -283,6 +290,7 @@ export function WorkerGuideEditor({
         })),
       taskGuides: form.taskLinks,
       audiences: form.audiences,
+      ...(guideId && canNotify ? { requireRetrain, changeSummary: changeSummary || null } : {}),
     }
     const url = guideId ? `/api/worker/guides/${guideId}` : '/api/worker/guides'
     const r = await fetch(url, {
@@ -411,6 +419,28 @@ export function WorkerGuideEditor({
           <label className={CHECK}><input type="checkbox" checked={form.isTracked} onChange={(e) => set('isTracked', e.target.checked)} className="accent-white" /> Track completion</label>
           <label className={CHECK}><input type="checkbox" checked={form.requiresSignOff} disabled={!form.isTracked} onChange={(e) => set('requiresSignOff', e.target.checked)} className="accent-white disabled:opacity-40" /> Manager sign-off</label>
         </div>
+
+        {guideId && canNotify && (
+          <div className="border-l-4 border-l-warning pl-3 space-y-2">
+            <label className={CHECK}>
+              <input type="checkbox" checked={requireRetrain} onChange={(e) => setRequireRetrain(e.target.checked)} className="accent-white" />
+              Require re-training (notify staff of this change)
+            </label>
+            {requireRetrain && (
+              <div className="space-y-1">
+                <label className={LABEL}>What changed? (optional)</label>
+                <input value={changeSummary} onChange={(e) => setChangeSummary(e.target.value)} placeholder="e.g. NEW GLASS-RINSE STEP ADDED" className={FIELD} />
+              </div>
+            )}
+            <p className="font-mono text-xs text-grey-light">POSTS A MUST-ACKNOWLEDGE NOTICE; STAFF TAP GOT IT TO CONFIRM.</p>
+            {requireRetrain && form.status === 'DRAFT' && (
+              <p className="font-mono text-xs text-warning">DRAFT — NO NOTICE IS SENT UNTIL THIS GUIDE IS PUBLISHED.</p>
+            )}
+            {requireRetrain && form.audiences.length === 0 && (
+              <p className="font-mono text-xs text-warning">NO AUDIENCE — ADD AN AUDIENCE TO NOTIFY. VERSION IS BUMPED, BUT NO NOTICE IS POSTED.</p>
+            )}
+          </div>
+        )}
 
         <div className="space-y-1">
           <label className={LABEL}>Instructions (rich text)</label>
