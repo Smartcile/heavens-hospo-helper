@@ -82,6 +82,47 @@ describe('PATCH /api/admin/availability/[id]', () => {
     expect(data).not.toHaveProperty('notes')
   })
 
+  it('writes only the review note, including on a locked row', async () => {
+    const lockedAt = new Date('2026-10-20T01:00:00.000Z')
+    db.staffAvailability.findUnique.mockResolvedValueOnce({
+      id: 'row1',
+      venueId: 'v1',
+      deletedAt: null,
+      notes: 'OLD',
+      status: 'APPROVED',
+      lockedAt,
+    })
+    db.staffAvailability.update.mockResolvedValueOnce({
+      id: 'row1',
+      notes: 'OLD',
+      lockedAt,
+      reviewNote: 'CHECKED BY PHONE',
+    })
+
+    const res = await PATCH(req({ reviewNote: '  CHECKED BY PHONE  ' }), { params: { id: 'row1' } })
+
+    expect(res.status).toBe(200)
+    const call = db.staffAvailability.update.mock.calls[0][0]
+    // Exactly the review note — no status, lock, availability or series fields.
+    expect(call.data).toEqual({ reviewNote: 'CHECKED BY PHONE' })
+    expect(await res.json()).toMatchObject({
+      success: true,
+      locked: true,
+      notes: 'OLD',
+      reviewNote: 'CHECKED BY PHONE',
+    })
+  })
+
+  it('clears the review note with an empty value', async () => {
+    db.staffAvailability.update.mockResolvedValueOnce({ id: 'row1', notes: null, reviewNote: null })
+
+    const res = await PATCH(req({ reviewNote: '   ' }), { params: { id: 'row1' } })
+
+    expect(res.status).toBe(200)
+    expect(db.staffAvailability.update.mock.calls[0][0].data).toEqual({ reviewNote: null })
+    expect(await res.json()).toMatchObject({ reviewNote: null })
+  })
+
   it('rejects a body with nothing to update', async () => {
     const res = await PATCH(req({}), { params: { id: 'row1' } })
 

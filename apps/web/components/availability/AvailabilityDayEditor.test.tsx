@@ -263,6 +263,58 @@ describe('AvailabilityDayEditor', () => {
     expect(onToggleLock).toHaveBeenCalledWith(false, null)
   })
 
+  it('prefills and saves the manager review note for an admin', () => {
+    const onSaveReviewNote = vi.fn()
+    renderEditor({
+      entry: entry({ reviewNote: 'OLD REVIEW' }),
+      canOverride: true,
+      onSaveReviewNote,
+    })
+
+    const input = screen.getByLabelText('Review note') as HTMLInputElement
+    expect(input.value).toBe('OLD REVIEW')
+    fireEvent.change(input, { target: { value: '  NEW REVIEW  ' } })
+    fireEvent.click(screen.getByText('SAVE REVIEW NOTE'))
+
+    expect(onSaveReviewNote).toHaveBeenCalledWith('NEW REVIEW')
+  })
+
+  it('clears the review note when the admin saves a blank value', () => {
+    const onSaveReviewNote = vi.fn()
+    renderEditor({ entry: entry({ reviewNote: 'OLD REVIEW' }), canOverride: true, onSaveReviewNote })
+
+    fireEvent.change(screen.getByLabelText('Review note'), { target: { value: '   ' } })
+    fireEvent.click(screen.getByText('SAVE REVIEW NOTE'))
+
+    expect(onSaveReviewNote).toHaveBeenCalledWith(null)
+  })
+
+  it('keeps the review note read-only for a worker', () => {
+    renderEditor({ entry: entry({ reviewNote: 'MANAGER ONLY' }) })
+
+    expect(screen.getByText(/MANAGER: MANAGER ONLY/)).toBeDefined()
+    expect(screen.queryByLabelText('Review note')).toBeNull()
+    expect(screen.queryByText('SAVE REVIEW NOTE')).toBeNull()
+  })
+
+  it('keeps the review note editable on a locked day', () => {
+    const onSaveReviewNote = vi.fn()
+    renderEditor({
+      entry: entry({ status: 'APPROVED', lockedAt: '2026-10-20T01:00:00.000Z', reviewNote: 'BEFORE' }),
+      canOverride: true,
+      onSaveNote: vi.fn(),
+      onSaveReviewNote,
+      onToggleLock: vi.fn(),
+    })
+
+    const input = screen.getByLabelText('Review note') as HTMLInputElement
+    expect(input.disabled).toBe(false)
+    fireEvent.change(input, { target: { value: 'AFTER' } })
+    fireEvent.click(screen.getByText('SAVE REVIEW NOTE'))
+
+    expect(onSaveReviewNote).toHaveBeenCalledWith('AFTER')
+  })
+
   it('sends manager-locked worker saves as a change request defaulting to FROM', () => {
     const { onSave } = renderEditor({
       entry: entry({ seriesId: 's1', status: 'APPROVED', lockedAt: '2026-10-20T01:00:00.000Z' }),

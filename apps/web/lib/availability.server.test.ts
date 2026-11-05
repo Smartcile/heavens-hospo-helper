@@ -627,6 +627,32 @@ describe('availability notes', () => {
     expect(db.staffAvailability.updateMany.mock.calls[0][0].data.notes).toBe('NEED SUNDAY OFF')
   })
 
+  it('clears a stale review note when a save returns the day to PENDING', async () => {
+    await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: payload, repeat: null, scope: null, seriesId: null, reason: null },
+      gate,
+    )
+
+    const data = db.staffAvailability.updateMany.mock.calls[0][0].data
+    expect(data.status).toBe('PENDING')
+    expect(data.reviewNote).toBeNull()
+    expect(data.reviewedAt).toBeNull()
+    expect(data.reviewedById).toBeNull()
+  })
+
+  it('does not touch the review stamp on an admin override', async () => {
+    await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: payload, repeat: null, scope: null, seriesId: null, reason: null },
+      adminGate,
+    )
+
+    const data = db.staffAvailability.updateMany.mock.calls[0][0].data
+    expect(data.status).toBe('APPROVED')
+    expect(data).not.toHaveProperty('reviewNote')
+    expect(data).not.toHaveProperty('reviewedAt')
+    expect(data).not.toHaveProperty('reviewedById')
+  })
+
   it('copies the note to every occurrence of a series', async () => {
     const out = await saveAvailability(
       { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: rawNote, repeat: { weeks: 3 }, scope: null, seriesId: null, reason: null },

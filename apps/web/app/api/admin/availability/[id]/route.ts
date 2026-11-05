@@ -5,12 +5,12 @@ import { prisma } from '@hospo-ops/db'
 import { getManagerVenueId } from '@/lib/venue-scope'
 import { guardAccess } from '@/lib/permissions'
 
-// Notes + day-level lock for one availability row.
+// Notes, review note + day-level lock for one availability row.
 //
-// `notes` is always writable — including on a locked or past day — so a
-// manager and worker can keep communicating without changing availability.
-// `locked` sets/clears the three lock fields; a locked day never accepts an
-// availability write until it is unlocked.
+// `notes` and `reviewNote` are always writable — including on a locked or past
+// day — so a manager and worker can keep communicating without changing
+// availability. `locked` sets/clears the three lock fields; a locked day never
+// accepts an availability write until it is unlocked.
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -19,6 +19,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const body = await req.json().catch(() => null) as {
     notes?: string | null
+    reviewNote?: string | null
     locked?: boolean
     lockedReason?: string | null
   } | null
@@ -33,6 +34,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const data: {
     notes?: string | null
+    reviewNote?: string | null
     lockedAt?: Date | null
     lockedById?: string | null
     lockedReason?: string | null
@@ -40,6 +42,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   if ('notes' in (body ?? {})) {
     data.notes = typeof body?.notes === 'string' ? body.notes.trim() || null : null
+  }
+
+  // A review note is a manager annotation, not an approval decision — writing
+  // it never restamps reviewedAt/reviewedById and never touches status/lock.
+  if ('reviewNote' in (body ?? {})) {
+    data.reviewNote = typeof body?.reviewNote === 'string' ? body.reviewNote.trim() || null : null
   }
 
   if (typeof body?.locked === 'boolean') {
@@ -63,5 +71,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     success: true,
     locked: !!updated.lockedAt,
     notes: updated.notes,
+    reviewNote: updated.reviewNote,
   })
 }

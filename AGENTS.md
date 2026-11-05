@@ -600,8 +600,9 @@ SET proposal to an entry) and save an admin override; a `MARK_APPLIED` action on
 its stored plan. FILTER STAFF narrows the grid only (never the approvals queue)
 and groups with no matching staff are hidden. Notes show on worker month/week
 cells, the admin grid, edit-request previews and worker pending-request cards.
-Routes: `/api/admin/availability` (+ `/clear`, `/review`, `/[id]` PATCH
-notes/lock, `/requests/[id]`), `/api/worker/availability` (`/[id]` PATCH notes;
+Routes: `/api/admin/availability` (+ `/clear`, `/review` incl. `NOTE`, `/[id]`
+PATCH notes/reviewNote/lock, `/requests/[id]`), `/api/worker/availability`
+(`/[id]` PATCH notes;
 the worker `/clear` and `/[id]` DELETE both return 403 — clearing is a manager
 action — plus `/requests/[id]`). Guards:
 `team.availability.view|edit|approve`.
@@ -619,14 +620,40 @@ pure-AVAILABLE worker saves never lock. A locked day:
 - is **stripped** from admin writes and reported in `skipped`; a single-day
   write that only touched locked dates returns 409 `{ error: 'LOCKED — UNLOCK FIRST', locked: [...] }`;
 - keeps **notes editable** via the notes-only PATCH (admin `/[id]` = `{ notes?,
-  locked?, lockedReason? }`, worker `/[id]` = `{ notes }` only), which never
-  touches availability/status/lock fields;
+  reviewNote?, locked?, lockedReason? }`, worker `/[id]` = `{ notes }` only),
+  which never touches availability/status/lock fields;
 - is skipped by drag-fill and bulk clear client-side (and by
   `cancelPendingAvailability`).
 
 The shared `AvailabilityDayEditor` renders locked days read-only for admins
 (`LOCKED — UNLOCK TO EDIT`, `SAVE NOTE`, `UNLOCK`) and lets workers submit a
 change request (`SEND CHANGE REQUEST`).
+
+**Review notes (#61).** `StaffAvailability.reviewNote` is the manager's note
+from a CONFIRM/DECLINE and is independent of the worker's `notes`. It is
+surfaced and editable without re-running the review:
+
+- the admin grid cell shows a compact `✎ REVIEW` marker whose `title` /
+  `aria-label` carries the full note (the worker `NOTE:` text stays separate);
+- the day editor shows managers a `REVIEW NOTE` input + `SAVE REVIEW NOTE`
+  (prefilled from `entry.reviewNote`; works on a locked day because it is a
+  note, not availability). Workers keep the read-only `MANAGER: …` line;
+- the declaration card prefills its review-note input and offers `SAVE NOTE`,
+  which posts `action: 'NOTE'` to `/api/admin/availability/review`; that action
+  resolves the same `ids` / `seriesId+staffId` where and writes only
+  `reviewNote` (no status change, no PENDING filter);
+- the declaration card also makes the **worker** note inline-editable
+  (`SAVE WORKER NOTE`), looping the notes-only `PATCH
+  /api/admin/availability/[id]` over every row id in the declaration, so a
+  series note reaches all its occurrences;
+- `PATCH /api/admin/availability/[id]` accepts `reviewNote` and writes only it.
+  It does **not** restamp `reviewedAt`/`reviewedById` — those stay the decision
+  stamp. A worker PATCH still accepts `notes` only.
+
+A save that moves a row back to `PENDING` (`executeSet` with `status:
+'PENDING'`) clears `reviewNote`/`reviewedAt`/`reviewedById`, so a stale manager
+note never appears on a fresh declaration. Admin overrides are `APPROVED` and
+leave the review stamp alone.
 
 **Worker series edits + removal requests (#59) + admin bulk clear (#13) +
 weekly default (#7) + in-place refresh (#16)** - worker writes pass

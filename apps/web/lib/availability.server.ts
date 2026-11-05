@@ -528,7 +528,14 @@ export async function executeSet(
   const payload = plan.availability
   if (!payload) return
   const dates = plan.writeDates.map(utcDay)
-  const data = sharedRowData(payload, plan.seriesId, plan.seriesEndDate, status, lock)
+  const data = {
+    ...sharedRowData(payload, plan.seriesId, plan.seriesEndDate, status, lock),
+    // A fresh PENDING declaration must not inherit the previous review's note
+    // or decision stamp — otherwise an old manager note looks current.
+    ...(status === 'PENDING'
+      ? { reviewNote: null, reviewedAt: null, reviewedById: null }
+      : {}),
+  }
 
   await prisma.$transaction(async (tx) => {
     if (dates.length > 0) {

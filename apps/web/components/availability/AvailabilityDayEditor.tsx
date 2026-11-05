@@ -100,6 +100,7 @@ export function AvailabilityDayEditor({
   error,
   onSave,
   onSaveNote,
+  onSaveReviewNote,
   onToggleLock,
   onClose,
   canDeleteSeries = false,
@@ -122,6 +123,8 @@ export function AvailabilityDayEditor({
   onSave: (draft: EditorDraft, options: EditorSaveOptions) => void
   /** Notes-only PATCH — works on locked/past days, applies immediately. */
   onSaveNote?: (notes: string | null) => void
+  /** Admin only: write the manager review note (works on locked days). */
+  onSaveReviewNote?: (reviewNote: string | null) => void
   /** Admin only: set/clear the day-level lock (optional reason). */
   onToggleLock?: (locked: boolean, reason: string | null) => void
   /** Admin only: open the delete-series warning (scope is chosen there). */
@@ -139,6 +142,7 @@ export function AvailabilityDayEditor({
   const [windows, setWindows] = useState<AvailabilityWindow[]>(entry && !entry.isAllDay ? entry.windows : [])
   const [timeOff, setTimeOff] = useState(entry?.timeOff ?? false)
   const [note, setNote] = useState(entry?.notes ?? '')
+  const [reviewNote, setReviewNote] = useState(entry?.reviewNote ?? '')
   const [repeatOn, setRepeatOn] = useState(false)
   const [noEnd, setNoEnd] = useState(() => (series ? !series.endDate : false))
   const [weeks, setWeeks] = useState(() =>
@@ -246,7 +250,7 @@ export function AvailabilityDayEditor({
           )}
         </div>
       )}
-      {entry?.reviewNote && (
+      {entry?.reviewNote && !(canOverride && onSaveReviewNote) && (
         <p className="font-mono text-2xs uppercase text-grey-light border-l border-grey-mid pl-2">MANAGER: {entry.reviewNote}</p>
       )}
       {managerLocked && (
@@ -512,6 +516,28 @@ export function AvailabilityDayEditor({
           </button>
         )}
       </div>
+
+      {/* Manager review note — a note, so it stays editable on a locked day. */}
+      {canOverride && onSaveReviewNote && (
+        <div className="space-y-2">
+          <div className="label">REVIEW NOTE</div>
+          <input
+            value={reviewNote}
+            onChange={(e) => setReviewNote(e.target.value)}
+            placeholder="REVIEW NOTE (OPTIONAL)"
+            aria-label="Review note"
+            className="field w-full"
+          />
+          <button
+            type="button"
+            onClick={() => onSaveReviewNote(reviewNote.trim() || null)}
+            disabled={busy}
+            className="h-9 px-3 border border-accent text-accent font-mono text-xs uppercase hover:bg-accent hover:text-black transition-colors disabled:opacity-40"
+          >
+            SAVE REVIEW NOTE
+          </button>
+        </div>
+      )}
 
       {canOverride && onToggleLock && !managerLocked && (
         <div className="flex items-center gap-2">
