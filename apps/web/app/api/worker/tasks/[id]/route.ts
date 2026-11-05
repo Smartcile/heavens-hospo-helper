@@ -5,6 +5,7 @@ import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { resolveCompetencyGuideIds } from '@/lib/task-guides'
 import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
+import { syncTaskLists } from '@/lib/task-lists.server'
 import { parentLinkError, nextSubtaskOrder, hasLiveSubtasks, softDeleteTask } from '@/lib/task-subtasks.server'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
@@ -24,6 +25,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     monthlyOption, monthlyDay, isActive, requiredTrainingIds,
     requireRetrain, changeSummary,
     allowedOutcomes, overrideOutcomes, requireOutcomeReason,
+    checklistIds, assignedToStaffId,
   } = body
 
   const guideIds = resolveCompetencyGuideIds({
@@ -39,6 +41,28 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     guideIds,
   })
   if (refError) return NextResponse.json({ error: refError }, { status: 400 })
+
+  const listIds: string[] | null = checklistIds !== undefined
+    ? [...new Set(Array.isArray(checklistIds) ? (checklistIds as string[]) : [])]
+    : null
+  if (listIds && listIds.length) {
+    const count = await prisma.checklist.count({
+      where: { id: { in: listIds }, venueId: session.venueId, deletedAt: null },
+    })
+    if (count !== listIds.length) {
+      return NextResponse.json({ error: 'ONE OR MORE LISTS ARE NOT IN THIS VENUE' }, { status: 400 })
+    }
+  }
+  if (assignedToStaffId !== undefined) {
+    if (assignedToStaffId) {
+      const assignee = await prisma.staff.count({
+        where: { id: assignedToStaffId, venueId: session.venueId, deletedAt: null },
+      })
+      if (assignee !== 1) {
+        return NextResponse.json({ error: 'ASSIGNEE IS NOT IN THIS VENUE' }, { status: 400 })
+      }
+    }
+  }
 
   let resolvedDeptId = departmentId !== undefined ? (departmentId || null) : undefined
   const resolvedSectionId = sectionId !== undefined ? (sectionId || null) : undefined
@@ -64,6 +88,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (intervalMonths !== undefined) update.intervalMonths = Math.max(1, intervalMonths)
   }
   if (isActive !== undefined) update.isActive = isActive
+  if (assignedToStaffId !== undefined) update.assignedToStaffId = assignedToStaffId || null
   if (monthlyOption !== undefined) update.monthlyOption = scheduleType === 'MONTHLY' ? monthlyOption : null
   if (monthlyDay !== undefined) update.monthlyDay = scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? monthlyDay : null
   if (allowedOutcomes !== undefined) update.allowedOutcomes = normaliseOutcomes(allowedOutcomes)
@@ -104,6 +129,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
 
   const task = await prisma.task.update({ where: { id: params.id }, data: update })
+
+  if (listIds) {
+    const listError = await syncTaskLists({ taskId: params.id, venueId: existing.venueId, checklistIds: listIds })
+    if (listError) return NextResponse.json({ error: listError }, { status: 400 })
+  }
 
   // Competency links use TaskGuide (admin parity). The old `requiredTrainingIds`
   // name is accepted as an alias because the legacy worker form actually sent

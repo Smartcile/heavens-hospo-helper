@@ -9,6 +9,7 @@ import { applicableChecklistsForStaff } from '@/lib/checklist-applicability.serv
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { resolveCompetencyGuideIds } from '@/lib/task-guides'
 import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
+import { syncTaskLists } from '@/lib/task-lists.server'
 import { parentLinkError, nextSubtaskOrder } from '@/lib/task-subtasks.server'
 
 export async function GET(req: NextRequest) {
@@ -55,15 +56,17 @@ export async function GET(req: NextRequest) {
           select: { id: true, title: true, isActive: true, subtaskOrder: true },
           orderBy: [{ subtaskOrder: 'asc' }, { title: 'asc' }],
         },
+        checklistLinks: { select: { checklistId: true } },
       },
       orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
     })
     return NextResponse.json(
       tasks.map((t) => {
-        const { parent, ...rest } = t
+        const { parent, checklistLinks, ...rest } = t
         return {
           ...rest,
           parentTitle: parent && !parent.deletedAt ? parent.title : null,
+          checklistIds: checklistLinks.map((l) => l.checklistId),
         }
       }),
     )
@@ -317,6 +320,7 @@ export async function POST(req: NextRequest) {
     scheduleType, scheduleDays, customCron, intervalMonths,
     monthlyOption, monthlyDay, requiredTrainingIds, competencyGuideIds,
     allowedOutcomes, overrideOutcomes, requireOutcomeReason,
+    checklistIds, assignedToStaffId,
   } = body
 
   if (!title?.trim()) return NextResponse.json({ error: 'TITLE IS REQUIRED' }, { status: 400 })
@@ -348,6 +352,24 @@ export async function POST(req: NextRequest) {
   })
   if (refError) return NextResponse.json({ error: refError }, { status: 400 })
 
+  const listIds: string[] = Array.isArray(checklistIds) ? [...new Set(checklistIds as string[])] : []
+  if (listIds.length) {
+    const count = await prisma.checklist.count({
+      where: { id: { in: listIds }, venueId: session.venueId, deletedAt: null },
+    })
+    if (count !== listIds.length) {
+      return NextResponse.json({ error: 'ONE OR MORE LISTS ARE NOT IN THIS VENUE' }, { status: 400 })
+    }
+  }
+  if (assignedToStaffId) {
+    const assignee = await prisma.staff.count({
+      where: { id: assignedToStaffId, venueId: session.venueId, deletedAt: null },
+    })
+    if (assignee !== 1) {
+      return NextResponse.json({ error: 'ASSIGNEE IS NOT IN THIS VENUE' }, { status: 400 })
+    }
+  }
+
   let resolvedDeptId = departmentId || null
   const resolvedSectionId = sectionId || null
   if (sectionId && !departmentId) {
@@ -378,6 +400,7 @@ export async function POST(req: NextRequest) {
       sortOrder: (maxSort?.sortOrder ?? -1) + 1,
       parentTaskId: parentId,
       subtaskOrder,
+      assignedToStaffId: assignedToStaffId || null,
       allowedOutcomes: normaliseOutcomes(allowedOutcomes),
       overrideOutcomes: !!overrideOutcomes,
       requireOutcomeReason: !!requireOutcomeReason,
@@ -392,6 +415,11 @@ export async function POST(req: NextRequest) {
         : undefined,
     },
   })
+
+  if (listIds.length > 0) {
+    const listError = await syncTaskLists({ taskId: task.id, venueId: session.venueId, checklistIds: listIds })
+    if (listError) return NextResponse.json({ error: listError }, { status: 400 })
+  }
 
   return NextResponse.json(task, { status: 201 })
 }

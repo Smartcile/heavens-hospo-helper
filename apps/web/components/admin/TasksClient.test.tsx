@@ -54,6 +54,7 @@ function mockApi(tasks: unknown[] = [TASK_ONE, TASK_TWO], gate?: Promise<void>) 
     if (gate) await gate
     const u = String(url)
     if (u.includes('/progress')) return json({ success: true })
+    if (u.startsWith('/api/admin/tasks/assignees')) return json([{ id: 's1', name: 'SAM LEE' }])
     if (u.startsWith('/api/admin/tasks')) return json(tasks)
     if (u === '/api/admin/venues') return json([{ id: 'v1', name: 'VENUE' }])
     if (u === '/api/admin/departments') return json([{ id: 'd1', name: 'KITCHEN', venueId: 'v1', colour: null }])
@@ -287,6 +288,39 @@ describe('TasksClient', () => {
       expect(put).toBeDefined()
       const body = JSON.parse(String((put![1] as RequestInit).body))
       expect(body.parentTaskId).toBe('t1')
+    })
+  })
+
+  it('searches lists and people from the task editor and saves both', async () => {
+    const fetchMock = mockApi([TASK_ONE, TASK_TWO])
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByTestId('available-task-t2')).toBeDefined())
+    fireEvent.click(within(screen.getByTestId('available-task-t2')).getByText('EDIT'))
+    await waitFor(() => expect(screen.getByText('EDIT TASK')).toBeDefined())
+
+    expect(screen.getByText('Lists (which checklists this task appears in)')).toBeDefined()
+    expect(screen.getByText('Assigned to (optional)')).toBeDefined()
+
+    // Pick a list from the search dropdown (the last OPENING is the option,
+    // the first is the checklist card in the right panel).
+    fireEvent.focus(screen.getByPlaceholderText('Search lists...'))
+    fireEvent.click(screen.getAllByText('OPENING').at(-1)!)
+
+    // Pick a person from the searchable single-select.
+    fireEvent.focus(screen.getByPlaceholderText('Search people...'))
+    fireEvent.click(await screen.findByText('SAM LEE'))
+
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/admin/tasks/t2' && init?.method === 'PUT',
+      )
+      expect(put).toBeDefined()
+      const body = JSON.parse(String((put![1] as RequestInit).body))
+      expect(body.checklistIds).toEqual(['c1'])
+      expect(body.assignedToStaffId).toBe('s1')
     })
   })
 

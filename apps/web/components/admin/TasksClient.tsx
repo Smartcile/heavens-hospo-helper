@@ -40,6 +40,9 @@ interface Task {
   sortOrder: number
   parentTaskId?: string | null
   parentTitle?: string | null
+  checklistIds?: string[]
+  assignedToStaffId?: string | null
+  assigneeName?: string | null
   subtaskOrder?: number
   subtasks?: { id: string; title: string; isActive: boolean; subtaskOrder: number }[]
   allowedOutcomes?: string[]
@@ -103,6 +106,8 @@ interface FormState {
   overrideOutcomes: boolean
   requireOutcomeReason: boolean
   parentTaskId: string
+  checklistIds: string[]
+  assignedToStaffId: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -110,7 +115,7 @@ const EMPTY_FORM: FormState = {
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
   intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, requiredTrainingIds: [], competencyGuideIds: [],
   allowedOutcomes: [...TASK_OUTCOMES], overrideOutcomes: false, requireOutcomeReason: false,
-  parentTaskId: '',
+  parentTaskId: '', checklistIds: [], assignedToStaffId: '',
 }
 
 const COMPLETION_OPTIONS = [
@@ -166,6 +171,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [guides, setGuides] = useState<GuideLite[]>([])
   const [calendarEvents, setCalendarEvents] = useState<CalendarEventSummary[]>([])
   const [checklists, setChecklists] = useState<Checklist[]>([])
+  const [assignees, setAssignees] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
   useTasksScrollRestoration(checklistPanelRef, !loading)
 
@@ -236,9 +242,17 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   useEffect(() => { load() }, [filterVenue, filterDept])
 
   // --- Task modal ---
+  async function loadAssignees(venueId: string) {
+    if (!venueId) { setAssignees([]); return }
+    const r = await fetch(`/api/admin/tasks/assignees?venueId=${encodeURIComponent(venueId)}`)
+    const data = r.ok ? await r.json().catch(() => []) : []
+    setAssignees(Array.isArray(data) ? data : [])
+  }
   function openCreate() {
+    const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
     setEditing(null)
-    setForm({ ...EMPTY_FORM, venueId: getActiveVenueId(role, sessionVenueId, defaultVenueId) })
+    setForm({ ...EMPTY_FORM, venueId })
+    void loadAssignees(venueId)
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
   }
@@ -256,7 +270,10 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       overrideOutcomes: !!t.overrideOutcomes,
       requireOutcomeReason: !!t.requireOutcomeReason,
       parentTaskId: t.parentTaskId ?? '',
+      checklistIds: t.checklistIds ?? [],
+      assignedToStaffId: t.assignedToStaffId ?? '',
     })
+    void loadAssignees(t.venueId)
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
   }
@@ -284,7 +301,10 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       monthlyOption: parent.monthlyOption ?? 'FIRST_DAY',
       monthlyDay: parent.monthlyDay ?? 1,
       parentTaskId: parent.id,
+      checklistIds: [],
+      assignedToStaffId: '',
     })
+    void loadAssignees(parent.venueId)
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
   }
@@ -311,6 +331,8 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
         departmentId: form.departmentId || null,
         sectionId: form.sectionId || null,
         parentTaskId: form.parentTaskId || null,
+        checklistIds: form.checklistIds,
+        assignedToStaffId: form.assignedToStaffId || null,
         requiredTrainingIds: form.requiredTrainingIds,
         competencyGuideIds: form.competencyGuideIds,
         customCron: form.scheduleType === 'CUSTOM' ? form.customCron : null,
@@ -900,7 +922,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           <Textarea label="Description (optional)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Additional instructions for this task..." />
           <div className="grid grid-cols-2 gap-3">
             {(role === 'ADMIN' || !editing) && (
-              <Select label="Venue" value={form.venueId} onChange={(e) => setForm({ ...form, venueId: e.target.value, departmentId: '', sectionId: '' })} options={venueOptions} placeholder="SELECT VENUE" />
+              <Select label="Venue" value={form.venueId} onChange={(e) => { const v = e.target.value; setForm({ ...form, venueId: v, departmentId: '', sectionId: '', assignedToStaffId: '', checklistIds: [] }); void loadAssignees(v) }} options={venueOptions} placeholder="SELECT VENUE" />
             )}
             <Select label="Department" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value, sectionId: '' })} options={formDeptOptions} />
           </div>
@@ -964,6 +986,26 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
               placeholder="Search guides..."
             />
           )}
+
+          <Combobox
+            label="Lists (which checklists this task appears in)"
+            options={checklists.filter((c) => c.venueId === form.venueId).map((c) => ({ value: c.id, label: c.name }))}
+            selected={form.checklistIds}
+            onChange={(ids) => setForm({ ...form, checklistIds: ids })}
+            placeholder="Search lists..."
+          />
+
+          <Combobox
+            label="Assigned to (optional)"
+            multiple={false}
+            options={assignees.map((a) => ({ value: a.id, label: a.name }))}
+            selected={form.assignedToStaffId ? [form.assignedToStaffId] : []}
+            onChange={(ids) => setForm({ ...form, assignedToStaffId: ids[0] ?? '' })}
+            placeholder="Search people..."
+          />
+          <p className="font-mono text-xs uppercase text-grey-light">
+            DEPARTMENT/SECTION SCOPE THE TASK. LISTS DECIDE WHICH CHECKLISTS SHOW IT. ASSIGNING A PERSON TAGS IT FOR THEM.
+          </p>
 
           <div className="grid grid-cols-2 gap-3">
             <Select label="Completion Type" value={form.completionType} onChange={(e) => setForm({ ...form, completionType: e.target.value })} options={COMPLETION_OPTIONS} />

@@ -33,6 +33,8 @@ interface TaskForm {
   overrideOutcomes: boolean
   requireOutcomeReason: boolean
   parentTaskId: string
+  checklistIds: string[]
+  assignedToStaffId: string
 }
 
 interface TaskFull {
@@ -43,6 +45,7 @@ interface TaskFull {
   monthlyOption: string | null; monthlyDay: number | null; isActive: boolean
   allowedOutcomes?: string[]; overrideOutcomes?: boolean; requireOutcomeReason?: boolean
   parentTaskId?: string | null; parentTitle?: string | null; subtaskOrder?: number
+  checklistIds?: string[]; assignedToStaffId?: string | null; assigneeName?: string | null
   subtasks?: { id: string; title: string; isActive: boolean; subtaskOrder: number }[]
   department: { id: string; name: string } | null
   section: { id: string; name: string } | null
@@ -88,7 +91,7 @@ const EMPTY_TASK_FORM: TaskForm = {
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
   intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, competencyGuideIds: [],
   allowedOutcomes: [...TASK_OUTCOMES], overrideOutcomes: false, requireOutcomeReason: false,
-  parentTaskId: '',
+  parentTaskId: '', checklistIds: [], assignedToStaffId: '',
 }
 
 const COMPLETION_OPTIONS = [
@@ -144,6 +147,7 @@ export function WorkerTasksClient({
   const [editCalendarEvents, setEditCalendarEvents] = useState<CalendarEventSummary[]>([])
   const [editTasks, setEditTasks] = useState<TaskFull[]>([])
   const [editChecklists, setEditChecklists] = useState<ChecklistFull[]>([])
+  const [editAssignees, setEditAssignees] = useState<{ id: string; name: string }[]>([])
 
   // Task edit modal
   const [taskModalOpen, setTaskModalOpen] = useState(false)
@@ -223,17 +227,18 @@ export function WorkerTasksClient({
 
   async function loadEditData() {
     if (!canAuthor) return null
-    const [dR, sR, tR, taskR, clR, evR] = await Promise.all([
+    const [dR, sR, tR, taskR, clR, evR, asR] = await Promise.all([
       fetch('/api/worker/departments'),
       fetch('/api/worker/sections'),
       fetch('/api/worker/guides?edit=1'),
       fetch('/api/worker/tasks?edit=1'),
       fetch('/api/worker/checklists'),
       fetch('/api/worker/calendar-events'),
+      fetch('/api/worker/tasks/assignees'),
     ])
     if (dR.status === 401) { router.push('/w/login'); return null }
-    const [depts, sections, guides, editTasksData, checklistsData, eventsData] =
-      await Promise.all([dR.json(), sR.json(), tR.json(), taskR.json(), clR.json(), evR.json()])
+    const [depts, sections, guides, editTasksData, checklistsData, eventsData, assigneesData] =
+      await Promise.all([dR.json(), sR.json(), tR.json(), taskR.json(), clR.json(), evR.json(), asR.json()])
     // The list endpoint is authoring-gated and should always return an array,
     // but a failed/odd response must not crash the management strip.
     const checklists = Array.isArray(checklistsData) ? (checklistsData as ChecklistFull[]) : []
@@ -243,6 +248,7 @@ export function WorkerTasksClient({
     setEditTasks(Array.isArray(editTasksData) ? (editTasksData as TaskFull[]) : [])
     setEditChecklists(checklists)
     setEditCalendarEvents(Array.isArray(eventsData) ? (eventsData as CalendarEventSummary[]) : [])
+    setEditAssignees(Array.isArray(assigneesData) ? assigneesData : [])
     return { checklists }
   }
 
@@ -358,6 +364,9 @@ export function WorkerTasksClient({
       // Pre-scope a task created from a list to that list's department/section.
       departmentId: opts?.fromList ? clDeptId : '',
       sectionId: opts?.fromList ? clSectionId : '',
+      // Creating from a list preselects that list; the author can add more.
+      checklistIds: opts?.fromList && clEditing && clEditing !== 'new' ? [clEditing.id] : [],
+      assignedToStaffId: '',
     })
     setRequireRetrain(false); setChangeSummary('')
     setTaskError(''); setTaskModalOpen(true)
@@ -383,6 +392,8 @@ export function WorkerTasksClient({
       overrideOutcomes: !!t.overrideOutcomes,
       requireOutcomeReason: !!t.requireOutcomeReason,
       parentTaskId: t.parentTaskId ?? '',
+      checklistIds: t.checklistIds ?? editChecklists.filter(c => c.tasks.some(ct => ct.id === t.id)).map(c => c.id),
+      assignedToStaffId: t.assignedToStaffId ?? '',
     })
     setRequireRetrain(false); setChangeSummary('')
     setTaskError(''); setTaskModalOpen(true)
@@ -406,6 +417,8 @@ export function WorkerTasksClient({
       monthlyOption: parent.monthlyOption ?? 'FIRST_DAY',
       monthlyDay: parent.monthlyDay ?? 1,
       parentTaskId: parent.id,
+      checklistIds: [],
+      assignedToStaffId: '',
     })
     setRequireRetrain(false); setChangeSummary('')
     setTaskError(''); setTaskModalOpen(true)
@@ -1572,6 +1585,26 @@ export function WorkerTasksClient({
                 placeholder="Search guides..."
               />
             )}
+
+            <Combobox
+              label="Lists (which checklists this task appears in)"
+              options={editChecklists.map(c => ({ value: c.id, label: c.name }))}
+              selected={taskForm.checklistIds}
+              onChange={(ids) => setTaskForm({ ...taskForm, checklistIds: ids })}
+              placeholder="Search lists..."
+            />
+
+            <Combobox
+              label="Assigned to (optional)"
+              multiple={false}
+              options={editAssignees.map(a => ({ value: a.id, label: a.name }))}
+              selected={taskForm.assignedToStaffId ? [taskForm.assignedToStaffId] : []}
+              onChange={(ids) => setTaskForm({ ...taskForm, assignedToStaffId: ids[0] ?? '' })}
+              placeholder="Search people..."
+            />
+            <p className="font-mono text-xs uppercase text-grey-light">
+              DEPARTMENT/SECTION SCOPE THE TASK. LISTS DECIDE WHICH CHECKLISTS SHOW IT.
+            </p>
 
             {taskEditing && (
               <div className="border-l-4 border-l-warning pl-3 space-y-2">
