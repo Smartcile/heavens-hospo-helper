@@ -4,9 +4,31 @@ import { useEffect, useMemo, useState } from 'react'
 import { RichTextEditor } from '@/components/ui/RichTextEditor'
 import { MultiImagePicker } from '@/components/ui/MultiImagePicker'
 import { VideoPicker } from '@/components/ui/VideoPicker'
+import { AddSelect } from '@/components/ui/AddSelect'
 import { mergeStepImages } from '@/lib/guide-media'
 import { GUIDE_TYPES, GUIDE_TYPE_LABELS } from '@/lib/guide-types'
 import { moveItem } from '@/lib/array'
+import { STEP_LINK_KINDS, STEP_LINK_LABEL, type StepLinkKind } from '@/lib/guide-links'
+
+type AudienceKind = 'DEPARTMENT' | 'SECTION' | 'POSITION'
+
+const AUDIENCE_KINDS: { value: AudienceKind; label: string }[] = [
+  { value: 'DEPARTMENT', label: 'DEPARTMENT' },
+  { value: 'SECTION', label: 'SECTION' },
+  { value: 'POSITION', label: 'POSITION' },
+]
+
+interface Audience {
+  kind: AudienceKind
+  targetId: string
+}
+
+interface StepLink {
+  kind: StepLinkKind
+  targetId: string
+  qty: number | null
+  note: string | null
+}
 
 interface GuideStep {
   id?: string
@@ -15,6 +37,7 @@ interface GuideStep {
   imageUrls: string[]
   videoUrl: string | null
   videoPath: string | null
+  links: StepLink[]
 }
 
 interface TaskOption {
@@ -28,8 +51,18 @@ interface TaskLink {
   isRequiredForCompetency: boolean
 }
 
+type Option = { value: string; label: string }
+type LinkTargets = Record<StepLinkKind, Option[]>
+
+const EMPTY_TARGETS: LinkTargets = {
+  ITEM: [], TASK: [], CHECKLIST: [], GUIDE: [], SECTION: [], RECIPE: [],
+}
+
 interface EditorOptions {
   tasks: TaskOption[]
+  departments: { id: string; name: string }[]
+  positions: { id: string; name: string }[]
+  linkTargets: LinkTargets
 }
 
 interface FormState {
@@ -42,11 +75,12 @@ interface FormState {
   bodyHtml: string
   steps: GuideStep[]
   taskLinks: TaskLink[]
+  audiences: Audience[]
   status: 'DRAFT' | 'PUBLISHED'
 }
 
 function emptyStep(): GuideStep {
-  return { heading: '', content: '', imageUrls: [], videoUrl: null, videoPath: null }
+  return { heading: '', content: '', imageUrls: [], videoUrl: null, videoPath: null, links: [] }
 }
 
 function blankForm(): FormState {
@@ -60,6 +94,7 @@ function blankForm(): FormState {
     bodyHtml: '',
     steps: [emptyStep()],
     taskLinks: [],
+    audiences: [],
     status: 'DRAFT',
   }
 }
@@ -84,7 +119,12 @@ export function WorkerGuideEditor({
   const [error, setError] = useState('')
   const [form, setForm] = useState<FormState>(blankForm)
   const [stepDragIdx, setStepDragIdx] = useState<number | null>(null)
-  const [options, setOptions] = useState<EditorOptions>({ tasks: [] })
+  const [options, setOptions] = useState<EditorOptions>({
+    tasks: [],
+    departments: [],
+    positions: [],
+    linkTargets: EMPTY_TARGETS,
+  })
   const [taskSearch, setTaskSearch] = useState('')
 
   useEffect(() => {
@@ -95,8 +135,13 @@ export function WorkerGuideEditor({
         guideId ? fetch(`/api/worker/guides/${guideId}`) : Promise.resolve(null),
       ])
       if (cancelled) return
-      const opts = oR.ok ? await oR.json() : { tasks: [] }
-      setOptions({ tasks: opts.tasks ?? [] })
+      const opts = oR.ok ? await oR.json() : null
+      setOptions({
+        tasks: opts?.tasks ?? [],
+        departments: opts?.departments ?? [],
+        positions: opts?.positions ?? [],
+        linkTargets: { ...EMPTY_TARGETS, ...(opts?.linkTargets ?? {}) },
+      })
 
       if (guideId && gR) {
         if (gR.status === 401) { window.location.href = '/w/login'; return }
@@ -111,16 +156,32 @@ export function WorkerGuideEditor({
           requiresSignOff: !!g.requiresSignOff,
           bodyHtml: g.bodyHtml ?? '',
           steps: (g.steps ?? []).length
-            ? (g.steps as { id: string; heading: string | null; content: string; imageUrl: string | null; imageUrls?: string[] | null; videoUrl: string | null; videoPath?: string | null }[]).map((s) => ({
+            ? (g.steps as {
+                id: string
+                heading: string | null
+                content: string
+                imageUrl: string | null
+                imageUrls?: string[] | null
+                videoUrl: string | null
+                videoPath?: string | null
+                links?: StepLink[]
+              }[]).map((s) => ({
                 id: s.id,
                 heading: s.heading ?? '',
                 content: s.content ?? '',
                 imageUrls: mergeStepImages(s.imageUrls, s.imageUrl),
                 videoUrl: s.videoUrl,
                 videoPath: s.videoPath ?? null,
+                links: (s.links ?? []).map((l) => ({
+                  kind: l.kind,
+                  targetId: l.targetId,
+                  qty: l.qty ?? null,
+                  note: l.note ?? null,
+                })),
               }))
             : [emptyStep()],
           taskLinks: (g.taskGuides ?? []).map((t: TaskLink) => ({ taskId: t.taskId, isRequiredForCompetency: !!t.isRequiredForCompetency })),
+          audiences: (g.audiences ?? []).map((a: Audience) => ({ kind: a.kind, targetId: a.targetId })),
           status: g.status === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT',
         })
       }
@@ -136,6 +197,19 @@ export function WorkerGuideEditor({
 
   function updateStep(i: number, patch: Partial<GuideStep>) {
     setForm((f) => ({ ...f, steps: f.steps.map((s, idx) => (idx === i ? { ...s, ...patch } : s)) }))
+  }
+
+  function updateStepLinks(i: number, next: StepLink[]) {
+    updateStep(i, { links: next })
+  }
+
+  function addAudience(kind: AudienceKind, targetId: string) {
+    if (!targetId) return
+    setForm((f) => (
+      f.audiences.some((a) => a.kind === kind && a.targetId === targetId)
+        ? f
+        : { ...f, audiences: [...f.audiences, { kind, targetId }] }
+    ))
   }
 
   function toggleTask(taskId: string) {
@@ -162,6 +236,29 @@ export function WorkerGuideEditor({
     return options.tasks.filter((t) => !q || t.title.toLowerCase().includes(q))
   }, [options.tasks, taskSearch])
 
+  const audienceOptions: Record<AudienceKind, Option[]> = {
+    DEPARTMENT: options.departments.map((d) => ({ value: d.id, label: d.name })),
+    SECTION: options.linkTargets.SECTION,
+    POSITION: options.positions.map((p) => ({ value: p.id, label: p.name })),
+  }
+
+  // Reverse lookup — option value → the kind it belongs to — so the grouped
+  // add-pickers add the right audience / link type from the chosen item.
+  const audienceKindByTarget = new Map<string, AudienceKind>()
+  for (const k of AUDIENCE_KINDS) {
+    for (const o of audienceOptions[k.value]) audienceKindByTarget.set(o.value, k.value)
+  }
+  const linkKindByTarget = new Map<string, StepLinkKind>()
+  for (const kind of STEP_LINK_KINDS) {
+    for (const o of options.linkTargets[kind] ?? []) linkKindByTarget.set(o.value, kind)
+  }
+
+  const audienceLabel = (a: Audience) =>
+    audienceOptions[a.kind].find((o) => o.value === a.targetId)?.label ?? 'REMOVED'
+
+  const linkLabel = (l: StepLink) =>
+    options.linkTargets[l.kind]?.find((o) => o.value === l.targetId)?.label ?? 'REMOVED'
+
   async function save() {
     if (!form.title.trim()) { setError('TITLE IS REQUIRED'); return }
     setSaving(true); setError('')
@@ -175,8 +272,17 @@ export function WorkerGuideEditor({
       bodyHtml: form.bodyHtml || null,
       steps: form.steps
         .filter((s) => s.content.trim() || s.heading.trim())
-        .map((s) => ({ id: s.id, heading: s.heading || null, content: s.content, imageUrls: s.imageUrls, videoUrl: s.videoUrl || null, videoPath: s.videoPath })),
+        .map((s) => ({
+          id: s.id,
+          heading: s.heading || null,
+          content: s.content,
+          imageUrls: s.imageUrls,
+          videoUrl: s.videoUrl || null,
+          videoPath: s.videoPath,
+          links: s.links.map((l) => ({ kind: l.kind, targetId: l.targetId, qty: l.qty, note: l.note })),
+        })),
       taskGuides: form.taskLinks,
+      audiences: form.audiences,
     }
     const url = guideId ? `/api/worker/guides/${guideId}` : '/api/worker/guides'
     const r = await fetch(url, {
@@ -238,14 +344,77 @@ export function WorkerGuideEditor({
           <textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={2} className={`${FIELD} font-sans`} />
         </div>
 
-        <div className="space-y-1">
-          <label className={LABEL}>Instructions (rich text)</label>
-          <RichTextEditor value={form.bodyHtml} onChange={(html) => set('bodyHtml', html)} placeholder="Write basic instructions here — add steps below if you want a checklist." />
+        {/* Applies to */}
+        <div className="border border-grey-mid p-3 space-y-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <label className={LABEL}>Applies to</label>
+            <span className="font-mono text-xs uppercase text-grey-light text-right">TAG A SECTION OR ROLE</span>
+          </div>
+          {form.audiences.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {form.audiences.map((a) => (
+                <span
+                  key={`${a.kind}:${a.targetId}`}
+                  className="inline-flex items-center gap-1.5 border border-grey-mid px-2 py-0.5 font-mono text-xs uppercase text-white"
+                >
+                  <span className="text-grey-light">{a.kind}</span>
+                  {audienceLabel(a)}
+                  <button
+                    type="button"
+                    onClick={() => set('audiences', form.audiences.filter((x) => !(x.kind === a.kind && x.targetId === a.targetId)))}
+                    className="text-grey-light hover:text-danger transition-colors"
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <AddSelect
+            groups={AUDIENCE_KINDS.map((k) => ({ label: k.label, options: audienceOptions[k.value] }))}
+            selected={form.audiences.map((a) => a.targetId)}
+            onAdd={(targetId) => {
+              const kind = audienceKindByTarget.get(targetId)
+              if (kind) addAudience(kind, targetId)
+            }}
+            placeholder="+ ADD DEPARTMENT / SECTION / ROLE"
+            emptyLabel="ALL ADDED"
+          />
+        </div>
+
+        {/* Linked tasks */}
+        <div className="space-y-2">
+          <label className={LABEL}>Link to tasks</label>
+          <input value={taskSearch} onChange={(e) => setTaskSearch(e.target.value)} placeholder="SEARCH TASKS..." className={FIELD} />
+          <div className="max-h-56 overflow-y-auto border border-grey-mid divide-y divide-grey-mid">
+            {filteredTasks.length === 0 && <p className="font-mono text-xs text-grey-light p-3">NO TASKS.</p>}
+            {filteredTasks.map((t) => {
+              const link = form.taskLinks.find((x) => x.taskId === t.id)
+              return (
+                <div key={t.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                  <button type="button" onClick={() => toggleTask(t.id)} className="flex items-center gap-2 min-w-0 text-left">
+                    <span className={`w-4 h-4 border flex-shrink-0 ${link ? 'bg-white border-white' : 'border-grey-mid'}`} />
+                    <span className="font-mono text-xs text-white truncate">{t.title}</span>
+                  </button>
+                  {link && (
+                    <button type="button" onClick={() => toggleCompetency(t.id)} className={`font-mono text-xs uppercase border px-1.5 py-0.5 ${link.isRequiredForCompetency ? 'border-warning text-warning' : 'border-grey-mid text-grey-light'}`}>
+                      {link.isRequiredForCompetency ? 'REQUIRED' : 'REFERENCE'}
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-4">
           <label className={CHECK}><input type="checkbox" checked={form.isTracked} onChange={(e) => set('isTracked', e.target.checked)} className="accent-white" /> Track completion</label>
           <label className={CHECK}><input type="checkbox" checked={form.requiresSignOff} disabled={!form.isTracked} onChange={(e) => set('requiresSignOff', e.target.checked)} className="accent-white disabled:opacity-40" /> Manager sign-off</label>
+        </div>
+
+        <div className="space-y-1">
+          <label className={LABEL}>Instructions (rich text)</label>
+          <RichTextEditor value={form.bodyHtml} onChange={(html) => set('bodyHtml', html)} placeholder="Write basic instructions here — add steps below if you want a checklist." />
         </div>
 
         {/* Steps */}
@@ -287,33 +456,44 @@ export function WorkerGuideEditor({
               <MultiImagePicker value={s.imageUrls} onChange={(urls) => updateStep(i, { imageUrls: urls })} endpoint="/api/worker/upload" />
               <VideoPicker value={s.videoPath} onChange={(url) => updateStep(i, { videoPath: url })} endpoint="/api/worker/upload-video" />
               <input value={s.videoUrl ?? ''} onChange={(e) => updateStep(i, { videoUrl: e.target.value })} placeholder="VIDEO LINK (OPTIONAL)" className={FIELD} />
+
+              <div className="border-t border-grey-mid pt-2 space-y-2">
+                <label className={LABEL}>Links — tools, tasks, lists, guides</label>
+                {s.links.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {s.links.map((l) => (
+                      <span
+                        key={`${l.kind}:${l.targetId}`}
+                        className="inline-flex items-center gap-1.5 border border-grey-mid px-2 py-0.5 font-mono text-xs uppercase text-white"
+                      >
+                        <span className="text-grey-light">{l.kind}</span>
+                        {linkLabel(l)}
+                        <button
+                          type="button"
+                          onClick={() => updateStepLinks(i, s.links.filter((x) => !(x.kind === l.kind && x.targetId === l.targetId)))}
+                          className="text-grey-light hover:text-danger transition-colors"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <AddSelect
+                  groups={STEP_LINK_KINDS.map((kind) => ({ label: STEP_LINK_LABEL[kind], options: options.linkTargets[kind] ?? [] }))}
+                  selected={s.links.map((l) => l.targetId)}
+                  onAdd={(targetId) => {
+                    const kind = linkKindByTarget.get(targetId)
+                    if (!kind) return
+                    if (s.links.some((x) => x.kind === kind && x.targetId === targetId)) return
+                    updateStepLinks(i, [...s.links, { kind, targetId, qty: null, note: null }])
+                  }}
+                  placeholder="+ LINK A TOOL / TASK / LIST / GUIDE"
+                  emptyLabel="ALL LINKED"
+                />
+              </div>
             </div>
           ))}
-        </div>
-
-        {/* Linked tasks */}
-        <div className="space-y-2">
-          <label className={LABEL}>Link to tasks</label>
-          <input value={taskSearch} onChange={(e) => setTaskSearch(e.target.value)} placeholder="SEARCH TASKS..." className={FIELD} />
-          <div className="max-h-56 overflow-y-auto border border-grey-mid divide-y divide-grey-mid">
-            {filteredTasks.length === 0 && <p className="font-mono text-xs text-grey-light p-3">NO TASKS.</p>}
-            {filteredTasks.map((t) => {
-              const link = form.taskLinks.find((x) => x.taskId === t.id)
-              return (
-                <div key={t.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                  <button type="button" onClick={() => toggleTask(t.id)} className="flex items-center gap-2 min-w-0 text-left">
-                    <span className={`w-4 h-4 border flex-shrink-0 ${link ? 'bg-white border-white' : 'border-grey-mid'}`} />
-                    <span className="font-mono text-xs text-white truncate">{t.title}</span>
-                  </button>
-                  {link && (
-                    <button type="button" onClick={() => toggleCompetency(t.id)} className={`font-mono text-xs uppercase border px-1.5 py-0.5 ${link.isRequiredForCompetency ? 'border-warning text-warning' : 'border-grey-mid text-grey-light'}`}>
-                      {link.isRequiredForCompetency ? 'REQUIRED' : 'REFERENCE'}
-                    </button>
-                  )}
-                </div>
-              )
-            })}
-          </div>
         </div>
 
         {error && <p className="font-mono text-xs text-danger">{error}</p>}

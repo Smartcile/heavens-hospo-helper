@@ -310,8 +310,11 @@ in different places.
 **Worker guide editing** — floor staff with the `training.playbook.create` /
 `.edit` / `.publish` grants get an in-app DRAFT editor (`WorkerGuideEditor`) and
 folder management: create/edit their own venue guides and PATCH publish via
-`/api/worker/guides` (`lib/worker-guide-access.ts` gates). The worker editor
-omits `links` so a worker save can never wipe admin-authored step links.
+`/api/worker/guides` (`lib/worker-guide-access.ts` gates). The editor mirrors the
+admin form — title/type/category → **Applies To** audiences → linked tasks →
+tracked/sign-off → instructions → steps last — and each step has the same
+**Links** picker. Saving replaces audiences and step links, exactly like the
+admin editor; a client that omits `audiences` leaves them untouched.
 
 **Downloads from a guide** — PDFs are admin-side (`GET /api/admin/guides/[id]/pdf`,
 `GET /api/admin/guides/pdf?ids=`); the worker reader has no PDF button.
