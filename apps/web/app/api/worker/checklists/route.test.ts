@@ -1,11 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { prisma, getWorkerSession, workerTaskAccess, validateWorkerTaskRefs } = vi.hoisted(() => ({
-  prisma: { checklist: { findMany: vi.fn(), create: vi.fn() }, task: { count: vi.fn() }, venue: { findUnique: vi.fn() } },
-  getWorkerSession: vi.fn(),
-  workerTaskAccess: vi.fn(),
-  validateWorkerTaskRefs: vi.fn(),
-}))
+const { prisma, getWorkerSession, workerTaskAccess, validateWorkerTaskRefs } = vi.hoisted(() => {
+  const checklistEvent = { updateMany: vi.fn(), upsert: vi.fn() }
+  return {
+    prisma: {
+      checklist: { findMany: vi.fn(), create: vi.fn() },
+      task: { count: vi.fn() },
+      venue: { findUnique: vi.fn() },
+      calendarEvent: { count: vi.fn() },
+      checklistEvent,
+      $transaction: vi.fn(),
+    },
+    getWorkerSession: vi.fn(),
+    workerTaskAccess: vi.fn(),
+    validateWorkerTaskRefs: vi.fn(),
+  }
+})
 
 vi.mock('@hospo-ops/db', () => ({ prisma }))
 vi.mock('@/lib/worker-session', () => ({ getWorkerSession }))
@@ -25,6 +35,8 @@ beforeEach(() => {
   validateWorkerTaskRefs.mockResolvedValue(null)
   prisma.task.count.mockResolvedValue(1)
   prisma.checklist.create.mockResolvedValue({ id: 'c1' })
+  prisma.calendarEvent.count.mockResolvedValue(0)
+  prisma.$transaction.mockImplementation(async (fn: (tx: typeof prisma) => unknown) => fn(prisma))
 })
 
 describe('POST /api/worker/checklists schedules', () => {
@@ -52,6 +64,31 @@ describe('POST /api/worker/checklists schedules', () => {
       taskIds: ['t1'],
       schedules: [{ dayOfWeek: 4, fromTime: '17:00', toTime: '10pm' }],
     }))
+
+    expect(res.status).toBe(400)
+    expect(prisma.checklist.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/worker/checklists events', () => {
+  it('links the selected events for the worker venue', async () => {
+    prisma.calendarEvent.count.mockResolvedValue(1)
+
+    const res = await POST(req({ name: 'DINNER', taskIds: ['t1'], eventIds: ['e1'] }))
+
+    expect(res.status).toBe(201)
+    expect(prisma.calendarEvent.count).toHaveBeenCalledWith({
+      where: { id: { in: ['e1'] }, venueId: 'v1', deletedAt: null },
+    })
+    expect(prisma.checklistEvent.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { checklistId_calendarEventId: { checklistId: 'c1', calendarEventId: 'e1' } } }),
+    )
+  })
+
+  it('rejects an event outside the worker venue', async () => {
+    prisma.calendarEvent.count.mockResolvedValue(0)
+
+    const res = await POST(req({ name: 'DINNER', taskIds: ['t1'], eventIds: ['other'] }))
 
     expect(res.status).toBe(400)
     expect(prisma.checklist.create).not.toHaveBeenCalled()

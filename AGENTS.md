@@ -1618,6 +1618,25 @@ The in-app user help is a **global, read-only catalogue**, not per-venue guides.
   the legacy `appearFromTime` field stays visible as the fallback. Admin/worker
   checklist POST/PUT validate day 0–6 + `HH:mm` and replace the schedule
   wholesale (soft-deleting the old rows).
+- **Event-linked lists (Phase 3 of #68).** `ChecklistEvent` links a list to one
+  or more `CalendarEvent` rows (`@@unique([checklistId, calendarEventId])`,
+  soft-deleted wholesale on replace; the unique key spans deleted rows, so a
+  re-selected event revives its link instead of failing). A linked list opens
+  across each event's date/window (`startsAt`–`endsAt`, all-day = whole day,
+  multi-day = each covered date, no end = end of day) and closes when no linked
+  event is active — unless `activatedOn` force-opens it or a custom schedule
+  window also opens it. Event times follow the existing venue-local wall-clock
+  convention (UTC parts, as `event-roster`/`manual-event` do). Soft-deleted
+  events are closed (CalendarEvent has no cancelled flag; the pure helper also
+  accepts `cancelled` for future callers). `lib/checklist-activation.ts` gains
+  `isEventActive` / `eventWindowOnDay` / `hasActiveEvent` / `summariseCalendarEvent`
+  and `isChecklistOpen` / `describeNextOpen` take the linked events, so the
+  worker verdict, `task-outcomes` policy and both list editors agree.
+  `lib/checklist-events.server.ts` validates venue scope and performs the
+  replace. Both checklist route sets accept `eventIds` (omitted = leave links
+  untouched, empty array = clear) and return `events` on GET; the pickers load
+  options from `GET /api/admin/calendar-events` / `GET /api/worker/calendar-events`
+  and cards show an `EVENT: <title>` badge.
 - **Printable PDF export.** A `⬇ PDF` button in the Tasks page header opens a
   modal listing every checklist; each row's DOWNLOAD hits
   `GET /api/admin/checklists/[id]/pdf` (session auth, MANAGER scoped to own
@@ -2972,7 +2991,7 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/reference-table.ts` — derived MENU_FIELD columns + sanitisation | ✅ (19 tests) |
 | `lib/rich-text.ts` — `sanitiseRichText` allowlist | ✅ (13 tests) |
 | `lib/room-setup.ts` — room label, pax/style, photo URL sanitising, input normalisation | ✅ (9 tests) |
-| `lib/checklist-activation.ts` — venue-local date activation | ✅ (6 tests) |
+| `lib/checklist-activation.ts` — venue-local date activation, custom schedules, event windows (timed/all-day/multi-day/closed), next-open labels | ✅ (24 tests) |
 | `lib/task-outcomes.ts` — outcome hierarchy, DONE-always, reason validation, open-list policy | ✅ (12 tests) |
 | `lib/position-requirements.ts` — required guides + readiness resolver | ✅ (6 tests) |
 | `lib/section-work.ts` / `section-work.server.ts` — section eligibility, evidence signatures, reconcile/confirm/dismiss/reopen, transition guards, soft-delete restore | ✅ (8 + 21 tests) |

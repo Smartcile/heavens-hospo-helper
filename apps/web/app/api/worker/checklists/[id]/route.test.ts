@@ -1,12 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
-const { prisma, getWorkerSession, workerTaskAccess, validateWorkerTaskRefs } = vi.hoisted(() => ({
-  prisma: { checklist: { findUnique: vi.fn(), update: vi.fn() }, task: { count: vi.fn() } },
-  getWorkerSession: vi.fn(),
-  workerTaskAccess: vi.fn(),
-  validateWorkerTaskRefs: vi.fn(),
-}))
+const { prisma, getWorkerSession, workerTaskAccess, validateWorkerTaskRefs } = vi.hoisted(() => {
+  const checklistEvent = { updateMany: vi.fn(), upsert: vi.fn() }
+  return {
+    prisma: {
+      checklist: { findUnique: vi.fn(), update: vi.fn() },
+      task: { count: vi.fn() },
+      calendarEvent: { count: vi.fn() },
+      checklistEvent,
+      $transaction: vi.fn(),
+    },
+    getWorkerSession: vi.fn(),
+    workerTaskAccess: vi.fn(),
+    validateWorkerTaskRefs: vi.fn(),
+  }
+})
 
 vi.mock('@hospo-ops/db', () => ({ prisma }))
 vi.mock('@/lib/worker-session', () => ({ getWorkerSession }))
@@ -24,6 +33,8 @@ beforeEach(() => {
   validateWorkerTaskRefs.mockResolvedValue(null)
   prisma.checklist.findUnique.mockResolvedValue({ id: 'c1', venueId: 'v1', deletedAt: null })
   prisma.checklist.update.mockResolvedValue({ id: 'c1' })
+  prisma.calendarEvent.count.mockResolvedValue(0)
+  prisma.$transaction.mockImplementation(async (fn: (tx: typeof prisma) => unknown) => fn(prisma))
 })
 
 describe('PUT /api/worker/checklists/[id] schedules', () => {
@@ -57,6 +68,49 @@ describe('PUT /api/worker/checklists/[id] schedules', () => {
     const res = await PUT(req({ name: 'X' }), { params: { id: 'c1' } })
 
     expect(res.status).toBe(403)
+    expect(prisma.checklist.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('PUT /api/worker/checklists/[id] events', () => {
+  it('replaces the linked events wholesale', async () => {
+    prisma.calendarEvent.count.mockResolvedValue(1)
+
+    const res = await PUT(req({ eventIds: ['e1'] }), { params: { id: 'c1' } })
+
+    expect(res.status).toBe(200)
+    expect(prisma.checklistEvent.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { checklistId: 'c1', deletedAt: null, calendarEventId: { notIn: ['e1'] } },
+      }),
+    )
+    expect(prisma.checklistEvent.upsert).toHaveBeenCalled()
+  })
+
+  it('leaves event links untouched when eventIds is omitted', async () => {
+    await PUT(req({ name: 'RENAMED' }), { params: { id: 'c1' } })
+
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+    expect(prisma.checklistEvent.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('clears every event link with an empty array', async () => {
+    const res = await PUT(req({ eventIds: [] }), { params: { id: 'c1' } })
+
+    expect(res.status).toBe(200)
+    expect(prisma.checklistEvent.updateMany).toHaveBeenCalledWith({
+      where: { checklistId: 'c1', deletedAt: null },
+      data: { deletedAt: expect.any(Date) },
+    })
+    expect(prisma.checklistEvent.upsert).not.toHaveBeenCalled()
+  })
+
+  it('rejects an event from another venue', async () => {
+    prisma.calendarEvent.count.mockResolvedValue(0)
+
+    const res = await PUT(req({ eventIds: ['other'] }), { params: { id: 'c1' } })
+
+    expect(res.status).toBe(400)
     expect(prisma.checklist.update).not.toHaveBeenCalled()
   })
 })

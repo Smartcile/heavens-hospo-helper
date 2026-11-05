@@ -4,9 +4,12 @@ import {
   weekdayOf,
   isActivatedOn,
   isScheduleOpen,
+  isEventActive,
+  eventWindowOnDay,
   isChecklistOpen,
   isChecklistHidden,
   describeNextOpen,
+  summariseCalendarEvent,
   validateSchedules,
 } from '@/lib/checklist-activation'
 
@@ -104,6 +107,110 @@ describe('checklist-activation', () => {
   it('labels the next opening for a legacy appear-from list', () => {
     expect(describeNextOpen({ appearFromTime: '15:00', day, nowHHmm: '09:00', dayOfWeek: FRI })).toBe('OPENS FRI 15:00')
     expect(describeNextOpen({ appearFromTime: '08:00', day, nowHHmm: '09:00', dayOfWeek: FRI })).toBeNull()
+  })
+
+  it('opens a timed event between its start and end', () => {
+    const event = {
+      startsAt: new Date('2026-10-22T18:00:00.000Z'),
+      endsAt: new Date('2026-10-22T20:00:00.000Z'),
+      allDay: false,
+    }
+    expect(eventWindowOnDay(event, '2026-10-22')).toEqual({ fromTime: '18:00', toTime: '20:00' })
+    expect(isEventActive(event, '2026-10-22', '17:59')).toBe(false)
+    expect(isEventActive(event, '2026-10-22', '18:00')).toBe(true)
+    expect(isEventActive(event, '2026-10-22', '20:00')).toBe(true)
+    expect(isEventActive(event, '2026-10-22', '20:01')).toBe(false)
+    expect(isEventActive(event, '2026-10-23', '18:00')).toBe(false)
+  })
+
+  it('runs a timed event with no end to the end of its day', () => {
+    const event = { startsAt: new Date('2026-10-22T18:00:00.000Z'), allDay: false }
+    expect(eventWindowOnDay(event, '2026-10-22')).toEqual({ fromTime: '18:00', toTime: '23:59' })
+    expect(isEventActive(event, '2026-10-22', '23:59')).toBe(true)
+  })
+
+  it('keeps an all-day event open for its whole date', () => {
+    const event = {
+      startsAt: new Date('2026-10-22T00:00:00.000Z'),
+      endsAt: new Date('2026-10-23T00:00:00.000Z'),
+      allDay: true,
+    }
+    expect(isEventActive(event, '2026-10-22', '00:00')).toBe(true)
+    expect(isEventActive(event, '2026-10-22', '23:59')).toBe(true)
+    // All-day DTEND is exclusive.
+    expect(isEventActive(event, '2026-10-23', '09:00')).toBe(false)
+  })
+
+  it('opens a multi-day event across every date it covers', () => {
+    const event = {
+      startsAt: new Date('2026-10-22T18:00:00.000Z'),
+      endsAt: new Date('2026-10-24T02:00:00.000Z'),
+      allDay: false,
+    }
+    expect(isEventActive(event, '2026-10-22', '17:59')).toBe(false)
+    expect(isEventActive(event, '2026-10-22', '18:00')).toBe(true)
+    expect(isEventActive(event, '2026-10-23', '00:00')).toBe(true)
+    expect(isEventActive(event, '2026-10-23', '23:59')).toBe(true)
+    expect(isEventActive(event, '2026-10-24', '02:00')).toBe(true)
+    expect(isEventActive(event, '2026-10-24', '02:01')).toBe(false)
+  })
+
+  it('treats deleted or cancelled events as closed', () => {
+    const base = {
+      startsAt: new Date('2026-10-22T18:00:00.000Z'),
+      endsAt: new Date('2026-10-22T20:00:00.000Z'),
+    }
+    expect(isEventActive({ ...base, deletedAt: new Date() }, '2026-10-22', '19:00')).toBe(false)
+    expect(isEventActive({ ...base, cancelled: true }, '2026-10-22', '19:00')).toBe(false)
+  })
+
+  it('event-linked lists gate open/closed unless a schedule also opens them', () => {
+    const event = {
+      startsAt: new Date('2026-10-22T18:00:00.000Z'),
+      endsAt: new Date('2026-10-22T20:00:00.000Z'),
+    }
+    // No time gate of its own: the event is the gate.
+    expect(isChecklistOpen(null, null, thursday, '17:00', [], THU, [event])).toBe(false)
+    expect(isChecklistOpen(null, null, thursday, '18:30', [], THU, [event])).toBe(true)
+    expect(isChecklistHidden(null, null, thursday, '17:00', [], THU, [event])).toBe(true)
+    // Any active event opens the list.
+    const later = {
+      startsAt: new Date('2026-10-22T21:00:00.000Z'),
+      endsAt: new Date('2026-10-22T22:00:00.000Z'),
+    }
+    expect(isChecklistOpen(null, null, thursday, '21:30', [], THU, [event, later])).toBe(true)
+    // Activation still force-opens outside the event.
+    expect(isChecklistOpen(null, new Date('2026-10-22T00:00:00.000Z'), thursday, '09:00', [], THU, [event])).toBe(true)
+  })
+
+  it('labels the next linked event opening', () => {
+    const friday = new Date('2026-10-23T00:00:00.000Z')
+    const event = {
+      title: 'DINNER',
+      startsAt: new Date('2026-10-23T18:00:00.000Z'),
+      endsAt: new Date('2026-10-23T22:00:00.000Z'),
+      allDay: false,
+    }
+    expect(describeNextOpen({ events: [event], day: thursday, nowHHmm: '09:00', dayOfWeek: THU }))
+      .toBe('OPENS FRI 18:00 · DINNER')
+    expect(describeNextOpen({ events: [event], day: friday, nowHHmm: '17:00', dayOfWeek: FRI }))
+      .toBe('OPENS FRI 18:00 · DINNER')
+    expect(describeNextOpen({ events: [event], day: friday, nowHHmm: '19:00', dayOfWeek: FRI }))
+      .toBeNull()
+  })
+
+  it('summarises a calendar event for the picker', () => {
+    expect(summariseCalendarEvent({
+      id: 'e1', venueId: 'v1', title: 'DINNER',
+      startsAt: new Date('2026-10-23T18:00:00.000Z'),
+      endsAt: new Date('2026-10-23T22:00:00.000Z'),
+      allDay: false,
+    })).toEqual({
+      id: 'e1', venueId: 'v1', title: 'DINNER',
+      startsAt: '2026-10-23T18:00:00.000Z',
+      endsAt: '2026-10-23T22:00:00.000Z',
+      date: '2026-10-23', startTime: '18:00', endTime: '22:00', allDay: false, deletedAt: null,
+    })
   })
 
   it('validates a schedules payload', () => {

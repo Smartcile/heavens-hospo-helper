@@ -44,6 +44,12 @@ const CHECKLIST_SUMMARY = {
   id: 'c1', name: 'OPENING', appearFromTime: null, activatedToday: false, taskIds: ['t1'],
 }
 
+const EVENT_ONE = {
+  id: 'e1', venueId: 'v1', title: 'DINNER',
+  startsAt: '2026-10-23T18:00:00.000Z', endsAt: '2026-10-23T22:00:00.000Z',
+  date: '2026-10-23', startTime: '18:00', endTime: '22:00', allDay: false,
+}
+
 const FULL_ACCESS: WorkerTaskAccess = {
   canCreateTask: true, canEditTask: true, canDeleteTask: true,
   canCreateList: true, canEditList: true, canDeleteList: true, canAuthor: true,
@@ -123,6 +129,7 @@ function mockEditApi(opts: {
     if (u === '/api/worker/departments') return json([{ id: 'd1', name: 'KITCHEN', venueId: 'v1', colour: null }])
     if (u === '/api/worker/sections') return json([])
     if (u === '/api/worker/guides?edit=1') return json(guides)
+    if (u === '/api/worker/calendar-events') return json([EVENT_ONE])
     if (u === '/api/worker/checklists') {
       return json(fullChecklists.map((c) => ({ ...(c as object), activatedToday })))
     }
@@ -526,6 +533,42 @@ describe('WorkerTasksClient', () => {
 
     await waitFor(() => expect(screen.getByText(/OPENS THU 06:00/)).toBeDefined())
     expect(screen.queryByText('WIPE BENCHES')).toBeNull()
+  })
+
+  it('shows an EVENT badge on an event-linked list', async () => {
+    mockEditApi({
+      checklists: [{ ...CHECKLIST_SUMMARY, events: [EVENT_ONE] }],
+      fullChecklists: [{ ...CHECKLIST_FULL, events: [EVENT_ONE] }],
+    })
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getAllByText(/EVENT:\s*DINNER/).length).toBeGreaterThan(0))
+    // The event-linked list still only shows its own tasks (audience/task filters unchanged).
+    expect(screen.getByText('WIPE BENCHES')).toBeDefined()
+  })
+
+  it('saves the selected calendar event from the worker list editor', async () => {
+    const fetchMock = mockEditApi()
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" access={FULL_ACCESS} />)
+
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    fireEvent.click(screen.getByText('EDIT MODE'))
+    await waitFor(() => expect(screen.getByLabelText('EDIT CHECKLIST OPENING')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('EDIT CHECKLIST OPENING'))
+    await waitFor(() => expect(screen.getByText('EDIT CHECKLIST')).toBeDefined())
+
+    fireEvent.focus(screen.getByPlaceholderText('+ LINK AN EVENT...'))
+    fireEvent.click(await screen.findByText(/DINNER · 2026-10-23/))
+    fireEvent.click(screen.getByTestId('worker-checklist-save'))
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/worker/checklists/c1' && init?.method === 'PUT',
+      )
+      expect(put).toBeDefined()
+      const body = JSON.parse(String((put![1] as RequestInit).body))
+      expect(body.eventIds).toEqual(['e1'])
+    })
   })
 
   it('shows settled non-done outcomes separately from completed work', async () => {

@@ -5,7 +5,12 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { cleanNoticeAudiences } from '@/lib/notice-audience'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
-import { validateSchedules } from '@/lib/checklist-activation'
+import { summariseCalendarEvent, validateSchedules } from '@/lib/checklist-activation'
+import {
+  parseEventIds,
+  syncChecklistEvents,
+  validateChecklistEventIds,
+} from '@/lib/checklist-events.server'
 
 interface Params {
   params: { id: string }
@@ -27,6 +32,18 @@ export async function GET(req: NextRequest, { params }: Params) {
         where: { deletedAt: null },
         select: { dayOfWeek: true, fromTime: true, toTime: true },
         orderBy: [{ dayOfWeek: 'asc' }, { fromTime: 'asc' }],
+      },
+      events: {
+        where: { deletedAt: null },
+        select: {
+          calendarEvent: {
+            select: {
+              id: true, venueId: true, title: true, startsAt: true, endsAt: true, allDay: true,
+              deletedAt: true,
+            },
+          },
+        },
+        orderBy: { calendarEvent: { startsAt: 'asc' } },
       },
       tasks: {
         orderBy: { sortOrder: 'asc' },
@@ -55,6 +72,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     section: c.section,
     appearFromTime: c.appearFromTime,
     schedules: c.schedules,
+    events: c.events.map((e) => summariseCalendarEvent(e.calendarEvent)),
     allowedOutcomes: c.allowedOutcomes,
     requireOutcomeReason: c.requireOutcomeReason,
     tasks: c.tasks.filter((ct) => ct.task && !ct.task.deletedAt).map((ct) => ct.task),
@@ -74,6 +92,14 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
 
   const body = await req.json()
+  let parsedEvents: ReturnType<typeof parseEventIds> | null = null
+  if (body.eventIds !== undefined) {
+    parsedEvents = parseEventIds(body.eventIds)
+    if (!parsedEvents.ok) return NextResponse.json({ error: parsedEvents.error }, { status: 400 })
+    const eventError = await validateChecklistEventIds(existing.venueId, parsedEvents.ids)
+    if (eventError) return NextResponse.json({ error: eventError }, { status: 400 })
+  }
+
   const updates: Record<string, unknown> = {}
   if (body.name !== undefined) updates.name = String(body.name).toUpperCase().trim()
   if (body.description !== undefined) updates.description = body.description?.trim() || null
@@ -100,6 +126,11 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
 
   const checklist = await prisma.checklist.update({ where: { id: params.id }, data: updates })
+
+  if (parsedEvents && parsedEvents.ok) {
+    await syncChecklistEvents(params.id, parsedEvents.ids)
+  }
+
   return NextResponse.json(checklist)
 }
 

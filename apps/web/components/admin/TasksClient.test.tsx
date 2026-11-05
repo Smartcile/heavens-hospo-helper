@@ -25,7 +25,17 @@ const CHECKLIST = {
   id: 'c1', name: 'OPENING', description: null, venueId: 'v1',
   departmentId: null, sectionId: null, appearFromTime: null, activatedOn: null,
   allowedOutcomes: [], requireOutcomeReason: false, department: null, section: null,
-  tasks: [{ id: 't1', title: 'TASK ONE', isActive: true, version: 1 }],
+  events: [], tasks: [{ id: 't1', title: 'TASK ONE', isActive: true, version: 1 }],
+}
+
+const EVENT_ONE = {
+  id: 'e1', venueId: 'v1', title: 'DINNER',
+  startsAt: '2026-10-23T18:00:00.000Z', endsAt: '2026-10-23T22:00:00.000Z',
+  date: '2026-10-23', startTime: '18:00', endTime: '22:00', allDay: false,
+}
+
+const CHECKLIST_WITH_EVENT = {
+  ...CHECKLIST, id: 'c2', name: 'EVENT LIST', events: [EVENT_ONE],
 }
 
 function mockApi(tasks: unknown[] = [TASK_ONE, TASK_TWO], gate?: Promise<void>) {
@@ -39,7 +49,8 @@ function mockApi(tasks: unknown[] = [TASK_ONE, TASK_TWO], gate?: Promise<void>) 
     if (u === '/api/admin/departments') return json([{ id: 'd1', name: 'KITCHEN', venueId: 'v1', colour: null }])
     if (u === '/api/admin/sections') return json([])
     if (u.startsWith('/api/admin/guides')) return json([])
-    if (u.startsWith('/api/admin/checklists')) return json([CHECKLIST])
+    if (u.startsWith('/api/admin/calendar-events')) return json([EVENT_ONE])
+    if (u.startsWith('/api/admin/checklists')) return json([CHECKLIST, CHECKLIST_WITH_EVENT])
     void init
     return json({})
   })
@@ -176,6 +187,35 @@ describe('TasksClient', () => {
       const body = JSON.parse(String((put![1] as RequestInit).body))
       expect(body.appearFromTime).toBe('07:00')
       expect(body.schedules).toEqual([])
+    })
+  })
+
+  it('shows an EVENT badge for an event-linked list', async () => {
+    mockApi()
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getAllByText(/EVENT:\s*DINNER/).length).toBeGreaterThan(0))
+  })
+
+  it('saves the selected calendar event from the checklist editor', async () => {
+    const fetchMock = mockApi()
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByLabelText('EDIT CHECKLIST OPENING')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('EDIT CHECKLIST OPENING'))
+    await waitFor(() => expect(screen.getByText('EDIT CHECKLIST')).toBeDefined())
+
+    fireEvent.focus(screen.getByPlaceholderText('+ LINK AN EVENT...'))
+    fireEvent.click(await screen.findByText(/DINNER · 2026-10-23/))
+    fireEvent.click(screen.getByText('SAVE CHECKLIST'))
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/admin/checklists/c1' && init?.method === 'PUT',
+      )
+      expect(put).toBeDefined()
+      const body = JSON.parse(String((put![1] as RequestInit).body))
+      expect(body.eventIds).toEqual(['e1'])
     })
   })
 

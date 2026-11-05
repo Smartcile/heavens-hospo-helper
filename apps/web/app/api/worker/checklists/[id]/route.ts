@@ -5,6 +5,11 @@ import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
 import { validateSchedules } from '@/lib/checklist-activation'
+import {
+  parseEventIds,
+  syncChecklistEvents,
+  validateChecklistEventIds,
+} from '@/lib/checklist-events.server'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getWorkerSession()
@@ -17,12 +22,20 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (existing.venueId !== session.venueId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason, schedules } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason, schedules, eventIds } = body
 
   let scheduleData: ReturnType<typeof validateSchedules> | null = null
   if (schedules !== undefined) {
     scheduleData = validateSchedules(schedules)
     if (!scheduleData.ok) return NextResponse.json({ error: scheduleData.error }, { status: 400 })
+  }
+
+  let parsedEvents: ReturnType<typeof parseEventIds> | null = null
+  if (eventIds !== undefined) {
+    parsedEvents = parseEventIds(eventIds)
+    if (!parsedEvents.ok) return NextResponse.json({ error: parsedEvents.error }, { status: 400 })
+    const eventError = await validateChecklistEventIds(session.venueId, parsedEvents.ids)
+    if (eventError) return NextResponse.json({ error: eventError }, { status: 400 })
   }
 
   const refError = await validateWorkerTaskRefs({
@@ -71,6 +84,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       }),
     },
   })
+
+  if (parsedEvents && parsedEvents.ok) {
+    await syncChecklistEvents(checklist.id, parsedEvents.ids)
+  }
 
   return NextResponse.json(checklist)
 }
