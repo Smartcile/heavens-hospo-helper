@@ -1539,12 +1539,16 @@ backdrop tap). The protected layout adds `pt-14 md:pt-0` so content clears the
 fixed mobile bar.
 
 Nav groups: **Dashboard** (Overview, Calendar, Kitchen) · **Ops hub** (Menu &
-Services, Bookings, Orders, Customers, Inventory & Stocktake) · **Events** (BEO
-Planner, Event Templates, Requests, Rooms & Plans) · **Team & execution** (Roster & Pay, Daily
+Services, Bookings, Orders, Customers, Inventory & Stocktake) · **Events**
+(Enquiries, BEO Planner, Pipeline, Event Templates, Requests, Block Library,
+Rooms & Plans) · **Team & execution** (Roster & Pay, Daily
 Tasks, Training, Notices) · **Compliance** (Food Safety) · **Performance**
 (Reports, Budget, Tips, Gift Cards) · **Setup & config** (Settings).
 Nav items are filtered by permission area when the session is a restricted
-manager (`NAV_ITEM_AREAS` + `sessionGrantedAreas`).
+manager (`NAV_ITEM_AREAS` + `sessionGrantedAreas`); the ops items map to their
+real areas (`bookings` / `orders` / `customers`, not `ops`), and a filtered
+group header follows its first visible item so it never deep-links to an
+ungranted page. Overview and Settings stay deliberately ungated.
 
 `lib/hub-tabs.ts` defines every hub's tabs (`OPS_AREAS`/`OPS_SUB_TABS`,
 `TEAM_TABS`, `EXECUTION_TABS`, `TRAINING_TABS`, `SETTINGS_TABS`,

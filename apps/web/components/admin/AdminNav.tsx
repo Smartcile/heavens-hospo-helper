@@ -17,13 +17,16 @@ const NAV_ITEM_AREAS: Record<string, string> = {
   '/admin/calendar': 'calendar',
   '/w/kitchen': 'orders',
   '/admin/ops?tab=menu': 'ops',
-  '/admin/ops?tab=bookings': 'ops',
-  '/admin/ops?tab=orders': 'ops',
-  '/admin/ops?tab=customers': 'ops',
+  '/admin/ops?tab=bookings': 'bookings',
+  '/admin/ops?tab=orders': 'orders',
+  '/admin/ops?tab=customers': 'customers',
   '/admin/ops?tab=inventory': 'ops',
+  '/admin/events?tab=enquiries': 'events',
   '/admin/events?tab=events': 'events',
+  '/admin/events?tab=pipeline': 'events',
   '/admin/events?tab=templates': 'events',
   '/admin/events?tab=requests': 'events',
+  '/admin/events?tab=library': 'events',
   '/admin/events?tab=rooms': 'floorplans',
   '/admin/team': 'team',
   '/admin/execution': 'execution',
@@ -50,10 +53,13 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/admin/ops?tab=customers', label: 'Customers' },
     { href: '/admin/ops?tab=inventory', label: 'Inventory & Stocktake' },
   ] },
-  { label: 'Events', href: '/admin/events?tab=events', items: [
+  { label: 'Events', href: '/admin/events?tab=enquiries', items: [
+    { href: '/admin/events?tab=enquiries', label: 'Enquiries' },
     { href: '/admin/events?tab=events', label: 'BEO Planner' },
+    { href: '/admin/events?tab=pipeline', label: 'Pipeline' },
     { href: '/admin/events?tab=templates', label: 'Event Templates' },
     { href: '/admin/events?tab=requests', label: 'Requests' },
+    { href: '/admin/events?tab=library', label: 'Block Library' },
     { href: '/admin/events?tab=rooms', label: 'Rooms & Plans' },
   ] },
   { label: 'Team & execution', href: '/admin/team?tab=staff', items: [
@@ -263,12 +269,18 @@ export function AdminNav({ role, venueId, defaultVenueId, availableVenueIds, gra
   const visibleGroups = useMemo(
     () =>
       grantedAreas
-        ? NAV_GROUPS.map((group) => ({
-            ...group,
-            items: group.items.filter(
+        ? NAV_GROUPS.map((group) => {
+            const items = group.items.filter(
               (item) => !NAV_ITEM_AREAS[item.href] || grantedAreas.includes(NAV_ITEM_AREAS[item.href]),
-            ),
-          })).filter((group) => group.items.length > 0)
+            )
+            return {
+              ...group,
+              items,
+              // Never keep a static header href that points at a filtered-out
+              // item — deep-link to the first item this manager can actually see.
+              href: group.href ? (items[0]?.href ?? group.href) : group.href,
+            }
+          }).filter((group) => group.items.length > 0)
         : NAV_GROUPS,
     [grantedAreas],
   )

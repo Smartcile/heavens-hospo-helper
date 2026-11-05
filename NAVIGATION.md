@@ -27,6 +27,14 @@ with its default sub-tab, e.g. OPS HUB → Menu & Services → RECIPES); the
 │     ORDERS            /admin/ops?tab=orders                  │
 │     CUSTOMERS         /admin/ops?tab=customers               │
 │     INVENTORY & STKTE /admin/ops?tab=inventory               │
+│ ▾ EVENTS (the "Events")                                       │
+│     ENQUIRIES         /admin/events?tab=enquiries            │
+│     BEO PLANNER       /admin/events?tab=events               │
+│     PIPELINE          /admin/events?tab=pipeline             │
+│     EVENT TEMPLATES   /admin/events?tab=templates            │
+│     REQUESTS          /admin/events?tab=requests             │
+│     BLOCK LIBRARY     /admin/events?tab=library              │
+│     ROOMS & PLANS     /admin/events?tab=rooms                │
 │ ▾ TEAM & EXECUTION (the "People")                             │
 │     ROSTER & PAY      /admin/team — STAFF·ROSTER·AVAIL·CLOCKS │
 │                       ·PAYROLL                                │
@@ -37,7 +45,7 @@ with its default sub-tab, e.g. OPS HUB → Menu & Services → RECIPES); the
 │     FOOD SAFETY       /admin/compliance — TASKS·DELIVERIES·   │
 │                       ALERTS·LOGGERS                          │
 │ ▾ PERFORMANCE (the "Results")                                 │
-│     REPORTS · BUDGET · GIFT CARDS                             │
+│     REPORTS · BUDGET · TIPS · GIFT CARDS                      │
 │ ▾ SETUP & CONFIG (the "Plumbing" — bottom)                    │
 │     SETTINGS          /admin/settings — 8 tabs (below)        │
 │ SIGN OUT                                                     │
@@ -64,7 +72,7 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 | **Bookings** | `/admin/ops?tab=bookings` | DIARY · TABLE · DELETED (see section 2) |
 | **Orders** | `/admin/ops?tab=orders` | ALL · SERVICE · KITCHEN · FOH · PRODUCTION · DOCKETS (see section 2) |
 | **Customers** | `/admin/ops?tab=customers` | Customer search by phone/name (a leaf — no top bar) |
-| **Inventory & Stocktake** | `/admin/ops?tab=inventory` | INVENTORY · STOCKTAKE (see section 2) |
+| **Inventory & Stocktake** | `/admin/ops?tab=inventory` | INVENTORY · PANTRY BIBLE · STOCKTAKE (see section 2) |
 
 ### EVENTS group
 
@@ -99,13 +107,14 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 |---|---|---|
 | **Reports** | `/admin/reports` | Reporting suite (stock, sales, labour reports) |
 | **Budget** | `/admin/budget` | Monthly weighted budget tool: REVENUE target + % category breakdowns, daily weighting profile, auto-generated daily allocations, progress vs variance, month grid |
+| **Tips** | `/admin/tips` | Pooled tips: create periods, record cash/POS totals and shares, see each person's accrued amount |
 | **Gift Cards** | `/admin/gift-cards` | Gift card issue/redeem lifecycle. **ISSUE GIFT CARD** opens a popup (details + amount + template preview); **CREATE GIFT CARDS** is a split SINGLE/BULK control (premakes the next `2026####`-style numbers). The YEAR filter defaults to the current venue-year (ALL available) so a refresh always shows this year's cards. Click a card → popup: edit details + private notes, status buttons (**REPLACE CARD** voids it and issues the next premade card as a corrected replacement, keeping the WooCommerce order link — resend the order email from the store to deliver the new PDF; **RESET** blanks it back to a DRAFT with the same number and history kept; **DELETE** for VOIDED cards only), the linked WooCommerce order, and a merged history feed where every row is labelled **CARD · APP / ORDER · APP / ORDER · STORE** so app actions and store activity are unmistakable. Fillable PDF templates with field mapping + LIVE preview, REPLACE/REMOVE FILE. WooCommerce box: category link, **variable gift card product** (editable name, short description, product image — paste-supported — and denominations, SAVE pushes to the store), and **SYNC WOOCOMMERCE (GIFT CARDS + ORDERS)** which pulls orders only. Products stay hidden from recipes/menus/order pickers; store purchases auto-combine into ONE issued card per order (pending-payment orders included) and the store emails carry the PDF. A PENDING PAYMENT ORDERS box (loaded live — CONFIRM PAYMENT issues the card) and a GIFT ORDERS tab (every synced gift order: line breakdown, statuses, linked cards) sit on the same page |
 
 ### SETUP & CONFIG group (bottom)
 
 | Item | URL | What it does |
 |---|---|---|
-| **Settings** | `/admin/settings` | 8 tabs — GENERAL · VENUE SETUP · STRUCTURE · UNITS OF MEASURE · SUPPLIERS · QR CODES · SYNC · SWIFT POS (SALES / STAFF SYNC / MENU LINKS) · FILES (admin) (section 3). Floor plans / rooms now live under Events → Rooms & Plans |
+| **Settings** | `/admin/settings` | 8 tabs — GENERAL · VENUE SETUP · STRUCTURE · UNITS OF MEASURE · SUPPLIERS · QR CODES · SWIFT POS (SALES / STAFF SYNC / MENU LINKS) · FILES (admin) (section 3). Floor plans / rooms now live under Events → Rooms & Plans |
 
 **Bottom utility links:** `✕ HEAVENLY HELP` → `/admin/help` (global in-app help catalogue, seeded from the repo and searchable) and `WORKER VIEW →`.
 
@@ -122,7 +131,7 @@ area's **fine tabs** only (CUSTOMERS is a leaf — no bar). Sub-tab = URL
 │ MENU & SERVICES →  RECIPES | MENUS & CATEGORIES | SERVICES            │
 │ BOOKINGS →        DIARY | TABLE | DELETED                             │
 │ ORDERS →          ALL | SERVICE | KITCHEN | FOH | PRODUCTION | DOCKETS  │
-│ INVENTORY & STOCKTAKE →  INVENTORY | STOCKTAKE                        │
+│ INVENTORY & STOCKTAKE →  INVENTORY | PANTRY BIBLE | STOCKTAKE          │
 │ CUSTOMERS →       (no top bar)                                        │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -152,7 +161,7 @@ keeping other query params.
 | **UNITS OF MEASURE** | UOM list + CRUD with base-unit ratios and kind (VOLUME/MASS/COUNT) |
 | **SUPPLIERS** | Supplier list + CRUD (used by inventory equipment tracking) |
 | **QR CODES** | Worker login QR generation/download per venue |
-| **SYNC** | WooCommerce sync console (PULL PRODUCTS / PULL ORDERS / PUSH PRODUCTS, live SyncLog) — moved here from OPS HUB |
+| **SWIFT POS** | SwiftPOS connection + reporting: SALES / STAFF SYNC / MENU LINKS, plus live kitchen dockets under Ops → Orders |
 | **FILES** | File manager (admin only — hidden from managers) — tree over the server's media + backups folders. Click a file to preview it in a popup (images/PDFs) with **usage tags** (gift card templates, issued card PDFs, product/staff/guide/task photos). DELETE is disabled for linked files |
 
 ---
@@ -162,18 +171,18 @@ keeping other query params.
 ```
 ┌──────────────────────────────────┐
 │ WORKER DASHBOARD (home)          │
-│   ≡ HAMBURGER MENU:              │
+│   TILE GRID (no hamburger):      │
 │   ┌────────────────────────────┐ │
-│   │ DASHBOARD                  │ │
-│   │ TASKS                      │ │
-│   │ GUIDES      (bible+tree)   │ │
-│   │ KITCHEN                    │ │
-│   │ STOCKTAKE                  │ │
-│   │ CALENDAR                   │ │
-│   │ FLOOR PLAN                 │ │
-│   │ NOTICES                    │ │
-│   │ TIMECLOCK                  │ │
+│   │ NOTICES · TASKS            │ │
+│   │ MY SCHEDULE · AVAILABILITY │ │
+│   │ AVAILABLE SHIFTS · GUIDES  │ │
+│   │ MY POINTS · HEAVENLY HELP  │ │
+│   │ FLOOR PLAN · STOCKTAKE     │ │
+│   │ TIME CLOCK · KITCHEN       │ │
+│   │ DELIVERIES · GIFT CARDS*   │ │
+│   │ TRAINING STATUS* · EVENTS* │ │
 │   └────────────────────────────┘ │
+│   * permission-gated tiles       │
 └──────────────────────────────────┘
 ```
 
@@ -227,7 +236,6 @@ Every page merged into a hub keeps its URL as a redirect that forwards query par
 | `/admin/uoms` | `/admin/settings?tab=uoms` |
 | `/admin/suppliers` | `/admin/settings?tab=suppliers` |
 | `/admin/qrcodes` | `/admin/settings?tab=qrcodes` |
-| `/admin/sync` | `/admin/settings?tab=sync` |
 | `/admin/floorplan` | `/admin/events?tab=rooms&sub=table-plans` |
 
 | URL | Status | Notes |
@@ -244,7 +252,8 @@ Every page merged into a hub keeps its URL as a redirect that forwards query par
 ## 6. FLOW NOTES FOR RE-ORGANISATION
 
 - **Venue switching is global** — the sidebar switcher drives every page (cookie `admin-active-venue`).
-- **Every hub's tabs live in one file**: `apps/web/lib/hub-tabs.ts` (`OPS_TABS`, `TEAM_TABS`, `EXECUTION_TABS`, `TRAINING_TABS`, `SETTINGS_TABS`) — labels, order and sub-tabs are one array each.
+- **Every hub's tabs live in one file**: `apps/web/lib/hub-tabs.ts` (`OPS_AREAS` / `OPS_SUB_TABS`, `TEAM_TABS`, `EXECUTION_TABS`, `TRAINING_TABS`, `SETTINGS_TABS`, `COMPLIANCE_TABS`, `EVENTS_TABS`) — labels, order and sub-tabs are one array each.
 - **The sidebar structure lives in one place**: `NAV_GROUPS` in `apps/web/components/admin/AdminNav.tsx`.
+- **Nav permission gating**: `NAV_ITEM_AREAS` maps sidebar hrefs to top-level permission areas (`bookings`, `orders`, `customers`, `events`, …) for restricted managers. Overview and Settings are deliberately ungated. A filtered group header follows its first visible item, so it can never deep-link to an ungranted page.
 - **Drawers**: `components/ui/Drawer.tsx` (right slide-over) + `components/admin/CustomerDrawer.tsx` (contact + booking history) — used from Bookings, Orders, Customers.
-- Worker app and admin panel share no navigation code — worker menu is per-page hamburger.
+- Worker app and admin panel share no navigation code — the worker dashboard is a tile grid, not a hamburger menu.

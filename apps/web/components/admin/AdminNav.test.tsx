@@ -85,11 +85,15 @@ describe('AdminNav', () => {
     expect(linkHref('Compliance')).toBe('/admin/compliance?tab=tasks')
     expect(linkHref('Performance')).toBe('/admin/reports')
     expect(linkHref('Setup & config')).toBe('/admin/settings?tab=general')
+    expect(linkHref('Events')).toBe('/admin/events?tab=enquiries')
     toggleGroup('Setup & config')
     expect(linkHref('Settings')).toBe('/admin/settings?tab=general')
     // Floor Plans moved under Events → Rooms & Plans.
     expect(linkHref('Floor Plans')).toBeNull()
     toggleGroup('Events')
+    expect(linkHref('Enquiries')).toBe('/admin/events?tab=enquiries')
+    expect(linkHref('Pipeline')).toBe('/admin/events?tab=pipeline')
+    expect(linkHref('Block Library')).toBe('/admin/events?tab=library')
     expect(linkHref('Rooms & Plans')).toBe('/admin/events?tab=rooms')
   })
 
@@ -118,26 +122,102 @@ describe('AdminNav', () => {
     expect(itemActive('Menu & Services')).toBe(false)
   })
 
-  it('hides groups whose areas are not granted when grantedAreas is provided', () => {
+  it('restricted manager with bookings sees Bookings, not Orders or Customers', () => {
     const { queryByText, getByText } = render(
       <AdminNav
         role="MANAGER"
         venueId="v1"
         defaultVenueId={undefined}
         availableVenueIds={[]}
-        grantedAreas={['compliance', 'bookings']}
+        grantedAreas={['bookings']}
       />,
     )
-    expect(getByText('Compliance')).toBeTruthy()
-    expect(queryByText('Ops hub')).toBeNull() // all five ops items map to `ops` — not granted
-    expect(queryByText('Performance')).toBeNull()
-    expect(getByText('Setup & config')).toBeTruthy() // Settings stays ungated (venue settings)
-    expect(getByText('Dashboard')).toBeTruthy() // Overview stays ungated
+    expect(getByText('Ops hub')).toBeTruthy()
+    toggleGroup('Ops hub')
+    expect(getByText('Bookings')).toBeTruthy()
+    expect(queryByText('Orders')).toBeNull()
+    expect(queryByText('Customers')).toBeNull()
+    expect(queryByText('Menu & Services')).toBeNull()
+    expect(queryByText('Inventory & Stocktake')).toBeNull()
+  })
+
+  it('restricted manager with events sees every events-area item', () => {
+    const { queryByText, getByText } = render(
+      <AdminNav
+        role="MANAGER"
+        venueId="v1"
+        defaultVenueId={undefined}
+        availableVenueIds={[]}
+        grantedAreas={['events']}
+      />,
+    )
+    expect(getByText('Events')).toBeTruthy()
+    toggleGroup('Events')
+    for (const label of ['Enquiries', 'BEO Planner', 'Pipeline', 'Event Templates', 'Requests', 'Block Library']) {
+      expect(getByText(label)).toBeTruthy()
+    }
+    // Rooms & Plans is gated by the floorplans area, not events.
+    expect(queryByText('Rooms & Plans')).toBeNull()
+  })
+
+  it('restricted manager with floorplans sees Rooms & Plans only', () => {
+    const { queryByText, getByText } = render(
+      <AdminNav
+        role="MANAGER"
+        venueId="v1"
+        defaultVenueId={undefined}
+        availableVenueIds={[]}
+        grantedAreas={['floorplans']}
+      />,
+    )
+    toggleGroup('Events')
+    expect(getByText('Rooms & Plans')).toBeTruthy()
+    expect(queryByText('Enquiries')).toBeNull()
+    // The group header must follow the only visible item, not the static default.
+    expect(linkHref('Events')).toBe('/admin/events?tab=rooms')
+  })
+
+  it('a filtered group header never points at an ungranted page', () => {
+    render(
+      <AdminNav
+        role="MANAGER"
+        venueId="v1"
+        defaultVenueId={undefined}
+        availableVenueIds={[]}
+        grantedAreas={['bookings']}
+      />,
+    )
+    // Old behaviour kept /admin/ops?tab=menu&sub=recipes (ungranted).
+    expect(linkHref('Ops hub')).toBe('/admin/ops?tab=bookings')
+    expect(linkHref('Ops hub')).not.toBe('/admin/ops?tab=menu&sub=recipes')
+  })
+
+  it('Settings and Overview stay visible with an empty grant set', () => {
+    const { queryByText, getByText } = render(
+      <AdminNav
+        role="MANAGER"
+        venueId="v1"
+        defaultVenueId={undefined}
+        availableVenueIds={[]}
+        grantedAreas={[]}
+      />,
+    )
+    expect(getByText('Dashboard')).toBeTruthy()
+    expect(getByText('Setup & config')).toBeTruthy()
+    expect(linkHref('Dashboard')).toBe('/admin')
+    expect(queryByText('Ops hub')).toBeNull()
+    expect(queryByText('Events')).toBeNull()
+    // Dashboard is the default-open group.
+    expect(getByText('Overview')).toBeTruthy()
+    expect(queryByText('Calendar')).toBeNull()
+    toggleGroup('Setup & config')
+    expect(getByText('Settings')).toBeTruthy()
   })
 
   it('shows everything when grantedAreas is omitted (legacy behaviour)', () => {
     const { getByText } = renderNav()
     expect(getByText('Ops hub')).toBeTruthy()
+    expect(getByText('Events')).toBeTruthy()
     expect(getByText('Performance')).toBeTruthy()
     expect(getByText('Setup & config')).toBeTruthy()
   })
