@@ -1074,4 +1074,71 @@ describe('AvailabilityAdminClient', () => {
     expect(screen.getByText('CLEAR SELECTED (1)')).toBeDefined()
     expect(screen.queryByText(/LOCK SELECTED/)).toBeNull()
   })
+
+  it('shows a review-note marker on the grid with the note as its title', async () => {
+    mockFetch({
+      ...data,
+      entries: [{ ...avEntry('e1', monday), reviewNote: 'CALLED BACK' }],
+      queue: { pending: [], requests: [] },
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    const marker = await screen.findByLabelText('Review note: CALLED BACK')
+    expect(marker.getAttribute('title')).toBe('CALLED BACK')
+    expect(marker.textContent).toContain('REVIEW')
+  })
+
+  it('prefills the declaration review note and saves it without a verdict', async () => {
+    const withReview = {
+      ...data,
+      queue: {
+        pending: [{ ...data.queue.pending[0], reviewNote: 'EXISTING REVIEW' }],
+        requests: [],
+      },
+    }
+    const spy = mockFetch(withReview)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+
+    const input = screen.getByLabelText('Review note for declaration') as HTMLInputElement
+    expect(input.value).toBe('EXISTING REVIEW')
+    fireEvent.click(screen.getByText('SAVE NOTE'))
+
+    await waitFor(() => {
+      const post = spy.mock.calls.find((c) => String(c[0]).includes('/availability/review'))
+      expect(post).toBeDefined()
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body.action).toBe('NOTE')
+      expect(body.ids).toEqual(['p1'])
+      expect(body.reviewNote).toBe('EXISTING REVIEW')
+    })
+  })
+
+  it('saves the worker note inline for every row in a declaration', async () => {
+    const p1 = { ...data.queue.pending[0], id: 'p1', seriesId: 's1', seriesEndDate: null }
+    const p2 = { ...data.queue.pending[0], id: 'p2', date: shiftDay(monday, 7), seriesId: 's1', seriesEndDate: null }
+    const spy = mockFetch({ ...data, queue: { pending: [p1, p2], requests: [] } })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+
+    const input = screen.getByLabelText('Worker note for declaration') as HTMLInputElement
+    expect(input.value).toBe('LEAVE')
+    fireEvent.change(input, { target: { value: 'NEW WORKER NOTE' } })
+    fireEvent.click(screen.getByText('SAVE WORKER NOTE'))
+
+    await waitFor(() => {
+      const patches = spy.mock.calls.filter((c) =>
+        (c[1] as RequestInit | undefined)?.method === 'PATCH' &&
+        /\/api\/admin\/availability\/(p1|p2)$/.test(String(c[0])))
+      expect(patches).toHaveLength(2)
+      for (const patch of patches) {
+        expect(JSON.parse((patch[1] as RequestInit).body as string)).toEqual({ notes: 'NEW WORKER NOTE' })
+      }
+    })
+  })
 })
