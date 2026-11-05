@@ -6,6 +6,7 @@ import { postRetrainNotice } from '@/lib/retrain'
 import { guardAccess } from '@/lib/permissions'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { parentLinkError, nextSubtaskOrder, hasLiveSubtasks, softDeleteTask } from '@/lib/task-subtasks.server'
+import { syncTaskLists } from '@/lib/task-lists.server'
 
 interface Params {
   params: { id: string }
@@ -32,6 +33,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       requiredTraining: { select: { moduleId: true } },
       taskGuides: { select: { guideId: true, isRequiredForCompetency: true } },
       parent: { select: { id: true, title: true, deletedAt: true } },
+      checklistLinks: { select: { checklistId: true } },
       subtasks: {
         where: { deletedAt: null },
         select: { id: true, title: true, isActive: true, subtaskOrder: true },
@@ -40,11 +42,12 @@ export async function GET(_req: NextRequest, { params }: Params) {
     },
   })
   if (!task) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  const { parent, ...rest } = task
+  const { parent, checklistLinks, ...rest } = task
   return NextResponse.json({
     ...rest,
     sectionIds: task.sections.map((s) => s.sectionId),
     parentTitle: parent && !parent.deletedAt ? parent.title : null,
+    checklistIds: (checklistLinks ?? []).map((l) => l.checklistId),
   })
 }
 
@@ -62,6 +65,32 @@ export async function PUT(req: NextRequest, { params }: Params) {
     select: { id: true, venueId: true, parentTaskId: true },
   })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // List membership + assignee are validated against this task's venue before
+  // anything is written.
+  let listIds: string[] | null = null
+  if (body.checklistIds !== undefined) {
+    listIds = Array.isArray(body.checklistIds) ? [...new Set(body.checklistIds as string[])] : []
+    if (listIds.length) {
+      const count = await prisma.checklist.count({
+        where: { id: { in: listIds }, venueId: existing.venueId, deletedAt: null },
+      })
+      if (count !== listIds.length) {
+        return NextResponse.json({ error: 'ONE OR MORE LISTS ARE NOT IN THIS VENUE' }, { status: 400 })
+      }
+    }
+  }
+  if (body.assignedToStaffId !== undefined) {
+    if (body.assignedToStaffId) {
+      const assignee = await prisma.staff.count({
+        where: { id: body.assignedToStaffId, venueId: existing.venueId, deletedAt: null },
+      })
+      if (assignee !== 1) {
+        return NextResponse.json({ error: 'ASSIGNEE IS NOT IN THIS VENUE' }, { status: 400 })
+      }
+    }
+    updates.assignedToStaffId = body.assignedToStaffId || null
+  }
 
   // Parent link (max depth 1). Clearing a parent resets its child ordering.
   if (body.parentTaskId !== undefined) {
@@ -163,6 +192,11 @@ export async function PUT(req: NextRequest, { params }: Params) {
     where: { id: params.id },
     data: updates,
   })
+
+  if (listIds) {
+    const listError = await syncTaskLists({ taskId: params.id, venueId: existing.venueId, checklistIds: listIds })
+    if (listError) return NextResponse.json({ error: listError }, { status: 400 })
+  }
 
   if (requireRetrain) {
     try {

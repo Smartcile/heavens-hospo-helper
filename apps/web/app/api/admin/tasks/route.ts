@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { parentLinkError, nextSubtaskOrder } from '@/lib/task-subtasks.server'
+import { syncTaskLists } from '@/lib/task-lists.server'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -59,6 +60,7 @@ export async function GET(req: NextRequest) {
           staff: { select: { firstName: true, lastName: true } },
         },
       },
+      checklistLinks: { select: { checklistId: true } },
       _count: { select: { checklistLinks: true } },
     },
     orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
@@ -66,11 +68,12 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json(
     tasks.map((t) => {
-      const { parent, ...rest } = t
+      const { parent, checklistLinks, ...rest } = t
       return {
         ...rest,
         sectionIds: t.sections.map((s) => s.sectionId),
         parentTitle: parent && !parent.deletedAt ? parent.title : null,
+        checklistIds: (checklistLinks ?? []).map((l) => l.checklistId),
       }
     }),
   )
@@ -112,10 +115,29 @@ export async function POST(req: NextRequest) {
     overrideOutcomes,
     requireOutcomeReason,
     parentTaskId,
+    checklistIds,
   } = body
 
   if (!title?.trim() || !venueId) {
     return NextResponse.json({ error: 'Title and venueId are required' }, { status: 400 })
+  }
+
+  const listIds: string[] = Array.isArray(checklistIds) ? [...new Set(checklistIds as string[])] : []
+  if (listIds.length) {
+    const count = await prisma.checklist.count({
+      where: { id: { in: listIds }, venueId, deletedAt: null },
+    })
+    if (count !== listIds.length) {
+      return NextResponse.json({ error: 'ONE OR MORE LISTS ARE NOT IN THIS VENUE' }, { status: 400 })
+    }
+  }
+  if (assignedToStaffId) {
+    const assignee = await prisma.staff.count({
+      where: { id: assignedToStaffId, venueId, deletedAt: null },
+    })
+    if (assignee !== 1) {
+      return NextResponse.json({ error: 'ASSIGNEE IS NOT IN THIS VENUE' }, { status: 400 })
+    }
   }
 
   // Max depth 1: the parent must exist, belong to this venue, and not already
@@ -187,6 +209,11 @@ export async function POST(req: NextRequest) {
       where: { id: { in: reqIds } },
       data: { linkedTaskId: task.id },
     })
+  }
+
+  if (listIds.length > 0) {
+    const listError = await syncTaskLists({ taskId: task.id, venueId, checklistIds: listIds })
+    if (listError) return NextResponse.json({ error: listError }, { status: 400 })
   }
 
   return NextResponse.json(task, { status: 201 })
