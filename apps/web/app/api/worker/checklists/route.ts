@@ -10,8 +10,14 @@ import {
   isChecklistOpen,
   describeNextOpen,
   weekdayOf,
+  summariseCalendarEvent,
   validateSchedules,
 } from '@/lib/checklist-activation'
+import {
+  parseEventIds,
+  syncChecklistEvents,
+  validateChecklistEventIds,
+} from '@/lib/checklist-events.server'
 
 export async function GET() {
   const session = await getWorkerSession()
@@ -29,6 +35,18 @@ export async function GET() {
           where: { deletedAt: null },
           select: { dayOfWeek: true, fromTime: true, toTime: true },
           orderBy: [{ dayOfWeek: 'asc' }, { fromTime: 'asc' }],
+        },
+        events: {
+          where: { deletedAt: null },
+          select: {
+            calendarEvent: {
+              select: {
+                id: true, venueId: true, title: true, startsAt: true, endsAt: true, allDay: true,
+                deletedAt: true,
+              },
+            },
+          },
+          orderBy: { calendarEvent: { startsAt: 'asc' } },
         },
         tasks: {
           include: { task: { select: { id: true, title: true, isActive: true, version: true } } },
@@ -52,7 +70,8 @@ export async function GET() {
   const dayOfWeek = weekdayOf(today)
 
   const result = checklists.map((c) => {
-    const openNow = isChecklistOpen(c.appearFromTime, c.activatedOn, today, nowHHmm, c.schedules, dayOfWeek)
+    const events = c.events.map((e) => e.calendarEvent)
+    const openNow = isChecklistOpen(c.appearFromTime, c.activatedOn, today, nowHHmm, c.schedules, dayOfWeek, events)
     return {
       id: c.id,
       name: c.name,
@@ -64,10 +83,11 @@ export async function GET() {
       activatedOn: c.activatedOn,
       activatedToday: isActivatedOn(c.activatedOn, today),
       schedules: c.schedules,
+      events: events.map(summariseCalendarEvent),
       openNow,
       opensNext: openNow
         ? null
-        : describeNextOpen({ schedules: c.schedules, appearFromTime: c.appearFromTime, day: today, nowHHmm, dayOfWeek }),
+        : describeNextOpen({ schedules: c.schedules, appearFromTime: c.appearFromTime, events, day: today, nowHHmm, dayOfWeek }),
       allowedOutcomes: c.allowedOutcomes,
       requireOutcomeReason: c.requireOutcomeReason,
       department: c.department,
@@ -91,13 +111,18 @@ export async function POST(req: Request) {
   if (!access.canCreateList) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason, schedules } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason, schedules, eventIds } = body
 
   if (!name?.trim()) return NextResponse.json({ error: 'NAME IS REQUIRED' }, { status: 400 })
   if (!taskIds?.length) return NextResponse.json({ error: 'ADD AT LEAST ONE TASK' }, { status: 400 })
 
   const scheduleCheck = validateSchedules(schedules)
   if (!scheduleCheck.ok) return NextResponse.json({ error: scheduleCheck.error }, { status: 400 })
+
+  const parsedEvents = parseEventIds(eventIds)
+  if (!parsedEvents.ok) return NextResponse.json({ error: parsedEvents.error }, { status: 400 })
+  const eventError = await validateChecklistEventIds(session.venueId, parsedEvents.ids)
+  if (eventError) return NextResponse.json({ error: eventError }, { status: 400 })
 
   const refError = await validateWorkerTaskRefs({
     venueId: session.venueId,
@@ -131,6 +156,10 @@ export async function POST(req: Request) {
       tasks: { create: ids.map((taskId, i) => ({ taskId, sortOrder: i })) },
     },
   })
+
+  if (parsedEvents.ids.length > 0) {
+    await syncChecklistEvents(checklist.id, parsedEvents.ids)
+  }
 
   return NextResponse.json(checklist, { status: 201 })
 }

@@ -5,7 +5,12 @@
 // allowed, so a task can never be left un-finishable. PARTIAL is not terminal —
 // it lives in TaskProgress and keeps the task on the floor across refreshes.
 
-import { isChecklistOpen, weekdayOf, type ChecklistScheduleWindow } from '@/lib/checklist-activation'
+import {
+  isChecklistOpen,
+  weekdayOf,
+  type ChecklistEventWindow,
+  type ChecklistScheduleWindow,
+} from '@/lib/checklist-activation'
 
 export const TASK_OUTCOMES = ['DONE', 'PARTIAL', 'NOT_REQUIRED', 'DID_NOT_COMPLETE'] as const
 
@@ -57,6 +62,7 @@ export interface OutcomePolicyChecklist extends OutcomePolicyList {
   appearFromTime?: string | null
   activatedOn?: Date | string | null
   schedules?: readonly ChecklistScheduleWindow[] | null
+  events?: readonly ChecklistEventWindow[] | null
 }
 
 export interface ResolvedOutcomePolicy {
@@ -130,7 +136,15 @@ export function resolveOutcomePolicyForChecklists(
       a.name.localeCompare(b.name),
   )
   const chosen = sorted.find((c) =>
-    isChecklistOpen(c.appearFromTime, c.activatedOn, ctx.today, ctx.nowHHmm, c.schedules, dayOfWeek),
+    isChecklistOpen(
+      c.appearFromTime,
+      c.activatedOn,
+      ctx.today,
+      ctx.nowHHmm,
+      c.schedules,
+      dayOfWeek,
+      c.events,
+    ),
   ) ?? null
   return resolveOutcomePolicy(task, chosen)
 }

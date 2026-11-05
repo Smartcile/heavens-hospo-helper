@@ -5,7 +5,12 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { cleanNoticeAudiences } from '@/lib/notice-audience'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
-import { validateSchedules } from '@/lib/checklist-activation'
+import { summariseCalendarEvent, validateSchedules } from '@/lib/checklist-activation'
+import {
+  parseEventIds,
+  syncChecklistEvents,
+  validateChecklistEventIds,
+} from '@/lib/checklist-events.server'
 
 // A checklist is an ordered set of references to LIVE tasks. Reads return the
 // current task data, so edits to a task show up here automatically.
@@ -34,6 +39,18 @@ export async function GET(req: NextRequest) {
         where: { deletedAt: null },
         select: { dayOfWeek: true, fromTime: true, toTime: true },
         orderBy: [{ dayOfWeek: 'asc' }, { fromTime: 'asc' }],
+      },
+      events: {
+        where: { deletedAt: null },
+        select: {
+          calendarEvent: {
+            select: {
+              id: true, venueId: true, title: true, startsAt: true, endsAt: true, allDay: true,
+              deletedAt: true,
+            },
+          },
+        },
+        orderBy: { calendarEvent: { startsAt: 'asc' } },
       },
       tasks: {
         orderBy: { sortOrder: 'asc' },
@@ -68,6 +85,7 @@ export async function GET(req: NextRequest) {
       section: c.section,
       audiences: c.audiences,
       schedules: c.schedules,
+      events: c.events.map((e) => summariseCalendarEvent(e.calendarEvent)),
       tasks: c.tasks
         .filter((ct) => ct.task && !ct.task.deletedAt)
         .map((ct) => ({
@@ -91,7 +109,7 @@ export async function POST(req: NextRequest) {
   if (denied) return denied
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, audiences, allowedOutcomes, requireOutcomeReason, schedules } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, audiences, allowedOutcomes, requireOutcomeReason, schedules, eventIds } = body
   const venueId = session.user.role === 'MANAGER' ? session.user.venueId : body.venueId
   const cleanAud = cleanNoticeAudiences(audiences)
   const scheduleCheck = validateSchedules(schedules)
@@ -102,6 +120,11 @@ export async function POST(req: NextRequest) {
   if (!name?.trim() || !venueId) {
     return NextResponse.json({ error: 'Name and venue are required' }, { status: 400 })
   }
+
+  const parsedEvents = parseEventIds(eventIds)
+  if (!parsedEvents.ok) return NextResponse.json({ error: parsedEvents.error }, { status: 400 })
+  const eventError = await validateChecklistEventIds(venueId, parsedEvents.ids)
+  if (eventError) return NextResponse.json({ error: eventError }, { status: 400 })
 
   const ids: string[] = Array.isArray(taskIds) ? taskIds : []
   const checklist = await prisma.checklist.create({
@@ -119,6 +142,10 @@ export async function POST(req: NextRequest) {
       tasks: { create: ids.map((taskId, i) => ({ taskId, sortOrder: i })) },
     },
   })
+
+  if (parsedEvents.ids.length > 0) {
+    await syncChecklistEvents(checklist.id, parsedEvents.ids)
+  }
 
   return NextResponse.json(checklist, { status: 201 })
 }

@@ -3,7 +3,7 @@ import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { getTodayDate } from '@/lib/utils'
 import { isTaskDueOnDate } from '@/lib/scheduling'
-import { isActivatedOn, isChecklistOpen, describeNextOpen, weekdayOf } from '@/lib/checklist-activation'
+import { isActivatedOn, isChecklistOpen, describeNextOpen, weekdayOf, summariseCalendarEvent } from '@/lib/checklist-activation'
 import { resolveOutcomePolicyForChecklists, normaliseOutcomes, type OutcomePolicyChecklist } from '@/lib/task-outcomes'
 import { applicableChecklistsForStaff } from '@/lib/checklist-applicability.server'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
@@ -153,13 +153,14 @@ export async function GET(req: NextRequest) {
   })
   const checklistResult = checklists.map((c) => {
     const openNow = isChecklistOpen(
-      c.appearFromTime, c.activatedOn, today, nowHHmm, c.schedules, weekdayOf(today),
+      c.appearFromTime, c.activatedOn, today, nowHHmm, c.schedules, weekdayOf(today), c.events,
     )
     return {
       id: c.id,
       name: c.name,
       appearFromTime: c.appearFromTime,
       schedules: c.schedules,
+      events: c.events.map(summariseCalendarEvent),
       // Force-opened by an admin for today's venue-local day.
       activatedToday: isActivatedOn(c.activatedOn, today),
       // Server verdict — the phone never re-derives a custom day from its clock.
@@ -169,6 +170,7 @@ export async function GET(req: NextRequest) {
         : describeNextOpen({
             schedules: c.schedules,
             appearFromTime: c.appearFromTime,
+            events: c.events,
             day: today,
             nowHHmm,
             dayOfWeek: weekdayOf(today),
@@ -187,6 +189,7 @@ export async function GET(req: NextRequest) {
       appearFromTime: c.appearFromTime,
       activatedOn: c.activatedOn,
       schedules: c.schedules,
+      events: c.events,
       allowedOutcomes: c.allowedOutcomes,
       requireOutcomeReason: c.requireOutcomeReason,
     }

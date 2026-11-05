@@ -125,6 +125,26 @@ describe('task-outcomes', () => {
     expect(policy.requireReason).toBe(true)
   })
 
+  it('uses an event-opened list only while the event is active', () => {
+    const today = new Date('2026-10-22T00:00:00.000Z') // Thursday
+    const events = [{
+      startsAt: new Date('2026-10-22T18:00:00.000Z'),
+      endsAt: new Date('2026-10-22T20:00:00.000Z'),
+      allDay: false,
+    }]
+    const checklists = [{
+      name: 'DINNER',
+      events,
+      allowedOutcomes: ['PARTIAL' as const],
+      requireOutcomeReason: true,
+    }]
+    const during = resolveOutcomePolicyForChecklists({ overrideOutcomes: false }, checklists, { today, nowHHmm: '19:00' })
+    expect(during.source).toBe('LIST')
+    expect(during.allowed).toEqual(['DONE', 'PARTIAL'])
+    const before = resolveOutcomePolicyForChecklists({ overrideOutcomes: false }, checklists, { today, nowHHmm: '17:00' })
+    expect(before.source).toBe('DEFAULT')
+  })
+
   it('lets a task override win over every checklist', () => {
     const today = new Date('2026-10-22T00:00:00.000Z')
     const policy = resolveOutcomePolicyForChecklists(

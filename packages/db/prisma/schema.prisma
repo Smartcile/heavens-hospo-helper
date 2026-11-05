@@ -1047,6 +1047,7 @@ model CalendarEvent {
   staffing  EventStaffing[]
   openShifts OpenShift[]
   shifts    Shift[]
+  checklistEvents ChecklistEvent[]
 
   @@unique([venueId, source, uid])
   @@index([venueId, startsAt])
@@ -1659,6 +1660,7 @@ model Checklist {
   trainingSteps TrainingStep[]
   audiences     ChecklistAudience[]
   schedules     ChecklistSchedule[]
+  events        ChecklistEvent[]
 
   @@index([venueId])
 }
@@ -1675,6 +1677,23 @@ model ChecklistSchedule {
   checklist   Checklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
 
   @@index([checklistId])
+}
+
+// Event activation — a list opens for the date/window of any linked calendar
+// event. Soft-deleting a link (deletedAt) removes it without losing history.
+model ChecklistEvent {
+  id              String        @id @default(uuid())
+  checklistId     String
+  calendarEventId String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+  checklist       Checklist     @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  calendarEvent   CalendarEvent @relation(fields: [calendarEventId], references: [id], onDelete: Cascade)
+
+  @@unique([checklistId, calendarEventId])
+  @@index([checklistId])
+  @@index([calendarEventId])
 }
 
 model ChecklistTask {

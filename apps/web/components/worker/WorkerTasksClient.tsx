@@ -17,6 +17,7 @@ import { Panel } from '@/components/ui/Panel'
 import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
 import { useGuidePopup } from '@/components/GuidePopup'
 import { useWorkerImmersive } from '@/components/worker/useWorkerImmersive'
+import type { CalendarEventSummary } from '@/lib/checklist-activation'
 
 type TaskState = WorkerTaskView
 type ModalTask = TaskState | null
@@ -53,6 +54,7 @@ interface ChecklistFull {
   activatedOn?: string | null
   activatedToday?: boolean
   schedules?: ChecklistScheduleRow[]
+  events?: CalendarEventSummary[]
   openNow?: boolean
   opensNext?: string | null
   allowedOutcomes?: string[]
@@ -66,6 +68,7 @@ interface ChecklistSummary {
   appearFromTime: string | null
   activatedToday: boolean
   schedules?: ChecklistScheduleRow[]
+  events?: CalendarEventSummary[]
   openNow?: boolean
   opensNext?: string | null
   taskIds: string[]
@@ -133,6 +136,7 @@ export function WorkerTasksClient({
   const [editDepts, setEditDepts] = useState<Department[]>([])
   const [editSections, setEditSections] = useState<Section[]>([])
   const [editGuides, setEditGuides] = useState<GuideLite[]>([])
+  const [editCalendarEvents, setEditCalendarEvents] = useState<CalendarEventSummary[]>([])
   const [editTasks, setEditTasks] = useState<TaskFull[]>([])
   const [editChecklists, setEditChecklists] = useState<ChecklistFull[]>([])
 
@@ -158,6 +162,7 @@ export function WorkerTasksClient({
   const [clAppearFrom, setClAppearFrom] = useState('')
   // Editable schedule rows; `toTime: ''` means "open to end of day".
   const [clSchedules, setClSchedules] = useState<{ dayOfWeek: number; fromTime: string; toTime: string }[]>([])
+  const [clEventIds, setClEventIds] = useState<string[]>([])
   const [clAllowedOutcomes, setClAllowedOutcomes] = useState<TaskOutcome[]>([...TASK_OUTCOMES])
   const [clRequireReason, setClRequireReason] = useState(false)
   const [clSelected, setClSelected] = useState<string[]>([])
@@ -213,16 +218,17 @@ export function WorkerTasksClient({
 
   async function loadEditData() {
     if (!canAuthor) return null
-    const [dR, sR, tR, taskR, clR] = await Promise.all([
+    const [dR, sR, tR, taskR, clR, evR] = await Promise.all([
       fetch('/api/worker/departments'),
       fetch('/api/worker/sections'),
       fetch('/api/worker/guides?edit=1'),
       fetch('/api/worker/tasks?edit=1'),
       fetch('/api/worker/checklists'),
+      fetch('/api/worker/calendar-events'),
     ])
     if (dR.status === 401) { router.push('/w/login'); return null }
-    const [depts, sections, guides, editTasksData, checklistsData] =
-      await Promise.all([dR.json(), sR.json(), tR.json(), taskR.json(), clR.json()])
+    const [depts, sections, guides, editTasksData, checklistsData, eventsData] =
+      await Promise.all([dR.json(), sR.json(), tR.json(), taskR.json(), clR.json(), evR.json()])
     // The list endpoint is authoring-gated and should always return an array,
     // but a failed/odd response must not crash the management strip.
     const checklists = Array.isArray(checklistsData) ? (checklistsData as ChecklistFull[]) : []
@@ -231,6 +237,7 @@ export function WorkerTasksClient({
     setEditGuides(guides as GuideLite[])
     setEditTasks(editTasksData as TaskFull[])
     setEditChecklists(checklists)
+    setEditCalendarEvents(Array.isArray(eventsData) ? (eventsData as CalendarEventSummary[]) : [])
     return { checklists }
   }
 
@@ -438,7 +445,7 @@ export function WorkerTasksClient({
     setClName(''); setClDesc('')
     setClDeptId(''); setClSectionId(''); setClSelected([])
     setClAppearFrom(''); setClError(''); setClModalOpen(true)
-    setClSchedules([])
+    setClSchedules([]); setClEventIds([])
     setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false)
   }
 
@@ -449,6 +456,7 @@ export function WorkerTasksClient({
     setClSelected(c.tasks.map(t => t.id))
     setClAppearFrom(c.appearFromTime ?? '')
     setClSchedules((c.schedules ?? []).map(s => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime ?? '' })))
+    setClEventIds((c.events ?? []).filter((e) => !e.deletedAt).map((e) => e.id))
     setClAllowedOutcomes((c.allowedOutcomes?.length ? c.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[])
     setClRequireReason(!!c.requireOutcomeReason)
     setClError(''); setClModalOpen(true)
@@ -487,6 +495,7 @@ export function WorkerTasksClient({
       departmentId: clDeptId || null, sectionId: clSectionId || null,
       appearFromTime: clAppearFrom || null, taskIds: clSelected,
       schedules: clSchedules.map(s => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })),
+      eventIds: clEventIds,
       allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason,
     }
     const url = clEditing && clEditing !== 'new' ? `/api/worker/checklists/${clEditing.id}` : '/api/worker/checklists'
@@ -772,6 +781,12 @@ export function WorkerTasksClient({
     )
   }
 
+  const clEventOptions = editCalendarEvents.map((e) => ({
+    value: e.id,
+    label: `${e.title} · ${e.date}${e.allDay ? ' ALL DAY' : ` ${e.startTime}`}`,
+    description: e.endTime ? `ENDS ${e.endTime}` : null,
+  }))
+
   return (
     <div className="min-h-screen bg-black">
       {/* Header */}
@@ -958,7 +973,9 @@ export function WorkerTasksClient({
       {/* Pending — time-gated lists as boxes, then any other tasks by dept → section */}
       <div className="px-4 py-4 space-y-4">
         {listGroups.map((lg) => {
-          const allTaskIds = checklists.find((cl) => cl.id === lg.id)?.taskIds ?? []
+          const summary = checklists.find((cl) => cl.id === lg.id)
+          const allTaskIds = summary?.taskIds ?? []
+          const listEvents = (summary?.events ?? []).filter((e) => !e.deletedAt)
           const allInList = tasks.filter((t) => allTaskIds.includes(t.id))
           const doneCount = allInList.filter((t) => t.isCompleted).length
           const totalCount = allInList.length
@@ -972,7 +989,14 @@ export function WorkerTasksClient({
                 <div className="h-full bg-success transition-all duration-500" style={{ width: `${donePct}%` }} />
               </div>
               <div className="p-3 border-b border-grey-mid flex items-center justify-between gap-2">
-                <div className="font-mono text-xs uppercase tracking-widest text-white">{lg.name}</div>
+                <div className="min-w-0">
+                  <div className="font-mono text-xs uppercase tracking-widest text-white truncate">{lg.name}</div>
+                  {listEvents.map((e) => (
+                    <span key={e.id} className="inline-block mt-1 mr-1 font-mono text-xs uppercase text-warning border border-warning/40 px-1.5 py-0.5">
+                      EVENT: {e.title}
+                    </span>
+                  ))}
+                </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {isEditMode && access.canEditList && (
                     <button
@@ -1618,6 +1642,19 @@ export function WorkerTasksClient({
               })}
               <p className="font-mono text-xs uppercase text-grey-light">
                 LEAVE EVERY DAY UNCHECKED TO USE THE APPEARS FROM TIME EVERY DAY. CLEAR A &ldquo;TO&rdquo; TIME TO STAY OPEN TO END OF DAY.
+              </p>
+            </div>
+
+            <div className="border border-grey-mid p-3 space-y-2">
+              <span className="font-mono text-xs uppercase text-grey-light tracking-wider">Calendar events (optional)</span>
+              <Combobox
+                options={clEventOptions}
+                selected={clEventIds}
+                onChange={setClEventIds}
+                placeholder="+ LINK AN EVENT..."
+              />
+              <p className="font-mono text-xs uppercase text-grey-light">
+                THE LIST OPENS ACROSS EACH LINKED EVENT&apos;S DATE/TIME AND CLOSES AFTER IT.
               </p>
             </div>
 

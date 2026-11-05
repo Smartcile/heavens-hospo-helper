@@ -3,9 +3,10 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
-import { getManagerVenueId, getAccessibleVenueIds } from '@/lib/venue-scope'
+import { getManagerVenueId, getAccessibleVenueIds, resolveScopedVenueId } from '@/lib/venue-scope'
 import { validateManualEvent } from '@/lib/manual-event'
 import { saveEventStaffing } from '@/lib/open-shifts.server'
+import { summariseCalendarEvent } from '@/lib/checklist-activation'
 
 type SessionLike = {
   user: { role: string; venueId: string; availableVenueIds: string[] }
@@ -14,6 +15,26 @@ type SessionLike = {
 function canUseVenue(session: SessionLike, venueId: string): boolean {
   if (session.user.role === 'ADMIN') return true
   return getAccessibleVenueIds(session).includes(venueId)
+}
+
+// Read-only venue event options for the checklist event picker. Returns the
+// small picker shape (title + date/time), never the full event record.
+export async function GET(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const denied = await guardAccess(session, req, 'execution.tasks.view')
+  if (denied) return denied
+
+  const scoped = resolveScopedVenueId(session, req)
+  if ('error' in scoped) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const events = await prisma.calendarEvent.findMany({
+    where: { venueId: scoped.venueId, deletedAt: null },
+    select: { id: true, venueId: true, title: true, startsAt: true, endsAt: true, allDay: true },
+    orderBy: { startsAt: 'asc' },
+    take: 1000,
+  })
+  return NextResponse.json(events.map(summariseCalendarEvent))
 }
 
 // Create a manual event on the venue calendar — the lightweight "space booking"

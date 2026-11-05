@@ -5,7 +5,16 @@
 
 import { prisma } from '@hospo-ops/db'
 import type { TaskOutcome } from '@/lib/task-outcomes'
-import type { ChecklistScheduleWindow } from '@/lib/checklist-activation'
+import type { ChecklistEventWindow, ChecklistScheduleWindow } from '@/lib/checklist-activation'
+
+export interface ApplicableChecklistEvent extends ChecklistEventWindow {
+  id: string
+  venueId: string
+  title: string
+  startsAt: Date
+  endsAt: Date | null
+  allDay: boolean
+}
 
 export interface ApplicableChecklist {
   id: string
@@ -13,6 +22,7 @@ export interface ApplicableChecklist {
   appearFromTime: string | null
   activatedOn: Date | null
   schedules: ChecklistScheduleWindow[]
+  events: ApplicableChecklistEvent[]
   allowedOutcomes: TaskOutcome[]
   requireOutcomeReason: boolean
   tasks: { taskId: string }[]
@@ -83,6 +93,26 @@ export async function applicableChecklistsForStaff(opts: {
         select: { dayOfWeek: true, fromTime: true, toTime: true },
         orderBy: [{ dayOfWeek: 'asc' }, { fromTime: 'asc' }],
       },
+      events: {
+        // Include links to soft-deleted events: the pure rule treats them as
+        // closed, and keeping the row stops a deleted-only list from falling
+        // back to "no gate = always open".
+        where: { deletedAt: null },
+        select: {
+          calendarEvent: {
+            select: {
+              id: true,
+              venueId: true,
+              title: true,
+              startsAt: true,
+              endsAt: true,
+              allDay: true,
+              deletedAt: true,
+            },
+          },
+        },
+        orderBy: { calendarEvent: { startsAt: 'asc' } },
+      },
       allowedOutcomes: true,
       requireOutcomeReason: true,
       tasks: { select: { taskId: true }, orderBy: { sortOrder: 'asc' } },
@@ -90,5 +120,11 @@ export async function applicableChecklistsForStaff(opts: {
     orderBy: [{ appearFromTime: 'asc' }, { name: 'asc' }],
   })
 
-  return { checklists, departmentIds }
+  return {
+    checklists: checklists.map((c) => ({
+      ...c,
+      events: c.events.map((e) => e.calendarEvent),
+    })),
+    departmentIds,
+  }
 }

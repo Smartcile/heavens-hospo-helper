@@ -13,7 +13,12 @@ import { moveItem } from '@/lib/array'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { getActiveVenueId } from '@/lib/active-venue'
-import { isActivatedOn, isChecklistHidden, describeNextOpen } from '@/lib/checklist-activation'
+import {
+  isActivatedOn,
+  isChecklistHidden,
+  describeNextOpen,
+  type CalendarEventSummary,
+} from '@/lib/checklist-activation'
 import { useGuidePopup } from '@/components/GuidePopup'
 
 interface Task {
@@ -66,6 +71,7 @@ interface Checklist {
   appearFromTime: string | null
   activatedOn: string | null
   schedules?: ChecklistScheduleRow[]
+  events?: CalendarEventSummary[]
   allowedOutcomes?: string[]
   requireOutcomeReason?: boolean
   department: { id: string; name: string } | null
@@ -151,6 +157,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [departments, setDepartments] = useState<Department[]>([])
   const [sections, setSections] = useState<Section[]>([])
   const [guides, setGuides] = useState<GuideLite[]>([])
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEventSummary[]>([])
   const [checklists, setChecklists] = useState<Checklist[]>([])
   const [loading, setLoading] = useState(true)
   useTasksScrollRestoration(checklistPanelRef, !loading)
@@ -180,6 +187,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [clAppearFrom, setClAppearFrom] = useState('')
   // Editable schedule rows; `toTime: ''` means "open to end of day".
   const [clSchedules, setClSchedules] = useState<{ dayOfWeek: number; fromTime: string; toTime: string }[]>([])
+  const [clEventIds, setClEventIds] = useState<string[]>([])
   const [clAllowedOutcomes, setClAllowedOutcomes] = useState<TaskOutcome[]>([...TASK_OUTCOMES])
   const [clRequireReason, setClRequireReason] = useState(false)
   const [clSaving, setClSaving] = useState(false)
@@ -197,21 +205,23 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (filterDept) params.set('departmentId', filterDept)
     const qs = params.toString() ? `?${params}` : ''
     const venueParam = filterVenue ? `?venueId=${encodeURIComponent(filterVenue)}` : ''
-    const [tR, vR, dR, sR, mR, cR] = await Promise.all([
+    const [tR, vR, dR, sR, mR, cR, eR] = await Promise.all([
       fetch(`/api/admin/tasks${qs}`),
       fetch('/api/admin/venues'),
       fetch('/api/admin/departments'),
       fetch('/api/admin/sections'),
       fetch(`/api/admin/guides${venueParam}`),
       fetch(`/api/admin/checklists${venueParam}`),
+      fetch(`/api/admin/calendar-events${venueParam}`),
     ])
-    const [tData, vData, dData, sData, mData, cData] = await Promise.all([tR.json(), vR.json(), dR.json(), sR.json(), mR.json(), cR.json()])
+    const [tData, vData, dData, sData, mData, cData, eData] = await Promise.all([tR.json(), vR.json(), dR.json(), sR.json(), mR.json(), cR.json(), eR.json()])
     setTasks(tData)
     setVenues(vData)
     setDepartments(dData)
     setSections(sData)
     setGuides(mData)
     setChecklists(cData)
+    setCalendarEvents(Array.isArray(eData) ? eData : [])
     setLoading(false)
   }
 
@@ -289,7 +299,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClName(''); setClDesc('')
     setClVenueId(role === 'MANAGER' ? sessionVenueId : (filterVenue || venues[0]?.id || ''))
     setClDeptId(''); setClSectionId(''); setClSelected([]); setClAppearFrom(''); setClError('')
-    setClSchedules([])
+    setClSchedules([]); setClEventIds([])
     setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false)
     setFilterUsage('notinthis')
   }
@@ -299,6 +309,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClVenueId(c.venueId); setClDeptId(c.departmentId ?? ''); setClSectionId(c.sectionId ?? '')
     setClSelected(c.tasks.map((t) => t.id)); setClAppearFrom(c.appearFromTime ?? ''); setClError('')
     setClSchedules((c.schedules ?? []).map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime ?? '' })))
+    setClEventIds((c.events ?? []).filter((e) => !e.deletedAt).map((e) => e.id))
     setClAllowedOutcomes((c.allowedOutcomes?.length ? c.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[])
     setClRequireReason(!!c.requireOutcomeReason)
     // Auto-scope left panel filters to match this checklist
@@ -338,7 +349,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (!clName.trim() || !clVenueId) { setClError('NAME AND VENUE ARE REQUIRED'); return }
     if (clSelected.length === 0) { setClError('ADD AT LEAST ONE TASK'); return }
     setClSaving(true); setClError('')
-    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clAppearFrom || null, schedules: clSchedules.map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })), taskIds: clSelected, allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason }
+    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clAppearFrom || null, schedules: clSchedules.map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })), eventIds: clEventIds, taskIds: clSelected, allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason }
     const url = clEditing && clEditing !== 'new' ? `/api/admin/checklists/${clEditing.id}` : '/api/admin/checklists'
     const method = clEditing && clEditing !== 'new' ? 'PUT' : 'POST'
     const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -375,6 +386,13 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const taskById = new Map(tasks.map((t) => [t.id, t]))
   const clDeptOptions = [{ value: '', label: 'WHOLE VENUE' }, ...departments.filter((d) => d.venueId === clVenueId).map((d) => ({ value: d.id, label: d.name }))]
   const clSectionOptions = [{ value: '', label: 'NO SECTION' }, ...sections.filter((s) => s.departmentId === clDeptId).map((s) => ({ value: s.id, label: s.name }))]
+  const clEventOptions = calendarEvents
+    .filter((e) => e.venueId === clVenueId)
+    .map((e) => ({
+      value: e.id,
+      label: `${e.title} · ${e.date}${e.allDay ? ' ALL DAY' : ` ${e.startTime}`}`,
+      description: e.endTime ? `ENDS ${e.endTime}` : null,
+    }))
   // Add-a-task dropdown is scoped to the checklist's department/section (drag in
   // from the left to add anything else).
   const clAddOptions = [
@@ -430,7 +448,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const nowHHmm = `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`
   const today = new Date()
   const todayDow = today.getDay()
-  const gatedLists = checklists.filter((c) => isChecklistHidden(c.appearFromTime, c.activatedOn, today, nowHHmm, c.schedules, todayDow))
+  const gatedLists = checklists.filter((c) => isChecklistHidden(c.appearFromTime, c.activatedOn, today, nowHHmm, c.schedules, todayDow, c.events))
 
   // Group tasks: Department → Section, with a per-department "general" bucket.
   const deptGroups: { key: string; name: string; colour: string | null; sections: { id: string; name: string; tasks: Task[] }[]; loose: Task[] }[] = []
@@ -657,6 +675,19 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 </p>
               </div>
 
+              <div className="border border-grey-mid p-3 space-y-2">
+                <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">Calendar events (optional)</h3>
+                <Combobox
+                  options={clEventOptions}
+                  selected={clEventIds}
+                  onChange={setClEventIds}
+                  placeholder="+ LINK AN EVENT..."
+                />
+                <p className="font-mono text-xs uppercase text-grey-light">
+                  THE LIST OPENS ACROSS EACH LINKED EVENT&apos;S DATE/TIME AND CLOSES AFTER IT. A LINKED LIST IS CLOSED OUTSIDE ITS EVENTS UNLESS A SCHEDULE OR APPEARS-FROM TIME ALSO OPENS IT.
+                </p>
+              </div>
+
               <OutcomeOptions
                 allowed={clAllowedOutcomes}
                 requireReason={clRequireReason}
@@ -739,6 +770,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                       <div className="flex flex-wrap items-center gap-1.5">
                         {c.section ? <Badge>{c.section.name}</Badge> : c.department ? <Badge>{c.department.name}</Badge> : <Badge>WHOLE VENUE</Badge>}
                         {c.schedules?.length ? <Badge variant="warning">{c.schedules.length} WINDOWS</Badge> : c.appearFromTime && <Badge variant="warning">FROM {c.appearFromTime}</Badge>}
+                        {c.events?.filter((e) => !e.deletedAt).map((e) => <Badge key={e.id}>EVENT: {e.title}</Badge>)}
                         {isActivatedOn(c.activatedOn, today) && <Badge variant="success">ACTIVE TODAY</Badge>}
                         <span className="font-mono text-xs text-grey-light">{c.tasks.length} TASK{c.tasks.length !== 1 ? 'S' : ''}</span>
                       </div>
@@ -761,7 +793,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                   </p>
                   {gatedLists.map((c) => {
                     const active = isActivatedOn(c.activatedOn, today)
-                    const opensLabel = describeNextOpen({ schedules: c.schedules, appearFromTime: c.appearFromTime, day: today, nowHHmm, dayOfWeek: todayDow })
+                    const opensLabel = describeNextOpen({ schedules: c.schedules, appearFromTime: c.appearFromTime, events: c.events, day: today, nowHHmm, dayOfWeek: todayDow })
                     return (
                       <div key={c.id} className="bg-grey-dark border border-grey-mid p-3 flex items-center justify-between gap-2">
                         <div className="min-w-0">
@@ -769,6 +801,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                           <div className="flex flex-wrap items-center gap-1.5 mt-1">
                             <Badge variant="warning">{opensLabel ?? 'SCHEDULED'}</Badge>
                             {c.section ? <Badge>{c.section.name}</Badge> : c.department ? <Badge>{c.department.name}</Badge> : <Badge>WHOLE VENUE</Badge>}
+                            {c.events?.filter((e) => !e.deletedAt).map((e) => <Badge key={e.id}>EVENT: {e.title}</Badge>)}
                             {active && <Badge variant="success">ACTIVE TODAY</Badge>}
                           </div>
                         </div>
