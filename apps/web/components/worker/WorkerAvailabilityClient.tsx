@@ -17,6 +17,7 @@ import {
   type AvailabilityPreset,
   type AvailabilityScope,
   type AvailabilitySeries,
+  WORKER_EDIT_SCOPES,
 } from '@/lib/availability'
 import {
   formatDateLong,
@@ -76,6 +77,7 @@ export function WorkerAvailabilityClient() {
   const [view, setView] = useState<'month' | 'week'>(initialView)
   const [data, setData] = useState<AvailabilityData | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
+  const [removalOpen, setRemovalOpen] = useState(false)
 
   useWorkerImmersive(!!selected)
 
@@ -185,6 +187,29 @@ export function WorkerAvailabilityClient() {
     load()
   }
 
+  // Ask a manager to remove the weekly series from the selected day onwards.
+  // This is a request only — the server never deletes anything here.
+  async function requestSeriesRemoval() {
+    const entry = selected ? entryByDate.get(selected) : undefined
+    if (!selected || !entry?.seriesId) return
+    setSaving(true); setError('')
+    const r = await fetch('/api/worker/availability/series-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: selected, seriesId: entry.seriesId }),
+    })
+    setSaving(false)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setError((d.error ?? 'COULD NOT SEND THE REMOVAL REQUEST').toUpperCase())
+      return
+    }
+    setRemovalOpen(false)
+    setSelected(null)
+    setFlash('SERIES REMOVAL REQUEST SENT — YOUR MANAGER WILL CONFIRM')
+    load()
+  }
+
   // Notes-only PATCH — applies immediately, even on a manager-locked day.
   async function saveNote(dateKey: string, notes: string | null) {
     const entry = entryByDate.get(dateKey)
@@ -279,7 +304,7 @@ export function WorkerAvailabilityClient() {
                 <div className="min-w-0">
                   <div className="font-mono text-xs text-white uppercase">{formatDateLong(req.date)}</div>
                   <div className="font-mono text-2xs uppercase text-grey-light">
-                    {req.action === 'CLEAR' ? 'CANCEL' : 'CHANGE'} · {req.scope === 'THIS' ? 'JUST THIS DAY' : req.scope === 'FROM' ? 'FROM THIS DAY' : 'ALL IN SERIES'}
+                    {req.action === 'CLEAR' ? (req.seriesId ? 'REMOVE SERIES' : 'CANCEL') : 'CHANGE'} · {req.scope === 'THIS' ? 'JUST THIS DAY' : req.scope === 'FROM' ? 'FROM THIS DAY' : 'ALL IN SERIES'}
                   </div>
                   {requestNote && (
                     <div title={requestNote} className="max-w-[16rem] truncate font-mono text-2xs uppercase text-grey-light">
@@ -441,13 +466,54 @@ export function WorkerAvailabilityClient() {
             entry={selectedEntry}
             series={selectedSeries}
             presets={data.presets}
-            allowSeriesScope={false}
+            allowedScopes={WORKER_EDIT_SCOPES}
+            allowSeriesEnd={false}
+            initialScope="FROM"
+            canRequestRemoval={!!selectedEntry?.seriesId}
+            onRequestSeriesRemoval={() => setRemovalOpen(true)}
             busy={saving}
             error={error || null}
             onSave={save}
             onSaveNote={(notes) => saveNote(selected, notes)}
             onClose={() => { if (!saving) { setSelected(null); setError('') } }}
           />
+        )}
+      </Modal>
+
+      {/* Series-removal request confirmation */}
+      <Modal
+        isOpen={removalOpen}
+        onClose={() => { if (!saving) setRemovalOpen(false) }}
+        title="REQUEST SERIES REMOVAL"
+        size="sm"
+      >
+        {selected && (
+          <div className="space-y-4">
+            <p className="font-mono text-sm text-white uppercase">{formatDateLong(selected)}</p>
+            <p className="font-mono text-2xs uppercase text-warning border border-warning/50 bg-warning/10 px-2 py-1.5">
+              THIS ASKS A MANAGER TO REMOVE THE WEEKLY SERIES FROM THIS DAY ONWARDS. NOTHING IS DELETED
+              UNTIL THEY CONFIRM. PAST AND LOCKED DAYS ARE LEFT ALONE.
+            </p>
+            {error && <p className="font-mono text-xs text-danger">{error}</p>}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => void requestSeriesRemoval()}
+                disabled={saving}
+                className="flex-1 h-11 border border-danger text-danger font-mono font-bold text-xs uppercase hover:bg-danger hover:text-black transition-colors disabled:opacity-40"
+              >
+                {saving ? 'SENDING_' : 'SEND REMOVAL REQUEST'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setRemovalOpen(false)}
+                disabled={saving}
+                className="h-11 px-4 border border-grey-mid text-grey-light font-mono text-xs uppercase hover:border-white hover:text-white transition-colors disabled:opacity-40"
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
         )}
       </Modal>
     </div>

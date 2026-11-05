@@ -12,8 +12,12 @@ const { db } = vi.hoisted(() => {
     },
     availabilityEditRequest: {
       create: vi.fn(),
+      findFirst: vi.fn(),
       findUnique: vi.fn(),
       update: vi.fn(),
+    },
+    venue: {
+      findUnique: vi.fn(),
     },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(db)),
   }
@@ -30,15 +34,17 @@ import {
   markEditRequestApplied,
   planClear,
   planSet,
+  requestSeriesRemoval,
   saveAvailability,
   withdrawEditRequest,
   type AvailabilityPayload,
 } from '@/lib/availability.server'
-import { SERIES_HORIZON_WEEKS } from '@/lib/availability'
+import { SERIES_HORIZON_WEEKS, WORKER_EDIT_SCOPES } from '@/lib/availability'
 
 const day = (key: string) => new Date(`${key}T00:00:00Z`)
 
 const gate = { todayKey: '2026-10-08', lockDays: 0, bypass: false }
+const workerGate = { ...gate, allowedScopes: WORKER_EDIT_SCOPES }
 const adminGate = { todayKey: '2026-10-08', lockDays: 0, bypass: true }
 
 const payload: AvailabilityPayload = {
@@ -56,6 +62,8 @@ beforeEach(() => {
   db.staffAvailability.updateMany.mockResolvedValue({ count: 0 })
   db.staffAvailability.createMany.mockResolvedValue({ count: 0 })
   db.availabilityEditRequest.create.mockResolvedValue({ id: 'req1' })
+  db.availabilityEditRequest.findFirst.mockResolvedValue(null)
+  db.venue.findUnique.mockResolvedValue({ timezone: 'Pacific/Auckland' })
   db.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(db))
 })
 
@@ -194,18 +202,39 @@ describe('series day detach (THIS scope)', () => {
     expect(out.plan.syncSeriesEnd).toBe(true)
   })
 
-  it('a worker FROM edit on the final occurrence still detaches and re-pins', async () => {
+  it('a worker FROM edit writes from the anchor onwards in place and keeps the series', async () => {
     db.staffAvailability.findMany.mockResolvedValueOnce(fixture)
     const out = await planSet(
-      { staffId: 'st1', dateKey: '2026-10-22', payload, repeat: null, scope: 'FROM', seriesId: 's1' },
-      { ...gate, forceScopeThis: true },
+      { staffId: 'st1', dateKey: '2026-10-08', payload, repeat: null, scope: 'FROM', seriesId: 's1' },
+      workerGate,
     )
     expect(out.ok).toBe(true)
     if (!out.ok) return
-    expect(out.plan.writeDates).toEqual(['2026-10-22'])
+    expect(out.plan.writeDates).toEqual(['2026-10-08', '2026-10-15', '2026-10-22'])
+    expect(out.plan.seriesId).toBe('s1')
+    expect(out.plan.syncSeriesId).toBeNull()
+    expect(out.plan.syncSeriesEnd).toBe(false)
+  })
+
+  it('a worker THIS edit still detaches just the clicked day', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce(fixture)
+    const out = await planSet(
+      { staffId: 'st1', dateKey: '2026-10-15', payload, repeat: null, scope: 'THIS', seriesId: 's1' },
+      workerGate,
+    )
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.plan.writeDates).toEqual(['2026-10-15'])
     expect(out.plan.seriesId).toBeNull()
     expect(out.plan.syncSeriesId).toBe('s1')
-    expect(out.plan.syncSeriesEnd).toBe(true)
+  })
+
+  it('rejects a past anchor for a worker series edit', async () => {
+    const out = await planSet(
+      { staffId: 'st1', dateKey: '2026-09-24', payload, repeat: null, scope: 'FROM', seriesId: 's1' },
+      workerGate,
+    )
+    expect(out).toEqual({ ok: false, error: 'THAT DAY IS IN THE PAST' })
   })
 
   it('does not re-pin an open-ended series when its last occurrence detaches', async () => {
@@ -331,11 +360,11 @@ describe('day-level locking', () => {
     expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
   })
 
-  it('forceScopeThis turns a worker FROM/ALL series edit into a THIS detach', async () => {
+  it('clamps a worker ALL series edit to THIS (never widens the edit)', async () => {
     db.staffAvailability.findMany.mockResolvedValueOnce(fixture)
     const out = await planSet(
       { staffId: 'st1', dateKey: '2026-10-22', payload, repeat: null, scope: 'ALL', seriesId: 's1' },
-      { ...gate, forceScopeThis: true },
+      workerGate,
     )
     expect(out.ok).toBe(true)
     if (!out.ok) return
@@ -344,11 +373,11 @@ describe('day-level locking', () => {
     expect(out.plan.syncSeriesId).toBe('s1')
   })
 
-  it('forceScopeThis turns a worker FROM/ALL clear into a THIS clear', async () => {
+  it('clamps a worker ALL series clear to THIS', async () => {
     db.staffAvailability.findMany.mockResolvedValueOnce(fixture)
     const out = await planClear(
       { staffId: 'st1', dateKey: '2026-10-22', scope: 'ALL', seriesId: 's1' },
-      { ...gate, forceScopeThis: true },
+      workerGate,
     )
     expect(out.ok).toBe(true)
     if (!out.ok) return
@@ -455,6 +484,115 @@ describe('weekly request cut-off', () => {
   })
 })
 
+describe('requestSeriesRemoval', () => {
+  const series = [
+    { date: day('2026-10-01'), seriesEndDate: null },
+    { date: day('2026-10-15'), seriesEndDate: null },
+    { date: day('2026-10-22'), seriesEndDate: null },
+  ]
+
+  it('always files a CLEAR/FROM request and never executes the clear', async () => {
+    db.staffAvailability.findMany
+      .mockResolvedValueOnce(series)
+      .mockResolvedValueOnce([])
+
+    const out = await requestSeriesRemoval(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-08', seriesId: 's1', reason: 'MOVING' },
+      workerGate,
+    )
+
+    expect(out).toMatchObject({ mode: 'REQUEST', requestId: 'req1', skipped: [] })
+    expect(db.availabilityEditRequest.create).toHaveBeenCalledTimes(1)
+    const data = db.availabilityEditRequest.create.mock.calls[0][0].data
+    expect(data.action).toBe('CLEAR')
+    expect(data.seriesId).toBe('s1')
+    expect(data.payload.scope).toBe('FROM')
+    expect(data.payload.removeDates).toEqual(['2026-10-15', '2026-10-22'])
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('skips manager-locked days and reports them', async () => {
+    db.staffAvailability.findMany
+      .mockResolvedValueOnce(series)
+      .mockResolvedValueOnce([{ date: day('2026-10-15') }])
+
+    const out = await requestSeriesRemoval(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-08', seriesId: 's1', reason: null },
+      workerGate,
+    )
+
+    expect(out).toMatchObject({ mode: 'REQUEST', skipped: ['2026-10-15'] })
+    const plan = db.availabilityEditRequest.create.mock.calls[0][0].data.payload
+    expect(plan.removeDates).toEqual(['2026-10-22'])
+  })
+
+  it('rejects a duplicate pending removal for the same series with a 409', async () => {
+    db.availabilityEditRequest.findFirst.mockResolvedValueOnce({ id: 'existing' })
+
+    const out = await requestSeriesRemoval(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-08', seriesId: 's1', reason: null },
+      workerGate,
+    )
+
+    expect(out).toEqual({ error: 'SERIES REMOVAL ALREADY REQUESTED', status: 409 })
+    expect(db.availabilityEditRequest.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects a past anchor before doing any work', async () => {
+    const out = await requestSeriesRemoval(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-01', seriesId: 's1', reason: null },
+      workerGate,
+    )
+
+    expect(out).toEqual({ error: 'THAT DAY IS IN THE PAST', status: 400 })
+    expect(db.availabilityEditRequest.create).not.toHaveBeenCalled()
+  })
+
+  it('reports an unknown series as a 400', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([])
+
+    const out = await requestSeriesRemoval(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-08', seriesId: 's1', reason: null },
+      workerGate,
+    )
+
+    expect(out).toMatchObject({ error: 'SERIES NOT FOUND', status: 400 })
+    expect(db.availabilityEditRequest.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('apply-time guard', () => {
+  it('skips dates that are now past or manager-locked when applying', async () => {
+    db.availabilityEditRequest.findUnique.mockResolvedValueOnce({
+      id: 'r1',
+      staffId: 'st1',
+      venueId: 'v1',
+      status: 'PENDING',
+      deletedAt: null,
+      action: 'CLEAR',
+      payload: {
+        action: 'CLEAR',
+        anchor: '2026-10-08',
+        scope: 'FROM',
+        availability: null,
+        writeDates: [],
+        removeDates: ['2026-10-01', '2026-10-15', '2026-10-22'],
+        seriesId: 's1',
+        syncSeriesId: null,
+        seriesEndDate: null,
+        syncSeriesEnd: false,
+      },
+    })
+    db.staffAvailability.findMany.mockResolvedValueOnce([{ date: day('2026-10-15') }])
+
+    const out = await applyEditRequest('r1', 'admin1', null, { todayKey: '2026-10-08' })
+
+    expect(out).toEqual({ applied: true, skipped: ['2026-10-01', '2026-10-15'] })
+    expect(db.staffAvailability.updateMany.mock.calls[0][0].where.date.in).toEqual([day('2026-10-22')])
+    expect(db.availabilityEditRequest.update).toHaveBeenCalled()
+  })
+})
+
 describe('availability notes', () => {
   const rawNote = { isAllDay: true, type: 'UNAVAILABLE', notes: '  NEED SUNDAY OFF  ' }
 
@@ -524,7 +662,7 @@ describe('availability notes', () => {
       },
     })
 
-    expect(await applyEditRequest('r1', 'admin1')).toBe(true)
+    expect(await applyEditRequest('r1', 'admin1', null, { todayKey: '2026-10-08' })).toEqual({ applied: true, skipped: [] })
     const data = db.staffAvailability.updateMany.mock.calls[0][0].data
     expect(data.notes).toBe('NEED SUNDAY OFF')
     // Applying a request is a manager confirmation: the day locks.

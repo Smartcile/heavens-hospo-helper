@@ -198,7 +198,7 @@ describe('WorkerAvailabilityClient', () => {
     expect(screen.getByText('MON')).toBeDefined()
   })
 
-  it('shows a manager lock and sends the series save as a THIS change request', async () => {
+  it('shows a manager lock and sends the series save as a FROM change request', async () => {
     useMonthView()
     const locked = {
       ...payload,
@@ -220,16 +220,71 @@ describe('WorkerAvailabilityClient', () => {
     fireEvent.click(screen.getByText(String(parseDay(todayKey).getUTCDate())))
 
     expect(await screen.findByText(/YOUR CHANGES WILL BE SENT AS A REQUEST/)).toBeDefined()
-    expect(screen.queryByText('FROM THIS DAY ONWARDS')).toBeNull()
+    expect(screen.getByText('FROM THIS DAY ONWARDS')).toBeDefined()
+    expect(screen.queryByText('ALL IN THE SERIES')).toBeNull()
     fireEvent.click(screen.getByText('SEND CHANGE REQUEST'))
 
     await waitFor(() => {
       const post = spy.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')
       expect(post).toBeDefined()
       const body = JSON.parse((post![1] as RequestInit).body as string)
-      expect(body.scope).toBe('THIS')
+      expect(body.scope).toBe('FROM')
       expect(body.seriesId).toBe('s1')
     })
+  })
+
+  it('requests removal of a weekly series and never deletes it', async () => {
+    useMonthView()
+    const seriesDay = {
+      ...payload,
+      entries: [{
+        ...payload.entries[0],
+        seriesId: 's1',
+        type: 'UNAVAILABLE',
+      }],
+      series: [{ id: 's1', startDate: todayKey, endDate: null, count: 104 }],
+    }
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('/series-request')) {
+        return { ok: true, status: 200, json: async () => ({ mode: 'REQUEST', requestId: 'r2', skipped: [] }) } as Response
+      }
+      return { ok: true, status: 200, json: async () => seriesDay } as Response
+    })
+
+    render(<WorkerAvailabilityClient />)
+    await screen.findByText('MY AVAILABILITY')
+    fireEvent.click(screen.getByText(String(parseDay(todayKey).getUTCDate())))
+    fireEvent.click(await screen.findByText('REQUEST REMOVAL'))
+
+    expect(await screen.findByText(/ASKS A MANAGER TO REMOVE THE WEEKLY SERIES/)).toBeDefined()
+    fireEvent.click(screen.getByText('SEND REMOVAL REQUEST'))
+
+    await waitFor(() => {
+      const post = spy.mock.calls.find((c) => String(c[0]).includes('/series-request'))
+      expect(post).toBeDefined()
+      expect((post![1] as RequestInit).method).toBe('POST')
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body.seriesId).toBe('s1')
+      expect(body.date).toBe(todayKey)
+    })
+    expect(await screen.findByText(/SERIES REMOVAL REQUEST SENT/)).toBeDefined()
+    expect(spy.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'DELETE')).toBe(false)
+  })
+
+  it('labels a pending series removal as REMOVE SERIES', async () => {
+    const withRemoval = {
+      ...payload,
+      requests: [{
+        id: 'r1', date: todayKey, scope: 'FROM', action: 'CLEAR', seriesId: 's1',
+        reason: null, payload: null,
+      }],
+    }
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => withRemoval } as Response)
+
+    render(<WorkerAvailabilityClient />)
+    await screen.findByText('MY AVAILABILITY')
+
+    expect(screen.getByText(/REMOVE SERIES · FROM THIS DAY/)).toBeDefined()
   })
 
   it('saves a note on a locked day through the notes-only PATCH', async () => {

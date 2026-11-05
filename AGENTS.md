@@ -626,14 +626,27 @@ The shared `AvailabilityDayEditor` renders locked days read-only for admins
 (`LOCKED — UNLOCK TO EDIT`, `SAVE NOTE`, `UNLOCK`) and lets workers submit a
 change request (`SEND CHANGE REQUEST`).
 
-**Worker series edits (#20) + admin bulk clear (#13) + weekly default (#7) +
-in-place refresh (#16)** - worker writes pass `forceScopeThis: true`, so a
-series edit always detaches **just the clicked day** (`seriesId: null`,
-`syncSeriesId` keeps the remaining series end correct); the worker editor hides
-FROM/ALL and CHANGE SERIES END and says `THIS DAY LEAVES THE SERIES`. **Workers
-edit a day, they never clear it**: the worker UI has no per-day `CLEAR` and no
-`SELECT DAYS` bulk clear, and `/api/worker/availability/clear` plus
-`DELETE /api/worker/availability/[id]` return 403. Only the admin grid supports
+**Worker series edits + removal requests (#59) + admin bulk clear (#13) +
+weekly default (#7) + in-place refresh (#16)** - worker writes pass
+`allowedScopes: WORKER_EDIT_SCOPES` (`THIS`/`FROM`), so a worker may detach one
+day (`THIS`, `seriesId: null`, `syncSeriesId` keeps the remaining series end
+correct) or apply the change to every occurrence from the clicked day onwards
+(`FROM`, rows rewritten in place with the same `seriesId`; earlier days are
+never touched). `ALL` is outside the worker policy and is clamped to `THIS`,
+and an anchor before the venue-local today is rejected with a 400. The worker
+editor hides `ALL` and `CHANGE SERIES END`, defaults a series edit to `FROM`,
+and shows `FROM <date> ONWARDS — PAST DAYS UNCHANGED`; `JUST THIS DAY` stays the
+explicit one-off detach. A series day also offers **`REQUEST REMOVAL`**, which
+posts to `POST /api/worker/availability/series-request`: it validates the
+series belongs to the session's staff member, files a `CLEAR`/`FROM`
+`AvailabilityEditRequest` for future occurrences only, skips manager-locked days
+into `skipped`, and **never deletes anything** (a duplicate pending removal for
+the same series returns 409). `applyEditRequest` re-checks at APPLY time and
+leaves out dates that are now past or manager-locked, reporting them in
+`skipped`. **Workers edit a day, they never clear it**: the worker UI has no
+per-day `CLEAR` and no `SELECT DAYS` bulk clear, and
+`/api/worker/availability/clear` plus `DELETE /api/worker/availability/[id]`
+stay 403. Only the admin grid supports
 **bulk clear** (shift-click a range on one staff row, or `SELECT DAYS`, then
 `CLEAR SELECTED (n)` with confirmation); clearing loops the existing `/clear`
 route one day at a time with `scope: 'THIS'` (no bulk API). Users with
@@ -658,7 +671,9 @@ gets **`DELETE SERIES`** for **ADMIN** only, opening a warning modal with
 `POST /api/admin/availability/delete-series` (strict ADMIN; reuses
 `clearAvailability` with `bypass`, soft-deletes), skips locked days (reported as
 `skipped`) and dismisses pending `AvailabilityEditRequest` rows for the removed
-dates. Managers keep the grid clear; the old `/clear` route is unchanged.
+dates. Managers keep the grid clear; the old `/clear` route is unchanged. The
+admin review card labels a CLEAR request by its scope — `CLEAR THIS DAY` /
+`REMOVE SERIES FROM THIS DAY` / `REMOVE WHOLE SERIES`.
 
 The worker view
 defaults to **WEEKLY** and remembers the toggle in
@@ -2963,6 +2978,8 @@ pushing, run: `npm run lint && npm run test`.
 | Target | Coverage |
 |---|---|
 | `app/api/admin/availability/route.test.ts` — GET includes the off-range edit request's current row; POST returns the locked-day 409 | ✅ (2 tests) |
+| `app/api/worker/availability/series-request/route.test.ts` — auth, required date/series, request delegation, 404/409 passthrough | ✅ (5 tests) |
+| `app/api/worker/availability/route.test.ts` — auth, past-anchor 400, FROM + worker scope policy passthrough | ✅ (3 tests) |
 | `app/api/worker/tasks/[id]/complete/route.test.ts` — completion responds without waiting for the best-effort follow-ups | ✅ (1 test) |
 | `app/api/admin/swiftpos/staff/route.test.ts` — LINK sets the PIN from the clerk id, keeps an existing PIN, and links without a PIN on a clash | ✅ (3 tests) |
 

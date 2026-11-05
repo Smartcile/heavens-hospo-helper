@@ -8,6 +8,7 @@ import {
   availabilityState,
   AVAILABILITY_WEEKDAYS,
   canWorkerEditDate,
+  clampAvailabilityScope,
   conflictsWithShift,
   cutoffDeadlineKey,
   DEFAULT_AVAILABILITY_PRESETS,
@@ -43,6 +44,7 @@ import {
   resolveAvailabilityPresets,
   seriesEndDateKey,
   SERIES_HORIZON_WEEKS,
+  WORKER_EDIT_SCOPES,
   snapWindow,
   spliceWindow,
   statusMeta,
@@ -668,5 +670,22 @@ describe('weekly request cut-off', () => {
   it('describes the cut-off for settings and hints', () => {
     expect(describeAvailabilityCutoff({ day: 4, time: '17:00' })).toBe('THURSDAY 17:00')
     expect(AVAILABILITY_WEEKDAYS[0]).toBe('SUNDAY')
+  })
+})
+
+describe('clampAvailabilityScope', () => {
+  it('keeps a requested scope the caller may use', () => {
+    expect(clampAvailabilityScope('FROM', WORKER_EDIT_SCOPES)).toBe('FROM')
+    expect(clampAvailabilityScope('THIS', WORKER_EDIT_SCOPES)).toBe('THIS')
+  })
+
+  it('clamps a disallowed or missing scope to THIS', () => {
+    expect(clampAvailabilityScope('ALL', WORKER_EDIT_SCOPES)).toBe('THIS')
+    expect(clampAvailabilityScope(null, WORKER_EDIT_SCOPES)).toBe('THIS')
+  })
+
+  it('allows every scope when no restriction is given', () => {
+    expect(clampAvailabilityScope('ALL')).toBe('ALL')
+    expect(clampAvailabilityScope('FROM')).toBe('FROM')
   })
 })

@@ -4,7 +4,7 @@ import { getWorkerSession } from '@/lib/worker-session'
 import { formatDateKey } from '@/lib/scheduling'
 import { getTodayDate } from '@/lib/utils'
 import { keyOfDay } from '@/lib/date-nav'
-import { resolveAvailabilityPresets, parseAvailabilityCutoff } from '@/lib/availability'
+import { resolveAvailabilityPresets, parseAvailabilityCutoff, WORKER_EDIT_SCOPES } from '@/lib/availability'
 import {
   loadPendingRequests,
   loadSeriesSummaries,
@@ -110,6 +110,11 @@ export async function POST(req: NextRequest) {
   })
   const now = venueNow(venue?.timezone)
 
+  // FROM edits are anchored on the clicked day and must never reach backwards.
+  if (dateKey < now.key) {
+    return NextResponse.json({ error: 'THAT DAY IS IN THE PAST' }, { status: 400 })
+  }
+
   const out = await saveAvailability(
     {
       staffId: session.staffId,
@@ -127,9 +132,10 @@ export async function POST(req: NextRequest) {
       cutoff: parseAvailabilityCutoff(venue?.availabilityCutoff),
       nowMinutes: now.minutes,
       bypass: false,
-      // A worker can never widen an edit to later occurrences: the server
-      // detaches just the clicked day even if an old client sends FROM/ALL.
-      forceScopeThis: true,
+      // Workers may edit one day (THIS, which detaches it) or the series from
+      // the clicked day onwards (FROM). ALL is excluded — a stale client that
+      // sends it is clamped to THIS rather than widening the edit.
+      allowedScopes: WORKER_EDIT_SCOPES,
     },
   )
 

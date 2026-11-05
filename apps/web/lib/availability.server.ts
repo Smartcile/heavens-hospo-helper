@@ -15,6 +15,7 @@ import { formatDateKey } from '@/lib/scheduling'
 import {
   autoComplement,
   canWorkerEditDate,
+  clampAvailabilityScope,
   initialStatus,
   isPastCutoff,
   normaliseWindows,
@@ -30,6 +31,7 @@ import {
   type AvailabilityWindow,
   type Repeat,
 } from '@/lib/availability'
+import { getTodayDate } from '@/lib/utils'
 
 export interface AvailabilityPayload {
   isAllDay: boolean
@@ -61,8 +63,8 @@ export interface AvailabilityGate {
   lockDays: number
   /** Admin/manager backend: skip the past/lock and approval protections. */
   bypass: boolean
-  /** Worker writes: a series edit always detaches just the clicked day. */
-  forceScopeThis?: boolean
+  /** Scopes this caller may choose. Undefined = every scope is allowed. */
+  allowedScopes?: AvailabilityScope[]
   /** Weekly request cut-off — changes for a week past its deadline file a request. */
   cutoff?: AvailabilityCutoff | null
   /** Venue-local minutes since midnight, for the cut-off deadline. */
@@ -230,14 +232,18 @@ export async function planSet(
 
   // Editing an existing series occurrence.
   if (input.seriesId) {
+    if (!gate.bypass && input.dateKey < gate.todayKey) {
+      return { ok: false, error: 'THAT DAY IS IN THE PAST' }
+    }
     const rows = await seriesRows(staffId, input.seriesId)
     if (rows.length === 0) return { ok: false, error: 'SERIES NOT FOUND' }
     const dates = rows.map((r) => formatDateKey(r.date))
     const storedEnd = rows.find((r) => r.seriesEndDate)?.seriesEndDate
     const currentEnd = storedEnd ? formatDateKey(storedEnd) : null
-    // Workers never choose a series scope: an edit always detaches the clicked
-    // day, so later occurrences can never be overwritten from the phone.
-    const scope = gate.forceScopeThis ? 'THIS' : (input.scope ?? 'THIS')
+    // Clamp the requested scope to what this caller may use. A worker gets
+    // THIS/FROM; an unrecognised or disallowed scope (e.g. ALL) falls back to
+    // the narrowest change rather than widening the edit.
+    const scope = clampAvailabilityScope(input.scope, gate.allowedScopes)
     // A THIS edit on a series occurrence detaches the day: it is written as a
     // standalone row so later FROM/ALL changes to the series no longer touch it.
     const detach = scope === 'THIS'
@@ -386,10 +392,13 @@ export async function planClear(
   const skipped: string[] = []
 
   if (input.seriesId) {
+    if (!gate.bypass && input.dateKey < gate.todayKey) {
+      return { ok: false, error: 'THAT DAY IS IN THE PAST' }
+    }
     const rows = await seriesRows(input.staffId, input.seriesId)
     if (rows.length === 0) return { ok: false, error: 'SERIES NOT FOUND' }
     const dates = rows.map((r) => formatDateKey(r.date))
-    const scope = gate.forceScopeThis ? 'THIS' : (input.scope ?? 'THIS')
+    const scope = clampAvailabilityScope(input.scope, gate.allowedScopes)
     let removeDates = scope === 'THIS' ? [input.dateKey] : scope === 'FROM' ? dates.filter((d) => d >= input.dateKey) : dates
     if (removeDates.length === 0) return { ok: false, error: 'NO DAYS IN RANGE' }
 
@@ -684,6 +693,70 @@ export async function clearAvailability(
   return { mode: 'SAVED', plan: planned.plan, skipped: planned.skipped }
 }
 
+export type SeriesRemovalOutcome =
+  | { mode: 'REQUEST'; requestId: string; skipped: string[] }
+  | { error: string; locked?: string[]; status: number }
+
+/**
+ * Worker request to remove a weekly series from the clicked day onwards.
+ *
+ * This NEVER deletes anything: it files an `AvailabilityEditRequest` with a
+ * CLEAR/FROM plan for the future occurrences only. Manager-locked days are
+ * filtered out and reported as `skipped`, and past/today-plus-lockDays dates
+ * are already excluded by `planClear`'s worker gate. A duplicate pending
+ * removal for the same series is rejected with a 409.
+ */
+export async function requestSeriesRemoval(
+  input: {
+    staffId: string
+    venueId: string
+    dateKey: string
+    seriesId: string
+    reason: string | null
+  },
+  gate: AvailabilityGate,
+): Promise<SeriesRemovalOutcome> {
+  if (input.dateKey < gate.todayKey) {
+    return { error: 'THAT DAY IS IN THE PAST', status: 400 }
+  }
+
+  const existing = await prisma.availabilityEditRequest.findFirst({
+    where: {
+      staffId: input.staffId,
+      venueId: input.venueId,
+      seriesId: input.seriesId,
+      action: 'CLEAR',
+      status: 'PENDING',
+      deletedAt: null,
+    },
+    select: { id: true },
+  })
+  if (existing) return { error: 'SERIES REMOVAL ALREADY REQUESTED', status: 409 }
+
+  const planned = await planClear(
+    { staffId: input.staffId, dateKey: input.dateKey, scope: 'FROM', seriesId: input.seriesId },
+    gate,
+  )
+  if (!planned.ok) {
+    return { error: planned.error, locked: planned.locked, status: planned.locked ? 409 : 400 }
+  }
+
+  const locked = await lockedDatesAmong(input.staffId, planned.plan.removeDates)
+  const lockedSet = new Set(locked)
+  const removeDates = planned.plan.removeDates.filter((d) => !lockedSet.has(d))
+  if (removeDates.length === 0) {
+    return { error: 'NO REMOVABLE DAYS IN RANGE', locked: locked.length > 0 ? locked : undefined, status: 400 }
+  }
+
+  const plan: AvailabilityPlan = { ...planned.plan, removeDates, writeDates: [] }
+  const requestId = await storeRequest(input, plan)
+  return {
+    mode: 'REQUEST',
+    requestId,
+    skipped: [...new Set([...planned.skipped, ...locked])].sort(),
+  }
+}
+
 // ── Edit requests (admin) ─────────────────────────────────────────────────
 
 /** Admin cancel: soft-delete PENDING declarations by id, or every still-pending
@@ -740,13 +813,54 @@ export function mapEditRequest(row: EditRequestRow) {
   }
 }
 
-/** Apply a stored edit request exactly as planned (admin authority). */
-export async function applyEditRequest(id: string, actorId: string, reviewNote?: string | null): Promise<boolean> {
-  const request = await prisma.availabilityEditRequest.findUnique({ where: { id } })
-  if (!request || request.deletedAt || request.status !== 'PENDING') return false
+export interface ApplyEditResult {
+  applied: boolean
+  /** Dates left alone because they are now in the past or manager-locked. */
+  skipped: string[]
+}
 
-  const plan = request.payload as unknown as AvailabilityPlan | null
-  if (!plan) return false
+/**
+ * Apply a stored edit request exactly as planned (admin authority), with an
+ * apply-time guard: a request filed today and applied next week must not
+ * delete days that are now past, and manager-locked days stay protected even
+ * if they were editable when the request was filed.
+ */
+export async function applyEditRequest(
+  id: string,
+  actorId: string,
+  reviewNote?: string | null,
+  options?: { todayKey?: string },
+): Promise<ApplyEditResult> {
+  const request = await prisma.availabilityEditRequest.findUnique({ where: { id } })
+  if (!request || request.deletedAt || request.status !== 'PENDING') {
+    return { applied: false, skipped: [] }
+  }
+
+  const storedPlan = request.payload as unknown as AvailabilityPlan | null
+  if (!storedPlan) return { applied: false, skipped: [] }
+
+  let todayKey = options?.todayKey
+  if (!todayKey) {
+    const venue = await prisma.venue.findUnique({
+      where: { id: request.venueId },
+      select: { timezone: true },
+    })
+    todayKey = formatDateKey(getTodayDate(venue?.timezone ?? undefined))
+  }
+
+  const locked = await lockedDatesAmong(request.staffId, [
+    ...storedPlan.writeDates,
+    ...storedPlan.removeDates,
+  ])
+  const lockedSet = new Set(locked)
+  const past = [...storedPlan.writeDates, ...storedPlan.removeDates].filter((d) => d < todayKey)
+  const skipped = [...new Set([...past, ...locked])].sort()
+
+  const plan: AvailabilityPlan = {
+    ...storedPlan,
+    writeDates: storedPlan.writeDates.filter((d) => d >= todayKey && !lockedSet.has(d)),
+    removeDates: storedPlan.removeDates.filter((d) => d >= todayKey && !lockedSet.has(d)),
+  }
 
   if (request.action === 'SET') {
     // An approved request is a manager confirmation: every written day locks.
@@ -764,7 +878,7 @@ export async function applyEditRequest(id: string, actorId: string, reviewNote?:
       reviewNote: reviewNote?.trim() || null,
     },
   })
-  return true
+  return { applied: true, skipped }
 }
 
 /** Worker withdraws (cancels) their own pending edit request. The approved

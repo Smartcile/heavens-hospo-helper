@@ -113,7 +113,11 @@ interface EditorTarget {
 }
 
 function payloadSummary(req: AdminEditRequest): string {
-  if (req.action === 'CLEAR') return 'CLEAR THIS DAY'
+  if (req.action === 'CLEAR') {
+    if (req.scope === 'FROM') return 'REMOVE SERIES FROM THIS DAY'
+    if (req.scope === 'ALL') return 'REMOVE WHOLE SERIES'
+    return 'CLEAR THIS DAY'
+  }
   const av = req.payload?.availability
   if (!av) return '—'
   if (av.isAllDay) return `ALL DAY ${av.type}`
@@ -997,7 +1001,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
           <div className="border border-grey-mid p-2 space-y-1">
             <div className="font-mono text-2xs uppercase tracking-wider text-accent">PROPOSED</div>
             {req.action === 'CLEAR' ? (
-              <p className="font-mono text-xs uppercase text-danger">CLEAR THIS DAY</p>
+              <p className="font-mono text-xs uppercase text-danger">{payloadSummary(req)}</p>
             ) : proposed ? (
               <>
                 <AvailabilityBar windows={proposed.windows} isAllDay={proposed.isAllDay} type={proposed.type} labelled showType />

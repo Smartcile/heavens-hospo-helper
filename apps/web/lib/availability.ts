@@ -656,6 +656,32 @@ export function conflictsWithShift(
   return entryWindows(entry).some((w) => w.type === 'UNAVAILABLE' && windowsOverlap(w, shift))
 }
 
+/** Every scope a day editor may offer. */
+export const ALL_AVAILABILITY_SCOPES: AvailabilityScope[] = ['THIS', 'FROM', 'ALL']
+
+/**
+ * The scopes a worker may choose. A series edit can detach one day (THIS) or
+ * apply from the clicked day onwards (FROM). ALL is deliberately excluded —
+ * past days are never editable, so FROM already covers the useful range, and a
+ * hand-crafted ALL must not be able to widen an edit.
+ */
+export const WORKER_EDIT_SCOPES: AvailabilityScope[] = ['THIS', 'FROM']
+
+/**
+ * Clamp a requested scope to the scopes the caller is allowed to use. A
+ * missing or disallowed scope falls back to THIS (the narrowest change), so a
+ * stale client can never widen an edit.
+ */
+export function clampAvailabilityScope(
+  scope: AvailabilityScope | null,
+  allowedScopes?: AvailabilityScope[],
+): AvailabilityScope {
+  const allowed = allowedScopes && allowedScopes.length > 0 ? allowedScopes : ALL_AVAILABILITY_SCOPES
+  const requested = scope ?? 'THIS'
+  if (allowed.includes(requested)) return requested
+  return allowed.includes('THIS') ? 'THIS' : (allowed[0] ?? 'THIS')
+}
+
 /** A date before today (venue-local) is history — workers never edit it. */
 export function isPastDate(dateKey: string, todayKey: string): boolean {
   return dateKey < todayKey

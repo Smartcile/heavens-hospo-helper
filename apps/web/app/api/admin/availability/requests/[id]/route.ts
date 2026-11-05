@@ -33,12 +33,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const ok = action === 'APPLY'
-    ? await applyEditRequest(params.id, session.user.id, body?.reviewNote)
-    : action === 'MARK_APPLIED'
-      ? await markEditRequestApplied(params.id, session.user.id, body?.reviewNote)
-      : await discardEditRequest(params.id, session.user.id, body?.reviewNote)
+  let ok = false
+  let skipped: string[] = []
+  if (action === 'APPLY') {
+    const result = await applyEditRequest(params.id, session.user.id, body?.reviewNote)
+    ok = result.applied
+    skipped = result.skipped
+  } else if (action === 'MARK_APPLIED') {
+    ok = await markEditRequestApplied(params.id, session.user.id, body?.reviewNote)
+  } else {
+    ok = await discardEditRequest(params.id, session.user.id, body?.reviewNote)
+  }
 
   if (!ok) return NextResponse.json({ error: 'REQUEST ALREADY RESOLVED' }, { status: 409 })
-  return NextResponse.json({ success: true })
+  return NextResponse.json({ success: true, skipped })
 }
