@@ -112,6 +112,21 @@ describe('ReleaseUpdatesClient', () => {
     expect(screen.getByText('ORDERS')).toBeTruthy()
   })
 
+  it('shows the fixed date on rows and can group by fixed date', async () => {
+    installFetch(async () => response({ confirmed: true }))
+    render(<ReleaseUpdatesClient />)
+    await screen.findByText('#1 [UI] CLOSED ONE')
+
+    // Rows carry an explicit fixed date.
+    expect(screen.getAllByText('FIXED 01 JAN 2026').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'VIEW: FIXED DATE' }))
+
+    // Group headers are now the fixed day (header + row label for each issue).
+    await waitFor(() => expect(screen.getAllByText('FIXED 02 JAN 2026').length).toBeGreaterThanOrEqual(2))
+    expect(screen.getAllByText('FIXED 01 JAN 2026').length).toBeGreaterThanOrEqual(2)
+  })
+
   it('filters the worklist and progress by search', async () => {
     installFetch(async () => response({ confirmed: true }))
     render(<ReleaseUpdatesClient />)
