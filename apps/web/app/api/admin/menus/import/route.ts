@@ -5,7 +5,6 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { formatAllergens, parseAllergens } from '@/lib/allergens'
 import type { MenuImportData, MenuImportItem } from '@/lib/menu-import'
-import { syncMenuItemCategory } from '@/lib/menu-sync'
 
 class ImportError extends Error {
   status: number
@@ -51,8 +50,7 @@ function normaliseData(raw: unknown): MenuImportData {
 }
 
 // Import a parsed menu (from the pasted LLM answer) into a new or existing menu.
-// No WooCommerce writes: new products have wooProductId null, so syncMenuItemCategory
-// never triggers the create-on-missing push.
+// Purely local: new products have no WooCommerce link.
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -76,8 +74,6 @@ export async function POST(req: NextRequest) {
     if (e instanceof ImportError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
   }
-
-  const createdProductIds: string[] = []
 
   try {
     const out = await prisma.$transaction(async (tx) => {
@@ -145,7 +141,6 @@ export async function POST(req: NextRequest) {
                 isActive: true,
               },
             })
-            createdProductIds.push(product.id)
             created++
           }
 
@@ -164,9 +159,6 @@ export async function POST(req: NextRequest) {
 
       return { menuId: menu.id, created, matched, skipped }
     })
-
-    // Best-effort category mirror for the new products (DB-only: they have no Woo id).
-    for (const id of createdProductIds) await syncMenuItemCategory(id)
 
     return NextResponse.json(out)
   } catch (e) {

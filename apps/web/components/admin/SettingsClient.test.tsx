@@ -24,7 +24,6 @@ describe('SettingsClient tabs', () => {
       const url = String(input)
       const res = (data: unknown) => ({ ok: true, json: async () => data }) as Response
       if (url.includes('/api/admin/venues')) return res([{ id: 'v1', name: 'TEST VENUE' }])
-      if (url.includes('/api/admin/sync/log')) return res([])
       return res([])
     })
   })
@@ -35,9 +34,10 @@ describe('SettingsClient tabs', () => {
 
   it('renders the settings tab labels with GENERAL active by default', () => {
     render(<SettingsClient {...props} />)
-    for (const label of ['GENERAL', 'STRUCTURE', 'UNITS OF MEASURE', 'SUPPLIERS', 'QR CODES', 'SYNC', 'SWIFT POS', 'FILES']) {
+    for (const label of ['GENERAL', 'STRUCTURE', 'UNITS OF MEASURE', 'SUPPLIERS', 'QR CODES', 'SWIFT POS', 'FILES']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy()
     }
+    expect(screen.queryByRole('button', { name: 'SYNC' })).toBeNull()
     // Floor plans moved to Events → Rooms & Plans.
     expect(screen.queryByRole('button', { name: 'FLOOR PLANS' })).toBeNull()
     expect(screen.getByText('INTEGRATIONS')).toBeTruthy()
@@ -68,14 +68,8 @@ describe('SettingsClient tabs', () => {
 
   it('switching a tab pushes the settings URL', () => {
     render(<SettingsClient {...props} />)
-    fireEvent.click(screen.getByRole('button', { name: 'SYNC' }))
-    expect(mocks.push).toHaveBeenCalledWith('/admin/settings?tab=sync', { scroll: false })
-  })
-
-  it('mounts the SYNC tab from the URL', async () => {
-    mocks.params = new URLSearchParams('tab=sync')
-    render(<SettingsClient {...props} />)
-    expect(await screen.findByText('WOOCOMMERCE SYNC')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'SWIFT POS' }))
+    expect(mocks.push).toHaveBeenCalledWith('/admin/settings?tab=swiftpos', { scroll: false })
   })
 
   it('mounts the UOMS tab from the URL', async () => {
@@ -84,53 +78,6 @@ describe('SettingsClient tabs', () => {
     expect((await screen.findAllByText('UNITS OF MEASURE')).length).toBeGreaterThan(0)
   })
 
-  it('shows plugin-managed credentials read-only until MANUAL OVERRIDE, then saves the takeover', async () => {
-    vi.mocked(global.fetch).mockImplementation(
-      async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input)
-        const res = (data: unknown) => ({ ok: true, json: async () => data }) as Response
-        if (url.includes('/api/admin/venues')) return res([{ id: 'v1', name: 'TEST VENUE' }])
-        if (url.includes('/api/admin/settings/woocommerce')) {
-          const base = {
-            wcStoreUrl: 'https://shop.example.co.nz',
-            wcConsumerKey: '••••ck_1234',
-            wcConsumerSecret: '••••cs_5678',
-            wcWebhookSecret: '••••whsec_9',
-            wcActive: true,
-            lastSyncAt: null,
-            metaFieldMap: {},
-            metaFieldDefaults: {},
-          }
-          if (init?.method === 'PUT') {
-            const body = JSON.parse(String(init.body))
-            return res({ ...base, managedByPlugin: body.managedByPlugin ?? true, pairedAt: null })
-          }
-          return res({ ...base, managedByPlugin: true, pairedAt: '2026-09-01T00:00:00.000Z' })
-        }
-        return res([])
-      },
-    )
-
-    render(<SettingsClient {...props} />)
-
-    expect(await screen.findByText('MANAGED BY PLUGIN')).toBeTruthy()
-    const storeUrl = screen.getByPlaceholderText('https://yourshop.co.nz') as HTMLInputElement
-    expect(storeUrl.disabled).toBe(true)
-
-    fireEvent.click(screen.getByRole('button', { name: 'MANUAL OVERRIDE' }))
-    expect(screen.getByPlaceholderText('https://yourshop.co.nz')).toHaveProperty('disabled', false)
-
-    fireEvent.click(screen.getByRole('button', { name: 'SAVE & TAKE OVER' }))
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/api/admin/settings/woocommerce'),
-        expect.objectContaining({
-          method: 'PUT',
-          body: expect.stringContaining('"managedByPlugin":false'),
-        }),
-      )
-    })
-  })
 })
 
 describe('SettingsClient — worker session timeout', () => {
@@ -146,7 +93,6 @@ describe('SettingsClient — worker session timeout', () => {
     availabilityPresets: null,
     workerSessionTimeoutMinutes: 15,
     sharingEnabled: false,
-    sharedWooVenueId: null,
   }
 
   let fetchMock: ReturnType<typeof installFetchMock>
@@ -174,7 +120,6 @@ describe('SettingsClient — worker session timeout', () => {
         if (url.startsWith('/api/admin/calendar-feeds')) {
           return response({ feeds: [], areas: [], floorPlans: [] })
         }
-        if (url.startsWith('/api/admin/settings/woocommerce')) return response({})
         if (url.startsWith('/api/admin/api-keys')) return response([])
         if (url.startsWith('/api/admin/settings/demo-venue')) return response({ venue: null })
         return response({})

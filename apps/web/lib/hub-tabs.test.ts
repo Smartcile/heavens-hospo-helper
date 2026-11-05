@@ -27,7 +27,7 @@ describe('hub-tabs', () => {
     expect(EXECUTION_TABS.map((t) => t.id)).toEqual(['tasks', 'review', 'followups'])
     expect(TRAINING_TABS.map((t) => t.id)).toEqual(['playbook', 'pathways', 'status'])
     // Floor plans moved to Events → Rooms & Plans; FILES is admin-only.
-    expect(SETTINGS_TABS.map((t) => t.id)).toEqual(['general', 'venue', 'structure', 'uoms', 'suppliers', 'qrcodes', 'sync', 'swiftpos', 'files'])
+    expect(SETTINGS_TABS.map((t) => t.id)).toEqual(['general', 'venue', 'structure', 'uoms', 'suppliers', 'qrcodes', 'swiftpos', 'files'])
     expect(EVENTS_TABS.map((t) => t.id)).toContain('rooms')
     expect(resolveTab(EVENTS_TABS, 'rooms', null)).toEqual({ tab: 'rooms', sub: 'table-plans' })
     expect(resolveTab(EVENTS_TABS, 'rooms', 'rooms')).toEqual({ tab: 'rooms', sub: 'rooms' })

@@ -95,7 +95,6 @@ export const SETTINGS_TABS: TabDef[] = [
   { id: 'uoms', label: 'UNITS OF MEASURE' },
   { id: 'suppliers', label: 'SUPPLIERS' },
   { id: 'qrcodes', label: 'QR CODES' },
-  { id: 'sync', label: 'SYNC' },
   { id: 'swiftpos', label: 'SWIFT POS' },
   { id: 'files', label: 'FILES' }, // admin-only — see SettingsClient
 ]

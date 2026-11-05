@@ -3,12 +3,11 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
-import { pushProduct } from '@/lib/woo-push'
 
 // Set a linked product's image from a product-reference table. The image is
-// shared with the menu item (and pushed to WooCommerce), so the reference and
-// the product — and the store — always show the same photo. Guarded by the
-// playbook permission, since a reference author may not hold ops.*.
+// shared with the menu item, so the reference and the product always show the
+// same photo. Guarded by the playbook permission, since a reference author may
+// not hold ops.*.
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -31,11 +30,6 @@ export async function POST(req: NextRequest) {
   }
 
   await prisma.menuItem.update({ where: { id: item.id }, data: { imageUrl: imageUrl || null } })
-
-  // Best-effort push — logs to SyncLog, never blocks the reference save.
-  try {
-    await pushProduct(item.id)
-  } catch { /* ignore */ }
 
   return NextResponse.json({ success: true, imageUrl: imageUrl || null })
 }

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
-import { pushProduct } from '@/lib/woo-push'
 import { guardAccess } from '@/lib/permissions'
 import { checkRecipeLineUnits } from '@/lib/recipe-line-kinds.server'
 
@@ -140,15 +139,6 @@ export async function POST(req: NextRequest) {
 
     return r
   })
-
-  // Push the linked menu item to WooCommerce (best-effort)
-  if (linkToMenu) {
-    const linked = await prisma.menuItem.findFirst({
-      where: { recipeId: recipe.id, deletedAt: null },
-      select: { id: true },
-    })
-    if (linked) await pushProduct(linked.id)
-  }
 
   return NextResponse.json(recipe, { status: 201 })
 }

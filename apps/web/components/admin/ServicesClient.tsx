@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -72,8 +72,6 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [wooCategoryId, setWooCategoryId] = useState('')
-  const [wooCategoryName, setWooCategoryName] = useState('')
   const [requiresBooking, setRequiresBooking] = useState(false)
   const [isActive, setIsActive] = useState(true)
   const [tablePlanSetupId, setTablePlanSetupId] = useState('')
@@ -83,8 +81,6 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
   const [slots, setSlots] = useState<DraftSlot[]>([])
   const [exceptions, setExceptions] = useState<DraftException[]>([])
 
-  const [wooCategories, setWooCategories] = useState<{ value: string; label: string }[]>([])
-  const wooLoaded = useRef(false)
   const [setups, setSetups] = useState<SetupLite[]>([])
   const [newDay, setNewDay] = useState('')
 
@@ -109,23 +105,10 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
       .then((data: SetupLite[]) => setSetups(Array.isArray(data) ? data : []))
   }, [venueId])
 
-  async function loadWooCategories() {
-    if (wooLoaded.current) return
-    const res = await fetch('/api/admin/woocommerce/categories')
-    if (res.ok) {
-      const data = await res.json()
-      const cats = data.categories ?? []
-      setWooCategories(cats.map((c: { id: number; name: string }) => ({ value: String(c.id), label: c.name })))
-    }
-    wooLoaded.current = true
-  }
-
   function openService(s: Service) {
     setSelectedId(s.id)
     setName(s.name)
     setDescription(s.description ?? '')
-    setWooCategoryId(s.wooCategoryId ?? '')
-    setWooCategoryName(s.wooCategoryName ?? '')
     setRequiresBooking(s.requiresBooking)
     setIsActive(s.isActive)
     setTablePlanSetupId(s.tablePlanSetup?.id ?? '')
@@ -140,16 +123,14 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
       endTime: x.endTime ?? '',
       maxCovers: x.maxCovers?.toString() ?? '',
     })))
-    loadWooCategories()
   }
 
   function newService() {
     setSelectedId('new')
-    setName(''); setDescription(''); setWooCategoryId(''); setWooCategoryName('')
+    setName(''); setDescription('')
     setRequiresBooking(false); setIsActive(true); setTablePlanSetupId('')
     setBookingIntervalMinutes('15'); setBookableTimes([]); setBookableTimeInput('')
     setSlots([]); setExceptions([])
-    loadWooCategories()
   }
 
   function closeEditor() {
@@ -182,11 +163,6 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
     setExceptions(exceptions.map((e, i) => (i === index ? { ...e, ...patch } : e)))
   }
 
-  function pickCategory(value: string) {
-    setWooCategoryId(value)
-    setWooCategoryName(wooCategories.find((c) => c.value === value)?.label ?? '')
-  }
-
   function validate(): string | null {
     if (!name.trim()) return 'SERVICE NAME IS REQUIRED'
     const bad = slots.find((s) => !HHMM.test(s.startTime) || !HHMM.test(s.endTime) || s.startTime >= s.endTime)
@@ -209,8 +185,6 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
     const payload = {
       name: name.toUpperCase().trim(),
       description: description || null,
-      wooCategoryId: wooCategoryId || null,
-      wooCategoryName: wooCategoryName || null,
       requiresBooking,
       isActive,
       tablePlanSetupId: tablePlanSetupId || null,
@@ -324,7 +298,6 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
                 <p className="font-mono text-2xs text-grey-light mt-1">
                   {!venueId && <span>{s.venue.name.toUpperCase()} · </span>}
                   {s.slots.length} SLOT{s.slots.length === 1 ? '' : 'S'}
-                  {s.wooCategoryName ? ` · MENU: ${s.wooCategoryName.toUpperCase()}` : ''}
                   {s.tablePlanSetup ? ` · PLAN: ${s.tablePlanSetup.floorPlan.name.toUpperCase()} / ${s.tablePlanSetup.name.toUpperCase()}` : ''}
                   {s.requiresBooking ? ' · BOOKING REQUIRED' : ''}
                 </p>
@@ -338,17 +311,6 @@ export function ServicesClient({ role, sessionVenueId, defaultVenueId }: { role:
         <div className="space-y-4">
           <Input label="NAME" value={name} onChange={(e) => setName(e.target.value)} placeholder="FRIDAY MENU" />
           <Input label="DESCRIPTION" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="OPTIONAL" />
-
-          <Select
-            label="MENU (WOO CATEGORY)"
-            value={wooCategoryId}
-            onChange={(e) => pickCategory(e.target.value)}
-            options={wooCategories}
-            placeholder={wooCategories.length === 0 ? 'NO WOO CATEGORIES — PULL PRODUCTS FIRST' : 'SELECT THE MENU FOR THIS SERVICE'}
-          />
-          <p className="font-mono text-2xs text-grey-light -mt-2">
-            THE CATEGORY IS THE MENU AVAILABLE FOR ORDERING ON THIS SERVICE.
-          </p>
 
           <Select
             label="TABLE PLAN"

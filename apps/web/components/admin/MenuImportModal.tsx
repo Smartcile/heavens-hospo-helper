@@ -283,7 +283,7 @@ export function MenuImportModal({
                 />
               )}
               <p className="font-mono text-2xs uppercase text-grey-light">
-                NEW PRODUCTS HAVE NO RECIPE OR WOOCOMMERCE LINK — SET THOSE UP IN RECIPES → IMPORT PRODUCTS.
+                NEW PRODUCTS HAVE NO RECIPE YET — SET ONE UP IN RECIPES → IMPORT PRODUCTS.
                 EXISTING PRODUCTS KEEP THEIR CURRENT PRICE AND DESCRIPTION.
               </p>
             </div>

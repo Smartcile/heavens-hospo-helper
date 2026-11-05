@@ -53,8 +53,6 @@ function mockFetch() {
       if (url.includes('/api/admin/recipes')) return [RECIPE]
       if (url.includes('/api/admin/uoms')) return UOMS
       if (url.includes('/api/admin/inventory/categories')) return []
-      if (url.includes('/api/admin/menus')) return []
-      if (url.includes('/api/admin/woocommerce/categories')) return { categories: [] }
       if (url.includes('/api/admin/menu-items')) return []
       if (url.includes('/api/admin/inventory')) return INVENTORY
       return []

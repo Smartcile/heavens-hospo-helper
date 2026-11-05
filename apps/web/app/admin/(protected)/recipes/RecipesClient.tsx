@@ -82,8 +82,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   // Menu item link
   const [linkToMenu, setLinkToMenu] = useState(false)
   const [formPrice, setFormPrice] = useState('0')
-  const [formWooProductId, setFormWooProductId] = useState('')
-  const [formWooCategories, setFormWooCategories] = useState<string[]>([])
   const [formExistingMenuItemId, setFormExistingMenuItemId] = useState<string | null>(null)
   const [formMenuItemId, setFormMenuItemId] = useState<string | null>(null)
   const [formSwiftPosId, setFormSwiftPosId] = useState('')
@@ -124,8 +122,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   const [inventoryItems, setInventoryItems] = useState<InvItem[]>([])
   const [allRecipes, setAllRecipes] = useState<RecipeBrief[]>([])
   const [pantryRefs, setPantryRefs] = useState<PantryRef[]>([])
-  const [wooCategories, setWooCategories] = useState<{ id: string; name: string }[]>([])
-  const [menus, setMenus] = useState<{ id: string; name: string; wooCategoryId: string | null }[]>([])
   const [categories, setCategories] = useState<{ id: string; name: string; tab: string | null }[]>([])
 
   const [lineItems, setLineItems] = useState<LineItem[]>([])
@@ -184,7 +180,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
     setFormName(''); setFormYieldQty('1'); setFormYieldUnitId('')
     setFormInstructions(''); setFormPrepTime(''); setLineItems([])
     setNewItemId(''); setNewItemQty('1'); setNewItemUomId('')
-    setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([])
+    setLinkToMenu(false); setFormPrice('0')
     setFormDietaryInfo([]); setFormImageUrl(null); setFormShortDescription('')
     setFormTastingNotes(''); setFormVintage(''); setFormHowToServe('')
     setFormIsVariable(false); setFormVariations([])
@@ -210,8 +206,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
     if (r.menuItem) {
       setLinkToMenu(true)
       setFormPrice(String(r.menuItem.price))
-      setFormWooProductId(r.menuItem.wooProductId ?? '')
-      setFormWooCategories(r.menuItem.wooCategoryId ? r.menuItem.wooCategoryId.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
       setFormDietaryInfo(r.menuItem.dietaryInfo ? r.menuItem.dietaryInfo.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
       setFormImageUrl(r.menuItem.imageUrl ?? null)
       setFormShortDescription(r.menuItem.shortDescription ?? '')
@@ -223,7 +217,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
       setFormMenuItemId(r.menuItem.id)
       setFormSwiftPosId(r.menuItem.swiftPosId ?? '')
     } else {
-    setLinkToMenu(false); setFormPrice('0'); setFormWooProductId(''); setFormWooCategories([])
+    setLinkToMenu(false); setFormPrice('0')
     setFormDietaryInfo([]); setFormImageUrl(null); setFormShortDescription('')
     setFormTastingNotes(''); setFormVintage(''); setFormHowToServe('')
     setFormIsVariable(false); setFormVariations([]); setFormMenuItemId(null); setFormSwiftPosId('')
@@ -235,7 +229,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
     setFormName(o.name); setFormYieldQty('1'); setFormYieldUnitId('')
     setFormInstructions(''); setFormPrepTime(''); setLineItems([])
     setLinkToMenu(true); setFormPrice(String(o.price))
-    setFormWooProductId(o.wooProductId ?? ''); setFormWooCategories(o.wooCategoryId ? o.wooCategoryId.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
     setFormDietaryInfo(o.dietaryInfo ? o.dietaryInfo.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
     setFormImageUrl(o.imageUrl ?? null)
     setFormShortDescription(o.shortDescription ?? '')
@@ -252,13 +245,12 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   async function load() {
     setLoading(true)
     const venueParam = venueId ? `?venueId=${venueId}` : ''
-    const [rRes, uRes, iRes, mRes, cRes, menuRes, pRes] = await Promise.all([
+    const [rRes, uRes, iRes, mRes, cRes, pRes] = await Promise.all([
       fetch(`/api/admin/recipes${venueParam}`),
       fetch(`/api/admin/uoms${venueParam}`),
       fetch(`/api/admin/inventory${venueParam}`),
       fetch(`/api/admin/menu-items${venueParam}`),
       fetch(`/api/admin/inventory/categories${venueParam}`),
-      fetch(`/api/admin/menus${venueParam}`),
       fetch(`/api/admin/ingredient-references${venueParam}`),
     ])
     if (rRes.ok) {
@@ -285,22 +277,10 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
       const data = await cRes.json()
       setCategories(Array.isArray(data) ? data : [])
     }
-    if (menuRes.ok) {
-      const data = await menuRes.json()
-      setMenus(Array.isArray(data) ? data.map((m: any) => ({ id: m.id, name: m.name, wooCategoryId: m.wooCategoryId ?? null })) : [])
-    }
     if (pRes.ok) {
       const data = await pRes.json()
       setPantryRefs(Array.isArray(data) ? data : [])
     }
-    // Load WooCommerce categories for the category picker
-    try {
-      const wcRes = await fetch(`/api/admin/woocommerce/categories${venueParam}`)
-      if (wcRes.ok) {
-        const data = await wcRes.json()
-        setWooCategories((data.categories ?? []).map((c: { id: number; name: string }) => ({ id: String(c.id), name: c.name })))
-      }
-    } catch { /* best-effort */ }
     setLoading(false)
   }
 
@@ -381,8 +361,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
       })),
       linkToMenu,
       price: linkToMenu ? parseFloat(formPrice) || 0 : undefined,
-      wooProductId: linkToMenu ? (formWooProductId || null) : undefined,
-      wooCategoryId: linkToMenu ? (formWooCategories.length > 0 ? formWooCategories.join(', ') : null) : undefined,
       imageUrl: linkToMenu ? formImageUrl : undefined,
       shortDescription: linkToMenu ? (formShortDescription || null) : undefined,
       isVariable: linkToMenu ? formIsVariable : undefined,
@@ -437,19 +415,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   const filteredRecipes = recipes.filter(r => !recipeSearch || r.name.includes(recipeSearch))
   const importList = orphanItems.filter(o => !importSearch || o.name.includes(importSearch))
 
-  // A menu's category id resolves to its name — the local, always-available
-  // source. Store categories are a fallback; a raw id means the id doesn't
-  // exist on the store or in any menu yet.
-  const categoryName = (id: string) =>
-    menus.find((m) => m.wooCategoryId === id)?.name ??
-    wooCategories.find((w) => w.id === id)?.name ??
-    id
-
-  // The menu whose category the linked item currently carries.
-  const selectedMenuId =
-    menus.find((m) => m.wooCategoryId && formWooCategories.includes(m.wooCategoryId))?.id ??
-    (formWooCategories.length === 0 ? '__none__' : '')
-
   if (loading) {
     return <div className="flex items-center justify-center h-64"><p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p></div>
   }
@@ -481,19 +446,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1">
                       <span className="block truncate flex-1 font-mono text-xs uppercase text-white">{r.name}</span>
-                      {r.menuItem && (() => {
-                        const cats = (r.menuItem.wooCategoryId ?? '').split(',').map((c: string) => c.trim()).filter(Boolean)
-                        const names = cats.length > 0 ? cats : ['UNCATEGORISED']
-                        return names.map((c) => {
-                          const resolved = c === 'UNCATEGORISED' ? 'UNCATEGORISED' : categoryName(c)
-                          const uncat = c === 'UNCATEGORISED'
-                          return (
-                            <span key={c} className={`font-mono text-xs border px-1 shrink-0 ${uncat ? 'text-grey-light border-grey-mid' : 'text-gold border-gold'}`}>
-                              {resolved}
-                            </span>
-                          )
-                        })
-                      })()}
                     </div>
                     <span className="block text-xs text-grey-light">
                       v{r.version} · {r.yieldQty} {r.yieldUnit?.name ?? ''}{r.menuItem ? ` · $${r.menuItem.price.toFixed(2)}` : ''}
@@ -537,40 +489,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                     <Input type="number" value={formPrepTime} onChange={(e) => setFormPrepTime(e.target.value)} />
                   </div>
                 </div>
-
-                {linkToMenu && (
-                  <div>
-                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">MENU (WOO CATEGORY)</label>
-                    <Select
-                      value={selectedMenuId}
-                      onChange={(e) => {
-                        const menu = menus.find((m) => m.id === e.target.value)
-                        if (e.target.value === '__none__') setFormWooCategories([])
-                        else if (menu) setFormWooCategories(menu.wooCategoryId ? [menu.wooCategoryId] : [])
-                      }}
-                      options={[
-                        { value: '__none__', label: 'NO MENU — UNCATEGORISED' },
-                        ...menus.map((m) => ({
-                          value: m.id,
-                          label: m.wooCategoryId ? `${m.name} — ${categoryName(m.wooCategoryId)}` : `${m.name} — NO CATEGORY`,
-                        })),
-                      ]}
-                      placeholder="SELECT MENU..."
-                    />
-                    <p className="font-mono text-xs text-grey-light mt-1">
-                      THE MENU AND ITS WOO CATEGORY ARE THE SAME THING — SELECTING ONE SETS THE PRODUCT&apos;S CATEGORY.
-                    </p>
-                    {formWooCategories.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {formWooCategories.map((c) => (
-                          <span key={c} className="font-mono text-xs text-gold border border-gold px-1">
-                            {categoryName(c)}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
 
                 <div>
                   <label className="font-mono text-xs uppercase text-grey-light block mb-1">INSTRUCTIONS</label>
@@ -714,23 +632,19 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                   })()}
                 </div>
 
-                {/* Item links — the product's POS/WooCommerce link and serve spec */}
+                {/* Item links — the product's POS link and serve spec */}
                 <div className="border border-grey-mid p-3 space-y-3">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={linkToMenu} onChange={(e) => setLinkToMenu(e.target.checked)}
                       className="bg-black border border-grey-mid accent-white" />
                     <span className="font-mono text-xs uppercase text-white">ITEM LINKS</span>
-                    {linkToMenu && <span className="font-mono text-xs text-grey-light">(POS CODE · SERVES · WOOCOMMERCE)</span>}
+                    {linkToMenu && <span className="font-mono text-xs text-grey-light">(POS CODE · SERVES)</span>}
                   </label>
                   {linkToMenu && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                       <div>
                         <label className="font-mono text-xs uppercase text-grey-light block mb-1">PRICE</label>
                         <Input type="number" step="0.01" value={formPrice} onChange={(e) => setFormPrice(e.target.value)} />
-                      </div>
-                      <div>
-                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">WOO PRODUCT ID</label>
-                        <Input value={formWooProductId} onChange={(e) => setFormWooProductId(e.target.value)} placeholder="AUTO-GENERATED ON SAVE" disabled={true} />
                       </div>
                       <div>
                         <label className="font-mono text-xs uppercase text-grey-light block mb-1">SWIFT POS CODE</label>
@@ -776,10 +690,8 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                         {formIsVariable && (
                           <div className="mt-3 ml-2 border-l border-grey-mid pl-4 space-y-3">
                             <p className="font-mono text-xs text-grey-light leading-relaxed">
-                              EACH VARIATION CREATES A UNIQUE PRICE POINT ON WOOCOMMERCE.
-                              THE MAIN PRICE ABOVE IS THE DEFAULT (LOWEST) PRICE.<br />
-                              VARIATION PRICES ARE SYNCED BACK TO WOOCOMMERCE ON SAVE WHEN
-                              A WOO VARIATION ID IS PRESENT (PULLED FROM STORE).
+                              EACH SIZE IS A UNIQUE PRICE POINT.
+                              THE MAIN PRICE ABOVE IS THE DEFAULT (LOWEST) PRICE.
                             </p>
                             <div className="space-y-2">
                               {formVariations.map((v, i) => (
@@ -935,7 +847,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
       <Modal isOpen={importOpen} onClose={() => setImportOpen(false)} title={`IMPORT PRODUCTS (${orphanItems.length})`} size="lg">
         <div className="space-y-3">
           <p className="font-mono text-xs text-grey-light uppercase">
-            PRODUCTS SYNCED FROM WOOCOMMERCE WITH NO RECIPE YET. PICK ONE TO BUILD ITS RECIPE — MISSING FIELDS ARE FLAGGED IN RED.
+            PRODUCTS WITH NO RECIPE YET. PICK ONE TO BUILD ITS RECIPE — MISSING FIELDS ARE FLAGGED IN RED.
           </p>
           <Input value={importSearch} onChange={(e) => setImportSearch(e.target.value.toUpperCase())} placeholder="SEARCH PRODUCTS..." />
           <div className="divide-y divide-grey-mid border border-grey-mid max-h-[55vh] overflow-y-auto">
@@ -953,7 +865,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-mono text-xs uppercase text-gold truncate">{o.name}</span>
                       <span className="font-mono text-xs text-grey-light shrink-0">
-                        ${o.price.toFixed(2)}{o.wooProductId ? ` · WOO #${o.wooProductId}` : ''}
+                        ${o.price.toFixed(2)}
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-1 mt-1.5">
