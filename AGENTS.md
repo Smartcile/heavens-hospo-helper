@@ -1677,6 +1677,37 @@ The in-app user help is a **global, read-only catalogue**, not per-venue guides.
   gated-lists panel with ACTIVATE/DEACTIVATE lives on the Execution → TASKS page.
   Note: the audience editor is API + resolver only — not surfaced in the UI yet.
 
+### Linked subtasks (Phase 4 of #68, built 2026-11)
+
+`Task.parentTaskId` + `subtaskOrder` (`@relation("TaskSubtasks")`, `@@index([parentTaskId])`)
+lets one task be extended into linked children (the newspaper requirement: grab them
+on one list, throw them away on another). **Max depth 1** — a task with a parent can
+never be given a parent, and a task with children cannot become a subtask. Self-parent
+and cross-venue parents are rejected. The parent stays a **normal completable task**;
+parent and children keep independent `TaskCompletion` / `TaskProgress` rows and each
+child can sit in any checklist independently. `lib/task-subtasks.ts` (pure, client-safe)
+holds `validateParentTask`, `availableParentTasks`, `orderTasksWithChildren` and
+`subtasksOutsideList`; `lib/task-subtasks.server.ts` does the Prisma lookups
+(`parentLinkError`, `nextSubtaskOrder`, `hasLiveSubtasks`, `softDeleteTask`).
+
+**Delete rule.** Soft-deleting a parent first clears its children's `parentTaskId`
+(they stay usable as top-level tasks), then soft-deletes the parent. Deleting a child
+only soft-deletes that child. Never hard-delete.
+
+**API.** Admin/worker task `POST`/`PUT` accept `parentTaskId` (validated, order
+computed); the admin task GET, worker task GET (including `?edit=1`) return
+`parentTaskId`, `parentTitle`, `subtaskOrder` and `subtasks` (id/title/isActive plus
+completion state where cheap). The admin DELETE uses `softDeleteTask(id, true)`; the
+worker DELETE uses `softDeleteTask(id)`.
+
+**UI.** Both task forms (`TasksClient`, `TaskEditModal`, worker task modal) have a
+**PARENT TASK** picker and **+ ADD SUBTASK** (creates a child prefilled with the
+parent's department/section/schedule/completion type, then opens it for editing), and
+link to edit existing children. The admin task list indents children under their parent
+with a collapse toggle. The worker list indents a child when the parent is in the same
+open list; otherwise the child shows `PART OF <PARENT>` and the parent shows
+`SUBTASKS IN OTHER LISTS`. A child in a closed list is never duplicated.
+
 ### Section ecosystem (Phases A–D, built)
 A layer between department and the work, plus a follow-up trigger loop. The
 legacy `TrainingModule`-based "Resources/Competency" pieces below are
@@ -2993,6 +3024,7 @@ pushing, run: `npm run lint && npm run test`.
 | `lib/room-setup.ts` — room label, pax/style, photo URL sanitising, input normalisation | ✅ (9 tests) |
 | `lib/checklist-activation.ts` — venue-local date activation, custom schedules, event windows (timed/all-day/multi-day/closed), next-open labels | ✅ (24 tests) |
 | `lib/task-outcomes.ts` — outcome hierarchy, DONE-always, reason validation, open-list policy | ✅ (12 tests) |
+| `lib/task-subtasks.ts` — max-depth-1 parent validation, parent options, parent/child ordering, cross-list labels | ✅ (11 tests) |
 | `lib/position-requirements.ts` — required guides + readiness resolver | ✅ (6 tests) |
 | `lib/section-work.ts` / `section-work.server.ts` — section eligibility, evidence signatures, reconcile/confirm/dismiss/reopen, transition guards, soft-delete restore | ✅ (8 + 21 tests) |
 | `lib/staff-groups.ts` — derived position grouping | ✅ (14 tests) |
@@ -3022,8 +3054,8 @@ pushing, run: `npm run lint && npm run test`.
 | `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |
 | `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (19 tests) |
-| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, handled section, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, dual early-return paths | ✅ (16 tests) |
-| `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, scroll restore after load | ✅ (5 tests) |
+| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, handled section, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, subtask grouping/ADD SUBTASK, dual early-return paths | ✅ (27 tests) |
+| `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, subtask indent/add/parent picker, scroll restore after load | ✅ (12 tests) |
 | `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard | ✅ (2 tests) |
 | `ReportsClient.tsx` — OUTCOME badge distinguishes non-DONE rows | ✅ (1 test) |
 | `WorkerSessionGuard.tsx` — idle logout/redirect, activity refresh, refresh throttle, iframe activity relay | ✅ (6 tests) |
@@ -3069,6 +3101,7 @@ pushing, run: `npm run lint && npm run test`.
 | `app/api/worker/availability/series-request/route.test.ts` — auth, required date/series, request delegation, 404/409 passthrough | ✅ (5 tests) |
 | `app/api/worker/availability/route.test.ts` — auth, past-anchor 400, FROM + worker scope policy passthrough | ✅ (3 tests) |
 | `app/api/worker/tasks/[id]/complete/route.test.ts` — completion responds without waiting for the best-effort follow-ups | ✅ (1 test) |
+| `app/api/admin/tasks/[id]/route.test.ts` — GET parent/children, parent validation 400s, DELETE unparents children | ✅ (6 tests) |
 | `app/api/admin/swiftpos/staff/route.test.ts` — LINK sets the PIN from the clerk id, keeps an existing PIN, and links without a PIN on a clash | ✅ (3 tests) |
 
 ## PRE-COMMIT CHECKLIST

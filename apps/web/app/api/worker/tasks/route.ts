@@ -9,6 +9,7 @@ import { applicableChecklistsForStaff } from '@/lib/checklist-applicability.serv
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { resolveCompetencyGuideIds } from '@/lib/task-guides'
 import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
+import { parentLinkError, nextSubtaskOrder } from '@/lib/task-subtasks.server'
 
 export async function GET(req: NextRequest) {
   const session = await getWorkerSession()
@@ -48,10 +49,24 @@ export async function GET(req: NextRequest) {
             guide: { select: { id: true, title: true } },
           },
         },
+        parent: { select: { id: true, title: true, deletedAt: true } },
+        subtasks: {
+          where: { deletedAt: null },
+          select: { id: true, title: true, isActive: true, subtaskOrder: true },
+          orderBy: [{ subtaskOrder: 'asc' }, { title: 'asc' }],
+        },
       },
       orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
     })
-    return NextResponse.json(tasks)
+    return NextResponse.json(
+      tasks.map((t) => {
+        const { parent, ...rest } = t
+        return {
+          ...rest,
+          parentTitle: parent && !parent.deletedAt ? parent.title : null,
+        }
+      }),
+    )
   }
 
   // "Today" is the venue's local calendar day, so daily tasks reset at the
@@ -104,6 +119,24 @@ export async function GET(req: NextRequest) {
         where: { isActive: true, deletedAt: null },
         select: { id: true, title: true },
         take: 1,
+      },
+      parent: { select: { id: true, title: true, deletedAt: true } },
+      subtasks: {
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          title: true,
+          isActive: true,
+          subtaskOrder: true,
+          taskCompletions: {
+            where: { scheduledDate: today },
+            select: { outcome: true },
+            orderBy: { completedAt: 'desc' },
+            take: 1,
+          },
+          progress: { select: { id: true } },
+        },
+        orderBy: [{ subtaskOrder: 'asc' }, { title: 'asc' }],
       },
     },
     orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
@@ -248,6 +281,19 @@ export async function GET(req: NextRequest) {
       criticalMin: t.criticalMin,
       criticalMax: t.criticalMax,
       linkedItemName: t.linkedItem?.name ?? null,
+      // Linked subtasks — grouping/labelling in the worker list.
+      parentTaskId: t.parentTaskId,
+      parentTitle: t.parent && !t.parent.deletedAt ? t.parent.title : null,
+      subtaskOrder: t.subtaskOrder,
+      subtasks: t.subtasks.map((s) => ({
+        id: s.id,
+        title: s.title,
+        isActive: s.isActive,
+        subtaskOrder: s.subtaskOrder,
+        isCompleted: s.taskCompletions.length > 0,
+        isDone: s.taskCompletions[0]?.outcome === 'DONE',
+        inProgress: !!s.progress,
+      })),
     }
   })
 
@@ -278,6 +324,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'SELECT AT LEAST ONE DAY FOR WEEKLY SCHEDULE' }, { status: 400 })
   if (scheduleType === 'CUSTOM' && !customCron?.trim())
     return NextResponse.json({ error: 'CRON EXPRESSION IS REQUIRED FOR CUSTOM SCHEDULE' }, { status: 400 })
+
+  // Max depth 1 — the parent must belong to the worker's venue and be top-level.
+  const parentId: string | null = body.parentTaskId ? String(body.parentTaskId) : null
+  const parentError = await parentLinkError({ parentTaskId: parentId, taskVenueId: session.venueId })
+  if (parentError) return NextResponse.json({ error: parentError }, { status: 400 })
+  const subtaskOrder = parentId ? await nextSubtaskOrder(parentId) : 0
 
   // `requiredTrainingIds` is the legacy name the old worker form posted — but
   // it always carried GUIDE ids (the picker loaded from `/api/worker/guides`).
@@ -324,6 +376,8 @@ export async function POST(req: NextRequest) {
       monthlyOption: scheduleType === 'MONTHLY' ? (monthlyOption || 'FIRST_DAY') : null,
       monthlyDay: scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? (monthlyDay || 1) : null,
       sortOrder: (maxSort?.sortOrder ?? -1) + 1,
+      parentTaskId: parentId,
+      subtaskOrder,
       allowedOutcomes: normaliseOutcomes(allowedOutcomes),
       overrideOutcomes: !!overrideOutcomes,
       requireOutcomeReason: !!requireOutcomeReason,

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, fireEvent, waitFor, screen } from '@testing-library/react'
+import { render, fireEvent, waitFor, screen, within } from '@testing-library/react'
 
 import { TasksClient } from '@/components/admin/TasksClient'
 
@@ -19,6 +19,16 @@ const TASK_ONE = {
 
 const TASK_TWO = {
   ...TASK_ONE, id: 't2', title: 'TASK TWO', sortOrder: 1, _count: { checklistLinks: 0 },
+}
+
+const PARENT_TASK = {
+  ...TASK_ONE, id: 'p1', title: 'NEWSPAPERS', _count: { checklistLinks: 0 },
+  parentTaskId: null, subtasks: [{ id: 'c1', title: 'THROW OUT PAPERS', isActive: true, subtaskOrder: 0 }],
+}
+
+const CHILD_TASK = {
+  ...TASK_ONE, id: 'c1', title: 'THROW OUT PAPERS', sortOrder: 1, _count: { checklistLinks: 0 },
+  parentTaskId: 'p1', parentTitle: 'NEWSPAPERS',
 }
 
 const CHECKLIST = {
@@ -216,6 +226,67 @@ describe('TasksClient', () => {
       expect(put).toBeDefined()
       const body = JSON.parse(String((put![1] as RequestInit).body))
       expect(body.eventIds).toEqual(['e1'])
+    })
+  })
+
+  it('indents a subtask under its parent in the admin task list', async () => {
+    mockApi([PARENT_TASK, CHILD_TASK])
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByTestId('available-task-c1')).toBeDefined())
+    const child = screen.getByTestId('available-task-c1')
+    expect(child.textContent).toContain('↳')
+    expect(child.className).toContain('ml-4')
+    expect(screen.getByTestId('available-task-p1').textContent).toContain('1 SUBTASK')
+  })
+
+  it('creates a linked child from ADD SUBTASK', async () => {
+    const fetchMock = mockApi([PARENT_TASK, CHILD_TASK])
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByTestId('available-task-p1')).toBeDefined())
+    fireEvent.click(within(screen.getByTestId('available-task-p1')).getByText('EDIT'))
+    await waitFor(() => expect(screen.getByText('EDIT TASK')).toBeDefined())
+
+    fireEvent.click(screen.getByText('+ ADD SUBTASK'))
+    await waitFor(() => expect(screen.getByText('NEW SUBTASK')).toBeDefined())
+
+    fireEvent.change(screen.getByPlaceholderText('WIPE DOWN ALL BAR SURFACES'), {
+      target: { value: 'THROW OUT PAPERS' },
+    })
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/admin/tasks' && init?.method === 'POST',
+      )
+      expect(post).toBeDefined()
+      const body = JSON.parse(String((post![1] as RequestInit).body))
+      expect(body.parentTaskId).toBe('p1')
+      expect(body.departmentId).toBe('d1')
+      expect(body.scheduleType).toBe('DAILY')
+      expect(body.completionType).toBe('TICK')
+    })
+  })
+
+  it('saves the selected parent task from the picker', async () => {
+    const fetchMock = mockApi([TASK_ONE, TASK_TWO])
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByTestId('available-task-t2')).toBeDefined())
+    fireEvent.click(within(screen.getByTestId('available-task-t2')).getByText('EDIT'))
+    await waitFor(() => expect(screen.getByText('EDIT TASK')).toBeDefined())
+
+    fireEvent.change(screen.getByTestId('task-parent-select'), { target: { value: 't1' } })
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/admin/tasks/t2' && init?.method === 'PUT',
+      )
+      expect(put).toBeDefined()
+      const body = JSON.parse(String((put![1] as RequestInit).body))
+      expect(body.parentTaskId).toBe('t1')
     })
   })
 

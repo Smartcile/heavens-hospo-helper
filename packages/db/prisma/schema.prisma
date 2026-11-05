@@ -528,6 +528,9 @@ model Task {
   monthlyDay        Int? // MONTHLY + SPECIFIC_DAY: day of month (1-31, clamped)
   isActive          Boolean        @default(true)
   sortOrder         Int            @default(0)
+  // --- Linked subtasks (max depth 1; a parent stays a normal task) ---
+  parentTaskId      String?
+  subtaskOrder      Int            @default(0)
   // One-off / side-work task
   isOneOff          Boolean        @default(false) // ad-hoc task (not recurring)
   dueDate           DateTime?      @db.Date // must be completed by this date
@@ -558,6 +561,8 @@ model Task {
   venue            Venue                  @relation(fields: [venueId], references: [id])
   department       Department?            @relation(fields: [departmentId], references: [id])
   section          Section?               @relation(fields: [sectionId], references: [id])
+  parent           Task?                  @relation("TaskSubtasks", fields: [parentTaskId], references: [id])
+  subtasks         Task[]                 @relation("TaskSubtasks")
   linkedItem       InventoryItem?         @relation("TaskLinkedItem", fields: [linkedItemId], references: [id])
   taskCompletions  TaskCompletion[]
   progress         TaskProgress?
@@ -571,6 +576,8 @@ model Task {
   followUps        FollowUp[]
   moduleTasks      ModuleTask[]
   sections         TaskSection[]
+
+  @@index([parentTaskId])
 }
 
 model TaskCompletion {
