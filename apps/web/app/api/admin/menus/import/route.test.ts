@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
-const { db, tx, getServerSession, guardAccess, syncMenuItemCategory, pushProduct } = vi.hoisted(() => {
+const { db, tx, getServerSession, guardAccess } = vi.hoisted(() => {
   const tx = {
     menu: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     menuGroup: { findFirst: vi.fn(), create: vi.fn() },
@@ -13,8 +13,6 @@ const { db, tx, getServerSession, guardAccess, syncMenuItemCategory, pushProduct
     tx,
     getServerSession: vi.fn(),
     guardAccess: vi.fn(),
-    syncMenuItemCategory: vi.fn(),
-    pushProduct: vi.fn(),
   }
 })
 
@@ -22,8 +20,6 @@ vi.mock('next-auth', () => ({ getServerSession }))
 vi.mock('@/lib/auth', () => ({ authOptions: {} }))
 vi.mock('@/lib/permissions', () => ({ guardAccess }))
 vi.mock('@hospo-ops/db', () => ({ prisma: db }))
-vi.mock('@/lib/menu-sync', () => ({ syncMenuItemCategory }))
-vi.mock('@/lib/woo-push', () => ({ pushProduct }))
 
 import { POST } from './route'
 
@@ -82,7 +78,6 @@ describe('POST /api/admin/menus/import', () => {
       }),
     )
     expect(tx.menuMenuItem.create).toHaveBeenCalledTimes(2)
-    expect(pushProduct).not.toHaveBeenCalled()
   })
 
   it('reuses an existing product and skips a line already on the menu', async () => {

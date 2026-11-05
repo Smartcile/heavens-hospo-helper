@@ -197,212 +197,6 @@ describe('GiftCardsClient', () => {
     expect(await screen.findByText('NO FILE')).toBeTruthy()
   })
 
-  it('shows the linked WooCommerce category on the sync box', async () => {
-    mockFetch({
-      '/api/admin/gift-cards?': [card],
-      '/api/admin/gift-card-templates': [],
-      '/api/admin/gift-cards/settings': {
-        giftCardCategoryId: '42',
-        giftCardCategoryName: 'GIFT CARDS',
-        hasIntegration: true,
-      },
-      '/api/admin/woocommerce/categories': { categories: [{ id: 42, name: 'GIFT CARDS' }] },
-    })
-
-    render(<GiftCardsClient />)
-
-    await waitFor(() => {
-      expect(screen.getByText('WOOCOMMERCE SYNC')).toBeDefined()
-      expect(screen.getByText('CAT: GIFT CARDS')).toBeDefined()
-    })
-  })
-
-  it('shows UNLINKED + the no-integration warning when nothing is linked', async () => {
-    mockFetch({
-      '/api/admin/gift-cards?': [card],
-      '/api/admin/gift-card-templates': [],
-      '/api/admin/gift-cards/settings': {
-        giftCardCategoryId: null,
-        giftCardCategoryName: null,
-        hasIntegration: false,
-      },
-      '/api/admin/woocommerce/categories': { categories: [] },
-    })
-
-    render(<GiftCardsClient />)
-
-    await waitFor(() => {
-      expect(screen.getByText('UNLINKED')).toBeDefined()
-      expect(screen.getByText(/NO ACTIVE WOOCOMMERCE INTEGRATION/)).toBeDefined()
-    })
-  })
-
-  it('saves the WooCommerce category link via PUT', async () => {
-    const put = vi.fn()
-    vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      if (url.includes('/api/admin/gift-cards/settings') && (init?.method ?? 'GET') === 'PUT') {
-        put(init)
-        return mockResponse({ giftCardCategoryId: '42', giftCardCategoryName: 'GIFT CARDS' })
-      }
-      if (url.includes('/api/admin/gift-cards?')) return mockResponse([card])
-      if (url.includes('/api/admin/gift-cards/settings')) {
-        return mockResponse({ giftCardCategoryId: null, giftCardCategoryName: null, hasIntegration: true })
-      }
-      if (url.includes('/api/admin/woocommerce/categories')) {
-        return mockResponse({ categories: [{ id: 42, name: 'GIFT CARDS' }] })
-      }
-      return mockResponse([])
-    })
-
-    render(<GiftCardsClient />)
-    await screen.findByRole('heading', { name: 'GIFT CARDS' })
-
-    const select = screen.getByLabelText('GIFT CARD CATEGORY') as HTMLSelectElement
-    fireEvent.change(select, { target: { value: '42' } })
-    fireEvent.click(screen.getByText('SAVE LINK'))
-
-    await waitFor(() => {
-      expect(put).toHaveBeenCalledTimes(1)
-      const body = JSON.parse((put.mock.calls[0][0].body as string) ?? '{}')
-      expect(body.categoryId).toBe('42')
-    })
-  })
-
-  it('creates ONE variable gift card product via POST (default denominations)', async () => {
-    const post = vi.fn()
-    let createdProduct = false
-    const created = {
-      id: 'gc-prod-1', name: 'GIFT CARD', price: 0, wooProductId: '31', wooCategoryId: '42',
-      imageUrl: null, isVariable: true,
-      variations: [
-        { name: '$50', price: 50 },
-        { name: '$100', price: 100 },
-        { name: '$150', price: 150 },
-      ],
-      createdAt: '2026-09-08T00:00:00Z',
-    }
-    vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      if (url.includes('/api/admin/gift-cards/products') && (init?.method ?? 'GET') === 'POST') {
-        post(init)
-        createdProduct = true
-        return mockResponse({ product: created, category: { id: '42', name: 'GIFT CARDS' }, synced: true })
-      }
-      if (url.includes('/api/admin/gift-cards/products')) return mockResponse(createdProduct ? [created] : [])
-      if (url.includes('/api/admin/gift-cards?')) return mockResponse([card])
-      if (url.includes('/api/admin/gift-cards/settings')) {
-        return mockResponse({ giftCardCategoryId: '42', giftCardCategoryName: 'GIFT CARDS', hasIntegration: true })
-      }
-      return mockResponse([])
-    })
-
-    render(<GiftCardsClient />)
-    await screen.findByRole('heading', { name: 'GIFT CARDS' })
-
-    // The product section only appears once a category is linked.
-    expect(await screen.findByText('GIFT CARD PRODUCT')).toBeTruthy()
-    expect(screen.getByText(/HIDDEN FROM RECIPES/)).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: '+ CREATE GIFT CARD PRODUCT' }))
-
-    await waitFor(() => {
-      expect(post).toHaveBeenCalledTimes(1)
-      const body = JSON.parse((post.mock.calls[0][0].body as string) ?? '{}')
-      expect(body).toEqual({ name: null })
-    })
-    // One variable product with denomination chips, plus the editor rows.
-    expect(await screen.findByText('VARIABLE · 3 DENOMINATIONS')).toBeTruthy()
-    expect(screen.getByText('$50 / $100 / $150')).toBeTruthy()
-    expect(screen.getByText('WOO #31')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'SAVE PRODUCT CHANGES' })).toBeTruthy()
-  })
-
-  it('edits product name, short description and denominations via PUT', async () => {
-    const put = vi.fn()
-    const product = {
-      id: 'gc-prod-1', name: 'GIFT CARD', price: 0, wooProductId: '31', wooCategoryId: '42',
-      imageUrl: null, shortDescription: null, isVariable: true,
-      variations: [{ name: '$50', price: 50, wooVariationId: '901' }],
-      createdAt: '2026-09-08T00:00:00Z',
-    }
-    vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      if (url.includes('/api/admin/gift-cards/products/gc-prod-1') && (init?.method ?? 'GET') === 'PUT') {
-        put(init)
-        return mockResponse({
-          product: {
-            ...product, name: 'GIFT VOUCHER', shortDescription: 'REDEEMABLE AT THE BAR',
-            variations: [{ name: '$100', price: 100, wooVariationId: '901' }],
-          },
-          synced: true,
-        })
-      }
-      if (url.includes('/api/admin/gift-cards/products')) return mockResponse([product])
-      if (url.includes('/api/admin/gift-cards?')) return mockResponse([card])
-      if (url.includes('/api/admin/gift-cards/settings')) {
-        return mockResponse({ giftCardCategoryId: '42', giftCardCategoryName: 'GIFT CARDS', hasIntegration: true })
-      }
-      return mockResponse([])
-    })
-
-    render(<GiftCardsClient />)
-    await screen.findByText('VARIABLE · 1 DENOMINATION')
-
-    // Edit the product fields and the denomination amount, then save.
-    const nameInput = screen.getByDisplayValue('GIFT CARD') as HTMLInputElement
-    fireEvent.change(nameInput, { target: { value: 'GIFT VOUCHER' } })
-    const spinbuttons = screen.getAllByRole('spinbutton')
-    const amountInput = spinbuttons[spinbuttons.length - 1] as HTMLInputElement
-    fireEvent.change(amountInput, { target: { value: '100' } })
-    fireEvent.click(screen.getByRole('button', { name: 'SAVE PRODUCT CHANGES' }))
-
-    await waitFor(() => {
-      expect(put).toHaveBeenCalledTimes(1)
-      const body = JSON.parse((put.mock.calls[0][0].body as string) ?? '{}')
-      expect(body.name).toBe('GIFT VOUCHER')
-      expect(body.denominations).toEqual([100])
-    })
-    // Updated name and denom chip reflect the server response.
-    expect(await screen.findByText('GIFT VOUCHER')).toBeTruthy()
-    expect(screen.getByText('$100')).toBeTruthy()
-    expect(screen.getByText('SYNCED')).toBeTruthy()
-  })
-
-  it('deletes a gift card product via DELETE', async () => {
-    const del = vi.fn()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
-    const product = {
-      id: 'gc-prod-1', name: 'GIFT CARD', price: 0, wooProductId: '32', wooCategoryId: '42',
-      imageUrl: null, isVariable: true,
-      variations: [{ name: '$50', price: 50 }],
-      createdAt: '2026-09-08T00:00:00Z',
-    }
-    vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      if (url.includes('/api/admin/gift-cards/products/') && (init?.method ?? 'GET') === 'DELETE') {
-        del(url)
-        return mockResponse({ ok: true })
-      }
-      if (url.includes('/api/admin/gift-cards/products')) return mockResponse([product])
-      if (url.includes('/api/admin/gift-cards?')) return mockResponse([card])
-      if (url.includes('/api/admin/gift-cards/settings')) {
-        return mockResponse({ giftCardCategoryId: '42', giftCardCategoryName: 'GIFT CARDS', hasIntegration: true })
-      }
-      return mockResponse([])
-    })
-
-    render(<GiftCardsClient />)
-    expect(await screen.findByText('GIFT CARD')).toBeTruthy()
-
-    fireEvent.click(screen.getByTitle('DELETE GIFT CARD'))
-
-    await waitFor(() => {
-      expect(del).toHaveBeenCalledTimes(1)
-      expect(String(del.mock.calls[0][0])).toContain('/api/admin/gift-cards/products/gc-prod-1')
-    })
-  })
-
   it('opens the card popup with order + history and saves edited details', async () => {
     const put = vi.fn()
     const detail = {
@@ -436,9 +230,6 @@ describe('GiftCardsClient', () => {
         return mockResponse({ ...detail.card, customerName: 'SUE LANE', amount: 250 })
       }
       if (url.includes('/api/admin/gift-cards?')) return mockResponse([card])
-      if (url.includes('/api/admin/gift-cards/settings')) {
-        return mockResponse({ giftCardCategoryId: null, giftCardCategoryName: null, hasIntegration: false })
-      }
       return mockResponse([])
     })
 
@@ -473,8 +264,6 @@ describe('GiftCardsClient', () => {
     mockFetch({
       '/api/admin/gift-cards?': [{ ...card, wooOrderId: '987', wooOrderNumber: '1234' }],
       '/api/admin/gift-card-templates': [],
-      '/api/admin/gift-cards/settings': { giftCardCategoryId: null, giftCardCategoryName: null, hasIntegration: false },
-      '/api/admin/woocommerce/categories': { categories: [] },
     })
 
     render(<GiftCardsClient />)
@@ -612,27 +401,4 @@ describe('GiftCardsClient', () => {
     })
   })
 
-  it('SYNC WOOCOMMERCE pulls orders only (gift cards arrive, nothing else touched)', async () => {    const post = vi.fn()
-    vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      if (url.includes('/api/admin/sync/pull-orders') && (init?.method ?? 'GET') === 'POST') {
-        post(init)
-        return mockResponse({ message: 'Pulled orders: 2 synced.' })
-      }
-      if (url.includes('/api/admin/gift-cards?')) return mockResponse([card])
-      if (url.includes('/api/admin/gift-cards/settings')) {
-        return mockResponse({ giftCardCategoryId: null, giftCardCategoryName: null, hasIntegration: true })
-      }
-      return mockResponse([])
-    })
-
-    render(<GiftCardsClient />)
-    fireEvent.click(await screen.findByRole('button', { name: 'SYNC WOOCOMMERCE (GIFT CARDS + ORDERS)' }))
-
-    await waitFor(() => {
-      expect(post).toHaveBeenCalledTimes(1)
-      expect(post.mock.calls[0][0].method).toBe('POST')
-    })
-    expect(await screen.findByText('Pulled orders: 2 synced.')).toBeTruthy()
-  })
 })

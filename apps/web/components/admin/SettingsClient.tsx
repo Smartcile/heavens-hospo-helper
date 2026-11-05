@@ -15,7 +15,6 @@ import { FloorPlansClient } from '@/components/admin/FloorPlansClient'
 import { UomsClient } from '@/app/admin/(protected)/uoms/UomsClient'
 import { SuppliersClient } from '@/app/admin/(protected)/suppliers/SuppliersClient'
 import { QRCodesClient } from '@/components/admin/QRCodesClient'
-import { SyncClient } from '@/app/admin/(protected)/sync/SyncClient'
 import { SwiftPosSalesClient } from '@/components/admin/SwiftPosSalesClient'
 import {
   AVAILABILITY_WEEKDAYS,
@@ -39,7 +38,6 @@ interface Venue {
   availabilityPresets: unknown
   workerSessionTimeoutMinutes: number | null
   sharingEnabled: boolean
-  sharedWooVenueId: string | null
 }
 
 interface RoomFeed {
@@ -84,41 +82,6 @@ const REFRESH_OPTIONS = [
   { value: '30', label: 'EVERY 30 MIN' },
   { value: '60', label: 'EVERY 60 MIN' },
 ]
-
-const META_FIELDS: { key: string; label: string; hint: string }[] = [
-  { key: 'serviceDate', label: 'SERVICE DATE', hint: 'THE DATE THE ORDER IS FOR' },
-  { key: 'serviceTime', label: 'SERVICE TIME', hint: 'TIME OR TIME SLOT' },
-  { key: 'partySize', label: 'PARTY SIZE', hint: 'NUMBER OF GUESTS' },
-  { key: 'allergens', label: 'ALLERGY NOTE', hint: 'CUSTOMER ALLERGY / DIETARY FIELD' },
-  { key: 'fulfillmentType', label: 'FULFILLMENT TYPE', hint: 'DINE IN / PICKUP / DELIVERY' },
-  { key: 'serviceId', label: 'SERVICE ID', hint: 'THE HOSPO OPS SERVICE UUID (PLUGIN FIELD)' },
-  { key: 'bookTable', label: 'BOOK A TABLE', hint: '"1" = CUSTOMER WANTS A TABLE BOOKED TOO (PLUGIN FIELD)' },
-  { key: 'giftCardMessage', label: 'GIFT CARD MESSAGE', hint: 'OPTIONAL MESSAGE ON THE GIFT CARD PDF (PLUGIN FIELD)' },
-]
-
-/** Server sends `{ field: string[] }`; the inputs edit comma-separated text. */
-function metaMapToText(map: unknown): Record<string, string> {
-  const out: Record<string, string> = {}
-  if (!map || typeof map !== 'object') return out
-  for (const [k, v] of Object.entries(map as Record<string, unknown>)) {
-    out[k] = Array.isArray(v) ? v.join(', ') : typeof v === 'string' ? v : ''
-  }
-  return out
-}
-
-function metaTextToMap(text: Record<string, string>): Record<string, string[]> {
-  const out: Record<string, string[]> = {}
-  for (const { key } of META_FIELDS) {
-    const keys = (text[key] ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-    // Blank rows are left out entirely — the server then falls back to the
-    // defaults ("LEAVE BLANK TO USE THE DEFAULTS").
-    if (keys.length > 0) out[key] = keys
-  }
-  return out
-}
 
 export function SettingsClient({
   staffId,
@@ -190,8 +153,8 @@ export function SettingsClient({
   const [workerSessionSaving, setWorkerSessionSaving] = useState(false)
   const [workerSessionMessage, setWorkerSessionMessage] = useState('')
 
-  // WooCommerce
-  const [wcVenueId, setWcVenueId] = useState<string>(() => {
+  // External API
+  const [apiVenueId, setApiVenueId] = useState<string>(() => {
     if (role !== 'ADMIN') return sessionVenueId
     if (typeof document !== 'undefined') {
       for (const entry of document.cookie.split('; ')) {
@@ -204,30 +167,12 @@ export function SettingsClient({
     }
     return defaultVenueId || sessionVenueId
   })
-  const [wcStoreUrl, setWcStoreUrl] = useState('')
-  const [wcConsumerKey, setWcConsumerKey] = useState('')
-  const [wcConsumerSecret, setWcConsumerSecret] = useState('')
-  const [wcWebhookSecret, setWcWebhookSecret] = useState('')
-  const [wcActive, setWcActive] = useState(false)
-  const [wcSaving, setWcSaving] = useState(false)
-  const [wcMessage, setWcMessage] = useState('')
-  const [wcLastSync, setWcLastSync] = useState<string | null>(null)
-  const [wcReadOnly, setWcReadOnly] = useState(false)
-  const [wcSharedFrom, setWcSharedFrom] = useState<string | null>(null)
-  // True when the WordPress plugin's CONNECT flow owns these credentials —
-  // the section is read-only until MANUAL OVERRIDE is clicked.
-  const [wcManagedByPlugin, setWcManagedByPlugin] = useState(false)
-  const [wcPairedAt, setWcPairedAt] = useState<string | null>(null)
-  const [wcOverride, setWcOverride] = useState(false)
-  // Meta-field mapping — stored as comma-separated strings while editing.
-  const [wcMetaMap, setWcMetaMap] = useState<Record<string, string>>({})
-  const [wcMetaDefaults, setWcMetaDefaults] = useState<Record<string, string[]>>({})
-  const [wcShowMeta, setWcShowMeta] = useState(false)
-  // External API keys (public API used by the WordPress plugin)
+  // External API keys (public API)
   const [extKeys, setExtKeys] = useState<{ id: string; name: string; masked: string; lastUsedAt: string | null }[]>([])
   const [extKeyName, setExtKeyName] = useState('')
   const [extNewKey, setExtNewKey] = useState<string | null>(null)
   const [extKeyBusy, setExtKeyBusy] = useState(false)
+  const [extMessage, setExtMessage] = useState('')
 
   // Demo venue
   const [demoVenue, setDemoVenue] = useState<{ id: string; name: string; isActive: boolean } | null>(null)
@@ -237,10 +182,8 @@ export function SettingsClient({
 
   // Venue sharing
   const [sharingEnabled, setSharingEnabled] = useState(false)
-  const [sharedWooVenueId, setSharedWooVenueId] = useState('')
   const [shareSaving, setShareSaving] = useState(false)
   const [shareMessage, setShareMessage] = useState('')
-  const [shareVenues, setShareVenues] = useState<{ id: string; name: string }[]>([])
 
   // Backup & restore (admin only)
   const [backupLoading, setBackupLoading] = useState(false)
@@ -262,35 +205,12 @@ export function SettingsClient({
   }, [])
 
   useEffect(() => {
-    const params = role === 'ADMIN' && wcVenueId ? `?venueId=${encodeURIComponent(wcVenueId)}` : ''
-    fetch(`/api/admin/settings/woocommerce${params}`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => {
-        if (d) {
-          setWcStoreUrl(d.wcStoreUrl ?? '')
-          setWcConsumerKey(d.wcConsumerKey ?? '')
-          setWcConsumerSecret(d.wcConsumerSecret ?? '')
-          setWcWebhookSecret(d.wcWebhookSecret ?? '')
-          setWcActive(d.wcActive ?? false)
-          setWcLastSync(d.lastSyncAt ?? null)
-          setWcReadOnly(d.readOnly ?? false)
-          setWcSharedFrom(d.sharedWooVenueId ?? null)
-          setWcManagedByPlugin(d.managedByPlugin ?? false)
-          setWcPairedAt(d.pairedAt ?? null)
-          setWcOverride(false)
-          setWcMetaMap(metaMapToText(d.metaFieldMap))
-          setWcMetaDefaults(d.metaFieldDefaults ?? {})
-        }
-      })
-  }, [wcVenueId, role])
-
-  useEffect(() => {
-    const params = role === 'ADMIN' && wcVenueId ? `?venueId=${encodeURIComponent(wcVenueId)}` : ''
+    const params = role === 'ADMIN' && apiVenueId ? `?venueId=${encodeURIComponent(apiVenueId)}` : ''
     fetch(`/api/admin/api-keys${params}`)
       .then((r) => (r.ok ? r.json() : []))
       .then(setExtKeys)
       .catch(() => {})
-  }, [wcVenueId, role])
+  }, [apiVenueId, role])
 
   useEffect(() => {
     if (role !== 'ADMIN') return
@@ -304,14 +224,6 @@ export function SettingsClient({
       })
   }, [role])
 
-  useEffect(() => {
-    fetch('/api/admin/venues')
-      .then((r) => r.json())
-      .then((data: Venue[]) => {
-        setShareVenues(data.filter((v) => v.sharingEnabled).map((v) => ({ id: v.id, name: v.name })))
-      })
-  }, [venueId])
-
   function applyVenue(v: Venue) {
     setVenueId(v.id)
     setLoadedUrl(v.loadedRosterUrl ?? '')
@@ -324,7 +236,6 @@ export function SettingsClient({
     setPresets(resolveAvailabilityPresets(v.availabilityPresets))
     setWorkerSessionMinutes(String(v.workerSessionTimeoutMinutes ?? 0))
     setSharingEnabled(v.sharingEnabled ?? false)
-    setSharedWooVenueId(v.sharedWooVenueId ?? '')
   }
 
   function onPickVenue(id: string) {
@@ -524,18 +435,18 @@ export function SettingsClient({
     const res = await fetch('/api/admin/api-keys', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: extKeyName || 'WEBSITE', venueId: role === 'ADMIN' ? wcVenueId : sessionVenueId }),
+      body: JSON.stringify({ name: extKeyName || 'WEBSITE', venueId: role === 'ADMIN' ? apiVenueId : sessionVenueId }),
     })
     setExtKeyBusy(false)
     if (res.ok) {
       const data = await res.json()
       setExtNewKey(data.key)
       setExtKeyName('')
-      const params = role === 'ADMIN' && wcVenueId ? `?venueId=${encodeURIComponent(wcVenueId)}` : ''
+      const params = role === 'ADMIN' && apiVenueId ? `?venueId=${encodeURIComponent(apiVenueId)}` : ''
       fetch(`/api/admin/api-keys${params}`).then((r) => (r.ok ? r.json() : [])).then(setExtKeys).catch(() => {})
     } else {
       const err = await res.json().catch(() => ({}))
-      setWcMessage((err.error ?? 'GENERATE FAILED').toUpperCase())
+      setExtMessage((err.error ?? 'GENERATE FAILED').toUpperCase())
     }
   }
 
@@ -544,9 +455,9 @@ export function SettingsClient({
     const res = await fetch(`/api/admin/api-keys/${id}`, { method: 'DELETE' })
     if (res.ok) {
       setExtKeys((prev) => prev.filter((k) => k.id !== id))
-      setWcMessage('KEY REVOKED')
+      setExtMessage('KEY REVOKED')
     } else {
-      setWcMessage('REVOKE FAILED')
+      setExtMessage('REVOKE FAILED')
     }
   }
 
@@ -554,9 +465,9 @@ export function SettingsClient({
     if (!extNewKey) return
     try {
       await navigator.clipboard.writeText(extNewKey)
-      setWcMessage('KEY COPIED')
+      setExtMessage('KEY COPIED')
     } catch {
-      setWcMessage('COPY FAILED')
+      setExtMessage('COPY FAILED')
     }
   }
 
@@ -649,41 +560,6 @@ export function SettingsClient({
     } else setWorkerSessionMessage('SAVE FAILED')
   }
 
-  async function saveWooCommerce() {
-    setWcSaving(true); setWcMessage('')
-    const body: Record<string, unknown> = {
-      wcStoreUrl: wcStoreUrl,
-      wcConsumerKey: wcConsumerKey,
-      wcConsumerSecret: wcConsumerSecret,
-      wcWebhookSecret: wcWebhookSecret,
-      wcActive,
-      metaFieldMap: metaTextToMap(wcMetaMap),
-    }
-    if (role === 'ADMIN' && wcVenueId) body.venueId = wcVenueId
-    // Saving after MANUAL OVERRIDE hands the credentials back to the admin.
-    if (wcOverride) body.managedByPlugin = false
-    const r = await fetch('/api/admin/settings/woocommerce', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    setWcSaving(false)
-    if (r.ok) {
-      const d = await r.json()
-      setWcConsumerKey(d.wcConsumerKey ?? '')
-      setWcConsumerSecret(d.wcConsumerSecret ?? '')
-      setWcWebhookSecret(d.wcWebhookSecret ?? '')
-      setWcLastSync(d.lastSyncAt ?? null)
-      setWcManagedByPlugin(d.managedByPlugin ?? false)
-      setWcPairedAt(d.pairedAt ?? null)
-      setWcOverride(false)
-      setWcMetaMap(metaMapToText(d.metaFieldMap))
-      setWcMessage('SAVED')
-    } else {
-      setWcMessage('SAVE FAILED')
-    }
-  }
-
   async function toggleDemoVenue() {
     if (!demoVenue) return
     setDemoSaving(true); setDemoMessage('')
@@ -743,10 +619,7 @@ export function SettingsClient({
     const r = await fetch(`/api/admin/venues/${venueId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sharingEnabled,
-        sharedWooVenueId: sharedWooVenueId || null,
-      }),
+      body: JSON.stringify({ sharingEnabled }),
     })
     setShareSaving(false)
     if (r.ok) {
@@ -769,9 +642,6 @@ export function SettingsClient({
     return true
   })
   const { tab } = resolveTab(settingsTabs, searchParams.get('tab'), null)
-
-  // Plugin-managed credentials are read-only until MANUAL OVERRIDE is clicked.
-  const wcLocked = wcReadOnly || (wcManagedByPlugin && !wcOverride)
 
   function go(nextTab: string) {
     router.push(hubUrl('/admin/settings', nextTab), { scroll: false })
@@ -1057,121 +927,45 @@ export function SettingsClient({
         </div>
       </div>
 
-      {/* WooCommerce */}
+      {/* External API */}
       <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">
-        <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">WOOCOMMERCE</h2>
+        <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">EXTERNAL API</h2>
         <p className="font-mono text-xs text-grey-light mb-3">
-          CONNECT YOUR WOOCOMMERCE STORE TO SYNC ORDERS AND AUTO-ALLOCATE INVENTORY. THE WEBHOOK SECRET IS USED TO VERIFY INCOMING ORDER NOTIFICATIONS.
+          KEYS FOR EXTERNAL SYSTEMS TO READ THIS VENUE&apos;S SERVICES + AVAILABILITY AND CREATE BOOKINGS. THE KEY IS SHOWN ONCE — COPY IT NOW.
         </p>
         <div className="space-y-3">
           {role === 'ADMIN' && venues.length > 1 && (
-            <Select label="Venue" value={wcVenueId} onChange={(e) => setWcVenueId(e.target.value)} options={venues.map((v) => ({ value: v.id, label: v.name }))} />
+            <Select label="Venue" value={apiVenueId} onChange={(e) => setApiVenueId(e.target.value)} options={venues.map((v) => ({ value: v.id, label: v.name }))} />
           )}
-          {wcReadOnly && <p className="font-mono text-xs text-warning">READ-ONLY — WOOCOMMERCE IS MANAGED BY {wcSharedFrom ? venues.find((v) => v.id === wcSharedFrom)?.name ?? 'THE SOURCE VENUE' : 'ANOTHER VENUE'}</p>}
-          {wcManagedByPlugin && (
-            <div className={`border p-3 space-y-2 ${wcOverride ? 'border-warning' : 'border-info'}`}>
-              <div className="font-mono text-xs uppercase tracking-wider text-white">
-                {wcOverride ? 'MANUAL OVERRIDE' : 'MANAGED BY PLUGIN'}
-              </div>
-              <p className="font-mono text-xs text-grey-light leading-relaxed">
-                {wcOverride
-                  ? 'SAVING WILL DISCONNECT THE WORDPRESS PLUGIN\'S MANAGEMENT. THE PLUGIN CAN RE-CONNECT AT ANY TIME AND WILL TAKE OVER AGAIN.'
-                  : `CREDENTIALS AND WEBHOOKS WERE SET UP BY THE HOSPO OPS WORDPRESS PLUGIN${wcPairedAt ? ` ON ${new Date(wcPairedAt).toLocaleString()}` : ''}. RE-CONNECT FROM THE PLUGIN TO ROTATE THEM.`}
-              </p>
-              {!wcOverride && (
-                <Button size="sm" variant="ghost" onClick={() => setWcOverride(true)}>MANUAL OVERRIDE</Button>
-              )}
+          {extNewKey && (
+            <div className="border border-info p-3 space-y-2">
+              <div className="font-mono text-xs text-white break-all">{extNewKey}</div>
+              <Button size="sm" onClick={copyExtKey}>COPY KEY</Button>
             </div>
           )}
-          <Input label="STORE URL" value={wcStoreUrl} onChange={(e) => setWcStoreUrl(e.target.value)} placeholder="https://yourshop.co.nz" disabled={wcLocked} />
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="CONSUMER KEY" type="password" value={wcConsumerKey} onChange={(e) => setWcConsumerKey(e.target.value)} placeholder={wcConsumerKey ? '•••••••• — TYPE TO REPLACE' : 'ck_...'} autoComplete="off" disabled={wcLocked} />
-            <Input label="CONSUMER SECRET" type="password" value={wcConsumerSecret} onChange={(e) => setWcConsumerSecret(e.target.value)} placeholder={wcConsumerSecret ? '•••••••• — TYPE TO REPLACE' : 'cs_...'} autoComplete="off" disabled={wcLocked} />
-          </div>
-          <Input label="WEBHOOK SECRET" type="password" value={wcWebhookSecret} onChange={(e) => setWcWebhookSecret(e.target.value)} placeholder={wcWebhookSecret ? '•••••••• — TYPE TO REPLACE' : 'whsec_...'} autoComplete="off" disabled={wcLocked} />
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setWcActive(!wcActive)}
-              disabled={wcLocked}
-              className={`font-mono text-xs uppercase px-3 py-1.5 border ${wcActive ? 'border-success text-success' : 'border-grey-mid text-grey-light'} disabled:opacity-40`}
-            >
-              {wcActive ? 'ACTIVE' : 'INACTIVE'}
-            </button>
-            {wcLastSync && (
-              <span className="font-mono text-xs text-grey-light">
-                LAST SYNC: {new Date(wcLastSync).toLocaleString()}
-              </span>
-            )}
-          </div>
-          {/* Meta-field mapping */}
-          <div className="border border-grey-mid">
-            <button
-              onClick={() => setWcShowMeta(!wcShowMeta)}
-              className="w-full flex items-center justify-between px-3 py-2 font-mono text-xs uppercase text-grey-light hover:text-white tracking-wider"
-            >
-              <span>ORDER FIELD MAPPING</span>
-              <span>{wcShowMeta ? '▾' : '▸'}</span>
-            </button>
-            {wcShowMeta && (
-              <div className="border-t border-grey-mid p-3 space-y-3">
-                <p className="font-mono text-xs text-grey-light leading-relaxed">
-                  DATE, TIME AND PARTY SIZE ARRIVE AS CUSTOM FIELDS ON THE ORDER. THE KEY
-                  DEPENDS ON YOUR PLUGIN AND THE LABEL YOU GAVE THE FIELD — SO MAP THEM HERE
-                  RATHER THAN RELYING ON A FIXED NAME. COMMA-SEPARATE SEVERAL KEYS TO TRY IN
-                  ORDER. LEAVE BLANK TO USE THE DEFAULTS.
-                </p>
-                {META_FIELDS.map((f) => (
-                  <div key={f.key}>
-                    <Input
-                      label={f.label}
-                      value={wcMetaMap[f.key] ?? ''}
-                      onChange={(e) => setWcMetaMap({ ...wcMetaMap, [f.key]: e.target.value })}
-                      placeholder={(wcMetaDefaults[f.key] ?? []).join(', ')}
-                      disabled={wcReadOnly}
-                    />
-                    <p className="font-mono text-xs text-grey-light mt-0.5">{f.hint}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          {/* External API keys */}
-          <div className="border border-grey-mid p-3 space-y-2">
-            <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">EXTERNAL API</h3>
-            <p className="font-mono text-xs text-grey-light">
-              KEYS FOR EXTERNAL SYSTEMS (E.G. THE WORDPRESS BOOKING PLUGIN) TO READ THIS VENUE&apos;S SERVICES + AVAILABILITY AND CREATE BOOKINGS. THE KEY IS SHOWN ONCE — COPY IT NOW.
-            </p>
-            {extNewKey && (
-              <div className="border border-info p-3 space-y-2">
-                <div className="font-mono text-xs text-white break-all">{extNewKey}</div>
-                <Button size="sm" onClick={copyExtKey}>COPY KEY</Button>
-              </div>
-            )}
-            {extKeys.length > 0 && (
-              <div className="divide-y divide-grey-mid border border-grey-mid">
-                {extKeys.map((k) => (
-                  <div key={k.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                    <div>
-                      <div className="font-mono text-xs text-white uppercase">{k.name}</div>
-                      <div className="font-mono text-xs text-grey-light">
-                        {k.masked}
-                        {k.lastUsedAt ? ` · LAST USED ${k.lastUsedAt.slice(0, 10)}` : ' · NEVER USED'}
-                      </div>
+          {extKeys.length > 0 && (
+            <div className="divide-y divide-grey-mid border border-grey-mid">
+              {extKeys.map((k) => (
+                <div key={k.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                  <div>
+                    <div className="font-mono text-xs text-white uppercase">{k.name}</div>
+                    <div className="font-mono text-xs text-grey-light">
+                      {k.masked}
+                      {k.lastUsedAt ? ` · LAST USED ${k.lastUsedAt.slice(0, 10)}` : ' · NEVER USED'}
                     </div>
-                    <Button size="sm" variant="danger" onClick={() => revokeExtKey(k.id)}>REVOKE</Button>
                   </div>
-                ))}
-              </div>
-            )}
-            <div className="flex items-end gap-2">
-              <div className="flex-1">
-                <Input label="KEY NAME" value={extKeyName} onChange={(e) => setExtKeyName(e.target.value)} placeholder="WEBSITE PLUGIN" />
-              </div>
-              <Button size="sm" variant="ghost" onClick={generateExtKey} loading={extKeyBusy}>+ GENERATE</Button>
+                  <Button size="sm" variant="danger" onClick={() => revokeExtKey(k.id)}>REVOKE</Button>
+                </div>
+              ))}
             </div>
+          )}
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <Input label="KEY NAME" value={extKeyName} onChange={(e) => setExtKeyName(e.target.value)} placeholder="WEBSITE PLUGIN" />
+            </div>
+            <Button size="sm" variant="ghost" onClick={generateExtKey} loading={extKeyBusy}>+ GENERATE</Button>
           </div>
-          {wcMessage && <p className={`font-mono text-xs ${wcMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{wcMessage}</p>}
-          <Button onClick={saveWooCommerce} loading={wcSaving} size="sm">{wcOverride ? 'SAVE & TAKE OVER' : 'SAVE WOOCOMMERCE'}</Button>
+          {extMessage && <p className="font-mono text-xs text-grey-light">{extMessage}</p>}
         </div>
       </div>
 
@@ -1259,7 +1053,7 @@ export function SettingsClient({
       <div className="max-w-2xl border-l-4 border-l-grey-mid pl-4">
         <h2 className="font-mono text-sm uppercase tracking-widest text-white mb-1">VENUE SHARING</h2>
         <p className="font-mono text-xs text-grey-light mb-3">
-          ENABLE SHARING TO ALLOW THIS VENUE&apos;S PRODUCTS, STAFF AND WOOCOMMERCE CONNECTION TO BE USED BY OTHER VENUES. VENUES LINKED TO THIS ONE WILL PULL PRODUCTS AND ORDERS FROM THE SAME WOOCOMMERCE STORE.
+          ENABLE SHARING TO ALLOW THIS VENUE&apos;S PRODUCTS AND STAFF TO BE USED BY OTHER VENUES.
         </p>
         <div className="space-y-3">
           <div className="flex items-center gap-3">
@@ -1272,24 +1066,10 @@ export function SettingsClient({
             <span className="font-mono text-xs text-grey-light">VENUE SHARING</span>
           </div>
 
-          {sharingEnabled && (
-            <Select
-              label="WOOCOMMERCE SOURCE VENUE"
-              value={sharedWooVenueId}
-              onChange={(e) => setSharedWooVenueId(e.target.value)}
-              options={[
-                { value: '', label: 'NONE (USE OWN WOOCOMMERCE)' },
-                ...shareVenues
-                  .filter((v) => v.id !== venueId)
-                  .map((v) => ({ value: v.id, label: v.name })),
-              ]}
-            />
-          )}
-
           <p className="font-mono text-xs text-grey-light">
             {sharingEnabled
-              ? 'OTHER VENUES CAN NOW USE THIS VENUE AS THEIR WOOCOMMERCE SOURCE. SET THE WOOCOMMERCE SOURCE ABOVE TO PULL PRODUCTS AND ORDERS FROM ANOTHER VENUE.'
-              : 'TURN ON SHARING TO ALLOW OTHER VENUES TO PULL FROM THIS VENUE.'}
+              ? 'OTHER VENUES CAN NOW SHARE THIS VENUE\'S PRODUCTS AND STAFF.'
+              : 'TURN ON SHARING TO ALLOW OTHER VENUES TO USE THIS VENUE\'S PRODUCTS AND STAFF.'}
           </p>
 
           {shareMessage && <p className={`font-mono text-xs ${shareMessage === 'SAVED' ? 'text-success' : 'text-danger'}`}>{shareMessage}</p>}
@@ -1390,7 +1170,6 @@ export function SettingsClient({
         {tab === 'uoms' && <UomsClient />}
         {tab === 'suppliers' && <SuppliersClient />}
         {tab === 'qrcodes' && <QRCodesClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId ?? undefined} />}
-        {tab === 'sync' && <SyncClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId ?? undefined} />}
         {tab === 'swiftpos' && <SwiftPosSalesClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId ?? undefined} />}
         {tab === 'files' && role === 'ADMIN' && (
           <div className="max-w-4xl space-y-3">

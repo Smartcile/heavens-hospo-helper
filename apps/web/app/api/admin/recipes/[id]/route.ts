@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
-import { pushProduct, pushProductDisconnect } from '@/lib/woo-push'
-import { syncMenuItemCategory } from '@/lib/menu-sync'
 import { guardAccess } from '@/lib/permissions'
 import { checkRecipeLineUnits } from '@/lib/recipe-line-kinds.server'
 
@@ -59,10 +57,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
 
     // Sync menu item link. `existing` is found with no deletedAt filter so
-    // unchecking LINK TO WOO and re-checking it reconnects the SAME local row
-    // (and its WooCommerce product id) instead of creating a duplicate.
-    let revived = false
-    let disconnectedId: string | null = null
+    // unchecking LINK TO MENU and re-checking it reconnects the SAME local row
+    // instead of creating a duplicate.
     if (linkToMenu !== undefined) {
       const existing = await tx.menuItem.findFirst({
         where: { recipeId: params.id },
@@ -88,7 +84,6 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         if (howToServe !== undefined) menuData.howToServe = howToServe || null
         if (existing) {
           await tx.menuItem.update({ where: { id: existing.id }, data: menuData })
-          revived = wasDeleted
         } else {
           await tx.menuItem.create({
             data: {
@@ -106,7 +101,6 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
           where: { id: existing.id },
           data: { deletedAt: new Date(), wooCategoryId: null },
         })
-        disconnectedId = existing.id
       }
     }
 
@@ -129,26 +123,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         },
       },
     })
-    return { updated, revived, disconnectedId }
+    return { updated }
   })
 
   const result = { ...(txResult.updated as any), menuItem: (txResult.updated as any)?.menuItems?.[0] ?? null }
-
-  // Push linked menu item changes to WooCommerce (best-effort — logs to SyncLog)
-  const linkedMenuItem = (txResult.updated as any)?.menuItems?.[0]
-  if (txResult.disconnectedId) {
-    // Unticked — the local row is soft-deleted but still holds the product id.
-    await pushProductDisconnect(txResult.disconnectedId)
-  } else if (linkedMenuItem) {
-    if (txResult.revived) {
-      // Reconnected — restore the category from its menu memberships and
-      // re-publish the store product (it was set to draft on disconnect).
-      await syncMenuItemCategory(linkedMenuItem.id)
-      await pushProduct(linkedMenuItem.id, { status: 'publish' })
-    } else {
-      await pushProduct(linkedMenuItem.id)
-    }
-  }
 
   return NextResponse.json(result)
 }

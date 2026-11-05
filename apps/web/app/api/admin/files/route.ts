@@ -4,7 +4,6 @@ import { authOptions } from '@/lib/auth'
 import { readdir, stat, unlink, mkdir } from 'fs/promises'
 import { storageRootPath, resolveWithinRoot, STORAGE_ROOTS, type StorageRoot } from '@/lib/storage'
 import { fileUsages } from '@/lib/file-usage'
-import { pushProduct } from '@/lib/woo-push'
 import { prisma } from '@hospo-ops/db'
 import path from 'path'
 
@@ -92,8 +91,7 @@ export async function DELETE(req: NextRequest) {
   }
 
   // Product photo files delete WITH their references: the image is detached
-  // from every product that uses it and removed from WordPress (the store
-  // product + its media attachment) — only then is the local file deleted.
+  // from every product that uses it — only then is the local file deleted.
   // Anything else that is still linked blocks the delete (409).
   const usages = await fileUsages(path.basename(target))
   const PRODUCT_KINDS = new Set(['menu', 'woo-image'])
@@ -112,11 +110,7 @@ export async function DELETE(req: NextRequest) {
       select: { id: true, venueId: true, imageUrl: true, deletedAt: true },
     }).catch(() => null)
     if (!item || item.deletedAt || !item.imageUrl) continue
-    // Detach locally first — pushProduct then sends images: [] (because the
-    // row still carries its wooImageId) and reconcile removes the WordPress
-    // media attachment. Best-effort; never blocks the file delete.
     await prisma.menuItem.update({ where: { id: item.id }, data: { imageUrl: null } }).catch(() => {})
-    await pushProduct(item.id)
   }
 
   await unlink(target).catch(() => null)

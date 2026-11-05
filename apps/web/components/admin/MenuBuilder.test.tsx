@@ -52,7 +52,6 @@ function renderBuilder(menu: MenuShape | null = null) {
       venueId="v1"
       products={[]}
       inventory={[{ id: 's1', name: 'COKE', unit: 'EA', category: { name: 'SOFT DRINK', tab: 'BEVERAGE' } }]}
-      wooCategories={[]}
       onClose={() => {}}
       onSaved={() => {}}
       onOpenServes={() => {}}

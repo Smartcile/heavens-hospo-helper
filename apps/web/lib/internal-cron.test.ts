@@ -1,11 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  dueJobs,
-  localParts,
-  PRODUCT_PULL_INTERVAL_MS,
-  ORDER_PULL_INTERVAL_MS,
-  type CronState,
-} from './internal-cron'
+import { dueJobs, localParts, type CronState } from './internal-cron'
 
 const TZ = 'Pacific/Auckland'
 
@@ -25,74 +19,24 @@ describe('localParts', () => {
   })
 })
 
-describe('dueJobs — product pull', () => {
-  it('is due on first run (no last-run state)', () => {
-    const state: CronState = { lastProductPullAt: null, lastOrderPullAt: null, lastExpiryScanDate: null }
-    expect(dueJobs(state, UTC_1400, TZ).productPull).toBe(true)
-  })
-
-  it('is NOT due when last pull was under 15 minutes ago', () => {
-    const state: CronState = {
-      lastProductPullAt: UTC_1400.getTime() - 5 * 60 * 1000,
-      lastOrderPullAt: null,
-      lastExpiryScanDate: null,
-    }
-    expect(dueJobs(state, UTC_1400, TZ).productPull).toBe(false)
-  })
-
-  it('is due exactly at the 15-minute interval', () => {
-    const state: CronState = {
-      lastProductPullAt: UTC_1400.getTime() - PRODUCT_PULL_INTERVAL_MS,
-      lastOrderPullAt: null,
-      lastExpiryScanDate: null,
-    }
-    expect(dueJobs(state, UTC_1400, TZ).productPull).toBe(true)
-  })
-})
-
 describe('dueJobs — expiry scan', () => {
   it('is NOT due before 03:00 local time', () => {
-    const state: CronState = { lastProductPullAt: Date.now(), lastOrderPullAt: Date.now(), lastExpiryScanDate: null }
+    const state: CronState = { lastExpiryScanDate: null }
     expect(dueJobs(state, UTC_1400, TZ).expiryScan).toBe(false) // 02:00 local
   })
 
   it('is due at 03:00 local time when not yet run today', () => {
-    const state: CronState = { lastProductPullAt: Date.now(), lastOrderPullAt: Date.now(), lastExpiryScanDate: null }
+    const state: CronState = { lastExpiryScanDate: null }
     expect(dueJobs(state, UTC_1500, TZ).expiryScan).toBe(true) // 03:00 local
   })
 
   it('is NOT due again on the same local date', () => {
-    const state: CronState = { lastProductPullAt: Date.now(), lastOrderPullAt: Date.now(), lastExpiryScanDate: '2026-07-16' }
+    const state: CronState = { lastExpiryScanDate: '2026-07-16' }
     expect(dueJobs(state, UTC_1500, TZ).expiryScan).toBe(false)
   })
 
   it('is due again the next local day', () => {
-    const state: CronState = { lastProductPullAt: Date.now(), lastOrderPullAt: Date.now(), lastExpiryScanDate: '2026-07-15' }
+    const state: CronState = { lastExpiryScanDate: '2026-07-15' }
     expect(dueJobs(state, UTC_1500, TZ).expiryScan).toBe(true)
-  })
-})
-
-describe('dueJobs — order pull', () => {
-  it('is due on first run (no last-run state)', () => {
-    const state: CronState = { lastProductPullAt: Date.now(), lastOrderPullAt: null, lastExpiryScanDate: null }
-    expect(dueJobs(state, UTC_1400, TZ).orderPull).toBe(true)
-  })
-
-  it('is NOT due when last pull was under 15 minutes ago', () => {
-    const state: CronState = {
-      lastProductPullAt: Date.now(),
-      lastOrderPullAt: UTC_1400.getTime() - 5 * 60 * 1000,
-      lastExpiryScanDate: null,
-    }
-    expect(dueJobs(state, UTC_1400, TZ).orderPull).toBe(false)
-  })
-
-  it('is due exactly at the 15-minute interval', () => {
-    const state: CronState = {
-      lastProductPullAt: Date.now(),
-      lastOrderPullAt: UTC_1400.getTime() - ORDER_PULL_INTERVAL_MS,
-      lastExpiryScanDate: null,
-    }
-    expect(dueJobs(state, UTC_1400, TZ).orderPull).toBe(true)
   })
 })

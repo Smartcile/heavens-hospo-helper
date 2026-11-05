@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
-import { pushProduct } from '@/lib/woo-push'
 import { guardAccess } from '@/lib/permissions'
 import { isGiftCardCategorized } from '@/lib/gift-cards-woo'
 
@@ -124,9 +123,6 @@ export async function POST(req: NextRequest) {
       })),
     })
   }
-
-  // Push to WooCommerce (best-effort — logs to SyncLog, never throws)
-  await pushProduct(item.id)
 
   return NextResponse.json(item, { status: 201 })
 }

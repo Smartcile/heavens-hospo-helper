@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
-import { pushProduct } from '@/lib/woo-push'
 import { guardAccess } from '@/lib/permissions'
 import { cleanSizes } from '@/lib/menu-lines'
 
@@ -42,9 +41,6 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     data: { isVariable: merged.length > 0, variations: merged },
     include: { recipe: { select: { id: true, name: true } } },
   })
-
-  // Best-effort push (creates/reconciles the store's variable product).
-  await pushProduct(updated.id)
 
   return NextResponse.json(updated)
 }

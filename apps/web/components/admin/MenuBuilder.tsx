@@ -22,7 +22,6 @@ export interface MenuOptionProduct {
   id: string
   name: string
   price: number
-  wooCategoryId: string | null
   imageUrl: string | null
   dietaryInfo: string | null
   isActive: boolean
@@ -64,7 +63,6 @@ export function MenuBuilder({
   venueName,
   products,
   inventory,
-  wooCategories,
   onClose,
   onSaved,
   onOpenServes,
@@ -74,7 +72,6 @@ export function MenuBuilder({
   venueName?: string | null
   products: MenuOptionProduct[]
   inventory: MenuOptionStock[]
-  wooCategories: { id: string; name: string }[]
   onClose: () => void
   onSaved: () => void
   onOpenServes: (line: { id: string; name: string }) => void
@@ -86,7 +83,6 @@ export function MenuBuilder({
   const [minPax, setMinPax] = useState(menu?.minPax?.toString() ?? '')
   const [maxPax, setMaxPax] = useState(menu?.maxPax?.toString() ?? '')
   const [isActive, setIsActive] = useState(menu?.isActive ?? true)
-  const [categoryId, setCategoryId] = useState(menu?.wooCategoryId ?? '')
 
   const [groups, setGroups] = useState<MenuGroupDraft[]>(() => (menu?.groups ?? []).map((g) => ({ key: g.id, id: g.id, name: g.name })))
   const [lines, setLines] = useState<MenuLineDraft[]>(() => (menu?.items ?? []).map((l) => toDraftLine(l, uid())))
@@ -270,7 +266,6 @@ export function MenuBuilder({
       minPax: min,
       maxPax: max,
       isActive,
-      wooCategoryId: categoryId || null,
       ...(venueId ? { venueId } : {}),
       groups: groupsPayload,
       items: itemsPayload,
@@ -426,20 +421,8 @@ export function MenuBuilder({
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="md:col-span-2">
-              <Input label="DESCRIPTION" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="OPTIONAL" />
-            </div>
-            <Select
-              label="WOO CATEGORY"
-              value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value)}
-              options={[
-                { value: '', label: 'LOCAL ONLY' },
-                { value: '__new__', label: 'CREATE NEW (MENU NAME)' },
-                ...wooCategories.map((c) => ({ value: c.id, label: c.name.toUpperCase() })),
-              ]}
-            />
+          <div className="grid grid-cols-1 gap-3">
+            <Input label="DESCRIPTION" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="OPTIONAL" />
           </div>
           <div className="flex items-end gap-3 flex-wrap">
             <button

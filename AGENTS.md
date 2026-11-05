@@ -1,6 +1,6 @@
 # HOSPO OPS — AI CODING CONTEXT
 
-HOSPO OPS is a self-hosted hospitality ERP and operations platform. It manages venues, staff, tasks, inventory, recipes, floor plans, budgets, and WooCommerce integration with auto-seating, recipe explosion, and inventory deduction.
+HOSPO OPS is a self-hosted hospitality ERP and operations platform. It manages venues, staff, tasks, inventory, recipes, floor plans, budgets, local menus/orders, and auto-seating with recipe explosion and inventory deduction. The WooCommerce integration is **frozen** (Phase 0 of #60 — no traffic is sent to or pulled from a store; the historical models/columns and the `lib/woo-*` helpers remain dormant for a future re-integration).
 
 > **NOTE (2026-10-09):** This file was formerly `CLAUDE.md`. The original was deleted from the repo in commit `daed88c` (2026-08-10) and has been recovered from git history (last version: commit `5a97fad`, 2026-08-06) into `AGENTS.md`, which is now the canonical AI context doc — use this from now on. The recovered snapshot was then **audited and updated against the code at commit `c429869`** (2026-10-09); everything below reflects the current codebase. If code and doc disagree, the code wins — and fix the doc.
 
@@ -193,7 +193,7 @@ to keep old deployments migratable), `db:backfill-orders`,
 | `APP_NAME` | App display name (white-label) |
 | `APP_URL` | Public URL used for QR code generation |
 | `DEFAULT_TIMEZONE` | Fallback timezone (e.g. Pacific/Auckland) |
-| `INTERNAL_CRON` | Built-in scheduler (Woo product pull + expiry scan). Default true; `false` = use external scheduler |
+| `INTERNAL_CRON` | Built-in scheduler (daily expiry scan). Default true; `false` = use external scheduler |
 | `CRON_SECRET` | Bearer token for the /api/cron endpoints (external schedulers only) |
 | `WORKER_SESSION_SECRET` | JWT secret for worker PIN sessions |
 | `WORKER_SESSION_EXPIRY_MINUTES` | Fallback worker idle timeout when a venue leaves `workerSessionTimeoutMinutes` blank/0 (default: 15) |
@@ -2298,6 +2298,20 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 
 ## ERP & WOOCOMMERCE (BUILT 2026-07)
 
+> **WOOCOMMERCE FROZEN — Phase 0 of #60 (2026-11).** The integration is dormant:
+> nothing in the running app pushes to or pulls from a store. Removed/deleted in
+> Phase 0: the Woo webhook, cron sync routes, plugin connect, `/api/admin/sync`,
+> `/admin/settings?tab=sync`, `/api/admin/settings/woocommerce`,
+> `/api/admin/woocommerce/categories`, the Woo settings block, all `push*` /
+> `ensureWooCategory` / `renameWooCategory` / `syncMenuItemCategory` calls, and the
+> background product/order pull jobs (the daily expiry scan still runs). Gift-card
+> Woo-order/product routes remain but **no UI calls them**. The `lib/woo-*.ts`
+> files, their tests, and every Woo model/column/enum are intentionally kept
+> (**no schema change**) for a future re-integration; treat the sections below as
+> historical design notes, not current behaviour. Local menus, products, sizes
+> (`MenuItem.variations`), orders (`WooOrder` as the local order store), gift
+> cards, SwiftPOS and `ApiKey` public routes are unaffected.
+
 ### Schema: 134 models (as of 2026-10)
 Core ERP models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`,
 `RecipeLineItem` (recursive BOM), `IngredientReference` (Pantry Bible),
@@ -2461,10 +2475,14 @@ best-effort, and only when not already linked so a manual correction sticks.
 ### Recipe Explosion Engine (`lib/inventory-engine.ts`)
 Recursive BOM parser: walks `RecipeLineItem` tree, converts all quantities to base units via UOM conversion ratios, returns flattened `Map<inventoryItemId, requiredBaseQty>`. DAG-safe cycle detection via visited set. 5 Vitest tests with mocked PrismaClient.
 
-### WooCommerce Webhook (`/api/webhooks/woocommerce`)
+### WooCommerce Webhook (REMOVED in Phase 0 — `/api/webhooks/woocommerce` deleted)
 Receives `order.created` / `order.updated` AND `product.created` / `product.updated` / `product.deleted` (branched on `x-wc-webhook-topic`). HMAC-SHA256 signature auth. Echo guard: pushes stamp `_updated_by: hospo-ops` + `_hospo_ops_pushed_at`; `isSelfEcho()` (lib/woo-push.ts) skips webhooks arriving within 2 min of our own push — genuine later edits still sync. Orders: upserts `WooOrder` + `WooOrderItem` in transaction, runs `explodeRecipe` per line item, stores exploded ingredients as JSON on order items. Products: `upsertProductFromWoo()` / soft-delete on `product.deleted`. Auto-seating engine: greedy first-fit bin-packing on partySize → `CalendarEvent` → `FloorPlanSetup` → `SetupItem` → `TableGroup`. Every event logs to `SyncLog`.
 
 ### Two-Way Sync (built 2026-07, refined 2026-07)
+
+> **Dormant since Phase 0 of #60 (2026-11).** The pull/push helpers below still
+> exist and are unit-tested, but no live route, component, cron job or webhook
+> calls them. Keep them for reference until the replacement integration is built.
 
 **Pull (Woo → app):**
 - `lib/woo-sync.ts` `runProductPull(venueId?)` — paginated product fetch, upserts `MenuItem`s, logs to `SyncLog`
@@ -2488,11 +2506,11 @@ Receives `order.created` / `order.updated` AND `product.created` / `product.upda
 
 **Auto-generated Woo Product ID:**
 - When creating a menu item via POST (both `/api/admin/menu-items` and the recipe ITEM LINKS flow) without providing a `wooProductId`, the API queries `max(existing wooProductId) + 1` for the venue and auto-assigns it. This gives new products an ID to push with — the push then creates the product on WooCommerce if it doesn't exist yet.
-- **Sync dashboard:** `/admin/settings?tab=sync` (`SyncClient`) — PULL PRODUCTS / PULL ORDERS / PUSH PRODUCTS NOW buttons (`POST /api/admin/sync/pull|pull-orders|push`), live `SyncLog` feed (`GET /api/admin/sync/log`, 10s auto-refresh, direction/status filters, errors in red). `/admin/sync` redirects here.
+- **Sync dashboard (REMOVED in Phase 0):** the `SYNC` settings tab, `/admin/sync`, `/api/admin/sync/*` and `SyncClient` were deleted. `SyncLog` rows remain in the database as historical data.
 
 | Route | Methods | Purpose |
 |-------|---------|---------|
-| `/api/admin/woocommerce/categories` | GET | Returns all WooCommerce categories for the venue's store (used by the category picker in both the recipe editor and menu items) |
+| `/api/admin/woocommerce/categories` | — | **REMOVED in Phase 0.** The category pickers are gone from recipes, menu items and the menu builder. |
 | `/api/admin/orders` | GET, POST | Orders for a service date (4 fixed queries, all four views) / create a manual order |
 | `/api/admin/orders/[id]` | PATCH, PUT, DELETE | Lifecycle + fields / replace line items / soft-delete |
 | `/api/admin/menus` | GET, POST | List/create menus |
@@ -2501,13 +2519,12 @@ Receives `order.created` / `order.updated` AND `product.created` / `product.upda
 | `/api/admin/order-views/[id]` | PUT, DELETE | Saved view CRUD |
 
 ### Internal Cron Scheduler (`instrumentation.ts` + `lib/internal-cron.ts`)
-Started once on server boot via Next's `instrumentationHook` (enabled in next.config.mjs). Minute tick; pure `dueJobs(state, now, tz)` decides what fires (Vitest-covered). Jobs: product pull every 15 min (`runProductPull`), order pull every 15 min (`runOrderPull`), expiry scan daily 03:00 in `DEFAULT_TIMEZONE` (`runExpiryScan` in `lib/expiry-scan.ts`). Fully self-contained — no host crontab. Disable with `INTERNAL_CRON=false`. Dev hot-reload guarded via `globalThis.__hospoInternalCron`.
+Started once on server boot via Next's `instrumentationHook` (enabled in next.config.mjs). Minute tick; pure `dueJobs(state, now, tz)` decides what fires (Vitest-covered). Job: expiry scan daily 03:00 in `DEFAULT_TIMEZONE` (`runExpiryScan` in `lib/expiry-scan.ts`). The Woo product/order pull jobs were removed in Phase 0. Fully self-contained — no host crontab. Disable with `INTERNAL_CRON=false`. Dev hot-reload guarded via `globalThis.__hospoInternalCron`.
 
 ### Cron Endpoints (`/api/cron/`) — external scheduler fallback
-- `woocommerce-sync`: thin wrapper over `runProductPull()`
-- `woocommerce-orders-sync`: thin wrapper over `runOrderPull()`
-- `expiry-scan`: thin wrapper over `runExpiryScan()` — sweeps expired `InventoryItem`s, traces BOM to parent WooCommerce products, applies `fallbackCategoryId`
+- `expiry-scan`: thin wrapper over `runExpiryScan()` — sweeps expired `InventoryItem`s, traces BOM to parent products, applies `fallbackCategoryId`
 - All authenticated via `Authorization: Bearer <CRON_SECRET>` header
+- `woocommerce-sync` / `woocommerce-orders-sync` were deleted in Phase 0.
 
 ### Menus, serves & COGS (built 2026-08/09)
 
@@ -2520,14 +2537,14 @@ unit-kind consistency; `/api/admin/menu-items/[id]/serves` GET/PUT (PUT replaces
 the set). Editor `MenuItemServesEditor` inside ITEM LINKS.
 
 **Menu builder** — `/admin/ops?tab=menu&sub=menus` (`MenusClient` +
-`MenuBuilder` / `MenuLineEditor` / `MenuPreview`): groups + drag-reorder lines,
-product **and stock** lines (polymorphic `MenuMenuItem`: `menuItemId` XOR
-`inventoryItemId`), per-line min/max, stock `sizeOptions`, live plain-text
-preview. A menu **is** a WooCommerce category (`Menu.wooCategoryId`; contract
-`'__new__'` match-or-create / `''` local-only / numeric id). `lib/menu-lines(.server).ts`
-(9 tests) is the single read shape (`shapeMenuLine`; purged targets render
-REMOVED). `lib/menu-sync.ts` (9 tests) keeps `MenuItem.wooCategoryId` = the
-union of its live menus' categories and only pushes when it actually changed.
+`MenuBuilder` / `MenuLineEditor` / `MenuPreview`): local menus with groups +
+drag-reorder lines, product **and stock** lines (polymorphic `MenuMenuItem`:
+`menuItemId` XOR `inventoryItemId`), per-line min/max, stock `sizeOptions`, live
+plain-text preview. **Since Phase 0 of #60 a menu is purely local** — no Woo
+category is created, looked up or re-synced (the deployed DB may still carry
+legacy `Menu.wooCategoryId` values). `lib/menu-lines(.server).ts` (9 tests) is
+the single read shape (`shapeMenuLine`; purged targets render REMOVED).
+`lib/menu-sync.ts` (9 tests) remains dormant.
 
 **Menu import from a PDF (#49)** — `⬆ IMPORT MENU` on `/admin/ops?tab=menu&sub=menus`
 opens `MenuImportModal`. `lib/menu-import.ts` (pure, 7 tests) builds a copy-paste
@@ -2550,8 +2567,9 @@ allergens (`dietaryInfo`), not V/VE/GF claims.
 row via `POST /api/admin/menus/cogs` and in `MenuLineEditor` vs ex-GST price
 (`priceExGst`, `grossMarginPct`).
 
-**Product sizes** — pushed to Woo as variations (`PUT /api/admin/menu-items/[id]/sizes`
-merges by name so `wooVariationId` survives).
+**Product sizes** — local price points stored on `MenuItem.variations`
+(`PUT /api/admin/menu-items/[id]/sizes` merges by name). Since Phase 0 they are
+**not** pushed to Woo as variations.
 
 ### Gift cards (built 2026-08/09)
 

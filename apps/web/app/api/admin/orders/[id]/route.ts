@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
-import { pushOrderStatus, pushOrderItems, opStatusToWooStatus } from '@/lib/woo-push'
 import { resolveCustomer } from '@/lib/customer-match'
 import { logOrderEvent } from '@/lib/gift-card-history'
 import type { OrderStatus, OrderOpStatus, PaymentStatus, FulfillmentType } from '@prisma/client'
@@ -68,12 +67,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (stampField && !order[stampField]) {
       data[stampField] = new Date()
     }
-
-    // Terminal operational states sync back to the store's status (finalised →
-    // completed, cancelled → cancelled); everything else stays internal. The
-    // shared `data.status` push below then writes it to WooCommerce.
-    const wooStatus = opStatusToWooStatus(body.opStatus)
-    if (wooStatus) data.status = wooStatus
   }
 
   if (body.paymentStatus !== undefined) {
@@ -148,10 +141,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     await logOrderEvent(params.id, 'STATUS', transitions.join(' · ')).catch(() => {})
   }
 
-  // Only the WooCommerce-owned status pushes back, and only for Woo orders —
-  // pushOrderStatus itself no-ops on local orders.
-  if (data.status !== undefined) await pushOrderStatus(updated.id)
-
   return NextResponse.json(updated)
 }
 
@@ -216,10 +205,6 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   // App-side edit on the order (shown in the gift card popup's ORDER · APP feed).
   await logOrderEvent(params.id, 'DETAILS_UPDATED', `LINE ITEMS REPLACED — ${lines.length} LINE(S), NEW TOTAL $${(updated?.totalAmount ?? 0).toFixed(2)}`).catch(() => {})
-
-  // Sync the edited line items back to the WooCommerce order (best-effort —
-  // logs to SyncLog; skipped when any line can't map to the store).
-  await pushOrderItems(params.id)
 
   return NextResponse.json(updated)
 }
