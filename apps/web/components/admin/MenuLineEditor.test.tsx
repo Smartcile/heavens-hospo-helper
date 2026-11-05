@@ -16,17 +16,34 @@ const LINE: MenuLineDraft = {
   unit: null,
   sizes: [{ label: 'SINGLE', price: 19 }],
   sizesDirty: false,
+  options: [
+    {
+      id: 'og1',
+      name: 'SIDE',
+      minSelect: 1,
+      maxSelect: 1,
+      choices: [
+        { id: 'c1', name: 'FRIES', priceDelta: 0, isDefault: true },
+        { id: 'c2', name: 'SALAD', priceDelta: 3, isDefault: false },
+      ],
+    },
+  ],
   minQty: '',
   maxQty: '',
 }
 
-function renderEditor(cogs: { cost: number; partial: boolean } | null, onPatch = vi.fn()) {
+function renderEditor(
+  cogs: { cost: number; partial: boolean } | null,
+  onPatch = vi.fn(),
+  onOpenOptions = vi.fn(),
+) {
   render(
     <MenuLineEditor
       line={LINE}
       groupOptions={[{ value: '', label: 'NO GROUP' }]}
       cogs={cogs}
       onPatch={onPatch}
+      onOpenOptions={onOpenOptions}
       onClose={() => {}}
     />,
   )
@@ -51,5 +68,23 @@ describe('MenuLineEditor', () => {
     const onPatch = renderEditor(null)
     fireEvent.change(screen.getByDisplayValue('21'), { target: { value: '25' } })
     expect(onPatch).toHaveBeenCalledWith('k1', expect.objectContaining({ price: 25 }))
+  })
+
+  it('renders the product option groups and opens the options editor', () => {
+    const onOpenOptions = vi.fn()
+    render(
+      <MenuLineEditor
+        line={LINE}
+        groupOptions={[{ value: '', label: 'NO GROUP' }]}
+        cogs={null}
+        onPatch={vi.fn()}
+        onOpenOptions={onOpenOptions}
+        onClose={() => {}}
+      />,
+    )
+    expect(screen.getByText(/SIDE \(CHOOSE 1\)/)).toBeTruthy()
+    expect(screen.getByText('FRIES $0.00 · SALAD +$3.00')).toBeTruthy()
+    fireEvent.click(screen.getByText('OPTIONS'))
+    expect(onOpenOptions).toHaveBeenCalledWith(LINE)
   })
 })

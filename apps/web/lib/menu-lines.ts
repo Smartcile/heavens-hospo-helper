@@ -1,7 +1,10 @@
 // Menu line + size options — the pure, Prisma-free brain shared by the menu
 // builder, the live plain-text preview and the server. A menu line is either a
-// PRODUCT (MenuItem, sizes read from its `variations`) or a STOCK item
-// (InventoryItem, sizes carried on the line's `sizeOptions`). See MENUS.md.
+// PRODUCT (MenuItem, sizes read from its `variations` and its product-level
+// option groups) or a STOCK item (InventoryItem, sizes carried on the line's
+// `sizeOptions`). See MENUS.md.
+
+import type { MenuOptionGroup } from './menu-options'
 
 export type MenuLineKind = 'PRODUCT' | 'STOCK'
 
@@ -54,6 +57,7 @@ export interface MenuLineLike {
   maxQty: number | null
   sortOrder: number
   dietaryInfo?: string | null
+  options?: MenuOptionGroup[]
 }
 
 /** The read shape of one menu line, as returned by the admin menu routes. */
@@ -62,6 +66,7 @@ export interface ShapedMenuLine extends MenuLineLike {
   inventoryItemId: string | null
   imageUrl: string | null
   unit: string | null
+  options: MenuOptionGroup[]
 }
 
 /** A group as edited in the builder (client key + optional saved id). */
@@ -86,6 +91,7 @@ export interface MenuLineDraft {
   unit: string | null
   sizes: MenuSize[]
   sizesDirty: boolean
+  options: MenuOptionGroup[]
   minQty: string
   maxQty: string
 }

@@ -5,6 +5,7 @@
 // the menu builder. Pure presentation: it only reads `groups` + `lines`.
 
 import { groupMenuLines, formatSizePrice, type MenuLineLike } from '@/lib/menu-lines'
+import { describeOptionGroup, summariseOptionChoices } from '@/lib/menu-options'
 
 export interface MenuPreviewLine extends MenuLineLike {
   unit?: string | null
@@ -64,6 +65,15 @@ export function MenuPreview({
                     </div>
                     {line.dietaryInfo && (
                       <div className="text-2xs uppercase text-grey-light">{line.dietaryInfo}</div>
+                    )}
+                    {line.options && line.options.length > 0 && (
+                      <div className="mt-0.5 space-y-0.5">
+                        {line.options.map((group, oi) => (
+                          <div key={group.id ?? `${group.name}-${oi}`} className="text-2xs uppercase text-grey-light">
+                            {describeOptionGroup(group)}: {summariseOptionChoices(group)}
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 ))}

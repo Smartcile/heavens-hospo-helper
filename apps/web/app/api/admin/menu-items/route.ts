@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { isGiftCardCategorized } from '@/lib/gift-cards-woo'
+import { optionGroupInclude } from '@/lib/menu-lines.server'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -18,7 +19,10 @@ export async function GET(req: NextRequest) {
   // Local menu items for this venue
   const local = await prisma.menuItem.findMany({
     where: { venueId, deletedAt: null },
-    include: { recipe: { select: { id: true, name: true } } },
+    include: {
+      recipe: { select: { id: true, name: true } },
+      optionGroups: optionGroupInclude,
+    },
     orderBy: { name: 'asc' },
   })
 
@@ -30,6 +34,7 @@ export async function GET(req: NextRequest) {
         include: {
           recipe: { select: { id: true, name: true } },
           venue: { select: { id: true, name: true } },
+          optionGroups: optionGroupInclude,
         },
       },
     },

@@ -57,7 +57,7 @@ hospo-ops/
 ├── packages/
 │   ├── db/                         # Prisma 7 schema + PG adapter + seed
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma       # 139 models (as of 2026-11)
+│   │   │   ├── schema.prisma       # 141 models (as of 2026-11)
 │   │   │   ├── seed.ts             # Idempotent demo/sample data
 │   │   │   ├── migrate-*.ts        # One-off migrations wired into docker-entrypoint.sh
 │   │   │   └── migrations/         # Legacy 0_init migration (kept for reference)
@@ -2385,7 +2385,7 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 > (`MenuItem.variations`), orders (`WooOrder` as the local order store), gift
 > cards, SwiftPOS and `ApiKey` public routes are unaffected.
 
-### Schema: 139 models (as of 2026-11)
+### Schema: 141 models (as of 2026-11)
 Core ERP models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`,
 `RecipeLineItem` (recursive BOM), `IngredientReference` (Pantry Bible),
 `WooIntegration`, `MenuItem` (+ `MenuItemServe`, `MenuItemVenue`), `Menu`,
@@ -2609,6 +2609,21 @@ to the product. `lib/menu-serves.ts` (10 tests) validates one target / qty > 0 /
 unit-kind consistency; `/api/admin/menu-items/[id]/serves` GET/PUT (PUT replaces
 the set). Editor `MenuItemServesEditor` inside ITEM LINKS.
 
+**Product option groups (Phase 2 of #71, built 2026-11)** — `MenuItemOptionGroup`
+→ `MenuItemOptionChoice` (name, `minSelect`/`maxSelect`, `priceDelta`,
+`isDefault`, sortOrder, soft delete) model customer choices shared across every
+menu the product is on ("SIDE: FRIES / SALAD / FRIES + SALAD +$3"). Upcharges
+are additive only. `lib/menu-options.ts` (pure) owns
+`normaliseOptionGroups` / `validateOptionGroups` (`min <= max`, `max <= choices`,
+one default when single-select) and display helpers (`describeOptionGroup`,
+`formatPriceDelta`, `summariseOptionChoices`). `GET/PUT
+/api/admin/menu-items/[id]/options` (view/edit, MANAGER venue-locked); PUT is a
+replace-set that soft-deletes removed rows and **revives a returning row by its
+unique key**. `MenuItemOptionsEditor` opens from a product menu line's
+**OPTIONS** button; options ride on `ShapedMenuLine.options` and render in
+`MenuLineEditor` + `MenuPreview`. Import mapping onto these rows (Phase 3) and
+order/POS selection remain out of scope.
+
 **Menu builder** — `/admin/ops?tab=menu&sub=menus` (`MenusClient` +
 `MenuBuilder` / `MenuLineEditor` / `MenuPreview`): local menus with groups +
 drag-reorder lines, product **and stock** lines (polymorphic `MenuMenuItem`:
@@ -2633,8 +2648,8 @@ is kept per normalised name. The parser returns **structured issues** (missing
 price/description/size price/group, duplicates) plus `MATCH` / `NEW` / `AMBIGUOUS`
 via `matchImportItems`. **Dietary is no longer imported** — allergens come from
 the product/recipe; new products start blank and the preview/summary show
-`DIETARY NOT IMPORTED`. **Options are parsed/displayed but not persisted in
-Phase 1** (the relational option model is a later phase). The preview is editable
+`DIETARY NOT IMPORTED`. **Options are parsed/displayed but not yet imported**
+(the Phase 2 model/editor is built; Phase 3 maps import options onto it). The preview is editable
 through draft helpers (`createImportDraft`, `renameImportGroup`,
 `renameImportItem`, `moveImportGroup`, `moveImportItem`, `reorderImportItem`,
 `draftToImportData`) with stable draft ids, so selection survives rename/move/
