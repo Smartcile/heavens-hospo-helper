@@ -11,6 +11,7 @@ import {
   type MenuImportData,
   type MenuImportItem,
 } from '@/lib/menu-import'
+import { normaliseOptionGroups, validateOptionGroup, type MenuOptionGroup } from '@/lib/menu-options'
 
 class ImportError extends Error {
   status: number
@@ -153,6 +154,95 @@ export async function POST(req: NextRequest) {
       let skipped = 0
       const warnings = [DIETARY_NOTE]
       const processed = new Set<string>()
+      const optionStats = { groupsAdded: 0, choicesAdded: 0, skipped: 0 }
+
+      // Phase 3 — map imported options onto the relational model.
+      // New products get every valid group/choice. Matched products are additive:
+      // existing (curated) groups and choices are never overwritten or removed;
+      // only missing groups/choices are created, and soft-deleted rows are
+      // revived by their unique key so a re-import never duplicates.
+      async function applyOptions(menuItemId: string, item: MenuImportItem) {
+        const parsed = normaliseOptionGroups(item.options)
+        const valid: MenuOptionGroup[] = []
+        for (const group of parsed) {
+          const errors = validateOptionGroup(group)
+          if (errors.length > 0) {
+            optionStats.skipped++
+            warnings.push(`OPTION "${group.name}" ON "${item.name}" SKIPPED — ${errors[0]}`)
+            continue
+          }
+          valid.push(group)
+        }
+        if (valid.length === 0) return
+
+        const existing = await tx.menuItemOptionGroup.findMany({
+          where: { menuItemId },
+          include: { choices: true },
+        })
+        const groupsByName = new Map<string, { id: string; deletedAt: Date | null }>()
+        const choicesByGroup = new Map<string, Map<string, { id: string; deletedAt: Date | null }>>()
+        for (const group of existing) {
+          groupsByName.set(group.name, { id: group.id, deletedAt: group.deletedAt })
+          choicesByGroup.set(
+            group.id,
+            new Map(group.choices.map((c) => [c.name, { id: c.id, deletedAt: c.deletedAt }])),
+          )
+        }
+
+        for (const [groupIndex, group] of valid.entries()) {
+          let groupId: string
+          const found = groupsByName.get(group.name)
+          if (!found) {
+            const createdGroup = await tx.menuItemOptionGroup.create({
+              data: {
+                menuItemId,
+                name: group.name,
+                minSelect: group.minSelect,
+                maxSelect: group.maxSelect,
+                sortOrder: groupIndex,
+              },
+            })
+            groupId = createdGroup.id
+            optionStats.groupsAdded++
+            choicesByGroup.set(groupId, new Map())
+            groupsByName.set(group.name, { id: groupId, deletedAt: null })
+          } else {
+            groupId = found.id
+            if (found.deletedAt) {
+              await tx.menuItemOptionGroup.update({
+                where: { id: groupId },
+                data: { deletedAt: null },
+              })
+              optionStats.groupsAdded++
+            }
+          }
+
+          const choicesByName = choicesByGroup.get(groupId) ?? new Map()
+          for (const [choiceIndex, choice] of group.choices.entries()) {
+            const existingChoice = choicesByName.get(choice.name)
+            if (!existingChoice) {
+              const createdChoice = await tx.menuItemOptionChoice.create({
+                data: {
+                  groupId,
+                  name: choice.name,
+                  priceDelta: choice.priceDelta,
+                  isDefault: choice.isDefault,
+                  sortOrder: choiceIndex,
+                },
+              })
+              choicesByName.set(choice.name, { id: createdChoice.id, deletedAt: null })
+              optionStats.choicesAdded++
+            } else if (existingChoice.deletedAt) {
+              await tx.menuItemOptionChoice.update({
+                where: { id: existingChoice.id },
+                data: { deletedAt: null },
+              })
+              optionStats.choicesAdded++
+            }
+          }
+          choicesByGroup.set(groupId, choicesByName)
+        }
+      }
 
       for (const [groupIndex, group] of data.groups.entries()) {
         const groupKey = normaliseMenuName(group.name)
@@ -216,6 +306,8 @@ export async function POST(req: NextRequest) {
             productsByName.set(itemKey, [product])
           }
 
+          await applyOptions(product.id, item)
+
           const line = await tx.menuMenuItem.findFirst({
             where: { menuId: menu.id, menuItemId: product.id },
             select: { id: true, groupId: true, sortOrder: true },
@@ -235,7 +327,18 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      return { menuId: menu.id, created, matched, linesAdded, linesUpdated, skipped, warnings }
+      return {
+        menuId: menu.id,
+        created,
+        matched,
+        linesAdded,
+        linesUpdated,
+        skipped,
+        optionGroupsAdded: optionStats.groupsAdded,
+        optionChoicesAdded: optionStats.choicesAdded,
+        optionsSkipped: optionStats.skipped,
+        warnings,
+      }
     })
 
     return NextResponse.json(out)

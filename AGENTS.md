@@ -2050,7 +2050,8 @@ separate from real user data and can be disabled in **Settings → DEMO VENUE** 
 New demo entities use UUID pattern `00000000-0000-0000-00dX-XXXXXXXXXXXX` (prefix `00dX`).
 The helper `d(id)` in seed.ts generates these: `d('000000000020')` → demo admin staff UUID.
 Current demo prefixes: `00d0` venue/staff/tasks/QR, `00d1` checklists + guides,
-`00d2` pathways, `00d3` pathway nodes, `00d4` events/BEO, `00d5` event templates.
+`00d2` pathways, `00d3` pathway nodes, `00d4` events/BEO, `00d5` event templates,
+`00d9` tips, `00da` demo menu product + option groups/choices.
 
 ### Fixed IDs for reproducibility
 Every seed entity uses a hardcoded UUID in the `00000000-0000-0000-XXXX-0000000000YY` pattern where `XXXX` is an entity-group prefix and `YY` is a zero-padded counter. This makes upserts idempotent and safe to re-run.
@@ -2065,6 +2066,8 @@ Every seed entity uses a hardcoded UUID in the `00000000-0000-0000-XXXX-00000000
 | `00a0` | Task templates |
 | `00b0` | Training modules |
 | `00d0`-`00d5` | Demo-venue entities (venue/staff, checklists+guides, pathways, nodes, events, templates) |
+| `00d9` | Demo tips period |
+| `00da` | Demo menu product + option groups/choices |
 
 ### Staff seeding pattern
 ```typescript
@@ -2621,8 +2624,8 @@ one default when single-select) and display helpers (`describeOptionGroup`,
 replace-set that soft-deletes removed rows and **revives a returning row by its
 unique key**. `MenuItemOptionsEditor` opens from a product menu line's
 **OPTIONS** button; options ride on `ShapedMenuLine.options` and render in
-`MenuLineEditor` + `MenuPreview`. Import mapping onto these rows (Phase 3) and
-order/POS selection remain out of scope.
+`MenuLineEditor` + `MenuPreview`. The PDF import maps parsed options onto these
+rows (Phase 3, below); order/POS selection remains out of scope.
 
 **Menu builder** — `/admin/ops?tab=menu&sub=menus` (`MenusClient` +
 `MenuBuilder` / `MenuLineEditor` / `MenuPreview`): local menus with groups +
@@ -2648,8 +2651,12 @@ is kept per normalised name. The parser returns **structured issues** (missing
 price/description/size price/group, duplicates) plus `MATCH` / `NEW` / `AMBIGUOUS`
 via `matchImportItems`. **Dietary is no longer imported** — allergens come from
 the product/recipe; new products start blank and the preview/summary show
-`DIETARY NOT IMPORTED`. **Options are parsed/displayed but not yet imported**
-(the Phase 2 model/editor is built; Phase 3 maps import options onto it). The preview is editable
+`DIETARY NOT IMPORTED`. **Options are imported** (Phase 3): each parsed group
+is sanitised/validated with `lib/menu-options.ts`, new products get every valid
+group + choice, and matched products are **additive upsert by name** — missing
+groups/choices are created, soft-deleted rows are revived, and curated rows are
+never overwritten or removed. Invalid groups are skipped and reported in the
+summary (`optionGroupsAdded / optionChoicesAdded / optionsSkipped`). The preview is editable
 through draft helpers (`createImportDraft`, `renameImportGroup`,
 `renameImportItem`, `moveImportGroup`, `moveImportItem`, `reorderImportItem`,
 `draftToImportData`) with stable draft ids, so selection survives rename/move/
@@ -2658,11 +2665,15 @@ server-side and, in one transaction, matches products by normalised name
 (reporting `AMBIGUOUS` and skipping instead of guessing), creates missing products
 with `sizes` → `MenuItem.variations` (`isVariable: true`), **upserts the
 `(menuId, menuItemId)` line** so a re-import re-files/reorders instead of
-duplicating, and revives a soft-deleted menu. It never writes `dietaryInfo`,
-never calls `pushProduct` (`wooProductId` stays null) and returns a summary
-(`created / matched / linesAdded / linesUpdated / skipped / warnings`). New
-products are `recipeId: null` and appear in Recipes → IMPORT PRODUCTS for later
-recipe/stock setup.
+duplicating, and revives a soft-deleted menu. Options are written to
+`MenuItemOptionGroup` / `MenuItemOptionChoice` (additive for matched products,
+never duplicate on re-import). It never writes `dietaryInfo`, never calls
+`pushProduct` (`wooProductId` stays null) and returns a summary
+(`created / matched / linesAdded / linesUpdated / skipped / optionGroupsAdded /
+optionChoicesAdded / optionsSkipped / warnings`). New products are `recipeId:
+null` and appear in Recipes → IMPORT PRODUCTS for later recipe/stock setup.
+The demo seed also creates `FISH & CHIPS` with a required `SIDE` option group
+(`FRIES / SALAD / FRIES + SALAD +$3.00`) using fixed `00da…` demo UUIDs.
 
 **COGS** — `lib/menu-cogs.ts` (8 tests, pure): `costPrice` is per ONE stock
 `unit`; `costExploded` converts to grams via the density bridge;

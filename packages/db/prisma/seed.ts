@@ -1826,6 +1826,60 @@ async function main() {
     },
   })
 
+  // ─── Phase 13: Demo product options (Fish & Chips side choice) ─────
+  // Product-level options (MenuItemOptionGroup → MenuItemOptionChoice) shared
+  // across every menu the product is on. Idempotent by fixed demo UUIDs; the
+  // `update` only revives soft-deleted rows so manual edits survive a re-seed.
+  // The seed does not create a demo Menu, so this is a standalone product +
+  // options (add it to a menu from Ops → Menus).
+  const demoFishChips = await prisma.menuItem.upsert({
+    where: { id: d('00da00000001') },
+    update: { deletedAt: null },
+    create: {
+      id: d('00da00000001'),
+      venueId: demoVenue.id,
+      name: 'FISH & CHIPS',
+      price: 24.5,
+      description: 'BEER-BATTERED FISH WITH YOUR CHOICE OF SIDE.',
+      recipeId: null,
+      wooProductId: null,
+      isActive: true,
+    },
+  })
+
+  const demoSideGroup = await prisma.menuItemOptionGroup.upsert({
+    where: { id: d('00da00000002') },
+    update: { deletedAt: null },
+    create: {
+      id: d('00da00000002'),
+      menuItemId: demoFishChips.id,
+      name: 'SIDE',
+      minSelect: 1,
+      maxSelect: 1,
+      sortOrder: 0,
+    },
+  })
+
+  const demoSideChoices = [
+    { id: d('00da00000003'), name: 'FRIES', priceDelta: 0, sortOrder: 0 },
+    { id: d('00da00000004'), name: 'SALAD', priceDelta: 0, sortOrder: 1 },
+    { id: d('00da00000005'), name: 'FRIES + SALAD', priceDelta: 3, sortOrder: 2 },
+  ]
+  for (const choice of demoSideChoices) {
+    await prisma.menuItemOptionChoice.upsert({
+      where: { id: choice.id },
+      update: { deletedAt: null },
+      create: {
+        id: choice.id,
+        groupId: demoSideGroup.id,
+        name: choice.name,
+        priceDelta: choice.priceDelta,
+        isDefault: false,
+        sortOrder: choice.sortOrder,
+      },
+    })
+  }
+
   console.log('Seed complete.')
   console.log(`Demo venue: ${demoVenue.name} [isDemo=${demoVenue.isDemo}, isActive=${demoVenue.isActive}]`)
   console.log('')
@@ -1853,6 +1907,7 @@ async function main() {
   console.log(`  GUIDE COMPLETIONS: ${guideCompletions.length} · ASSIGNMENTS: ${guideAssignments.length}`)
   console.log(`  EVENTS: 1 confirmed BEO (SMITH WEDDING, 5 blocks) · TEMPLATES: 2 (1 built-in) · 1 pending request`)
   console.log(`  TIPS: 1 mock period (${mockTipsShares.length} staff, $1,587.90 accrued)`)
+  console.log(`  MENU DEMO: ${demoFishChips.name} with ${demoSideChoices.length} SIDE options (FRIES / SALAD / FRIES + SALAD +$3.00)`)
 }
 
 main()

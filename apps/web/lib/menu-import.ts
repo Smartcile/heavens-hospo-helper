@@ -6,10 +6,10 @@
  * is pure and Prisma-free so the same parser runs in the browser preview and on
  * the server (which never trusts the client).
  *
- * Phase 1 imports name/price/description/sizes. Options are parsed and shown so
- * the operator can see what the menu carries, but they are NOT persisted yet
- * (the option model lands in a later phase). Dietaries are deliberately not
- * imported: allergens come from the product/recipe, never from an LLM answer.
+ * Imports name/price/description/sizes plus product option groups (Phase 3 maps
+ * the parsed options onto `MenuItemOptionGroup` / `MenuItemOptionChoice`).
+ * Dietaries are deliberately not imported: allergens come from the
+ * product/recipe, never from an LLM answer.
  */
 
 export interface MenuImportSize {
@@ -80,6 +80,9 @@ export interface MenuImportSummary {
   linesAdded: number
   linesUpdated: number
   skipped: number
+  optionGroupsAdded: number
+  optionChoicesAdded: number
+  optionsSkipped: number
   warnings: string[]
 }
 
@@ -669,7 +672,7 @@ export function formatPriceDelta(delta: number): string {
   return n > 0 ? `+$${n.toFixed(2)}` : `-$${Math.abs(n).toFixed(2)}`
 }
 
-/** One-line description of a detected option group (display only in Phase 1). */
+/** One-line description of an imported option group (preview display). */
 export function optionSummary(option: MenuImportOption): string {
   const rule = option.required ? 'REQUIRED' : `MIN ${option.min} · MAX ${option.max}`
   const choices = option.choices.map((c) => `${c.name} ${formatPriceDelta(c.priceDelta)}`).join(' / ')
