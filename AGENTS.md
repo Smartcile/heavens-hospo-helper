@@ -1619,13 +1619,19 @@ The in-app user help is a **global, read-only catalogue**, not per-venue guides.
   live task titles as an in-session tick-off list. Legacy — the Training UI is
   gone and the guide system owns this now.
 - **Re-train on significant change.** `Task.version` / `TrainingModule.version`
-  bump when a save includes `requireRetrain: true` (a "Require re-training"
-  toggle on the Task and Training edit forms, with an optional `changeSummary`).
-  `lib/retrain.ts:postRetrainNotice` then auto-creates a must-acknowledge
-  `Notice` (priority IMPORTANT, pinned) targeted at the item's department (null =
-  whole venue). Staff acknowledge via the existing `/w/notices` GOT IT flow;
-  managers track acks on `/admin/notices`. Reuses notice/ack infra — no new
-  worker screen. Best-effort (never blocks the save).
+  / `Guide.version` bump when a save includes `requireRetrain: true` (a "Require
+  re-training" toggle on the Task and guide edit forms, with an optional
+  `changeSummary`). `lib/retrain.ts:postRetrainNotice` then auto-creates a
+  must-acknowledge `Notice` (priority IMPORTANT, pinned) targeted at the saved
+  guide audiences (or the item's department, null = whole venue) — `NoticeAudience`
+  mirrors `GuideAudience` so a section/position-scoped guide notifies only that
+  group. Guide rules: only ADMIN/MANAGER can trigger it (floor editors can save
+  but the flag is ignored), a DRAFT bumps the version but posts nothing until it
+  is PUBLISHED, and a guide with no audience/department/onboarding is untargeted
+  so it bumps the version without a notice (the editor shows a hint). Staff
+  acknowledge via the existing `/w/notices` GOT IT flow; managers track acks on
+  `/admin/notices`. Reuses notice/ack infra - no new worker screen. Best-effort
+  (never blocks the save).
 - **Task filter "NOT IN THIS LIST".** When creating or editing a checklist, a
   dynamic `'notinthis'` usage filter appears showing all tasks except the LIVE
   `clSelected` set — allowing tasks already used elsewhere to be added, and

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getWorkerSession } from '@/lib/worker-session'
 import { workerGuideAccess } from '@/lib/worker-guide-access'
+import { postRetrainNotice } from '@/lib/retrain'
 import { prisma } from '@hospo-ops/db'
 import {
   cleanAudiences,
@@ -104,6 +105,12 @@ export async function PUT(req: NextRequest, { params }: Params) {
     updates.audiences = { deleteMany: {}, create: cleanAudiences(body.audiences) }
   }
 
+  // Only ADMIN/MANAGER may trigger a re-train notice; a granted floor editor can
+  // still save, but the flag is ignored so they cannot post a venue-wide notice.
+  const canNotify = session.role === 'ADMIN' || session.role === 'MANAGER'
+  const requireRetrain = canNotify && !!body.requireRetrain
+  if (requireRetrain) updates.version = { increment: 1 }
+
   const guide = await prisma.guide.update({
     where: { id: params.id },
     data: updates,
@@ -120,6 +127,23 @@ export async function PUT(req: NextRequest, { params }: Params) {
   // Only touched when the caller manages links (the editor sends `links`).
   if (cleanSteps && stepsManageLinks(cleanSteps)) {
     await syncStepLinks(guide.steps, cleanSteps)
+  }
+
+  // Target the audiences JUST SAVED, not the pre-save ones. A draft or an
+  // untargeted guide still bumps the version but posts no notice.
+  const hasAudienceTarget =
+    (guide.audiences?.length ?? 0) > 0 || guide.departmentId != null || guide.isOnboarding
+  if (requireRetrain && guide.status === 'PUBLISHED' && hasAudienceTarget) {
+    try {
+      await postRetrainNotice({
+        venueId: guide.venueId,
+        departmentId: guide.departmentId,
+        title: guide.title,
+        summary: body.changeSummary ?? null,
+        audiences: guide.audiences,
+        createdById: session.staffId,
+      })
+    } catch { /* never block the save */ }
   }
 
   return NextResponse.json(guide)

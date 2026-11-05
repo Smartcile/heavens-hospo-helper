@@ -71,7 +71,7 @@ describe('WorkerGuideEditor', () => {
     globalThis.fetch = spy
     const onSaved = vi.fn()
 
-    render(<WorkerGuideEditor guideId={null} canPublish onClose={() => {}} onSaved={onSaved} />)
+    render(<WorkerGuideEditor guideId={null} canPublish role="MANAGER" onClose={() => {}} onSaved={onSaved} />)
 
     expect(await screen.findByText('NEW GUIDE')).toBeTruthy()
 
@@ -97,7 +97,7 @@ describe('WorkerGuideEditor', () => {
 
   it('renders the steps section after the linked-tasks picker', async () => {
     globalThis.fetch = mockFetch()
-    render(<WorkerGuideEditor guideId={null} canPublish onClose={() => {}} onSaved={() => {}} />)
+    render(<WorkerGuideEditor guideId={null} canPublish role="MANAGER" onClose={() => {}} onSaved={() => {}} />)
     await screen.findByText('NEW GUIDE')
 
     const linked = screen.getByText('Link to tasks')
@@ -108,7 +108,7 @@ describe('WorkerGuideEditor', () => {
   it('adds an "applies to" audience and sends it as audiences', async () => {
     const spy = mockFetch()
     globalThis.fetch = spy
-    render(<WorkerGuideEditor guideId={null} canPublish onClose={() => {}} onSaved={() => {}} />)
+    render(<WorkerGuideEditor guideId={null} canPublish role="MANAGER" onClose={() => {}} onSaved={() => {}} />)
     await screen.findByText('NEW GUIDE')
 
     fireEvent.change(screen.getByPlaceholderText('FOOD SAFETY BASICS'), { target: { value: 'ROLE GUIDE' } })
@@ -125,7 +125,7 @@ describe('WorkerGuideEditor', () => {
   it('adds a step link and sends it as steps[].links', async () => {
     const spy = mockFetch()
     globalThis.fetch = spy
-    render(<WorkerGuideEditor guideId={null} canPublish onClose={() => {}} onSaved={() => {}} />)
+    render(<WorkerGuideEditor guideId={null} canPublish role="MANAGER" onClose={() => {}} onSaved={() => {}} />)
     await screen.findByText('NEW GUIDE')
 
     fireEvent.change(screen.getByPlaceholderText('FOOD SAFETY BASICS'), { target: { value: 'LINK GUIDE' } })
@@ -146,7 +146,7 @@ describe('WorkerGuideEditor', () => {
   it('loads existing audiences and step links and round-trips them on save', async () => {
     const spy = mockFetch(EXISTING_GUIDE)
     globalThis.fetch = spy
-    render(<WorkerGuideEditor guideId="g1" canPublish onClose={() => {}} onSaved={() => {}} />)
+    render(<WorkerGuideEditor guideId="g1" canPublish role="MANAGER" onClose={() => {}} onSaved={() => {}} />)
 
     expect(await screen.findByDisplayValue('CLEANING BASICS')).toBeTruthy()
     // The stored link is labelled from the options payload, not shown as REMOVED.
@@ -162,6 +162,43 @@ describe('WorkerGuideEditor', () => {
       expect(body.steps[0].links).toEqual([
         { kind: 'ITEM', targetId: 'i1', qty: null, note: null },
       ])
+    })
+  })
+
+  it('shows the re-training control only on edit, and only for managers', async () => {
+    globalThis.fetch = mockFetch(EXISTING_GUIDE)
+    const { rerender } = render(
+      <WorkerGuideEditor guideId="g1" canPublish role="STAFF" onClose={() => {}} onSaved={() => {}} />,
+    )
+    await screen.findByDisplayValue('CLEANING BASICS')
+    expect(screen.queryByText(/Require re-training/)).toBeNull()
+
+    rerender(<WorkerGuideEditor guideId="g1" canPublish role="MANAGER" onClose={() => {}} onSaved={() => {}} />)
+    await screen.findByDisplayValue('CLEANING BASICS')
+    expect(screen.getByText(/Require re-training/)).toBeTruthy()
+
+    // Creating a guide never offers it.
+    rerender(<WorkerGuideEditor guideId={null} canPublish role="MANAGER" onClose={() => {}} onSaved={() => {}} />)
+    await screen.findByText('NEW GUIDE')
+    expect(screen.queryByText(/Require re-training/)).toBeNull()
+  })
+
+  it('sends requireRetrain + changeSummary on PUT when a manager ticks it', async () => {
+    const spy = mockFetch(EXISTING_GUIDE)
+    globalThis.fetch = spy
+    render(<WorkerGuideEditor guideId="g1" canPublish role="MANAGER" onClose={() => {}} onSaved={() => {}} />)
+    await screen.findByDisplayValue('CLEANING BASICS')
+
+    fireEvent.click(screen.getByText(/Require re-training/))
+    fireEvent.change(screen.getByPlaceholderText('e.g. NEW GLASS-RINSE STEP ADDED'), {
+      target: { value: 'Added rinse step' },
+    })
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      const body = savedBody(spy, 'PUT')
+      expect(body.requireRetrain).toBe(true)
+      expect(body.changeSummary).toBe('Added rinse step')
     })
   })
 })

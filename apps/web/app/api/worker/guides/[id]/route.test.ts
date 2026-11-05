@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { db, getWorkerSession, workerGuideAccess } = vi.hoisted(() => ({
+const { db, getWorkerSession, workerGuideAccess, postRetrainNotice } = vi.hoisted(() => ({
   db: {
     guide: { findUnique: vi.fn(), update: vi.fn() },
     guideStep: { findMany: vi.fn() },
@@ -12,11 +12,13 @@ const { db, getWorkerSession, workerGuideAccess } = vi.hoisted(() => ({
   },
   getWorkerSession: vi.fn(),
   workerGuideAccess: vi.fn(),
+  postRetrainNotice: vi.fn(),
 }))
 
 vi.mock('@hospo-ops/db', () => ({ prisma: db }))
 vi.mock('@/lib/worker-session', () => ({ getWorkerSession }))
 vi.mock('@/lib/worker-guide-access', () => ({ workerGuideAccess }))
+vi.mock('@/lib/retrain', () => ({ postRetrainNotice }))
 
 import { GET, PUT } from '@/app/api/worker/guides/[id]/route'
 
@@ -108,5 +110,77 @@ describe('/api/worker/guides/[id]', () => {
     expect(data.title).toBe('NEW TITLE')
     expect('audiences' in data).toBe(false)
     expect(db.guideStepLink.createMany).not.toHaveBeenCalled()
+  })
+
+  const savedGuide = (over: Record<string, unknown> = {}) => ({
+    id: 'g1',
+    venueId: 'venue1',
+    title: 'FOOD SAFETY',
+    status: 'PUBLISHED',
+    departmentId: null,
+    isOnboarding: false,
+    audiences: [{ kind: 'SECTION', targetId: 's1' }],
+    steps: [{ id: 's1' }],
+    ...over,
+  })
+
+  it('bumps the version and posts to the saved audiences for a PUBLISHED guide', async () => {
+    db.guide.update.mockResolvedValueOnce(savedGuide())
+
+    const res = await PUT(
+      jsonRequest({ requireRetrain: true, changeSummary: 'Added rinse step' }),
+      { params: { id: 'g1' } },
+    )
+
+    expect(res.status).toBe(200)
+    const data = db.guide.update.mock.calls[0][0].data as Record<string, unknown>
+    expect(data.version).toEqual({ increment: 1 })
+    expect(postRetrainNotice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        venueId: 'venue1',
+        departmentId: null,
+        audiences: [{ kind: 'SECTION', targetId: 's1' }],
+        summary: 'Added rinse step',
+        createdById: 'staff1',
+      }),
+    )
+  })
+
+  it('does nothing when requireRetrain is omitted', async () => {
+    await PUT(jsonRequest({ title: 'NEW TITLE' }), { params: { id: 'g1' } })
+
+    const data = db.guide.update.mock.calls[0][0].data as Record<string, unknown>
+    expect(data).not.toHaveProperty('version')
+    expect(postRetrainNotice).not.toHaveBeenCalled()
+  })
+
+  it('ignores requireRetrain from a floor STAFF editor', async () => {
+    getWorkerSession.mockResolvedValue({ ...session, role: 'STAFF' })
+
+    await PUT(jsonRequest({ requireRetrain: true }), { params: { id: 'g1' } })
+
+    const data = db.guide.update.mock.calls[0][0].data as Record<string, unknown>
+    expect(data).not.toHaveProperty('version')
+    expect(postRetrainNotice).not.toHaveBeenCalled()
+  })
+
+  it('bumps the version but posts no notice for a DRAFT guide', async () => {
+    db.guide.update.mockResolvedValueOnce(savedGuide({ status: 'DRAFT' }))
+
+    await PUT(jsonRequest({ requireRetrain: true }), { params: { id: 'g1' } })
+
+    const data = db.guide.update.mock.calls[0][0].data as Record<string, unknown>
+    expect(data.version).toEqual({ increment: 1 })
+    expect(postRetrainNotice).not.toHaveBeenCalled()
+  })
+
+  it('still returns 200 when posting the notice fails', async () => {
+    db.guide.update.mockResolvedValueOnce(savedGuide())
+    postRetrainNotice.mockRejectedValueOnce(new Error('db down'))
+
+    const res = await PUT(jsonRequest({ requireRetrain: true }), { params: { id: 'g1' } })
+
+    expect(res.status).toBe(200)
+    expect(postRetrainNotice).toHaveBeenCalled()
   })
 })

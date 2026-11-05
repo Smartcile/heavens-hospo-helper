@@ -377,6 +377,7 @@ function GuidesInner({ role }: { role: string }) {
       <WorkerGuideEditor
         guideId={editor.id}
         canPublish={canPublish}
+        role={role}
         onClose={() => setEditor(null)}
         onSaved={() => { setEditor(null); load() }}
       />
