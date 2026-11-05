@@ -125,6 +125,34 @@ describe('GuidesClient', () => {
     expect(screen.getByText('HOW TO READ THE FRIDGE TEMP LOG')).toBeTruthy()
   })
 
+  it('drops the legacy onboarding badge, controls and save payload', async () => {
+    render(<GuidesClient role="ADMIN" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FOOD SAFETY BASICS')).toBeTruthy())
+
+    // GUIDES[0] has isOnboarding: true — the card badge must no longer render.
+    expect(screen.queryByText('ONBOARDING')).toBeNull()
+
+    fireEvent.click(screen.getByText('+ NEW GUIDE'))
+    expect(screen.queryByText('Auto-assign to department')).toBeNull()
+    expect(screen.queryByText('PART OF ONBOARDING')).toBeNull()
+
+    fireEvent.change(screen.getByPlaceholderText('HOW TO CLEAN THE COFFEE MACHINE'), {
+      target: { value: 'NEW TIPS GUIDE' },
+    })
+    fireEvent.click(screen.getByText('SAVE GUIDE'))
+
+    await waitFor(() => {
+      const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      const post = calls.find(
+        (c) => String(c[0]) === '/api/admin/guides' && (c[1] as RequestInit | undefined)?.method === 'POST',
+      )
+      expect(post).toBeTruthy()
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body).not.toHaveProperty('departmentId')
+      expect(body).not.toHaveProperty('isOnboarding')
+    })
+  })
+
   it('downloads the single-guide PDF from a card', async () => {
     vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:fake'), revokeObjectURL: vi.fn() })
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})

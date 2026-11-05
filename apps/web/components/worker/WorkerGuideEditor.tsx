@@ -29,7 +29,6 @@ interface TaskLink {
 }
 
 interface EditorOptions {
-  departments: { id: string; name: string }[]
   tasks: TaskOption[]
 }
 
@@ -38,9 +37,7 @@ interface FormState {
   description: string
   category: string
   guideType: string
-  departmentId: string
   isTracked: boolean
-  isOnboarding: boolean
   requiresSignOff: boolean
   bodyHtml: string
   steps: GuideStep[]
@@ -58,9 +55,7 @@ function blankForm(): FormState {
     description: '',
     category: '',
     guideType: 'HOW_TO',
-    departmentId: '',
     isTracked: true,
-    isOnboarding: false,
     requiresSignOff: false,
     bodyHtml: '',
     steps: [emptyStep()],
@@ -89,7 +84,7 @@ export function WorkerGuideEditor({
   const [error, setError] = useState('')
   const [form, setForm] = useState<FormState>(blankForm)
   const [stepDragIdx, setStepDragIdx] = useState<number | null>(null)
-  const [options, setOptions] = useState<EditorOptions>({ departments: [], tasks: [] })
+  const [options, setOptions] = useState<EditorOptions>({ tasks: [] })
   const [taskSearch, setTaskSearch] = useState('')
 
   useEffect(() => {
@@ -100,8 +95,8 @@ export function WorkerGuideEditor({
         guideId ? fetch(`/api/worker/guides/${guideId}`) : Promise.resolve(null),
       ])
       if (cancelled) return
-      const opts = oR.ok ? await oR.json() : { departments: [], tasks: [] }
-      setOptions({ departments: opts.departments ?? [], tasks: opts.tasks ?? [] })
+      const opts = oR.ok ? await oR.json() : { tasks: [] }
+      setOptions({ tasks: opts.tasks ?? [] })
 
       if (guideId && gR) {
         if (gR.status === 401) { window.location.href = '/w/login'; return }
@@ -112,9 +107,7 @@ export function WorkerGuideEditor({
           description: g.description ?? '',
           category: g.category ?? '',
           guideType: g.guideType ?? 'HOW_TO',
-          departmentId: g.departmentId ?? '',
           isTracked: !!g.isTracked,
-          isOnboarding: !!g.isOnboarding,
           requiresSignOff: !!g.requiresSignOff,
           bodyHtml: g.bodyHtml ?? '',
           steps: (g.steps ?? []).length
@@ -177,9 +170,7 @@ export function WorkerGuideEditor({
       description: form.description || null,
       category: form.category || null,
       guideType: form.guideType,
-      departmentId: form.departmentId || null,
       isTracked: form.isTracked,
-      isOnboarding: form.isOnboarding,
       requiresSignOff: form.requiresSignOff,
       bodyHtml: form.bodyHtml || null,
       steps: form.steps
@@ -237,18 +228,9 @@ export function WorkerGuideEditor({
           </select>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <label className={LABEL}>Category (optional)</label>
-            <input value={form.category} onChange={(e) => set('category', e.target.value)} placeholder="BAR" className={FIELD} />
-          </div>
-          <div className="space-y-1">
-            <label className={LABEL}>Department</label>
-            <select value={form.departmentId} onChange={(e) => set('departmentId', e.target.value)} className={FIELD}>
-              <option value="">NONE</option>
-              {options.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-          </div>
+        <div className="space-y-1">
+          <label className={LABEL}>Category (optional)</label>
+          <input value={form.category} onChange={(e) => set('category', e.target.value)} placeholder="BAR" className={FIELD} />
         </div>
 
         <div className="space-y-1">
@@ -263,7 +245,6 @@ export function WorkerGuideEditor({
 
         <div className="flex flex-wrap gap-4">
           <label className={CHECK}><input type="checkbox" checked={form.isTracked} onChange={(e) => set('isTracked', e.target.checked)} className="accent-white" /> Track completion</label>
-          <label className={CHECK}><input type="checkbox" checked={form.isOnboarding} disabled={!form.isTracked} onChange={(e) => set('isOnboarding', e.target.checked)} className="accent-white disabled:opacity-40" /> Onboarding</label>
           <label className={CHECK}><input type="checkbox" checked={form.requiresSignOff} disabled={!form.isTracked} onChange={(e) => set('requiresSignOff', e.target.checked)} className="accent-white disabled:opacity-40" /> Manager sign-off</label>
         </div>
 

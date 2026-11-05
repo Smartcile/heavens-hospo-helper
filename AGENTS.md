@@ -258,12 +258,14 @@ A guide has:
 - `bodyHtml: String?` — sanitised rich text shown above the steps (`lib/rich-text.ts` allowlist; re-sanitised on read).
 - `folderId` — flat one-level `GuideFolder` for BIBLE organisation.
 - `isTracked: boolean` — replaces the old `kind` enum. When true, the guide shows
-  in the worker's "My Guides" list, tracks completions, and supports sign-off and
-  onboarding. When false, it's a reference-only document (old SOP/FAQ/HOWTO).
+  in the worker's "My Guides" list, tracks completions, and supports sign-off.
+  When false, it's a reference-only document (old SOP/FAQ/HOWTO).
 - `requiresSignOff: boolean` — when true, a manager must sign off via the Staff
   page modal. When false, the worker self-completes.
-- `isOnboarding: boolean` — applies to ALL staff regardless of department.
-- `departmentId: String?` — deprecated in favour of `GuideAudience`; still honoured by the resolver.
+- `isOnboarding: boolean` — legacy onboarding flag; no longer edited in the UI
+  (onboarding is modelled as a pathway), but still honoured by the resolver.
+- `departmentId: String?` — deprecated in favour of `GuideAudience` and no longer
+  edited in the UI; still honoured by the resolver.
 
 A guide applies to a person when any of (precedence ASSIGNED > ONBOARDING > SECTION > POSITION > DEPARTMENT):
 1. Individually assigned via `GuideAssignment` (with `reason`)
@@ -287,7 +289,7 @@ guide card onto a folder to file it; deleting a folder unfiles its guides in one
 transaction, never deletes them), DRAFT/PUBLISHED badges + PUBLISH, guide-type
 labels, rich-text body (`RichTextEditor`), audiences editor (DEPARTMENT /
 SECTION / POSITION), linked tasks + competency tasks comboboxes,
-isTracked/requiresSignOff/isOnboarding checkboxes, steps (heading, content,
+isTracked/requiresSignOff checkboxes, steps (heading, content,
 video, multi-image gallery with annotator), and **⬇ PDF** (single + multi-select
 bulk) via `lib/guide-pdf.ts`.
 

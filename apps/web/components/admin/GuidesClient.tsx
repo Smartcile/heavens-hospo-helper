@@ -153,10 +153,8 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [pdfPath, setPdfPath] = useState<string | null>(null)
   const [pdfUrl, setPdfUrl] = useState('')
   const [pdfUploading, setPdfUploading] = useState(false)
-  const [departmentId, setDepartmentId] = useState('')
   const [folderId, setFolderId] = useState('')
   const [isTracked, setIsTracked] = useState(true)
-  const [isOnboarding, setIsOnboarding] = useState(false)
   const [requiresSignOff, setRequiresSignOff] = useState(false)
   const [venueId, setVenueId] = useState('')
   const [linkedTaskIds, setLinkedTaskIds] = useState<string[]>([])
@@ -367,7 +365,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setTitle(''); setDescription(''); setCategory('')
     setGuideType('HOW_TO'); setBodyHtml('')
     setPdfPath(null); setPdfUrl('')
-    setDepartmentId(''); setFolderId(''); setIsTracked(true); setIsOnboarding(false); setRequiresSignOff(false)
+    setFolderId(''); setIsTracked(true); setRequiresSignOff(false)
     setLinkedTaskIds([]); setCompetencyTaskIds([])
     setSteps([emptyStep()]); setTableColumns([]); setTableRows([]); setSourceMenuId(''); setAudiences([])
     setVenueId(getActiveVenueId(role, sessionVenueId, defaultVenueId))
@@ -379,8 +377,8 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setTitle(g.title); setDescription(g.description ?? ''); setCategory(g.category ?? '')
     setGuideType(g.guideType ?? ''); setBodyHtml(g.bodyHtml ?? '')
     setPdfPath(g.pdfPath ?? null); setPdfUrl(g.pdfUrl ?? '')
-    setDepartmentId(g.departmentId ?? ''); setFolderId(g.folderId ?? ''); setSourceMenuId(g.sourceMenuId ?? '')
-    setIsTracked(g.isTracked); setIsOnboarding(g.isOnboarding); setRequiresSignOff(g.requiresSignOff)
+    setFolderId(g.folderId ?? ''); setSourceMenuId(g.sourceMenuId ?? '')
+    setIsTracked(g.isTracked); setRequiresSignOff(g.requiresSignOff)
     setVenueId(g.venueId)
 
     const tgs = g.taskGuides ?? []
@@ -457,9 +455,8 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
       pdfPath: pdfPath || null,
       pdfUrl: pdfUrl || null,
       venueId: role === 'ADMIN' ? venueId : undefined,
-      departmentId: departmentId || null,
       folderId: folderId || null,
-      isTracked, isOnboarding, requiresSignOff,
+      isTracked, requiresSignOff,
       steps: cleanSteps.map((s) => ({
         id: s.id,
         heading: s.heading || null,
@@ -567,10 +564,6 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setSteps((prev) => prev.map((s, i) => (i === stepIndex ? { ...s, links: next } : s)))
   }
 
-  const deptOptions = [
-    { value: '', label: 'ALL STAFF (NOT DEPT-SPECIFIC)' },
-    ...filteredDepartments.map((d) => ({ value: d.id, label: d.name })),
-  ]
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
   const taskOptions = filteredTasks.map((t) => ({ value: t.id, label: t.title }))
   const filteredFolders = folders.filter((f) => !effectiveVenueId || f.venueId === effectiveVenueId)
@@ -615,7 +608,6 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
         <div className="flex flex-wrap items-center gap-1.5">
           {g.isTracked && <Badge variant="default">TRACKED</Badge>}
           {!g.isTracked && <Badge variant="default">REFERENCE</Badge>}
-          {g.isOnboarding && <Badge variant="warning">ONBOARDING</Badge>}
           {guideTypeLabel(g.guideType) && <Badge variant="default">{guideTypeLabel(g.guideType)}</Badge>}
           {g.department && <Badge>{g.department.name}</Badge>}
           {g.category && <Badge>{g.category}</Badge>}
@@ -759,7 +751,6 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
               options={[{ value: '', label: '— NONE —' }, ...GUIDE_TYPES.map((t) => ({ value: t, label: GUIDE_TYPE_LABELS[t] }))]}
             />
             <Select label="Folder" value={folderId} onChange={(e) => setFolderId(e.target.value)} options={folderSelectOptions} />
-            <Select label="Auto-assign to department" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} options={deptOptions} />
             <Input label="Category (optional)" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="BAR" />
           </div>
 
@@ -832,14 +823,10 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
               <input type="checkbox" checked={requiresSignOff} onChange={(e) => setRequiresSignOff(e.target.checked)} className="w-4 h-4 accent-white" disabled={!isTracked} />
               <span className={`font-mono text-xs uppercase ${!isTracked ? 'text-grey-light' : 'text-white'}`}>REQUIRES MANAGER SIGN-OFF</span>
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={isOnboarding} onChange={(e) => setIsOnboarding(e.target.checked)} className="w-4 h-4 accent-white" disabled={!isTracked} />
-              <span className={`font-mono text-xs uppercase ${!isTracked ? 'text-grey-light' : 'text-white'}`}>PART OF ONBOARDING</span>
-            </label>
           </div>
 
           {!isTracked && (
-            <p className="font-mono text-xs text-grey-light">REFERENCE GUIDES ARE NOT TRACKED. SIGN-OFF AND ONBOARDING DO NOT APPLY.</p>
+            <p className="font-mono text-xs text-grey-light">REFERENCE GUIDES ARE NOT TRACKED. SIGN-OFF DOES NOT APPLY.</p>
           )}
 
           <div className="border border-grey-mid p-3 space-y-1">
@@ -852,7 +839,7 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
                   : 'VISIBLE TO WORKERS — REFERENCE ONLY (SHOWS IN THE BIBLE AS READ-ONLY, NOTHING IS TRACKED).'}
             </div>
             <p className="font-mono text-xs uppercase text-grey-light leading-tight">
-              A WORKER SEES A PUBLISHED GUIDE WHEN IT APPLIES TO THEM: ONBOARDING · DEPARTMENT · SECTION/POSITION TAG · OR A DIRECT ASSIGNMENT.
+              A WORKER SEES A PUBLISHED GUIDE WHEN IT IS TAGGED (SECTION / POSITION / DEPARTMENT) OR DIRECTLY ASSIGNED.
             </p>
           </div>
 

@@ -28,6 +28,10 @@ describe('WorkerGuideEditor', () => {
 
     expect(await screen.findByText('NEW GUIDE')).toBeTruthy()
 
+    // The legacy department + onboarding targeting controls are gone.
+    expect(screen.queryByText('Department')).toBeNull()
+    expect(screen.queryByText('Onboarding')).toBeNull()
+
     fireEvent.change(screen.getByPlaceholderText('FOOD SAFETY BASICS'), { target: { value: 'how to clean the machine' } })
     // Link a task (toggle the row).
     fireEvent.click(await screen.findByText('CLEAN THE MACHINE'))
@@ -40,6 +44,8 @@ describe('WorkerGuideEditor', () => {
       expect(body.title).toBe('how to clean the machine')
       expect(body.guideType).toBe('HOW_TO')
       expect(body.taskGuides).toEqual([{ taskId: 't1', isRequiredForCompetency: false }])
+      expect(body).not.toHaveProperty('departmentId')
+      expect(body).not.toHaveProperty('isOnboarding')
     })
     expect(onSaved).toHaveBeenCalled()
   })
