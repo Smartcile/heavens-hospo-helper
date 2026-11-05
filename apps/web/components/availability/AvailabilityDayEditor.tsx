@@ -12,6 +12,7 @@ import { formatDateLong } from '@/lib/date-nav'
 import {
   addWindow,
   addWorkingWindow,
+  ALL_AVAILABILITY_SCOPES,
   describeSeriesEnd,
   minutesOfTime,
   presetWindow,
@@ -93,7 +94,8 @@ export function AvailabilityDayEditor({
   presets,
   canOverride = false,
   initialScope = 'THIS',
-  allowSeriesScope = true,
+  allowedScopes = ALL_AVAILABILITY_SCOPES,
+  allowSeriesEnd = true,
   busy = false,
   error,
   onSave,
@@ -102,6 +104,8 @@ export function AvailabilityDayEditor({
   onClose,
   canDeleteSeries = false,
   onRequestDeleteSeries,
+  canRequestRemoval = false,
+  onRequestSeriesRemoval,
 }: {
   dateKey: string
   entry: AvailabilityEntry | null
@@ -109,8 +113,10 @@ export function AvailabilityDayEditor({
   presets: AvailabilityPreset[]
   canOverride?: boolean
   initialScope?: AvailabilityScope
-  /** Workers never get FROM/ALL (a series edit detaches just the clicked day). */
-  allowSeriesScope?: boolean
+  /** Which scope buttons this caller may use (workers: THIS/FROM only). */
+  allowedScopes?: AvailabilityScope[]
+  /** Workers get FROM only — they may not change the series end in this flow. */
+  allowSeriesEnd?: boolean
   busy?: boolean
   error?: string | null
   onSave: (draft: EditorDraft, options: EditorSaveOptions) => void
@@ -121,6 +127,9 @@ export function AvailabilityDayEditor({
   /** Admin only: open the delete-series warning (scope is chosen there). */
   canDeleteSeries?: boolean
   onRequestDeleteSeries?: () => void
+  /** Worker: open the series-removal request confirmation. */
+  canRequestRemoval?: boolean
+  onRequestSeriesRemoval?: () => void
   onClose: () => void
 }) {
   const [isAllDay, setIsAllDay] = useState(entry ? entry.isAllDay : true)
@@ -136,7 +145,11 @@ export function AvailabilityDayEditor({
     series && series.endDate ? weeksForSeries(series.startDate, series.endDate) : 2,
   )
   const [changeSeriesEnd, setChangeSeriesEnd] = useState(false)
-  const [scope, setScope] = useState<AvailabilityScope>(allowSeriesScope ? initialScope : 'THIS')
+  const [scope, setScope] = useState<AvailabilityScope>(() => {
+    const allowed = allowedScopes.length > 0 ? allowedScopes : ALL_AVAILABILITY_SCOPES
+    if (allowed.includes(initialScope)) return initialScope
+    return allowed.includes('FROM') ? 'FROM' : (allowed[0] ?? 'THIS')
+  })
   const [lockReason, setLockReason] = useState('')
 
   // A split created by + ADD WINDOW is intentionally not normalised; editing it
@@ -192,11 +205,11 @@ export function AvailabilityDayEditor({
       notes: note.trim() || null,
     }
     onSave(draft, {
-      // A worker series edit is always THIS: the server detaches the day and
-      // later occurrences are never touched. A series-end change is hidden —
-      // but a worker still repeats a brand-new non-series day as usual.
-      repeat: series && !allowSeriesScope ? null : currentRepeat(),
-      scope: series ? (allowSeriesScope ? scope : 'THIS') : null,
+      // A worker still repeats a brand-new non-series day as usual; on an
+      // existing series `repeat` only carries a deliberate series-end change
+      // (hidden for workers in this flow).
+      repeat: currentRepeat(),
+      scope: series ? scope : null,
       reason: note.trim() || null,
     })
   }
@@ -365,7 +378,7 @@ export function AvailabilityDayEditor({
                   : 'NO END DATE'}
               </span>
             </div>
-            {allowSeriesScope && (
+            {allowSeriesEnd && (
               <ToggleCheck
                 checked={changeSeriesEnd}
                 onChange={(v) => {
@@ -379,7 +392,7 @@ export function AvailabilityDayEditor({
                 label="CHANGE SERIES END"
               />
             )}
-            {allowSeriesScope && changeSeriesEnd && (
+            {allowSeriesEnd && changeSeriesEnd && (
               <div className="space-y-2">
                 <ToggleCheck checked={noEnd} onChange={setNoEnd} label="NO END DATE" hint="REPEATS WEEKLY FOREVER (MATERIALISED 2 YEARS AHEAD)" />
                 {!noEnd && (
@@ -420,52 +433,50 @@ export function AvailabilityDayEditor({
         )}
       </div>
 
-      {/* Series scope — workers only ever get THIS (a detached day). */}
-      {series && !allowSeriesScope && (
-        <div className="border border-grey-mid p-3 space-y-1">
-          <div className="label">THIS CHANGE APPLIES TO</div>
-          <p className="font-mono text-xs uppercase text-white">JUST THIS DAY</p>
-          <p className="font-mono text-2xs uppercase text-grey-mid">
-            THIS DAY LEAVES THE SERIES — LATER DAYS ARE UNCHANGED.
-          </p>
-        </div>
-      )}
-      {series && allowSeriesScope && (
+      {/* Series scope — restricted to the scopes this caller may use. */}
+      {series && (
         <div className="border border-grey-mid p-3 space-y-2">
           <div className="label">THIS CHANGE APPLIES TO</div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className={`grid gap-2 ${allowedScopes.length >= 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
             {([
               ['THIS', 'JUST THIS DAY'],
               ['FROM', 'FROM THIS DAY ONWARDS'],
               ['ALL', 'ALL IN THE SERIES'],
-            ] as [AvailabilityScope, string][]).map(([key, label]) => {
-              const endChange = key === 'THIS' && changeSeriesEnd
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  disabled={endChange}
-                  title={endChange ? 'A SERIES END CHANGE NEEDS FROM OR ALL' : undefined}
-                  onClick={() => {
-                    setScope(key)
-                    if (changeSeriesEnd && series.endDate) {
-                      setWeeks(weeksForSeries(key === 'FROM' ? dateKey : series.startDate, series.endDate))
-                    }
-                  }}
-                  className={`h-12 border font-mono text-2xs uppercase leading-tight px-1 transition-colors ${
-                    endChange
-                      ? 'border-grey-mid text-grey-mid opacity-40 cursor-not-allowed'
-                      : scope === key ? 'bg-white text-black border-white' : 'border-grey-mid text-grey-light hover:border-white hover:text-white'
-                  }`}
-                >
-                  {label}
-                </button>
-              )
-            })}
+            ] as [AvailabilityScope, string][])
+              .filter(([key]) => allowedScopes.includes(key))
+              .map(([key, label]) => {
+                const endChange = key === 'THIS' && changeSeriesEnd
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    disabled={endChange}
+                    title={endChange ? 'A SERIES END CHANGE NEEDS FROM OR ALL' : undefined}
+                    onClick={() => {
+                      setScope(key)
+                      if (changeSeriesEnd && series.endDate) {
+                        setWeeks(weeksForSeries(key === 'FROM' ? dateKey : series.startDate, series.endDate))
+                      }
+                    }}
+                    className={`h-12 border font-mono text-2xs uppercase leading-tight px-1 transition-colors ${
+                      endChange
+                        ? 'border-grey-mid text-grey-mid opacity-40 cursor-not-allowed'
+                        : scope === key ? 'bg-white text-black border-white' : 'border-grey-mid text-grey-light hover:border-white hover:text-white'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
           </div>
           {scope === 'THIS' && !changeSeriesEnd && (
             <p className="font-mono text-2xs uppercase text-grey-mid">
               JUST THIS DAY LEAVES THE SERIES — LATER SERIES CHANGES WON&apos;T TOUCH IT.
+            </p>
+          )}
+          {scope === 'FROM' && (
+            <p className="font-mono text-2xs uppercase text-grey-mid">
+              FROM {formatDateLong(dateKey)} ONWARDS — PAST DAYS UNCHANGED.
             </p>
           )}
         </div>
@@ -543,6 +554,16 @@ export function AvailabilityDayEditor({
             className="h-12 px-4 border border-danger text-danger font-mono font-bold text-sm uppercase hover:bg-danger hover:text-black transition-colors disabled:opacity-40"
           >
             DELETE SERIES
+          </button>
+        )}
+        {canRequestRemoval && onRequestSeriesRemoval && (series || entry?.seriesId) && (
+          <button
+            type="button"
+            onClick={onRequestSeriesRemoval}
+            disabled={busy}
+            className="h-12 px-4 border border-danger text-danger font-mono font-bold text-sm uppercase hover:bg-danger hover:text-black transition-colors disabled:opacity-40"
+          >
+            REQUEST REMOVAL
           </button>
         )}
         {adminReadOnly && onToggleLock && (

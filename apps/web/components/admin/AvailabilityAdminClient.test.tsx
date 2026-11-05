@@ -227,6 +227,31 @@ describe('AvailabilityAdminClient', () => {
     })
   })
 
+  it('labels a CLEAR/FROM request as a series removal', async () => {
+    const seriesRemoval = {
+      ...data,
+      entries: [
+        {
+          id: 'e1', staffId: 'st1', date: monday, type: 'UNAVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+          seriesId: 's1', seriesEndDate: null, lockedAt: null, lockedById: null, lockedReason: null,
+        },
+      ],
+      queue: {
+        pending: [],
+        requests: [{ ...data.queue.requests[0], action: 'CLEAR', scope: 'FROM', seriesId: 's1', payload: null }],
+      },
+    }
+    mockFetch(seriesRemoval)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+
+    expect(await screen.findByText(/CLEAR · REMOVE SERIES FROM THIS DAY/)).toBeDefined()
+    expect(screen.getAllByText('REMOVE SERIES FROM THIS DAY').length).toBeGreaterThan(0)
+  })
+
   it('keeps the proposed request open with an error when MARK_APPLIED fails', async () => {
     const requestOnly = {
       ...data,

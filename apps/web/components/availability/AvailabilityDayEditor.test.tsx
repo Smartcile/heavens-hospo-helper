@@ -154,11 +154,60 @@ describe('AvailabilityDayEditor', () => {
     expect(screen.queryByText('DELETE SERIES')).toBeNull()
   })
 
-  it('never offers CLEAR or DELETE SERIES to a worker', () => {
-    renderEditor({ entry: entry({ seriesId: 's1' }), series, allowSeriesScope: false })
+  it('never offers CLEAR, DELETE SERIES or ALL to a worker', () => {
+    renderEditor({
+      entry: entry({ seriesId: 's1' }),
+      series,
+      allowedScopes: ['THIS', 'FROM'],
+      allowSeriesEnd: false,
+      initialScope: 'FROM',
+    })
 
     expect(screen.queryByText('CLEAR')).toBeNull()
     expect(screen.queryByText('DELETE SERIES')).toBeNull()
+    expect(screen.queryByText('ALL IN THE SERIES')).toBeNull()
+    expect(screen.getByText('FROM THIS DAY ONWARDS')).toBeDefined()
+    expect(screen.getByText('JUST THIS DAY')).toBeDefined()
+  })
+
+  it('defaults a worker series edit to FROM and explains the anchor', () => {
+    const { onSave } = renderEditor({
+      entry: entry({ seriesId: 's1' }),
+      series,
+      allowedScopes: ['THIS', 'FROM'],
+      allowSeriesEnd: false,
+      initialScope: 'FROM',
+    })
+
+    expect(screen.getByText(/ONWARDS — PAST DAYS UNCHANGED/)).toBeDefined()
+    expect(screen.queryByText('CHANGE SERIES END')).toBeNull()
+    fireEvent.click(screen.getByText('SAVE'))
+    expect(onSave.mock.calls[0][1].scope).toBe('FROM')
+  })
+
+  it('offers REQUEST REMOVAL only on a series day when allowed', () => {
+    const onRequestSeriesRemoval = vi.fn()
+    renderEditor({
+      entry: entry({ seriesId: 's1' }),
+      series,
+      allowedScopes: ['THIS', 'FROM'],
+      allowSeriesEnd: false,
+      canRequestRemoval: true,
+      onRequestSeriesRemoval,
+    })
+
+    fireEvent.click(screen.getByText('REQUEST REMOVAL'))
+    expect(onRequestSeriesRemoval).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides REQUEST REMOVAL on a standalone day', () => {
+    renderEditor({
+      entry: entry(),
+      canRequestRemoval: true,
+      onRequestSeriesRemoval: vi.fn(),
+    })
+
+    expect(screen.queryByText('REQUEST REMOVAL')).toBeNull()
   })
 
   it('shows the resulting end date when putting an end on a no-end series', () => {
@@ -214,26 +263,27 @@ describe('AvailabilityDayEditor', () => {
     expect(onToggleLock).toHaveBeenCalledWith(false, null)
   })
 
-  it('sends manager-locked worker saves as a change request with THIS only', () => {
+  it('sends manager-locked worker saves as a change request defaulting to FROM', () => {
     const { onSave } = renderEditor({
       entry: entry({ seriesId: 's1', status: 'APPROVED', lockedAt: '2026-10-20T01:00:00.000Z' }),
       series,
-      allowSeriesScope: false,
+      allowedScopes: ['THIS', 'FROM'],
+      allowSeriesEnd: false,
+      initialScope: 'FROM',
     })
 
     expect(screen.getByText(/LOCKED BY A MANAGER/)).toBeDefined()
-    expect(screen.getByText(/LEAVES THE SERIES/)).toBeDefined()
-    expect(screen.queryByText('FROM THIS DAY ONWARDS')).toBeNull()
+    expect(screen.getByText('FROM THIS DAY ONWARDS')).toBeDefined()
     expect(screen.queryByText('ALL IN THE SERIES')).toBeNull()
     expect(screen.queryByText('CHANGE SERIES END')).toBeNull()
 
     fireEvent.click(screen.getByText('SEND CHANGE REQUEST'))
-    expect(onSave.mock.calls[0][1].scope).toBe('THIS')
+    expect(onSave.mock.calls[0][1].scope).toBe('FROM')
     expect(onSave.mock.calls[0][1].repeat).toBeNull()
   })
 
   it('keeps REPEAT WEEKLY working for a worker on a brand-new day', () => {
-    const { onSave } = renderEditor({ allowSeriesScope: false })
+    const { onSave } = renderEditor({ allowedScopes: ['THIS', 'FROM'], allowSeriesEnd: false })
 
     fireEvent.click(screen.getByText('REPEAT WEEKLY'))
     fireEvent.click(screen.getByText('SAVE'))
