@@ -54,6 +54,11 @@ const EDIT_ONLY_ACCESS: WorkerTaskAccess = {
   canCreateList: true, canEditList: true, canDeleteList: false, canAuthor: true,
 }
 
+const NO_ACCESS: WorkerTaskAccess = {
+  canCreateTask: false, canEditTask: false, canDeleteTask: false,
+  canCreateList: false, canEditList: false, canDeleteList: false, canAuthor: false,
+}
+
 function json(data: unknown): Response {
   return { ok: true, status: 200, json: async () => data } as unknown as Response
 }
@@ -78,21 +83,32 @@ function mockEditApi(opts: {
   floorTasks?: unknown[]
   editTasks?: unknown[]
   checklists?: unknown[]
+  fullChecklists?: unknown[]
   guides?: unknown[]
   access?: WorkerTaskAccess
+  activated?: boolean
 } = {}) {
   const floorTasks = opts.floorTasks ?? [BASE_TASK]
   const editTasks = [...(opts.editTasks ?? [FULL_TASK])]
   const checklists = opts.checklists ?? [CHECKLIST_SUMMARY]
+  const fullChecklists = opts.fullChecklists ?? [CHECKLIST_FULL]
   const guides = opts.guides ?? [{ id: 'g1', title: 'SAFE FOOD', venueId: 'v1', isTracked: true, description: null }]
   const access = opts.access ?? FULL_ACCESS
+  // One mutable activation flag is enough for these single-list fixtures; the
+  // floor payload and the edit payload both read from it so a toggle sticks.
+  let activatedToday = opts.activated ?? false
 
   const fetchMock = vi.mocked(global.fetch)
   fetchMock.mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url)
     const method = init?.method ?? 'GET'
     if (u === '/api/worker/tasks' && method === 'GET') {
-      return json({ tasks: floorTasks, checklists, firstName: 'BAR', access })
+      return json({
+        tasks: floorTasks,
+        checklists: checklists.map((c) => ({ ...(c as object), activatedToday })),
+        firstName: 'BAR',
+        access,
+      })
     }
     if (u === '/api/worker/tasks' && method === 'POST') {
       const body = JSON.parse(String(init?.body))
@@ -107,9 +123,16 @@ function mockEditApi(opts: {
     if (u === '/api/worker/departments') return json([{ id: 'd1', name: 'KITCHEN', venueId: 'v1', colour: null }])
     if (u === '/api/worker/sections') return json([])
     if (u === '/api/worker/guides?edit=1') return json(guides)
-    if (u === '/api/worker/checklists') return json([CHECKLIST_FULL])
+    if (u === '/api/worker/checklists') {
+      return json(fullChecklists.map((c) => ({ ...(c as object), activatedToday })))
+    }
     if (u.startsWith('/api/worker/checklists/') && u.endsWith('/activate')) {
-      return json({ ...CHECKLIST_FULL, activatedOn: new Date().toISOString(), activatedToday: true })
+      activatedToday = method === 'POST'
+      return json({
+        ...CHECKLIST_FULL,
+        activatedOn: activatedToday ? new Date().toISOString() : null,
+        activatedToday,
+      })
     }
     return json({})
   })
@@ -290,6 +313,81 @@ describe('WorkerTasksClient', () => {
     activated = true
     render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
     await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+  })
+
+  it('shows UNLOCK on a hidden list for a manager and opens it', async () => {
+    const fetchMock = mockEditApi({
+      checklists: [{ ...CHECKLIST_SUMMARY, appearFromTime: '23:59' }],
+    })
+    render(<WorkerTasksClient role="MANAGER" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('OPENS LATER')).toBeDefined())
+    expect(screen.queryByText('WIPE BENCHES')).toBeNull()
+
+    fireEvent.click(screen.getByLabelText('UNLOCK CHECKLIST OPENING'))
+
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/worker/checklists/c1/activate' && init?.method === 'POST',
+      )
+      expect(post).toBeDefined()
+    })
+    // The refetch now reports the list as activated, so its task reaches the floor.
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+  })
+
+  it('shows hidden lists in the manager MANAGE LISTS strip', async () => {
+    mockEditApi({
+      checklists: [{ ...CHECKLIST_SUMMARY, appearFromTime: '23:59' }],
+      fullChecklists: [{ ...CHECKLIST_FULL, appearFromTime: '23:59' }],
+    })
+    render(<WorkerTasksClient role="MANAGER" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('OPENS LATER')).toBeDefined())
+    fireEvent.click(screen.getByText('EDIT MODE'))
+
+    await waitFor(() => expect(screen.getByText('MANAGE LISTS')).toBeDefined())
+    await waitFor(() => expect(screen.getByLabelText('MANAGE UNLOCK CHECKLIST OPENING')).toBeDefined())
+    expect(screen.getByText('HIDDEN')).toBeDefined()
+    expect(screen.getByText('FROM 23:59')).toBeDefined()
+    expect(screen.getByLabelText('MANAGE CHECKLIST OPENING')).toBeDefined()
+  })
+
+  it('deactivates a forced-open list from MANAGE LISTS', async () => {
+    const fetchMock = mockEditApi({
+      activated: true,
+      checklists: [{ ...CHECKLIST_SUMMARY, appearFromTime: '23:59' }],
+      fullChecklists: [{ ...CHECKLIST_FULL, appearFromTime: '23:59' }],
+    })
+    render(<WorkerTasksClient role="MANAGER" sessionVenueId="v1" />)
+
+    // Activated today, so the floor shows the task despite the late FROM time.
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    fireEvent.click(screen.getByText('EDIT MODE'))
+
+    await waitFor(() => expect(screen.getByLabelText('MANAGE DEACTIVATE CHECKLIST OPENING')).toBeDefined())
+    expect(screen.getByText('OPEN')).toBeDefined()
+    fireEvent.click(screen.getByLabelText('MANAGE DEACTIVATE CHECKLIST OPENING'))
+
+    await waitFor(() => {
+      const del = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/worker/checklists/c1/activate' && init?.method === 'DELETE',
+      )
+      expect(del).toBeDefined()
+    })
+  })
+
+  it('does not show UNLOCK or MANAGE LISTS without list-edit rights', async () => {
+    mockEditApi({
+      access: NO_ACCESS,
+      checklists: [{ ...CHECKLIST_SUMMARY, appearFromTime: '23:59' }],
+    })
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" access={NO_ACCESS} />)
+
+    await waitFor(() => expect(screen.getByText('OPENS LATER')).toBeDefined())
+    expect(screen.queryByText('UNLOCK')).toBeNull()
+    expect(screen.queryByText('MANAGE LISTS')).toBeNull()
+    expect(screen.queryByText('EDIT MODE')).toBeNull()
   })
 
   it('lets the worker choose NOT REQUIRED and sends the outcome', async () => {

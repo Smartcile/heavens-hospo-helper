@@ -145,6 +145,9 @@ export function WorkerTasksClient({
   const [clSelected, setClSelected] = useState<string[]>([])
   const [clSaving, setClSaving] = useState(false)
   const [clError, setClError] = useState('')
+  // Action errors for the list-management strip / hidden-list cards, which are
+  // rendered outside the checklist editor (so they can't reuse clError).
+  const [listActionError, setListActionError] = useState('')
 
   // Quick task form
   const [quickOpen, setQuickOpen] = useState(false)
@@ -191,7 +194,7 @@ export function WorkerTasksClient({
   useEffect(() => { load() }, [])
 
   async function loadEditData() {
-    if (!canAuthor) return
+    if (!canAuthor) return null
     const [dR, sR, tR, taskR, clR] = await Promise.all([
       fetch('/api/worker/departments'),
       fetch('/api/worker/sections'),
@@ -199,14 +202,18 @@ export function WorkerTasksClient({
       fetch('/api/worker/tasks?edit=1'),
       fetch('/api/worker/checklists'),
     ])
-    if (dR.status === 401) { router.push('/w/login'); return }
+    if (dR.status === 401) { router.push('/w/login'); return null }
     const [depts, sections, guides, editTasksData, checklistsData] =
       await Promise.all([dR.json(), sR.json(), tR.json(), taskR.json(), clR.json()])
+    // The list endpoint is authoring-gated and should always return an array,
+    // but a failed/odd response must not crash the management strip.
+    const checklists = Array.isArray(checklistsData) ? (checklistsData as ChecklistFull[]) : []
     setEditDepts(depts as Department[])
     setEditSections(sections as Section[])
     setEditGuides(guides as GuideLite[])
     setEditTasks(editTasksData as TaskFull[])
-    setEditChecklists(checklistsData as ChecklistFull[])
+    setEditChecklists(checklists)
+    return { checklists }
   }
 
   function toggleExpandList(listId: string) {
@@ -460,26 +467,50 @@ export function WorkerTasksClient({
     await loadEditData()
   }
 
-  async function toggleChecklistActivation(active: boolean) {
-    if (!clEditing || clEditing === 'new' || !access.canEditList) return
+  // Force-open / close a list for the venue-local day. Shared by the checklist
+  // editor, the MANAGE LISTS strip and the hidden-list cards.
+  async function activateChecklist(id: string, active: boolean) {
+    if (!access.canEditList) return
+    setListActionError('')
     setClError('')
-    const r = await fetch(`/api/worker/checklists/${clEditing.id}/activate`, {
+    const r = await fetch(`/api/worker/checklists/${id}/activate`, {
       method: active ? 'POST' : 'DELETE',
     })
     if (!r.ok) {
       const d = await r.json().catch(() => ({}))
-      setClError(d.error ?? 'FAILED')
+      const message = d.error ?? 'FAILED'
+      setListActionError(message)
+      setClError(message)
       return
     }
     const updated = await r.json().catch(() => null)
-    setClEditing({
-      ...clEditing,
-      activatedOn: updated?.activatedOn ?? null,
-      // The server owns the venue-local "today" verdict; we just toggled it.
-      activatedToday: updated?.activatedToday ?? active,
-    })
+    const activatedOn = updated?.activatedOn ?? null
+    // The server owns the venue-local "today" verdict; we just toggled it.
+    const activatedToday = updated?.activatedToday ?? active
+    setEditChecklists((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, activatedOn, activatedToday } : c)),
+    )
+    setClEditing((prev) =>
+      prev && prev !== 'new' && prev.id === id ? { ...prev, activatedOn, activatedToday } : prev,
+    )
     await load()
-    await loadEditData()
+  }
+
+  async function toggleChecklistActivation(active: boolean) {
+    if (!clEditing || clEditing === 'new') return
+    await activateChecklist(clEditing.id, active)
+  }
+
+  // Open the checklist editor for a list the manager can only see on a hidden
+  // card (edit data may not be loaded yet outside EDIT MODE).
+  async function openChecklistEditById(id: string) {
+    if (!access.canEditList) return
+    let full = editChecklists.find((c) => c.id === id)
+    if (!full) {
+      const data = await loadEditData()
+      full = data?.checklists.find((c) => c.id === id)
+    }
+    if (full) openChecklistEdit(full)
   }
 
   const pending = tasks.filter((t) => !t.isSettled)
@@ -492,7 +523,7 @@ export function WorkerTasksClient({
   const now = new Date()
   const nowHHmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
   // An admin can force a not-yet-due list open for today (activatedToday).
-  const isOpen = (cl: { appearFromTime: string | null; activatedToday: boolean }) =>
+  const isOpen = (cl: { appearFromTime: string | null; activatedToday?: boolean }) =>
     cl.activatedToday || !cl.appearFromTime || nowHHmm >= cl.appearFromTime
 
   const listsByTask = new Map<string, { id: string; name: string; appearFromTime: string | null; activatedToday: boolean }[]>()
@@ -506,7 +537,7 @@ export function WorkerTasksClient({
 
   const listGroupMap = new Map<string, { id: string; name: string; time: string | null; tasks: TaskState[] }>()
   const otherTasks: TaskState[] = []
-  const upcomingMap = new Map<string, { name: string; time: string | null }>()
+  const upcomingMap = new Map<string, { id: string; name: string; time: string | null }>()
   for (const t of pending) {
     const lists = listsByTask.get(t.id) ?? []
     if (lists.length === 0) { otherTasks.push(t); continue }
@@ -515,7 +546,7 @@ export function WorkerTasksClient({
       .sort((a, b) => (a.appearFromTime ?? '').localeCompare(b.appearFromTime ?? '') || a.name.localeCompare(b.name))
     if (open.length === 0) {
       const next = lists.slice().sort((a, b) => (a.appearFromTime ?? '').localeCompare(b.appearFromTime ?? ''))[0]
-      upcomingMap.set(next.id, { name: next.name, time: next.appearFromTime })
+      upcomingMap.set(next.id, { id: next.id, name: next.name, time: next.appearFromTime })
       continue
     }
     const g = open[0]
@@ -798,6 +829,77 @@ export function WorkerTasksClient({
         </div>
       )}
 
+      {/* Manager list management — every venue list, including the ones hidden
+          from the floor today, so a manager can force-open or edit them. Only
+          authoring users reach this (edit data is authoring-gated). */}
+      {isEditMode && canAuthor && access.canEditList && !clModalOpen && (
+        <div className="px-4 pt-3">
+          <Panel padding="none" className="border border-grey-mid">
+            <div className="px-3 py-2 border-b border-grey-mid space-y-0.5">
+              <div className="font-mono text-xs uppercase tracking-widest text-warning">MANAGE LISTS</div>
+              <div className="font-mono text-xs uppercase text-grey-light tracking-wider">
+                ALL LISTS · {editChecklists.length}
+              </div>
+            </div>
+            <div className="divide-y divide-grey-mid">
+              {editChecklists.length === 0 ? (
+                <div className="p-3 font-mono text-xs uppercase text-grey-light">NO LISTS YET</div>
+              ) : (
+                editChecklists.map((c) => {
+                  const open = isOpen(c)
+                  return (
+                    <div key={c.id} className="px-3 py-2 flex items-center gap-2 flex-wrap">
+                      <span className={`font-mono text-xs uppercase border px-1.5 py-0.5 flex-shrink-0 ${
+                        open ? 'text-success border-success/50' : 'text-warning border-warning/50'
+                      }`}>
+                        {open ? 'OPEN' : 'HIDDEN'}
+                      </span>
+                      <span className="font-mono text-xs uppercase text-white min-w-0 truncate flex-1">
+                        {c.name}
+                      </span>
+                      {c.appearFromTime && (
+                        <span className="font-mono text-xs uppercase text-grey-light flex-shrink-0">
+                          FROM {c.appearFromTime}
+                        </span>
+                      )}
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {c.activatedToday ? (
+                          <button
+                            aria-label={`MANAGE DEACTIVATE CHECKLIST ${c.name}`}
+                            onClick={() => activateChecklist(c.id, false)}
+                            className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors px-1 py-0.5"
+                          >
+                            DEACTIVATE
+                          </button>
+                        ) : !open ? (
+                          <button
+                            aria-label={`MANAGE UNLOCK CHECKLIST ${c.name}`}
+                            onClick={() => activateChecklist(c.id, true)}
+                            className="font-mono text-xs uppercase text-success hover:text-white transition-colors px-1 py-0.5"
+                          >
+                            UNLOCK
+                          </button>
+                        ) : null}
+                        <button
+                          aria-label={`MANAGE CHECKLIST ${c.name}`}
+                          onClick={() => openChecklistEdit(c)}
+                          className="font-mono text-xs uppercase text-warning hover:text-white transition-colors px-1 py-0.5"
+                        >
+                          EDIT
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+            {listActionError && (
+              <p className="px-3 py-2 font-mono text-xs text-danger border-t border-grey-mid">{listActionError}</p>
+            )}
+          </Panel>
+        </div>
+      )}
+
       {/* Pending — time-gated lists as boxes, then any other tasks by dept → section */}
       <div className="px-4 py-4 space-y-4">
         {listGroups.map((lg) => {
@@ -903,9 +1005,36 @@ export function WorkerTasksClient({
         {upcoming.length > 0 && (
           <Panel variant="outline" padding="md">
             <div className="font-mono text-xs uppercase tracking-wider text-grey-light mb-1">OPENS LATER</div>
-            {upcoming.map((u) => (
-              <div key={u.name} className="font-mono text-xs text-grey-light">{u.name}{u.time ? ` · FROM ${u.time}` : ''}</div>
-            ))}
+            <div className="space-y-1">
+              {upcoming.map((u) => (
+                <div key={u.id} className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-xs text-grey-light min-w-0 truncate">
+                    {u.name}{u.time ? ` · FROM ${u.time}` : ''}
+                  </span>
+                  {access.canEditList && (
+                    <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+                      <button
+                        aria-label={`UNLOCK CHECKLIST ${u.name}`}
+                        onClick={() => activateChecklist(u.id, true)}
+                        className="font-mono text-xs uppercase text-success hover:text-white transition-colors px-1 py-0.5"
+                      >
+                        UNLOCK
+                      </button>
+                      <button
+                        aria-label={`EDIT CHECKLIST ${u.name}`}
+                        onClick={() => openChecklistEditById(u.id)}
+                        className="font-mono text-xs uppercase text-warning hover:text-white transition-colors px-1 py-0.5"
+                      >
+                        EDIT
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            {listActionError && (
+              <p className="mt-2 font-mono text-xs text-danger">{listActionError}</p>
+            )}
           </Panel>
         )}
       </div>
