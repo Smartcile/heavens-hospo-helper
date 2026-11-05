@@ -5,7 +5,13 @@ import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
 import { getTodayDate } from '@/lib/utils'
-import { isActivatedOn } from '@/lib/checklist-activation'
+import {
+  isActivatedOn,
+  isChecklistOpen,
+  describeNextOpen,
+  weekdayOf,
+  validateSchedules,
+} from '@/lib/checklist-activation'
 
 export async function GET() {
   const session = await getWorkerSession()
@@ -19,6 +25,11 @@ export async function GET() {
       include: {
         department: { select: { id: true, name: true } },
         section: { select: { id: true, name: true } },
+        schedules: {
+          where: { deletedAt: null },
+          select: { dayOfWeek: true, fromTime: true, toTime: true },
+          orderBy: [{ dayOfWeek: 'asc' }, { fromTime: 'asc' }],
+        },
         tasks: {
           include: { task: { select: { id: true, title: true, isActive: true, version: true } } },
           orderBy: { sortOrder: 'asc' },
@@ -32,28 +43,43 @@ export async function GET() {
   // The editor must compare against the venue-local day, not the phone's UTC
   // day. The server supplies the verdict so the client never re-derives it.
   const today = getTodayDate(venue?.timezone)
+  const nowHHmm = new Intl.DateTimeFormat('en-GB', {
+    timeZone: venue?.timezone ?? 'Pacific/Auckland',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date())
+  const dayOfWeek = weekdayOf(today)
 
-  const result = checklists.map((c) => ({
-    id: c.id,
-    name: c.name,
-    description: c.description,
-    venueId: c.venueId,
-    departmentId: c.departmentId,
-    sectionId: c.sectionId,
-    appearFromTime: c.appearFromTime,
-    activatedOn: c.activatedOn,
-    activatedToday: isActivatedOn(c.activatedOn, today),
-    allowedOutcomes: c.allowedOutcomes,
-    requireOutcomeReason: c.requireOutcomeReason,
-    department: c.department,
-    section: c.section,
-    tasks: c.tasks.map((ct) => ({
-      id: ct.task.id,
-      title: ct.task.title,
-      isActive: ct.task.isActive,
-      version: ct.task.version,
-    })),
-  }))
+  const result = checklists.map((c) => {
+    const openNow = isChecklistOpen(c.appearFromTime, c.activatedOn, today, nowHHmm, c.schedules, dayOfWeek)
+    return {
+      id: c.id,
+      name: c.name,
+      description: c.description,
+      venueId: c.venueId,
+      departmentId: c.departmentId,
+      sectionId: c.sectionId,
+      appearFromTime: c.appearFromTime,
+      activatedOn: c.activatedOn,
+      activatedToday: isActivatedOn(c.activatedOn, today),
+      schedules: c.schedules,
+      openNow,
+      opensNext: openNow
+        ? null
+        : describeNextOpen({ schedules: c.schedules, appearFromTime: c.appearFromTime, day: today, nowHHmm, dayOfWeek }),
+      allowedOutcomes: c.allowedOutcomes,
+      requireOutcomeReason: c.requireOutcomeReason,
+      department: c.department,
+      section: c.section,
+      tasks: c.tasks.map((ct) => ({
+        id: ct.task.id,
+        title: ct.task.title,
+        isActive: ct.task.isActive,
+        version: ct.task.version,
+      })),
+    }
+  })
 
   return NextResponse.json(result)
 }
@@ -65,10 +91,13 @@ export async function POST(req: Request) {
   if (!access.canCreateList) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason, schedules } = body
 
   if (!name?.trim()) return NextResponse.json({ error: 'NAME IS REQUIRED' }, { status: 400 })
   if (!taskIds?.length) return NextResponse.json({ error: 'ADD AT LEAST ONE TASK' }, { status: 400 })
+
+  const scheduleCheck = validateSchedules(schedules)
+  if (!scheduleCheck.ok) return NextResponse.json({ error: scheduleCheck.error }, { status: 400 })
 
   const refError = await validateWorkerTaskRefs({
     venueId: session.venueId,
@@ -98,6 +127,7 @@ export async function POST(req: Request) {
       appearFromTime: appearFromTime || null,
       allowedOutcomes: normaliseOutcomes(allowedOutcomes),
       requireOutcomeReason: !!requireOutcomeReason,
+      schedules: scheduleCheck.schedules.length ? { create: scheduleCheck.schedules } : undefined,
       tasks: { create: ids.map((taskId, i) => ({ taskId, sortOrder: i })) },
     },
   })

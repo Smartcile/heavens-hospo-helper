@@ -87,14 +87,42 @@ describe('task-outcomes', () => {
     expect(policy.requireReason).toBe(true)
   })
 
-  it('falls back to the earliest list when none are open yet', () => {
-    const today = new Date('2026-10-22T00:00:00.000Z')
+  it('ignores a closed list when none are open yet', () => {
+    const today = new Date('2026-10-22T00:00:00.000Z') // Thursday
     const checklists = [
       { name: 'LATE', appearFromTime: '22:00', allowedOutcomes: ['DID_NOT_COMPLETE' as const] },
       { name: 'EARLY', appearFromTime: '08:00', allowedOutcomes: ['NOT_REQUIRED' as const] },
     ]
     const policy = resolveOutcomePolicyForChecklists({ overrideOutcomes: false }, checklists, { today, nowHHmm: '06:00' })
-    expect(policy.allowed).toEqual(['DONE', 'NOT_REQUIRED'])
+    // A list the worker cannot see yet must not leak its outcome policy.
+    expect(policy.source).toBe('DEFAULT')
+    expect(policy.allowed).toEqual([...TASK_OUTCOMES])
+  })
+
+  it('ignores a list that is closed by its custom schedule', () => {
+    const today = new Date('2026-10-22T00:00:00.000Z') // Thursday
+    const checklists = [{
+      name: 'SUNDAY ONLY',
+      schedules: [{ dayOfWeek: 0, fromTime: '08:00', toTime: null }],
+      allowedOutcomes: ['PARTIAL' as const],
+      requireOutcomeReason: true,
+    }]
+    const policy = resolveOutcomePolicyForChecklists({ overrideOutcomes: false }, checklists, { today, nowHHmm: '09:00' })
+    expect(policy.source).toBe('DEFAULT')
+  })
+
+  it('uses an open list that matches the venue day', () => {
+    const today = new Date('2026-10-22T00:00:00.000Z') // Thursday
+    const checklists = [{
+      name: 'THURSDAY OPENING',
+      schedules: [{ dayOfWeek: 4, fromTime: '08:00', toTime: '10:00' }],
+      allowedOutcomes: ['PARTIAL' as const],
+      requireOutcomeReason: true,
+    }]
+    const policy = resolveOutcomePolicyForChecklists({ overrideOutcomes: false }, checklists, { today, nowHHmm: '09:00' })
+    expect(policy.source).toBe('LIST')
+    expect(policy.allowed).toEqual(['DONE', 'PARTIAL'])
+    expect(policy.requireReason).toBe(true)
   })
 
   it('lets a task override win over every checklist', () => {

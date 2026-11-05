@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { cleanNoticeAudiences } from '@/lib/notice-audience'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
+import { validateSchedules } from '@/lib/checklist-activation'
 
 interface Params {
   params: { id: string }
@@ -22,6 +23,11 @@ export async function GET(req: NextRequest, { params }: Params) {
     include: {
       department: { select: { id: true, name: true } },
       section: { select: { id: true, name: true } },
+      schedules: {
+        where: { deletedAt: null },
+        select: { dayOfWeek: true, fromTime: true, toTime: true },
+        orderBy: [{ dayOfWeek: 'asc' }, { fromTime: 'asc' }],
+      },
       tasks: {
         orderBy: { sortOrder: 'asc' },
         include: {
@@ -48,6 +54,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     department: c.department,
     section: c.section,
     appearFromTime: c.appearFromTime,
+    schedules: c.schedules,
     allowedOutcomes: c.allowedOutcomes,
     requireOutcomeReason: c.requireOutcomeReason,
     tasks: c.tasks.filter((ct) => ct.task && !ct.task.deletedAt).map((ct) => ct.task),
@@ -76,6 +83,14 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.allowedOutcomes !== undefined) updates.allowedOutcomes = normaliseOutcomes(body.allowedOutcomes)
   if (body.requireOutcomeReason !== undefined) updates.requireOutcomeReason = !!body.requireOutcomeReason
   if (body.isActive !== undefined) updates.isActive = !!body.isActive
+  if (body.schedules !== undefined) {
+    const scheduleCheck = validateSchedules(body.schedules)
+    if (!scheduleCheck.ok) return NextResponse.json({ error: scheduleCheck.error }, { status: 400 })
+    updates.schedules = {
+      updateMany: { where: { deletedAt: null }, data: { deletedAt: new Date() } },
+      create: scheduleCheck.schedules,
+    }
+  }
   if (body.taskIds !== undefined) {
     const ids: string[] = Array.isArray(body.taskIds) ? body.taskIds : []
     updates.tasks = { deleteMany: {}, create: ids.map((taskId: string, i: number) => ({ taskId, sortOrder: i })) }

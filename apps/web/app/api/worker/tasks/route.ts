@@ -3,7 +3,7 @@ import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { getTodayDate } from '@/lib/utils'
 import { isTaskDueOnDate } from '@/lib/scheduling'
-import { isActivatedOn } from '@/lib/checklist-activation'
+import { isActivatedOn, isChecklistOpen, describeNextOpen, weekdayOf } from '@/lib/checklist-activation'
 import { resolveOutcomePolicyForChecklists, normaliseOutcomes, type OutcomePolicyChecklist } from '@/lib/task-outcomes'
 import { applicableChecklistsForStaff } from '@/lib/checklist-applicability.server'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
@@ -151,14 +151,31 @@ export async function GET(req: NextRequest) {
     departmentId: session.departmentId,
     linkedDepartmentIds,
   })
-  const checklistResult = checklists.map((c) => ({
-    id: c.id,
-    name: c.name,
-    appearFromTime: c.appearFromTime,
-    // Force-opened by an admin for today's venue-local day.
-    activatedToday: isActivatedOn(c.activatedOn, today),
-    taskIds: c.tasks.map((ct) => ct.taskId),
-  }))
+  const checklistResult = checklists.map((c) => {
+    const openNow = isChecklistOpen(
+      c.appearFromTime, c.activatedOn, today, nowHHmm, c.schedules, weekdayOf(today),
+    )
+    return {
+      id: c.id,
+      name: c.name,
+      appearFromTime: c.appearFromTime,
+      schedules: c.schedules,
+      // Force-opened by an admin for today's venue-local day.
+      activatedToday: isActivatedOn(c.activatedOn, today),
+      // Server verdict — the phone never re-derives a custom day from its clock.
+      openNow,
+      opensNext: openNow
+        ? null
+        : describeNextOpen({
+            schedules: c.schedules,
+            appearFromTime: c.appearFromTime,
+            day: today,
+            nowHHmm,
+            dayOfWeek: weekdayOf(today),
+          }),
+      taskIds: c.tasks.map((ct) => ct.taskId),
+    }
+  })
 
   // The policy hierarchy is checklist → task override. Build the per-task list
   // once; the pure resolver picks the first open list, matching how the client
@@ -169,6 +186,7 @@ export async function GET(req: NextRequest) {
       name: c.name,
       appearFromTime: c.appearFromTime,
       activatedOn: c.activatedOn,
+      schedules: c.schedules,
       allowedOutcomes: c.allowedOutcomes,
       requireOutcomeReason: c.requireOutcomeReason,
     }

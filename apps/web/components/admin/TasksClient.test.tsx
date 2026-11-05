@@ -133,6 +133,52 @@ describe('TasksClient', () => {
     })
   })
 
+  it('saves custom schedule windows from the checklist editor', async () => {
+    const fetchMock = mockApi()
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByLabelText('EDIT CHECKLIST OPENING')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('EDIT CHECKLIST OPENING'))
+    await waitFor(() => expect(screen.getByText('EDIT CHECKLIST')).toBeDefined())
+
+    fireEvent.click(screen.getByLabelText('SCHEDULE DAY MON'))
+    fireEvent.change(screen.getByLabelText('SCHEDULE FROM MON 0'), { target: { value: '09:30' } })
+
+    fireEvent.click(screen.getByText('SAVE CHECKLIST'))
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/admin/checklists/c1' && init?.method === 'PUT',
+      )
+      expect(put).toBeDefined()
+      const body = JSON.parse(String((put![1] as RequestInit).body))
+      expect(body.schedules).toEqual([{ dayOfWeek: 1, fromTime: '09:30', toTime: null }])
+    })
+  })
+
+  it('still saves a legacy list with no schedule rows', async () => {
+    const fetchMock = mockApi()
+    const { container } = render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByLabelText('EDIT CHECKLIST OPENING')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('EDIT CHECKLIST OPENING'))
+    await waitFor(() => expect(screen.getByText('EDIT CHECKLIST')).toBeDefined())
+
+    const appearFrom = container.querySelector('input[type="time"]') as HTMLInputElement
+    fireEvent.change(appearFrom, { target: { value: '07:00' } })
+    fireEvent.click(screen.getByText('SAVE CHECKLIST'))
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/admin/checklists/c1' && init?.method === 'PUT',
+      )
+      expect(put).toBeDefined()
+      const body = JSON.parse(String((put![1] as RequestInit).body))
+      expect(body.appearFromTime).toBe('07:00')
+      expect(body.schedules).toEqual([])
+    })
+  })
+
   it('restores the saved scroll position after the lists render (#16)', async () => {
     const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
     sessionStorage.setItem('hospo-tasks-scroll:window', '240')
