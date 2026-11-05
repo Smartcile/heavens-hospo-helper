@@ -4,9 +4,9 @@ import { NextRequest } from 'next/server'
 const { db, tx, getServerSession, guardAccess } = vi.hoisted(() => {
   const tx = {
     menu: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
-    menuGroup: { findFirst: vi.fn(), create: vi.fn() },
-    menuItem: { findFirst: vi.fn(), create: vi.fn() },
-    menuMenuItem: { findFirst: vi.fn(), create: vi.fn() },
+    menuGroup: { findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
+    menuItem: { findMany: vi.fn(), create: vi.fn() },
+    menuMenuItem: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   }
   return {
     db: { $transaction: vi.fn() },
@@ -28,14 +28,22 @@ function req(body: unknown): NextRequest {
 }
 
 const baseData = {
-  name: 'DINNER',
+  name: 'dinner',
   description: null,
   groups: [
     {
-      name: 'MAINS',
+      name: 'mains',
+      area: 'restaurant',
       items: [
-        { name: 'STEAK', price: 32.5, description: 'WITH CHIPS', dietary: ['MILK'] },
-        { name: 'FISH', price: 28, description: null, dietary: [] },
+        {
+          name: 'fish   and chips',
+          price: 24.5,
+          description: 'battered',
+          // Dietary must NEVER be written to a product by the import.
+          dietary: ['MILK'],
+          sizes: [{ label: 'one size', price: 24.5 }],
+          options: [{ name: 'side', choices: [{ name: 'fries', priceDelta: 0 }] }],
+        },
       ],
     },
   ],
@@ -49,10 +57,14 @@ beforeEach(() => {
   tx.menu.findFirst.mockResolvedValue(null)
   tx.menu.create.mockResolvedValue({ id: 'm1', name: 'DINNER' })
   tx.menu.update.mockResolvedValue({ id: 'm1', name: 'DINNER' })
-  tx.menuGroup.findFirst.mockResolvedValue(null)
-  tx.menuGroup.create.mockResolvedValue({ id: 'g1', name: 'MAINS' })
+  tx.menuGroup.findMany.mockResolvedValue([])
+  tx.menuGroup.create.mockResolvedValue({ id: 'g1', name: 'MAINS', sortOrder: 0 })
+  tx.menuGroup.update.mockResolvedValue({ id: 'g1', name: 'MAINS', sortOrder: 0 })
+  tx.menuItem.findMany.mockResolvedValue([])
+  tx.menuItem.create.mockResolvedValue({ id: 'p1', name: 'FISH AND CHIPS' })
   tx.menuMenuItem.findFirst.mockResolvedValue(null)
   tx.menuMenuItem.create.mockResolvedValue({ id: 'line1' })
+  tx.menuMenuItem.update.mockResolvedValue({ id: 'line1' })
 })
 
 describe('POST /api/admin/menus/import', () => {
@@ -62,39 +74,85 @@ describe('POST /api/admin/menus/import', () => {
     expect(db.$transaction).not.toHaveBeenCalled()
   })
 
-  it('creates missing products and menu lines without touching WooCommerce', async () => {
-    let seq = 0
-    tx.menuItem.findFirst.mockResolvedValue(null)
-    tx.menuItem.create.mockImplementation(async () => ({ id: `p${++seq}` }))
-
+  it('creates products and lines without writing dietary, and maps sizes to variations', async () => {
     const res = await POST(req({ venueId: 'v1', menuName: 'DINNER', data: baseData }))
     const json = await res.json()
 
     expect(res.status).toBe(200)
-    expect(json).toEqual({ menuId: 'm1', created: 2, matched: 0, skipped: 0 })
+    expect(json).toEqual({
+      menuId: 'm1',
+      created: 1,
+      matched: 0,
+      linesAdded: 1,
+      linesUpdated: 0,
+      skipped: 0,
+      warnings: ['DIETARY NOT IMPORTED — ALLERGENS COME FROM THE PRODUCT'],
+    })
     expect(tx.menuItem.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ name: 'STEAK', price: 32.5, recipeId: null, wooProductId: null, dietaryInfo: 'MILK' }),
+        data: expect.objectContaining({
+          venueId: 'v1',
+          name: 'FISH AND CHIPS',
+          price: 24.5,
+          description: 'battered',
+          dietaryInfo: null,
+          recipeId: null,
+          wooProductId: null,
+          isVariable: true,
+          variations: [{ name: 'ONE SIZE', price: 24.5 }],
+        }),
       }),
     )
-    expect(tx.menuMenuItem.create).toHaveBeenCalledTimes(2)
+    // No allergen string was written.
+    const productData = tx.menuItem.create.mock.calls[0][0].data
+    expect(JSON.stringify(productData)).not.toContain('MILK')
+    expect(tx.menuMenuItem.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ menuId: 'm1', menuItemId: 'p1', groupId: 'g1', sortOrder: 0 }),
+      }),
+    )
   })
 
-  it('reuses an existing product and skips a line already on the menu', async () => {
-    tx.menuItem.findFirst.mockResolvedValue({ id: 'p1', name: 'STEAK', price: 30 })
-    tx.menuMenuItem.findFirst.mockResolvedValue({ id: 'existing-line' })
+  it('re-imports idempotently by normalised name and re-files the existing line', async () => {
+    tx.menu.findFirst.mockResolvedValue({ id: 'm1', name: 'DINNER', deletedAt: null })
+    tx.menuItem.findMany.mockResolvedValue([{ id: 'p1', name: 'FISH   AND CHIPS' }])
+    tx.menuGroup.findMany.mockResolvedValue([{ id: 'g1', name: 'MAINS', sortOrder: 0 }])
+    tx.menuMenuItem.findFirst.mockResolvedValue({ id: 'l1', groupId: 'old-group', sortOrder: 9 })
 
     const res = await POST(req({ venueId: 'v1', menuName: 'DINNER', data: baseData }))
     const json = await res.json()
 
-    expect(json).toMatchObject({ created: 0, matched: 2, skipped: 2 })
+    expect(json).toMatchObject({ created: 0, matched: 1, linesAdded: 0, linesUpdated: 1, skipped: 0 })
     expect(tx.menuItem.create).not.toHaveBeenCalled()
+    expect(tx.menuGroup.create).not.toHaveBeenCalled()
     expect(tx.menuMenuItem.create).not.toHaveBeenCalled()
+    expect(tx.menuMenuItem.update).toHaveBeenCalledWith({
+      where: { id: 'l1' },
+      data: { groupId: 'g1', sortOrder: 0 },
+    })
+  })
+
+  it('reports AMBIGUOUS and skips instead of guessing', async () => {
+    tx.menu.findFirst.mockResolvedValue({ id: 'm1', name: 'DINNER', deletedAt: null })
+    tx.menuItem.findMany.mockResolvedValue([
+      { id: 'p1', name: 'FISH AND CHIPS' },
+      { id: 'p2', name: 'FISH AND CHIPS' },
+    ])
+    tx.menuGroup.findMany.mockResolvedValue([{ id: 'g1', name: 'MAINS', sortOrder: 0 }])
+
+    const res = await POST(req({ venueId: 'v1', menuName: 'DINNER', data: baseData }))
+    const json = await res.json()
+
+    expect(json).toMatchObject({ created: 0, matched: 0, linesAdded: 0, linesUpdated: 0, skipped: 1 })
+    expect(json.warnings.some((w: string) => w.includes('AMBIGUOUS NAME "FISH AND CHIPS"'))).toBe(true)
+    expect(tx.menuItem.create).not.toHaveBeenCalled()
+    expect(tx.menuMenuItem.findFirst).not.toHaveBeenCalled()
+    expect(tx.menuMenuItem.create).not.toHaveBeenCalled()
+    expect(tx.menuMenuItem.update).not.toHaveBeenCalled()
   })
 
   it('revives a soft-deleted menu with the same name', async () => {
     tx.menu.findFirst.mockResolvedValue({ id: 'm1', name: 'DINNER', deletedAt: new Date(), description: null })
-    tx.menuItem.findFirst.mockResolvedValue({ id: 'p1', name: 'X' })
 
     const res = await POST(req({ venueId: 'v1', menuName: 'DINNER', data: baseData }))
 

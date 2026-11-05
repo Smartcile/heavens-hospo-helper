@@ -2619,19 +2619,35 @@ legacy `Menu.wooCategoryId` values). `lib/menu-lines(.server).ts` (9 tests) is
 the single read shape (`shapeMenuLine`; purged targets render REMOVED).
 `lib/menu-sync.ts` (9 tests) remains dormant.
 
-**Menu import from a PDF (#49)** — `⬆ IMPORT MENU` on `/admin/ops?tab=menu&sub=menus`
-opens `MenuImportModal`. `lib/menu-import.ts` (pure, 7 tests) builds a copy-paste
-LLM prompt (`buildMenuImportPrompt`), tolerantly parses the pasted answer
-(`parseMenuImportAnswer` — plain/fenced/prose-wrapped JSON, `$16.50` → `16.5`,
-uppercases, dedupes, flags missing prices and unknown dietary tags) and classifies
-items as `MATCH` / `NEW` / `AMBIGUOUS` (`matchImportItems`). `POST
-/api/admin/menus/import` (guard `ops.menus.create`) re-validates server-side and,
-in one transaction, finds/creates products by name (existing products keep their
-price/description), finds/creates groups and menu lines, and revives a soft-deleted
-menu. New products are `recipeId: null` + `wooProductId: null` — this route never
-calls `pushProduct`, so the import creates nothing on WooCommerce; they appear in
-Recipes → IMPORT PRODUCTS for later recipe/stock setup. "Dietary" means the 24
-allergens (`dietaryInfo`), not V/VE/GF claims.
+**Menu import from a PDF (#49; Phase 1 of #71 — contract, editable preview &
+idempotency, 2026-11)** — `⬆ IMPORT MENU` on `/admin/ops?tab=menu&sub=menus`
+opens `MenuImportModal`. `lib/menu-import.ts` (pure) builds a copy-paste LLM
+prompt (`buildMenuImportPrompt`) and tolerantly parses the pasted answer
+(`parseMenuImportAnswer` — plain/fenced/prose-wrapped JSON, `$16.50` → `16.5`).
+Each item carries `name`, `price`, `description`, optional `sizes`
+(`[{ label, price }]`) and optional `options`
+(`[{ name, required, min, max, choices: [{ name, priceDelta }] }]`); groups carry
+`name` + `area`, and a **flat** answer may put `group`/`area` on each item instead.
+Names are normalised (trimmed, whitespace collapsed, uppercased) and one product
+is kept per normalised name. The parser returns **structured issues** (missing
+price/description/size price/group, duplicates) plus `MATCH` / `NEW` / `AMBIGUOUS`
+via `matchImportItems`. **Dietary is no longer imported** — allergens come from
+the product/recipe; new products start blank and the preview/summary show
+`DIETARY NOT IMPORTED`. **Options are parsed/displayed but not persisted in
+Phase 1** (the relational option model is a later phase). The preview is editable
+through draft helpers (`createImportDraft`, `renameImportGroup`,
+`renameImportItem`, `moveImportGroup`, `moveImportItem`, `reorderImportItem`,
+`draftToImportData`) with stable draft ids, so selection survives rename/move/
+reorder. `POST /api/admin/menus/import` (guard `ops.menus.create`) re-validates
+server-side and, in one transaction, matches products by normalised name
+(reporting `AMBIGUOUS` and skipping instead of guessing), creates missing products
+with `sizes` → `MenuItem.variations` (`isVariable: true`), **upserts the
+`(menuId, menuItemId)` line** so a re-import re-files/reorders instead of
+duplicating, and revives a soft-deleted menu. It never writes `dietaryInfo`,
+never calls `pushProduct` (`wooProductId` stays null) and returns a summary
+(`created / matched / linesAdded / linesUpdated / skipped / warnings`). New
+products are `recipeId: null` and appear in Recipes → IMPORT PRODUCTS for later
+recipe/stock setup.
 
 **COGS** — `lib/menu-cogs.ts` (8 tests, pure): `costPrice` is per ONE stock
 `unit`; `costExploded` converts to grams via the density bridge;

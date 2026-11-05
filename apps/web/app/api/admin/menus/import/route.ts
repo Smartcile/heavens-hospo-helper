@@ -3,8 +3,14 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
-import { formatAllergens, parseAllergens } from '@/lib/allergens'
-import type { MenuImportData, MenuImportItem } from '@/lib/menu-import'
+import {
+  normaliseImportOptions,
+  normaliseImportSizes,
+  normaliseMenuName,
+  parseImportPrice,
+  type MenuImportData,
+  type MenuImportItem,
+} from '@/lib/menu-import'
 
 class ImportError extends Error {
   status: number
@@ -15,15 +21,22 @@ class ImportError extends Error {
 }
 
 const MAX_ITEMS = 400
+const DIETARY_NOTE = 'DIETARY NOT IMPORTED — ALLERGENS COME FROM THE PRODUCT'
 
 function normaliseItem(raw: unknown): MenuImportItem | null {
   const item = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
-  const name = String(item.name ?? '').toUpperCase().trim()
+  const name = normaliseMenuName(item.name)
   if (!name) return null
-  const price = typeof item.price === 'number' && Number.isFinite(item.price) && item.price >= 0 ? item.price : null
-  const description = typeof item.description === 'string' && item.description.trim() ? item.description.trim() : null
-  const dietary = parseAllergens(Array.isArray(item.dietary) ? item.dietary.join(',') : '')
-  return { name, price, description, dietary }
+  const description = typeof item.description === 'string' && item.description.trim()
+    ? item.description.trim()
+    : null
+  return {
+    name,
+    price: parseImportPrice(item.price ?? item.priceNzd ?? item.cost),
+    description,
+    sizes: normaliseImportSizes(item.sizes ?? item.variants ?? item.sizeOptions),
+    options: normaliseImportOptions(item.options ?? item.optionGroups ?? item.modifiers),
+  }
 }
 
 function normaliseData(raw: unknown): MenuImportData {
@@ -31,7 +44,8 @@ function normaliseData(raw: unknown): MenuImportData {
   const groups = (Array.isArray(data.groups) ? data.groups : []).map((rawGroup) => {
     const group = (rawGroup && typeof rawGroup === 'object' ? rawGroup : {}) as Record<string, unknown>
     return {
-      name: String(group.name ?? 'MENU').toUpperCase().trim() || 'MENU',
+      name: normaliseMenuName(group.name) || 'MENU',
+      area: normaliseMenuName(group.area ?? group.section) || null,
       items: (Array.isArray(group.items) ? group.items : [])
         .map(normaliseItem)
         .filter((i): i is MenuImportItem => !!i),
@@ -43,14 +57,18 @@ function normaliseData(raw: unknown): MenuImportData {
   if (total > MAX_ITEMS) throw new ImportError(`TOO MANY ITEMS (${total}) — MAX ${MAX_ITEMS}`, 400)
 
   return {
-    name: String(data.name ?? '').toUpperCase().trim() || 'IMPORTED MENU',
-    description: typeof data.description === 'string' && data.description.trim() ? data.description.trim() : null,
+    name: normaliseMenuName(data.name) || 'IMPORTED MENU',
+    description: typeof data.description === 'string' && data.description.trim()
+      ? data.description.trim()
+      : null,
     groups,
   }
 }
 
 // Import a parsed menu (from the pasted LLM answer) into a new or existing menu.
-// Purely local: new products have no WooCommerce link.
+// Purely local: new products have no WooCommerce link. Re-importing the same
+// answer is idempotent — products match by normalised name and lines are
+// re-filed/reordered rather than duplicated.
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -82,7 +100,7 @@ export async function POST(req: NextRequest) {
         menu = await tx.menu.findFirst({ where: { id: body.menuId, venueId, deletedAt: null } })
         if (!menu) throw new ImportError('MENU NOT FOUND', 404)
       } else {
-        const name = (body?.menuName ? String(body.menuName) : data.name).toUpperCase().trim()
+        const name = normaliseMenuName(body?.menuName ? String(body.menuName) : data.name)
         if (!name) throw new ImportError('MENU NAME IS REQUIRED', 400)
         const existing = await tx.menu.findFirst({ where: { venueId, name } })
         if (existing && !existing.deletedAt) {
@@ -107,57 +125,117 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Load every product once and index by the same normalised name the parser
+      // uses. Collapsing internal whitespace means a re-worded answer still
+      // matches instead of creating a near-duplicate product.
+      const products = await tx.menuItem.findMany({
+        where: { venueId, deletedAt: null },
+        select: { id: true, name: true },
+      })
+      const productsByName = new Map<string, { id: string; name: string }[]>()
+      for (const product of products) {
+        const key = normaliseMenuName(product.name)
+        const list = productsByName.get(key) ?? []
+        list.push(product)
+        productsByName.set(key, list)
+      }
+
+      const menuGroups = await tx.menuGroup.findMany({
+        where: { menuId: menu.id, deletedAt: null },
+        select: { id: true, name: true, sortOrder: true },
+      })
+      const groupByName = new Map(menuGroups.map((g) => [normaliseMenuName(g.name), g]))
+
       let created = 0
       let matched = 0
+      let linesAdded = 0
+      let linesUpdated = 0
       let skipped = 0
+      const warnings = [DIETARY_NOTE]
+      const processed = new Set<string>()
 
       for (const [groupIndex, group] of data.groups.entries()) {
-        let menuGroup = await tx.menuGroup.findFirst({
-          where: { menuId: menu.id, deletedAt: null, name: { equals: group.name, mode: 'insensitive' } },
-        })
+        const groupKey = normaliseMenuName(group.name)
+        let menuGroup = groupByName.get(groupKey)
         if (!menuGroup) {
           menuGroup = await tx.menuGroup.create({
             data: { menuId: menu.id, name: group.name, sortOrder: groupIndex },
           })
+          groupByName.set(groupKey, menuGroup)
+        } else if (menuGroup.sortOrder !== groupIndex) {
+          menuGroup = await tx.menuGroup.update({
+            where: { id: menuGroup.id },
+            data: { sortOrder: groupIndex },
+          })
         }
 
         for (const [itemIndex, item] of group.items.entries()) {
-          let product = await tx.menuItem.findFirst({
-            where: { venueId, deletedAt: null, name: { equals: item.name, mode: 'insensitive' } },
-            orderBy: { createdAt: 'asc' },
-          })
+          const itemKey = normaliseMenuName(item.name)
+          if (processed.has(itemKey)) {
+            skipped++
+            warnings.push(`DUPLICATE "${item.name}" — ONLY THE FIRST IS IMPORTED`)
+            continue
+          }
+          processed.add(itemKey)
+
+          const candidates = productsByName.get(itemKey) ?? []
+          if (candidates.length > 1) {
+            // Never guess between real duplicates — a wrongly merged dish is
+            // worse than leaving the operator to resolve it.
+            skipped++
+            warnings.push(`AMBIGUOUS NAME "${item.name}" — ${candidates.length} PRODUCTS, SKIPPED`)
+            continue
+          }
+
+          let product = candidates[0]
           if (product) {
             matched++
           } else {
+            if (item.price == null && item.sizes.length === 0) {
+              warnings.push(`"${item.name}" HAS NO PRICE — IMPORTED AT $0`)
+            }
+            const variations = item.sizes.length > 0
+              ? item.sizes.map((s) => ({ name: s.label, price: s.price }))
+              : null
             product = await tx.menuItem.create({
               data: {
                 venueId,
                 name: item.name,
-                price: item.price ?? 0,
+                price: item.price ?? item.sizes[0]?.price ?? 0,
                 description: item.description,
-                dietaryInfo: item.dietary.length > 0 ? formatAllergens(item.dietary) : null,
+                // Import never carries allergens — they come from the product.
+                dietaryInfo: null,
                 recipeId: null,
                 wooProductId: null,
                 isActive: true,
+                ...(variations ? { isVariable: true, variations } : {}),
               },
+              select: { id: true, name: true },
             })
             created++
+            productsByName.set(itemKey, [product])
           }
 
           const line = await tx.menuMenuItem.findFirst({
             where: { menuId: menu.id, menuItemId: product.id },
+            select: { id: true, groupId: true, sortOrder: true },
           })
-          if (line) {
-            skipped++
-            continue
+          if (!line) {
+            await tx.menuMenuItem.create({
+              data: { menuId: menu.id, menuItemId: product.id, groupId: menuGroup.id, sortOrder: itemIndex },
+            })
+            linesAdded++
+          } else if (line.groupId !== menuGroup.id || line.sortOrder !== itemIndex) {
+            await tx.menuMenuItem.update({
+              where: { id: line.id },
+              data: { groupId: menuGroup.id, sortOrder: itemIndex },
+            })
+            linesUpdated++
           }
-          await tx.menuMenuItem.create({
-            data: { menuId: menu.id, menuItemId: product.id, groupId: menuGroup.id, sortOrder: itemIndex },
-          })
         }
       }
 
-      return { menuId: menu.id, created, matched, skipped }
+      return { menuId: menu.id, created, matched, linesAdded, linesUpdated, skipped, warnings }
     })
 
     return NextResponse.json(out)

@@ -458,7 +458,7 @@ stock pour or a recipe) is costed. `POST /api/admin/menus/cogs` batches it for
 the ids the builder is showing, so a menu page never explodes every recipe up
 front. `priceExGst` (15% NZ default) and `grossMarginPct` render the comparison.
 
-## 9 – Menu import from a PDF
+## 11 · Menu import from a PDF — contract, editable preview & idempotency (Phase 1, built 2026-11)
 
 The app has no backend LLM. `⬆ IMPORT MENU` (Menus page) implements the same
 copy-paste pattern as the Pantry Bible density helper:
@@ -466,17 +466,60 @@ copy-paste pattern as the Pantry Bible density helper:
 1. Copy the generated prompt (or download it as `.md`) into any LLM with the PDF
    menu attached.
 2. Paste the JSON answer back (or load a `.md`/`.json`/`.txt` file).
-3. Review the grouped preview — match badges (`MATCH` / `NEW` / `AMBIGUOUS`),
-   include/skip per line, warnings for missing prices and unknown dietary tags.
-4. Import into a **new** menu or append to an **existing** menu.
+3. Review and **edit** the preview before importing: AREA/GROUP, sizes and
+   detected option deltas per item, rename groups/items, move items between
+   groups, reorder groups/items, include/skip per line. Selection is keyed by a
+   stable generated draft id, so renaming a row never loses its tick.
+4. Import into a **new** menu or append to an **existing** menu. A summary card
+   shows `created / matched / lines added / lines updated / skipped` and the
+   warnings.
 
-**What gets written:** `MenuItem` (name, price, description, `dietaryInfo`),
-`Menu`, `MenuGroup`, `MenuMenuItem`. No schema change.
+### The import contract (`lib/menu-import.ts`)
 
-**What does NOT happen:** no WooCommerce writes (`wooProductId` stays null and the
-route never calls `pushProduct`), no recipes, no stock drawdown, no sizes. New
-products surface under Recipes → **IMPORT PRODUCTS** so a recipe/serve can be
-attached later. "Dietary" is the 24-allergen vocabulary (`dietaryInfo`), not V/VE/GF
-claims; unknown tokens are dropped and reported. Prices are GST-inclusive NZD.
-Existing products keep their current price and description when matched by name.
+Each item carries `name`, `price`, `description`, optional `sizes`
+(`[{ label, price }]`) and optional `options`
+(`[{ name, required, min, max, choices: [{ name, priceDelta }] }]`). Groups carry
+`name` + `area`; when the answer comes back **flat**, item-level `group` / `area`
+buckets the rows. Prices and deltas are parsed tolerantly (`$3`, `+3`, `3.00`).
+One product is kept per **normalised name** (trimmed, internal whitespace
+collapsed, uppercased). The parser returns **structured issues** for a missing
+price, missing description, missing size price, missing group and duplicate
+names, plus the `MATCH` / `NEW` / `AMBIGUOUS` badges.
+
+### Dietary is not imported
+
+`dietary` was removed from the prompt, parser, preview and route. Allergens come
+from the product/recipe, never from an LLM answer. Matched products keep their
+stored `dietaryInfo`; new products start blank. The preview and summary both show
+**DIETARY NOT IMPORTED**.
+
+### Options are detected, not persisted (Phase 1)
+
+Option groups and choice upcharges are parsed and displayed with their deltas,
+clearly labelled **not yet imported**. The relational option model and the
+authoring/import mapping land in later phases.
+
+### What gets written
+
+- New products: `name`, `price` (falls back to the first size price), `description`,
+  and `variations` built from the imported sizes with `isVariable: true`.
+  `dietaryInfo` stays `null`.
+- Matched products (same normalised name) keep their current price, description
+  and allergens; no duplicate product is created.
+- `Menu`, `MenuGroup`, `MenuMenuItem`. A **re-import upserts the
+  `(menuId, menuItemId)` line**, so it re-files/reorders the existing line instead
+  of skipping it. Only lines included in the preview are touched.
+- The response is the summary `{ menuId, created, matched, linesAdded,
+  linesUpdated, skipped, warnings }`.
+- Several existing products sharing the normalised name are reported
+  **AMBIGUOUS** and skipped — never guessed.
+
+### What does NOT happen
+
+No WooCommerce writes (`wooProductId` stays null and the route never calls
+`pushProduct`), no recipes, no stock drawdown, no option rows, no dietary writes.
+New products surface under Recipes → **IMPORT PRODUCTS** so a recipe/serve can be
+attached later. Prices are GST-inclusive NZD. Re-importing the same answer
+produces 0 created products and 0 new lines; counts only move when the edited
+preview re-files or reorders a line.
 
