@@ -6,13 +6,37 @@ const answer = JSON.stringify({
   menu: {
     name: 'DINNER',
     description: null,
-    groups: [{
-      name: 'MAINS',
-      items: [
-        { name: 'STEAK', price: 32.5, description: null, dietary: ['MILK'] },
-        { name: 'FISH', price: 28, description: null, dietary: [] },
-      ],
-    }],
+    groups: [
+      {
+        name: 'MAINS',
+        area: 'RESTAURANT',
+        items: [
+          {
+            name: 'STEAK',
+            price: 32.5,
+            description: 'grilled',
+            dietary: ['MILK'],
+            sizes: [{ label: '300G', price: 32.5 }],
+            options: [{
+              name: 'SIDE',
+              required: true,
+              min: 1,
+              max: 1,
+              choices: [
+                { name: 'FRIES', priceDelta: 0 },
+                { name: 'SALAD', priceDelta: '$3' },
+              ],
+            }],
+          },
+          { name: 'FISH', price: 28, description: 'battered' },
+        ],
+      },
+      {
+        name: 'SIDES',
+        area: 'BAR',
+        items: [{ name: 'FRIES', price: 6, description: 'shoestring' }],
+      },
+    ],
   },
 })
 
@@ -32,48 +56,111 @@ function renderModal(props: Partial<Parameters<typeof MenuImportModal>[0]> = {})
   return { onImported, onClose }
 }
 
+async function parseAnswer() {
+  fireEvent.change(screen.getByLabelText('Pasted LLM answer'), { target: { value: answer } })
+  fireEvent.click(screen.getByText('PARSE ANSWER'))
+  await screen.findByLabelText('Group name g0')
+}
+
 describe('MenuImportModal', () => {
   afterEach(() => { vi.restoreAllMocks() })
 
-  it('parses the answer into a preview with match badges', async () => {
+  it('shows area, sizes, option deltas and the not-imported notes', async () => {
     renderModal()
+    await parseAnswer()
 
-    fireEvent.change(screen.getByLabelText('Pasted LLM answer'), { target: { value: answer } })
-    fireEvent.click(screen.getByText('PARSE ANSWER'))
-
-    expect(await screen.findByText('MAINS')).toBeDefined()
-    expect(screen.getByText('STEAK')).toBeDefined()
-    expect(screen.getByText('MATCH')).toBeDefined()
-    expect(screen.getByText('NEW')).toBeDefined()
-    expect(screen.getByText(/IMPORT 2 ITEMS/)).toBeDefined()
+    expect(screen.getByDisplayValue('RESTAURANT')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('BAR')).toBeInTheDocument()
+    expect(screen.getByText(/SIZES: 300G \$32\.50/)).toBeInTheDocument()
+    expect(screen.getByText(/SIDE · REQUIRED: FRIES \$0 \/ SALAD \+\$3\.00/)).toBeInTheDocument()
+    expect(screen.getByText('DIETARY NOT IMPORTED — ALLERGENS COME FROM THE PRODUCT')).toBeInTheDocument()
+    expect(screen.getByText('OPTIONS ARE DETECTED FOR REVIEW ONLY — NOT YET IMPORTED')).toBeInTheDocument()
+    // The parsed dietary value must never reach the rendered preview (the raw
+    // pasted answer textarea still contains the operator's input).
+    expect(screen.queryByText(/MILK/, { selector: 'span,p' })).toBeNull()
+    expect(screen.getByText('MATCH')).toBeInTheDocument()
+    expect(screen.getByText(/IMPORT 3 ITEMS/)).toBeInTheDocument()
   })
 
-  it('commits only the selected items to a new menu', async () => {
+  it('commits renames, moves and reorders from the preview', async () => {
+    const posts: unknown[] = []
+    vi.spyOn(global, 'fetch').mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      posts.push(JSON.parse(String(init?.body)))
+      return {
+        ok: true,
+        json: async () => ({
+          menuId: 'm9', created: 0, matched: 3, linesAdded: 0, linesUpdated: 3, skipped: 0, warnings: [],
+        }),
+      } as Response
+    })
+    renderModal()
+    await parseAnswer()
+
+    fireEvent.change(screen.getByLabelText('Group name g0'), { target: { value: 'entrees' } })
+    fireEvent.change(screen.getByLabelText('Item name g0_i0'), { target: { value: 'steak special' } })
+    // Move FISH from MAINS into SIDES.
+    fireEvent.change(screen.getByLabelText('Move item g0_i1'), { target: { value: 'g1' } })
+    // FRIES (still first in SIDES) is reordered below FISH.
+    fireEvent.click(screen.getByLabelText('Move item g1_i0 down'))
+    // Put SIDES above ENTREES.
+    fireEvent.click(screen.getByLabelText('Move group g1 up'))
+
+    fireEvent.click(screen.getByText(/IMPORT 3 ITEMS/))
+
+    await waitFor(() => expect(posts).toHaveLength(1))
+    const body = posts[0] as {
+      data: { groups: { name: string; area: string | null; items: { name: string }[] }[] }
+    }
+    expect(body.data.groups.map((g) => g.name)).toEqual(['SIDES', 'ENTREES'])
+    expect(body.data.groups[0].items.map((i) => i.name)).toEqual(['FISH', 'FRIES'])
+    expect(body.data.groups[1].items.map((i) => i.name)).toEqual(['STEAK SPECIAL'])
+    expect(JSON.stringify(body)).not.toContain('dietary')
+  })
+
+  it('commits only the ticked items', async () => {
     const posts: unknown[] = []
     vi.spyOn(global, 'fetch').mockImplementation(async (_url: unknown, init?: RequestInit) => {
       posts.push(JSON.parse(String(init?.body)))
       return { ok: true, json: async () => ({ menuId: 'm9' }) } as Response
     })
-    const { onImported } = renderModal()
+    renderModal()
+    await parseAnswer()
 
-    fireEvent.change(screen.getByLabelText('Pasted LLM answer'), { target: { value: answer } })
-    fireEvent.click(screen.getByText('PARSE ANSWER'))
-    await screen.findByText('STEAK')
-
-    // Uncheck STEAK — only FISH should import.
-    const steakRow = screen.getByText('STEAK').closest('label') as HTMLElement
-    fireEvent.click(steakRow.querySelector('input[type="checkbox"]') as HTMLInputElement)
-    expect(screen.getByText(/IMPORT 1 ITEM/)).toBeDefined()
-
-    fireEvent.click(screen.getByText(/IMPORT 1 ITEM/))
+    fireEvent.click(screen.getByLabelText('Include g0_i0'))
+    expect(screen.getByText(/IMPORT 2 ITEMS/)).toBeInTheDocument()
+    fireEvent.click(screen.getByText(/IMPORT 2 ITEMS/))
 
     await waitFor(() => expect(posts).toHaveLength(1))
-    expect(posts[0]).toMatchObject({
-      venueId: 'v1',
-      menuName: 'DINNER',
-      data: { name: 'DINNER', groups: [{ name: 'MAINS', items: [{ name: 'FISH' }] }] },
-    })
-    await waitFor(() => expect(onImported).toHaveBeenCalledWith('m9'))
+    const body = posts[0] as { data: { groups: { items: { name: string }[] }[] } }
+    expect(body.data.groups[0].items.map((i) => i.name)).toEqual(['FISH'])
+  })
+
+  it('renders the import summary and only closes on DONE', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({
+        menuId: 'm9',
+        created: 1,
+        matched: 2,
+        linesAdded: 3,
+        linesUpdated: 4,
+        skipped: 5,
+        warnings: ['DIETARY NOT IMPORTED — ALLERGENS COME FROM THE PRODUCT', 'AMBIGUOUS NAME "FISH" — 2 PRODUCTS, SKIPPED'],
+      }),
+    }) as Response)
+    const { onImported } = renderModal()
+    await parseAnswer()
+
+    fireEvent.click(screen.getByText(/IMPORT 3 ITEMS/))
+
+    expect(await screen.findByText('IMPORT SUMMARY')).toBeInTheDocument()
+    expect(screen.getByText('LINES UPDATED')).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByText(/AMBIGUOUS NAME "FISH"/)).toBeInTheDocument()
+    expect(onImported).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('DONE'))
+    expect(onImported).toHaveBeenCalledWith('m9')
   })
 
   it('appends to an existing menu when chosen', async () => {
@@ -83,15 +170,12 @@ describe('MenuImportModal', () => {
       return { ok: true, json: async () => ({ menuId: 'm1' }) } as Response
     })
     renderModal()
-
-    fireEvent.change(screen.getByLabelText('Pasted LLM answer'), { target: { value: answer } })
-    fireEvent.click(screen.getByText('PARSE ANSWER'))
-    await screen.findByText('STEAK')
+    await parseAnswer()
 
     fireEvent.click(screen.getByText('ADD TO EXISTING'))
     const selects = document.querySelectorAll('select')
     fireEvent.change(selects[selects.length - 1], { target: { value: 'm1' } })
-    fireEvent.click(screen.getByText(/IMPORT 2 ITEMS/))
+    fireEvent.click(screen.getByText(/IMPORT 3 ITEMS/))
 
     await waitFor(() => expect(posts).toHaveLength(1))
     expect(posts[0]).toMatchObject({ menuId: 'm1' })
