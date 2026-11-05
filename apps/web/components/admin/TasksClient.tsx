@@ -130,6 +130,8 @@ const SCHEDULE_OPTIONS = [
   { value: 'CUSTOM', label: 'CUSTOM (CRON)' },
 ]
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+// Display order Mon–Sun; the values remain Date#getDay() (0 = Sunday).
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0] as const
 const TASKS_SCROLL_KEY = 'hospo-tasks-scroll'
 
 // #16: keep the window and the sticky checklist panel where they were when the
@@ -198,6 +200,8 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [clSectionId, setClSectionId] = useState('')
   const [clSelected, setClSelected] = useState<string[]>([])
   const [clAppearFrom, setClAppearFrom] = useState('')
+  // Global TO used by "apply to checked days"; `''` means open to end of day.
+  const [clGlobalTo, setClGlobalTo] = useState('')
   // Editable schedule rows; `toTime: ''` means "open to end of day".
   const [clSchedules, setClSchedules] = useState<{ dayOfWeek: number; fromTime: string; toTime: string }[]>([])
   const [clEventIds, setClEventIds] = useState<string[]>([])
@@ -366,7 +370,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClEditing('new')
     setClName(''); setClDesc('')
     setClVenueId(role === 'MANAGER' ? sessionVenueId : (filterVenue || venues[0]?.id || ''))
-    setClDeptId(''); setClSectionId(''); setClSelected([]); setClAppearFrom(''); setClError('')
+    setClDeptId(''); setClSectionId(''); setClSelected([]); setClAppearFrom(''); setClGlobalTo(''); setClError('')
     setClSchedules([]); setClEventIds([])
     setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false)
     setFilterUsage('notinthis')
@@ -375,7 +379,10 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClEditing(c)
     setClName(c.name); setClDesc(c.description ?? '')
     setClVenueId(c.venueId); setClDeptId(c.departmentId ?? ''); setClSectionId(c.sectionId ?? '')
-    setClSelected(c.tasks.map((t) => t.id)); setClAppearFrom(c.appearFromTime ?? ''); setClError('')
+    setClSelected(c.tasks.map((t) => t.id))
+    setClAppearFrom(c.appearFromTime ?? c.schedules?.[0]?.fromTime ?? '')
+    setClGlobalTo(c.schedules?.[0]?.toTime ?? '')
+    setClError('')
     setClSchedules((c.schedules ?? []).map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime ?? '' })))
     setClEventIds((c.events ?? []).filter((e) => !e.deletedAt).map((e) => e.id))
     setClAllowedOutcomes((c.allowedOutcomes?.length ? c.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[])
@@ -397,6 +404,16 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
         .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.fromTime.localeCompare(b.fromTime))
     })
   }
+  // Copy the global from/to onto every checked day (one window per day).
+  function applyGlobalSchedule() {
+    if (clSchedules.length === 0) return
+    const days = [...new Set(clSchedules.map((s) => s.dayOfWeek))]
+    setClSchedules(
+      days
+        .map((dayOfWeek) => ({ dayOfWeek, fromTime: clAppearFrom || '08:00', toTime: clGlobalTo }))
+        .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.fromTime.localeCompare(b.fromTime)),
+    )
+  }
   function addScheduleWindow(dayOfWeek: number) {
     setClSchedules((prev) => [...prev, { dayOfWeek, fromTime: '08:00', toTime: '' }]
       .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.fromTime.localeCompare(b.fromTime)))
@@ -417,7 +434,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (!clName.trim() || !clVenueId) { setClError('NAME AND VENUE ARE REQUIRED'); return }
     if (clSelected.length === 0) { setClError('ADD AT LEAST ONE TASK'); return }
     setClSaving(true); setClError('')
-    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clAppearFrom || null, schedules: clSchedules.map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })), eventIds: clEventIds, taskIds: clSelected, allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason }
+    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clSchedules.length ? null : (clAppearFrom || null), schedules: clSchedules.map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })), eventIds: clEventIds, taskIds: clSelected, allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason }
     const url = clEditing && clEditing !== 'new' ? `/api/admin/checklists/${clEditing.id}` : '/api/admin/checklists'
     const method = clEditing && clEditing !== 'new' ? 'PUT' : 'POST'
     const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -693,15 +710,6 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 <Select label="Department (optional)" value={clDeptId} onChange={(e) => { setClDeptId(e.target.value); setClSectionId('') }} options={clDeptOptions} />
                 <Select label="Section (optional)" value={clSectionId} onChange={(e) => setClSectionId(e.target.value)} options={clSectionOptions} />
               </div>
-              <div>
-                <Input label="Appears from (time, optional)" type="time" value={clAppearFrom} onChange={(e) => setClAppearFrom(e.target.value)} />
-                <p className="font-mono text-xs uppercase text-grey-light mt-1">
-                  {clSchedules.length > 0
-                    ? 'IGNORED WHILE A CUSTOM SCHEDULE IS SET — REMOVE ALL DAYS TO USE THIS EVERY DAY.'
-                    : 'SHOWS ON THE FLOOR FROM THIS TIME EVERY DAY & STAYS UNTIL EVERY TASK IS SETTLED.'}
-                </p>
-              </div>
-
               <div className="border border-grey-mid p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">Schedule (optional)</h3>
@@ -709,7 +717,36 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                     {clSchedules.length > 0 ? `${clSchedules.length} WINDOW${clSchedules.length !== 1 ? 'S' : ''}` : 'EVERY DAY'}
                   </span>
                 </div>
-                {DAYS.map((day, dow) => {
+                <div className="flex flex-wrap items-end gap-2 border-b border-grey-mid pb-2">
+                  <div className="space-y-1">
+                    <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Appears from (global)</label>
+                    <input
+                      type="time"
+                      value={clAppearFrom}
+                      onChange={(e) => setClAppearFrom(e.target.value)}
+                      className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-mono text-xs uppercase text-grey-light tracking-wider">To (optional)</label>
+                    <input
+                      type="time"
+                      value={clGlobalTo}
+                      onChange={(e) => setClGlobalTo(e.target.value)}
+                      className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={applyGlobalSchedule}
+                    disabled={clSchedules.length === 0}
+                    className="h-9 px-3 border border-grey-mid text-grey-light font-mono text-xs uppercase hover:border-white hover:text-white disabled:opacity-40"
+                  >
+                    APPLY TO CHECKED DAYS
+                  </button>
+                </div>
+                {WEEK_ORDER.map((dow) => {
+                  const day = DAYS[dow]
                   const rows = clSchedules.map((s, i) => ({ s, i })).filter(({ s }) => s.dayOfWeek === dow)
                   return (
                     <div key={day} className="space-y-1">
@@ -765,7 +802,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                   )
                 })}
                 <p className="font-mono text-xs uppercase text-grey-light">
-                  LEAVE EVERY DAY UNCHECKED TO USE THE APPEARS FROM TIME EVERY DAY. CLEAR A &ldquo;TO&rdquo; TIME TO STAY OPEN TO END OF DAY.
+                  LEAVE EVERY DAY UNCHECKED TO USE THE GLOBAL APPEARS FROM TIME EVERY DAY. APPLY COPIES THE GLOBAL TIME TO CHECKED DAYS. CLEAR A &ldquo;TO&rdquo; TIME TO STAY OPEN TO END OF DAY.
                 </p>
               </div>
 
@@ -1038,8 +1075,8 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
             <div className="flex flex-col gap-1">
               <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Active Days</label>
               <div className="flex gap-1">
-                {DAYS.map((day, i) => (
-                  <button key={day} type="button" onClick={() => toggleDay(i)} className={`font-mono text-xs px-2 py-1.5 border transition-colors ${form.scheduleDays.includes(i) ? 'bg-white text-black border-white' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>{day}</button>
+                {WEEK_ORDER.map((dow) => (
+                  <button key={DAYS[dow]} type="button" onClick={() => toggleDay(dow)} className={`font-mono text-xs px-2 py-1.5 border transition-colors ${form.scheduleDays.includes(dow) ? 'bg-white text-black border-white' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'}`}>{DAYS[dow]}</button>
                 ))}
               </div>
             </div>
