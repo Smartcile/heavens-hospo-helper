@@ -5,7 +5,7 @@
 // allowed, so a task can never be left un-finishable. PARTIAL is not terminal —
 // it lives in TaskProgress and keeps the task on the floor across refreshes.
 
-import { isChecklistOpen } from '@/lib/checklist-activation'
+import { isChecklistOpen, weekdayOf, type ChecklistScheduleWindow } from '@/lib/checklist-activation'
 
 export const TASK_OUTCOMES = ['DONE', 'PARTIAL', 'NOT_REQUIRED', 'DID_NOT_COMPLETE'] as const
 
@@ -56,6 +56,7 @@ export interface OutcomePolicyChecklist extends OutcomePolicyList {
   name: string
   appearFromTime?: string | null
   activatedOn?: Date | string | null
+  schedules?: readonly ChecklistScheduleWindow[] | null
 }
 
 export interface ResolvedOutcomePolicy {
@@ -111,7 +112,9 @@ export function isDoneOutcome(outcome: TaskOutcome | null | undefined): boolean 
 /**
  * Pick the checklist whose policy applies to a task. The worker groups a task
  * under the first OPEN list (earliest appear-from, then name), so policy follows
- * the same rule. If no list is open yet, fall back to the first list by time.
+ * the same rule. A closed list is ignored; when no list is open the task uses
+ * the default policy (all outcomes), matching the floor where a closed list is
+ * not shown at all.
  */
 export function resolveOutcomePolicyForChecklists(
   task: OutcomePolicyTask,
@@ -120,13 +123,15 @@ export function resolveOutcomePolicyForChecklists(
 ): ResolvedOutcomePolicy {
   if (task.overrideOutcomes) return resolveOutcomePolicy(task, null)
 
+  const dayOfWeek = weekdayOf(ctx.today)
   const sorted = [...checklists].sort(
     (a, b) =>
       (a.appearFromTime ?? '').localeCompare(b.appearFromTime ?? '') ||
       a.name.localeCompare(b.name),
   )
-  const open = sorted.filter((c) => isChecklistOpen(c.appearFromTime, c.activatedOn, ctx.today, ctx.nowHHmm))
-  const chosen = open[0] ?? sorted[0] ?? null
+  const chosen = sorted.find((c) =>
+    isChecklistOpen(c.appearFromTime, c.activatedOn, ctx.today, ctx.nowHHmm, c.schedules, dayOfWeek),
+  ) ?? null
   return resolveOutcomePolicy(task, chosen)
 }
 

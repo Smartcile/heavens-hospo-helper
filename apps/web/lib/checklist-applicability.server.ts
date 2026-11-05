@@ -5,12 +5,14 @@
 
 import { prisma } from '@hospo-ops/db'
 import type { TaskOutcome } from '@/lib/task-outcomes'
+import type { ChecklistScheduleWindow } from '@/lib/checklist-activation'
 
 export interface ApplicableChecklist {
   id: string
   name: string
   appearFromTime: string | null
   activatedOn: Date | null
+  schedules: ChecklistScheduleWindow[]
   allowedOutcomes: TaskOutcome[]
   requireOutcomeReason: boolean
   tasks: { taskId: string }[]
@@ -76,6 +78,11 @@ export async function applicableChecklistsForStaff(opts: {
       name: true,
       appearFromTime: true,
       activatedOn: true,
+      schedules: {
+        where: { deletedAt: null },
+        select: { dayOfWeek: true, fromTime: true, toTime: true },
+        orderBy: [{ dayOfWeek: 'asc' }, { fromTime: 'asc' }],
+      },
       allowedOutcomes: true,
       requireOutcomeReason: true,
       tasks: { select: { taskId: true }, orderBy: { sortOrder: 'asc' } },

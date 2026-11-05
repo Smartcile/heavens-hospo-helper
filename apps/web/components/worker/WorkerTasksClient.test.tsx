@@ -483,6 +483,51 @@ describe('WorkerTasksClient', () => {
     expect(screen.getByText('HALF DONE')).toBeDefined()
   })
 
+  it('saves custom schedule windows from the worker list editor', async () => {
+    const fetchMock = mockEditApi()
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" access={FULL_ACCESS} />)
+
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    fireEvent.click(screen.getByText('EDIT MODE'))
+    await waitFor(() => expect(screen.getByLabelText('EDIT CHECKLIST OPENING')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('EDIT CHECKLIST OPENING'))
+    await waitFor(() => expect(screen.getByText('EDIT CHECKLIST')).toBeDefined())
+
+    fireEvent.click(screen.getByLabelText('SCHEDULE DAY TUE'))
+    fireEvent.change(screen.getByLabelText('SCHEDULE FROM TUE 0'), { target: { value: '18:00' } })
+    fireEvent.click(screen.getByTestId('worker-checklist-save'))
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/worker/checklists/c1' && init?.method === 'PUT',
+      )
+      expect(put).toBeDefined()
+      const body = JSON.parse(String((put![1] as RequestInit).body))
+      expect(body.schedules).toEqual([{ dayOfWeek: 2, fromTime: '18:00', toTime: null }])
+    })
+  })
+
+  it('uses the server opensNext label for a hidden list', async () => {
+    mockEditApi({
+      checklists: [{
+        ...CHECKLIST_SUMMARY,
+        appearFromTime: null,
+        openNow: false,
+        opensNext: 'OPENS THU 06:00',
+        schedules: [{ dayOfWeek: 4, fromTime: '06:00', toTime: null }],
+      }],
+      fullChecklists: [{
+        ...CHECKLIST_FULL,
+        appearFromTime: null,
+        schedules: [{ dayOfWeek: 4, fromTime: '06:00', toTime: null }],
+      }],
+    })
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText(/OPENS THU 06:00/)).toBeDefined())
+    expect(screen.queryByText('WIPE BENCHES')).toBeNull()
+  })
+
   it('shows settled non-done outcomes separately from completed work', async () => {
     mockTasks([
       { ...BASE_TASK, id: 't1', title: 'STILL TO DO' },

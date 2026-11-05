@@ -1658,8 +1658,23 @@ model Checklist {
   tasks         ChecklistTask[]
   trainingSteps TrainingStep[]
   audiences     ChecklistAudience[]
+  schedules     ChecklistSchedule[]
 
   @@index([venueId])
+}
+
+model ChecklistSchedule {
+  id          String    @id @default(uuid())
+  checklistId String
+  dayOfWeek   Int       // 0 = Sunday .. 6 = Saturday
+  fromTime    String    // "HH:mm"
+  toTime      String?   // "HH:mm"; null = open to end of day
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  checklist   Checklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+
+  @@index([checklistId])
 }
 
 model ChecklistTask {

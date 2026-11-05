@@ -13,7 +13,7 @@ import { moveItem } from '@/lib/array'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { getActiveVenueId } from '@/lib/active-venue'
-import { isActivatedOn, isChecklistHidden } from '@/lib/checklist-activation'
+import { isActivatedOn, isChecklistHidden, describeNextOpen } from '@/lib/checklist-activation'
 import { useGuidePopup } from '@/components/GuidePopup'
 
 interface Task {
@@ -55,6 +55,7 @@ interface Section { id: string; name: string; departmentId: string; venueId: str
 interface GuideLite { id: string; title: string; venueId: string; isTracked: boolean; description: string | null }
 
 interface ChecklistCardTask { id: string; title: string; isActive: boolean; version: number }
+interface ChecklistScheduleRow { dayOfWeek: number; fromTime: string; toTime: string | null }
 interface Checklist {
   id: string
   name: string
@@ -64,6 +65,7 @@ interface Checklist {
   sectionId: string | null
   appearFromTime: string | null
   activatedOn: string | null
+  schedules?: ChecklistScheduleRow[]
   allowedOutcomes?: string[]
   requireOutcomeReason?: boolean
   department: { id: string; name: string } | null
@@ -176,6 +178,8 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [clSectionId, setClSectionId] = useState('')
   const [clSelected, setClSelected] = useState<string[]>([])
   const [clAppearFrom, setClAppearFrom] = useState('')
+  // Editable schedule rows; `toTime: ''` means "open to end of day".
+  const [clSchedules, setClSchedules] = useState<{ dayOfWeek: number; fromTime: string; toTime: string }[]>([])
   const [clAllowedOutcomes, setClAllowedOutcomes] = useState<TaskOutcome[]>([...TASK_OUTCOMES])
   const [clRequireReason, setClRequireReason] = useState(false)
   const [clSaving, setClSaving] = useState(false)
@@ -285,6 +289,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClName(''); setClDesc('')
     setClVenueId(role === 'MANAGER' ? sessionVenueId : (filterVenue || venues[0]?.id || ''))
     setClDeptId(''); setClSectionId(''); setClSelected([]); setClAppearFrom(''); setClError('')
+    setClSchedules([])
     setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false)
     setFilterUsage('notinthis')
   }
@@ -293,6 +298,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClName(c.name); setClDesc(c.description ?? '')
     setClVenueId(c.venueId); setClDeptId(c.departmentId ?? ''); setClSectionId(c.sectionId ?? '')
     setClSelected(c.tasks.map((t) => t.id)); setClAppearFrom(c.appearFromTime ?? ''); setClError('')
+    setClSchedules((c.schedules ?? []).map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime ?? '' })))
     setClAllowedOutcomes((c.allowedOutcomes?.length ? c.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[])
     setClRequireReason(!!c.requireOutcomeReason)
     // Auto-scope left panel filters to match this checklist
@@ -304,6 +310,24 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   function addToChecklist(id: string) {
     setClSelected((prev) => (prev.includes(id) ? prev : [...prev, id]))
   }
+  function toggleScheduleDay(dayOfWeek: number) {
+    setClSchedules((prev) => {
+      const existing = prev.some((s) => s.dayOfWeek === dayOfWeek)
+      if (existing) return prev.filter((s) => s.dayOfWeek !== dayOfWeek)
+      return [...prev, { dayOfWeek, fromTime: '08:00', toTime: '' }]
+        .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.fromTime.localeCompare(b.fromTime))
+    })
+  }
+  function addScheduleWindow(dayOfWeek: number) {
+    setClSchedules((prev) => [...prev, { dayOfWeek, fromTime: '08:00', toTime: '' }]
+      .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.fromTime.localeCompare(b.fromTime)))
+  }
+  function updateScheduleWindow(index: number, patch: { fromTime?: string; toTime?: string }) {
+    setClSchedules((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)))
+  }
+  function removeScheduleWindow(index: number) {
+    setClSchedules((prev) => prev.filter((_, i) => i !== index))
+  }
   function closeChecklist() {
     setClEditing(null)
     // Reset to a value that always exists in USAGE_OPTIONS, otherwise the
@@ -314,7 +338,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (!clName.trim() || !clVenueId) { setClError('NAME AND VENUE ARE REQUIRED'); return }
     if (clSelected.length === 0) { setClError('ADD AT LEAST ONE TASK'); return }
     setClSaving(true); setClError('')
-    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clAppearFrom || null, taskIds: clSelected, allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason }
+    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clAppearFrom || null, schedules: clSchedules.map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })), taskIds: clSelected, allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason }
     const url = clEditing && clEditing !== 'new' ? `/api/admin/checklists/${clEditing.id}` : '/api/admin/checklists'
     const method = clEditing && clEditing !== 'new' ? 'PUT' : 'POST'
     const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -405,7 +429,8 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   // checklists panel so an admin can force one open for today.
   const nowHHmm = `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`
   const today = new Date()
-  const gatedLists = checklists.filter((c) => isChecklistHidden(c.appearFromTime, c.activatedOn, today, nowHHmm))
+  const todayDow = today.getDay()
+  const gatedLists = checklists.filter((c) => isChecklistHidden(c.appearFromTime, c.activatedOn, today, nowHHmm, c.schedules, todayDow))
 
   // Group tasks: Department → Section, with a per-department "general" bucket.
   const deptGroups: { key: string; name: string; colour: string | null; sections: { id: string; name: string; tasks: Task[] }[]; loose: Task[] }[] = []
@@ -558,7 +583,78 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
               </div>
               <div>
                 <Input label="Appears from (time, optional)" type="time" value={clAppearFrom} onChange={(e) => setClAppearFrom(e.target.value)} />
-                <p className="font-mono text-xs uppercase text-grey-light mt-1">SHOWS ON THE FLOOR FROM THIS TIME &amp; STAYS UNTIL EVERY TASK IS SETTLED FOR THE DAY.</p>
+                <p className="font-mono text-xs uppercase text-grey-light mt-1">
+                  {clSchedules.length > 0
+                    ? 'IGNORED WHILE A CUSTOM SCHEDULE IS SET — REMOVE ALL DAYS TO USE THIS EVERY DAY.'
+                    : 'SHOWS ON THE FLOOR FROM THIS TIME EVERY DAY & STAYS UNTIL EVERY TASK IS SETTLED.'}
+                </p>
+              </div>
+
+              <div className="border border-grey-mid p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">Schedule (optional)</h3>
+                  <span className="font-mono text-xs uppercase text-grey-light">
+                    {clSchedules.length > 0 ? `${clSchedules.length} WINDOW${clSchedules.length !== 1 ? 'S' : ''}` : 'EVERY DAY'}
+                  </span>
+                </div>
+                {DAYS.map((day, dow) => {
+                  const rows = clSchedules.map((s, i) => ({ s, i })).filter(({ s }) => s.dayOfWeek === dow)
+                  return (
+                    <div key={day} className="space-y-1">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          aria-label={`SCHEDULE DAY ${day}`}
+                          checked={rows.length > 0}
+                          onChange={() => toggleScheduleDay(dow)}
+                          className="w-4 h-4 accent-white"
+                        />
+                        <span className="font-mono text-xs uppercase text-white w-9">{day}</span>
+                        {rows.length === 0 && <span className="font-mono text-xs uppercase text-grey-light">CLOSED</span>}
+                      </label>
+                      {rows.map(({ s, i }) => (
+                        <div key={i} className="flex items-center gap-2 pl-6">
+                          <input
+                            type="time"
+                            aria-label={`SCHEDULE FROM ${day} ${i}`}
+                            value={s.fromTime}
+                            onChange={(e) => updateScheduleWindow(i, { fromTime: e.target.value })}
+                            className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white"
+                          />
+                          <span className="font-mono text-xs uppercase text-grey-light">TO</span>
+                          <input
+                            type="time"
+                            aria-label={`SCHEDULE TO ${day} ${i}`}
+                            value={s.toTime}
+                            onChange={(e) => updateScheduleWindow(i, { toTime: e.target.value })}
+                            className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white"
+                          />
+                          <button
+                            type="button"
+                            aria-label={`REMOVE WINDOW ${day} ${i}`}
+                            onClick={() => removeScheduleWindow(i)}
+                            className="font-mono text-xs text-grey-light hover:text-danger"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                      {rows.length > 0 && (
+                        <button
+                          type="button"
+                          aria-label={`ADD WINDOW ${day}`}
+                          onClick={() => addScheduleWindow(dow)}
+                          className="ml-6 font-mono text-xs uppercase text-grey-light hover:text-white"
+                        >
+                          + ADD WINDOW
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+                <p className="font-mono text-xs uppercase text-grey-light">
+                  LEAVE EVERY DAY UNCHECKED TO USE THE APPEARS FROM TIME EVERY DAY. CLEAR A &ldquo;TO&rdquo; TIME TO STAY OPEN TO END OF DAY.
+                </p>
               </div>
 
               <OutcomeOptions
@@ -642,8 +738,8 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
                         {c.section ? <Badge>{c.section.name}</Badge> : c.department ? <Badge>{c.department.name}</Badge> : <Badge>WHOLE VENUE</Badge>}
-                        {c.appearFromTime && <Badge variant="warning">FROM {c.appearFromTime}</Badge>}
-                        {c.appearFromTime && isActivatedOn(c.activatedOn, today) && nowHHmm < c.appearFromTime && <Badge variant="success">ACTIVE TODAY</Badge>}
+                        {c.schedules?.length ? <Badge variant="warning">{c.schedules.length} WINDOWS</Badge> : c.appearFromTime && <Badge variant="warning">FROM {c.appearFromTime}</Badge>}
+                        {isActivatedOn(c.activatedOn, today) && <Badge variant="success">ACTIVE TODAY</Badge>}
                         <span className="font-mono text-xs text-grey-light">{c.tasks.length} TASK{c.tasks.length !== 1 ? 'S' : ''}</span>
                       </div>
                       <ol className="font-mono text-xs text-grey-light list-decimal list-inside">
@@ -665,12 +761,13 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                   </p>
                   {gatedLists.map((c) => {
                     const active = isActivatedOn(c.activatedOn, today)
+                    const opensLabel = describeNextOpen({ schedules: c.schedules, appearFromTime: c.appearFromTime, day: today, nowHHmm, dayOfWeek: todayDow })
                     return (
                       <div key={c.id} className="bg-grey-dark border border-grey-mid p-3 flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <div className="font-mono font-semibold text-sm uppercase text-white truncate">{c.name}</div>
                           <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                            <Badge variant="warning">FROM {c.appearFromTime}</Badge>
+                            <Badge variant="warning">{opensLabel ?? 'SCHEDULED'}</Badge>
                             {c.section ? <Badge>{c.section.name}</Badge> : c.department ? <Badge>{c.department.name}</Badge> : <Badge>WHOLE VENUE</Badge>}
                             {active && <Badge variant="success">ACTIVE TODAY</Badge>}
                           </div>

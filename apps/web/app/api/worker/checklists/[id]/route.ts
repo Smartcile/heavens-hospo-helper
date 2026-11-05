@@ -4,6 +4,7 @@ import { getWorkerSession } from '@/lib/worker-session'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
+import { validateSchedules } from '@/lib/checklist-activation'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getWorkerSession()
@@ -16,7 +17,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (existing.venueId !== session.venueId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason, schedules } = body
+
+  let scheduleData: ReturnType<typeof validateSchedules> | null = null
+  if (schedules !== undefined) {
+    scheduleData = validateSchedules(schedules)
+    if (!scheduleData.ok) return NextResponse.json({ error: scheduleData.error }, { status: 400 })
+  }
 
   const refError = await validateWorkerTaskRefs({
     venueId: session.venueId,
@@ -50,6 +57,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       ...(appearFromTime !== undefined && { appearFromTime: appearFromTime || null }),
       ...(allowedOutcomes !== undefined && { allowedOutcomes: normaliseOutcomes(allowedOutcomes) }),
       ...(requireOutcomeReason !== undefined && { requireOutcomeReason: !!requireOutcomeReason }),
+      ...(scheduleData && {
+        schedules: {
+          updateMany: { where: { deletedAt: null }, data: { deletedAt: new Date() } },
+          create: scheduleData.schedules,
+        },
+      }),
       ...(ids !== undefined && {
         tasks: {
           deleteMany: {},

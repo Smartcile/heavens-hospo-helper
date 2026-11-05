@@ -45,14 +45,30 @@ interface TaskFull {
   taskGuides?: { guideId: string; isRequiredForCompetency: boolean; guide?: { id: string; title: string } | null }[]
 }
 
+interface ChecklistScheduleRow { dayOfWeek: number; fromTime: string; toTime: string | null }
+
 interface ChecklistFull {
   id: string; name: string; description: string | null; venueId: string
   departmentId: string | null; sectionId: string | null; appearFromTime: string | null
   activatedOn?: string | null
   activatedToday?: boolean
+  schedules?: ChecklistScheduleRow[]
+  openNow?: boolean
+  opensNext?: string | null
   allowedOutcomes?: string[]
   requireOutcomeReason?: boolean
   tasks: { id: string; title: string; isActive: boolean; version: number }[]
+}
+
+interface ChecklistSummary {
+  id: string
+  name: string
+  appearFromTime: string | null
+  activatedToday: boolean
+  schedules?: ChecklistScheduleRow[]
+  openNow?: boolean
+  opensNext?: string | null
+  taskIds: string[]
 }
 
 interface Department { id: string; name: string; venueId: string; colour: string | null }
@@ -99,7 +115,7 @@ export function WorkerTasksClient({
   const canAuthor = access.canAuthor
 
   const [tasks, setTasks] = useState<TaskState[]>([])
-  const [checklists, setChecklists] = useState<{ id: string; name: string; appearFromTime: string | null; activatedToday: boolean; taskIds: string[] }[]>([])
+  const [checklists, setChecklists] = useState<ChecklistSummary[]>([])
   const [firstName, setFirstName] = useState('')
   const [loading, setLoading] = useState(true)
   const [activeTask, setActiveTask] = useState<ModalTask>(null)
@@ -140,6 +156,8 @@ export function WorkerTasksClient({
   const [clDeptId, setClDeptId] = useState('')
   const [clSectionId, setClSectionId] = useState('')
   const [clAppearFrom, setClAppearFrom] = useState('')
+  // Editable schedule rows; `toTime: ''` means "open to end of day".
+  const [clSchedules, setClSchedules] = useState<{ dayOfWeek: number; fromTime: string; toTime: string }[]>([])
   const [clAllowedOutcomes, setClAllowedOutcomes] = useState<TaskOutcome[]>([...TASK_OUTCOMES])
   const [clRequireReason, setClRequireReason] = useState(false)
   const [clSelected, setClSelected] = useState<string[]>([])
@@ -420,6 +438,7 @@ export function WorkerTasksClient({
     setClName(''); setClDesc('')
     setClDeptId(''); setClSectionId(''); setClSelected([])
     setClAppearFrom(''); setClError(''); setClModalOpen(true)
+    setClSchedules([])
     setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false)
   }
 
@@ -429,9 +448,30 @@ export function WorkerTasksClient({
     setClDeptId(c.departmentId ?? ''); setClSectionId(c.sectionId ?? '')
     setClSelected(c.tasks.map(t => t.id))
     setClAppearFrom(c.appearFromTime ?? '')
+    setClSchedules((c.schedules ?? []).map(s => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime ?? '' })))
     setClAllowedOutcomes((c.allowedOutcomes?.length ? c.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[])
     setClRequireReason(!!c.requireOutcomeReason)
     setClError(''); setClModalOpen(true)
+  }
+
+  function toggleScheduleDay(dayOfWeek: number) {
+    setClSchedules((prev) => {
+      if (prev.some((s) => s.dayOfWeek === dayOfWeek)) {
+        return prev.filter((s) => s.dayOfWeek !== dayOfWeek)
+      }
+      return [...prev, { dayOfWeek, fromTime: '08:00', toTime: '' }]
+        .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.fromTime.localeCompare(b.fromTime))
+    })
+  }
+  function addScheduleWindow(dayOfWeek: number) {
+    setClSchedules((prev) => [...prev, { dayOfWeek, fromTime: '08:00', toTime: '' }]
+      .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.fromTime.localeCompare(b.fromTime)))
+  }
+  function updateScheduleWindow(index: number, patch: { fromTime?: string; toTime?: string }) {
+    setClSchedules((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)))
+  }
+  function removeScheduleWindow(index: number) {
+    setClSchedules((prev) => prev.filter((_, i) => i !== index))
   }
 
   async function saveChecklist() {
@@ -446,6 +486,7 @@ export function WorkerTasksClient({
       name: clName, description: clDesc,
       departmentId: clDeptId || null, sectionId: clSectionId || null,
       appearFromTime: clAppearFrom || null, taskIds: clSelected,
+      schedules: clSchedules.map(s => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })),
       allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason,
     }
     const url = clEditing && clEditing !== 'new' ? `/api/worker/checklists/${clEditing.id}` : '/api/worker/checklists'
@@ -519,14 +560,17 @@ export function WorkerTasksClient({
   const allDone = tasks.length > 0 && pending.length === 0
   const allActuallyDone = allDone && handled.length === 0
 
-  // Time-gate the lists
+  // Time-gate the lists. The server returns `openNow` computed in the venue
+  // timezone, so a custom schedule is never decided by the phone's clock. The
+  // legacy calculation remains only as a fallback for older payloads.
   const now = new Date()
   const nowHHmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  // An admin can force a not-yet-due list open for today (activatedToday).
-  const isOpen = (cl: { appearFromTime: string | null; activatedToday?: boolean }) =>
-    cl.activatedToday || !cl.appearFromTime || nowHHmm >= cl.appearFromTime
+  const isOpen = (cl: { appearFromTime: string | null; activatedToday?: boolean; openNow?: boolean }) =>
+    cl.openNow !== undefined
+      ? cl.openNow
+      : cl.activatedToday || !cl.appearFromTime || nowHHmm >= cl.appearFromTime
 
-  const listsByTask = new Map<string, { id: string; name: string; appearFromTime: string | null; activatedToday: boolean }[]>()
+  const listsByTask = new Map<string, ChecklistSummary[]>()
   for (const cl of checklists) {
     for (const tid of cl.taskIds) {
       const arr = listsByTask.get(tid) ?? []
@@ -537,7 +581,7 @@ export function WorkerTasksClient({
 
   const listGroupMap = new Map<string, { id: string; name: string; time: string | null; tasks: TaskState[] }>()
   const otherTasks: TaskState[] = []
-  const upcomingMap = new Map<string, { id: string; name: string; time: string | null }>()
+  const upcomingMap = new Map<string, { id: string; name: string; label: string | null }>()
   for (const t of pending) {
     const lists = listsByTask.get(t.id) ?? []
     if (lists.length === 0) { otherTasks.push(t); continue }
@@ -545,8 +589,15 @@ export function WorkerTasksClient({
       .filter((l) => isOpen(l))
       .sort((a, b) => (a.appearFromTime ?? '').localeCompare(b.appearFromTime ?? '') || a.name.localeCompare(b.name))
     if (open.length === 0) {
-      const next = lists.slice().sort((a, b) => (a.appearFromTime ?? '').localeCompare(b.appearFromTime ?? ''))[0]
-      upcomingMap.set(next.id, { id: next.id, name: next.name, time: next.appearFromTime })
+      const next = lists.slice().sort((a, b) =>
+        (a.opensNext ?? a.appearFromTime ?? '').localeCompare(b.opensNext ?? b.appearFromTime ?? '') ||
+        a.name.localeCompare(b.name),
+      )[0]
+      upcomingMap.set(next.id, {
+        id: next.id,
+        name: next.name,
+        label: next.opensNext ?? (next.appearFromTime ? `FROM ${next.appearFromTime}` : null),
+      })
       continue
     }
     const g = open[0]
@@ -555,7 +606,7 @@ export function WorkerTasksClient({
     grp.tasks.push(t)
   }
   const listGroups = [...listGroupMap.values()].sort((a, b) => (a.time ?? '').localeCompare(b.time ?? '') || a.name.localeCompare(b.name))
-  const upcoming = [...upcomingMap.values()].sort((a, b) => (a.time ?? '').localeCompare(b.time ?? ''))
+  const upcoming = [...upcomingMap.values()].sort((a, b) => (a.label ?? '').localeCompare(b.label ?? ''))
 
   // "Other" tasks grouped by department → section
   const otherGroups: { dept: string; sections: { key: string; name: string | null; tasks: TaskState[] }[] }[] = []
@@ -857,7 +908,11 @@ export function WorkerTasksClient({
                       <span className="font-mono text-xs uppercase text-white min-w-0 truncate flex-1">
                         {c.name}
                       </span>
-                      {c.appearFromTime && (
+                      {c.schedules?.length ? (
+                        <span className="font-mono text-xs uppercase text-grey-light flex-shrink-0">
+                          {c.schedules.length} WINDOWS
+                        </span>
+                      ) : c.appearFromTime && (
                         <span className="font-mono text-xs uppercase text-grey-light flex-shrink-0">
                           FROM {c.appearFromTime}
                         </span>
@@ -1009,7 +1064,7 @@ export function WorkerTasksClient({
               {upcoming.map((u) => (
                 <div key={u.id} className="flex items-center gap-2 flex-wrap">
                   <span className="font-mono text-xs text-grey-light min-w-0 truncate">
-                    {u.name}{u.time ? ` · FROM ${u.time}` : ''}
+                    {u.name}{u.label ? ` · ${u.label}` : ''}
                   </span>
                   {access.canEditList && (
                     <div className="flex items-center gap-2 ml-auto flex-shrink-0">
@@ -1494,10 +1549,79 @@ export function WorkerTasksClient({
             <Input label="Appears from (time, optional)" type="time"
               value={clAppearFrom} onChange={(e) => setClAppearFrom(e.target.value)} />
             <p className="font-mono text-xs uppercase text-grey-light">
-              SHOWS ON THE FLOOR FROM THIS TIME &amp; STAYS UNTIL EVERY TASK IS SETTLED FOR THE DAY.
+              {clSchedules.length > 0
+                ? 'IGNORED WHILE A CUSTOM SCHEDULE IS SET — UNCHECK EVERY DAY TO USE IT.'
+                : 'SHOWS ON THE FLOOR FROM THIS TIME EVERY DAY & STAYS UNTIL EVERY TASK IS SETTLED.'}
             </p>
 
-            {clEditing !== 'new' && clEditing?.appearFromTime && access.canEditList && (
+            <div className="border border-grey-mid p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-xs uppercase text-grey-light tracking-wider">Schedule (optional)</span>
+                <span className="font-mono text-xs uppercase text-grey-light">
+                  {clSchedules.length > 0 ? `${clSchedules.length} WINDOW${clSchedules.length !== 1 ? 'S' : ''}` : 'EVERY DAY'}
+                </span>
+              </div>
+              {DAYS.map((dayName, dow) => {
+                const rows = clSchedules.map((s, i) => ({ s, i })).filter(({ s }) => s.dayOfWeek === dow)
+                return (
+                  <div key={dayName} className="space-y-1">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        aria-label={`SCHEDULE DAY ${dayName}`}
+                        checked={rows.length > 0}
+                        onChange={() => toggleScheduleDay(dow)}
+                        className="w-4 h-4 accent-warning"
+                      />
+                      <span className="font-mono text-xs uppercase text-white w-9">{dayName}</span>
+                      {rows.length === 0 && <span className="font-mono text-xs uppercase text-grey-light">CLOSED</span>}
+                    </label>
+                    {rows.map(({ s, i }) => (
+                      <div key={i} className="flex items-center gap-2 pl-6">
+                        <input
+                          type="time"
+                          aria-label={`SCHEDULE FROM ${dayName} ${i}`}
+                          value={s.fromTime}
+                          onChange={(e) => updateScheduleWindow(i, { fromTime: e.target.value })}
+                          className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white"
+                        />
+                        <span className="font-mono text-xs uppercase text-grey-light">TO</span>
+                        <input
+                          type="time"
+                          aria-label={`SCHEDULE TO ${dayName} ${i}`}
+                          value={s.toTime}
+                          onChange={(e) => updateScheduleWindow(i, { toTime: e.target.value })}
+                          className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white"
+                        />
+                        <button
+                          type="button"
+                          aria-label={`REMOVE WINDOW ${dayName} ${i}`}
+                          onClick={() => removeScheduleWindow(i)}
+                          className="font-mono text-xs text-grey-light hover:text-danger"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                    {rows.length > 0 && (
+                      <button
+                        type="button"
+                        aria-label={`ADD WINDOW ${dayName}`}
+                        onClick={() => addScheduleWindow(dow)}
+                        className="ml-6 font-mono text-xs uppercase text-grey-light hover:text-white"
+                      >
+                        + ADD WINDOW
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+              <p className="font-mono text-xs uppercase text-grey-light">
+                LEAVE EVERY DAY UNCHECKED TO USE THE APPEARS FROM TIME EVERY DAY. CLEAR A &ldquo;TO&rdquo; TIME TO STAY OPEN TO END OF DAY.
+              </p>
+            </div>
+
+            {clEditing !== 'new' && (clEditing?.appearFromTime || clEditing?.schedules?.length) && access.canEditList && (
               <div className="flex items-center justify-between gap-2 border border-grey-mid p-2">
                 <span className="font-mono text-xs uppercase text-grey-light">
                   {clEditing.activatedToday

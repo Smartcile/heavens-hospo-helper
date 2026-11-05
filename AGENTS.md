@@ -1598,13 +1598,26 @@ The in-app user help is a **global, read-only catalogue**, not per-venue guides.
   sticky (`lg:sticky lg:top-6 lg:self-start lg:max-h-… lg:overflow-y-auto`) so it
   follows long task lists; the "add a task" dropdown is scoped to the checklist's
   department/section; the task list has search + section + usage filters.
-- **Timed lists.** `Checklist.appearFromTime` ("HH:mm" venue-local). The worker
-  tasks API also returns the floor's checklists (`{id,name,appearFromTime,taskIds}`,
-  department + whole-venue scoped). `WorkerTasksClient` groups pending tasks by
-  **list** first — a list shows once `now >= appearFromTime` and stays until all
-  its tasks are done (no expiry) — then falls back to dept → section for tasks in
-  no list, with an "opens later" note for not-yet-open lists. Time compared
-  against the device clock (staff are on-site).
+- **Timed lists.** `Checklist.appearFromTime` ("HH:mm" venue-local) is the legacy
+  every-day time gate. **Custom schedules** use `ChecklistSchedule` rows
+  (`dayOfWeek` 0–6, `fromTime`, optional `toTime`; multiple windows per day
+  allowed; soft-deleted wholesale on replace). When rows exist they replace
+  `appearFromTime`; from/to compare as venue-local `HH:mm` and a null `toTime`
+  means end of day (`23:59`). No rows = every day at `appearFromTime`, no time =
+  always. `lib/checklist-activation.ts` is the single pure rule
+  (`isChecklistOpen` / `isScheduleOpen` / `describeNextOpen` / `validateSchedules`)
+  and `lib/task-outcomes.ts` uses the same `isChecklistOpen`, so a closed list is
+  ignored for outcome policy too (falling back to DEFAULT rather than leaking a
+  hidden list's defaults).
+  The worker `GET /api/worker/tasks` computes `openNow` + an `opensNext` label
+  (`OPENS THU 06:00`) **server-side** from `Venue.timezone`; the phone uses that
+  verdict for grouping and the `OPENS LATER` badge and never derives custom days
+  from its own clock. Both list editors (admin `TasksClient`, worker
+  `WorkerTasksClient`) have a SCHEDULE section (SUN–SAT enable checkbox,
+  FROM/TO time inputs, add/remove window) and save the whole `schedules` array;
+  the legacy `appearFromTime` field stays visible as the fallback. Admin/worker
+  checklist POST/PUT validate day 0–6 + `HH:mm` and replace the schedule
+  wholesale (soft-deleting the old rows).
 - **Printable PDF export.** A `⬇ PDF` button in the Tasks page header opens a
   modal listing every checklist; each row's DOWNLOAD hits
   `GET /api/admin/checklists/[id]/pdf` (session auth, MANAGER scoped to own
@@ -2318,7 +2331,7 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 > (`MenuItem.variations`), orders (`WooOrder` as the local order store), gift
 > cards, SwiftPOS and `ApiKey` public routes are unaffected.
 
-### Schema: 134 models (as of 2026-10)
+### Schema: 135 models (as of 2026-11)
 Core ERP models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`,
 `RecipeLineItem` (recursive BOM), `IngredientReference` (Pantry Bible),
 `WooIntegration`, `MenuItem` (+ `MenuItemServe`, `MenuItemVenue`), `Menu`,
