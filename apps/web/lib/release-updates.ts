@@ -135,7 +135,8 @@ function matchesSearch(issue: ReleaseIssue, needle: string): boolean {
   return (
     issue.title.toLowerCase().includes(q) ||
     String(issue.number).includes(q) ||
-    issueArea(issue).toLowerCase().includes(q)
+    issueArea(issue).toLowerCase().includes(q) ||
+    (issue.closedAt ?? '').slice(0, 10).includes(q)
   )
 }
 
@@ -173,6 +174,57 @@ export function groupReleaseIssues(issues: ReleaseIssue[]): ReleaseAreaGroup[] {
       const rank = areaRank(a.area) - areaRank(b.area)
       return rank !== 0 ? rank : a.area.localeCompare(b.area)
     })
+}
+
+const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'] as const
+
+/** The fixed calendar day (YYYY-MM-DD) from `closedAt`, or null. */
+export function fixedDateKey(issue: ReleaseIssue): string | null {
+  if (!issue.closedAt) return null
+  const date = new Date(issue.closedAt)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toISOString().slice(0, 10)
+}
+
+/** `2026-10-27` / ISO -> `27 OCT 2026`; empty for a missing value. */
+export function formatFixedDate(value: string | null | undefined): string {
+  if (!value) return ''
+  const key = value.slice(0, 10)
+  const date = new Date(`${key}T00:00:00.000Z`)
+  if (Number.isNaN(date.getTime())) return value
+  return `${String(date.getUTCDate()).padStart(2, '0')} ${MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()}`
+}
+
+export interface ReleaseFixedGroup {
+  /** YYYY-MM-DD, or null for issues without a fix date. */
+  date: string | null
+  issues: ReleaseIssue[]
+}
+
+/**
+ * Group delivered issues by the day they were fixed, newest first. Issues
+ * without a `closedAt` (open issues) land in a final null-date group.
+ */
+export function groupReleaseIssuesByFixed(issues: ReleaseIssue[]): ReleaseFixedGroup[] {
+  const map = new Map<string, ReleaseIssue[]>()
+  const undated: ReleaseIssue[] = []
+  for (const issue of issues) {
+    const key = fixedDateKey(issue)
+    if (!key) {
+      undated.push(issue)
+      continue
+    }
+    const bucket = map.get(key)
+    if (bucket) bucket.push(issue)
+    else map.set(key, [issue])
+  }
+  const groups: ReleaseFixedGroup[] = [...map.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([date, rows]) => ({ date, issues: [...rows].sort((a, b) => b.number - a.number) }))
+  if (undated.length > 0) {
+    groups.push({ date: null, issues: [...undated].sort((a, b) => a.number - b.number) })
+  }
+  return groups
 }
 
 /** `x/y VERIFIED` — a zero-issue batch reads 0%, never NaN. */

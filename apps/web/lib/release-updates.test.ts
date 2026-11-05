@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   confirmedIssueSet,
   filterReleaseIssues,
+  formatFixedDate,
   groupReleaseIssues,
+  groupReleaseIssuesByFixed,
   normaliseSnapshot,
   parseArea,
   releaseProgress,
@@ -102,6 +104,33 @@ describe('groupReleaseIssues', () => {
     ])
     expect(groups.map((g) => g.area)).toEqual(['UI', 'ORDERS', 'OTHER'])
     expect(groups[2].issues.map((i) => i.number)).toEqual([1, 2])
+  })
+})
+
+describe('fixed dates', () => {
+  it('formats a fixed day from a date or ISO timestamp', () => {
+    expect(formatFixedDate('2026-10-27')).toBe('27 OCT 2026')
+    expect(formatFixedDate('2026-10-27T04:12:01Z')).toBe('27 OCT 2026')
+    expect(formatFixedDate(null)).toBe('')
+  })
+
+  it('groups by fixed day, newest first, undated rows last', () => {
+    const groups = groupReleaseIssuesByFixed([
+      issue({ number: 1, closedAt: '2026-10-27T04:00:00Z' }),
+      issue({ number: 2, closedAt: '2026-10-27T06:00:00Z' }),
+      issue({ number: 3, closedAt: '2026-10-26T00:00:00Z' }),
+      issue({ number: 4, state: 'OPEN', closedAt: null }),
+    ])
+    expect(groups.map((g) => g.date)).toEqual(['2026-10-27', '2026-10-26', null])
+    expect(groups[0].issues.map((i) => i.number)).toEqual([2, 1])
+    expect(groups[2].issues.map((i) => i.number)).toEqual([4])
+  })
+
+  it('matches search against the fixed date', () => {
+    const rows = [issue({ number: 1, closedAt: '2026-10-27T04:00:00Z' })]
+    expect(
+      filterReleaseIssues(rows, { status: 'CLOSED', search: '2026-10-27' }).map((i) => i.number),
+    ).toEqual([1])
   })
 })
 
