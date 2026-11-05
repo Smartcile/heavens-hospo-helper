@@ -5,11 +5,13 @@ import { workerGuideAccess } from '@/lib/worker-guide-access'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { prisma } from '@hospo-ops/db'
 import {
+  cleanAudiences,
   cleanBodyHtml,
   cleanGuideSteps,
   cleanTaskGuides,
   guideStepsCreate,
   guideTypeValue,
+  type GuideAudienceInput,
   type GuideStepInput,
   type GuideTaskLinkInput,
 } from '@/lib/guides.server'
@@ -91,7 +93,7 @@ export async function POST(req: NextRequest) {
   if (!access.canEdit) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { title, description, category, guideType, bodyHtml, departmentId, isTracked, isOnboarding, requiresSignOff, steps, taskGuides } = body as {
+  const { title, description, category, guideType, bodyHtml, departmentId, isTracked, isOnboarding, requiresSignOff, steps, taskGuides, audiences } = body as {
     title?: string
     description?: string | null
     category?: string | null
@@ -103,12 +105,14 @@ export async function POST(req: NextRequest) {
     requiresSignOff?: boolean
     steps?: GuideStepInput[]
     taskGuides?: GuideTaskLinkInput[]
+    audiences?: GuideAudienceInput[]
   }
 
   if (!title?.trim()) return NextResponse.json({ error: 'TITLE IS REQUIRED' }, { status: 400 })
 
   const cleanSteps = cleanGuideSteps(steps)
   const tgs = cleanTaskGuides(taskGuides)
+  const auds = cleanAudiences(audiences)
 
   const guide = await prisma.guide.create({
     data: {
@@ -125,8 +129,9 @@ export async function POST(req: NextRequest) {
       requiresSignOff: !!requiresSignOff,
       steps: cleanSteps.length ? { create: guideStepsCreate(cleanSteps) } : undefined,
       taskGuides: tgs.length ? { create: tgs } : undefined,
+      audiences: auds.length ? { create: auds } : undefined,
     },
-    include: { steps: { orderBy: { order: 'asc' } }, taskGuides: true },
+    include: { steps: { orderBy: { order: 'asc' }, include: { links: true } }, taskGuides: true, audiences: true },
   })
 
   return NextResponse.json(guide, { status: 201 })

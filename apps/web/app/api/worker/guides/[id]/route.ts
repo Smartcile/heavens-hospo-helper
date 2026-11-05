@@ -3,6 +3,7 @@ import { getWorkerSession } from '@/lib/worker-session'
 import { workerGuideAccess } from '@/lib/worker-guide-access'
 import { prisma } from '@hospo-ops/db'
 import {
+  cleanAudiences,
   cleanBodyHtml,
   cleanGuideSteps,
   cleanTaskGuides,
@@ -18,7 +19,10 @@ interface Params {
 }
 
 const FULL_INCLUDE = {
-  steps: { orderBy: { order: 'asc' as const } },
+  steps: {
+    orderBy: { order: 'asc' as const },
+    include: { links: { orderBy: { order: 'asc' as const } } },
+  },
   taskGuides: { select: { taskId: true, isRequiredForCompetency: true } },
   audiences: { select: { kind: true, targetId: true } },
   department: { select: { id: true, name: true } },
@@ -87,18 +91,33 @@ export async function PUT(req: NextRequest, { params }: Params) {
     updates.steps = guideStepsWrite(cleanSteps, existingIds)
   }
 
-  // The worker editor omits audiences entirely — they are left untouched.
+  // The worker editor sends `links` per step now, so a save replaces links for
+  // the saved steps exactly like the admin editor. An older client that omits
+  // `links` still leaves them untouched (stepsManageLinks gate).
   if (body.taskGuides !== undefined) {
     updates.taskGuides = { deleteMany: {}, create: cleanTaskGuides(body.taskGuides) }
+  }
+
+  // Audiences carry no children, so replacing them wholesale is safe. Only when
+  // supplied, so an older client cannot wipe them.
+  if (body.audiences !== undefined) {
+    updates.audiences = { deleteMany: {}, create: cleanAudiences(body.audiences) }
   }
 
   const guide = await prisma.guide.update({
     where: { id: params.id },
     data: updates,
-    include: { steps: { orderBy: { order: 'asc' } }, taskGuides: true },
+    include: {
+      steps: {
+        orderBy: { order: 'asc' },
+        include: { links: { orderBy: { order: 'asc' } } },
+      },
+      taskGuides: true,
+      audiences: true,
+    },
   })
 
-  // Only touched when the caller manages links (the worker editor does not).
+  // Only touched when the caller manages links (the editor sends `links`).
   if (cleanSteps && stepsManageLinks(cleanSteps)) {
     await syncStepLinks(guide.steps, cleanSteps)
   }

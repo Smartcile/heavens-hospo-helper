@@ -275,7 +275,7 @@ export function guideStepsWrite(steps: GuideStepInput[], existingIds: string[]) 
 
 /**
  * True when the caller supplied `links` on any step (i.e. it manages links and
- * a wholesale replace is wanted). The worker editor omits `links`, so it never
+ * a wholesale replace is wanted). An older client that omits `links` never
  * wipes links authored elsewhere.
  */
 export function stepsManageLinks(steps: GuideStepInput[]): boolean {
