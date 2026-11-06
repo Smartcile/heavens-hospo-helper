@@ -6,6 +6,8 @@ import { guardAccess } from '@/lib/permissions'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { parentLinkError, nextSubtaskOrder } from '@/lib/task-subtasks.server'
 import { syncTaskLists } from '@/lib/task-lists.server'
+import { sanitiseRichText } from '@/lib/rich-text'
+import { linkedItemSelect, linkedItemError } from '@/lib/task-linked-item.server'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -52,6 +54,7 @@ export async function GET(req: NextRequest) {
         select: { id: true, title: true, isActive: true, subtaskOrder: true },
         orderBy: [{ subtaskOrder: 'asc' }, { title: 'asc' }],
       },
+      linkedItem: { select: linkedItemSelect },
       progress: {
         select: {
           note: true,
@@ -139,6 +142,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'ASSIGNEE IS NOT IN THIS VENUE' }, { status: 400 })
     }
   }
+  const itemError = await linkedItemError(venueId, linkedItemId)
+  if (itemError) return NextResponse.json({ error: itemError }, { status: 400 })
 
   // Max depth 1: the parent must exist, belong to this venue, and not already
   // be a subtask itself. The parent stays a normal completable task.
@@ -170,7 +175,7 @@ export async function POST(req: NextRequest) {
   const task = await prisma.task.create({
     data: {
       title: String(title).toUpperCase().trim(),
-      description: description?.trim() ?? null,
+      description: description ? (sanitiseRichText(String(description)) || null) : null,
       venueId,
       departmentId: finalDepartmentId,
       sectionId: primarySectionId,

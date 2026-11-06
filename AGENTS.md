@@ -1713,6 +1713,19 @@ with a collapse toggle. The worker list indents a child when the parent is in th
 open list; otherwise the child shows `PART OF <PARENT>` and the parent shows
 `SUBTASKS IN OTHER LISTS`. A child in a closed list is never duplicated.
 
+### Task item links + rich descriptions (built 2026-11)
+
+`Task.linkedItemId` (previously only used by H&S READING tasks) is now exposed
+on every task. The admin Tasks page and `TaskEditModal` have a searchable item
+picker, and the worker task card/detail show the item plus its
+`ItemStorageLocation` path (e.g. `BAR → UNDER SINK · TOP SHELF`).
+`GET /api/admin/tasks/item-options?venueId=` is a narrow `execution.tasks.view`
+endpoint (active items for one venue only). `Task.description` is now sanitised
+rich text (`lib/rich-text.ts`), so bullet lists work in all four task editors
+(admin `TasksClient`, `TaskEditModal`, `ComplianceTasksClient`, worker task
+modal); existing plain-text rows remain valid. The formatter lives in the pure
+`lib/item-location.ts`, and reads are re-sanitised on render.
+
 ### Section ecosystem (Phases A–D, built)
 A layer between department and the work, plus a follow-up trigger loop. The
 legacy `TrainingModule`-based "Resources/Competency" pieces below are

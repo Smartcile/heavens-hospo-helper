@@ -7,6 +7,8 @@ import { resolveCompetencyGuideIds } from '@/lib/task-guides'
 import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
 import { syncTaskLists } from '@/lib/task-lists.server'
 import { parentLinkError, nextSubtaskOrder, hasLiveSubtasks, softDeleteTask } from '@/lib/task-subtasks.server'
+import { sanitiseRichText } from '@/lib/rich-text'
+import { linkedItemError } from '@/lib/task-linked-item.server'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getWorkerSession()
@@ -25,7 +27,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     monthlyOption, monthlyDay, isActive, requiredTrainingIds,
     requireRetrain, changeSummary,
     allowedOutcomes, overrideOutcomes, requireOutcomeReason,
-    checklistIds, assignedToStaffId,
+    checklistIds, assignedToStaffId, linkedItemId,
   } = body
 
   const guideIds = resolveCompetencyGuideIds({
@@ -63,6 +65,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       }
     }
   }
+  const itemError = await linkedItemError(existing.venueId, linkedItemId)
+  if (itemError) return NextResponse.json({ error: itemError }, { status: 400 })
 
   let resolvedDeptId = departmentId !== undefined ? (departmentId || null) : undefined
   const resolvedSectionId = sectionId !== undefined ? (sectionId || null) : undefined
@@ -73,7 +77,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   const update: Record<string, unknown> = {}
   if (title !== undefined) update.title = title.toUpperCase().trim()
-  if (description !== undefined) update.description = description?.trim() || null
+  if (description !== undefined) {
+    update.description = description ? (sanitiseRichText(String(description)) || null) : null
+  }
   if (resolvedDeptId !== undefined) update.departmentId = resolvedDeptId
   if (resolvedSectionId !== undefined) update.sectionId = resolvedSectionId
   if (completionType !== undefined) update.completionType = completionType
@@ -89,6 +95,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
   if (isActive !== undefined) update.isActive = isActive
   if (assignedToStaffId !== undefined) update.assignedToStaffId = assignedToStaffId || null
+  if (linkedItemId !== undefined) update.linkedItemId = linkedItemId || null
   if (monthlyOption !== undefined) update.monthlyOption = scheduleType === 'MONTHLY' ? monthlyOption : null
   if (monthlyDay !== undefined) update.monthlyDay = scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? monthlyDay : null
   if (allowedOutcomes !== undefined) update.allowedOutcomes = normaliseOutcomes(allowedOutcomes)

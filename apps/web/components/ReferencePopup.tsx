@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
+import { RichTextContent } from '@/components/ui/RichTextContent'
 import { STEP_LINK_LABEL, type ResolvedStepLink } from '@/lib/guide-links'
 import { thumbUrl } from '@/lib/image-thumb'
 import type { GuidePopupVariant } from '@/components/GuidePopup'
@@ -133,9 +134,7 @@ export function ReferencePopup({
         </div>
       )}
 
-      {detail?.kind === 'TASK' && detail.task.description && (
-        <p className="font-sans text-sm text-grey-light">{detail.task.description}</p>
-      )}
+      {detail?.kind === 'TASK' && <RichTextContent html={detail.task.description} />}
 
       {!detail && link.target.sub && (
         <p className="font-mono text-xs uppercase text-grey-light">{link.target.sub}</p>

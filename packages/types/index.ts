@@ -199,6 +199,20 @@ export interface WorkerTaskView {
   criticalMin: number | null
   criticalMax: number | null
   linkedItemName: string | null
+  linkedItem?: {
+    id: string
+    name: string
+    unit: string | null
+    storageNotes: string | null
+    deletedAt: Date | string | null
+    storageLocations: {
+      notes: string | null
+      section: {
+        name: string
+        department: { name: string } | null
+      } | null
+    }[]
+  } | null
   // Linked subtasks (max depth 1)
   parentTaskId?: string | null
   parentTitle?: string | null

@@ -8,8 +8,12 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { Combobox } from '@/components/ui/Combobox'
+import { SearchSelect } from '@/components/ui/SearchSelect'
+import { RichTextEditor } from '@/components/ui/RichTextEditor'
 import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
 import { moveItem } from '@/lib/array'
+import { richTextToPlainText } from '@/lib/rich-text'
+import { describeLinkedItem, type LinkedItemView } from '@/lib/item-location'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { availableParentTasks, orderTasksWithChildren } from '@/lib/task-subtasks'
@@ -40,6 +44,8 @@ interface Task {
   sortOrder: number
   parentTaskId?: string | null
   parentTitle?: string | null
+  linkedItemId?: string | null
+  linkedItem?: LinkedItemView | null
   checklistIds?: string[]
   assignedToStaffId?: string | null
   assigneeName?: string | null
@@ -109,6 +115,7 @@ interface FormState {
   parentTaskId: string
   checklistIds: string[]
   assignedToStaffId: string
+  linkedItemId: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -116,7 +123,7 @@ const EMPTY_FORM: FormState = {
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
   intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, requiredTrainingIds: [], competencyGuideIds: [],
   allowedOutcomes: [...TASK_OUTCOMES], overrideOutcomes: false, requireOutcomeReason: false,
-  parentTaskId: '', checklistIds: [], assignedToStaffId: '',
+  parentTaskId: '', checklistIds: [], assignedToStaffId: '', linkedItemId: '',
 }
 
 const COMPLETION_OPTIONS = [
@@ -182,6 +189,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Task | null>(null)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
+  const [items, setItems] = useState<LinkedItemView[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [filterVenue, setFilterVenue] = useState(getActiveVenueId(role, sessionVenueId, defaultVenueId))
@@ -253,6 +261,13 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   useEffect(() => { load() }, [filterVenue, filterDept])
 
   // --- Task modal ---
+  async function loadItems(venueId: string) {
+    if (!venueId) { setItems([]); return }
+    const r = await fetch(`/api/admin/tasks/item-options?venueId=${encodeURIComponent(venueId)}`)
+    const data = r.ok ? await r.json().catch(() => []) : []
+    setItems(Array.isArray(data) ? data : [])
+  }
+
   async function loadAssignees(venueId: string) {
     if (!venueId) { setAssignees([]); return }
     const r = await fetch(`/api/admin/tasks/assignees?venueId=${encodeURIComponent(venueId)}`)
@@ -264,6 +279,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setEditing(null)
     setForm({ ...EMPTY_FORM, venueId })
     void loadAssignees(venueId)
+    void loadItems(venueId)
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
   }
@@ -283,8 +299,10 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       parentTaskId: t.parentTaskId ?? '',
       checklistIds: t.checklistIds ?? [],
       assignedToStaffId: t.assignedToStaffId ?? '',
+      linkedItemId: t.linkedItemId ?? '',
     })
     void loadAssignees(t.venueId)
+    void loadItems(t.venueId)
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
   }
@@ -314,8 +332,10 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       parentTaskId: parent.id,
       checklistIds: [],
       assignedToStaffId: '',
+      linkedItemId: parent.linkedItemId ?? '',
     })
     void loadAssignees(parent.venueId)
+    void loadItems(parent.venueId)
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
   }
@@ -344,6 +364,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
         parentTaskId: form.parentTaskId || null,
         checklistIds: form.checklistIds,
         assignedToStaffId: form.assignedToStaffId || null,
+        linkedItemId: form.linkedItemId || null,
         requiredTrainingIds: form.requiredTrainingIds,
         competencyGuideIds: form.competencyGuideIds,
         customCron: form.scheduleType === 'CUSTOM' ? form.customCron : null,
@@ -601,7 +622,12 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           <div className="font-mono text-sm font-semibold uppercase text-white truncate">
             {depth > 0 ? '↳ ' : ''}{t.title}
           </div>
-          {t.description && <p className="font-mono text-xs text-grey-light truncate">{t.description}</p>}
+          {t.description && <p className="font-mono text-xs text-grey-light truncate">{richTextToPlainText(t.description)}</p>}
+          {t.linkedItem && (
+            <p className="font-mono text-xs uppercase text-grey-light truncate">
+              LINKED: {describeLinkedItem(t.linkedItem)}
+            </p>
+          )}
           <div className="flex flex-wrap gap-1.5 mt-0.5 items-center">
             <span className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1 py-0.5">{describeSchedule(t)}</span>
             {labels.map((l) => <span key={l.text} className={`font-mono text-xs uppercase ${l.cls}`}>{l.text}</span>)}
@@ -999,10 +1025,28 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'EDIT TASK' : form.parentTaskId ? 'NEW SUBTASK' : 'NEW TASK'} size="lg">
         <div className="space-y-4">
           <Input label="Task Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="WIPE DOWN ALL BAR SURFACES" />
-          <Textarea label="Description (optional)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Additional instructions for this task..." />
+          <div className="space-y-1">
+            <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Description (optional)</label>
+            <RichTextEditor value={form.description} onChange={(html) => setForm({ ...form, description: html })} placeholder="Additional instructions for this task..." />
+          </div>
+          <div className="space-y-1">
+            <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Linked inventory item (optional)</label>
+            <SearchSelect
+              value={form.linkedItemId}
+              onChange={(id) => setForm({ ...form, linkedItemId: id })}
+              options={items.map((i) => ({ value: i.id ?? '', label: describeLinkedItem(i) }))}
+              placeholder="SEARCH ITEMS..."
+              emptyLabel="NO ITEMS IN THIS VENUE"
+            />
+            {form.linkedItemId && (
+              <p className="font-mono text-xs uppercase text-grey-light">
+                {describeLinkedItem(items.find((i) => i.id === form.linkedItemId)) || 'ITEM REMOVED'}
+              </p>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-3">
             {(role === 'ADMIN' || !editing) && (
-              <Select label="Venue" value={form.venueId} onChange={(e) => { const v = e.target.value; setForm({ ...form, venueId: v, departmentId: '', sectionId: '', assignedToStaffId: '', checklistIds: [] }); void loadAssignees(v) }} options={venueOptions} placeholder="SELECT VENUE" />
+              <Select label="Venue" value={form.venueId} onChange={(e) => { const v = e.target.value; setForm({ ...form, venueId: v, departmentId: '', sectionId: '', assignedToStaffId: '', checklistIds: [] }); void loadAssignees(v); void loadItems(v) }} options={venueOptions} placeholder="SELECT VENUE" />
             )}
             <Select label="Department" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value, sectionId: '' })} options={formDeptOptions} />
           </div>

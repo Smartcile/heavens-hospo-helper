@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { RichTextEditor } from '@/components/ui/RichTextEditor'
 import { Select } from '@/components/ui/Select'
 import {
   describeBand,
@@ -627,7 +628,10 @@ export function ComplianceTasksClient({ role, sessionVenueId, defaultVenueId }: 
             </h2>
 
             <Input label="TITLE" placeholder="TASK TITLE" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-            <Input label="DESCRIPTION" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+            <div className="space-y-1">
+              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">DESCRIPTION</label>
+              <RichTextEditor value={form.description} onChange={(html) => setForm({ ...form, description: html })} />
+            </div>
 
             <div className="grid grid-cols-2 gap-3">
               <Select
