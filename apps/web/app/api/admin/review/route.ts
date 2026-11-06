@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
 
   const [completions, notes] = await Promise.all([
     prisma.taskCompletion.findMany({
-      where: { staffId: { in: staffIds }, scheduledDate: date },
+      where: { staffId: { in: staffIds }, scheduledDate: date, deletedAt: null },
       select: {
         staffId: true,
         completedAt: true,

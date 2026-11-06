@@ -4,8 +4,8 @@ import { completionReportWheres } from '@/lib/report-filters'
 describe('completionReportWheres', () => {
   it('counts DONE only for the completion metric, while the list keeps every outcome', () => {
     const { all, done } = completionReportWheres({ venueId: 'v1' })
-    expect(all).toEqual({ task: { venueId: 'v1' } })
-    expect(done).toEqual({ task: { venueId: 'v1' }, outcome: 'DONE' })
+    expect(all).toEqual({ deletedAt: null, task: { venueId: 'v1' } })
+    expect(done).toEqual({ deletedAt: null, task: { venueId: 'v1' }, outcome: 'DONE' })
   })
 
   it('pins a MANAGER to their own venue', () => {
@@ -30,7 +30,10 @@ describe('completionReportWheres', () => {
     expect(done.outcome).toBe('DONE')
   })
 
-  it('omits empty filters', () => {
-    expect(completionReportWheres({})).toEqual({ all: {}, done: { outcome: 'DONE' } })
+  it('omits empty filters but always excludes retracted completions', () => {
+    expect(completionReportWheres({})).toEqual({
+      all: { deletedAt: null },
+      done: { deletedAt: null, outcome: 'DONE' },
+    })
   })
 })

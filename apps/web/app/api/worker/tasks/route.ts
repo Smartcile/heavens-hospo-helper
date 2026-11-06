@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
       section: { select: { id: true, name: true } },
       linkedItem: { select: linkedItemSelect },
       taskCompletions: {
-        where: { scheduledDate: today },
+        where: { scheduledDate: today, deletedAt: null },
         include: { staff: { select: { firstName: true, lastName: true } } },
         orderBy: { completedAt: 'desc' },
         take: 1,
@@ -135,7 +135,7 @@ export async function GET(req: NextRequest) {
           isActive: true,
           subtaskOrder: true,
           taskCompletions: {
-            where: { scheduledDate: today },
+            where: { scheduledDate: today, deletedAt: null },
             select: { outcome: true },
             orderBy: { completedAt: 'desc' },
             take: 1,
@@ -160,6 +160,7 @@ export async function GET(req: NextRequest) {
       where: {
         taskId: { in: rolledTasks.map((t) => t.id) },
         scheduledDate: { in: [...new Set(rolledTasks.map((t) => new Date(t.dueDate!)))] },
+        deletedAt: null,
       },
       select: { taskId: true, id: true, note: true, photoUrl: true, completedAt: true, outcome: true, staff: { select: { firstName: true, lastName: true } } },
       orderBy: { completedAt: 'desc' },
@@ -262,6 +263,7 @@ export async function GET(req: NextRequest) {
       isCompleted: !!c,
       isDone: c?.outcome === 'DONE',
       isSettled: !!c,
+      canUndo: !!c,
       outcome: c?.outcome ?? null,
       allowedOutcomes: policy.allowed,
       requireOutcomeReason: policy.requireReason,

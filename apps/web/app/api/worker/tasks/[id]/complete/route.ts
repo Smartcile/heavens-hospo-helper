@@ -39,7 +39,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   // Shared list: a task is done for the whole floor once anyone completes it for
   // the day (checked across all staff, not just this one) — prevents double-ups.
   const existing = await prisma.taskCompletion.findFirst({
-    where: { taskId: params.id, scheduledDate: today },
+    where: { taskId: params.id, scheduledDate: today, deletedAt: null },
   })
 
   if (existing) {
@@ -208,4 +208,66 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   return NextResponse.json(completion, { status: 201 })
+}
+
+// Undo today's shared completion. Any authenticated worker in the venue may
+// retract a mis-tap, mirroring the shared "anyone can complete" rule. The row is
+// soft-deleted (kept for audit) so every live read must filter deletedAt.
+export async function DELETE(_req: NextRequest, { params }: Params) {
+  const session = await getWorkerSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const venue = await prisma.venue.findUnique({
+    where: { id: session.venueId },
+    select: { timezone: true },
+  })
+  const today = getTodayDate(venue?.timezone)
+
+  const completion = await prisma.taskCompletion.findFirst({
+    where: { taskId: params.id, scheduledDate: today, deletedAt: null },
+    select: { id: true, staffId: true, outcome: true },
+  })
+  if (!completion) {
+    return NextResponse.json({ error: 'NO COMPLETION TO UNDO TODAY' }, { status: 404 })
+  }
+
+  const task = await prisma.task.findUnique({
+    where: { id: params.id },
+    select: { venueId: true },
+  })
+  if (!task || task.venueId !== session.venueId) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  await prisma.taskCompletion.update({
+    where: { id: completion.id },
+    data: { deletedAt: new Date(), undoneById: session.staffId, undoneAt: new Date() },
+  })
+
+  if (completion.outcome === 'DONE') {
+    // The completion that triggered the UNTRAINED follow-up no longer exists.
+    try {
+      await prisma.followUp.updateMany({
+        where: {
+          venueId: session.venueId,
+          staffId: completion.staffId,
+          taskId: params.id,
+          kind: 'UNTRAINED',
+          dueDate: today,
+          status: 'OPEN',
+        },
+        data: {
+          status: 'RESOLVED',
+          resolvedById: session.staffId,
+          resolvedAt: new Date(),
+        },
+      })
+    } catch { /* never block the undo */ }
+
+    // A still-PENDING section review whose evidence just disappeared should
+    // auto-dismiss. A CONFIRMED section stays granted by design.
+    void reconcileSectionWork(completion.staffId).catch(() => { /* ignore */ })
+  }
+
+  return NextResponse.json({ success: true })
 }

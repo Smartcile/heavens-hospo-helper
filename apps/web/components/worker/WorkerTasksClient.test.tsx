@@ -648,17 +648,41 @@ describe('WorkerTasksClient', () => {
     })
   })
 
-  it('shows settled non-done outcomes separately from completed work', async () => {
+  it('keeps settled outcomes in the list, below the pending tasks', async () => {
     mockTasks([
       { ...BASE_TASK, id: 't1', title: 'STILL TO DO' },
       {
         ...BASE_TASK, id: 't2', title: 'WAS NOT NEEDED', isCompleted: true, isSettled: true,
-        outcome: 'NOT_REQUIRED', completion: { id: 'c2', note: null, photoUrl: null, completedAt: new Date(), outcome: 'NOT_REQUIRED' },
+        outcome: 'NOT_REQUIRED', canUndo: true,
+        completion: { id: 'c2', note: null, photoUrl: null, completedAt: new Date(), outcome: 'NOT_REQUIRED' },
       },
     ])
     render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
-    await waitFor(() => expect(screen.getByText('HANDLED — NOT DONE')).toBeDefined())
-    expect(screen.getByText('WAS NOT NEEDED')).toBeDefined()
+
+    await waitFor(() => expect(screen.getByText('WAS NOT NEEDED')).toBeDefined())
+    expect(screen.queryByText('HANDLED — NOT DONE')).toBeNull()
     expect(screen.getByText('NOT REQUIRED')).toBeDefined()
+    expect(screen.getByText('REOPEN')).toBeDefined()
+  })
+
+  it('undoes a settled completion through the DELETE route', async () => {
+    const fetchMock = mockTasks([
+      {
+        ...BASE_TASK, id: 't2', title: 'MIS-TAPPED', isCompleted: true, isSettled: true,
+        outcome: 'DONE', isDone: true, canUndo: true,
+        completion: { id: 'c2', note: null, photoUrl: null, completedAt: new Date(), outcome: 'DONE' },
+      },
+    ])
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('UNTICK')).toBeDefined())
+    fireEvent.click(screen.getByText('UNTICK'))
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/worker/tasks/t2/complete' && init?.method === 'DELETE',
+      )
+      expect(call).toBeDefined()
+    })
   })
 })

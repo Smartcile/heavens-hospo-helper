@@ -145,6 +145,8 @@ export function WorkerTasksClient({
   const [outcome, setOutcome] = useState<TaskOutcome>('DONE')
   const [completing, setCompleting] = useState(false)
   const [completionError, setCompletionError] = useState('')
+  const [undoingId, setUndoingId] = useState<string | null>(null)
+  const [undoError, setUndoError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Edit mode
@@ -293,6 +295,25 @@ export function WorkerTasksClient({
     setReadingValue('')
     setOutcome('DONE')
     setCompletionError('')
+  }
+
+  async function undoTask(id: string) {
+    setUndoingId(id)
+    setUndoError('')
+    try {
+      const r = await fetch(`/api/worker/tasks/${id}/complete`, { method: 'DELETE' })
+      if (r.status === 401) { router.push('/w/login'); return }
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}))
+        setUndoError(data.error ?? 'COULD NOT UNDO THIS TASK')
+        return
+      }
+      await load()
+    } catch {
+      setUndoError('COULD NOT CONNECT — TRY AGAIN')
+    } finally {
+      setUndoingId(null)
+    }
   }
 
   const activeAllowedOutcomes: TaskOutcome[] = (activeTask?.allowedOutcomes?.length
@@ -677,9 +698,17 @@ export function WorkerTasksClient({
   const listGroupMap = new Map<string, { id: string; name: string; time: string | null; tasks: TaskState[] }>()
   const otherTasks: TaskState[] = []
   const upcomingMap = new Map<string, { id: string; name: string; label: string | null }>()
-  for (const t of pending) {
+  for (const t of tasks) {
     const lists = listsByTask.get(t.id) ?? []
     if (lists.length === 0) { otherTasks.push(t); continue }
+    // Settled work stays inside its list, even if the list is time-closed.
+    if (t.isSettled) {
+      const first = lists.slice().sort((a, b) => (a.appearFromTime ?? '').localeCompare(b.appearFromTime ?? '') || a.name.localeCompare(b.name))[0]
+      let grp = listGroupMap.get(first.id)
+      if (!grp) { grp = { id: first.id, name: first.name, time: first.appearFromTime, tasks: [] }; listGroupMap.set(first.id, grp) }
+      grp.tasks.push(t)
+      continue
+    }
     const open = lists
       .filter((l) => isOpen(l))
       .sort((a, b) => (a.appearFromTime ?? '').localeCompare(b.appearFromTime ?? '') || a.name.localeCompare(b.name))
@@ -701,6 +730,7 @@ export function WorkerTasksClient({
     grp.tasks.push(t)
   }
   const listGroups = [...listGroupMap.values()].sort((a, b) => (a.time ?? '').localeCompare(b.time ?? '') || a.name.localeCompare(b.name))
+  for (const g of listGroups) g.tasks.sort((a, b) => Number(a.isSettled) - Number(b.isSettled))
   const upcoming = [...upcomingMap.values()].sort((a, b) => (a.label ?? '').localeCompare(b.label ?? ''))
 
   // "Other" tasks grouped by department → section
@@ -715,6 +745,9 @@ export function WorkerTasksClient({
     let sg = dg.sections.find((s) => s.key === sKey)
     if (!sg) { sg = { key: sKey, name: sName, tasks: [] }; dg.sections.push(sg) }
     sg.tasks.push(t)
+  }
+  for (const dg of otherGroups) {
+    for (const sg of dg.sections) sg.tasks.sort((a, b) => Number(a.isSettled) - Number(b.isSettled))
   }
 
   const renderTask = (t: TaskState, opts?: { depth?: number; sameListIds?: Set<string> }) => {
@@ -805,7 +838,7 @@ export function WorkerTasksClient({
         <div className="flex items-start gap-3">
           <div className="w-5 h-5 border-2 border-grey-mid flex-shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <div className="font-mono font-semibold text-sm uppercase text-white">{depth > 0 ? '↳ ' : ''}{t.title}</div>
+            <div className={`font-mono font-semibold text-sm uppercase ${t.isDone ? 'text-success line-through' : 'text-white'}`}>{depth > 0 ? '↳ ' : ''}{t.title}</div>
             {t.description && <p className="font-sans text-xs text-grey-light mt-0.5">{richTextToPlainText(t.description)}</p>}
             {t.linkedItem && <p className="font-mono text-xs uppercase text-grey-light mt-0.5">LINKED: {describeLinkedItem(t.linkedItem)}</p>}
             <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -833,6 +866,26 @@ export function WorkerTasksClient({
             {t.inProgress?.note && (
               <p className="font-sans text-xs text-warning/80 mt-1 truncate">{t.inProgress.note}</p>
             )}
+            {t.isSettled && (
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <span className={`font-mono text-xs uppercase border px-1.5 py-0.5 ${t.isDone ? 'text-success border-success/50' : t.outcome === 'NOT_REQUIRED' ? 'text-grey-light border-grey-mid' : 'text-danger border-danger/50'}`}>
+                  {t.isDone ? 'DONE' : t.outcome === 'NOT_REQUIRED' ? 'NOT REQUIRED' : 'DID NOT COMPLETE'}
+                </span>
+                {t.completedByName && (
+                  <span className="font-mono text-xs uppercase text-grey-light">BY {t.completedByName}</span>
+                )}
+                {t.canUndo && (
+                  <button
+                    type="button"
+                    disabled={undoingId === t.id}
+                    onClick={(e) => { e.stopPropagation(); void undoTask(t.id) }}
+                    className="ml-auto font-mono text-xs uppercase border border-warning/60 text-warning px-2 py-1 hover:bg-warning hover:text-black transition-colors disabled:opacity-40"
+                  >
+                    {undoingId === t.id ? 'UNDOING...' : t.isDone ? 'UNTICK' : 'REOPEN'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -850,39 +903,6 @@ export function WorkerTasksClient({
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
         <p className="font-mono text-sm text-grey-light loading-cursor">LOADING</p>
-      </div>
-    )
-  }
-
-  if (allDone && !isEditMode) {
-    return (
-      <div className="min-h-screen bg-black flex flex-col">
-        <div className="px-4 pt-6 pb-4 border-b border-grey-mid">
-          <div />
-        </div>
-        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-6">
-          <Panel padding="none" className={`w-16 h-16 border-4 flex items-center justify-center ${allActuallyDone ? 'border-success' : 'border-warning'}`}>
-            {allActuallyDone ? (
-              <svg className="w-8 h-8 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M5 13l4 4L19 7" />
-              </svg>
-            ) : (
-              <span className="font-mono text-2xl text-warning">!</span>
-            )}
-          </Panel>
-          <div>
-            <h1 className={`font-mono text-2xl font-bold uppercase tracking-widest ${allActuallyDone ? 'text-success' : 'text-warning'}`}>
-              {allActuallyDone ? 'ALL DONE' : 'ALL TASKS HANDLED'}
-            </h1>
-            <p className="font-mono text-sm text-white mt-1 uppercase">
-              {allActuallyDone ? `NICE WORK, ${firstName}!` : `NOT EVERYTHING WAS DONE, ${firstName}`}
-            </p>
-          </div>
-          <p className="font-mono text-xs text-grey-light uppercase">
-            {done.length} DONE
-            {handled.length > 0 ? ` · ${handled.length} NOT DONE / NOT REQUIRED` : ''}
-          </p>
-        </div>
       </div>
     )
   }
@@ -1083,6 +1103,23 @@ export function WorkerTasksClient({
 
       {/* Pending — time-gated lists as boxes, then any other tasks by dept → section */}
       <div className="px-4 py-4 space-y-4">
+        {allDone && !isEditMode && (
+          <Panel padding="md" className={allActuallyDone ? 'border-success/50' : 'border-warning/50'}>
+            <div className="flex items-center gap-3">
+              <span className={`w-8 h-8 border-2 flex items-center justify-center font-mono text-sm ${allActuallyDone ? 'border-success text-success' : 'border-warning text-warning'}`}>
+                {allActuallyDone ? '✓' : '!'}
+              </span>
+              <div className="min-w-0">
+                <div className={`font-mono text-sm font-bold uppercase tracking-wider ${allActuallyDone ? 'text-success' : 'text-warning'}`}>
+                  {allActuallyDone ? 'ALL DONE' : 'ALL TASKS HANDLED'}
+                </div>
+                <div className="font-mono text-xs uppercase text-grey-light">
+                  {allActuallyDone ? `NICE WORK, ${firstName}` : `NOT EVERYTHING WAS DONE, ${firstName}`} · {done.length} DONE
+                </div>
+              </div>
+            </div>
+          </Panel>
+        )}
         {listGroups.map((lg) => {
           const summary = checklists.find((cl) => cl.id === lg.id)
           const allTaskIds = summary?.taskIds ?? []
@@ -1156,6 +1193,10 @@ export function WorkerTasksClient({
           </div>
         ))}
 
+        {undoError && (
+          <p className="font-mono text-xs text-danger">{undoError}</p>
+        )}
+
         {upcoming.length > 0 && (
           <Panel variant="outline" padding="md">
             <div className="font-mono text-xs uppercase tracking-wider text-grey-light mb-1">OPENS LATER</div>
@@ -1192,57 +1233,6 @@ export function WorkerTasksClient({
           </Panel>
         )}
       </div>
-
-      {/* Completed tasks */}
-      {done.length > 0 && (
-        <div className="px-4 pb-6">
-          <div className="font-mono text-xs text-grey-light uppercase mb-2 tracking-wider">
-            COMPLETED
-          </div>
-          <div className="space-y-1">
-            {done.map((t) => (
-              <Panel key={t.id} padding="md" className="flex items-center gap-3 opacity-60">
-                <Panel padding="none" className="w-5 h-5 border-2 border-success bg-success flex items-center justify-center flex-shrink-0">
-                  <svg className="w-3 h-3 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M5 13l4 4L19 7" />
-                  </svg>
-                </Panel>
-                <span className="font-mono text-xs uppercase text-success line-through min-w-0 truncate">{t.title}</span>
-                {t.completedByName && <span className="font-mono text-xs uppercase text-grey-light ml-auto flex-shrink-0">BY {t.completedByName}</span>}
-              </Panel>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Settled but not done — NOT REQUIRED / DID NOT COMPLETE */}
-      {handled.length > 0 && (
-        <div className="px-4 pb-6">
-          <div className="font-mono text-xs text-grey-light uppercase mb-2 tracking-wider">
-            HANDLED — NOT DONE
-          </div>
-          <div className="space-y-1">
-            {handled.map((t) => {
-              const outcomeLabel = t.outcome === 'NOT_REQUIRED' ? 'NOT REQUIRED' : 'DID NOT COMPLETE'
-              const tone = t.outcome === 'NOT_REQUIRED' ? 'text-grey-light border-grey-mid' : 'text-danger border-danger/50'
-              return (
-                <Panel key={t.id} padding="md" className="space-y-1 opacity-80">
-                  <div className="flex items-center gap-3">
-                    <span className={`font-mono text-xs uppercase border px-1.5 py-0.5 flex-shrink-0 ${tone}`}>
-                      {outcomeLabel}
-                    </span>
-                    <span className="font-mono text-xs uppercase text-white min-w-0 truncate">{t.title}</span>
-                    {t.completedByName && <span className="font-mono text-xs uppercase text-grey-light ml-auto flex-shrink-0">BY {t.completedByName}</span>}
-                  </div>
-                  {t.completion?.note && (
-                    <p className="font-sans text-xs text-grey-light pl-1">{t.completion.note}</p>
-                  )}
-                </Panel>
-              )
-            })}
-          </div>
-        </div>
-      )}
 
       {/* Completion modal (only when not in edit mode) */}
       {!isEditMode && activeTask && (

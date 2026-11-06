@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
   const [recentCompletions, openAlerts, catalog] = await Promise.all([
     taskIds.length
       ? prisma.taskCompletion.findMany({
-          where: { taskId: { in: taskIds }, scheduledDate: { gte: windowStart } },
+          where: { taskId: { in: taskIds }, scheduledDate: { gte: windowStart }, deletedAt: null },
           select: { id: true, taskId: true, value: true, valueStatus: true, completedAt: true },
         })
       : Promise.resolve([]),
