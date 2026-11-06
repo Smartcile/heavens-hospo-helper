@@ -162,7 +162,7 @@ export function buildMenuImportPrompt({
   ].join('\n')
 }
 
-function extractJsonBlock(text: string): string | null {
+export function extractJsonBlock(text: string): string | null {
   const cleaned = text.replace(/```(?:json)?/gi, '').trim()
   const start = cleaned.indexOf('{')
   if (start < 0) return null

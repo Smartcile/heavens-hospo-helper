@@ -9,6 +9,9 @@ import { AllergenPicker } from '@/components/ui/AllergenPicker'
 import { MenuItemServesEditor } from '@/components/admin/MenuItemServesEditor'
 import { MenuItemDetailsModal } from '@/components/admin/MenuItemDetailsModal'
 import { getActiveVenueId } from '@/lib/active-venue'
+import { ImportModal } from '@/components/import/ImportModal'
+import { buildMenuItemImportPrompt, matchMenuItemRows, parseMenuItemImportAnswer } from '@/lib/import/menu-item'
+import type { ImportExisting } from '@/lib/import/types'
 import type { AllergenSource } from '@/lib/allergens'
 
 interface Variation { name: string; price: number | string }
@@ -64,6 +67,7 @@ export function MenuItemsClient({
   const [previewImage, setPreviewImage] = useState<string | null>(null)
   const [servesOpen, setServesOpen] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
 
   function resetForm() {
     setFormName(''); setFormRecipeId(''); setFormPrice('0')
@@ -192,7 +196,10 @@ export function MenuItemsClient({
           <div className="border border-grey-mid p-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-mono text-xs font-bold text-white uppercase">ITEMS ({items.length})</h2>
-              <Button size="sm" onClick={() => { setSelectedId(null); setIsCreating(true); resetForm() }}>+ ADD</Button>
+              <div className="flex items-center gap-1">
+                <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)}>⬆ IMPORT</Button>
+                <Button size="sm" onClick={() => { setSelectedId(null); setIsCreating(true); resetForm() }}>+ ADD</Button>
+              </div>
             </div>
             <div className="space-y-0.5 max-h-[65vh] overflow-y-auto">
               {items.map((m) => (
@@ -365,6 +372,19 @@ export function MenuItemsClient({
       )}
       {detailsOpen && selectedId && (
         <MenuItemDetailsModal menuItemId={selectedId} menuItemName={formName} venueId={venueId} onClose={() => setDetailsOpen(false)} onSaved={load} />
+      )}
+      {importOpen && (
+        <ImportModal
+          title="IMPORT MENU ITEMS"
+          prompt={buildMenuItemImportPrompt()}
+          existing={items.map((i): ImportExisting => ({ id: i.id, name: i.name }))}
+          parse={(text, existing) => {
+            const parsed = parseMenuItemImportAnswer(text)
+            return 'error' in parsed ? parsed : { ...parsed, rows: matchMenuItemRows(parsed.rows, existing) }
+          }}
+          onClose={() => setImportOpen(false)}
+          onImported={load}
+        />
       )}
 
       <Modal isOpen={previewImage != null} onClose={() => setPreviewImage(null)} title="" size="lg">
