@@ -11,6 +11,8 @@ import { resolveCompetencyGuideIds } from '@/lib/task-guides'
 import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
 import { syncTaskLists } from '@/lib/task-lists.server'
 import { parentLinkError, nextSubtaskOrder } from '@/lib/task-subtasks.server'
+import { sanitiseRichText } from '@/lib/rich-text'
+import { linkedItemSelect, linkedItemError } from '@/lib/task-linked-item.server'
 
 export async function GET(req: NextRequest) {
   const session = await getWorkerSession()
@@ -42,6 +44,7 @@ export async function GET(req: NextRequest) {
       include: {
         department: { select: { id: true, name: true } },
         section: { select: { id: true, name: true } },
+        linkedItem: { select: linkedItemSelect },
         requiredTraining: { select: { moduleId: true, module: { select: { kind: true } } } },
         taskGuides: {
           select: {
@@ -102,7 +105,7 @@ export async function GET(req: NextRequest) {
     include: {
       department: { select: { id: true, name: true, colour: true } },
       section: { select: { id: true, name: true } },
-      linkedItem: { select: { id: true, name: true } },
+      linkedItem: { select: linkedItemSelect },
       taskCompletions: {
         where: { scheduledDate: today },
         include: { staff: { select: { firstName: true, lastName: true } } },
@@ -283,6 +286,16 @@ export async function GET(req: NextRequest) {
       readingMax: t.readingMax,
       criticalMin: t.criticalMin,
       criticalMax: t.criticalMax,
+      linkedItem: t.linkedItem
+        ? {
+            id: t.linkedItem.id,
+            name: t.linkedItem.name,
+            unit: t.linkedItem.unit,
+            storageNotes: t.linkedItem.storageNotes,
+            deletedAt: t.linkedItem.deletedAt,
+            storageLocations: t.linkedItem.storageLocations,
+          }
+        : null,
       linkedItemName: t.linkedItem?.name ?? null,
       // Linked subtasks — grouping/labelling in the worker list.
       parentTaskId: t.parentTaskId,
@@ -320,7 +333,7 @@ export async function POST(req: NextRequest) {
     scheduleType, scheduleDays, customCron, intervalMonths,
     monthlyOption, monthlyDay, requiredTrainingIds, competencyGuideIds,
     allowedOutcomes, overrideOutcomes, requireOutcomeReason,
-    checklistIds, assignedToStaffId,
+    checklistIds, assignedToStaffId, linkedItemId,
   } = body
 
   if (!title?.trim()) return NextResponse.json({ error: 'TITLE IS REQUIRED' }, { status: 400 })
@@ -369,6 +382,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'ASSIGNEE IS NOT IN THIS VENUE' }, { status: 400 })
     }
   }
+  const itemError = await linkedItemError(session.venueId, linkedItemId)
+  if (itemError) return NextResponse.json({ error: itemError }, { status: 400 })
 
   let resolvedDeptId = departmentId || null
   const resolvedSectionId = sectionId || null
@@ -386,10 +401,11 @@ export async function POST(req: NextRequest) {
   const task = await prisma.task.create({
     data: {
       title: title.toUpperCase().trim(),
-      description: description?.trim() || null,
+      description: description ? (sanitiseRichText(String(description)) || null) : null,
       venueId: session.venueId,
       departmentId: resolvedDeptId,
       sectionId: resolvedSectionId,
+      linkedItemId: linkedItemId || null,
       completionType: completionType || 'TICK',
       scheduleType: scheduleType || 'DAILY',
       scheduleDays: scheduleType === 'DAILY' ? [] : scheduleDays || [],

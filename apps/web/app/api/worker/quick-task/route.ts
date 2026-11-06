@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
+import { sanitiseRichText } from '@/lib/rich-text'
 
 export async function POST(req: Request) {
   const session = await getWorkerSession()
@@ -14,7 +15,7 @@ export async function POST(req: Request) {
   const task = await prisma.task.create({
     data: {
       title: title.toUpperCase().trim(),
-      description: description?.trim() || null,
+      description: description ? (sanitiseRichText(String(description)) || null) : null,
       venueId: session.venueId,
       departmentId: session.departmentId,
       completionType: completionType || 'TICK_PHOTO',

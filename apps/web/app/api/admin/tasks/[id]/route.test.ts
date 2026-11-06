@@ -9,6 +9,7 @@ const {
   nextSubtaskOrder,
   hasLiveSubtasks,
   softDeleteTask,
+  linkedItemError,
 } = vi.hoisted(() => ({
   prisma: {
     task: { findUnique: vi.fn(), update: vi.fn() },
@@ -19,6 +20,7 @@ const {
   nextSubtaskOrder: vi.fn(),
   hasLiveSubtasks: vi.fn(),
   softDeleteTask: vi.fn(),
+  linkedItemError: vi.fn(),
 }))
 
 vi.mock('next-auth', () => ({ getServerSession }))
@@ -31,6 +33,10 @@ vi.mock('@/lib/task-subtasks.server', () => ({
   nextSubtaskOrder,
   hasLiveSubtasks,
   softDeleteTask,
+}))
+vi.mock('@/lib/task-linked-item.server', () => ({
+  linkedItemSelect: {},
+  linkedItemError,
 }))
 
 import { GET, PUT, DELETE } from './route'
@@ -53,6 +59,7 @@ describe('/api/admin/tasks/[id]', () => {
     parentLinkError.mockResolvedValue(null)
     nextSubtaskOrder.mockResolvedValue(2)
     hasLiveSubtasks.mockResolvedValue(false)
+    linkedItemError.mockResolvedValue(null)
   })
 
   it('GET returns the parent title and children', async () => {
@@ -65,6 +72,12 @@ describe('/api/admin/tasks/[id]', () => {
       overrideOutcomes: false, requireOutcomeReason: false, parentTaskId: null, subtaskOrder: 0,
       sections: [], requiredTraining: [], taskGuides: [],
       parent: null,
+      linkedItem: {
+        id: 'i1', name: 'SPRAY BOTTLE', unit: 'EA', storageNotes: null, deletedAt: null,
+        storageLocations: [
+          { notes: 'TOP SHELF', section: { name: 'UNDER SINK', department: { name: 'BAR' } } },
+        ],
+      },
       subtasks: [{ id: 'c1', title: 'THROW OUT PAPERS', isActive: true, subtaskOrder: 0 }],
     })
 
@@ -75,6 +88,34 @@ describe('/api/admin/tasks/[id]', () => {
     expect(body.subtasks).toHaveLength(1)
     expect(body.subtasks[0].title).toBe('THROW OUT PAPERS')
     expect(body.parentTitle).toBeNull()
+    expect(body.linkedItem.name).toBe('SPRAY BOTTLE')
+    expect(body.linkedItem.storageLocations[0].section.department.name).toBe('BAR')
+  })
+
+  it('PUT rejects a linked item from another venue', async () => {
+    linkedItemError.mockResolvedValue('LINKED ITEM IS NOT IN THIS VENUE')
+
+    const res = await PUT(req({ linkedItemId: 'other-venue-item' }), { params: { id: 't1' } })
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'LINKED ITEM IS NOT IN THIS VENUE' })
+    expect(prisma.task.update).not.toHaveBeenCalled()
+  })
+
+  it('PUT sanitises a rich-text description and saves the linked item', async () => {
+    const res = await PUT(
+      req({ description: '<script>alert(1)</script><p>SPRAY <strong>BOTTLE</strong></p>', linkedItemId: 'i1' }),
+      { params: { id: 't1' } },
+    )
+
+    expect(res.status).toBe(200)
+    expect(prisma.task.update).toHaveBeenCalledWith({
+      where: { id: 't1' },
+      data: {
+        description: '<p>SPRAY <strong>BOTTLE</strong></p>',
+        linkedItemId: 'i1',
+      },
+    })
   })
 
   it('PUT rejects a cross-venue parent', async () => {

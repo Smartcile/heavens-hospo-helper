@@ -7,6 +7,8 @@ import { guardAccess } from '@/lib/permissions'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { parentLinkError, nextSubtaskOrder, hasLiveSubtasks, softDeleteTask } from '@/lib/task-subtasks.server'
 import { syncTaskLists } from '@/lib/task-lists.server'
+import { sanitiseRichText } from '@/lib/rich-text'
+import { linkedItemSelect, linkedItemError } from '@/lib/task-linked-item.server'
 
 interface Params {
   params: { id: string }
@@ -26,6 +28,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       completionType: true, scheduleType: true, scheduleDays: true, customCron: true,
       intervalMonths: true, monthlyOption: true, monthlyDay: true, isActive: true,
       status: true, hsCategory: true, linkedItemId: true,
+      linkedItem: { select: linkedItemSelect },
       readingUnit: true, readingMin: true, readingMax: true, criticalMin: true, criticalMax: true,
       allowedOutcomes: true, overrideOutcomes: true, requireOutcomeReason: true,
       parentTaskId: true, subtaskOrder: true,
@@ -62,7 +65,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   const existing = await prisma.task.findUnique({
     where: { id: params.id },
-    select: { id: true, venueId: true, parentTaskId: true },
+    select: { id: true, venueId: true, parentTaskId: true, linkedItemId: true },
   })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -112,7 +115,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
 
   if (body.title !== undefined) updates.title = String(body.title).toUpperCase().trim()
-  if (body.description !== undefined) updates.description = body.description?.trim() ?? null
+  if (body.description !== undefined) {
+    updates.description = body.description ? (sanitiseRichText(String(body.description)) || null) : null
+  }
   if (body.departmentId !== undefined) updates.departmentId = body.departmentId ?? null
   if (body.assignedToStaffId !== undefined) updates.assignedToStaffId = body.assignedToStaffId ?? null
   if (body.completionType !== undefined) updates.completionType = body.completionType
@@ -127,7 +132,11 @@ export async function PUT(req: NextRequest, { params }: Params) {
   // --- Food Health & Safety fields ---
   if (body.status !== undefined) updates.status = body.status
   if (body.hsCategory !== undefined) updates.hsCategory = body.hsCategory ?? null
-  if (body.linkedItemId !== undefined) updates.linkedItemId = body.linkedItemId || null
+  if (body.linkedItemId !== undefined) {
+    const itemError = await linkedItemError(existing.venueId, body.linkedItemId, existing.linkedItemId)
+    if (itemError) return NextResponse.json({ error: itemError }, { status: 400 })
+    updates.linkedItemId = body.linkedItemId || null
+  }
   if (body.readingUnit !== undefined) updates.readingUnit = body.readingUnit ?? null
   if (body.readingMin !== undefined) updates.readingMin = body.readingMin != null && Number.isFinite(body.readingMin) ? Number(body.readingMin) : null
   if (body.readingMax !== undefined) updates.readingMax = body.readingMax != null && Number.isFinite(body.readingMax) ? Number(body.readingMax) : null

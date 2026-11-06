@@ -55,6 +55,14 @@ function mockApi(tasks: unknown[] = [TASK_ONE, TASK_TWO], gate?: Promise<void>) 
     const u = String(url)
     if (u.includes('/progress')) return json({ success: true })
     if (u.startsWith('/api/admin/tasks/assignees')) return json([{ id: 's1', name: 'SAM LEE' }])
+    if (u.startsWith('/api/admin/tasks/item-options')) {
+      return json([
+        {
+          id: 'i1', name: 'SPRAY BOTTLE', unit: 'EA', storageNotes: null,
+          storageLocations: [{ notes: 'TOP SHELF', section: { name: 'UNDER SINK', department: { name: 'BAR' } } }],
+        },
+      ])
+    }
     if (u.startsWith('/api/admin/tasks')) return json(tasks)
     if (u === '/api/admin/venues') return json([{ id: 'v1', name: 'VENUE' }])
     if (u === '/api/admin/departments') return json([{ id: 'd1', name: 'KITCHEN', venueId: 'v1', colour: null }])
@@ -103,6 +111,27 @@ describe('TasksClient', () => {
     // Removing t1 from the live selection puts it back on the left.
     fireEvent.click(screen.getAllByText('✕')[0])
     await waitFor(() => expect(screen.getByTestId('available-task-t1')).toBeDefined())
+  })
+
+  it('shows a linked item and renders a rich description as plain text', async () => {
+    mockApi([
+      {
+        ...TASK_ONE,
+        description: '<ul><li>Chocolate Powder</li><li>Sprinkles</li></ul>',
+        linkedItemId: 'i1',
+        linkedItem: {
+          id: 'i1', name: 'SPRAY BOTTLE', unit: 'EA', storageNotes: null, deletedAt: null,
+          storageLocations: [{ notes: 'TOP SHELF', section: { name: 'UNDER SINK', department: { name: 'BAR' } } }],
+        },
+      },
+    ])
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByTestId('usage-filter')).toBeDefined())
+    fireEvent.change(screen.getByTestId('usage-filter'), { target: { value: '' } })
+    await waitFor(() => expect(screen.getByText(/LINKED: SPRAY BOTTLE/)).toBeDefined())
+    expect(screen.getByText(/Chocolate Powder/)).toBeDefined()
+    expect(screen.queryByText(/<ul>/)).toBeNull()
   })
 
   it('also filters a brand-new list against the live selection (#19)', async () => {

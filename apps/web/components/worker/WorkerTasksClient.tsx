@@ -8,7 +8,11 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { DateInput } from '@/components/ui/DateInput'
 import { Combobox } from '@/components/ui/Combobox'
+import { RichTextEditor } from '@/components/ui/RichTextEditor'
+import { RichTextContent } from '@/components/ui/RichTextContent'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
+import { richTextToPlainText } from '@/lib/rich-text'
+import { describeLinkedItem, type LinkedItemView } from '@/lib/item-location'
 import { readingVerdict, criticalVerdict, describeBand } from '@/lib/food-safety'
 import { OUTCOME_LABELS, OUTCOME_DESCRIPTIONS, TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { moveItem } from '@/lib/array'
@@ -35,6 +39,7 @@ interface TaskForm {
   parentTaskId: string
   checklistIds: string[]
   assignedToStaffId: string
+  linkedItemId: string
 }
 
 interface TaskFull {
@@ -45,6 +50,7 @@ interface TaskFull {
   monthlyOption: string | null; monthlyDay: number | null; isActive: boolean
   allowedOutcomes?: string[]; overrideOutcomes?: boolean; requireOutcomeReason?: boolean
   parentTaskId?: string | null; parentTitle?: string | null; subtaskOrder?: number
+  linkedItemId?: string | null; linkedItem?: LinkedItemView | null
   checklistIds?: string[]; assignedToStaffId?: string | null; assigneeName?: string | null
   subtasks?: { id: string; title: string; isActive: boolean; subtaskOrder: number }[]
   department: { id: string; name: string } | null
@@ -92,7 +98,7 @@ const EMPTY_TASK_FORM: TaskForm = {
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
   intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, competencyGuideIds: [],
   allowedOutcomes: [...TASK_OUTCOMES], overrideOutcomes: false, requireOutcomeReason: false,
-  parentTaskId: '', checklistIds: [], assignedToStaffId: '',
+  parentTaskId: '', checklistIds: [], assignedToStaffId: '', linkedItemId: '',
 }
 
 const COMPLETION_OPTIONS = [
@@ -395,6 +401,7 @@ export function WorkerTasksClient({
     setTaskForm({
       title: t.title, description: t.description ?? '',
       departmentId: t.departmentId ?? '', sectionId: t.sectionId ?? '',
+      linkedItemId: t.linkedItemId ?? '',
       completionType: t.completionType, scheduleType: t.scheduleType,
       scheduleDays: t.scheduleDays, customCron: t.customCron ?? '',
       intervalMonths: t.intervalMonths ?? 1,
@@ -462,6 +469,7 @@ export function WorkerTasksClient({
         ...taskForm,
         departmentId: taskForm.departmentId || null,
         sectionId: taskForm.sectionId || null,
+        linkedItemId: taskForm.linkedItemId || null,
         parentTaskId: taskForm.parentTaskId || null,
         // Legacy `requiredTrainingIds` is deliberately not sent: the worker UI
         // edits TaskGuide now, and omitting it leaves old links untouched.
@@ -740,7 +748,8 @@ export function WorkerTasksClient({
           <div className={`w-2 h-2 flex-shrink-0 ${t.isCompleted ? 'bg-success' : 'bg-grey-mid'}`} />
           <div className="min-w-0 flex-1">
             <div className="font-mono font-semibold text-sm uppercase text-white truncate">{depth > 0 ? '↳ ' : ''}{t.title}</div>
-            {t.description && <p className="font-sans text-xs text-grey-light mt-0.5">{t.description}</p>}
+            {t.description && <p className="font-sans text-xs text-grey-light mt-0.5">{richTextToPlainText(t.description)}</p>}
+            {t.linkedItem && <p className="font-mono text-xs uppercase text-grey-light mt-0.5">LINKED: {describeLinkedItem(t.linkedItem)}</p>}
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <CompletionTypeIcon type={t.completionType} />
               {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
@@ -797,7 +806,8 @@ export function WorkerTasksClient({
           <div className="w-5 h-5 border-2 border-grey-mid flex-shrink-0 mt-0.5" />
           <div className="min-w-0">
             <div className="font-mono font-semibold text-sm uppercase text-white">{depth > 0 ? '↳ ' : ''}{t.title}</div>
-            {t.description && <p className="font-sans text-xs text-grey-light mt-0.5">{t.description}</p>}
+            {t.description && <p className="font-sans text-xs text-grey-light mt-0.5">{richTextToPlainText(t.description)}</p>}
+            {t.linkedItem && <p className="font-mono text-xs uppercase text-grey-light mt-0.5">LINKED: {describeLinkedItem(t.linkedItem)}</p>}
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <CompletionTypeIcon type={t.completionType} />
               {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
@@ -1250,8 +1260,11 @@ export function WorkerTasksClient({
           <div className="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-6">
             <div>
               <h2 className="font-mono text-xl font-bold uppercase text-white">{activeTask.title}</h2>
-              {activeTask.description && (
-                <p className="font-sans text-sm text-grey-light mt-2">{activeTask.description}</p>
+              <RichTextContent html={activeTask.description} className="mt-2" />
+              {activeTask.linkedItem && (
+                <p className="font-mono text-xs text-grey-light mt-2 uppercase">
+                  LINKED: {describeLinkedItem(activeTask.linkedItem)}
+                </p>
               )}
               {activeTask.departmentName && (
                 <p className="font-mono text-xs text-grey-light mt-1 uppercase">[{activeTask.departmentName}]</p>
@@ -1315,8 +1328,10 @@ export function WorkerTasksClient({
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider">
                   READING — {describeBand(activeTask, activeTask.readingUnit)}
                 </label>
-                {activeTask.linkedItemName && (
-                  <p className="font-mono text-xs text-grey-light uppercase">{activeTask.linkedItemName}</p>
+                {(activeTask.linkedItem || activeTask.linkedItemName) && (
+                  <p className="font-mono text-xs text-grey-light uppercase">
+                    {activeTask.linkedItem ? describeLinkedItem(activeTask.linkedItem) : activeTask.linkedItemName}
+                  </p>
                 )}
                 <div className="flex items-stretch gap-2">
                   <input
@@ -1463,12 +1478,14 @@ export function WorkerTasksClient({
               placeholder="WIPE DOWN ALL BAR SURFACES"
             />
 
-            <Textarea
-              label="Description (optional)"
-              value={taskForm.description}
-              onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
-              placeholder="Additional instructions for this task..."
-            />
+            <div className="space-y-1">
+              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Description (optional)</label>
+              <RichTextEditor
+                value={taskForm.description}
+                onChange={(html) => setTaskForm({ ...taskForm, description: html })}
+                placeholder="Additional instructions for this task..."
+              />
+            </div>
 
             <Select
               label="Department"
@@ -1909,7 +1926,7 @@ export function WorkerTasksClient({
               </Panel>
 
               <Combobox
-                options={editTasks.filter(et => !clSelected.includes(et.id)).map(et => ({ value: et.id, label: et.title, description: et.description }))}
+                options={editTasks.filter(et => !clSelected.includes(et.id)).map(et => ({ value: et.id, label: et.title, description: richTextToPlainText(et.description) }))}
                 selected={clSelected}
                 onChange={(ids) => setClSelected(ids)}
                 placeholder="+ ADD A TASK..."

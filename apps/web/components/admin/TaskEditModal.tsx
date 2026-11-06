@@ -4,14 +4,16 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
-import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
 import { Combobox } from '@/components/ui/Combobox'
+import { SearchSelect } from '@/components/ui/SearchSelect'
+import { RichTextEditor } from '@/components/ui/RichTextEditor'
 import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
 import { useDirty } from '@/lib/use-dirty'
 import { MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { availableParentTasks } from '@/lib/task-subtasks'
+import { describeLinkedItem, type LinkedItemView } from '@/lib/item-location'
 
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string }
@@ -27,6 +29,7 @@ interface TaskData {
   isActive?: boolean
   parentTaskId?: string | null; parentTitle?: string | null
   subtasks?: { id: string; title: string; isActive: boolean; subtaskOrder: number }[]
+  linkedItemId?: string | null; linkedItem?: LinkedItemView | null
   requiredTraining: { moduleId: string }[]
   taskGuides?: { guideId: string; isRequiredForCompetency: boolean }[]
 }
@@ -50,6 +53,7 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
   const [activeId, setActiveId] = useState(taskId)
   const [task, setTask] = useState<TaskData | null>(null)
   const [allTasks, setAllTasks] = useState<TaskData[]>([])
+  const [items, setItems] = useState<LinkedItemView[]>([])
   const [competencyGuideIds, setCompetencyGuideIds] = useState<string[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -65,6 +69,13 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
     { enabled: !loading },
   )
 
+  async function loadItems(venueId: string) {
+    if (!venueId) { setItems([]); return }
+    const r = await fetch(`/api/admin/tasks/item-options?venueId=${encodeURIComponent(venueId)}`)
+    const data = r.ok ? await r.json().catch(() => []) : []
+    setItems(Array.isArray(data) ? data : [])
+  }
+
   useEffect(() => {
     let active = true
     setLoading(true)
@@ -78,6 +89,7 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
     ]).then(([t, v, d, s, m, all]) => {
       if (!active) return
       setTask(t)
+      void loadItems(t.venueId)
       // Read competency from TaskGuide (new) or fall back to old requiredTraining
       const guideIds = (t.taskGuides ?? []).filter((g: { isRequiredForCompetency: boolean }) => g.isRequiredForCompetency).map((g: { guideId: string }) => g.guideId)
       setCompetencyGuideIds(guideIds.length > 0 ? guideIds : (t.requiredTraining ?? []).map((r: { moduleId: string }) => r.moduleId))
@@ -111,6 +123,7 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
       body: JSON.stringify({
         title: task.title, description: task.description,
         departmentId: task.departmentId || null, sectionId: task.sectionId || null,
+        linkedItemId: task.linkedItemId || null,
         parentTaskId: task.parentTaskId || null,
         completionType: task.completionType, scheduleType: task.scheduleType,
         scheduleDays: task.scheduleType === 'DAILY' ? [] : task.scheduleDays,
@@ -180,10 +193,28 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
       ) : (
         <div className="space-y-4">
           <Input label="Task Title" value={task.title} onChange={(e) => patch({ title: e.target.value })} placeholder="WIPE DOWN ALL BAR SURFACES" />
-          <Textarea label="Description (optional)" value={task.description ?? ''} onChange={(e) => patch({ description: e.target.value })} placeholder="Additional instructions..." />
+          <div className="space-y-1">
+            <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Description (optional)</label>
+            <RichTextEditor value={task.description ?? ''} onChange={(html) => patch({ description: html })} placeholder="Additional instructions..." />
+          </div>
+          <div className="space-y-1">
+            <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Linked inventory item (optional)</label>
+            <SearchSelect
+              value={task.linkedItemId ?? ''}
+              onChange={(id) => patch({ linkedItemId: id, linkedItem: items.find((i) => i.id === id) ?? null })}
+              options={items.map((i) => ({ value: i.id ?? '', label: describeLinkedItem(i) }))}
+              placeholder="SEARCH ITEMS..."
+              emptyLabel="NO ITEMS IN THIS VENUE"
+            />
+            {task.linkedItemId && (
+              <p className="font-mono text-xs uppercase text-grey-light">
+                {describeLinkedItem(task.linkedItem ?? items.find((i) => i.id === task.linkedItemId)) || 'ITEM REMOVED'}
+              </p>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-3">
             {role === 'ADMIN' && (
-              <Select label="Venue" value={task.venueId} onChange={(e) => patch({ venueId: e.target.value, departmentId: '', sectionId: '' })} options={venueOptions} placeholder="SELECT VENUE" />
+              <Select label="Venue" value={task.venueId} onChange={(e) => { const v = e.target.value; patch({ venueId: v, departmentId: '', sectionId: '', linkedItemId: '', linkedItem: null }); void loadItems(v) }} options={venueOptions} placeholder="SELECT VENUE" />
             )}
             <Select label="Department" value={task.departmentId ?? ''} onChange={(e) => patch({ departmentId: e.target.value, sectionId: '' })} options={deptOptions} />
           </div>
