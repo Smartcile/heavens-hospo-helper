@@ -223,7 +223,7 @@ describe('ComplianceTasksClient', () => {
     await waitFor(() => {
       const post = fetchMock.mock.calls.find((c) => c[0] === '/api/admin/tasks' && c[1]?.method === 'POST')
       expect(post).toBeDefined()
-      const body = JSON.parse(post![1].body as string)
+      const body = JSON.parse(post![1]!.body as string)
       expect(body.hsCategory).toBe('FOOD')
       expect(body.completionType).toBe('READING')
       expect(body.readingMin).toBe(-25)

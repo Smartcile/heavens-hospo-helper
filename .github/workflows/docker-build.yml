@@ -3,12 +3,14 @@ name: Build and publish image
 # Builds the HOSPO OPS app image and pushes it to the GitHub Container
 # Registry (GHCR) so Portainer can just PULL it — no building on your server.
 #
-# Runs on every push to main or develop, and whenever you publish a release tag.
-# main is the repository's default branch, so a push there also tags `latest`.
+# Manual-only by default. The normal path is the local machine:
+#   scripts/agent/publish.ps1 -Tag develop
+# This workflow is the on-request cloud fallback (Actions -> Run workflow) and
+# still builds automatically for release tags (v*). It no longer runs on every
+# push to main/develop, so a code push alone starts no cloud run.
 
 on:
   push:
-    branches: [main, develop]
     tags: ['v*']
   workflow_dispatch: {} # lets you trigger a build manually from the Actions tab
 

@@ -10,19 +10,22 @@ Read WORKFLOW.md and AGENTS.md. We are starting a new agent batch.
 Before doing anything, ask me these questions and wait for my answers:
 1. Which area or batch do you want to work on? (availability, roster, tasks, guides, orders, events, inventory, SwiftPOS, UI, other)
 2. Which issue numbers are in this batch? Run `gh issue list --state open` if I do not know.
-3. Should this be one grouped wave or separate branches?
+3. Should this be one grouped wave, separate branches, or two parallel lanes?
 4. Do you want screenshots before merging? Yes, no, or only if I ask later.
-5. After CI passes, should you merge and close the issues, or stop at the PR?
+5. After the local checks pass, should you merge and close the issues, or stop at the PR?
 6. Is there anything that must not be grouped with the rest?
+7. Do you want a cloud CI run, or is the local check enough? (Default: local only.)
 
 After I answer:
 - Run the grouped triage or single triage.
+- Split the work into lanes using WORKFLOW.md (no two issues in one lane in parallel; check file overlap before a second lane).
 - Rename the issue titles to `[AREA] Short imperative description`.
 - Show me the combined fix plan and wait for my approval before spawning.
-- Spawn one grouped wave if I approved a group.
-- Use the implementer in the worktree, then the reviewer.
+- Spawn one worktree per approved lane/wave.
+- Use the implementer in each worktree, then the reviewer.
 - Capture screenshots only if requested.
-- Open the PR, wait for CI, and merge only according to my answer.
+- Run `scripts/agent/check.ps1` before shipping; do not wait for cloud CI (it is manual-only).
+- Open the PR and merge only according to my answer.
 - After merging, run `/merged <pr>` to close the issues, because this repo's default branch is `main`, not `develop`.
 ```
 
@@ -32,10 +35,11 @@ After I answer:
 |---|---|
 | Which area/batch? | Keeps unrelated issues out of one wave. |
 | Which issue numbers? | The source of truth is GitHub, not memory. |
-| Grouped or separate? | Group only 2-4 related issues that share files or a user flow. |
+| Grouped, separate, or lanes? | Group only 2-4 related issues that share files; run independent groups as parallel lanes. |
 | Screenshots? | Screenshots are opt-in; `needs:screenshot` is the gate. |
-| Merge after CI or stop at PR? | Human review is the gate; AI PRs are never auto-merged without permission. |
+| Merge after local checks or stop at PR? | Human review is the gate; AI PRs are never auto-merged without permission. |
 | Anything not to group? | Prevents a risky or schema-changing issue joining a UI wave. |
+| Cloud CI or local only? | The repo is local-first; cloud runs are manual and requested only when needed. |
 
 ## Commands
 
@@ -47,8 +51,10 @@ After I answer:
 | Spawn a wave | `/spawn-group 21 15 6 availability approvals` | `Spawn issues 21,15,6 as one wave...` |
 | Review | `/review` | `Review the diff for the issues in .agent/ISSUES...` |
 | Screenshot | `/screenshot 21` | `Capture a screenshot for issue 21...` |
-| Ship one | `/ship 21` | `Ship issue 21...` |
-| Ship a wave | `/ship-group` | `Ship the grouped worktree...` |
+| Ship one | `/ship 21` | `Ship issue 21 after running scripts/agent/check.ps1...` |
+| Ship a wave | `/ship-group` | `Ship the grouped worktree after running scripts/agent/check.ps1...` |
+| Local gate | none | `Run scripts/agent/check.ps1` (add `-Build` to compile) |
+| Publish image | none | `Run scripts/agent/publish.ps1 -Tag develop` |
 | Status | `/status` | `Run the status and merge-check scripts...` |
 | After merge | `/merged 24` | `Mark PR 24 merged: close its issues and add agent:merged.` |
 
@@ -61,12 +67,14 @@ After I answer:
 - Grouped branch: `wave/<slug>`.
 - Group spawn argument format: `-Issues "12,13,14" -Name "short wave name"`.
 - The spawn script refuses a dirty main checkout and bases worktrees on `origin/develop`. Commit and push workflow changes before spawning.
+- Parallel lanes: one worktree per lane, two implementers maximum. `scripts/agent/merge-check.ps1` before starting a second lane.
+- Cloud CI is manual-only (`workflow_dispatch`) plus `v*` tags. The gate is `scripts/agent/check.ps1`; publish the image with `scripts/agent/publish.ps1`.
 - Screenshots need:
   - the local Postgres database running;
   - `AGENT_SCREENSHOT_EMAIL` and `AGENT_SCREENSHOT_PASSWORD` in `apps/web/.env.local`;
   - a page path and role (public/admin/worker) from the triage comment.
 - iOS-only CSS cannot be verified by headless Chrome; use a real iPhone screenshot.
-- Keep 2-3 workers active at most. Never run two issues that touch the same files in parallel.
+- Keep 2 implementers active (one per lane) at most. Never run two issues that touch the same files in parallel.
 
 ## Batch request template
 
@@ -76,8 +84,9 @@ Fill this in before starting:
 Batch name:
 Area:
 Issues:
-Grouped or separate:
+Lanes (which issues run together, which are serial):
 Screenshot before merge:
-Merge after CI or stop at PR:
+Merge after local checks or stop at PR:
 Anything that must not be grouped:
+Cloud CI requested? (default no):
 ```

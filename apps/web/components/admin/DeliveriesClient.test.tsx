@@ -89,7 +89,7 @@ describe('DeliveriesClient', () => {
     await waitFor(() => {
       const post = fetchMock.mock.calls.find((c) => c[0] === '/api/admin/deliveries' && c[1]?.method === 'POST')
       expect(post).toBeDefined()
-      const body = JSON.parse(post![1].body as string)
+      const body = JSON.parse(post![1]!.body as string)
       expect(body.supplierId).toBe('s1')
       expect(body.vehicleTemp).toBe(4)
       expect(body.items).toHaveLength(1)

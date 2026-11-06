@@ -16,10 +16,10 @@ A self-hosted hospitality operations platform for venue managers and floor staff
 
 ### With Docker (recommended)
 
-The app image is built automatically by GitHub Actions and published to the
-GitHub Container Registry (GHCR). You don't build anything yourself — Docker
-just pulls the image. On first start, the container automatically runs database
-migrations and seeds the demo data (safe to re-run on redeploys).
+The app image is published to the GitHub Container Registry (GHCR) by the
+maintainers. You don't build anything yourself — Docker just pulls the image.
+On first start, the container automatically runs database migrations and seeds
+the demo data (safe to re-run on redeploys).
 
 #### Option A — Portainer (Stacks → Add stack → Repository)
 

@@ -1,8 +1,11 @@
 name: CI
 
+# Manual-only by default. The local gate is scripts/agent/check.ps1; this
+# workflow is the on-request cloud fallback (Actions -> CI -> Run workflow).
+# To request a run, pick the branch in the Actions tab.
+
 on:
-  pull_request:
-    branches: [develop, main, master]
+  workflow_dispatch: {}
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}

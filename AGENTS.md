@@ -66,7 +66,7 @@ hospo-ops/
 │   ├── types/                      # Shared TypeScript types/interfaces
 │   └── config/                     # Lightweight package (tailwind.config.ts migrated to CSS @theme)
 ├── .github/workflows/
-│   └── docker-build.yml            # CI: lint + turbo test, builds image, pushes to GHCR
+│   └── docker-build.yml            # Manual / v* tag: lint + test, builds image, pushes to GHCR
 ├── apps/web/Dockerfile             # Single-stage image (node:22-alpine + openssl + ffmpeg)
 ├── apps/web/docker-entrypoint.sh   # prisma generate → migrations → db push → seed → `next start`
 ├── docker-compose.yml              # Canonical production stack — PULLS image from GHCR
@@ -116,11 +116,12 @@ hot reload). Both publish port 3000, so stop one before starting the other.
 
 ## HOW TO RUN WITH DOCKER
 
-The image is built by GitHub Actions (`.github/workflows/docker-build.yml`) and
-published to `ghcr.io/smartcile/heavens-hospo-helper` on every push to
-`master`/`develop` and on `v*` tags (CI runs `npm run lint` + `turbo run test`
-first). The root `docker-compose.yml` PULLS that image — nothing is built on
-the server.
+The image is built and published to `ghcr.io/smartcile/heavens-hospo-helper`
+from the local machine with `scripts/agent/publish.ps1 -Tag develop` (it runs
+`scripts/agent/check.ps1` first, then `docker build` + `docker push`). GitHub
+Actions (`.github/workflows/docker-build.yml`) is a manual / `v*`-tag fallback —
+it no longer runs on every push to `master`/`develop`. The root
+`docker-compose.yml` PULLS that image — nothing is built on the server.
 
 ```bash
 # From the repo root
@@ -3027,17 +3028,18 @@ resulting React #310 error ("Rendered more hooks than during the previous render
 as an unhandled render exception and fails the test.
 
 **Pre-push checklist:**
-```bash
-npm run lint && npm run test
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent/check.ps1
 ```
-If either fails, the GitHub Actions CI pipeline (`docker-build.yml`) will also fail
-and the Docker image won't be built. Broken code never ships.
+This runs Prisma generate, lint, type-check and the full test suite locally. The
+GitHub Actions workflows are manual-only, so this local gate (plus human review)
+is what stops broken code shipping.
 
 ## TEST COVERAGE
 
 Every new pure function or hook-bearing component MUST have a corresponding
 `*.test.ts` (lib) or `*.test.tsx` (component) file alongside it. Before
-pushing, run: `npm run lint && npm run test`.
+pushing, run `scripts/agent/check.ps1`.
 
 ### Lib Files
 
@@ -3189,15 +3191,14 @@ pushing, run: `npm run lint && npm run test`.
 When the user signals intent to commit and test (e.g. "I'm going to commit",
 "time to push", "ready to test on live", "let's ship this"):
 
-1. **Run the quality gates:** `npm run lint && npm run build && npm run test`
+1. **Run the quality gates:** `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent/check.ps1 -Build`
    - Lint: 0 errors expected (warnings are ok if pre-existing)
-   - Build: must compile all pages
-   - Tests: all passing (8 `@hospo-ops/db` failures in local vitest are a known
-     monorepo issue — they pass in CI with turborepo)
+   - Type-check + Build: must compile
+   - Tests: all passing (the script uses turbo, which is the supported local path)
 
-2. **Offer to prebuild the Docker image** so GitHub Actions only runs lint+test
-   as a gate, skipping the slow Docker build. Run `build-and-push.ps1` (gitignored)
-   if the user wants to push directly to GHCR. (Requires Docker running + GHCR login.)
+2. **Offer to publish the image locally** — `scripts/agent/publish.ps1 -Tag develop`
+   runs the checks, builds `apps/web/Dockerfile` and pushes to GHCR. This replaces
+   the old automatic GitHub Actions build. (Requires Docker running + GHCR login.)
 
 3. **Produce a test checklist** — write it into `.test-checklist.md` (gitignored)
    as a markdown checkbox list. Group items by page using path-style navigation
@@ -3224,9 +3225,9 @@ When the user signals intent to commit and test (e.g. "I'm going to commit",
    (`ROADMAP.md` / `ECOSYSTEM.md` no longer exist — `scripts/check-docs.mjs`
    should be updated to drop them.)
 
-5. **GitHub Actions CI** — remind the user of the workflow fixes if relevant
-   (Prisma generate step, turbo test command). If the workflow file was changed
-   in this session, flag it.
+5. **GitHub Actions CI** — it is manual-only (`workflow_dispatch`) plus `v*`
+   tags. Do not wait for a cloud run. If a cloud check is needed, trigger it from
+   Actions. If a workflow file changed in this session, flag it.
 
 ## WHAT NOT TO DO
 
