@@ -14,6 +14,7 @@ export interface CompletionReportInput {
 
 export interface CompletionReportWhere {
   outcome?: 'DONE'
+  deletedAt?: null
   task?: { venueId?: string; departmentId?: string }
   staffId?: string
   scheduledDate?: { gte?: Date; lte?: Date }
@@ -28,7 +29,7 @@ export function completionReportWheres(input: CompletionReportInput): {
   if (venueId) task.venueId = venueId
   if (input.departmentId) task.departmentId = input.departmentId
 
-  const where: CompletionReportWhere = {}
+  const where: CompletionReportWhere = { deletedAt: null }
   if (Object.keys(task).length > 0) where.task = task
   if (input.staffId) where.staffId = input.staffId
 

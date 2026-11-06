@@ -1889,6 +1889,24 @@ aren't flagged retroactively. Surfaced on the dashboard as "MISSED — LAST 7 DA
 
 `TaskCompletion.scheduledDate` is the **calendar date** the task was for (not when it was submitted), allowing completion tracking across timezones.
 
+### Undoing a task completion (#87, built 2026-11)
+
+A completion is a **shared** row (`taskId + scheduledDate`, any worker). `TaskCompletion`
+now carries `deletedAt`, `undoneById`, `undoneAt` (nullable) so an accidental tick can
+be retracted without losing the audit row. `DELETE /api/worker/tasks/[id]/complete`
+soft-deletes **today's** active completion, records who undid it, resolves an open
+`UNTRAINED` follow-up for that task/staff/day and re-runs `reconcileSectionWork`
+(best-effort). Any authenticated worker in the venue may undo, mirroring "anyone can
+complete". Historical retraction is out of scope.
+
+Every live `TaskCompletion` read filters `deletedAt: null` — worker list/rollover/subtasks,
+the complete route's duplicate check, dashboard, review, overdue, reports
+(`lib/report-filters.ts`), compliance summary, `followups`, and pathway progress. The
+worker payload gains `canUndo: true` for today's active completion. `/w/tasks` keeps
+**settled tasks inside their list at the bottom** (outcome badge + `UNTICK` for DONE /
+`REOPEN` for non-DONE) instead of separate global COMPLETED/HANDLED sections; an all-done
+day shows a banner above the list, never a full-page replacement.
+
 ### Shared floor task list (worker view)
 The worker task view (`/w/tasks`, `WorkerTasksClient`) shows the **whole
 department's** due tasks for the day (the assignee filter was removed — everyone
@@ -3160,7 +3178,7 @@ pushing, run `scripts/agent/check.ps1`.
 | `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |
 | `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (19 tests) |
-| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, handled section, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, subtask grouping/ADD SUBTASK, dual early-return paths | ✅ (27 tests) |
+| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, settled tasks kept in-list with UNTICK/REOPEN, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, subtask grouping/ADD SUBTASK, dual early-return paths | ✅ (28 tests) |
 | `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, subtask indent/add/parent picker, scroll restore after load, linked item + rich description | ✅ (14 tests) |
 | `MenuItemsClient.test.tsx` — recipe-less product listed and saved with `recipeId: null` | ✅ (1 test) |
 | `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard | ✅ (2 tests) |
@@ -3207,7 +3225,7 @@ pushing, run `scripts/agent/check.ps1`.
 | `app/api/admin/availability/route.test.ts` — GET includes the off-range edit request's current row; POST returns the locked-day 409 | ✅ (2 tests) |
 | `app/api/worker/availability/series-request/route.test.ts` — auth, required date/series, request delegation, 404/409 passthrough | ✅ (5 tests) |
 | `app/api/worker/availability/route.test.ts` — auth, past-anchor 400, FROM + worker scope policy passthrough | ✅ (3 tests) |
-| `app/api/worker/tasks/[id]/complete/route.test.ts` — completion responds without waiting for the best-effort follow-ups | ✅ (1 test) |
+| `app/api/worker/tasks/[id]/complete/route.test.ts` — completion responds without waiting for the best-effort follow-ups; retracted rows are ignored; DELETE soft-deletes, records the undo and resolves UNTRAINED; venue rejection | ✅ (5 tests) |
 | `app/api/admin/tasks/[id]/route.test.ts` — GET parent/children + linked item, parent validation 400s, linked-item validation/sanitisation, DELETE unparents children | ✅ (8 tests) |
 | `app/api/admin/tasks/item-options/route.test.ts` — auth, grant, manager venue scope, active/non-deleted items | ✅ (4 tests) |
 | `app/api/admin/menu-items/route.test.ts` — null recipe, cross-venue recipe, recipe-derived allergens | ✅ (3 tests) |

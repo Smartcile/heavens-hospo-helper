@@ -53,6 +53,7 @@ export async function GET(req: NextRequest) {
     where: {
       taskId: { in: tasks.map((t) => t.id) },
       scheduledDate: { gte: earliest },
+      deletedAt: null,
     },
     select: { taskId: true, scheduledDate: true, outcome: true },
   })

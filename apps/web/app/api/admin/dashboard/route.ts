@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
   const completions =
     allTaskIds.length > 0
       ? await prisma.taskCompletion.findMany({
-          where: { taskId: { in: allTaskIds }, scheduledDate: { in: distinctDates } },
+          where: { taskId: { in: allTaskIds }, scheduledDate: { in: distinctDates }, deletedAt: null },
           select: { taskId: true, scheduledDate: true, outcome: true },
         })
       : []
@@ -93,6 +93,7 @@ export async function GET(req: NextRequest) {
 
   const recentCompletions = await prisma.taskCompletion.findMany({
     where: {
+      deletedAt: null,
       task: {
         venueId: session.user.role === 'MANAGER' ? session.user.venueId : undefined,
       },

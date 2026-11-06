@@ -123,6 +123,7 @@ export async function generateVenueFollowUps(venueId: string): Promise<number> {
       where: {
         taskId: { in: taskIds },
         scheduledDate: { in: dates },
+        deletedAt: null,
         // DONE is completed; NOT_REQUIRED is deliberately handled. DID_NOT_COMPLETE
         // stays a candidate for a MISSED follow-up.
         outcome: { in: ['DONE', 'NOT_REQUIRED'] },

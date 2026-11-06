@@ -169,6 +169,8 @@ export interface WorkerTaskView {
   isDone: boolean
   /** True when a terminal outcome (DONE / NOT_REQUIRED / DID_NOT_COMPLETE) settled the day. */
   isSettled: boolean
+  /** True when today's shared completion can be retracted by a worker. */
+  canUndo: boolean
   /** The recorded terminal outcome, if any. */
   outcome: string | null
   /** Outcomes the worker is allowed to pick for this task (always contains DONE). */
