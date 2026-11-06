@@ -3125,6 +3125,8 @@ pushing, run `scripts/agent/check.ps1`.
 | `lib/guide-pdf.ts` / `guide-types.ts` / `guide-folders.ts` / `guides.server.ts` / `guide-media.ts` | ✅ (13 + 4 + 7 + 3 + 6) |
 | `lib/reference-table.ts` — derived MENU_FIELD columns + sanitisation | ✅ (19 tests) |
 | `lib/rich-text.ts` — `sanitiseRichText` allowlist | ✅ (13 tests) |
+| `lib/item-location.ts` — storage-location / linked-item formatting | ✅ (8 tests) |
+| `lib/menu-item-allergens.ts` — recipe-derived allergens | ✅ (3 tests) |
 | `lib/room-setup.ts` — room label, pax/style, photo URL sanitising, input normalisation | ✅ (9 tests) |
 | `lib/checklist-activation.ts` — venue-local date activation, custom schedules, event windows (timed/all-day/multi-day/closed), next-open labels | ✅ (24 tests) |
 | `lib/task-outcomes.ts` — outcome hierarchy, DONE-always, reason validation, open-list policy | ✅ (12 tests) |
@@ -3159,7 +3161,8 @@ pushing, run `scripts/agent/check.ps1`.
 | `CalendarClient.tsx` — 22 useState | ✅ |
 | `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (19 tests) |
 | `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, handled section, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, subtask grouping/ADD SUBTASK, dual early-return paths | ✅ (27 tests) |
-| `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, subtask indent/add/parent picker, scroll restore after load | ✅ (12 tests) |
+| `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, subtask indent/add/parent picker, scroll restore after load, linked item + rich description | ✅ (14 tests) |
+| `MenuItemsClient.test.tsx` — recipe-less product listed and saved with `recipeId: null` | ✅ (1 test) |
 | `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard | ✅ (2 tests) |
 | `ReportsClient.tsx` — OUTCOME badge distinguishes non-DONE rows | ✅ (1 test) |
 | `WorkerSessionGuard.tsx` — idle logout/redirect, activity refresh, refresh throttle, iframe activity relay | ✅ (6 tests) |
@@ -3205,7 +3208,10 @@ pushing, run `scripts/agent/check.ps1`.
 | `app/api/worker/availability/series-request/route.test.ts` — auth, required date/series, request delegation, 404/409 passthrough | ✅ (5 tests) |
 | `app/api/worker/availability/route.test.ts` — auth, past-anchor 400, FROM + worker scope policy passthrough | ✅ (3 tests) |
 | `app/api/worker/tasks/[id]/complete/route.test.ts` — completion responds without waiting for the best-effort follow-ups | ✅ (1 test) |
-| `app/api/admin/tasks/[id]/route.test.ts` — GET parent/children, parent validation 400s, DELETE unparents children | ✅ (6 tests) |
+| `app/api/admin/tasks/[id]/route.test.ts` — GET parent/children + linked item, parent validation 400s, linked-item validation/sanitisation, DELETE unparents children | ✅ (8 tests) |
+| `app/api/admin/tasks/item-options/route.test.ts` — auth, grant, manager venue scope, active/non-deleted items | ✅ (4 tests) |
+| `app/api/admin/menu-items/route.test.ts` — null recipe, cross-venue recipe, recipe-derived allergens | ✅ (3 tests) |
+| `app/api/admin/recipes/route.test.ts` — a recipe save never writes a MenuItem | ✅ (1 test) |
 | `app/api/admin/swiftpos/staff/route.test.ts` — LINK sets the PIN from the clerk id, keeps an existing PIN, and links without a PIN on a clash | ✅ (3 tests) |
 
 ## PRE-COMMIT CHECKLIST

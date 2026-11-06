@@ -1,11 +1,11 @@
 /**
- * Checks if docs (AGENTS.md, ROADMAP.md) were updated on this branch.
+ * Checks if the docs were updated on this branch.
  * Run: node scripts/check-docs.mjs
  */
 import { execSync, execFileSync } from 'child_process'
 import { readFileSync } from 'fs'
 
-const DOCS = ['AGENTS.md', 'ROADMAP.md', 'README.md']
+const DOCS = ['AGENTS.md', 'README.md', 'NAVIGATION.md', 'MENUS.md', 'WORKFLOW.md']
 const HEAD = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim()
 const BRANCH = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim()
 
@@ -39,7 +39,7 @@ const log = execFileSync(
   [
     'log', '--oneline', '--no-decorate',
     `${lastDocCommit ? lastDocCommit.split(' ')[0] : '--all'}..HEAD`,
-    '--', '.', ':!AGENTS.md', ':!ROADMAP.md', ':!README.md',
+    '--', '.', ':!AGENTS.md', ':!README.md', ':!NAVIGATION.md', ':!MENUS.md', ':!WORKFLOW.md',
   ],
   { encoding: 'utf8' }
 )
