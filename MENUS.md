@@ -530,7 +530,7 @@ choice count, etc.) is **skipped and reported** in the summary warnings.
 No WooCommerce writes (`wooProductId` stays null and the route never calls
 `pushProduct`), no recipes, no stock drawdown, no dietary writes. Options are
 price-only (no per-choice recipe/inventory links yet). New products surface
-under Recipes → **IMPORT PRODUCTS** so a recipe/serve can be attached later.
+under **INVENTORY → MENU ITEMS** so a recipe/serve can be attached later.
 Prices are GST-inclusive NZD. Re-importing the same answer produces 0 created
 products, 0 new lines and 0 new option rows; counts only move when the edited
 preview re-files/reorders a line or genuinely adds a missing option.

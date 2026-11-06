@@ -8,11 +8,18 @@ import { Modal } from '@/components/ui/Modal'
 import { AllergenPicker } from '@/components/ui/AllergenPicker'
 import { MenuItemServesEditor } from '@/components/admin/MenuItemServesEditor'
 import { MenuItemDetailsModal } from '@/components/admin/MenuItemDetailsModal'
+import { getActiveVenueId } from '@/lib/active-venue'
+import type { AllergenSource } from '@/lib/allergens'
+
+interface Variation { name: string; price: number | string }
 
 interface MenuItem {
   id: string; name: string; recipeId: string | null; price: number
   imageUrl: string | null; shortDescription: string | null; description: string | null; isActive: boolean
   dietaryInfo: string | null
+  isVariable?: boolean
+  variations?: Variation[] | null
+  recipeAllergens?: AllergenSource[]
   recipe?: { id: string; name: string }
   sharedFromVenueName?: string
   sharedFromVenueId?: string
@@ -22,7 +29,17 @@ interface MenuItem {
 
 interface RecipeBrief { id: string; name: string }
 
-export function MenuItemsClient() {
+export function MenuItemsClient({
+  role = 'ADMIN',
+  sessionVenueId = '',
+  defaultVenueId,
+}: {
+  role?: string
+  sessionVenueId?: string
+  defaultVenueId?: string | null
+} = {}) {
+  const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
+  const venueParam = venueId ? `?venueId=${encodeURIComponent(venueId)}` : ''
   const [items, setItems] = useState<MenuItem[]>([])
   const [recipes, setRecipes] = useState<RecipeBrief[]>([])
   const [loading, setLoading] = useState(true)
@@ -41,6 +58,9 @@ export function MenuItemsClient() {
   const imageFileRef = useRef<HTMLInputElement | null>(null)
   const [formShortDescription, setFormShortDescription] = useState('')
   const [formDietaryInfo, setFormDietaryInfo] = useState('')
+  const [formInherited, setFormInherited] = useState<AllergenSource[]>([])
+  const [formIsVariable, setFormIsVariable] = useState(false)
+  const [formVariations, setFormVariations] = useState<Variation[]>([])
   const [previewImage, setPreviewImage] = useState<string | null>(null)
   const [servesOpen, setServesOpen] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
@@ -48,6 +68,7 @@ export function MenuItemsClient() {
   function resetForm() {
     setFormName(''); setFormRecipeId(''); setFormPrice('0')
     setFormDescription(''); setFormShortDescription(''); setFormDietaryInfo('')
+    setFormInherited([]); setFormIsVariable(false); setFormVariations([])
     setFormSharedPriceOverride(''); setSelectedIsShared(false); setFormImageUrl(null)
     setServesOpen(false); setDetailsOpen(false)
   }
@@ -57,9 +78,24 @@ export function MenuItemsClient() {
     setFormPrice(String(m.sharedPriceOverride ?? m.price))
     setFormDescription(m.description ?? ''); setFormShortDescription(m.shortDescription ?? '')
     setFormDietaryInfo(m.dietaryInfo ?? '')
+    setFormInherited(m.recipeAllergens ?? [])
+    setFormIsVariable(!!m.isVariable)
+    setFormVariations(Array.isArray(m.variations) ? m.variations : [])
     setFormSharedPriceOverride(m.sharedPriceOverride != null ? String(m.sharedPriceOverride) : '')
     setSelectedIsShared(!!m.sharedFromVenueId)
     setFormImageUrl(m.imageUrl ?? null)
+  }
+
+  function addVariation() {
+    setFormVariations((prev) => [...prev, { name: '', price: '' }])
+  }
+
+  function updateVariation(index: number, key: 'name' | 'price', value: string) {
+    setFormVariations((prev) => prev.map((v, i) => (i === index ? { ...v, [key]: value } : v)))
+  }
+
+  function removeVariation(index: number) {
+    setFormVariations((prev) => prev.filter((_, i) => i !== index))
   }
 
   async function uploadImage(file: File) {
@@ -77,8 +113,8 @@ export function MenuItemsClient() {
   async function load() {
     setLoading(true)
     const [mRes, rRes] = await Promise.all([
-      fetch('/api/admin/menu-items'),
-      fetch('/api/admin/recipes'),
+      fetch(`/api/admin/menu-items${venueParam}`),
+      fetch(`/api/admin/recipes${venueParam}`),
     ])
     if (mRes.ok) setItems(await mRes.json())
     if (rRes.ok) {
@@ -88,7 +124,7 @@ export function MenuItemsClient() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [venueId])
 
   useEffect(() => {
     if (selectedId && !isCreating) {
@@ -122,6 +158,9 @@ export function MenuItemsClient() {
       shortDescription: formShortDescription || null,
       description: formDescription || null,
       dietaryInfo: formDietaryInfo || null,
+      isVariable: formIsVariable,
+      variations: formVariations.length > 0 ? formVariations : null,
+      ...(venueId ? { venueId } : {}),
     }
     if (isCreating) {
       const r = await fetch('/api/admin/menu-items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -214,7 +253,39 @@ export function MenuItemsClient() {
                     label="ALLERGENS"
                     value={formDietaryInfo}
                     onChange={setFormDietaryInfo}
+                    inherited={formInherited}
                   />
+                )}
+
+                {!selectedIsShared && (
+                  <div className="border border-grey-mid p-3 space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={formIsVariable} onChange={(e) => { setFormIsVariable(e.target.checked); if (!e.target.checked) setFormVariations([]) }}
+                        className="bg-black border border-grey-mid accent-white" />
+                      <span className="font-mono text-xs uppercase text-white">VARIABLE PRODUCT (SIZES)</span>
+                    </label>
+                    {formIsVariable && (
+                      <div className="space-y-2">
+                        {formVariations.map((v, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <input value={v.name} onChange={(e) => updateVariation(i, 'name', e.target.value.toUpperCase())}
+                              placeholder="e.g. SMALL"
+                              className="w-32 bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light" />
+                            <span className="font-mono text-xs text-grey-light">$</span>
+                            <input type="number" step="0.01" value={v.price} onChange={(e) => updateVariation(i, 'price', e.target.value)}
+                              placeholder="0.00"
+                              className="w-24 bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light text-right" />
+                            <button type="button" onClick={() => removeVariation(i)}
+                              className="text-grey-light hover:text-danger font-mono text-xs">X</button>
+                          </div>
+                        ))}
+                        <button type="button" onClick={addVariation}
+                          className="font-mono text-xs uppercase text-info hover:text-white">
+                          + ADD SIZE
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {!selectedIsShared && (
@@ -289,11 +360,11 @@ export function MenuItemsClient() {
 
       {servesOpen && selectedId && (
         <Modal isOpen onClose={() => setServesOpen(false)} title={`ITEM LINKS — ${formName}`} size="lg">
-          <MenuItemServesEditor menuItemId={selectedId} menuItemName={formName} venueId="" onSaved={load} />
+          <MenuItemServesEditor menuItemId={selectedId} menuItemName={formName} venueId={venueId} onSaved={load} />
         </Modal>
       )}
       {detailsOpen && selectedId && (
-        <MenuItemDetailsModal menuItemId={selectedId} menuItemName={formName} onClose={() => setDetailsOpen(false)} onSaved={load} />
+        <MenuItemDetailsModal menuItemId={selectedId} menuItemName={formName} venueId={venueId} onClose={() => setDetailsOpen(false)} onSaved={load} />
       )}
 
       <Modal isOpen={previewImage != null} onClose={() => setPreviewImage(null)} title="" size="lg">

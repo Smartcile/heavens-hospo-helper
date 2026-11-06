@@ -2681,7 +2681,8 @@ never duplicate on re-import). It never writes `dietaryInfo`, never calls
 `pushProduct` (`wooProductId` stays null) and returns a summary
 (`created / matched / linesAdded / linesUpdated / skipped / optionGroupsAdded /
 optionChoicesAdded / optionsSkipped / warnings`). New products are `recipeId:
-null` and appear in Recipes → IMPORT PRODUCTS for later recipe/stock setup.
+null` and appear in **INVENTORY → MENU ITEMS**, where a recipe can be attached
+or a serve/stock drawdown added later.
 The demo seed also creates `FISH & CHIPS` with a required `SIDE` option group
 (`FRIES / SALAD / FRIES + SALAD +$3.00`) using fixed `00da…` demo UUIDs.
 

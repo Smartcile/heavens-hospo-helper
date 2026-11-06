@@ -9,7 +9,6 @@ import { ListBox, ListRow } from '@/components/ui/ListBox'
 import { Modal } from '@/components/ui/Modal'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { convertLine, convertQty, resolveItemKind, uomsForItem } from '@/lib/unit-convert'
-import { missingProductFields } from '@/lib/recipe-import'
 
 interface Recipe {
   id: string; name: string; yieldQty: number; yieldUnitId: string; instructions: string | null
@@ -37,10 +36,6 @@ interface RecipeBrief { id: string; name: string }
 interface PantryRef { id: string; name: string; densityGramsPerMl: number | null; weightPerUnitGrams: number | null; notes: string | null }
 interface Variation { name: string; price: number; wooVariationId?: number }
 
-interface OrphanMenuItem {
-  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: Variation[] | null; dietaryInfo: string | null; swiftPosId?: string | null; tastingNotes?: string | null; vintage?: string | null; howToServe?: string | null
-}
-
   function generateId() { return crypto.randomUUID() }
 
 /** Units valid for an inventory item — its own kind plus any density/weight
@@ -59,14 +54,11 @@ function uomOptionsFor(uoms: Uom[], inv?: InvItem) {
 export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
   const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
   const [recipes, setRecipes] = useState<Recipe[]>([])
-  const [orphanItems, setOrphanItems] = useState<OrphanMenuItem[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [recipeSearch, setRecipeSearch] = useState('')
-  const [importOpen, setImportOpen] = useState(false)
-  const [importSearch, setImportSearch] = useState('')
 
   const [formName, setFormName] = useState('')
   const [formYieldQty, setFormYieldQty] = useState('1')
@@ -208,32 +200,13 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
     }
   }
 
-  function populateOrphan(o: OrphanMenuItem) {
-    setIsCreating(true); setSelectedId(null)
-    setFormName(o.name); setFormYieldQty('1'); setFormYieldUnitId('')
-    setFormInstructions(''); setFormPrepTime(''); setLineItems([])
-    setLinkToMenu(true); setFormPrice(String(o.price))
-    setFormDietaryInfo(o.dietaryInfo ? o.dietaryInfo.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
-    setFormImageUrl(o.imageUrl ?? null)
-    setFormShortDescription(o.shortDescription ?? '')
-    setFormTastingNotes(o.tastingNotes ?? '')
-    setFormVintage(o.vintage ?? '')
-    setFormHowToServe(o.howToServe ?? '')
-    setFormIsVariable(o.isVariable ?? false)
-    setFormVariations(o.variations ?? [])
-    setFormExistingMenuItemId(o.id)
-    setFormMenuItemId(o.id)
-    setFormSwiftPosId(o.swiftPosId ?? '')
-  }
-
   async function load() {
     setLoading(true)
     const venueParam = venueId ? `?venueId=${venueId}` : ''
-    const [rRes, uRes, iRes, mRes, cRes, pRes] = await Promise.all([
+    const [rRes, uRes, iRes, cRes, pRes] = await Promise.all([
       fetch(`/api/admin/recipes${venueParam}`),
       fetch(`/api/admin/uoms${venueParam}`),
       fetch(`/api/admin/inventory${venueParam}`),
-      fetch(`/api/admin/menu-items${venueParam}`),
       fetch(`/api/admin/inventory/categories${venueParam}`),
       fetch(`/api/admin/ingredient-references${venueParam}`),
     ])
@@ -249,13 +222,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
     if (iRes.ok) {
       const data = await iRes.json()
       setInventoryItems(Array.isArray(data) ? data : [])
-    }
-    if (mRes.ok) {
-      const items = await mRes.json()
-      const arr = Array.isArray(items) ? items : []
-      // Filter: menu items whose recipe is null (no recipe linked)
-      const orphaned = arr.filter((m: any) => !m.recipe || !m.recipeId)
-      setOrphanItems(orphaned)
     }
     if (cRes.ok) {
       const data = await cRes.json()
@@ -385,7 +351,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   })()
 
   const filteredRecipes = recipes.filter(r => !recipeSearch || r.name.includes(recipeSearch))
-  const importList = orphanItems.filter(o => !importSearch || o.name.includes(importSearch))
 
   if (loading) {
     return <div className="flex items-center justify-center h-64"><p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p></div>
@@ -416,7 +381,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                       <span className="block truncate flex-1 font-mono text-xs uppercase text-white">{r.name}</span>
                     </div>
                     <span className="block text-xs text-grey-light">
-                      v{r.version} · {r.yieldQty} {r.yieldUnit?.name ?? ''}{r.menuItem ? ` · $${r.menuItem.price.toFixed(2)}` : ''}
+                      v{r.version} · {r.yieldQty} {r.yieldUnit?.name ?? ''}
                     </span>
                   </div>
                 </ListRow>
@@ -637,48 +602,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
         </div>
       </Modal>
 
-      <Modal isOpen={importOpen} onClose={() => setImportOpen(false)} title={`IMPORT PRODUCTS (${orphanItems.length})`} size="lg">
-        <div className="space-y-3">
-          <p className="font-mono text-xs text-grey-light uppercase">
-            PRODUCTS WITH NO RECIPE YET. PICK ONE TO BUILD ITS RECIPE — MISSING FIELDS ARE FLAGGED IN RED.
-          </p>
-          <Input value={importSearch} onChange={(e) => setImportSearch(e.target.value.toUpperCase())} placeholder="SEARCH PRODUCTS..." />
-          <div className="divide-y divide-grey-mid border border-grey-mid max-h-[55vh] overflow-y-auto">
-            {importList.length === 0 ? (
-              <p className="font-mono text-xs text-grey-light px-3 py-2">NO MATCHING PRODUCTS.</p>
-            ) : (
-              importList.map((o) => {
-                const gaps = missingProductFields(o)
-                return (
-                  <button
-                    key={o.id}
-                    onClick={() => { populateOrphan(o); setImportOpen(false) }}
-                    className="w-full text-left px-3 py-2.5 hover:bg-black/40 transition-colors"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-xs uppercase text-gold truncate">{o.name}</span>
-                      <span className="font-mono text-xs text-grey-light shrink-0">
-                        ${o.price.toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      {gaps.length === 0 ? (
-                        <span className="font-mono text-xs uppercase border border-success/60 text-success px-1.5 py-0.5">READY — FIELDS COMPLETE</span>
-                      ) : (
-                        gaps.map((g) => (
-                          <span key={g.key} className="font-mono text-xs uppercase border border-danger/60 text-danger px-1.5 py-0.5">
-                            {g.label} NEEDED
-                          </span>
-                        ))
-                      )}
-                    </div>
-                  </button>
-                )
-              })
-            )}
-          </div>
-        </div>
-      </Modal>
     </div>
   )
 }
