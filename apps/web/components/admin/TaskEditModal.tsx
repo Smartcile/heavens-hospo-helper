@@ -214,7 +214,7 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
           </div>
           <div className="grid grid-cols-2 gap-3">
             {role === 'ADMIN' && (
-              <Select label="Venue" value={task.venueId} onChange={(e) => { const v = e.target.value; patch({ venueId: v, departmentId: '', sectionId: '' }); void loadItems(v) }} options={venueOptions} placeholder="SELECT VENUE" />
+              <Select label="Venue" value={task.venueId} onChange={(e) => { const v = e.target.value; patch({ venueId: v, departmentId: '', sectionId: '', linkedItemId: '', linkedItem: null }); void loadItems(v) }} options={venueOptions} placeholder="SELECT VENUE" />
             )}
             <Select label="Department" value={task.departmentId ?? ''} onChange={(e) => patch({ departmentId: e.target.value, sectionId: '' })} options={deptOptions} />
           </div>

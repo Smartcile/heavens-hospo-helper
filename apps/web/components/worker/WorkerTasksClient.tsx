@@ -1926,7 +1926,7 @@ export function WorkerTasksClient({
               </Panel>
 
               <Combobox
-                options={editTasks.filter(et => !clSelected.includes(et.id)).map(et => ({ value: et.id, label: et.title, description: et.description }))}
+                options={editTasks.filter(et => !clSelected.includes(et.id)).map(et => ({ value: et.id, label: et.title, description: richTextToPlainText(et.description) }))}
                 selected={clSelected}
                 onChange={(ids) => setClSelected(ids)}
                 placeholder="+ ADD A TASK..."

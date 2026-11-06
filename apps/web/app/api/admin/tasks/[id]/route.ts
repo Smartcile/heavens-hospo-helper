@@ -65,7 +65,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   const existing = await prisma.task.findUnique({
     where: { id: params.id },
-    select: { id: true, venueId: true, parentTaskId: true },
+    select: { id: true, venueId: true, parentTaskId: true, linkedItemId: true },
   })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -133,7 +133,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.status !== undefined) updates.status = body.status
   if (body.hsCategory !== undefined) updates.hsCategory = body.hsCategory ?? null
   if (body.linkedItemId !== undefined) {
-    const itemError = await linkedItemError(existing.venueId, body.linkedItemId)
+    const itemError = await linkedItemError(existing.venueId, body.linkedItemId, existing.linkedItemId)
     if (itemError) return NextResponse.json({ error: itemError }, { status: 400 })
     updates.linkedItemId = body.linkedItemId || null
   }

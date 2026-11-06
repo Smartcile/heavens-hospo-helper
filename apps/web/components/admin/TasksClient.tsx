@@ -933,7 +933,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 <Combobox
                   options={tasks
                     .filter((t) => t.venueId === clVenueId && (clSectionId ? t.sectionId === clSectionId : clDeptId ? t.departmentId === clDeptId : true))
-                    .map((t) => ({ value: t.id, label: t.title, description: t.description }))}
+                    .map((t) => ({ value: t.id, label: t.title, description: richTextToPlainText(t.description) }))}
                   selected={clSelected}
                   onChange={(ids) => setClSelected(ids)}
                   placeholder="+ ADD A TASK..."
@@ -1040,13 +1040,13 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
             />
             {form.linkedItemId && (
               <p className="font-mono text-xs uppercase text-grey-light">
-                {describeLinkedItem(items.find((i) => i.id === form.linkedItemId)) || 'ITEM REMOVED'}
+                {describeLinkedItem(items.find((i) => i.id === form.linkedItemId) ?? editing?.linkedItem) || 'ITEM REMOVED'}
               </p>
             )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             {(role === 'ADMIN' || !editing) && (
-              <Select label="Venue" value={form.venueId} onChange={(e) => { const v = e.target.value; setForm({ ...form, venueId: v, departmentId: '', sectionId: '', assignedToStaffId: '', checklistIds: [] }); void loadAssignees(v); void loadItems(v) }} options={venueOptions} placeholder="SELECT VENUE" />
+              <Select label="Venue" value={form.venueId} onChange={(e) => { const v = e.target.value; setForm({ ...form, venueId: v, departmentId: '', sectionId: '', assignedToStaffId: '', checklistIds: [], linkedItemId: '' }); void loadAssignees(v); void loadItems(v) }} options={venueOptions} placeholder="SELECT VENUE" />
             )}
             <Select label="Department" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value, sectionId: '' })} options={formDeptOptions} />
           </div>

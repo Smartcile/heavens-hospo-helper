@@ -5,6 +5,7 @@ import { getActiveVenueId } from '@/lib/active-venue'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { RichTextEditor } from '@/components/ui/RichTextEditor'
+import { describeLinkedItem } from '@/lib/item-location'
 import { Select } from '@/components/ui/Select'
 import {
   describeBand,
@@ -510,7 +511,7 @@ export function ComplianceTasksClient({ role, sessionVenueId, defaultVenueId }: 
                             )}
                           </div>
                           <div className="font-mono text-xs text-grey-light truncate">
-                            {t.linkedItem ? `LINKED: ${t.linkedItem.name}` : t.department?.name ?? 'NO DEPARTMENT'}
+                            {t.linkedItem ? `LINKED: ${describeLinkedItem(t.linkedItem)}` : t.department?.name ?? 'NO DEPARTMENT'}
                           </div>
                         </td>
                         <td className="px-3 py-2 font-mono text-xs text-grey-light">
@@ -586,7 +587,7 @@ export function ComplianceTasksClient({ role, sessionVenueId, defaultVenueId }: 
                   <span className="font-mono text-xs text-grey-light shrink-0">{t.hsCategory ?? 'GENERAL'}</span>
                 </div>
                 <div className="font-mono text-xs text-grey-light">
-                  {t.linkedItem ? `LINKED: ${t.linkedItem.name}` : t.department?.name ?? 'NO DEPARTMENT'} · {describeSchedule(t)}
+                  {t.linkedItem ? `LINKED: ${describeLinkedItem(t.linkedItem)}` : t.department?.name ?? 'NO DEPARTMENT'} · {describeSchedule(t)}
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   {t.completionType === 'READING' && badge.total > 0 ? (

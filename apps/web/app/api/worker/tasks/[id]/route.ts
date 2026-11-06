@@ -65,7 +65,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       }
     }
   }
-  const itemError = await linkedItemError(existing.venueId, linkedItemId)
+  const itemError = await linkedItemError(existing.venueId, linkedItemId, existing.linkedItemId)
   if (itemError) return NextResponse.json({ error: itemError }, { status: 400 })
 
   let resolvedDeptId = departmentId !== undefined ? (departmentId || null) : undefined
