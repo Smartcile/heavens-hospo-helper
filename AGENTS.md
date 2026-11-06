@@ -2717,6 +2717,24 @@ or a serve/stock drawdown added later.
 The demo seed also creates `FISH & CHIPS` with a required `SIDE` option group
 (`FRIES / SALAD / FRIES + SALAD +$3.00`) using fixed `00da…` demo UUIDs.
 
+**Shared import framework (#89 phase 1, built 2026-11).** A generic
+copy-paste-LLM → preview → commit path lives in `lib/import/` and is intended
+for products, recipes, tasks and guides (only MENU_ITEM is wired so far).
+`types.ts` defines the row/action/match contract (`CREATE | UPDATE | REVIVE |
+SKIP`, `NEW | MATCH | AMBIGUOUS | DUPLICATE_IN_FILE | SIMILAR`);
+`similarity.ts` normalises names and flags near-copies via token Jaccard +
+Levenshtein; `framework.ts` owns include/action toggles and summaries;
+`menu-item.ts` reuses `parseMenuImportAnswer` (a flat `{ products: [...] }`
+answer is wrapped into the existing menu shape), flattens the result and
+matches it against existing products. `ImportModal` is the shared three-step UI
+(prompt copy/download, paste or load a `.md`/`.json` file, then an editable
+preview with a per-row action). `GET/POST /api/admin/import/menu-items`
+(guards `ops.menus.view` / `ops.menus.create`, MANAGER venue-locked) lists
+existing products and applies the selected rows: CREATE makes a local
+`recipeId: null` product (sizes → `variations`), UPDATE/REVIVE patch the
+target by id, and options are additive by name. Nothing is deleted and nothing
+is pushed to Woo. Re-importing the same answer skips existing names.
+
 **COGS** — `lib/menu-cogs.ts` (8 tests, pure): `costPrice` is per ONE stock
 `unit`; `costExploded` converts to grams via the density bridge;
 `lib/menu-cogs.server.ts` `cogsForMenuItems(ids)` is lazy + batched, and marks
@@ -3139,6 +3157,7 @@ pushing, run `scripts/agent/check.ps1`.
 | `lib/unit-convert.ts` — grams canonicalisation + UOM kind helpers | ✅ (37 tests) |
 | `lib/ingredient`/`llm-prompt.ts` — density prompt build/parse | ✅ (8 tests) |
 | `lib/menu-cogs.ts` / `menu-lines.ts` / `menu-serves.ts` / `menu-sync.ts` | ✅ (8 + 9 + 10 + 9) |
+| `lib/import/similarity.ts` / `menu-item.ts` — normalisation, Jaccard/Levenshtein, near-copy match, flat-product parse, CREATE/UPDATE/SKIP defaults | ✅ (12 tests) |
 | `lib/gift-card-numbers.ts` / `gift-card-template.ts` / `gift-card-history.ts` / `gift-cards-woo.ts` / `gift-cards.ts` | ✅ (10 + 16 + 3 + 8 + 9) |
 | `lib/guide-pdf.ts` / `guide-types.ts` / `guide-folders.ts` / `guides.server.ts` / `guide-media.ts` | ✅ (13 + 4 + 7 + 3 + 6) |
 | `lib/reference-table.ts` — derived MENU_FIELD columns + sanitisation | ✅ (19 tests) |
