@@ -64,7 +64,14 @@ export async function GET(req: NextRequest) {
       wooProductId: s.menuItem.wooProductId,
       wooCategoryId: s.menuItem.wooCategoryId,
       imageUrl: s.menuItem.imageUrl,
+      shortDescription: s.menuItem.shortDescription,
       description: s.menuItem.description,
+      dietaryInfo: s.menuItem.dietaryInfo,
+      swiftPosId: s.menuItem.swiftPosId,
+      tastingNotes: s.menuItem.tastingNotes,
+      vintage: s.menuItem.vintage,
+      howToServe: s.menuItem.howToServe,
+      optionGroups: s.menuItem.optionGroups,
       isActive: s.menuItem.isActive,
       recipe: s.menuItem.recipe,
       sharedFromVenueId: s.menuItem.venueId,
@@ -82,12 +89,17 @@ export async function POST(req: NextRequest) {
   const denied = await guardAccess(session, req, 'ops.menus.create')
   if (denied) return denied
 
-  const { name, recipeId, price, wooProductId: providedWooProductId, wooCategoryId, imageUrl, shortDescription, description, sharedVenueIds, venueId: bodyVenueId } = await req.json()
-  if (!name?.trim() || !recipeId) {
-    return NextResponse.json({ error: 'name and recipeId are required' }, { status: 400 })
+  const { name, recipeId, price, wooProductId: providedWooProductId, wooCategoryId, imageUrl, shortDescription, description, dietaryInfo, sharedVenueIds, venueId: bodyVenueId } = await req.json()
+  if (!name?.trim()) {
+    return NextResponse.json({ error: 'name is required' }, { status: 400 })
   }
 
   const venueId = session.user.role === 'MANAGER' ? session.user.venueId : (bodyVenueId || session.user.venueId)
+
+  if (recipeId) {
+    const recipe = await prisma.recipe.count({ where: { id: recipeId, venueId, deletedAt: null } })
+    if (recipe !== 1) return NextResponse.json({ error: 'RECIPE IS NOT IN THIS VENUE' }, { status: 400 })
+  }
 
   // Auto-generate wooProductId as max existing + 1 when not provided
   let wooProductId = providedWooProductId || null
@@ -107,7 +119,7 @@ export async function POST(req: NextRequest) {
     data: {
       venueId,
       name: name.toUpperCase().trim(),
-      recipeId,
+      recipeId: recipeId || null,
       price: parseFloat(String(price)) || 0,
       wooProductId,
       wooCategoryId: wooCategoryId || null,
@@ -115,6 +127,7 @@ export async function POST(req: NextRequest) {
       shortDescription: shortDescription || null,
       isVariable: false,
       description: description || null,
+      dietaryInfo: dietaryInfo || null,
     },
     include: { recipe: { select: { id: true, name: true } } },
   })

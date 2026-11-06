@@ -5,10 +5,14 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
+import { AllergenPicker } from '@/components/ui/AllergenPicker'
+import { MenuItemServesEditor } from '@/components/admin/MenuItemServesEditor'
+import { MenuItemDetailsModal } from '@/components/admin/MenuItemDetailsModal'
 
 interface MenuItem {
-  id: string; name: string; recipeId: string; price: number
+  id: string; name: string; recipeId: string | null; price: number
   imageUrl: string | null; shortDescription: string | null; description: string | null; isActive: boolean
+  dietaryInfo: string | null
   recipe?: { id: string; name: string }
   sharedFromVenueName?: string
   sharedFromVenueId?: string
@@ -36,18 +40,23 @@ export function MenuItemsClient() {
   const [imageUploading, setImageUploading] = useState(false)
   const imageFileRef = useRef<HTMLInputElement | null>(null)
   const [formShortDescription, setFormShortDescription] = useState('')
+  const [formDietaryInfo, setFormDietaryInfo] = useState('')
   const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [servesOpen, setServesOpen] = useState(false)
+  const [detailsOpen, setDetailsOpen] = useState(false)
 
   function resetForm() {
     setFormName(''); setFormRecipeId(''); setFormPrice('0')
-    setFormDescription(''); setFormShortDescription('')
+    setFormDescription(''); setFormShortDescription(''); setFormDietaryInfo('')
     setFormSharedPriceOverride(''); setSelectedIsShared(false); setFormImageUrl(null)
+    setServesOpen(false); setDetailsOpen(false)
   }
 
   function populateForm(m: MenuItem) {
-    setFormName(m.name); setFormRecipeId(m.recipeId)
+    setFormName(m.name); setFormRecipeId(m.recipeId ?? '')
     setFormPrice(String(m.sharedPriceOverride ?? m.price))
     setFormDescription(m.description ?? ''); setFormShortDescription(m.shortDescription ?? '')
+    setFormDietaryInfo(m.dietaryInfo ?? '')
     setFormSharedPriceOverride(m.sharedPriceOverride != null ? String(m.sharedPriceOverride) : '')
     setSelectedIsShared(!!m.sharedFromVenueId)
     setFormImageUrl(m.imageUrl ?? null)
@@ -89,7 +98,7 @@ export function MenuItemsClient() {
   }, [selectedId])
 
   async function handleSave() {
-    if (!formName.trim() || !formRecipeId) return
+    if (!formName.trim()) return
 
     // For shared items, just update the price override
     if (selectedIsShared && selectedId) {
@@ -107,11 +116,12 @@ export function MenuItemsClient() {
 
     const body = {
       name: formName.trim().toUpperCase(),
-      recipeId: formRecipeId,
+      recipeId: formRecipeId || null,
       price: parseFloat(formPrice) || 0,
       imageUrl: formImageUrl || null,
       shortDescription: formShortDescription || null,
       description: formDescription || null,
+      dietaryInfo: formDietaryInfo || null,
     }
     if (isCreating) {
       const r = await fetch('/api/admin/menu-items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -193,11 +203,19 @@ export function MenuItemsClient() {
                     </div>
                   )}
                   <div className="md:col-span-2">
-                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">ATTACH RECIPE</label>
+                    <label className="font-mono text-xs uppercase text-grey-light block mb-1">ATTACH RECIPE (OPTIONAL)</label>
                     <Select value={formRecipeId} onChange={(e) => setFormRecipeId(e.target.value)} disabled={selectedIsShared}
-                      options={recipes.map((r) => ({ value: r.id, label: r.name }))} placeholder="SELECT RECIPE" />
+                      options={[{ value: '', label: 'NO RECIPE' }, ...recipes.map((r) => ({ value: r.id, label: r.name }))]} placeholder="NO RECIPE" />
                   </div>
                 </div>
+
+                {!selectedIsShared && (
+                  <AllergenPicker
+                    label="ALLERGENS"
+                    value={formDietaryInfo}
+                    onChange={setFormDietaryInfo}
+                  />
+                )}
 
                 {!selectedIsShared && (
                   <div>
@@ -252,9 +270,15 @@ export function MenuItemsClient() {
                   </div>
                 )}
 
-                <div className="border-t border-grey-mid pt-3 flex items-center gap-2">
-                  <Button onClick={handleSave} disabled={!formName.trim() || !formRecipeId}>{selectedIsShared ? 'SAVE OVERRIDE' : 'SAVE'}</Button>
-                  {!isCreating && !selectedIsShared && <Button variant="danger" size="sm" onClick={handleDelete}>DELETE</Button>}
+                <div className="border-t border-grey-mid pt-3 flex items-center gap-2 flex-wrap">
+                  <Button onClick={handleSave} disabled={!formName.trim()}>{selectedIsShared ? 'SAVE OVERRIDE' : 'SAVE'}</Button>
+                  {!isCreating && selectedId && !selectedIsShared && (
+                    <>
+                      <Button variant="ghost" size="sm" onClick={() => setServesOpen(true)}>ITEM LINKS (SERVES)</Button>
+                      <Button variant="ghost" size="sm" onClick={() => setDetailsOpen(true)}>PRODUCT INFO</Button>
+                      <Button variant="danger" size="sm" onClick={handleDelete}>DELETE</Button>
+                    </>
+                  )}
                   <Button variant="ghost" size="sm" onClick={() => { setSelectedId(null); setIsCreating(false); resetForm() }}>CANCEL</Button>
                 </div>
               </>
@@ -262,6 +286,15 @@ export function MenuItemsClient() {
           </div>
         </div>
       </div>
+
+      {servesOpen && selectedId && (
+        <Modal isOpen onClose={() => setServesOpen(false)} title={`ITEM LINKS — ${formName}`} size="lg">
+          <MenuItemServesEditor menuItemId={selectedId} menuItemName={formName} venueId="" onSaved={load} />
+        </Modal>
+      )}
+      {detailsOpen && selectedId && (
+        <MenuItemDetailsModal menuItemId={selectedId} menuItemName={formName} onClose={() => setDetailsOpen(false)} onSaved={load} />
+      )}
 
       <Modal isOpen={previewImage != null} onClose={() => setPreviewImage(null)} title="" size="lg">
         {previewImage && (

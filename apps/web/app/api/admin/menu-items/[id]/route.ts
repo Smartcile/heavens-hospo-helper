@@ -42,10 +42,16 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, recipeId, price, wooProductId, wooCategoryId, imageUrl, shortDescription, isVariable, variations, description, tastingNotes, vintage, howToServe } = await req.json()
+  const { name, recipeId, price, wooProductId, wooCategoryId, imageUrl, shortDescription, isVariable, variations, description, dietaryInfo, tastingNotes, vintage, howToServe } = await req.json()
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = String(name).toUpperCase().trim()
-  if (recipeId !== undefined) data.recipeId = recipeId
+  if (recipeId !== undefined) {
+    if (recipeId) {
+      const recipe = await prisma.recipe.count({ where: { id: recipeId, venueId: item.venueId, deletedAt: null } })
+      if (recipe !== 1) return NextResponse.json({ error: 'RECIPE IS NOT IN THIS VENUE' }, { status: 400 })
+    }
+    data.recipeId = recipeId || null
+  }
   if (price !== undefined) data.price = parseFloat(String(price)) || 0
   if (wooProductId !== undefined) data.wooProductId = wooProductId || null
   if (wooCategoryId !== undefined) data.wooCategoryId = wooCategoryId || null
@@ -54,6 +60,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (isVariable !== undefined) data.isVariable = isVariable
   if (variations !== undefined) data.variations = variations
   if (description !== undefined) data.description = description || null
+  if (dietaryInfo !== undefined) data.dietaryInfo = dietaryInfo || null
   if (tastingNotes !== undefined) data.tastingNotes = tastingNotes || null
   if (vintage !== undefined) data.vintage = vintage ? String(vintage).trim() : null
   if (howToServe !== undefined) data.howToServe = howToServe || null

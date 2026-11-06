@@ -46,7 +46,7 @@ const NAV_GROUPS: NavGroup[] = [
   ] },
   // Every group header deep-links to its first subpage (incl. the default
   // sub-tab where one exists); the ▸/▾ button beside it still collapses.
-  { label: 'Ops hub', href: '/admin/ops?tab=menu&sub=recipes', items: [
+  { label: 'Ops hub', href: '/admin/ops?tab=menu&sub=menus', items: [
     { href: '/admin/ops?tab=menu', label: 'Menu & Services' },
     { href: '/admin/ops?tab=bookings', label: 'Bookings' },
     { href: '/admin/ops?tab=orders', label: 'Orders' },

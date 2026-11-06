@@ -22,7 +22,6 @@ export const OPS_AREAS: TabDef[] = [
 
 export const OPS_SUB_TABS: Record<string, TabDef[]> = {
   menu: [
-    { id: 'recipes', label: 'RECIPES' },
     { id: 'menus', label: 'MENUS & CATEGORIES' },
     { id: 'services', label: 'SERVICES' },
   ],
@@ -41,13 +40,15 @@ export const OPS_SUB_TABS: Record<string, TabDef[]> = {
   ],
   inventory: [
     { id: 'inventory', label: 'INVENTORY' },
+    { id: 'recipes', label: 'RECIPES' },
+    { id: 'menu-items', label: 'MENU ITEMS' },
     { id: 'pantry', label: 'PANTRY BIBLE' },
     { id: 'stocktake', label: 'STOCKTAKE' },
   ],
 }
 
 const OPS_SUB_DEFAULTS: Record<string, string> = {
-  menu: 'recipes',
+  menu: 'menus',
   bookings: 'table',
   orders: 'service',
   inventory: 'inventory',
@@ -58,6 +59,10 @@ export function resolveOps(
   tabParam: string | null | undefined,
   subParam: string | null | undefined,
 ): { area: string; sub?: string } {
+  // Legacy bookmark: recipes moved from MENU & SERVICES to INVENTORY.
+  if (tabParam === 'menu' && subParam === 'recipes') {
+    return { area: 'inventory', sub: 'recipes' }
+  }
   const area = OPS_AREAS.some((a) => a.id === tabParam)
     ? (tabParam as string)
     : OPS_AREAS[0].id

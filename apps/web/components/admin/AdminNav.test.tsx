@@ -80,7 +80,7 @@ describe('AdminNav', () => {
   it('group headers deep-link to their first subpage (with the default sub-tab)', () => {
     renderNav()
     expect(linkHref('Dashboard')).toBe('/admin')
-    expect(linkHref('Ops hub')).toBe('/admin/ops?tab=menu&sub=recipes')
+    expect(linkHref('Ops hub')).toBe('/admin/ops?tab=menu&sub=menus')
     expect(linkHref('Team & execution')).toBe('/admin/team?tab=staff')
     expect(linkHref('Compliance')).toBe('/admin/compliance?tab=tasks')
     expect(linkHref('Performance')).toBe('/admin/reports')
@@ -187,9 +187,9 @@ describe('AdminNav', () => {
         grantedAreas={['bookings']}
       />,
     )
-    // Old behaviour kept /admin/ops?tab=menu&sub=recipes (ungranted).
+    // The header follows the first visible item, never an ungranted page.
     expect(linkHref('Ops hub')).toBe('/admin/ops?tab=bookings')
-    expect(linkHref('Ops hub')).not.toBe('/admin/ops?tab=menu&sub=recipes')
+    expect(linkHref('Ops hub')).not.toBe('/admin/ops?tab=menu&sub=menus')
   })
 
   it('Settings and Overview stay visible with an empty grant set', () => {

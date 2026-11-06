@@ -81,62 +81,8 @@ export async function POST(req: NextRequest) {
       },
       include: { lineItems: true, yieldUnit: { select: { id: true, name: true } } },
     })
-    if (linkToMenu) {
-      // Auto-generate wooProductId as max existing + 1 when not provided
-      let effectiveWooProductId = wooProductId || null
-      if (!effectiveWooProductId) {
-        const max = await tx.menuItem.findFirst({
-          where: { wooProductId: { not: null }, venueId, deletedAt: null },
-          orderBy: { wooProductId: 'desc' },
-          select: { wooProductId: true },
-        })
-        if (max?.wooProductId) {
-          const num = parseInt(max.wooProductId, 10)
-          if (!isNaN(num)) effectiveWooProductId = String(num + 1)
-        }
-      }
-
-      if (existingMenuItemId) {
-        await tx.menuItem.update({
-          where: { id: existingMenuItemId },
-          data: {
-            recipeId: r.id,
-            price: parseFloat(String(price)) || 0,
-            wooCategoryId: wooCategoryId || null,
-            imageUrl: imageUrl || null,
-            shortDescription: shortDescription || null,
-            isVariable: isVariable || false,
-            variations: variations || null,
-            dietaryInfo: dietaryInfo || null,
-            swiftPosId: swiftPosId || null,
-            tastingNotes: tastingNotes || null,
-            vintage: vintage ? String(vintage).trim() : null,
-            howToServe: howToServe || null,
-          },
-        })
-      } else {
-        await tx.menuItem.create({
-          data: {
-            venueId,
-            name: name.toUpperCase().trim(),
-            recipeId: r.id,
-            price: parseFloat(String(price)) || 0,
-            wooProductId: effectiveWooProductId,
-            wooCategoryId: wooCategoryId || null,
-            imageUrl: imageUrl || null,
-            shortDescription: shortDescription || null,
-            isVariable: isVariable || false,
-            variations: variations || null,
-            dietaryInfo: dietaryInfo || null,
-            swiftPosId: swiftPosId || null,
-            tastingNotes: tastingNotes || null,
-            vintage: vintage ? String(vintage).trim() : null,
-            howToServe: howToServe || null,
-          },
-        })
-      }
-    }
-
+    // Recipes are prep/BOM only. Menu items (the sold products) are authored
+    // separately in INVENTORY -> MENU ITEMS.
     return r
   })
 
