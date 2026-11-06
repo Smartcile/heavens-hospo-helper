@@ -34,12 +34,13 @@ describe('OpsClient', () => {
     vi.restoreAllMocks()
   })
 
-  it('defaults to the MENU area with the RECIPES fine tab active — areas are not buttons', async () => {
+  it('defaults to the MENU area with the MENUS & CATEGORIES fine tab active — areas are not buttons', async () => {
     render(<OpsClient {...props} />)
-    expect(await screen.findByText('RECIPES & MENU ITEMS')).toBeTruthy()
-    for (const label of ['RECIPES', 'MENUS & CATEGORIES', 'SERVICES']) {
+    expect(await screen.findByText('MENUS')).toBeTruthy()
+    for (const label of ['MENUS & CATEGORIES', 'SERVICES']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy()
     }
+    expect(screen.queryByRole('button', { name: 'RECIPES' })).toBeNull()
     // The five areas moved to the sidebar — none of them render as top-bar buttons.
     for (const label of ['MENU & SERVICES', 'BOOKINGS', 'ORDERS', 'CUSTOMERS', 'INVENTORY & STOCKTAKE']) {
       expect(screen.queryByRole('button', { name: label })).toBeNull()
@@ -48,8 +49,19 @@ describe('OpsClient', () => {
 
   it('clicking a MENU fine tab pushes the area URL with that sub', async () => {
     render(<OpsClient {...props} />)
-    fireEvent.click(screen.getByRole('button', { name: 'MENUS & CATEGORIES' }))
-    expect(mocks.push).toHaveBeenCalledWith('/admin/ops?tab=menu&sub=menus', { scroll: false })
+    fireEvent.click(screen.getByRole('button', { name: 'SERVICES' }))
+    expect(mocks.push).toHaveBeenCalledWith('/admin/ops?tab=menu&sub=services', { scroll: false })
+  })
+
+  it('mounts RECIPES and MENU ITEMS as separate INVENTORY fine tabs', async () => {
+    mocks.params = new URLSearchParams('tab=inventory&sub=recipes')
+    const { unmount } = render(<OpsClient {...props} />)
+    expect(await screen.findByText('RECIPES')).toBeTruthy()
+    unmount()
+
+    mocks.params = new URLSearchParams('tab=inventory&sub=menu-items')
+    render(<OpsClient {...props} />)
+    expect(await screen.findByText('MENU ITEMS')).toBeTruthy()
   })
 
   it('clicking a BOOKINGS fine tab pushes the bookings sub URL', async () => {
@@ -77,7 +89,7 @@ describe('OpsClient', () => {
   it('an invalid area param falls back to the MENU area', async () => {
     mocks.params = new URLSearchParams('tab=bogus')
     render(<OpsClient {...props} />)
-    expect(await screen.findByText('RECIPES & MENU ITEMS')).toBeTruthy()
+    expect(await screen.findByText('MENUS')).toBeTruthy()
   })
 
   it('CUSTOMERS is a leaf — it renders without a top tab bar', async () => {

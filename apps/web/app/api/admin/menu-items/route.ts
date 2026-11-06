@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { isGiftCardCategorized } from '@/lib/gift-cards-woo'
 import { optionGroupInclude } from '@/lib/menu-lines.server'
+import { inheritedAllergensFromRecipe } from '@/lib/menu-item-allergens'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -20,7 +21,17 @@ export async function GET(req: NextRequest) {
   const local = await prisma.menuItem.findMany({
     where: { venueId, deletedAt: null },
     include: {
-      recipe: { select: { id: true, name: true } },
+      recipe: {
+        select: {
+          id: true, name: true,
+          lineItems: {
+            select: {
+              inventoryItem: { select: { id: true, name: true, allergyInfo: true } },
+              childRecipe: { select: { id: true, name: true } },
+            },
+          },
+        },
+      },
       optionGroups: optionGroupInclude,
     },
     orderBy: { name: 'asc' },
@@ -32,7 +43,17 @@ export async function GET(req: NextRequest) {
     include: {
       menuItem: {
         include: {
-          recipe: { select: { id: true, name: true } },
+          recipe: {
+        select: {
+          id: true, name: true,
+          lineItems: {
+            select: {
+              inventoryItem: { select: { id: true, name: true, allergyInfo: true } },
+              childRecipe: { select: { id: true, name: true } },
+            },
+          },
+        },
+      },
           venue: { select: { id: true, name: true } },
           optionGroups: optionGroupInclude,
         },
@@ -64,16 +85,28 @@ export async function GET(req: NextRequest) {
       wooProductId: s.menuItem.wooProductId,
       wooCategoryId: s.menuItem.wooCategoryId,
       imageUrl: s.menuItem.imageUrl,
+      shortDescription: s.menuItem.shortDescription,
       description: s.menuItem.description,
+      dietaryInfo: s.menuItem.dietaryInfo,
+      swiftPosId: s.menuItem.swiftPosId,
+      tastingNotes: s.menuItem.tastingNotes,
+      vintage: s.menuItem.vintage,
+      howToServe: s.menuItem.howToServe,
+      optionGroups: s.menuItem.optionGroups,
       isActive: s.menuItem.isActive,
       recipe: s.menuItem.recipe,
+      recipeAllergens: inheritedAllergensFromRecipe(s.menuItem.recipe),
       sharedFromVenueId: s.menuItem.venueId,
       sharedFromVenueName: s.menuItem.venue.name,
       sharedPriceOverride: s.priceOverride,
       menuItemVenueId: s.id,
     }))
 
-  return NextResponse.json([...local.filter((l) => isFoodItem(l.venueId, l.wooCategoryId)), ...sharedItems])
+  const localItems = local
+    .filter((l) => isFoodItem(l.venueId, l.wooCategoryId))
+    .map((item) => ({ ...item, recipeAllergens: inheritedAllergensFromRecipe(item.recipe) }))
+
+  return NextResponse.json([...localItems, ...sharedItems])
 }
 
 export async function POST(req: NextRequest) {
@@ -82,12 +115,17 @@ export async function POST(req: NextRequest) {
   const denied = await guardAccess(session, req, 'ops.menus.create')
   if (denied) return denied
 
-  const { name, recipeId, price, wooProductId: providedWooProductId, wooCategoryId, imageUrl, shortDescription, description, sharedVenueIds, venueId: bodyVenueId } = await req.json()
-  if (!name?.trim() || !recipeId) {
-    return NextResponse.json({ error: 'name and recipeId are required' }, { status: 400 })
+  const { name, recipeId, price, wooProductId: providedWooProductId, wooCategoryId, imageUrl, shortDescription, description, dietaryInfo, isVariable, variations, sharedVenueIds, venueId: bodyVenueId } = await req.json()
+  if (!name?.trim()) {
+    return NextResponse.json({ error: 'name is required' }, { status: 400 })
   }
 
   const venueId = session.user.role === 'MANAGER' ? session.user.venueId : (bodyVenueId || session.user.venueId)
+
+  if (recipeId) {
+    const recipe = await prisma.recipe.count({ where: { id: recipeId, venueId, deletedAt: null } })
+    if (recipe !== 1) return NextResponse.json({ error: 'RECIPE IS NOT IN THIS VENUE' }, { status: 400 })
+  }
 
   // Auto-generate wooProductId as max existing + 1 when not provided
   let wooProductId = providedWooProductId || null
@@ -107,14 +145,16 @@ export async function POST(req: NextRequest) {
     data: {
       venueId,
       name: name.toUpperCase().trim(),
-      recipeId,
+      recipeId: recipeId || null,
       price: parseFloat(String(price)) || 0,
       wooProductId,
       wooCategoryId: wooCategoryId || null,
       imageUrl: imageUrl || null,
       shortDescription: shortDescription || null,
-      isVariable: false,
+      isVariable: !!isVariable,
+      variations: variations || null,
       description: description || null,
+      dietaryInfo: dietaryInfo || null,
     },
     include: { recipe: { select: { id: true, name: true } } },
   })

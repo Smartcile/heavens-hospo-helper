@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { OPS_SUB_TABS, resolveOps, hubUrl } from '@/lib/hub-tabs'
 import { LineTabs } from '@/components/admin/LineTabs'
 import { RecipesClient } from '@/app/admin/(protected)/recipes/RecipesClient'
+import { MenuItemsClient } from '@/app/admin/(protected)/menu-items/MenuItemsClient'
 import { MenusClient } from '@/components/admin/MenusClient'
 import { ServicesClient } from '@/components/admin/ServicesClient'
 import { BookingClient } from '@/app/admin/(protected)/bookings/BookingClient'
@@ -41,7 +42,6 @@ export function OpsClient({ role, sessionVenueId, defaultVenueId }: OpsClientPro
 
       {/* Active area */}
       <div className="flex-1 p-4 md:p-6">
-        {area === 'menu' && sub === 'recipes' && <RecipesClient {...venueProps} />}
         {area === 'menu' && sub === 'menus' && <MenusClient {...venueProps} />}
         {area === 'menu' && sub === 'services' && <ServicesClient {...venueProps} />}
         {area === 'bookings' && <BookingClient {...venueProps} sub={sub} />}
@@ -49,6 +49,8 @@ export function OpsClient({ role, sessionVenueId, defaultVenueId }: OpsClientPro
         {area === 'orders' && sub !== 'dockets' && <OrdersClient {...venueProps} sub={sub} />}
         {area === 'customers' && <CustomersClient {...venueProps} />}
         {area === 'inventory' && sub === 'inventory' && <InventoryClient {...venueProps} />}
+        {area === 'inventory' && sub === 'recipes' && <RecipesClient {...venueProps} />}
+        {area === 'inventory' && sub === 'menu-items' && <MenuItemsClient {...venueProps} />}
         {area === 'inventory' && sub === 'pantry' && <PantryBibleClient {...venueProps} />}
         {area === 'inventory' && sub === 'stocktake' && <StocktakeClient {...venueProps} />}
       </div>

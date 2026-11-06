@@ -56,54 +56,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       }
     }
 
-    // Sync menu item link. `existing` is found with no deletedAt filter so
-    // unchecking LINK TO MENU and re-checking it reconnects the SAME local row
-    // instead of creating a duplicate.
-    if (linkToMenu !== undefined) {
-      const existing = await tx.menuItem.findFirst({
-        where: { recipeId: params.id },
-      })
-      const wasDeleted = existing?.deletedAt != null
-      if (linkToMenu) {
-        const menuData: any = {
-          price: parseFloat(String(price)) || 0,
-          // On reconnect the form has no product id — keep the old one so the
-          // product is re-enabled rather than duplicated on the store.
-          wooProductId: wooProductId || existing?.wooProductId || null,
-          wooCategoryId: wooCategoryId || null,
-          imageUrl: imageUrl || null,
-          shortDescription: shortDescription || null,
-          isVariable: isVariable || false,
-          variations: variations || null,
-          deletedAt: wasDeleted ? null : undefined,
-        }
-        if (dietaryInfo !== undefined) menuData.dietaryInfo = dietaryInfo || null
-        if (swiftPosId !== undefined) menuData.swiftPosId = swiftPosId || null
-        if (tastingNotes !== undefined) menuData.tastingNotes = tastingNotes || null
-        if (vintage !== undefined) menuData.vintage = vintage ? String(vintage).trim() : null
-        if (howToServe !== undefined) menuData.howToServe = howToServe || null
-        if (existing) {
-          await tx.menuItem.update({ where: { id: existing.id }, data: menuData })
-        } else {
-          await tx.menuItem.create({
-            data: {
-              venueId: session.user.venueId,
-              name: String(data.name),
-              recipeId: params.id,
-              ...menuData,
-            },
-          })
-        }
-      } else if (existing && !wasDeleted) {
-        // Unticked: remove from menus, drop the category, and hide the store
-        // product (draft + uncategorised) until it is reconnected.
-        await tx.menuItem.update({
-          where: { id: existing.id },
-          data: { deletedAt: new Date(), wooCategoryId: null },
-        })
-      }
-    }
-
+    // Recipes are prep/BOM only. Menu items (the sold products) are authored
+    // separately in INVENTORY -> MENU ITEMS.
     const updated = await tx.recipe.findUnique({
       where: { id: params.id },
       include: {

@@ -7,14 +7,8 @@ import { Select } from '@/components/ui/Select'
 import { SearchSelect } from '@/components/ui/SearchSelect'
 import { ListBox, ListRow } from '@/components/ui/ListBox'
 import { Modal } from '@/components/ui/Modal'
-import { computeRecipeAllergens, type AllergenSource } from '@/lib/allergens'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { convertLine, convertQty, resolveItemKind, uomsForItem } from '@/lib/unit-convert'
-import { ImagePicker } from '@/components/ui/ImagePicker'
-import { menuItemUsageKey } from '@/lib/image-annotations'
-import { MenuItemServesEditor } from '@/components/admin/MenuItemServesEditor'
-import { MenuItemEquipmentEditor } from '@/components/admin/MenuItemEquipmentEditor'
-import { missingProductFields } from '@/lib/recipe-import'
 
 interface Recipe {
   id: string; name: string; yieldQty: number; yieldUnitId: string; instructions: string | null
@@ -42,10 +36,6 @@ interface RecipeBrief { id: string; name: string }
 interface PantryRef { id: string; name: string; densityGramsPerMl: number | null; weightPerUnitGrams: number | null; notes: string | null }
 interface Variation { name: string; price: number; wooVariationId?: number }
 
-interface OrphanMenuItem {
-  id: string; name: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: Variation[] | null; dietaryInfo: string | null; swiftPosId?: string | null; tastingNotes?: string | null; vintage?: string | null; howToServe?: string | null
-}
-
   function generateId() { return crypto.randomUUID() }
 
 /** Units valid for an inventory item — its own kind plus any density/weight
@@ -64,14 +54,11 @@ function uomOptionsFor(uoms: Uom[], inv?: InvItem) {
 export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
   const venueId = getActiveVenueId(role, sessionVenueId, defaultVenueId)
   const [recipes, setRecipes] = useState<Recipe[]>([])
-  const [orphanItems, setOrphanItems] = useState<OrphanMenuItem[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [recipeSearch, setRecipeSearch] = useState('')
-  const [importOpen, setImportOpen] = useState(false)
-  const [importSearch, setImportSearch] = useState('')
 
   const [formName, setFormName] = useState('')
   const [formYieldQty, setFormYieldQty] = useState('1')
@@ -86,7 +73,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   const [formMenuItemId, setFormMenuItemId] = useState<string | null>(null)
   const [formSwiftPosId, setFormSwiftPosId] = useState('')
   const [formDietaryInfo, setFormDietaryInfo] = useState<string[]>([])
-  const [allergenPopout, setAllergenPopout] = useState<{ allergen: string; source: string } | null>(null)
 
   // Image upload for linked Woo product
   const [formImageUrl, setFormImageUrl] = useState<string | null>(null)
@@ -107,16 +93,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   // Variable product variations
   const [formIsVariable, setFormIsVariable] = useState(false)
   const [formVariations, setFormVariations] = useState<Variation[]>([])
-
-  const ALLERGENS = ['ALMOND','BARLEY','BRAZIL NUT','CASHEW','CRUSTACEAN','EGG','FISH','GLUTEN','HAZELNUT','LUPIN','MACADAMIA','MILK','MOLLUSC','OATS','PEANUT','PECAN','PINE NUT','PISTACHIO','RYE','SESAME','SOY','SULPHITES','WALNUT','WHEAT']
-  const ALLERGEN_GROUPS: { label: string; items: string[] }[] = [
-    { label: 'DAIRY', items: ['MILK'] },
-    { label: 'EGGS', items: ['EGG'] },
-    { label: 'NUTS & SEEDS', items: ['ALMOND','BRAZIL NUT','CASHEW','HAZELNUT','LUPIN','MACADAMIA','PEANUT','PECAN','PINE NUT','PISTACHIO','WALNUT'] },
-    { label: 'GRAINS', items: ['BARLEY','GLUTEN','OATS','RYE','WHEAT'] },
-    { label: 'SEAFOOD', items: ['CRUSTACEAN','FISH','MOLLUSC'] },
-    { label: 'OTHER', items: ['SESAME','SOY','SULPHITES'] },
-  ]
 
   const [uoms, setUoms] = useState<Uom[]>([])
   const [inventoryItems, setInventoryItems] = useState<InvItem[]>([])
@@ -224,32 +200,13 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
     }
   }
 
-  function populateOrphan(o: OrphanMenuItem) {
-    setIsCreating(true); setSelectedId(null)
-    setFormName(o.name); setFormYieldQty('1'); setFormYieldUnitId('')
-    setFormInstructions(''); setFormPrepTime(''); setLineItems([])
-    setLinkToMenu(true); setFormPrice(String(o.price))
-    setFormDietaryInfo(o.dietaryInfo ? o.dietaryInfo.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
-    setFormImageUrl(o.imageUrl ?? null)
-    setFormShortDescription(o.shortDescription ?? '')
-    setFormTastingNotes(o.tastingNotes ?? '')
-    setFormVintage(o.vintage ?? '')
-    setFormHowToServe(o.howToServe ?? '')
-    setFormIsVariable(o.isVariable ?? false)
-    setFormVariations(o.variations ?? [])
-    setFormExistingMenuItemId(o.id)
-    setFormMenuItemId(o.id)
-    setFormSwiftPosId(o.swiftPosId ?? '')
-  }
-
   async function load() {
     setLoading(true)
     const venueParam = venueId ? `?venueId=${venueId}` : ''
-    const [rRes, uRes, iRes, mRes, cRes, pRes] = await Promise.all([
+    const [rRes, uRes, iRes, cRes, pRes] = await Promise.all([
       fetch(`/api/admin/recipes${venueParam}`),
       fetch(`/api/admin/uoms${venueParam}`),
       fetch(`/api/admin/inventory${venueParam}`),
-      fetch(`/api/admin/menu-items${venueParam}`),
       fetch(`/api/admin/inventory/categories${venueParam}`),
       fetch(`/api/admin/ingredient-references${venueParam}`),
     ])
@@ -265,13 +222,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
     if (iRes.ok) {
       const data = await iRes.json()
       setInventoryItems(Array.isArray(data) ? data : [])
-    }
-    if (mRes.ok) {
-      const items = await mRes.json()
-      const arr = Array.isArray(items) ? items : []
-      // Filter: menu items whose recipe is null (no recipe linked)
-      const orphaned = arr.filter((m: any) => !m.recipe || !m.recipeId)
-      setOrphanItems(orphaned)
     }
     if (cRes.ok) {
       const data = await cRes.json()
@@ -359,18 +309,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
         childRecipeId: li.childRecipeId ?? null,
         ingredientReferenceId: li.ingredientReferenceId ?? null,
       })),
-      linkToMenu,
-      price: linkToMenu ? parseFloat(formPrice) || 0 : undefined,
-      imageUrl: linkToMenu ? formImageUrl : undefined,
-      shortDescription: linkToMenu ? (formShortDescription || null) : undefined,
-      isVariable: linkToMenu ? formIsVariable : undefined,
-      variations: linkToMenu ? (formVariations.length > 0 ? formVariations : null) : undefined,
-      existingMenuItemId: formExistingMenuItemId || undefined,
-      swiftPosId: linkToMenu ? (formSwiftPosId || null) : undefined,
-      dietaryInfo: formDietaryInfo.length > 0 ? formDietaryInfo.join(',') : null,
-      tastingNotes: linkToMenu ? (formTastingNotes || null) : undefined,
-      vintage: linkToMenu ? (formVintage || null) : undefined,
-      howToServe: linkToMenu ? (formHowToServe || null) : undefined,
       ...(venueId ? { venueId } : {}),
     }
     if (isCreating) {
@@ -413,7 +351,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   })()
 
   const filteredRecipes = recipes.filter(r => !recipeSearch || r.name.includes(recipeSearch))
-  const importList = orphanItems.filter(o => !importSearch || o.name.includes(importSearch))
 
   if (loading) {
     return <div className="flex items-center justify-center h-64"><p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p></div>
@@ -422,12 +359,8 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">RECIPES & MENU ITEMS</h1>
-        {orphanItems.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={() => { setImportSearch(''); setImportOpen(true) }}>
-            ⬇ IMPORT PRODUCTS ({orphanItems.length})
-          </Button>
-        )}
+        <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">RECIPES</h1>
+
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -448,7 +381,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                       <span className="block truncate flex-1 font-mono text-xs uppercase text-white">{r.name}</span>
                     </div>
                     <span className="block text-xs text-grey-light">
-                      v{r.version} · {r.yieldQty} {r.yieldUnit?.name ?? ''}{r.menuItem ? ` · $${r.menuItem.price.toFixed(2)}` : ''}
+                      v{r.version} · {r.yieldQty} {r.yieldUnit?.name ?? ''}
                     </span>
                   </div>
                 </ListRow>
@@ -587,165 +520,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
                   })()}
                 </div>
 
-                {/* Allergens */}
-                <div className="border border-grey-mid p-3 space-y-1.5">
-                  <label className="font-mono text-xs uppercase text-grey-light block">ALLERGENS</label>
-                  {(() => {
-                    const inherited = computeRecipeAllergens(
-                      lineItems.map((li) => ({
-                        type: li.inventoryItemId ? 'inventory' as const : 'recipe' as const,
-                        item: { id: li.inventoryItemId ?? li.childRecipeId ?? '', name: li.inventoryItemName ?? li.childRecipeName ?? '', allergyInfo: li.allergyInfo ?? null },
-                      })),
-                      null,
-                    ).filter((s) => s.inherited)
-                    const inheritedMap = new Map(inherited.map((s) => [s.allergen, s]))
-                    return (
-                      <div className="space-y-1.5">
-                        {ALLERGEN_GROUPS.map((grp) => (
-                          <div key={grp.label}>
-                            <div className="font-mono text-xs uppercase text-grey-light mb-0.5 pl-0.5">{grp.label}</div>
-                            <div className="flex flex-wrap gap-1">
-                              {grp.items.filter((a) => ALLERGENS.includes(a)).map((a) => {
-                                const inh = inheritedMap.get(a as any)
-                                const selected = formDietaryInfo.includes(a)
-                                if (inh) {
-                                  return (
-                                    <span key={a} onClick={() => setAllergenPopout({ allergen: a, source: inh.source })} className="inline-flex items-center gap-1 font-mono text-xs uppercase px-1.5 py-0.5 border cursor-pointer bg-gold/10 text-gold border-gold/50 hover:border-gold">
-                                      ⚿ {a}
-                                    </span>
-                                  )
-                                }
-                                return (
-                                  <button key={a} type="button"
-                                    onClick={() => setFormDietaryInfo((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a])}
-                                    className={`font-mono text-xs uppercase px-1.5 py-0.5 border transition-colors ${selected ? 'bg-gold/10 text-gold border-gold/50' : 'bg-transparent text-grey-light border-grey-mid hover:border-white hover:text-white'
-                                      }`}>
-                                    {selected ? '✓ ' : ''}{a}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  })()}
-                </div>
-
-                {/* Item links — the product's POS link and serve spec */}
-                <div className="border border-grey-mid p-3 space-y-3">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={linkToMenu} onChange={(e) => setLinkToMenu(e.target.checked)}
-                      className="bg-black border border-grey-mid accent-white" />
-                    <span className="font-mono text-xs uppercase text-white">ITEM LINKS</span>
-                    {linkToMenu && <span className="font-mono text-xs text-grey-light">(POS CODE · SERVES)</span>}
-                  </label>
-                  {linkToMenu && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div>
-                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">PRICE</label>
-                        <Input type="number" step="0.01" value={formPrice} onChange={(e) => setFormPrice(e.target.value)} />
-                      </div>
-                      <div>
-                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">SWIFT POS CODE</label>
-                        <Input value={formSwiftPosId} onChange={(e) => setFormSwiftPosId(e.target.value)} placeholder="POS INVENTORY CODE" />
-                      </div>
-
-                      <div className="md:col-span-3">
-                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">SHORT DESCRIPTION</label>
-                        <textarea value={formShortDescription} onChange={(e) => setFormShortDescription(e.target.value)}
-                          placeholder="BRIEF EXCERPT FOR PRODUCT LISTING..."
-                          rows={3}
-                          className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light resize-y" />
-                      </div>
-
-                      <div className="md:col-span-3">
-                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">TASTING NOTES</label>
-                        <textarea value={formTastingNotes} onChange={(e) => setFormTastingNotes(e.target.value)}
-                          placeholder="CRISP, CITRUS, MINERAL FINISH…"
-                          rows={3}
-                          className="w-full bg-black border border-grey-mid text-white font-sans text-sm px-3 py-2 outline-none focus:border-white placeholder:text-grey-light resize-y" />
-                      </div>
-
-                      <div>
-                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">VINTAGE / YEAR</label>
-                        <Input value={formVintage} onChange={(e) => setFormVintage(e.target.value.toUpperCase())} placeholder="2024 / NV" />
-                      </div>
-
-                      <div className="md:col-span-2">
-                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">HOW TO SERVE</label>
-                        <textarea value={formHowToServe} onChange={(e) => setFormHowToServe(e.target.value)}
-                          placeholder="CHILLED, POUR 150ML, GARNISH WITH LIME…"
-                          rows={2}
-                          className="w-full bg-black border border-grey-mid text-white font-sans text-sm px-3 py-2 outline-none focus:border-white placeholder:text-grey-light resize-y" />
-                      </div>
-
-                      <div className="md:col-span-3">
-                        <label className="flex items-center gap-2">
-                          <input type="checkbox" checked={formIsVariable} onChange={(e) => { setFormIsVariable(e.target.checked); if (!e.target.checked) setFormVariations([]) }}
-                            className="bg-black border border-grey-mid accent-white" />
-                          <span className="font-mono text-xs uppercase text-white">VARIABLE PRODUCT</span>
-                          <span className="font-mono text-xs text-grey-light">(E.G. SMALL, MEDIUM, LARGE)</span>
-                        </label>
-                        {formIsVariable && (
-                          <div className="mt-3 ml-2 border-l border-grey-mid pl-4 space-y-3">
-                            <p className="font-mono text-xs text-grey-light leading-relaxed">
-                              EACH SIZE IS A UNIQUE PRICE POINT.
-                              THE MAIN PRICE ABOVE IS THE DEFAULT (LOWEST) PRICE.
-                            </p>
-                            <div className="space-y-2">
-                              {formVariations.map((v, i) => (
-                                <div key={i} className="flex items-center gap-2">
-                                  <input value={v.name} onChange={(e) => updateVariation(i, 'name', e.target.value.toUpperCase())}
-                                    placeholder="e.g. SMALL"
-                                    className="w-32 bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light" />
-                                  <span className="font-mono text-xs text-grey-light">$</span>
-                                  <input type="number" step="0.01" value={v.price || ''} onChange={(e) => updateVariation(i, 'price', e.target.value)}
-                                    placeholder="0.00"
-                                    className="w-24 bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light text-right" />
-                                  <button onClick={() => removeVariation(i)}
-                                    className="text-grey-light hover:text-danger font-mono text-xs">×</button>
-                                </div>
-                              ))}
-                              <button onClick={addVariation}
-                                className="font-mono text-xs uppercase text-info hover:text-white">
-                                + ADD VARIATION
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="md:col-span-3">
-                        <ImagePicker
-                          label="PRODUCT IMAGE"
-                          value={formImageUrl}
-                          onChange={setFormImageUrl}
-                          usageKey={formExistingMenuItemId ? menuItemUsageKey(formExistingMenuItemId) : undefined}
-                        />
-                      </div>
-
-                      <div className="md:col-span-3 border-t border-grey-mid pt-3">
-                        <label className="font-mono text-xs uppercase text-grey-light block mb-2">ITEM LINK — HOW SELLING THIS CONSUMES STOCK</label>
-                        {formMenuItemId ? (
-                          <MenuItemServesEditor menuItemId={formMenuItemId} menuItemName={formName} venueId={venueId ?? ''} />
-                        ) : (
-                          <p className="font-mono text-xs text-grey-light uppercase">SAVE FIRST TO SET THE ITEM LINK (SERVES, STOCK DRAWDOWN).</p>
-                        )}
-                      </div>
-
-                      <div className="md:col-span-3 border-t border-grey-mid pt-3">
-                        <label className="font-mono text-xs uppercase text-grey-light block mb-2">EQUIPMENT — WHAT IT IS SERVED IN / WITH</label>
-                        {formMenuItemId ? (
-                          <MenuItemEquipmentEditor menuItemId={formMenuItemId} venueId={venueId} />
-                        ) : (
-                          <p className="font-mono text-xs text-grey-light uppercase">SAVE FIRST TO LINK EQUIPMENT (GLASSWARE, TOOLS).</p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
                 <div className="border-t border-grey-mid pt-3 flex items-center gap-2">
                   <Button onClick={handleSave} disabled={saving || !formName.trim()}>
                     {saving ? 'SAVING...' : 'SAVE'}
@@ -803,22 +577,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
         })()}
       </Modal>
 
-      <Modal isOpen={allergenPopout != null} onClose={() => setAllergenPopout(null)} title="ALLERGEN SOURCE" size="sm">
-        {allergenPopout && (
-          <div className="space-y-3">
-            <div className="border border-gold/50 bg-gold/10 px-3 py-2 font-mono text-sm uppercase text-gold">
-              ⚿ {allergenPopout.allergen}
-            </div>
-            <p className="font-mono text-xs text-grey-light">THIS ALLERGEN IS INHERITED FROM AN INGREDIENT AND CANNOT BE REMOVED.</p>
-            <div className="border border-grey-mid p-3">
-              <div className="font-mono text-xs uppercase text-grey-light mb-1">SOURCE CHAIN</div>
-              <div className="font-mono text-xs text-white">{allergenPopout.source}</div>
-            </div>
-            <Button variant="ghost" onClick={() => setAllergenPopout(null)}>CLOSE</Button>
-          </div>
-        )}
-      </Modal>
-
       <Modal isOpen={showAddIngredient} onClose={() => { setShowAddIngredient(false); setNewIngredientName(''); setNewIngredientUomId(''); setNewIngredientCatId('') }} title="ADD INGREDIENT" size="sm">
         <div className="space-y-4">
           <div>
@@ -844,48 +602,6 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
         </div>
       </Modal>
 
-      <Modal isOpen={importOpen} onClose={() => setImportOpen(false)} title={`IMPORT PRODUCTS (${orphanItems.length})`} size="lg">
-        <div className="space-y-3">
-          <p className="font-mono text-xs text-grey-light uppercase">
-            PRODUCTS WITH NO RECIPE YET. PICK ONE TO BUILD ITS RECIPE — MISSING FIELDS ARE FLAGGED IN RED.
-          </p>
-          <Input value={importSearch} onChange={(e) => setImportSearch(e.target.value.toUpperCase())} placeholder="SEARCH PRODUCTS..." />
-          <div className="divide-y divide-grey-mid border border-grey-mid max-h-[55vh] overflow-y-auto">
-            {importList.length === 0 ? (
-              <p className="font-mono text-xs text-grey-light px-3 py-2">NO MATCHING PRODUCTS.</p>
-            ) : (
-              importList.map((o) => {
-                const gaps = missingProductFields(o)
-                return (
-                  <button
-                    key={o.id}
-                    onClick={() => { populateOrphan(o); setImportOpen(false) }}
-                    className="w-full text-left px-3 py-2.5 hover:bg-black/40 transition-colors"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-xs uppercase text-gold truncate">{o.name}</span>
-                      <span className="font-mono text-xs text-grey-light shrink-0">
-                        ${o.price.toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      {gaps.length === 0 ? (
-                        <span className="font-mono text-xs uppercase border border-success/60 text-success px-1.5 py-0.5">READY — FIELDS COMPLETE</span>
-                      ) : (
-                        gaps.map((g) => (
-                          <span key={g.key} className="font-mono text-xs uppercase border border-danger/60 text-danger px-1.5 py-0.5">
-                            {g.label} NEEDED
-                          </span>
-                        ))
-                      )}
-                    </div>
-                  </button>
-                )
-              })
-            )}
-          </div>
-        </div>
-      </Modal>
     </div>
   )
 }

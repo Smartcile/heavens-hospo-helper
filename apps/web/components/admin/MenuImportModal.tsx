@@ -389,7 +389,7 @@ export function MenuImportModal({
                 />
               )}
               <p className="font-mono text-2xs uppercase text-grey-light">
-                NEW PRODUCTS HAVE NO RECIPE YET — SET ONE UP IN RECIPES → IMPORT PRODUCTS.
+                NEW PRODUCTS HAVE NO RECIPE YET — FIND THEM IN INVENTORY → MENU ITEMS TO ATTACH ONE.
                 EXISTING PRODUCTS KEEP THEIR CURRENT PRICE, DESCRIPTION AND ALLERGENS.
                 RE-IMPORTING MOVES EXISTING LINES INTO THE EDITED GROUPS INSTEAD OF DUPLICATING THEM.
               </p>

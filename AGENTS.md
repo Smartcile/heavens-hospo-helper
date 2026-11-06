@@ -1315,8 +1315,8 @@ Full inventory management system: `InventoryCategory` (**20** built-in: 6 FOOD,
 quantity. `StocktakeRecord` + `StocktakeLineItem` for periodic stock counts.
 
 **Admin pages:** `/admin/ops?tab=inventory` (the `/admin/inventory` stub
-redirects) — `OpsClient` renders **INVENTORY · PANTRY BIBLE · STOCKTAKE** sub-tabs
-(`lib/hub-tabs.ts`). `InventoryClient` is a master-detail layout — left column
+redirects) — `OpsClient` renders **INVENTORY · RECIPES · MENU ITEMS · PANTRY BIBLE · STOCKTAKE**
+sub-tabs (`lib/hub-tabs.ts`). `InventoryClient` is a master-detail layout — left column
 (vertical CATEGORIES nav + INVENTORY SUMMARY tree), right column (item list with
 real AVAIL column + compact PROPERTIES form). Dynamic headers
 (`FURNITURE STOCK`/`STANDARD STOCK`) and buttons (`+ ADD TABLE`/`+ ADD ITEM`)
@@ -1327,6 +1327,16 @@ based on the selected category. Items can be edited (PUT) and duplicated, and
 **Stock-aware tracking:** `InventoryItem.totalQty` is the physical count of items
 owned. `GET /api/admin/inventory` returns `placedCount` (from
 `_count.elements`) so the UI computes `availableQty = totalQty - placedCount`.
+
+**Recipes vs Menu Items (built 2026-11).** They are separate authoring surfaces
+under Inventory & Stocktake. **RECIPES** (`RecipesClient`) is the prep/BOM
+editor only: ingredients, PANTRY BIBLE references, sub-recipes, yield,
+instructions. **MENU ITEMS** (`MenuItemsClient`) is the sold product: optional
+recipe attach (`recipeId` nullable), price, descriptions/image, allergens,
+SWIFT POS code via PRODUCT INFO, ITEM LINKS (serves/drawdown) and EQUIPMENT.
+`POST/PUT /api/admin/recipes` no longer create or update `MenuItem` rows;
+`POST /api/admin/menu-items` accepts `recipeId: null`. Old
+`/admin/recipes` and `/admin/menu-items` links redirect into the inventory tabs.
 
 **Worker page:** `/w/stocktake` — scrollable count list, submit IN_PROGRESS or
 COMPLETED. Dashboard stocktake card with pending count.
@@ -1387,11 +1397,10 @@ or deduction. `/api/admin/ingredient-references` GET/POST/DELETE (no PUT).
 Egg, Fish, Gluten, Hazelnut, Lupin, Macadamia, Milk, Mollusc, Oats, Peanut, Pecan, Pine nut,
 Pistachio, Rye, Sesame, Soy, Sulphites, Walnut, Wheat) managed via `AllergenPicker`
 component with grouped buttons (DAIRY, NUTS, GRAINS, etc.). Allergens are stored as
-comma-separated `dietaryInfo` on `MenuItem`. The `GET /api/admin/menu-items` endpoint
-resolves inherited allergens by walking the recursive recipe BOM — a menu item shows
-its own allergens PLUS any allergens from sub-recipes, with inherited ones locked (⚿)
-and showing the source recipe in a popup. The recipe editor has an ITEM LINKS /
-LINK TO MENU toggle; linked products show up as inherited allergen sources.
+comma-separated `dietaryInfo` on `MenuItem` and edited in the **MENU ITEMS** editor
+(Recipes are prep-only and do not carry allergens). Recipe-derived allergens are
+computed from the linked recipe's line items where shown; `AllergenPicker` accepts
+an `inherited` list so derived allergens render as locked.
 
 **Alternative suppliers:** `InventoryItem.alternativeSupplierIds Json` holds an
 ordered array of backup supplier UUIDs. `SupplierItemCode` links each supplier to
@@ -2685,7 +2694,8 @@ never duplicate on re-import). It never writes `dietaryInfo`, never calls
 `pushProduct` (`wooProductId` stays null) and returns a summary
 (`created / matched / linesAdded / linesUpdated / skipped / optionGroupsAdded /
 optionChoicesAdded / optionsSkipped / warnings`). New products are `recipeId:
-null` and appear in Recipes → IMPORT PRODUCTS for later recipe/stock setup.
+null` and appear in **INVENTORY → MENU ITEMS**, where a recipe can be attached
+or a serve/stock drawdown added later.
 The demo seed also creates `FISH & CHIPS` with a required `SIDE` option group
 (`FRIES / SALAD / FRIES + SALAD +$3.00`) using fixed `00da…` demo UUIDs.
 
@@ -2850,17 +2860,16 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
   `/admin/budget/[year]/[month]`; the 12-month landing (`BudgetLandingClient`)
   is deleted. `BudgetMonthSelector` is now a DateNav-styled month bar
   (`<< YEAR · < MONTH · THIS MONTH · MONTH > · YEAR >>`) — no grid.
-- **Recipes: Woo imports moved behind a popup.** The recipe list only shows
-  local recipes; `⬇ IMPORT PRODUCTS (n)` opens a modal of Woo-synced products
-  with missing fields flagged red (`lib/recipe-import.ts` `missingProductFields`).
-  Picking one opens the new-recipe editor pre-filled (existing `populateOrphan`).
+- **Recipes are prep-only.** The RECIPES tab authors recipes/BOM; the MENU ITEMS
+  tab lists every sold product, including `recipeId: null` products from menu
+  import / Woo sync. There is no LINK TO MENU control in the recipe editor.
 - **Product detail fields + equipment links.** `MenuItem.tastingNotes`,
   `vintage`, `howToServe` + `MenuItemInventoryItem.qty/note/deletedAt` (the
-  long-orphaned model is now live). Edited from the Recipes page ITEM LINKS
-  block and from a menu line via PRODUCT INFO (`MenuItemDetailsModal` +
-  `MenuItemEquipmentEditor`, routes `GET/PUT /api/admin/menu-items/[id]/equipment`).
-  Product-reference tables gain derived MENU_FIELD columns TASTING_NOTES /
-  VINTAGE / HOW_TO_SERVE / EQUIPMENT (defaults updated).
+  long-orphaned model is now live). Edited from the Menu Items page PRODUCT INFO
+  (`MenuItemDetailsModal` + `MenuItemEquipmentEditor`, routes
+  `GET/PUT /api/admin/menu-items/[id]/equipment`) and from a menu line via
+  PRODUCT INFO. Product-reference tables gain derived MENU_FIELD columns
+  TASTING_NOTES / VINTAGE / HOW_TO_SERVE / EQUIPMENT (defaults updated).
 - **Guide-level PDF + external URL.** `Guide.pdfPath` (uploaded via
   `POST /api/admin/guides/[id]/attachment`, merged into the guide PDF download)
   and `Guide.pdfUrl` (external link). Both surface in the admin editor and the

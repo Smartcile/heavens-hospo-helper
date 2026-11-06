@@ -14,11 +14,11 @@ describe('hub-tabs', () => {
   })
 
   it('each ops area has its own fine-tab set for the top bar (customers is a leaf)', () => {
-    expect(OPS_SUB_TABS.menu.map((s) => s.id)).toEqual(['recipes', 'menus', 'services'])
+    expect(OPS_SUB_TABS.menu.map((s) => s.id)).toEqual(['menus', 'services'])
     expect(OPS_SUB_TABS.bookings.map((s) => s.id)).toEqual(['diary', 'table', 'deleted'])
     expect(OPS_SUB_TABS.orders.map((s) => s.id)).toEqual(['all', 'service', 'kitchen', 'foh', 'production', 'dockets'])
     expect(OPS_SUB_TABS.orders.find((s) => s.id === 'all')?.title).toContain('EVERY SYNCED ORDER')
-    expect(OPS_SUB_TABS.inventory.map((s) => s.id)).toEqual(['inventory', 'pantry', 'stocktake'])
+    expect(OPS_SUB_TABS.inventory.map((s) => s.id)).toEqual(['inventory', 'recipes', 'menu-items', 'pantry', 'stocktake'])
     expect(OPS_SUB_TABS.customers).toBeUndefined()
   })
 
@@ -48,13 +48,17 @@ describe('hub-tabs', () => {
   })
 
   it('resolveOps resolves the area and defaults the fine sub-tab', () => {
-    expect(resolveOps(null, null)).toEqual({ area: 'menu', sub: 'recipes' })
-    expect(resolveOps('bogus', null)).toEqual({ area: 'menu', sub: 'recipes' })
+    expect(resolveOps(null, null)).toEqual({ area: 'menu', sub: 'menus' })
+    expect(resolveOps('bogus', null)).toEqual({ area: 'menu', sub: 'menus' })
     expect(resolveOps('orders', 'x')).toEqual({ area: 'orders', sub: 'service' })
     expect(resolveOps('menu', 'services')).toEqual({ area: 'menu', sub: 'services' })
     expect(resolveOps('inventory', 'stocktake')).toEqual({ area: 'inventory', sub: 'stocktake' })
+    expect(resolveOps('inventory', 'recipes')).toEqual({ area: 'inventory', sub: 'recipes' })
+    expect(resolveOps('inventory', 'menu-items')).toEqual({ area: 'inventory', sub: 'menu-items' })
     expect(resolveOps('inventory', 'pantry')).toEqual({ area: 'inventory', sub: 'pantry' })
     expect(resolveOps('inventory', 'bogus')).toEqual({ area: 'inventory', sub: 'inventory' })
+    // Legacy bookmark from when recipes lived in MENU & SERVICES.
+    expect(resolveOps('menu', 'recipes')).toEqual({ area: 'inventory', sub: 'recipes' })
     expect(resolveOps('bookings', null)).toEqual({ area: 'bookings', sub: 'table' })
     expect(resolveOps('bookings', 'diary')).toEqual({ area: 'bookings', sub: 'diary' })
     // Leaf areas have no sub.

@@ -60,12 +60,12 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
     sortOrder: 100,
     bodyHtml: [
       '<h2>Menus &amp; products</h2>',
-      '<p><strong>Ops → Menu &amp; Services</strong> has three tabs: RECIPES (products), MENUS &amp; CATEGORIES (the menu builder), and SERVICES (bookable windows).</p>',
+      '<p><strong>Ops → Menu &amp; Services</strong> has MENUS &amp; CATEGORIES (the menu builder) and SERVICES (bookable windows). Recipe and product authoring live under <strong>Inventory &amp; Stocktake</strong>: RECIPES (prep/BOM) and MENU ITEMS (the sold products).</p>',
       '<h3>Build a menu</h3>',
       '<p>Open a menu, add product or stock lines, group them and drag to reorder. A menu is also a WooCommerce category when the store is connected.</p>',
       '<h3>Import a menu from a PDF</h3>',
       '<ol><li>Click <strong>IMPORT MENU</strong>.</li><li>Copy the prompt into an LLM with the PDF attached.</li><li>Paste the JSON answer back (or load the file).</li><li>Review the preview, choose a new or existing menu, then import.</li></ol>',
-      '<p>Imported products have no recipe or store link yet — set those up in RECIPES → IMPORT PRODUCTS.</p>',
+      '<p>Imported products have no recipe or store link yet — find them in <strong>Inventory &amp; Stocktake → MENU ITEMS</strong>, where you can attach a recipe, serves and equipment.</p>',
     ].join(''),
   },
   {
