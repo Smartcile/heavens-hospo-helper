@@ -1,4 +1,6 @@
-# Local quality gate. This replaces the cloud CI run as the default.
+# Optional local pre-flight. GitHub Actions is the gate: the `CI` workflow runs
+# lint, type-check, the full test suite and the Next.js build on every PR.
+# Use this only for a fast local check.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent/check.ps1
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent/check.ps1 -Build

@@ -1,21 +1,25 @@
 name: CI
 
-# Manual-only by default. The local gate is scripts/agent/check.ps1; this
-# workflow is the on-request cloud fallback (Actions -> CI -> Run workflow).
-# To request a run, pick the branch in the Actions tab.
+# The pull-request gate. Everything (lint, type-check, tests and the Next.js
+# production build) runs here, in GitHub Actions — not on the developer machine.
+# Image builds run in docker-build.yml when a branch is pushed to develop/main
+# or a v* tag is pushed.
 
 on:
-  workflow_dispatch: {}
+  pull_request:
+    branches: [develop, main]
+  workflow_dispatch: {} # lets you trigger a check manually from the Actions tab
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   checks:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
 
     steps:
       - name: Checkout
@@ -37,5 +41,13 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Type check
+        run: npm run type-check
+
       - name: Test
-        run: npx turbo run test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'

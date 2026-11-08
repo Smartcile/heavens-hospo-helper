@@ -1,8 +1,9 @@
-# Run the local checks, build the production image and push it to GHCR.
+# OPTIONAL FALLBACK: build the production image and push it to GHCR locally.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent/publish.ps1 -Tag develop
 #
-# This is the local replacement for the automatic GitHub Actions image build.
+# GitHub Actions now builds and pushes the image automatically on a push to
+# develop/main (and v* tags). Use this only when Actions is unavailable.
 # Requires Docker running and a `docker login ghcr.io` with a token that can
 # write packages. Push the source code separately.
 

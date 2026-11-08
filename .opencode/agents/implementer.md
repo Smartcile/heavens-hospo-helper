@@ -45,7 +45,7 @@ Work:
 - Make the smallest change that satisfies the issue.
 - Match existing patterns. Do not refactor unrelated code.
 - Add or update tests for the changed logic.
-- Run `scripts/agent/check.ps1` (or at least `npm run lint` and the relevant tests) before shipping.
+- GitHub Actions runs lint, type-check, tests and the Next.js build on the PR — that is the gate. Run `npm run lint` and the relevant tests locally only for fast feedback, not as a substitute for CI.
 - If the issue changes a model, route, or convention, update the docs.
 - If a schema change is genuinely needed, stop and ask before touching the database.
 
