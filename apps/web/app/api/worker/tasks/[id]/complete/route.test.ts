@@ -15,7 +15,7 @@ const {
     venue: { findUnique: vi.fn() },
     taskCompletion: { findFirst: vi.fn(), update: vi.fn() },
     task: { findUnique: vi.fn() },
-    taskProgress: { deleteMany: vi.fn() },
+    taskProgress: { deleteMany: vi.fn(), upsert: vi.fn() },
     followUp: { updateMany: vi.fn() },
     hsAlert: { create: vi.fn() },
     notice: { create: vi.fn() },
@@ -112,6 +112,21 @@ describe('POST /api/worker/tasks/[id]/complete', () => {
     expect(prisma.taskCompletion.findFirst).toHaveBeenCalledWith({
       where: { taskId: 't1', scheduledDate: expect.anything(), deletedAt: null },
     })
+  })
+
+  // #94 — a PARTIAL must remember which venue-local day it was reported so a
+  // today-only list can reset it the next day.
+  it('stamps the progress day on a PARTIAL', async () => {
+    isTerminalOutcome.mockReturnValue(false)
+    prisma.taskProgress.upsert.mockResolvedValue({ id: 'p1' })
+
+    const res = await POST(req({ outcome: 'PARTIAL', note: 'half done' }), { params: { id: 't1' } })
+
+    expect(res.status).toBe(200)
+    const arg = prisma.taskProgress.upsert.mock.calls[0][0]
+    expect(arg.create.progressDate).toBeInstanceOf(Date)
+    expect(arg.update.progressDate).toBeInstanceOf(Date)
+    expect(arg.create.outcome).toBe('PARTIAL')
   })
 
   it('DELETE returns 404 when there is no active completion for today', async () => {

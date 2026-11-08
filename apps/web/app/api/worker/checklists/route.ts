@@ -92,6 +92,7 @@ export async function GET() {
         : describeNextOpen({ schedules: c.schedules, appearFromTime: c.appearFromTime, events, day: today, nowHHmm, dayOfWeek }),
       allowedOutcomes: c.allowedOutcomes,
       requireOutcomeReason: c.requireOutcomeReason,
+      multiDay: c.multiDay,
       department: c.department,
       section: c.section,
       audiences: c.audiences,
@@ -114,7 +115,7 @@ export async function POST(req: Request) {
   if (!access.canCreateList) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason, schedules, eventIds, audiences } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason, multiDay, schedules, eventIds, audiences } = body
 
   if (!name?.trim()) return NextResponse.json({ error: 'NAME IS REQUIRED' }, { status: 400 })
   if (!taskIds?.length) return NextResponse.json({ error: 'ADD AT LEAST ONE TASK' }, { status: 400 })
@@ -156,6 +157,7 @@ export async function POST(req: Request) {
       appearFromTime: appearFromTime || null,
       allowedOutcomes: normaliseOutcomes(allowedOutcomes),
       requireOutcomeReason: !!requireOutcomeReason,
+      multiDay: !!multiDay,
       audiences: cleanAud.length ? { create: cleanAud } : undefined,
       schedules: scheduleCheck.schedules.length ? { create: scheduleCheck.schedules } : undefined,
       tasks: { create: ids.map((taskId, i) => ({ taskId, sortOrder: i })) },

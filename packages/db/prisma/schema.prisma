@@ -614,13 +614,16 @@ model TaskCompletion {
 // across refreshes and day rollovers; a terminal outcome deletes it in the same
 // transaction as the completion.
 model TaskProgress {
-  id        String      @id @default(uuid())
-  taskId    String      @unique
-  staffId   String
-  note      String?
-  outcome   TaskOutcome @default(PARTIAL)
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  id           String      @id @default(uuid())
+  taskId       String      @unique
+  staffId      String
+  note         String?
+  outcome      TaskOutcome @default(PARTIAL)
+  // Venue-local day the partial was reported. Null = legacy row, treated stale
+  // for a today-only list; a multi-day list keeps it live regardless.
+  progressDate DateTime?   @db.Date
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
   task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
   staff Staff @relation(fields: [staffId], references: [id])
@@ -1662,6 +1665,9 @@ model Checklist {
   // DONE is always allowed. A task can override these (Task.overrideOutcomes).
   allowedOutcomes       TaskOutcome[] @default([])
   requireOutcomeReason  Boolean       @default(false)
+  // SIDE WORK / MULTI-DAY — a PARTIAL stays live across days until a terminal
+  // outcome. Default false = today-only (a stale partial resets the next day).
+  multiDay       Boolean   @default(false)
   sortOrder      Int       @default(0)
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())

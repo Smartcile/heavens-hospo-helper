@@ -110,6 +110,31 @@ describe('/api/admin/checklists schedules', () => {
   })
 })
 
+describe('/api/admin/checklists multi-day', () => {
+  it('persists the multiDay flag on create', async () => {
+    const res = await POST(req({ name: 'SIDE WORK', venueId: 'v1', taskIds: ['t1'], multiDay: true }))
+
+    expect(res.status).toBe(201)
+    expect(prisma.checklist.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ multiDay: true }) }),
+    )
+  })
+
+  it('returns the multiDay flag on the list', async () => {
+    prisma.checklist.findMany.mockResolvedValue([{
+      id: 'c1', name: 'SIDE WORK', description: null, venueId: 'v1',
+      departmentId: null, sectionId: null, appearFromTime: null, activatedOn: null,
+      allowedOutcomes: [], requireOutcomeReason: false, multiDay: true,
+      department: null, section: null, audiences: [], schedules: [], events: [], tasks: [],
+    }])
+
+    const res = await GET(getRequest('http://localhost/api/admin/checklists?venueId=v1'))
+    const body = await res.json()
+
+    expect(body[0].multiDay).toBe(true)
+  })
+})
+
 describe('/api/admin/checklists events', () => {
   it('creates the selected event links', async () => {
     prisma.calendarEvent.count.mockResolvedValue(2)

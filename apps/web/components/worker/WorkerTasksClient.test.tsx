@@ -648,7 +648,7 @@ describe('WorkerTasksClient', () => {
     })
   })
 
-  it('keeps settled outcomes in the list, below the pending tasks', async () => {
+  it('hides settled outcomes by default and reveals them below the pending tasks', async () => {
     mockTasks([
       { ...BASE_TASK, id: 't1', title: 'STILL TO DO' },
       {
@@ -659,8 +659,14 @@ describe('WorkerTasksClient', () => {
     ])
     render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
 
-    await waitFor(() => expect(screen.getByText('WAS NOT NEEDED')).toBeDefined())
+    await waitFor(() => expect(screen.getByText('STILL TO DO')).toBeDefined())
+    // Settlement work is collapsed behind SHOW FINISHED.
+    expect(screen.queryByText('WAS NOT NEEDED')).toBeNull()
     expect(screen.queryByText('HANDLED — NOT DONE')).toBeNull()
+
+    fireEvent.click(screen.getByText('SHOW FINISHED (1)'))
+
+    await waitFor(() => expect(screen.getByText('WAS NOT NEEDED')).toBeDefined())
     expect(screen.getByText('NOT REQUIRED')).toBeDefined()
     expect(screen.getByText('REOPEN')).toBeDefined()
   })
@@ -675,6 +681,7 @@ describe('WorkerTasksClient', () => {
     ])
     render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
 
+    fireEvent.click(await screen.findByText('SHOW FINISHED (1)'))
     await waitFor(() => expect(screen.getByText('UNTICK')).toBeDefined())
     fireEvent.click(screen.getByText('UNTICK'))
 
@@ -683,6 +690,93 @@ describe('WorkerTasksClient', () => {
         ([url, init]) => String(url) === '/api/worker/tasks/t2/complete' && init?.method === 'DELETE',
       )
       expect(call).toBeDefined()
+    })
+  })
+
+  it('renders a distinct status box per outcome and strikes NOT_REQUIRED', async () => {
+    mockTasks([
+      {
+        ...BASE_TASK, id: 't1', title: 'DONE ONE', isCompleted: true, isSettled: true,
+        isDone: true, outcome: 'DONE', canUndo: true,
+        completion: { id: 'c1', note: null, photoUrl: null, completedAt: new Date(), outcome: 'DONE' },
+      },
+      {
+        ...BASE_TASK, id: 't2', title: 'NOT NEEDED', isCompleted: true, isSettled: true,
+        outcome: 'NOT_REQUIRED', canUndo: true,
+        completion: { id: 'c2', note: null, photoUrl: null, completedAt: new Date(), outcome: 'NOT_REQUIRED' },
+      },
+      {
+        ...BASE_TASK, id: 't3', title: 'FAILED', isCompleted: true, isSettled: true,
+        outcome: 'DID_NOT_COMPLETE', canUndo: true,
+        completion: { id: 'c3', note: null, photoUrl: null, completedAt: new Date(), outcome: 'DID_NOT_COMPLETE' },
+      },
+      {
+        ...BASE_TASK, id: 't4', title: 'HALF DONE',
+        inProgress: { note: null, byName: null, since: new Date().toISOString() },
+      },
+    ])
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('HALF DONE')).toBeDefined())
+    expect(screen.getByLabelText('IN PROGRESS STATUS')).toBeDefined()
+
+    fireEvent.click(screen.getByText('SHOW FINISHED (3)'))
+
+    await waitFor(() => expect(screen.getByText('NOT NEEDED')).toBeDefined())
+    expect(screen.getByLabelText('DONE STATUS')).toBeDefined()
+    expect(screen.getByLabelText('NOT REQUIRED STATUS')).toBeDefined()
+    expect(screen.getByLabelText('DID NOT COMPLETE STATUS')).toBeDefined()
+
+    const notNeeded = screen.getByText('NOT NEEDED')
+    expect(notNeeded.className).toContain('line-through')
+    expect(notNeeded.className).toContain('text-grey-light')
+  })
+
+  it('sorts a fully finished list below an unfinished one and keeps it collapsed', async () => {
+    const openTask = { ...BASE_TASK, id: 'o1', title: 'OPEN JOB' }
+    const doneTask = {
+      ...BASE_TASK, id: 'd1', title: 'DONE JOB', isCompleted: true, isSettled: true,
+      isDone: true, outcome: 'DONE', canUndo: true,
+      completion: { id: 'cd', note: null, photoUrl: null, completedAt: new Date(), outcome: 'DONE' },
+    }
+    const list = (id: string, name: string, taskIds: string[]) =>
+      ({ id, name, appearFromTime: null, activatedToday: false, openNow: true, taskIds })
+    mockTasks(
+      [openTask, doneTask],
+      [list('c1', 'SETUP', ['o1']), list('c2', 'CLOSE', ['d1'])],
+    )
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('SETUP')).toBeDefined())
+    const setup = screen.getByText('SETUP')
+    const close = screen.getByText('CLOSE')
+    // CLOSE is fully settled, so it moves below the unfinished SETUP list.
+    expect(setup.compareDocumentPosition(close) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByText('ALL FINISHED · TAP TO VIEW')).toBeDefined()
+    // Its finished work is collapsed until toggled.
+    expect(screen.queryByText('DONE JOB')).toBeNull()
+  })
+
+  it('saves the multi-day flag from the worker list editor', async () => {
+    const fetchMock = mockEditApi()
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" access={FULL_ACCESS} />)
+
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    fireEvent.click(screen.getByText('EDIT MODE'))
+    await waitFor(() => expect(screen.getByLabelText('EDIT CHECKLIST OPENING')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('EDIT CHECKLIST OPENING'))
+    await waitFor(() => expect(screen.getByText('EDIT CHECKLIST')).toBeDefined())
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /SIDE WORK/ }))
+    fireEvent.click(screen.getByTestId('worker-checklist-save'))
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/worker/checklists/c1' && init?.method === 'PUT',
+      )
+      expect(put).toBeDefined()
+      const body = JSON.parse(String((put![1] as RequestInit).body))
+      expect(body.multiDay).toBe(true)
     })
   })
 })

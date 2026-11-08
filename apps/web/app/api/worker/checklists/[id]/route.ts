@@ -23,7 +23,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (existing.venueId !== session.venueId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason, schedules, eventIds, audiences } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason, multiDay, schedules, eventIds, audiences } = body
 
   let scheduleData: ReturnType<typeof validateSchedules> | null = null
   if (schedules !== undefined) {
@@ -71,6 +71,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       ...(appearFromTime !== undefined && { appearFromTime: appearFromTime || null }),
       ...(allowedOutcomes !== undefined && { allowedOutcomes: normaliseOutcomes(allowedOutcomes) }),
       ...(requireOutcomeReason !== undefined && { requireOutcomeReason: !!requireOutcomeReason }),
+      ...(multiDay !== undefined && { multiDay: !!multiDay }),
       ...(audiences !== undefined && {
         audiences: { deleteMany: {}, create: cleanNoticeAudiences(audiences) },
       }),

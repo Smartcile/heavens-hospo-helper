@@ -88,6 +88,7 @@ interface Checklist {
   events?: CalendarEventSummary[]
   allowedOutcomes?: string[]
   requireOutcomeReason?: boolean
+  multiDay?: boolean
   department: { id: string; name: string } | null
   section: { id: string; name: string } | null
   audiences?: { kind: string; targetId: string }[]
@@ -222,6 +223,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   }>({ departments: [], sections: [], positions: [] })
   const [clAllowedOutcomes, setClAllowedOutcomes] = useState<TaskOutcome[]>([...TASK_OUTCOMES])
   const [clRequireReason, setClRequireReason] = useState(false)
+  const [clMultiDay, setClMultiDay] = useState(false)
   const [clSaving, setClSaving] = useState(false)
   const [clError, setClError] = useState('')
   const [activateError, setActivateError] = useState('')
@@ -415,7 +417,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClDeptId(''); setClSectionId(''); setClSelected([]); setClAppearFrom(''); setClGlobalTo(''); setClError('')
     setClSchedules([]); setClEventIds([]); setClAudiences([])
     void loadAudienceOptions(venueId)
-    setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false)
+    setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false); setClMultiDay(false)
     setFilterUsage('notinthis')
   }
   function openChecklistEdit(c: Checklist) {
@@ -432,6 +434,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     void loadAudienceOptions(c.venueId)
     setClAllowedOutcomes((c.allowedOutcomes?.length ? c.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[])
     setClRequireReason(!!c.requireOutcomeReason)
+    setClMultiDay(!!c.multiDay)
     // Auto-scope left panel filters to match this checklist
     if (c.venueId) setFilterVenue(c.venueId)
     if (c.departmentId) setFilterDept(c.departmentId)
@@ -479,7 +482,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (!clName.trim() || !clVenueId) { setClError('NAME AND VENUE ARE REQUIRED'); return }
     if (clSelected.length === 0) { setClError('ADD AT LEAST ONE TASK'); return }
     setClSaving(true); setClError('')
-    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clSchedules.length ? null : (clAppearFrom || null), schedules: clSchedules.map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })), eventIds: clEventIds, audiences: clAudiences, taskIds: clSelected, allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason }
+    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clSchedules.length ? null : (clAppearFrom || null), schedules: clSchedules.map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })), eventIds: clEventIds, audiences: clAudiences, taskIds: clSelected, allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason, multiDay: clMultiDay }
     const url = clEditing && clEditing !== 'new' ? `/api/admin/checklists/${clEditing.id}` : '/api/admin/checklists'
     const method = clEditing && clEditing !== 'new' ? 'PUT' : 'POST'
     const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -895,6 +898,21 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 inheritedLabel="APPLIES TO EVERY TASK IN THIS LIST UNLESS THE TASK OVERRIDES IT"
               />
 
+              <div className="border border-grey-mid p-3 space-y-1">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={clMultiDay}
+                    onChange={(e) => setClMultiDay(e.target.checked)}
+                    className="mt-0.5 accent-white"
+                  />
+                  <span className="font-mono text-xs uppercase text-white">SIDE WORK / MULTI-DAY — KEEP IN PROGRESS UNTIL DONE</span>
+                </label>
+                <p className="font-mono text-xs uppercase text-grey-light pl-6">
+                  A PARTIAL ON THIS LIST STAYS ON THE FLOOR ACROSS DAYS. WITHOUT THIS, A PARTIAL RESETS AT THE NEXT VENUE DAY.
+                </p>
+              </div>
+
               <div className="space-y-1">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Tasks in this checklist (drag in from the left)</label>
                 <div
@@ -971,6 +989,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                         {c.section ? <Badge>{c.section.name}</Badge> : c.department ? <Badge>{c.department.name}</Badge> : <Badge>WHOLE VENUE</Badge>}
                         {c.schedules?.length ? <Badge variant="warning">{c.schedules.length} WINDOWS</Badge> : c.appearFromTime && <Badge variant="warning">FROM {c.appearFromTime}</Badge>}
                         {c.events?.filter((e) => !e.deletedAt).map((e) => <Badge key={e.id}>EVENT: {e.title}</Badge>)}
+                        {c.multiDay && <Badge>MULTI-DAY</Badge>}
                         {isActivatedOn(c.activatedOn, today) && <Badge variant="success">ACTIVE TODAY</Badge>}
                         <span className="font-mono text-xs text-grey-light">{c.tasks.length} TASK{c.tasks.length !== 1 ? 'S' : ''}</span>
                       </div>
