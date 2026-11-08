@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { render, fireEvent, waitFor, screen } from '@testing-library/react'
+import { render, fireEvent, waitFor, screen, act } from '@testing-library/react'
 
 const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }))
 
@@ -778,5 +778,57 @@ describe('WorkerTasksClient', () => {
       const body = JSON.parse(String((put![1] as RequestInit).body))
       expect(body.multiDay).toBe(true)
     })
+  })
+
+  it("reloads and shows another worker's completion when the window regains focus", async () => {
+    let call = 0
+    const doneTask = {
+      ...BASE_TASK, isCompleted: true, isSettled: true, isDone: true, outcome: 'DONE', canUndo: true,
+      completion: { id: 'c1', note: null, photoUrl: null, completedAt: new Date(), outcome: 'DONE' },
+    }
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') {
+        call++
+        return json({
+          tasks: call === 1 ? [BASE_TASK] : [doneTask],
+          checklists: [CHECKLIST_SUMMARY],
+          firstName: 'BAR',
+        })
+      }
+      return json({})
+    })
+
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    expect(screen.queryByText(/SHOW FINISHED/)).toBeNull()
+
+    act(() => { window.dispatchEvent(new Event('focus')) })
+
+    await waitFor(() => expect(screen.getByText('SHOW FINISHED (1)')).toBeDefined())
+    expect(call).toBeGreaterThanOrEqual(2)
+  })
+
+  it('pauses live-refresh while the task modal is open', async () => {
+    let call = 0
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') {
+        call++
+        return json({ tasks: [BASE_TASK], checklists: [CHECKLIST_SUMMARY], firstName: 'BAR' })
+      }
+      return json({})
+    })
+
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    const before = call
+
+    fireEvent.click(screen.getByText('WIPE BENCHES'))
+    await waitFor(() => expect(screen.getByText('WHAT HAPPENED?')).toBeDefined())
+
+    act(() => { window.dispatchEvent(new Event('focus')) })
+    await Promise.resolve()
+    expect(call).toBe(before)
   })
 })

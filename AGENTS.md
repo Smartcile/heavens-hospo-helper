@@ -1923,6 +1923,15 @@ staffId). So once anyone ticks a job it's done for the team (the list shows "BY
 <name>"), preventing double-ups. Personally-assigned tasks still show, tagged
 `FOR <name>`, but anyone can complete them.
 
+**Live refresh (#96, built 2026-11).** The dashboard TASKS tile and the open
+`/w/tasks` list poll `GET /api/worker/tasks` every 30 s **while the tab is
+visible**, refresh immediately on `visibilitychange` → visible / window `focus`
+and (dashboard) on returning from an iframe tile or browser back, and update in
+place without a LOADING flash. Polling **pauses** while a task/checklist editor,
+a task completion modal or edit mode is open so an in-flight form is never
+clobbered. The shared hook is `lib/use-live-refresh.ts` (`shouldPoll` +
+`useLiveRefresh`); it is the one place the timer/visibility/focus logic lives.
+
 ### Task outcomes, PARTIAL carry-over & admin hierarchy (built 2026-10)
 
 Opening a worker task now asks **what happened**, not just "Mark Done":
@@ -3183,6 +3192,7 @@ pre-flight.
 | `lib/array.ts` — `moveItem` | ✅ |
 | `lib/cell-fill.ts` — `fillRect`, `fillTargets`, `inFillRect` (drag-fill rectangles), `dayRange`, `toggleSelection` (bulk-clear selection) | ✅ (11 tests) |
 | `lib/use-scroll-restore.ts` — `captureScroll`, `restoreScroll`, `useScrollRestore` (in-place refresh) | ✅ (4 tests) |
+| `lib/use-live-refresh.ts` — `shouldPoll` + `useLiveRefresh` (visibility-gated interval, focus/visibility refresh, cleanup) | ✅ (7 tests) |
 | `lib/booth-trace.ts` — `traceBoothPerimeter` | ✅ |
 | `lib/breaks.ts` — `nzBreakEntitlement`, `shiftHours`, `formatBreaks` | ✅ |
 | `lib/budget-math.ts` — `generateDailyBudgetsNormalized`, `computeBreakdowns` | ✅ |
@@ -3279,12 +3289,12 @@ pre-flight.
 | `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |
 | `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (19 tests) |
-| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, finished collapse + SHOW FINISHED, coloured status boxes, finished-list sort, multi-day editor, settled UNTICK/REOPEN, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, subtask grouping/ADD SUBTASK, dual early-return paths | ✅ (31 tests) |
+| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, finished collapse + SHOW FINISHED, coloured status boxes, finished-list sort, multi-day editor, settled UNTICK/REOPEN, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, subtask grouping/ADD SUBTASK, dual early-return paths, live-refresh on focus + pause while an editor is open | ✅ (33 tests) |
 | `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, multi-day list flag, subtask indent/add/parent picker, scroll restore after load, linked item + rich description | ✅ (15 tests) |
 | `MenuItemsClient.test.tsx` — recipe-less product listed and saved with `recipeId: null` | ✅ (1 test) |
 | `RecipesClient.test.tsx` — volume/weight display + header opens the shared recipe importer | ✅ (5 tests) |
 | `components/import/ImportModal.test.tsx` — generic rows + custom summary, per-row value patch (`REPLACE LINES`) posted to the given endpoint, default menu-item summary, parse error | ✅ (3 tests) |
-| `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard | ✅ (2 tests) |
+| `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard + live TASKS tile refresh (tile return + window focus) | ✅ (4 tests) |
 | `ReportsClient.tsx` — OUTCOME badge distinguishes non-DONE rows | ✅ (1 test) |
 | `WorkerSessionGuard.tsx` — idle logout/redirect, activity refresh, refresh throttle, iframe activity relay | ✅ (6 tests) |
 | `lib/worker-task-access.ts` — grant matrix (ADMIN/MANAGER bypass, CREATE/EDIT/DELETE, list OR mapping) | ✅ (6 tests) |
