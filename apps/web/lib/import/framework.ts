@@ -8,6 +8,11 @@ export function setRowAction<T>(rows: ImportRow<T>[], id: string, action: Import
   return rows.map((row) => (row.id === id ? { ...row, action, include: action !== 'SKIP' } : row))
 }
 
+/** Patch part of one row's values (e.g. a per-row REPLACE LINES toggle). */
+export function patchRowValues<T>(rows: ImportRow<T>[], id: string, patch: Partial<T>): ImportRow<T>[] {
+  return rows.map((row) => (row.id === id ? { ...row, values: { ...row.values, ...patch } } : row))
+}
+
 export function includedRows<T>(rows: ImportRow<T>[]): ImportRow<T>[] {
   return rows.filter((row) => row.include && row.action !== 'SKIP')
 }

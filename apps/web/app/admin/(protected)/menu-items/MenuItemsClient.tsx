@@ -378,6 +378,8 @@ export function MenuItemsClient({
           title="IMPORT MENU ITEMS"
           prompt={buildMenuItemImportPrompt()}
           existing={items.map((i): ImportExisting => ({ id: i.id, name: i.name }))}
+          endpoint="/api/admin/import/menu-items"
+          venueId={venueId}
           parse={(text, existing) => {
             const parsed = parseMenuItemImportAnswer(text)
             return 'error' in parsed ? parsed : { ...parsed, rows: matchMenuItemRows(parsed.rows, existing) }

@@ -1,37 +1,56 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
-import { setRowAction, setRowInclude, summariseRows, rowsToPayload } from '@/lib/import/framework'
+import { patchRowValues, setRowAction, setRowInclude, summariseRows, rowsToPayload } from '@/lib/import/framework'
 import type { ImportExisting, ImportParseResult, ImportRow, ImportRowAction, ImportSummary } from '@/lib/import/types'
-import type { MenuItemImportValues } from '@/lib/import/menu-item'
 
-export function ImportModal({
+export function ImportModal<T>({
   title,
   prompt,
   existing,
   parse,
+  endpoint,
+  venueId,
+  renderSummary,
+  renderRowControls,
   onClose,
   onImported,
 }: {
   title: string
   prompt: string
   existing: ImportExisting[]
-  parse: (text: string, existing: ImportExisting[]) => ImportParseResult<MenuItemImportValues> | { error: string }
+  parse: (text: string, existing: ImportExisting[]) => ImportParseResult<T> | { error: string }
+  /** POST target for the reviewed rows, e.g. `/api/admin/import/menu-items`. */
+  endpoint: string
+  /** Active venue for an ADMIN (a MANAGER is always locked to their own). */
+  venueId?: string
+  /** Optional row title/meta renderer. Defaults to `name` + `$price` (menu items). */
+  renderSummary?: (values: T) => { title: string; meta?: string | null }
+  /** Optional per-row control rendered beside the action select. */
+  renderRowControls?: (row: ImportRow<T>, patch: (next: Partial<T>) => void) => ReactNode
   onClose: () => void
   onImported: () => void
 }) {
   const [step, setStep] = useState<'PROMPT' | 'PASTE' | 'PREVIEW'>('PROMPT')
   const [answer, setAnswer] = useState('')
-  const [rows, setRows] = useState<ImportRow<MenuItemImportValues>[]>([])
-  const [issues, setIssues] = useState<ImportParseResult<MenuItemImportValues>['issues']>([])
+  const [rows, setRows] = useState<ImportRow<T>[]>([])
+  const [issues, setIssues] = useState<ImportParseResult<T>['issues']>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [summary, setSummary] = useState<ImportSummary | null>(null)
   const [copied, setCopied] = useState(false)
 
   const counts = useMemo(() => summariseRows(rows), [rows])
+
+  function summaryFor(values: T): { title: string; meta?: string | null } {
+    const custom = renderSummary?.(values)
+    if (custom) return custom
+    // Menu-item default (kept identical to the original hardcoded row).
+    const v = values as unknown as { name?: string; price?: number | null }
+    return { title: v.name ?? '', meta: v.price != null ? `$${v.price.toFixed(2)}` : 'NO PRICE' }
+  }
 
   function copyPrompt() {
     void navigator.clipboard?.writeText(prompt).then(
@@ -66,10 +85,10 @@ export function ImportModal({
   async function importRows() {
     setBusy(true); setError('')
     try {
-      const r = await fetch('/api/admin/import/menu-items', {
+      const r = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: rowsToPayload(rows) }),
+        body: JSON.stringify({ venueId, rows: rowsToPayload(rows) }),
       })
       const data = await r.json().catch(() => ({}))
       if (!r.ok) { setError(data.error ?? 'IMPORT FAILED'); return }
@@ -144,48 +163,50 @@ export function ImportModal({
             </div>
 
             <div className="border border-grey-mid max-h-[50vh] overflow-y-auto divide-y divide-grey-mid">
-              {rows.map((row) => (
-                <div key={row.id} className="p-2 space-y-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <input
-                      type="checkbox"
-                      checked={row.include}
-                      onChange={(e) => setRows((prev) => setRowInclude(prev, row.id, e.target.checked))}
-                      className="accent-white"
-                    />
-                    <span className="font-mono text-xs uppercase text-white">{row.values.name}</span>
-                    <span className="font-mono text-xs text-grey-light">
-                      {row.values.price != null ? `$${row.values.price.toFixed(2)}` : 'NO PRICE'}
-                    </span>
-                    {row.match && (
-                      <span className={`font-mono text-xs uppercase border px-1.5 py-0.5 ${
-                        row.match.status === 'NEW'
-                          ? 'text-success border-success/50'
-                          : row.match.status === 'SIMILAR' || row.match.status === 'DUPLICATE_IN_FILE'
-                            ? 'text-warning border-warning/50'
-                            : 'text-grey-light border-grey-mid'
-                      }`}>
-                        {row.match.status}{row.match.label ? `: ${row.match.label}` : ''}
-                      </span>
-                    )}
-                    <select
-                      value={row.action}
-                      onChange={(e) => setRows((prev) => setRowAction(prev, row.id, e.target.value as ImportRowAction))}
-                      className="ml-auto bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white"
-                    >
-                      <option value="CREATE">CREATE</option>
-                      <option value="UPDATE">UPDATE</option>
-                      <option value="REVIVE">REVIVE</option>
-                      <option value="SKIP">SKIP</option>
-                    </select>
+              {rows.map((row) => {
+                const summary = summaryFor(row.values)
+                return (
+                  <div key={row.id} className="p-2 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <input
+                        type="checkbox"
+                        checked={row.include}
+                        onChange={(e) => setRows((prev) => setRowInclude(prev, row.id, e.target.checked))}
+                        className="accent-white"
+                      />
+                      <span className="font-mono text-xs uppercase text-white">{summary.title}</span>
+                      {summary.meta && <span className="font-mono text-xs text-grey-light">{summary.meta}</span>}
+                      {row.match && (
+                        <span className={`font-mono text-xs uppercase border px-1.5 py-0.5 ${
+                          row.match.status === 'NEW'
+                            ? 'text-success border-success/50'
+                            : row.match.status === 'SIMILAR' || row.match.status === 'DUPLICATE_IN_FILE'
+                              ? 'text-warning border-warning/50'
+                              : 'text-grey-light border-grey-mid'
+                        }`}>
+                          {row.match.status}{row.match.label ? `: ${row.match.label}` : ''}
+                        </span>
+                      )}
+                      {renderRowControls?.(row, (next) => setRows((prev) => patchRowValues(prev, row.id, next)))}
+                      <select
+                        value={row.action}
+                        onChange={(e) => setRows((prev) => setRowAction(prev, row.id, e.target.value as ImportRowAction))}
+                        className="ml-auto bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white"
+                      >
+                        <option value="CREATE">CREATE</option>
+                        <option value="UPDATE">UPDATE</option>
+                        <option value="REVIVE">REVIVE</option>
+                        <option value="SKIP">SKIP</option>
+                      </select>
+                    </div>
+                    {row.issues.map((issue, i) => (
+                      <p key={i} className={`font-mono text-xs uppercase pl-5 ${issue.severity === 'ERROR' ? 'text-danger' : 'text-warning'}`}>
+                        {issue.message}
+                      </p>
+                    ))}
                   </div>
-                  {row.issues.map((issue, i) => (
-                    <p key={i} className={`font-mono text-xs uppercase pl-5 ${issue.severity === 'ERROR' ? 'text-danger' : 'text-warning'}`}>
-                      {issue.message}
-                    </p>
-                  ))}
-                </div>
-              ))}
+                )
+              })}
             </div>
 
             {issues.length > 0 && (
