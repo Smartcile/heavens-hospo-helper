@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { getTodayDate } from '@/lib/utils'
-import { isTaskDueOnDate } from '@/lib/scheduling'
+import { isTaskDueOnDate, formatDateKey } from '@/lib/scheduling'
+import { carryTaskToday, isProgressLive, isStaleProgress } from '@/lib/task-progress'
 import { isActivatedOn, isChecklistOpen, describeNextOpen, weekdayOf, summariseCalendarEvent } from '@/lib/checklist-activation'
 import { resolveOutcomePolicyForChecklists, normaliseOutcomes, type OutcomePolicyChecklist } from '@/lib/task-outcomes'
 import { applicableChecklistsForStaff } from '@/lib/checklist-applicability.server'
@@ -140,47 +141,13 @@ export async function GET(req: NextRequest) {
             orderBy: { completedAt: 'desc' },
             take: 1,
           },
-          progress: { select: { id: true } },
+          progress: { select: { id: true, progressDate: true } },
         },
         orderBy: [{ subtaskOrder: 'asc' }, { title: 'asc' }],
       },
     },
     orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }],
   })
-
-  // A task with an in-progress PARTIAL row stays visible even when it is not due
-  // today (a job that spans more than a day).
-  const todayTasks = tasks.filter((t) => isTaskDueOnDate(t, today) || !!t.progress)
-
-  // ── Rollover handling ──
-  // A rolled-over one-off completed on its dueDate should not reappear today.
-  const rolledTasks = todayTasks.filter((t) => t.isOneOff && t.rolloverEnabled && t.dueDate)
-  if (rolledTasks.length > 0) {
-    const rolledCompletions = await prisma.taskCompletion.findMany({
-      where: {
-        taskId: { in: rolledTasks.map((t) => t.id) },
-        scheduledDate: { in: [...new Set(rolledTasks.map((t) => new Date(t.dueDate!)))] },
-        deletedAt: null,
-      },
-      select: { taskId: true, id: true, note: true, photoUrl: true, completedAt: true, outcome: true, staff: { select: { firstName: true, lastName: true } } },
-      orderBy: { completedAt: 'desc' },
-    })
-    const completedMap = new Map(rolledCompletions.map((c) => [c.taskId, c]))
-    // Attach the completion from the due date to the task so the UI marks it done
-    for (const t of rolledTasks) {
-      const c = completedMap.get(t.id)
-      if (c && !t.taskCompletions.some((tc) => tc.id === c.id)) {
-        ;(t as any).taskCompletions = [c]
-      }
-    }
-  }
-
-  // Resolve names for any personally-assigned tasks (shown as a tag, still shared).
-  const assigneeIds = [...new Set(todayTasks.map((t) => t.assignedToStaffId).filter(Boolean))] as string[]
-  const assignees = assigneeIds.length
-    ? await prisma.staff.findMany({ where: { id: { in: assigneeIds } }, select: { id: true, firstName: true, lastName: true } })
-    : []
-  const assigneeName = new Map(assignees.map((s) => [s.id, `${s.firstName} ${s.lastName}`]))
 
   // Checklists ("lists") for this floor — they gate visibility by appear-from
   // time and stay until everything's settled. Audience/department rules live in
@@ -215,9 +182,76 @@ export async function GET(req: NextRequest) {
             nowHHmm,
             dayOfWeek: weekdayOf(today),
           }),
+      // SIDE WORK / MULTI-DAY — partials stay in progress across days.
+      multiDay: c.multiDay,
       taskIds: c.tasks.map((ct) => ct.taskId),
     }
   })
+
+  // Any task in a multi-day (side work) list keeps its PARTIAL live across days.
+  const multiDayTaskIds = new Set<string>()
+  for (const c of checklists) {
+    if (!c.multiDay) continue
+    for (const ct of c.tasks) multiDayTaskIds.add(ct.taskId)
+  }
+  const todayKey = formatDateKey(today)
+
+  // Keep a task that is due today, OR carries a live PARTIAL. Yesterday's partial
+  // on a today-only list no longer carries (the day-aware rule in task-progress).
+  const todayTasks = tasks.filter((t) =>
+    carryTaskToday({
+      isDueToday: isTaskDueOnDate(t, today),
+      progress: t.progress,
+      todayKey,
+      multiDay: multiDayTaskIds.has(t.id),
+    }),
+  )
+
+  // Best-effort reset of this floor's stale today-only partials. Only runs when
+  // a loaded row is actually stale, and `isStaleProgress` never flags a
+  // multi-day row. One bounded write in the GET keeps the floor and the
+  // follow-up engine in agreement.
+  const staleProgressTaskIds = tasks
+    .filter((t) =>
+      t.progress &&
+      isStaleProgress(t.progress.progressDate, todayKey, { multiDay: multiDayTaskIds.has(t.id) }),
+    )
+    .map((t) => t.id)
+  if (staleProgressTaskIds.length > 0) {
+    try {
+      await prisma.taskProgress.deleteMany({ where: { taskId: { in: staleProgressTaskIds } } })
+    } catch { /* never block the list */ }
+  }
+
+  // ── Rollover handling ──
+  // A rolled-over one-off completed on its dueDate should not reappear today.
+  const rolledTasks = todayTasks.filter((t) => t.isOneOff && t.rolloverEnabled && t.dueDate)
+  if (rolledTasks.length > 0) {
+    const rolledCompletions = await prisma.taskCompletion.findMany({
+      where: {
+        taskId: { in: rolledTasks.map((t) => t.id) },
+        scheduledDate: { in: [...new Set(rolledTasks.map((t) => new Date(t.dueDate!)))] },
+        deletedAt: null,
+      },
+      select: { taskId: true, id: true, note: true, photoUrl: true, completedAt: true, outcome: true, staff: { select: { firstName: true, lastName: true } } },
+      orderBy: { completedAt: 'desc' },
+    })
+    const completedMap = new Map(rolledCompletions.map((c) => [c.taskId, c]))
+    // Attach the completion from the due date to the task so the UI marks it done
+    for (const t of rolledTasks) {
+      const c = completedMap.get(t.id)
+      if (c && !t.taskCompletions.some((tc) => tc.id === c.id)) {
+        ;(t as any).taskCompletions = [c]
+      }
+    }
+  }
+
+  // Resolve names for any personally-assigned tasks (shown as a tag, still shared).
+  const assigneeIds = [...new Set(todayTasks.map((t) => t.assignedToStaffId).filter(Boolean))] as string[]
+  const assignees = assigneeIds.length
+    ? await prisma.staff.findMany({ where: { id: { in: assigneeIds } }, select: { id: true, firstName: true, lastName: true } })
+    : []
+  const assigneeName = new Map(assignees.map((s) => [s.id, `${s.firstName} ${s.lastName}`]))
 
   // The policy hierarchy is checklist → task override. Build the per-task list
   // once; the pure resolver picks the first open list, matching how the client
@@ -267,13 +301,15 @@ export async function GET(req: NextRequest) {
       outcome: c?.outcome ?? null,
       allowedOutcomes: policy.allowed,
       requireOutcomeReason: policy.requireReason,
-      inProgress: t.progress
-        ? {
-            note: t.progress.note,
-            byName: `${t.progress.staff.firstName} ${t.progress.staff.lastName}`,
-            since: t.progress.createdAt.toISOString(),
-          }
-        : null,
+      inProgress:
+        t.progress &&
+        isProgressLive(t.progress.progressDate, todayKey, { multiDay: multiDayTaskIds.has(t.id) })
+          ? {
+              note: t.progress.note,
+              byName: `${t.progress.staff.firstName} ${t.progress.staff.lastName}`,
+              since: t.progress.createdAt.toISOString(),
+            }
+          : null,
       completedByName: c ? `${c.staff.firstName} ${c.staff.lastName}` : null,
       completion: c
         ? { id: c.id, note: c.note, photoUrl: c.photoUrl, completedAt: c.completedAt, outcome: c.outcome }
@@ -310,7 +346,9 @@ export async function GET(req: NextRequest) {
         subtaskOrder: s.subtaskOrder,
         isCompleted: s.taskCompletions.length > 0,
         isDone: s.taskCompletions[0]?.outcome === 'DONE',
-        inProgress: !!s.progress,
+        inProgress:
+          !!s.progress &&
+          isProgressLive(s.progress.progressDate, todayKey, { multiDay: multiDayTaskIds.has(t.id) }),
       })),
     }
   })

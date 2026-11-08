@@ -75,6 +75,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     events: c.events.map((e) => summariseCalendarEvent(e.calendarEvent)),
     allowedOutcomes: c.allowedOutcomes,
     requireOutcomeReason: c.requireOutcomeReason,
+    multiDay: c.multiDay,
     tasks: c.tasks.filter((ct) => ct.task && !ct.task.deletedAt).map((ct) => ct.task),
   })
 }
@@ -108,6 +109,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.appearFromTime !== undefined) updates.appearFromTime = body.appearFromTime?.trim() || null
   if (body.allowedOutcomes !== undefined) updates.allowedOutcomes = normaliseOutcomes(body.allowedOutcomes)
   if (body.requireOutcomeReason !== undefined) updates.requireOutcomeReason = !!body.requireOutcomeReason
+  if (body.multiDay !== undefined) updates.multiDay = !!body.multiDay
   if (body.isActive !== undefined) updates.isActive = !!body.isActive
   if (body.schedules !== undefined) {
     const scheduleCheck = validateSchedules(body.schedules)

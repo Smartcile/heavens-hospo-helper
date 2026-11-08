@@ -1692,6 +1692,9 @@ The in-app user help is a **global, read-only catalogue**, not per-venue guides.
   list; a list with no audiences keeps the legacy department scoping. The
   gated-lists panel with ACTIVATE/DEACTIVATE lives on the Execution → TASKS page.
   Note: the audience editor is API + resolver only — not surfaced in the UI yet.
+- **Multi-day (side work) lists.** `Checklist.multiDay` (default false) marks a
+  list whose tasks run over several days; its PARTIALs stay live until a terminal
+  outcome (see "Carry-over details"). Toggled in both list editors; see issue #94.
 
 ### Linked subtasks (Phase 4 of #68, built 2026-11)
 
@@ -1966,13 +1969,35 @@ NOT DONE", review list). `DID_NOT_COMPLETE` is **not** treated as handled by
 the floor is still working on it), and pathway task nodes only count `DONE`
 completions.
 
-**Carry-over details.** `TaskProgress.taskId` is unique, so there is one
-shared in-progress state per task. The worker GET includes any task with a
-progress row even when `isTaskDueOnDate` is false for today. A terminal outcome
-deletes the progress row in the same transaction as the completion. The worker
-card shows `IN PROGRESS · <name>` with the latest note; a list stays visible
-until every task is **settled** (DONE / NOT_REQUIRED / DID_NOT_COMPLETE), not
-only DONE.
+**Carry-over details (day-aware, #94).** `TaskProgress.taskId` is unique, so
+there is one shared in-progress state per task, and `TaskProgress.progressDate`
+(venue-local `@db.Date`) records the day it was reported. `lib/task-progress.ts`
+is the single pure rule: a PARTIAL carries into today only when its
+`progressDate` is today **or** the task sits in a multi-day list. A PARTIAL left
+on a daily list therefore **resets the next venue day**; a null `progressDate`
+(legacy row) is stale. The worker GET filters on `carryTaskToday`, only exposes
+`inProgress` for a live row, and best-effort `deleteMany`s stale today-only
+rows for the venue (never a multi-day task's row). `lib/followups.ts` treats a
+partial as in-progress **per day** (multi-day always live), so yesterday's
+partial no longer suppresses MISSED. A terminal outcome deletes the progress
+row in the same transaction as the completion. The worker card shows
+`IN PROGRESS · <name>` with the latest note; a list stays visible until every
+task is **settled** (DONE / NOT_REQUIRED / DID_NOT_COMPLETE), not only DONE.
+
+**Multi-day lists (#94).** `Checklist.multiDay` (default false) is the
+SIDE WORK / MULTI-DAY flag, edited in both list editors and persisted through
+the admin + worker checklist POST/PUT. When true, its tasks' PARTIALs stay live
+across days until a terminal outcome.
+
+**Finished work collapse (#95).** The worker list hides settled tasks by
+default; each list (and each non-list department/section) has a
+`SHOW FINISHED (n)` / `HIDE FINISHED` toggle, a fully-settled list sorts to the
+bottom and stays collapsed (header/`ALL FINISHED · TAP TO VIEW` toggles it), and
+#87 UNTICK/REOPEN still work once revealed. Settled cards are greyed
+(`opacity-60`, `cursor-default`); status boxes are coloured — green tick (DONE),
+dark box + `—` with a black strike (NOT_REQUIRED), red `✕`
+(DID_NOT_COMPLETE), warning border (in progress), grey (pending). The progress
+bar still counts **DONE only**.
 
 **Completion resilience (#33).** The worker completion POST is bounded by a 20 s
 `AbortController` and always resets the button; a timeout/network failure shows
@@ -3125,7 +3150,8 @@ pre-flight.
 | `lib/demo-block.ts` — `shouldBlockDemoWrite` | ✅ (14 tests) |
 | `lib/worker-session.ts` — `workerCookieSecure`, `createWorkerSession` / `getWorkerSession` round-trip, cookie maxAge | ✅ |
 | `lib/worker-session-timeout.ts` — venue timeout clamp/fallback, `expiresAt`, refresh interval + throttle | ✅ |
-| `lib/followups.ts` — `checkUntrainedOnCompletion` (reads `TaskGuide`) | ✅ (5 tests) |
+| `lib/followups.ts` — `checkUntrainedOnCompletion` (reads `TaskGuide`) + day-aware MISSED progress | ✅ (9 tests) |
+| `lib/task-progress.ts` — `progressDayKey`, `isProgressLive`, `isStaleProgress`, `carryTaskToday` (day-aware PARTIAL / multi-day) | ✅ (15 tests) |
 | `lib/guides.ts` — `guideSource`, `guideAppliesTo`, `guideWhereOr` | ✅ (25 tests) |
 | `lib/guide-links.ts` — `groupTargetIdsByKind`, `attachTargets`, `targetKey` | ✅ (14 tests) |
 | `lib/pathway-progress.ts` — `resolvePathwayProgress`, `findPathwayCycle`, `levelForPoints`, `nextLevelThreshold` | ✅ (28 tests) |
@@ -3198,8 +3224,8 @@ pre-flight.
 | `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |
 | `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (19 tests) |
-| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, settled tasks kept in-list with UNTICK/REOPEN, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, subtask grouping/ADD SUBTASK, dual early-return paths | ✅ (28 tests) |
-| `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, subtask indent/add/parent picker, scroll restore after load, linked item + rich description | ✅ (14 tests) |
+| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, finished collapse + SHOW FINISHED, coloured status boxes, finished-list sort, multi-day editor, settled UNTICK/REOPEN, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, subtask grouping/ADD SUBTASK, dual early-return paths | ✅ (31 tests) |
+| `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, multi-day list flag, subtask indent/add/parent picker, scroll restore after load, linked item + rich description | ✅ (15 tests) |
 | `MenuItemsClient.test.tsx` — recipe-less product listed and saved with `recipeId: null` | ✅ (1 test) |
 | `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard | ✅ (2 tests) |
 | `ReportsClient.tsx` — OUTCOME badge distinguishes non-DONE rows | ✅ (1 test) |
@@ -3245,7 +3271,8 @@ pre-flight.
 | `app/api/admin/availability/route.test.ts` — GET includes the off-range edit request's current row; POST returns the locked-day 409 | ✅ (2 tests) |
 | `app/api/worker/availability/series-request/route.test.ts` — auth, required date/series, request delegation, 404/409 passthrough | ✅ (5 tests) |
 | `app/api/worker/availability/route.test.ts` — auth, past-anchor 400, FROM + worker scope policy passthrough | ✅ (3 tests) |
-| `app/api/worker/tasks/[id]/complete/route.test.ts` — completion responds without waiting for the best-effort follow-ups; retracted rows are ignored; DELETE soft-deletes, records the undo and resolves UNTRAINED; venue rejection | ✅ (5 tests) |
+| `app/api/worker/tasks/[id]/complete/route.test.ts` — completion responds without waiting for the best-effort follow-ups; PARTIAL stamps `progressDate`; retracted rows are ignored; DELETE soft-deletes, records the undo and resolves UNTRAINED; venue rejection | ✅ (6 tests) |
+| `app/api/worker/tasks/route.test.ts` — stale today-only PARTIAL dropped + swept, multi-day partial carried and never swept, today partial carried | ✅ (3 tests) |
 | `app/api/admin/tasks/[id]/route.test.ts` — GET parent/children + linked item, parent validation 400s, linked-item validation/sanitisation, DELETE unparents children | ✅ (8 tests) |
 | `app/api/admin/tasks/item-options/route.test.ts` — auth, grant, manager venue scope, active/non-deleted items | ✅ (4 tests) |
 | `app/api/admin/menu-items/route.test.ts` — null recipe, cross-venue recipe, recipe-derived allergens | ✅ (3 tests) |

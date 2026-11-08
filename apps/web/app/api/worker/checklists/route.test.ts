@@ -70,6 +70,17 @@ describe('POST /api/worker/checklists schedules', () => {
   })
 })
 
+describe('POST /api/worker/checklists multi-day', () => {
+  it('persists the multiDay flag for the worker venue', async () => {
+    const res = await POST(req({ name: 'SIDE WORK', taskIds: ['t1'], multiDay: true }))
+
+    expect(res.status).toBe(201)
+    expect(prisma.checklist.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ multiDay: true }) }),
+    )
+  })
+})
+
 describe('POST /api/worker/checklists events', () => {
   it('links the selected events for the worker venue', async () => {
     prisma.calendarEvent.count.mockResolvedValue(1)

@@ -112,8 +112,8 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (!isTerminalOutcome(outcome)) {
     const progress = await prisma.taskProgress.upsert({
       where: { taskId: params.id },
-      create: { taskId: params.id, staffId: session.staffId, note, outcome },
-      update: { staffId: session.staffId, note, outcome },
+      create: { taskId: params.id, staffId: session.staffId, note, outcome, progressDate: today },
+      update: { staffId: session.staffId, note, outcome, progressDate: today },
     })
 
     // Performing the task without the required training is still worth a

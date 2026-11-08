@@ -11,6 +11,7 @@
 import { prisma } from '@hospo-ops/db'
 import { getTodayDate } from '@/lib/utils'
 import { isTaskDueOnDate, formatDateKey } from '@/lib/scheduling'
+import { isProgressLive } from '@/lib/task-progress'
 
 const MISSED_WINDOW_DAYS = 7
 
@@ -118,7 +119,7 @@ export async function generateVenueFollowUps(venueId: string): Promise<number> {
   if (tasks.length === 0) return 0
 
   const taskIds = tasks.map((t) => t.id)
-  const [completions, inProgress] = await Promise.all([
+  const [completions, inProgress, multiDayLinks] = await Promise.all([
     prisma.taskCompletion.findMany({
       where: {
         taskId: { in: taskIds },
@@ -132,23 +133,35 @@ export async function generateVenueFollowUps(venueId: string): Promise<number> {
     }),
     prisma.taskProgress.findMany({
       where: { taskId: { in: taskIds } },
+      select: { taskId: true, progressDate: true },
+    }),
+    prisma.checklistTask.findMany({
+      where: {
+        taskId: { in: taskIds },
+        checklist: { multiDay: true, isActive: true, deletedAt: null },
+      },
       select: { taskId: true },
     }),
   ])
   const done = new Set(completions.map((c) => `${c.taskId}|${c.staffId}|${formatDateKey(c.scheduledDate)}`))
-  // A task in progress is not missed yet — the floor is still working on it.
-  const progressTaskIds = new Set(inProgress.map((p) => p.taskId))
+  // A partial that is still live on a given day means the floor is still working
+  // on it, so that day is not missed. Multi-day (side work) partials never go
+  // stale; a today-only partial only covers the day it was reported.
+  const progressByTask = new Map(inProgress.map((p) => [p.taskId, p.progressDate]))
+  const multiDayTaskIds = new Set(multiDayLinks.map((l) => l.taskId))
 
   let created = 0
   for (const task of tasks) {
     const staffId = task.assignedToStaffId!
-    if (progressTaskIds.has(task.id)) continue // still in progress
     const createdDay = formatDateKey(task.createdAt)
+    const multiDay = multiDayTaskIds.has(task.id)
     for (const date of dates) {
       const key = formatDateKey(date)
       if (key < createdDay) continue // don't flag dates before the task existed
       if (!isTaskDueOnDate(task, date)) continue
       if (done.has(`${task.id}|${staffId}|${key}`)) continue
+      // Still in progress on this day → not missed.
+      if (isProgressLive(progressByTask.get(task.id), key, { multiDay })) continue
 
       // Auto-assign the required guide (idempotent on @@unique guideId+staffId).
       // `deletedAt: null` un-does a previous unassign rather than leaving the

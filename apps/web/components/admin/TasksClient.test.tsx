@@ -207,6 +207,27 @@ describe('TasksClient', () => {
     })
   })
 
+  it('saves the multi-day flag from the checklist editor', async () => {
+    const fetchMock = mockApi()
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByLabelText('EDIT CHECKLIST OPENING')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('EDIT CHECKLIST OPENING'))
+    await waitFor(() => expect(screen.getByText('EDIT CHECKLIST')).toBeDefined())
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /SIDE WORK/ }))
+    fireEvent.click(screen.getByText('SAVE CHECKLIST'))
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/admin/checklists/c1' && init?.method === 'PUT',
+      )
+      expect(put).toBeDefined()
+      const body = JSON.parse(String((put![1] as RequestInit).body))
+      expect(body.multiDay).toBe(true)
+    })
+  })
+
   it('still saves a legacy list with no schedule rows', async () => {
     const fetchMock = mockApi()
     const { container } = render(<TasksClient role="ADMIN" sessionVenueId="v1" />)

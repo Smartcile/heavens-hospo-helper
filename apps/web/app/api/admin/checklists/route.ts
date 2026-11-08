@@ -81,6 +81,7 @@ export async function GET(req: NextRequest) {
       activatedOn: c.activatedOn,
       allowedOutcomes: c.allowedOutcomes,
       requireOutcomeReason: c.requireOutcomeReason,
+      multiDay: c.multiDay,
       department: c.department,
       section: c.section,
       audiences: c.audiences,
@@ -109,7 +110,7 @@ export async function POST(req: NextRequest) {
   if (denied) return denied
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, audiences, allowedOutcomes, requireOutcomeReason, schedules, eventIds } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, audiences, allowedOutcomes, requireOutcomeReason, multiDay, schedules, eventIds } = body
   const venueId = session.user.role === 'MANAGER' ? session.user.venueId : body.venueId
   const cleanAud = cleanNoticeAudiences(audiences)
   const scheduleCheck = validateSchedules(schedules)
@@ -137,6 +138,7 @@ export async function POST(req: NextRequest) {
       appearFromTime: appearFromTime?.trim() || null,
       allowedOutcomes: normaliseOutcomes(allowedOutcomes),
       requireOutcomeReason: !!requireOutcomeReason,
+      multiDay: !!multiDay,
       audiences: cleanAud.length ? { create: cleanAud } : undefined,
       schedules: scheduleCheck.schedules.length ? { create: scheduleCheck.schedules } : undefined,
       tasks: { create: ids.map((taskId, i) => ({ taskId, sortOrder: i })) },

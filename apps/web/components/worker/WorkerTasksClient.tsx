@@ -72,6 +72,7 @@ interface ChecklistFull {
   opensNext?: string | null
   allowedOutcomes?: string[]
   requireOutcomeReason?: boolean
+  multiDay?: boolean
   audiences?: { kind: string; targetId: string }[]
   tasks: { id: string; title: string; isActive: boolean; version: number }[]
 }
@@ -152,6 +153,8 @@ export function WorkerTasksClient({
   // Edit mode
   const [isEditMode, setIsEditMode] = useState(false)
   const [expandedLists, setExpandedLists] = useState<Set<string>>(new Set())
+  // Finished (settled) tasks are hidden by default, per list / other-section key.
+  const [showFinished, setShowFinished] = useState<Set<string>>(new Set())
   const [editDepts, setEditDepts] = useState<Department[]>([])
   const [editSections, setEditSections] = useState<Section[]>([])
   const [editGuides, setEditGuides] = useState<GuideLite[]>([])
@@ -193,6 +196,7 @@ export function WorkerTasksClient({
   }>({ departments: [], sections: [], positions: [] })
   const [clAllowedOutcomes, setClAllowedOutcomes] = useState<TaskOutcome[]>([...TASK_OUTCOMES])
   const [clRequireReason, setClRequireReason] = useState(false)
+  const [clMultiDay, setClMultiDay] = useState(false)
   const [clSelected, setClSelected] = useState<string[]>([])
   const [clSaving, setClSaving] = useState(false)
   const [clError, setClError] = useState('')
@@ -282,6 +286,15 @@ export function WorkerTasksClient({
       const next = new Set(prev)
       if (next.has(listId)) next.delete(listId)
       else next.add(listId)
+      return next
+    })
+  }
+
+  function toggleShowFinished(key: string) {
+    setShowFinished((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
@@ -535,7 +548,7 @@ export function WorkerTasksClient({
     setClDeptId(''); setClSectionId(''); setClSelected([])
     setClAppearFrom(''); setClGlobalTo(''); setClError(''); setClModalOpen(true)
     setClSchedules([]); setClEventIds([]); setClAudiences([])
-    setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false)
+    setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false); setClMultiDay(false)
   }
 
   function openChecklistEdit(c: ChecklistFull) {
@@ -550,6 +563,7 @@ export function WorkerTasksClient({
     setClAudiences(c.audiences ?? [])
     setClAllowedOutcomes((c.allowedOutcomes?.length ? c.allowedOutcomes : TASK_OUTCOMES) as TaskOutcome[])
     setClRequireReason(!!c.requireOutcomeReason)
+    setClMultiDay(!!c.multiDay)
     setClError(''); setClModalOpen(true)
   }
 
@@ -599,6 +613,7 @@ export function WorkerTasksClient({
       eventIds: clEventIds,
       audiences: clAudiences,
       allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason,
+      multiDay: clMultiDay,
     }
     const url = clEditing && clEditing !== 'new' ? `/api/worker/checklists/${clEditing.id}` : '/api/worker/checklists'
     const method = clEditing && clEditing !== 'new' ? 'PUT' : 'POST'
@@ -729,7 +744,15 @@ export function WorkerTasksClient({
     if (!grp) { grp = { id: g.id, name: g.name, time: g.appearFromTime, tasks: [] }; listGroupMap.set(g.id, grp) }
     grp.tasks.push(t)
   }
-  const listGroups = [...listGroupMap.values()].sort((a, b) => (a.time ?? '').localeCompare(b.time ?? '') || a.name.localeCompare(b.name))
+  // Unfinished lists first; a fully-settled list drops to the bottom, still
+  // clickable to reveal its finished work.
+  const isFullySettled = (g: { tasks: TaskState[] }) => g.tasks.length > 0 && g.tasks.every((t) => t.isSettled)
+  const listGroups = [...listGroupMap.values()].sort((a, b) => {
+    const sa = isFullySettled(a)
+    const sb = isFullySettled(b)
+    if (sa !== sb) return sa ? 1 : -1
+    return (a.time ?? '').localeCompare(b.time ?? '') || a.name.localeCompare(b.name)
+  })
   for (const g of listGroups) g.tasks.sort((a, b) => Number(a.isSettled) - Number(b.isSettled))
   const upcoming = [...upcomingMap.values()].sort((a, b) => (a.label ?? '').localeCompare(b.label ?? ''))
 
@@ -748,6 +771,36 @@ export function WorkerTasksClient({
   }
   for (const dg of otherGroups) {
     for (const sg of dg.sections) sg.tasks.sort((a, b) => Number(a.isSettled) - Number(b.isSettled))
+  }
+
+  // Settled tasks are hidden unless the list/section is toggled (or in edit
+  // mode). Ordering is done first, then filtered, so parent/child order holds.
+  function visibleOrdered(list: TaskState[], showAll: boolean) {
+    const ordered = orderTasksWithChildren(list).filter(({ task }) => showAll || !task.isSettled)
+    const ids = new Set(ordered.map((o) => o.task.id))
+    // A settled parent that is hidden must not leave its visible child indented.
+    return ordered.map(({ task, depth }) => ({
+      task,
+      depth: task.parentTaskId && !ids.has(task.parentTaskId) ? 0 : depth,
+    }))
+  }
+
+  // The coloured status box. DONE = green tick, NOT_REQUIRED = dark box + dash,
+  // DID_NOT_COMPLETE = red cross, in progress = warning border, pending = grey.
+  function taskStatusBox(t: TaskState) {
+    if (t.isDone) {
+      return <div role="img" aria-label="DONE STATUS" className="w-5 h-5 border-2 border-success bg-success text-black flex items-center justify-center flex-shrink-0 mt-0.5 font-mono text-xs leading-none">✓</div>
+    }
+    if (t.outcome === 'NOT_REQUIRED') {
+      return <div role="img" aria-label="NOT REQUIRED STATUS" className="w-5 h-5 border-2 border-grey-light bg-black text-grey-light flex items-center justify-center flex-shrink-0 mt-0.5 font-mono text-xs leading-none">—</div>
+    }
+    if (t.outcome === 'DID_NOT_COMPLETE') {
+      return <div role="img" aria-label="DID NOT COMPLETE STATUS" className="w-5 h-5 border-2 border-danger bg-danger text-black flex items-center justify-center flex-shrink-0 mt-0.5 font-mono text-xs leading-none">✕</div>
+    }
+    if (t.inProgress) {
+      return <div role="img" aria-label="IN PROGRESS STATUS" className="w-5 h-5 border-2 border-warning flex-shrink-0 mt-0.5" />
+    }
+    return <div role="img" aria-label="PENDING STATUS" className="w-5 h-5 border-2 border-grey-mid flex-shrink-0 mt-0.5" />
   }
 
   const renderTask = (t: TaskState, opts?: { depth?: number; sameListIds?: Set<string> }) => {
@@ -826,19 +879,28 @@ export function WorkerTasksClient({
         </Panel>
       )
     }
+    const settled = t.isSettled
+    const titleClass = t.isDone
+      ? 'text-success line-through'
+      : t.outcome === 'NOT_REQUIRED'
+        ? 'text-grey-light line-through decoration-black decoration-2'
+        : settled
+          ? 'text-grey-light line-through'
+          : 'text-white'
     return (
       <div
         key={t.id}
         role="button"
         tabIndex={0}
+        aria-disabled={settled}
         onClick={() => openTask(t)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTask(t) } }}
-        className={`w-full text-left bg-grey-dark border border-grey-mid p-4 hover:border-white transition-colors active:bg-black cursor-pointer ${indentClass}`}
+        className={`w-full text-left bg-grey-dark border border-grey-mid p-4 transition-colors ${settled ? 'opacity-60 cursor-default' : 'hover:border-white active:bg-black cursor-pointer'} ${indentClass}`}
       >
         <div className="flex items-start gap-3">
-          <div className="w-5 h-5 border-2 border-grey-mid flex-shrink-0 mt-0.5" />
+          {taskStatusBox(t)}
           <div className="min-w-0">
-            <div className={`font-mono font-semibold text-sm uppercase ${t.isDone ? 'text-success line-through' : 'text-white'}`}>{depth > 0 ? '↳ ' : ''}{t.title}</div>
+            <div className={`font-mono font-semibold text-sm uppercase ${titleClass}`}>{depth > 0 ? '↳ ' : ''}{t.title}</div>
             {t.description && <p className="font-sans text-xs text-grey-light mt-0.5">{richTextToPlainText(t.description)}</p>}
             {t.linkedItem && <p className="font-mono text-xs uppercase text-grey-light mt-0.5">LINKED: {describeLinkedItem(t.linkedItem)}</p>}
             <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -1125,21 +1187,40 @@ export function WorkerTasksClient({
           const allTaskIds = summary?.taskIds ?? []
           const listEvents = (summary?.events ?? []).filter((e) => !e.deletedAt)
           const allInList = tasks.filter((t) => allTaskIds.includes(t.id))
-          const doneCount = allInList.filter((t) => t.isCompleted).length
+          // The progress bar counts DONE only; other settlements are handled, not done.
+          const doneCount = allInList.filter((t) => t.isDone).length
           const totalCount = allInList.length
           const donePct = totalCount > 0 ? (doneCount / totalCount) * 100 : 0
           const sameListIds = new Set(lg.tasks.map((t) => t.id))
+          const settledCount = lg.tasks.filter((t) => t.isSettled).length
+          const show = isEditMode || showFinished.has(lg.id)
+          const ordered = visibleOrdered(lg.tasks, show)
           const maxVisible = (isEditMode || expandedLists.has(lg.id)) ? 999 : 5
           const isExpanded = expandedLists.has(lg.id)
-          const extra = lg.tasks.length - maxVisible
+          const extra = ordered.length - maxVisible
+          const allFinished = lg.tasks.length > 0 && settledCount === lg.tasks.length
+          const canToggleFinished = settledCount > 0 && !isEditMode
+          // Only an entirely-finished list is toggled by tapping its header;
+          // a partly-finished list uses the SHOW FINISHED button below.
+          const headerToggleable = allFinished && !isEditMode
           return (
             <Panel key={lg.id} padding="none">
               <div className="h-1.5 bg-grey-mid">
                 <div className="h-full bg-success transition-all duration-500" style={{ width: `${donePct}%` }} />
               </div>
-              <div className="p-3 border-b border-grey-mid flex items-center justify-between gap-2">
+              <div
+                className={`p-3 border-b border-grey-mid flex items-center justify-between gap-2 ${headerToggleable ? 'cursor-pointer hover:bg-grey-dark/40' : ''}`}
+                onClick={headerToggleable ? () => toggleShowFinished(lg.id) : undefined}
+                role={headerToggleable ? 'button' : undefined}
+                tabIndex={headerToggleable ? 0 : undefined}
+                aria-label={headerToggleable ? `${showFinished.has(lg.id) ? 'HIDE' : 'SHOW'} FINISHED TASKS IN ${lg.name}` : undefined}
+                onKeyDown={headerToggleable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleShowFinished(lg.id) } } : undefined}
+              >
                 <div className="min-w-0">
                   <div className="font-mono text-xs uppercase tracking-widest text-white truncate">{lg.name}</div>
+                  {allFinished && !showFinished.has(lg.id) && (
+                    <div className="font-mono text-xs uppercase text-success mt-0.5">ALL FINISHED · TAP TO VIEW</div>
+                  )}
                   {listEvents.map((e) => (
                     <span key={e.id} className="inline-block mt-1 mr-1 font-mono text-xs uppercase text-warning border border-warning/40 px-1.5 py-0.5">
                       EVENT: {e.title}
@@ -1150,7 +1231,7 @@ export function WorkerTasksClient({
                   {isEditMode && access.canEditList && (
                     <button
                       aria-label={`EDIT CHECKLIST ${lg.name}`}
-                      onClick={() => { const full = editChecklists.find(c => c.id === lg.id); if (full) openChecklistEdit(full) }}
+                      onClick={(e) => { e.stopPropagation(); const full = editChecklists.find(c => c.id === lg.id); if (full) openChecklistEdit(full) }}
                       className="font-mono text-xs uppercase text-warning hover:text-white transition-colors px-1 py-0.5"
                     >
                       EDIT
@@ -1161,7 +1242,7 @@ export function WorkerTasksClient({
                 </div>
               </div>
               <div className="divide-y divide-grey-mid">
-                {orderTasksWithChildren(lg.tasks).slice(0, maxVisible).map(({ task, depth }) =>
+                {ordered.slice(0, maxVisible).map(({ task, depth }) =>
                   renderTask(task, { depth, sameListIds }),
                 )}
                 {extra > 0 && !isEditMode && (
@@ -1176,6 +1257,16 @@ export function WorkerTasksClient({
                     <span className="font-mono text-xs text-grey-light hover:text-white transition-colors">SHOW LESS</span>
                   </button>
                 )}
+                {canToggleFinished && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleShowFinished(lg.id) }}
+                    className="w-full p-2 text-center hover:bg-grey-dark/50 transition-colors"
+                  >
+                    <span className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">
+                      {showFinished.has(lg.id) ? 'HIDE FINISHED' : `SHOW FINISHED (${settledCount})`}
+                    </span>
+                  </button>
+                )}
               </div>
             </Panel>
           )
@@ -1184,12 +1275,28 @@ export function WorkerTasksClient({
         {otherGroups.map((dg) => (
           <div key={dg.dept} className="space-y-2">
             <div className="font-mono text-xs uppercase tracking-widest text-white border-b border-grey-mid pb-1">{dg.dept}</div>
-            {dg.sections.map((sg) => (
-              <div key={sg.key} className="space-y-2">
-                {sg.name && <div className="font-mono text-xs uppercase tracking-wider text-accent pt-1">{sg.name}</div>}
-                {orderTasksWithChildren(sg.tasks).map(({ task, depth }) => renderTask(task, { depth }))}
-              </div>
-            ))}
+            {dg.sections.map((sg) => {
+              const key = `other:${dg.dept}:${sg.key}`
+              const show = isEditMode || showFinished.has(key)
+              const ordered = visibleOrdered(sg.tasks, show)
+              const settledCount = sg.tasks.filter((t) => t.isSettled).length
+              return (
+                <div key={sg.key} className="space-y-2">
+                  {sg.name && <div className="font-mono text-xs uppercase tracking-wider text-accent pt-1">{sg.name}</div>}
+                  {ordered.map(({ task, depth }) => renderTask(task, { depth }))}
+                  {settledCount > 0 && !isEditMode && (
+                    <button
+                      onClick={() => toggleShowFinished(key)}
+                      className="w-full p-2 text-center hover:bg-grey-dark/50 transition-colors border border-grey-mid"
+                    >
+                      <span className="font-mono text-xs uppercase text-grey-light hover:text-white transition-colors">
+                        {showFinished.has(key) ? 'HIDE FINISHED' : `SHOW FINISHED (${settledCount})`}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              )
+            })}
           </div>
         ))}
 
@@ -1869,6 +1976,21 @@ export function WorkerTasksClient({
               onChange={(allowedOutcomes, requireOutcomeReason) => { setClAllowedOutcomes(allowedOutcomes); setClRequireReason(requireOutcomeReason) }}
               inheritedLabel="APPLIES TO EVERY TASK IN THIS LIST UNLESS THE TASK OVERRIDES IT"
             />
+
+            <div className="border border-grey-mid p-3 space-y-1">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={clMultiDay}
+                  onChange={(e) => setClMultiDay(e.target.checked)}
+                  className="mt-0.5 accent-white"
+                />
+                <span className="font-mono text-xs uppercase text-white">SIDE WORK / MULTI-DAY — KEEP IN PROGRESS UNTIL DONE</span>
+              </label>
+              <p className="font-mono text-xs uppercase text-grey-light pl-6">
+                A PARTIAL ON THIS LIST STAYS ON THE FLOOR ACROSS DAYS. WITHOUT THIS, A PARTIAL RESETS AT THE NEXT VENUE DAY.
+              </p>
+            </div>
 
             <div className="space-y-1">
               <label className="font-mono text-xs uppercase text-grey-light tracking-wider">
