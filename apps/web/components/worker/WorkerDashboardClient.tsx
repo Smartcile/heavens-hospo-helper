@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useLiveRefresh } from '@/lib/use-live-refresh'
 
 type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'shifts' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events' | 'help'
 
@@ -30,7 +31,6 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<Widget>('dashboard')
   const [immersive, setImmersive] = useState(false)
-  const loaded = useRef(false)
 
   // The worker pages are rendered in an iframe. When one opens a full-screen
   // task / availability day / guide view it posts `worker-immersive`, so the
@@ -52,6 +52,8 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
       setView('dashboard')
       setImmersive(false)
       router.replace('/w/dashboard')
+      // Coming back from a tile must show current counts immediately.
+      void loadTaskSummary()
       // Re-arm after the pop so the next back is also caught.
       arm()
     }
@@ -69,12 +71,31 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
     setImmersive(false)
     setView('dashboard')
     history.replaceState({ workerGuard: true }, '', '/w/dashboard')
+    void loadTaskSummary()
+  }
+
+  async function loadTaskSummary() {
+    try {
+      const r = await fetch('/api/worker/tasks')
+      if (r.status === 401) { router.push('/w/login'); return }
+      if (!r.ok) return
+      const tasks = await r.json()
+      const list: { isCompleted: boolean }[] = tasks.tasks ?? []
+      setData((prev) => prev
+        ? {
+            ...prev,
+            firstName: tasks.firstName ?? prev.firstName,
+            tasksPending: list.filter((t) => !t.isCompleted).length,
+            tasksDone: list.filter((t) => t.isCompleted).length,
+            tasksTotal: list.length,
+          }
+        : prev)
+    } catch {
+      // A failed poll keeps the previous counts; the next tick reconciles.
+    }
   }
 
   async function load() {
-    if (loaded.current) return
-    loaded.current = true
-
     const [tasksR, noticesR, calR, guidesR, pathwayR, stocktakeR, clockR, eventsR] = await Promise.all([
       fetch('/api/worker/tasks'),
       fetch('/api/worker/notices'),
@@ -125,6 +146,11 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
   }
 
   useEffect(() => { load() }, [])
+
+  // Keep the TASKS tile live while the dashboard is on screen (30 s), and
+  // refresh immediately when the tab becomes visible or the window regains
+  // focus. Paused automatically while a tile view is open.
+  useLiveRefresh(loadTaskSummary, { enabled: view === 'dashboard' })
 
   async function handleSignOut() {
     // Explicit sign-out ends BOTH sessions (admin too). The inactivity timeout

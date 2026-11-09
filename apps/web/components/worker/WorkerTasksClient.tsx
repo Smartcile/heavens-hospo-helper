@@ -22,6 +22,7 @@ import { Panel } from '@/components/ui/Panel'
 import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
 import { useGuidePopup } from '@/components/GuidePopup'
 import { useWorkerImmersive } from '@/components/worker/useWorkerImmersive'
+import { useLiveRefresh } from '@/lib/use-live-refresh'
 import type { CalendarEventSummary } from '@/lib/checklist-activation'
 
 type TaskState = WorkerTaskView
@@ -247,6 +248,12 @@ export function WorkerTasksClient({
   }
 
   useEffect(() => { load() }, [])
+
+  // Live-refresh the shared floor list so another person's tick appears within
+  // ~30 s (and immediately on focus/visibility). Paused while any editor or
+  // in-flight form is open so a poll can never clobber a save.
+  const editorOpen = !!activeTask || taskModalOpen || clModalOpen || isEditMode || quickOpen
+  useLiveRefresh(load, { enabled: !editorOpen })
 
   async function loadEditData() {
     if (!canAuthor) return null
