@@ -4,6 +4,8 @@ node_modules/
 .github/
 .turbo/
 .next/
+.worktrees/
+.agent/
 *.md
 *.log
 npm-debug.log*

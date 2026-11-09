@@ -1,7 +1,7 @@
 name: Build and publish image
 
 # Builds the HOSPO OPS app image and pushes it to the GitHub Container
-# Registry (GHCR) so Portainer can just PULL it — no building on your server.
+# Registry (GHCR) so Portainer can just PULL it - no building on your server.
 #
 # Automatic:
 #   - push to develop  -> builds the checks and pushes the :develop image
@@ -13,6 +13,8 @@ name: Build and publish image
 # Pull requests are validated by ci.yml (lint, type-check, tests, Next build);
 # this workflow does the Docker build and push on the integration branches.
 # scripts/agent/publish.ps1 remains a local fallback only.
+#
+# Deferred speedup (4a): shard Vitest across parallel jobs. Ask before adding.
 
 on:
   push:
@@ -46,20 +48,11 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm ci --legacy-peer-deps
 
       - name: Generate Prisma client
         run: npx prisma generate
         working-directory: packages/db
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Type check
-        run: npm run type-check
-
-      - name: Test
-        run: npm run test
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -84,13 +77,39 @@ jobs:
             type=semver,pattern={{version}}
             type=sha,format=short
 
-      - name: Build and push
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: apps/web/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      # Run lint/type-check/tests in the background while the image builds. The
+      # image is only pushed when both the build and the checks succeed, so a
+      # failing test still blocks the registry tag.
+      - name: Run checks and build image
+        run: |
+          set -euo pipefail
+
+          ( npm run lint && npm run type-check && npm run test ) > /tmp/checks.log 2>&1 &
+          checks_pid=$!
+          trap 'kill "$checks_pid" 2>/dev/null || true' EXIT
+
+          mapfile -t tag_values <<< "${{ steps.meta.outputs.tags }}"
+          tag_args=()
+          for tag in "${tag_values[@]}"; do
+            [ -n "$tag" ] && tag_args+=(-t "$tag")
+          done
+
+          docker buildx build "${tag_args[@]}" --load \
+            -f apps/web/Dockerfile \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --provenance=false \
+            --sbom=false \
+            .
+
+          if ! wait "$checks_pid"; then
+            echo "=== CHECKS: FAILED ==="
+            tail -n 500 /tmp/checks.log
+            exit 1
+          fi
+          echo "=== CHECKS: PASSED ==="
+          tail -n 40 /tmp/checks.log
+
+          for tag in "${tag_values[@]}"; do
+            [ -n "$tag" ] && docker push "$tag"
+          done
