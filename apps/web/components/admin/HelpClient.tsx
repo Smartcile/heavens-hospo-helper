@@ -5,7 +5,7 @@
 // on the server and again here before render.
 
 import { useEffect, useMemo, useState } from 'react'
-import { sanitiseRichText } from '@/lib/rich-text'
+import { sanitiseHelpRichText } from '@/lib/rich-text'
 import { groupHelpArticles, searchHelpArticles, type HelpArticleView } from '@/lib/help'
 
 export function HelpClient({ endpoint }: { endpoint: string }) {
@@ -48,8 +48,8 @@ export function HelpClient({ endpoint }: { endpoint: string }) {
           {open.summary && <p className="font-mono text-xs uppercase text-grey-light mt-1">{open.summary}</p>}
         </div>
         <div
-          className="help-body border border-grey-mid p-4 font-mono text-xs text-white space-y-3 [&_h2]:text-sm [&_h2]:font-bold [&_h2]:uppercase [&_h2]:tracking-wider [&_h3]:text-xs [&_h3]:font-bold [&_h3]:uppercase [&_h3]:text-accent [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_p]:leading-relaxed [&_code]:border [&_code]:border-grey-mid [&_code]:px-1"
-          dangerouslySetInnerHTML={{ __html: sanitiseRichText(open.bodyHtml ?? '') }}
+          className="help-body border border-grey-mid p-4 font-mono text-xs text-white space-y-3 [&_h2]:text-sm [&_h2]:font-bold [&_h2]:uppercase [&_h2]:tracking-wider [&_h3]:text-xs [&_h3]:font-bold [&_h3]:uppercase [&_h3]:text-accent [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_p]:leading-relaxed [&_code]:border [&_code]:border-grey-mid [&_code]:px-1 [&_img]:block [&_img]:w-full [&_img]:h-auto [&_img]:my-2 [&_img]:border [&_img]:border-grey-mid"
+          dangerouslySetInnerHTML={{ __html: sanitiseHelpRichText(open.bodyHtml ?? '') }}
         />
         <button
           type="button"

@@ -5,6 +5,7 @@ import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
 import { cleanNoticeAudiences } from '@/lib/notice-audience'
+import { parseTaskGroups } from '@/lib/task-groups'
 import { validateSchedules } from '@/lib/checklist-activation'
 import {
   parseEventIds,
@@ -23,7 +24,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (existing.venueId !== session.venueId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason, multiDay, schedules, eventIds, audiences } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, taskGroups, allowedOutcomes, requireOutcomeReason, multiDay, schedules, eventIds, audiences } = body
 
   let scheduleData: ReturnType<typeof validateSchedules> | null = null
   if (schedules !== undefined) {
@@ -47,6 +48,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (refError) return NextResponse.json({ error: refError }, { status: 400 })
 
   let ids: string[] | undefined
+  const groups = parseTaskGroups(taskGroups)
   if (taskIds !== undefined) {
     const rawIds: string[] = Array.isArray(taskIds) ? taskIds : []
     ids = [...new Set<string>(rawIds)]
@@ -84,7 +86,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       ...(ids !== undefined && {
         tasks: {
           deleteMany: {},
-          create: ids.map((taskId, i) => ({ taskId, sortOrder: i })),
+          create: ids.map((taskId, i) => ({
+            taskId,
+            sortOrder: i,
+            groupLabel: groups[taskId] ?? null,
+          })),
         },
       }),
     },

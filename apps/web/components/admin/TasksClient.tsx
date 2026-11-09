@@ -17,6 +17,7 @@ import { describeLinkedItem, type LinkedItemView } from '@/lib/item-location'
 import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { availableParentTasks, orderTasksWithChildren } from '@/lib/task-subtasks'
+import { normaliseGroupLabel } from '@/lib/task-groups'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { ImportModal } from '@/components/import/ImportModal'
 import {
@@ -81,7 +82,7 @@ interface Department { id: string; name: string; venueId: string; colour: string
 interface Section { id: string; name: string; departmentId: string; venueId: string }
 interface GuideLite { id: string; title: string; venueId: string; isTracked: boolean; description: string | null }
 
-interface ChecklistCardTask { id: string; title: string; isActive: boolean; version: number }
+interface ChecklistCardTask { id: string; title: string; isActive: boolean; version: number; groupLabel?: string | null }
 interface ChecklistScheduleRow { dayOfWeek: number; fromTime: string; toTime: string | null }
 interface Checklist {
   id: string
@@ -218,6 +219,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [clDeptId, setClDeptId] = useState('')
   const [clSectionId, setClSectionId] = useState('')
   const [clSelected, setClSelected] = useState<string[]>([])
+  const [clGroups, setClGroups] = useState<Record<string, string>>({})
   const [clAppearFrom, setClAppearFrom] = useState('')
   // Global TO used by "apply to checked days"; `''` means open to end of day.
   const [clGlobalTo, setClGlobalTo] = useState('')
@@ -423,7 +425,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClEditing('new')
     setClName(''); setClDesc('')
     setClVenueId(venueId)
-    setClDeptId(''); setClSectionId(''); setClSelected([]); setClAppearFrom(''); setClGlobalTo(''); setClError('')
+    setClDeptId(''); setClSectionId(''); setClSelected([]); setClGroups({}); setClAppearFrom(''); setClGlobalTo(''); setClError('')
     setClSchedules([]); setClEventIds([]); setClAudiences([])
     void loadAudienceOptions(venueId)
     setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false); setClMultiDay(false)
@@ -434,6 +436,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setClName(c.name); setClDesc(c.description ?? '')
     setClVenueId(c.venueId); setClDeptId(c.departmentId ?? ''); setClSectionId(c.sectionId ?? '')
     setClSelected(c.tasks.map((t) => t.id))
+    setClGroups(Object.fromEntries(c.tasks.map((t) => [t.id, t.groupLabel ?? ''])))
     setClAppearFrom(c.appearFromTime ?? c.schedules?.[0]?.fromTime ?? '')
     setClGlobalTo(c.schedules?.[0]?.toTime ?? '')
     setClError('')
@@ -491,7 +494,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     if (!clName.trim() || !clVenueId) { setClError('NAME AND VENUE ARE REQUIRED'); return }
     if (clSelected.length === 0) { setClError('ADD AT LEAST ONE TASK'); return }
     setClSaving(true); setClError('')
-    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clSchedules.length ? null : (clAppearFrom || null), schedules: clSchedules.map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })), eventIds: clEventIds, audiences: clAudiences, taskIds: clSelected, allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason, multiDay: clMultiDay }
+    const payload = { name: clName, description: clDesc, venueId: clVenueId, departmentId: clDeptId || null, sectionId: clSectionId || null, appearFromTime: clSchedules.length ? null : (clAppearFrom || null), schedules: clSchedules.map((s) => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })), eventIds: clEventIds, audiences: clAudiences, taskIds: clSelected, taskGroups: Object.fromEntries(clSelected.map((id) => [id, normaliseGroupLabel(clGroups[id])])), allowedOutcomes: clAllowedOutcomes, requireOutcomeReason: clRequireReason, multiDay: clMultiDay }
     const url = clEditing && clEditing !== 'new' ? `/api/admin/checklists/${clEditing.id}` : '/api/admin/checklists'
     const method = clEditing && clEditing !== 'new' ? 'PUT' : 'POST'
     const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -601,6 +604,12 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const today = new Date()
   const todayDow = today.getDay()
   const gatedLists = checklists.filter((c) => isChecklistHidden(c.appearFromTime, c.activatedOn, today, nowHHmm, c.schedules, todayDow, c.events))
+  // Existing group labels, offered as suggestions in the checklist editor.
+  const groupLabelOptions = [...new Set(
+    checklists
+      .flatMap((c) => c.tasks.map((t) => normaliseGroupLabel(t.groupLabel)))
+      .filter((label): label is string => !!label),
+  )].sort()
 
   // Group tasks: Department → Section, with a per-department "general" bucket.
   const deptGroups: { key: string; name: string; colour: string | null; sections: { id: string; name: string; tasks: Task[] }[]; loose: Task[] }[] = []
@@ -927,6 +936,9 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
 
               <div className="space-y-1">
                 <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Tasks in this checklist (drag in from the left)</label>
+                <datalist id="checklist-group-labels">
+                  {groupLabelOptions.map((label) => <option key={label} value={label} />)}
+                </datalist>
                 <div
                   data-testid="cl-dropzone"
                   onDragOver={(e) => { e.preventDefault(); setDropActive(true) }}
@@ -946,14 +958,27 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                           onDragStart={(e) => { setDragIdx(i); e.dataTransfer.setData('text/plain', '') }}
                           onDragEnter={() => { if (dragIdx !== null && dragIdx !== i) { setClSelected((p) => moveItem(p, dragIdx, i)); setDragIdx(i) } }}
                           onDragEnd={() => setDragIdx(null)}
-                          className="flex items-center justify-between gap-2 border border-grey-mid px-2 py-1.5 bg-grey-dark cursor-grab"
+                          className="border border-grey-mid px-2 py-1.5 bg-grey-dark cursor-grab space-y-1"
                         >
+                          <div className="flex items-center justify-between gap-2">
                           <span className="font-mono text-xs text-white truncate">{i + 1}. {t?.title ?? '(task removed)'}</span>
                           <div className="flex gap-2 flex-shrink-0">
                             {t && <button type="button" onClick={() => openEdit(t)} className="font-mono text-xs uppercase text-grey-light hover:text-white">EDIT</button>}
                             <button type="button" disabled={i === 0} onClick={() => setClSelected((p) => moveItem(p, i, i - 1))} className="font-mono text-xs text-grey-light hover:text-white disabled:opacity-30">↑</button>
                             <button type="button" disabled={i === clSelected.length - 1} onClick={() => setClSelected((p) => moveItem(p, i, i + 1))} className="font-mono text-xs text-grey-light hover:text-white disabled:opacity-30">↓</button>
                             <button type="button" onClick={() => setClSelected((p) => p.filter((x) => x !== id))} className="font-mono text-xs text-grey-light hover:text-danger">✕</button>
+                          </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <label className="font-mono text-xs uppercase text-grey-light flex-shrink-0">GROUP</label>
+                            <input
+                              list="checklist-group-labels"
+                              aria-label={`GROUP FOR ${t?.title ?? id}`}
+                              value={clGroups[id] ?? ''}
+                              onChange={(e) => setClGroups((prev) => ({ ...prev, [id]: e.target.value }))}
+                              placeholder="OPTIONAL (E.G. OUTSIDE)"
+                              className="flex-1 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white placeholder:text-grey-light"
+                            />
                           </div>
                         </div>
                       )

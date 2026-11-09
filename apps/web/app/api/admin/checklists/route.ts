@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { cleanNoticeAudiences } from '@/lib/notice-audience'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
+import { parseTaskGroups } from '@/lib/task-groups'
 import { summariseCalendarEvent, validateSchedules } from '@/lib/checklist-activation'
 import {
   parseEventIds,
@@ -98,6 +99,7 @@ export async function GET(req: NextRequest) {
           version: ct.task.version,
           departmentName: ct.task.department?.name ?? null,
           sectionName: ct.task.section?.name ?? null,
+          groupLabel: ct.groupLabel,
         })),
     }))
   )
@@ -110,7 +112,7 @@ export async function POST(req: NextRequest) {
   if (denied) return denied
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, audiences, allowedOutcomes, requireOutcomeReason, multiDay, schedules, eventIds } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, taskGroups, audiences, allowedOutcomes, requireOutcomeReason, multiDay, schedules, eventIds } = body
   const venueId = session.user.role === 'MANAGER' ? session.user.venueId : body.venueId
   const cleanAud = cleanNoticeAudiences(audiences)
   const scheduleCheck = validateSchedules(schedules)
@@ -128,6 +130,7 @@ export async function POST(req: NextRequest) {
   if (eventError) return NextResponse.json({ error: eventError }, { status: 400 })
 
   const ids: string[] = Array.isArray(taskIds) ? taskIds : []
+  const groups = parseTaskGroups(taskGroups)
   const checklist = await prisma.checklist.create({
     data: {
       name: String(name).toUpperCase().trim(),
@@ -141,7 +144,13 @@ export async function POST(req: NextRequest) {
       multiDay: !!multiDay,
       audiences: cleanAud.length ? { create: cleanAud } : undefined,
       schedules: scheduleCheck.schedules.length ? { create: scheduleCheck.schedules } : undefined,
-      tasks: { create: ids.map((taskId, i) => ({ taskId, sortOrder: i })) },
+      tasks: {
+        create: ids.map((taskId, i) => ({
+          taskId,
+          sortOrder: i,
+          groupLabel: groups[taskId] ?? null,
+        })),
+      },
     },
   })
 

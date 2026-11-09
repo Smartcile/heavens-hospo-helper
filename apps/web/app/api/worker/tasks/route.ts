@@ -185,6 +185,9 @@ export async function GET(req: NextRequest) {
       // SIDE WORK / MULTI-DAY — partials stay in progress across days.
       multiDay: c.multiDay,
       taskIds: c.tasks.map((ct) => ct.taskId),
+      // Checklist-scoped group labels, keyed by task id. A group can be settled
+      // as NOT_REQUIRED in bulk from the worker list.
+      taskGroups: Object.fromEntries(c.tasks.map((ct) => [ct.taskId, ct.groupLabel])),
     }
   })
 

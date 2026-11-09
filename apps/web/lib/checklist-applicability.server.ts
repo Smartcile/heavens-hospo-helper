@@ -27,7 +27,7 @@ export interface ApplicableChecklist {
   requireOutcomeReason: boolean
   /** SIDE WORK / MULTI-DAY — partials stay live until a terminal outcome. */
   multiDay: boolean
-  tasks: { taskId: string }[]
+  tasks: { taskId: string; groupLabel: string | null }[]
 }
 
 export async function applicableChecklistsForStaff(opts: {
@@ -118,7 +118,7 @@ export async function applicableChecklistsForStaff(opts: {
       allowedOutcomes: true,
       requireOutcomeReason: true,
       multiDay: true,
-      tasks: { select: { taskId: true }, orderBy: { sortOrder: 'asc' } },
+      tasks: { select: { taskId: true, groupLabel: true }, orderBy: { sortOrder: 'asc' } },
     },
     orderBy: [{ appearFromTime: 'asc' }, { name: 'asc' }],
   })

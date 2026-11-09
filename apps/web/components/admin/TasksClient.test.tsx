@@ -391,4 +391,25 @@ describe('TasksClient', () => {
     await waitFor(() => expect(screen.getByTestId('available-task-t2')).toBeDefined())
     await waitFor(() => expect(scrollTo).toHaveBeenCalledWith(0, 240))
   })
+
+  it('saves checklist task group labels (#104)', async () => {
+    mockApi()
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByLabelText('EDIT CHECKLIST OPENING')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('EDIT CHECKLIST OPENING'))
+
+    const groupInput = await screen.findByLabelText('GROUP FOR TASK ONE')
+    fireEvent.change(groupInput, { target: { value: 'outside' } })
+    fireEvent.click(screen.getByText('SAVE CHECKLIST'))
+
+    await waitFor(() => {
+      const put = vi.mocked(global.fetch).mock.calls.find(
+        (c) => String(c[0]) === '/api/admin/checklists/c1' && (c[1] as RequestInit)?.method === 'PUT',
+      )
+      expect(put).toBeDefined()
+      const body = JSON.parse(String((put![1] as RequestInit).body))
+      expect(body.taskGroups).toEqual({ t1: 'OUTSIDE' })
+    })
+  })
 })

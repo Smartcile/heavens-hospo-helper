@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isRichTextEmpty, richTextToPlainText, sanitiseRichText } from '@/lib/rich-text'
+import { isRichTextEmpty, richTextToPlainText, sanitiseHelpRichText, sanitiseRichText } from '@/lib/rich-text'
 
 describe('sanitiseRichText', () => {
   it('keeps the allowed formatting tags', () => {
@@ -48,6 +48,31 @@ describe('sanitiseRichText', () => {
     expect(sanitiseRichText(null)).toBe('')
     expect(sanitiseRichText('')).toBe('')
     expect(sanitiseRichText(undefined)).toBe('')
+  })
+})
+
+describe('sanitiseHelpRichText', () => {
+  it('keeps shipped, site-relative help screenshots with an alt caption', () => {
+    expect(sanitiseHelpRichText('<p>x</p><img src="/help/groups-worker.png" alt="Worker group">')).toBe(
+      '<p>x</p><img src="/help/groups-worker.png" alt="Worker group">',
+    )
+  })
+
+  it('drops external, traversal and non-help image sources', () => {
+    expect(sanitiseHelpRichText('<img src="https://evil.test/x.png">')).toBe('')
+    expect(sanitiseHelpRichText('<img src="/help/../secret.png">')).toBe('')
+    expect(sanitiseHelpRichText('<img src="/uploads/x.png">')).toBe('')
+    expect(sanitiseHelpRichText('<img src="javascript:alert(1)">')).toBe('')
+  })
+
+  it('escapes quotes in the alt text', () => {
+    expect(sanitiseHelpRichText(`<img src="/help/a.png" alt='a "b"'>`)).toBe(
+      '<img src="/help/a.png" alt="a &quot;b&quot;">',
+    )
+  })
+
+  it('leaves normal rich text unable to render images', () => {
+    expect(sanitiseRichText('<img src="/help/a.png">')).toBe('')
   })
 })
 

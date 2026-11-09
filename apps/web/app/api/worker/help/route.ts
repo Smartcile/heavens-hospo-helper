@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
-import { sanitiseRichText } from '@/lib/rich-text'
+import { sanitiseHelpRichText } from '@/lib/rich-text'
 import { visibleHelpArticles, type HelpArticleView } from '@/lib/help'
 
 // Worker help: auth-only, EVERYONE + WORKER articles. No grants required.
@@ -22,7 +22,7 @@ export async function GET() {
     category: row.category,
     audience: row.audience as HelpArticleView['audience'],
     sortOrder: row.sortOrder,
-    bodyHtml: sanitiseRichText(row.bodyHtml ?? ''),
+    bodyHtml: sanitiseHelpRichText(row.bodyHtml ?? ''),
   }))
 
   return NextResponse.json(visibleHelpArticles(articles, 'WORKER'))

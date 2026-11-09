@@ -103,6 +103,7 @@ export const HELP_REQUIRED_SLUGS = [
   'rooms-plans',
   'team-roster-availability',
   'tasks-guides',
+  'tasks-groups',
   'worker-app',
   'settings',
   'compliance',

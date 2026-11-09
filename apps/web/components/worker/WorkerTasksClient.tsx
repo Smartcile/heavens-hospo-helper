@@ -17,6 +17,7 @@ import { readingVerdict, criticalVerdict, describeBand } from '@/lib/food-safety
 import { OUTCOME_LABELS, OUTCOME_DESCRIPTIONS, TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { moveItem } from '@/lib/array'
 import { availableParentTasks, orderTasksWithChildren, subtasksOutsideList } from '@/lib/task-subtasks'
+import { groupChecklistTasks, normaliseGroupLabel } from '@/lib/task-groups'
 import { resolveWorkerTaskAccess, type WorkerTaskAccess } from '@/lib/worker-task-access'
 import { Panel } from '@/components/ui/Panel'
 import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
@@ -75,7 +76,7 @@ interface ChecklistFull {
   requireOutcomeReason?: boolean
   multiDay?: boolean
   audiences?: { kind: string; targetId: string }[]
-  tasks: { id: string; title: string; isActive: boolean; version: number }[]
+  tasks: { id: string; title: string; isActive: boolean; version: number; groupLabel?: string | null }[]
 }
 
 interface ChecklistSummary {
@@ -88,6 +89,8 @@ interface ChecklistSummary {
   openNow?: boolean
   opensNext?: string | null
   taskIds: string[]
+  /** Checklist-scoped group label per task id (null/absent = ungrouped). */
+  taskGroups?: Record<string, string | null>
 }
 
 interface Department { id: string; name: string; venueId: string; colour: string | null }
@@ -199,8 +202,17 @@ export function WorkerTasksClient({
   const [clRequireReason, setClRequireReason] = useState(false)
   const [clMultiDay, setClMultiDay] = useState(false)
   const [clSelected, setClSelected] = useState<string[]>([])
+  const [clGroups, setClGroups] = useState<Record<string, string>>({})
   const [clSaving, setClSaving] = useState(false)
   const [clError, setClError] = useState('')
+  // Bulk "mark group not required" confirmation.
+  const [bulkGroup, setBulkGroup] = useState<{
+    listId: string; listName: string; label: string; taskIds: string[]; requiresNote: boolean
+  } | null>(null)
+  const [bulkNote, setBulkNote] = useState('')
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [bulkError, setBulkError] = useState('')
+  const [bulkMessage, setBulkMessage] = useState('')
   // Action errors for the list-management strip / hidden-list cards, which are
   // rendered outside the checklist editor (so they can't reuse clError).
   const [listActionError, setListActionError] = useState('')
@@ -234,7 +246,7 @@ export function WorkerTasksClient({
     }
   }
 
-  useWorkerImmersive(!!activeTask || taskModalOpen || clModalOpen)
+  useWorkerImmersive(!!activeTask || taskModalOpen || clModalOpen || !!bulkGroup)
 
   async function load() {
     const r = await fetch('/api/worker/tasks')
@@ -309,6 +321,7 @@ export function WorkerTasksClient({
   function openTask(t: TaskState) {
     if (isEditMode) return
     if (t.isSettled) return
+    setBulkMessage('')
     setActiveTask(t)
     setNote('')
     setPhoto(null)
@@ -333,6 +346,56 @@ export function WorkerTasksClient({
       setUndoError('COULD NOT CONNECT — TRY AGAIN')
     } finally {
       setUndoingId(null)
+    }
+  }
+
+  function openBulkNotRequired(opts: {
+    listId: string; listName: string; label: string; taskIds: string[]; requiresNote: boolean
+  }) {
+    setBulkGroup(opts)
+    setBulkNote('')
+    setBulkError('')
+    setBulkMessage('')
+  }
+
+  async function submitBulkNotRequired() {
+    if (!bulkGroup) return
+    if (bulkGroup.requiresNote && !bulkNote.trim()) {
+      setBulkError('A REASON IS REQUIRED')
+      return
+    }
+    setBulkSaving(true)
+    setBulkError('')
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 20_000)
+    try {
+      const r = await fetch(`/api/worker/checklists/${bulkGroup.listId}/not-required`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groupLabel: bulkGroup.label, taskIds: bulkGroup.taskIds, note: bulkNote || null }),
+        signal: controller.signal,
+      })
+      if (r.status === 401) { router.push('/w/login'); return }
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        setBulkError(data.error ?? 'COULD NOT UPDATE THIS GROUP')
+        return
+      }
+      const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0
+      const completed = Array.isArray(data.completed) ? data.completed.length : 0
+      setBulkMessage(
+        skipped > 0
+          ? `${completed} MARKED NOT REQUIRED - ${skipped} SKIPPED`
+          : `${completed} TASK${completed === 1 ? '' : 'S'} MARKED NOT REQUIRED`,
+      )
+      setBulkGroup(null)
+      setBulkNote('')
+      await load()
+    } catch (err) {
+      setBulkError((err as Error)?.name === 'AbortError' ? 'REQUEST TIMED OUT - TRY AGAIN' : 'COULD NOT CONNECT - TRY AGAIN')
+    } finally {
+      clearTimeout(timeout)
+      setBulkSaving(false)
     }
   }
 
@@ -552,7 +615,7 @@ export function WorkerTasksClient({
   function openChecklistCreate() {
     setClEditing('new')
     setClName(''); setClDesc('')
-    setClDeptId(''); setClSectionId(''); setClSelected([])
+    setClDeptId(''); setClSectionId(''); setClSelected([]); setClGroups({})
     setClAppearFrom(''); setClGlobalTo(''); setClError(''); setClModalOpen(true)
     setClSchedules([]); setClEventIds([]); setClAudiences([])
     setClAllowedOutcomes([...TASK_OUTCOMES]); setClRequireReason(false); setClMultiDay(false)
@@ -563,6 +626,7 @@ export function WorkerTasksClient({
     setClName(c.name); setClDesc(c.description ?? '')
     setClDeptId(c.departmentId ?? ''); setClSectionId(c.sectionId ?? '')
     setClSelected(c.tasks.map(t => t.id))
+    setClGroups(Object.fromEntries(c.tasks.map(t => [t.id, t.groupLabel ?? ''])))
     setClAppearFrom(c.appearFromTime ?? c.schedules?.[0]?.fromTime ?? '')
     setClGlobalTo(c.schedules?.[0]?.toTime ?? '')
     setClSchedules((c.schedules ?? []).map(s => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime ?? '' })))
@@ -616,6 +680,7 @@ export function WorkerTasksClient({
       name: clName, description: clDesc,
       departmentId: clDeptId || null, sectionId: clSectionId || null,
       appearFromTime: clSchedules.length ? null : (clAppearFrom || null), taskIds: clSelected,
+      taskGroups: Object.fromEntries(clSelected.map((id) => [id, normaliseGroupLabel(clGroups[id])])),
       schedules: clSchedules.map(s => ({ dayOfWeek: s.dayOfWeek, fromTime: s.fromTime, toTime: s.toTime || null })),
       eventIds: clEventIds,
       audiences: clAudiences,
@@ -692,6 +757,11 @@ export function WorkerTasksClient({
     ...editAudienceOptions.sections.map((s) => ({ value: `SECTION:${s.id}`, label: `SECTION: ${s.name}` })),
     ...editAudienceOptions.positions.map((p) => ({ value: `POSITION:${p.id}`, label: `POSITION: ${p.name}` })),
   ]
+  const clGroupOptions = [...new Set(
+    editChecklists
+      .flatMap((c) => c.tasks.map((t) => normaliseGroupLabel(t.groupLabel)))
+      .filter((label): label is string => !!label),
+  )].sort()
   const pending = tasks.filter((t) => !t.isSettled)
   const done = tasks.filter((t) => t.isDone)
   const handled = tasks.filter((t) => t.isSettled && !t.isDone)
@@ -1189,6 +1259,9 @@ export function WorkerTasksClient({
             </div>
           </Panel>
         )}
+        {bulkMessage && (
+          <p className="font-mono text-xs uppercase text-success">{bulkMessage}</p>
+        )}
         {listGroups.map((lg) => {
           const summary = checklists.find((cl) => cl.id === lg.id)
           const allTaskIds = summary?.taskIds ?? []
@@ -1205,6 +1278,16 @@ export function WorkerTasksClient({
           const maxVisible = (isEditMode || expandedLists.has(lg.id)) ? 999 : 5
           const isExpanded = expandedLists.has(lg.id)
           const extra = ordered.length - maxVisible
+          const taskGroupMap = summary?.taskGroups ?? {}
+          // Checklist-scoped groups. Ungrouped tasks keep today's flat layout.
+          const taskBuckets = groupChecklistTasks(
+            ordered.slice(0, maxVisible).map(({ task, depth }) => ({
+              id: task.id,
+              task,
+              depth,
+              groupLabel: taskGroupMap[task.id] ?? null,
+            })),
+          )
           const allFinished = lg.tasks.length > 0 && settledCount === lg.tasks.length
           const canToggleFinished = settledCount > 0 && !isEditMode
           // Only an entirely-finished list is toggled by tapping its header;
@@ -1249,9 +1332,53 @@ export function WorkerTasksClient({
                 </div>
               </div>
               <div className="divide-y divide-grey-mid">
-                {ordered.slice(0, maxVisible).map(({ task, depth }) =>
-                  renderTask(task, { depth, sameListIds }),
-                )}
+                {taskBuckets.map((bucket) => {
+                  if (bucket.label === null) {
+                    return bucket.tasks.map(({ task, depth }) =>
+                      renderTask(task, { depth, sameListIds }),
+                    )
+                  }
+                  const label = bucket.label
+                  const groupTasks = lg.tasks.filter(
+                    (t) => normaliseGroupLabel(taskGroupMap[t.id]) === label,
+                  )
+                  const unsettled = groupTasks.filter((t) => !t.isSettled)
+                  const eligible = unsettled.filter((t) =>
+                    (t.allowedOutcomes?.length ? t.allowedOutcomes : TASK_OUTCOMES).includes('NOT_REQUIRED'),
+                  )
+                  const requiresNote = eligible.some((t) => t.requireOutcomeReason)
+                  return (
+                    <div key={`group:${label}`}>
+                      <div className="flex items-center justify-between gap-2 px-3 py-2 bg-grey-mid/20 border-b border-grey-mid">
+                        <div className="min-w-0">
+                          <span className="font-mono text-xs font-bold uppercase tracking-wider text-accent">
+                            {label}
+                          </span>
+                          <span className="ml-2 font-mono text-xs uppercase text-grey-light">
+                            {unsettled.length} LEFT
+                          </span>
+                        </div>
+                        {!isEditMode && eligible.length > 0 && (
+                          <button
+                            type="button"
+                            aria-label={`MARK GROUP ${label} NOT REQUIRED`}
+                            onClick={() => openBulkNotRequired({
+                              listId: lg.id,
+                              listName: lg.name,
+                              label,
+                              taskIds: eligible.map((t) => t.id),
+                              requiresNote,
+                            })}
+                            className="font-mono text-xs uppercase border border-grey-mid px-2 py-1 text-grey-light hover:border-white hover:text-white transition-colors flex-shrink-0"
+                          >
+                            MARK NOT REQUIRED
+                          </button>
+                        )}
+                      </div>
+                      {bucket.tasks.map(({ task, depth }) => renderTask(task, { depth, sameListIds }))}
+                    </div>
+                  )
+                })}
                 {extra > 0 && !isEditMode && (
                   <button onClick={() => toggleExpandList(lg.id)} className="w-full p-3 text-center hover:bg-grey-dark/50 transition-colors">
                     <span className="font-mono text-xs text-grey-light hover:text-white transition-colors">
@@ -2003,6 +2130,9 @@ export function WorkerTasksClient({
               <label className="font-mono text-xs uppercase text-grey-light tracking-wider">
                 Tasks ({clSelected.length})
               </label>
+              <datalist id="worker-checklist-groups">
+                {clGroupOptions.map((label) => <option key={label} value={label} />)}
+              </datalist>
               <Panel variant="outline" padding="none" className="divide-y divide-grey-mid">
                 {clSelected.length === 0 ? (
                   <div className="p-4 text-center font-mono text-xs text-grey-light">
@@ -2012,7 +2142,8 @@ export function WorkerTasksClient({
                   clSelected.map((id, i) => {
                     const found = editTasks.find(et => et.id === id)
                     return (
-                      <div key={id} className="flex items-center justify-between gap-2 px-3 py-2 bg-grey-dark">
+                      <div key={id} className="px-3 py-2 bg-grey-dark space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
                         <span className="font-mono text-xs text-white truncate">
                           {i + 1}. {found?.title ?? '(task removed)'}
                         </span>
@@ -2037,14 +2168,25 @@ export function WorkerTasksClient({
                             className="font-mono text-xs text-grey-light hover:text-danger px-1 py-0.5">
                             ✕
                           </button>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="font-mono text-xs uppercase text-grey-light flex-shrink-0">GROUP</label>
+                          <input
+                            list="worker-checklist-groups"
+                            aria-label={`GROUP FOR ${found?.title ?? id}`}
+                            value={clGroups[id] ?? ''}
+                            onChange={(e) => setClGroups((prev) => ({ ...prev, [id]: e.target.value }))}
+                            placeholder="OPTIONAL (E.G. OUTSIDE)"
+                            className="flex-1 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white placeholder:text-grey-light"
+                          />
                         </div>
                       </div>
-                    )
-                  })
-                )}
+                      )
+                    })
+                  )}
               </Panel>
-
-              <Combobox
+                <Combobox
                 options={editTasks.filter(et => !clSelected.includes(et.id)).map(et => ({ value: et.id, label: et.title, description: richTextToPlainText(et.description) }))}
                 selected={clSelected}
                 onChange={(ids) => setClSelected(ids)}
@@ -2081,6 +2223,59 @@ export function WorkerTasksClient({
                 DEL
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Bulk "mark group not required" confirmation */}
+      {bulkGroup && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-grey-dark border border-warning/60 p-4 space-y-3">
+            <div className="font-mono text-xs font-bold uppercase tracking-widest text-warning">
+              MARK GROUP NOT REQUIRED?
+            </div>
+            <p className="font-mono text-xs uppercase text-white">
+              {bulkGroup.listName} - GROUP {bulkGroup.label}
+            </p>
+            <p className="font-sans text-xs text-grey-light">
+              This will mark <strong className="text-white">{bulkGroup.taskIds.length} task{bulkGroup.taskIds.length === 1 ? '' : 's'}</strong> as
+              NOT REQUIRED for today. It is not the same as DONE: the tasks stay on the record, do not count
+              towards completion and can be reopened one at a time with REOPEN.
+            </p>
+            <p className="font-mono text-xs uppercase text-warning">
+              ONLY DO THIS IF THE GROUP REALLY IS NOT NEEDED TODAY.
+            </p>
+            <div className="space-y-1">
+              <label className="font-mono text-xs uppercase text-grey-light">
+                REASON {bulkGroup.requiresNote ? '(REQUIRED)' : '(OPTIONAL)'}
+              </label>
+              <textarea
+                value={bulkNote}
+                onChange={(e) => setBulkNote(e.target.value)}
+                rows={2}
+                placeholder="WHY IS THIS GROUP NOT NEEDED?"
+                className="w-full bg-black border border-grey-mid text-white font-sans text-xs px-2 py-1.5 outline-none focus:border-white placeholder:text-grey-light"
+              />
+            </div>
+            {bulkError && <p className="font-mono text-xs text-danger">{bulkError}</p>}
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => { setBulkGroup(null); setBulkError('') }}
+                disabled={bulkSaving}
+                className="flex-1 h-11 border border-grey-mid text-white font-mono text-xs uppercase tracking-wider hover:border-white disabled:opacity-40"
+              >
+                CANCEL
+              </button>
+              <button
+                type="button"
+                onClick={submitBulkNotRequired}
+                disabled={bulkSaving}
+                className="flex-1 h-11 bg-warning text-black font-mono font-bold text-xs uppercase tracking-wider hover:opacity-90 disabled:opacity-40"
+              >
+                {bulkSaving ? 'SAVING_' : 'MARK NOT REQUIRED'}
+              </button>
+            </div>
           </div>
         </div>
       )}

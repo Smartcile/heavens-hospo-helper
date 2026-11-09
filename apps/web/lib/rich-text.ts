@@ -42,8 +42,36 @@ function safeHref(raw: string): string | null {
   return href.replace(/"/g, '&quot;')
 }
 
+/**
+ * Help screenshots are shipped with the app, so only site-relative `/help/`
+ * paths are allowed. No external hosts, no `..` traversal.
+ */
+function safeHelpImageSrc(raw: string): string | null {
+  const src = raw.trim()
+  if (!/^\/help\/[A-Za-z0-9._/-]+$/.test(src)) return null
+  if (src.includes('..')) return null
+  return src
+}
+
+function escapeAttr(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 /** Strip everything except a small allowlist of formatting tags/attributes. */
 export function sanitiseRichText(html: string | null | undefined): string {
+  return sanitise(html, false)
+}
+
+/**
+ * Help catalogue variant: same allowlist plus `<img>` limited to shipped
+ * `/help/...` screenshots. Kept separate so guide rich text cannot embed images
+ * without an explicit decision.
+ */
+export function sanitiseHelpRichText(html: string | null | undefined): string {
+  return sanitise(html, true)
+}
+
+function sanitise(html: string | null | undefined, allowHelpImages: boolean): string {
   if (!html) return ''
   let input = String(html)
   // Comments and dangerous blocks go entirely (tag and contents).
@@ -82,6 +110,17 @@ export function sanitiseRichText(html: string | null | undefined): string {
 
     if (closing) {
       if (ALLOWED_TAGS.has(name)) closeTo(name)
+      continue
+    }
+
+    // Help-only: images must be shipped screenshots under /help/.
+    if (allowHelpImages && name === 'img') {
+      const srcMatch = token.match(/\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i)
+      const src = safeHelpImageSrc(srcMatch?.[1] ?? srcMatch?.[2] ?? srcMatch?.[3] ?? '')
+      if (!src) continue
+      const altMatch = token.match(/\balt\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i)
+      const alt = escapeAttr(altMatch?.[1] ?? altMatch?.[2] ?? altMatch?.[3] ?? '')
+      out.push(`<img src="${src}" alt="${alt}">`)
       continue
     }
 

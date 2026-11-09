@@ -831,4 +831,68 @@ describe('WorkerTasksClient', () => {
     await Promise.resolve()
     expect(call).toBe(before)
   })
+
+  it('marks a whole checklist group not required after the worker confirms (#104)', async () => {
+    const tasks = [
+      { ...BASE_TASK, id: 't1', title: 'OPEN DECK' },
+      { ...BASE_TASK, id: 't2', title: 'SET UP TABLES' },
+    ]
+    const checklists = [{
+      ...CHECKLIST_SUMMARY,
+      taskIds: ['t1', 't2'],
+      taskGroups: { t1: 'OUTSIDE', t2: 'OUTSIDE' },
+    }]
+    const calls: { url: string; init?: RequestInit }[] = []
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init })
+      if (String(url) === '/api/worker/tasks') return json({ tasks, checklists, firstName: 'BAR' })
+      return json({ completed: ['t1', 't2'], skipped: [], requiresNote: false })
+    })
+
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('OPEN DECK')).toBeDefined())
+    expect(screen.getByText('OUTSIDE')).toBeDefined()
+    expect(screen.getByText('2 LEFT')).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'MARK GROUP OUTSIDE NOT REQUIRED' }))
+    expect(screen.getByText('MARK GROUP NOT REQUIRED?')).toBeDefined()
+
+    const confirm = screen.getAllByText('MARK NOT REQUIRED').at(-1)!
+    fireEvent.click(confirm)
+
+    await waitFor(() => {
+      expect(calls.some((c) => c.url === '/api/worker/checklists/c1/not-required')).toBe(true)
+    })
+    const post = calls.find((c) => c.url === '/api/worker/checklists/c1/not-required')!
+    expect(post.init?.method).toBe('POST')
+    expect(JSON.parse(String(post.init?.body))).toEqual({
+      groupLabel: 'OUTSIDE',
+      taskIds: ['t1', 't2'],
+      note: null,
+    })
+  })
+
+  it('blocks a group action until the required reason is supplied (#104)', async () => {
+    const tasks = [{ ...BASE_TASK, id: 't1', title: 'OPEN DECK', requireOutcomeReason: true }]
+    const checklists = [{
+      ...CHECKLIST_SUMMARY,
+      taskIds: ['t1'],
+      taskGroups: { t1: 'OUTSIDE' },
+    }]
+    const calls: { url: string; init?: RequestInit }[] = []
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init })
+      if (String(url) === '/api/worker/tasks') return json({ tasks, checklists, firstName: 'BAR' })
+      return json({})
+    })
+
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('OPEN DECK')).toBeDefined())
+
+    fireEvent.click(screen.getByRole('button', { name: 'MARK GROUP OUTSIDE NOT REQUIRED' }))
+    fireEvent.click(screen.getAllByText('MARK NOT REQUIRED').at(-1)!)
+
+    await waitFor(() => expect(screen.getByText('A REASON IS REQUIRED')).toBeDefined())
+    expect(calls.some((c) => c.url === '/api/worker/checklists/c1/not-required')).toBe(false)
+  })
 })

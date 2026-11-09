@@ -5,6 +5,7 @@ import { normaliseOutcomes } from '@/lib/task-outcomes'
 import { workerTaskAccess } from '@/lib/worker-task-access.server'
 import { validateWorkerTaskRefs } from '@/lib/worker-task-refs.server'
 import { cleanNoticeAudiences } from '@/lib/notice-audience'
+import { parseTaskGroups } from '@/lib/task-groups'
 import { getTodayDate } from '@/lib/utils'
 import {
   isActivatedOn,
@@ -101,6 +102,7 @@ export async function GET() {
         title: ct.task.title,
         isActive: ct.task.isActive,
         version: ct.task.version,
+        groupLabel: ct.groupLabel,
       })),
     }
   })
@@ -115,7 +117,7 @@ export async function POST(req: Request) {
   if (!access.canCreateList) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json()
-  const { name, description, departmentId, sectionId, appearFromTime, taskIds, allowedOutcomes, requireOutcomeReason, multiDay, schedules, eventIds, audiences } = body
+  const { name, description, departmentId, sectionId, appearFromTime, taskIds, taskGroups, allowedOutcomes, requireOutcomeReason, multiDay, schedules, eventIds, audiences } = body
 
   if (!name?.trim()) return NextResponse.json({ error: 'NAME IS REQUIRED' }, { status: 400 })
   if (!taskIds?.length) return NextResponse.json({ error: 'ADD AT LEAST ONE TASK' }, { status: 400 })
@@ -136,6 +138,7 @@ export async function POST(req: Request) {
   })
   if (refError) return NextResponse.json({ error: refError }, { status: 400 })
 
+  const groups = parseTaskGroups(taskGroups)
   const ids: string[] = [...new Set<string>(Array.isArray(taskIds) ? taskIds : [])]
   if (ids.length !== taskIds.length) {
     return NextResponse.json({ error: 'DUPLICATE TASKS IN THIS LIST' }, { status: 400 })
@@ -160,7 +163,13 @@ export async function POST(req: Request) {
       multiDay: !!multiDay,
       audiences: cleanAud.length ? { create: cleanAud } : undefined,
       schedules: scheduleCheck.schedules.length ? { create: scheduleCheck.schedules } : undefined,
-      tasks: { create: ids.map((taskId, i) => ({ taskId, sortOrder: i })) },
+      tasks: {
+        create: ids.map((taskId, i) => ({
+          taskId,
+          sortOrder: i,
+          groupLabel: groups[taskId] ?? null,
+        })),
+      },
     },
   })
 

@@ -1722,6 +1722,11 @@ model ChecklistTask {
   checklistId String
   taskId      String
   sortOrder   Int      @default(0)
+  // Optional checklist-scoped group label (e.g. "OUTSIDE"). Tasks sharing a
+  // label can be marked NOT_REQUIRED together from the worker list. Null =
+  // ungrouped. The group belongs to this list, not the task, so the same task
+  // can sit ungrouped (or in another group) on a different checklist.
+  groupLabel  String?
   createdAt   DateTime @default(now())
 
   checklist Checklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)

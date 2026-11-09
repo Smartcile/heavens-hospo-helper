@@ -1590,7 +1590,9 @@ The in-app user help is a **global, read-only catalogue**, not per-venue guides.
   `helpVisibleTo`: admins see EVERYONE + ADMIN, workers EVERYONE + WORKER.
 - `GET /api/admin/help` (session) and `GET /api/worker/help` (worker session) are
   auth-only — no `training.playbook.view` grant, so restricted managers still get
-  help. Both re-sanitise `bodyHtml` with `lib/rich-text.ts`.
+  help. Both re-sanitise `bodyHtml` with `lib/rich-text.ts` `sanitiseHelpRichText`,
+  which additionally allows `<img>` only for shipped `/help/...` screenshots (guide
+  rich text still has no images).
 - `HelpClient` renders `/admin/help` and `/w/help`. `AdminNav` has a bottom
   `✕ HEAVENLY HELP` link; the worker dashboard has a HEAVENLY HELP tile.
 
@@ -1637,6 +1639,22 @@ The in-app user help is a **global, read-only catalogue**, not per-venue guides.
   the legacy `appearFromTime` field stays visible as the fallback. Admin/worker
   checklist POST/PUT validate day 0–6 + `HH:mm` and replace the schedule
   wholesale (soft-deleting the old rows).
+- **Task groups + bulk NOT_REQUIRED (#104).** `ChecklistTask.groupLabel`
+  (`String?`) is a **checklist-scoped** free-text group ("OUTSIDE"). The same
+  task can be ungrouped, or in another group, on a different list. `lib/task-groups.ts`
+  (pure) owns `normaliseGroupLabel` / `parseTaskGroups` / `groupChecklistTasks`
+  / `planBulkNotRequired`; `lib/task-groups.server.ts` resolves one list's group,
+  re-checks every task against the same outcome policy the worker saw (due today
+  or carrying a live multi-day PARTIAL, NOT REQUIRED allowed, reason requirement)
+  and writes one normal `NOT_REQUIRED` `TaskCompletion` per eligible task plus
+  deletes their `TaskProgress` rows in one transaction. Already-settled,
+  off-schedule and policy-blocked tasks are reported as `skipped`; a required
+  reason missing returns 422 and writes nothing. The worker list renders each
+  group with a header and **MARK NOT REQUIRED** (confirmation popup required),
+  and both checklist editors have a per-task `GROUP` input. `taskGroups` is an
+  additive checklist POST/PUT field (`{taskId: label|null}`); GETs return
+  `groupLabel` per task. Bulk undo/reopen stays per task (#87). Route:
+  `POST /api/worker/checklists/[id]/not-required`.
 - **Event-linked lists (Phase 3 of #68).** `ChecklistEvent` links a list to one
   or more `CalendarEvent` rows (`@@unique([checklistId, calendarEventId])`,
   soft-deleted wholesale on replace; the unique key spans deleted rows, so a
@@ -3267,6 +3285,7 @@ pre-flight.
 | `lib/checklist-activation.ts` — venue-local date activation, custom schedules, event windows (timed/all-day/multi-day/closed), next-open labels | ✅ (24 tests) |
 | `lib/task-outcomes.ts` — outcome hierarchy, DONE-always, reason validation, open-list policy | ✅ (12 tests) |
 | `lib/task-subtasks.ts` — max-depth-1 parent validation, parent options, parent/child ordering, cross-list labels | ✅ (11 tests) |
+| `lib/task-groups.ts` / `task-groups.server.ts` — label normalisation/grouping, bulk NOT_REQUIRED plan (eligibility, skips, reason gate), checklist-scoped write | ✅ (pure + server tests) |
 | `lib/position-requirements.ts` — required guides + readiness resolver | ✅ (6 tests) |
 | `lib/section-work.ts` / `section-work.server.ts` — section eligibility, evidence signatures, reconcile/confirm/dismiss/reopen, transition guards, soft-delete restore | ✅ (8 + 21 tests) |
 | `lib/staff-groups.ts` — derived position grouping | ✅ (14 tests) |
@@ -3296,7 +3315,7 @@ pre-flight.
 | `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |
 | `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (19 tests) |
-| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, finished collapse + SHOW FINISHED, coloured status boxes, finished-list sort, multi-day editor, settled UNTICK/REOPEN, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, subtask grouping/ADD SUBTASK, dual early-return paths, live-refresh on focus + pause while an editor is open | ✅ (33 tests) |
+| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, finished collapse + SHOW FINISHED, coloured status boxes, finished-list sort, multi-day editor, settled UNTICK/REOPEN, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, subtask grouping/ADD SUBTASK, dual early-return paths, live-refresh on focus + pause while an editor is open, task groups + bulk NOT_REQUIRED confirmation | ✅ (33 tests) |
 | `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, multi-day list flag, subtask indent/add/parent picker, scroll restore after load, linked item + rich description | ✅ (15 tests) |
 | `MenuItemsClient.test.tsx` — recipe-less product listed and saved with `recipeId: null` | ✅ (1 test) |
 | `RecipesClient.test.tsx` — volume/weight display + header opens the shared recipe importer | ✅ (5 tests) |
@@ -3345,6 +3364,7 @@ pre-flight.
 | `app/api/admin/availability/route.test.ts` — GET includes the off-range edit request's current row; POST returns the locked-day 409 | ✅ (2 tests) |
 | `app/api/worker/availability/series-request/route.test.ts` — auth, required date/series, request delegation, 404/409 passthrough | ✅ (5 tests) |
 | `app/api/worker/availability/route.test.ts` — auth, past-anchor 400, FROM + worker scope policy passthrough | ✅ (3 tests) |
+| `app/api/worker/checklists/[id]/not-required/route.test.ts` — auth, body mapping (group/taskIds/note), error status passthrough | ✅ (3 tests) |
 | `app/api/worker/tasks/[id]/complete/route.test.ts` — completion responds without waiting for the best-effort follow-ups; PARTIAL stamps `progressDate`; retracted rows are ignored; DELETE soft-deletes, records the undo and resolves UNTRAINED; venue rejection | ✅ (6 tests) |
 | `app/api/worker/tasks/route.test.ts` — stale today-only PARTIAL dropped + swept, multi-day partial carried and never swept, today partial carried | ✅ (3 tests) |
 | `app/api/admin/tasks/[id]/route.test.ts` — GET parent/children + linked item, parent validation 400s, linked-item validation/sanitisation, DELETE unparents children | ✅ (8 tests) |

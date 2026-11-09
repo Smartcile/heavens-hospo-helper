@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { cleanNoticeAudiences } from '@/lib/notice-audience'
 import { normaliseOutcomes } from '@/lib/task-outcomes'
+import { parseTaskGroups } from '@/lib/task-groups'
 import { summariseCalendarEvent, validateSchedules } from '@/lib/checklist-activation'
 import {
   parseEventIds,
@@ -76,7 +77,9 @@ export async function GET(req: NextRequest, { params }: Params) {
     allowedOutcomes: c.allowedOutcomes,
     requireOutcomeReason: c.requireOutcomeReason,
     multiDay: c.multiDay,
-    tasks: c.tasks.filter((ct) => ct.task && !ct.task.deletedAt).map((ct) => ct.task),
+    tasks: c.tasks
+      .filter((ct) => ct.task && !ct.task.deletedAt)
+      .map((ct) => ({ ...ct.task, groupLabel: ct.groupLabel })),
   })
 }
 
@@ -121,7 +124,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
   if (body.taskIds !== undefined) {
     const ids: string[] = Array.isArray(body.taskIds) ? body.taskIds : []
-    updates.tasks = { deleteMany: {}, create: ids.map((taskId: string, i: number) => ({ taskId, sortOrder: i })) }
+    const groups = parseTaskGroups(body.taskGroups)
+    updates.tasks = {
+      deleteMany: {},
+      create: ids.map((taskId: string, i: number) => ({
+        taskId,
+        sortOrder: i,
+        groupLabel: groups[taskId] ?? null,
+      })),
+    }
   }
   if (body.audiences !== undefined) {
     updates.audiences = { deleteMany: {}, create: cleanNoticeAudiences(body.audiences) }
