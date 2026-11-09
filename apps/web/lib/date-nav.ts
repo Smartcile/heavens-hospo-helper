@@ -29,6 +29,20 @@ export function keyOfDay(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
+/**
+ * The device-local calendar day as a "YYYY-MM-DD" key. `keyOfDay` is UTC (used
+ * for date arithmetic), so using it for "what day is it now" makes a venue ahead
+ * of UTC (e.g. Pacific/Auckland) open on yesterday until UTC catches up. Use
+ * this for default/fallback "today"; a server-provided venue-local `today`
+ * always wins where available.
+ */
+export function localDayKey(d: Date = new Date()): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 export function shiftDay(key: string, days: number): string {
   const d = parseDay(key)
   d.setUTCDate(d.getUTCDate() + days)

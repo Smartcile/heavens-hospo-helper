@@ -5,9 +5,9 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
 import { AvailabilityAdminClient } from '@/components/admin/AvailabilityAdminClient'
 import { DEFAULT_AVAILABILITY_PRESETS } from '@/lib/availability'
-import { keyOfDay, mondayOf, shiftDay } from '@/lib/date-nav'
+import { localDayKey, mondayOf, shiftDay } from '@/lib/date-nav'
 
-const monday = mondayOf(keyOfDay(new Date()))
+const monday = mondayOf(localDayKey())
 
 const data = {
   venueId: 'v1',

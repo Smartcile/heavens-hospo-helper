@@ -4,10 +4,10 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
 import { WorkerAvailabilityClient } from '@/components/worker/WorkerAvailabilityClient'
-import { keyOfDay, parseDay } from '@/lib/date-nav'
+import { localDayKey, parseDay } from '@/lib/date-nav'
 import { DEFAULT_AVAILABILITY_PRESETS } from '@/lib/availability'
 
-const todayKey = keyOfDay(new Date())
+const todayKey = localDayKey()
 const payload = {
   employmentType: 'CASUAL',
   lockDays: 0,

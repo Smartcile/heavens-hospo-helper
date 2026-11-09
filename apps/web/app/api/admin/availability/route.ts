@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { getManagerVenueId } from '@/lib/venue-scope'
 import { guardAccess } from '@/lib/permissions'
 import { formatDateKey } from '@/lib/scheduling'
+import { getTodayDate } from '@/lib/utils'
 import { resolveAvailabilityPresets } from '@/lib/availability'
 import {
   loadSeriesSummaries,
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
   const end = new Date(`${endKey}T23:59:59Z`)
 
   const [venue, staff, positions, rows, pendingRows, requests] = await Promise.all([
-    prisma.venue.findUnique({ where: { id: venueId }, select: { availabilityPresets: true } }),
+    prisma.venue.findUnique({ where: { id: venueId }, select: { availabilityPresets: true, timezone: true } }),
     prisma.staff.findMany({
       where: { venueId, deletedAt: null, isActive: true },
       select: {
@@ -105,6 +106,9 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     venueId,
+    // Venue-local today (not UTC) — the grid must mark the correct day even when
+    // the venue timezone is ahead of the server/viewer.
+    today: formatDateKey(getTodayDate(venue?.timezone || 'Pacific/Auckland')),
     staff: staff.map((s) => ({
       id: s.id,
       firstName: s.firstName,

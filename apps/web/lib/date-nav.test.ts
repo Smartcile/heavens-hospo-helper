@@ -6,12 +6,22 @@ import {
   formatDateShort,
   firstOfMonthKey,
   endOfMonthKey,
+  localDayKey,
   shiftDay,
   mondayOf,
   shiftMonth,
   monthGrid,
   weekKeys,
 } from '@/lib/date-nav'
+
+describe('localDayKey', () => {
+  it('uses the device-local calendar day, not the UTC day', () => {
+    // Local 2026-01-02 23:30. In a timezone ahead of UTC the UTC date would
+    // already be the 3rd; localDayKey must keep the local day.
+    expect(localDayKey(new Date(2026, 0, 2, 23, 30))).toBe('2026-01-02')
+    expect(localDayKey(new Date(2026, 0, 3, 0, 30))).toBe('2026-01-03')
+  })
+})
 
 describe('ordinal', () => {
   it('handles 1st/2nd/3rd and the -teen exceptions', () => {

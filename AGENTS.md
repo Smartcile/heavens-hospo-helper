@@ -595,7 +595,10 @@ DISCARD. A **THIS** edit on a series day **detaches** it: the row is written
 with `seriesId: null` as a standalone day, so later FROM/ALL changes to the
 series no longer override it (detaching the final occurrence re-pins the
 remaining series end via `AvailabilityPlan.syncSeriesId`). `/admin/team?tab=availability` (`AvailabilityAdminClient`) is the
-review grid. Approvals are person-centred: only staff with pending work are
+review grid. The GET returns `today` computed in the **venue timezone** so the
+TODAY marker / opening week are correct even when the venue is ahead of UTC; both
+availability clients fall back to `localDayKey()` (`lib/date-nav.ts`, device-local)
+— never the UTC `keyOfDay()` — for the initial default. Approvals are person-centred: only staff with pending work are
 listed, and opening a person shows their declarations and edit requests with the
 current day next to the proposed one. A request can target a day outside the
 visible range: the GET also returns that day's current row, so the panel always

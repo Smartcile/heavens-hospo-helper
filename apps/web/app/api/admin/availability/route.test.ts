@@ -81,6 +81,29 @@ describe('GET /api/admin/availability (off-range edit requests)', () => {
     expect(body.entries).toEqual([{ id: 'off1' }])
     expect(db.staffAvailability.findMany).toHaveBeenCalledTimes(3)
   })
+
+  it('returns the venue-local today, not the UTC day', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-08T20:00:00Z')) // 09:00 on the 9th in Auckland
+    try {
+      db.venue.findUnique.mockResolvedValue({ availabilityPresets: null, timezone: 'Pacific/Auckland' })
+      db.staff.findMany.mockResolvedValue([])
+      db.position.findMany.mockResolvedValue([])
+      db.staffAvailability.findMany.mockResolvedValue([])
+      db.availabilityEditRequest.findMany.mockResolvedValue([])
+
+      const res = await GET(
+        new NextRequest('http://localhost/api/admin/availability?venueId=v1&start=2026-11-09&end=2026-11-15'),
+      )
+      const body = await res.json()
+
+      expect(res.status).toBe(200)
+      // UTC is still 2026-11-08; the venue day is 2026-11-09.
+      expect(body.today).toBe('2026-11-09')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('POST /api/admin/availability (locked day)', () => {

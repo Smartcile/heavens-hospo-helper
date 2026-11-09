@@ -22,7 +22,7 @@ import { moveItem } from '@/lib/array'
 import { dayRange, fillRect, fillTargets, inFillRect, toggleSelection } from '@/lib/cell-fill'
 import { useScrollRestore } from '@/lib/use-scroll-restore'
 import { dateKeysBetween } from '@/lib/calendar'
-import { formatDateLong, keyOfDay, mondayOf, parseDay, shiftDay, type DateRange } from '@/lib/date-nav'
+import { formatDateLong, localDayKey, mondayOf, parseDay, shiftDay, type DateRange } from '@/lib/date-nav'
 import { nearestIndex, type Rect } from '@/lib/reorder'
 import { buildStaffGroups, insertSubset, sortByPinnedAvailability } from '@/lib/staff-groups'
 import {
@@ -77,6 +77,8 @@ interface AdminEditRequest {
 
 interface AdminData {
   venueId: string
+  /** Venue-local today (YYYY-MM-DD); falls back to the device day when absent. */
+  today?: string
   staff: AdminStaff[]
   positions?: AdminPosition[]
   entries: AvailabilityEntry[]
@@ -133,7 +135,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
 }) {
   const [venueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [range, setRange] = useState<DateRange>(() => {
-    const monday = mondayOf(keyOfDay(new Date()))
+    const monday = mondayOf(localDayKey())
     return { start: monday, end: shiftDay(monday, 6) }
   })
   const [data, setData] = useState<AdminData | null>(null)
@@ -184,7 +186,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
     () => dateKeysBetween(new Date(`${range.start}T00:00:00Z`), new Date(`${range.end}T00:00:00Z`)),
     [range],
   )
-  const today = keyOfDay(new Date())
+  const today = data?.today ?? localDayKey()
 
   // A soft reload keeps the previous payload mounted (and restores scroll), so
   // a save never blanks the grid. A hard load is user navigation.
