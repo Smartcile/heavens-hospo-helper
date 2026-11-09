@@ -618,6 +618,13 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
           existing={recipes.map((r) => ({ id: r.id, name: r.name }))}
           endpoint="/api/admin/import/recipes"
           venueId={venueId}
+          fields={[
+            { key: 'name', label: 'NAME' },
+            { key: 'yieldQty', label: 'YIELD QTY', kind: 'number' },
+            { key: 'yieldUnit', label: 'YIELD UNIT' },
+            { key: 'prepTime', label: 'PREP TIME (MIN)', kind: 'number' },
+            { key: 'instructions', label: 'INSTRUCTIONS', kind: 'textarea' },
+          ]}
           parse={(text, existing) => {
             const parsed = parseRecipeImportAnswer(text)
             if ('error' in parsed) return parsed

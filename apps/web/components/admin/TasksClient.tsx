@@ -1261,6 +1261,13 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           existing={tasks.map((t) => ({ id: t.id, name: t.title }))}
           endpoint="/api/admin/import/tasks"
           venueId={filterVenue || undefined}
+          fields={[
+            { key: 'title', label: 'TITLE' },
+            { key: 'descriptionHtml', label: 'DESCRIPTION', kind: 'textarea' },
+            { key: 'departmentName', label: 'DEPARTMENT' },
+            { key: 'sectionName', label: 'SECTION' },
+            { key: 'checklistName', label: 'CHECKLIST' },
+          ]}
           parse={(text, existing) => {
             const parsed = parseTaskImportAnswer(text)
             if ('error' in parsed) return parsed

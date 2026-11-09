@@ -2764,8 +2764,12 @@ include/action/summary plus `patchRowValues` (per-row value edits).
 `ImportModal` is the shared three-step UI (prompt copy/download, paste or load a
 `.md`/`.json` file, then an editable preview). It is generic (`ImportModal<T>`)
 and takes `endpoint`, an optional `renderSummary` (default = name + `$price`,
-which keeps the MENU_ITEM row byte-for-byte) and an optional `renderRowControls`
-for per-row toggles.
+which keeps the MENU_ITEM row byte-for-byte), an optional `renderRowControls`
+for per-row toggles, and an optional `fields` list (`ImportField<T>[]`) that
+renders an **EDIT** panel per row for inline correction of scalar values
+(name/title, price, yield, description, department/section/checklist names, …)
+**before** importing. Collections (recipe lines, guide steps, options) are not
+inline-edited; they use the explicit `REPLACE LINES` / `REPLACE STEPS` gates.
 
 **MENU_ITEM adapter (PR 1)** — `lib/import/menu-item.ts` reuses
 `parseMenuImportAnswer` (a flat `{ products: [...] }` answer is wrapped into the
@@ -3293,7 +3297,7 @@ pre-flight.
 | `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, multi-day list flag, subtask indent/add/parent picker, scroll restore after load, linked item + rich description | ✅ (15 tests) |
 | `MenuItemsClient.test.tsx` — recipe-less product listed and saved with `recipeId: null` | ✅ (1 test) |
 | `RecipesClient.test.tsx` — volume/weight display + header opens the shared recipe importer | ✅ (5 tests) |
-| `components/import/ImportModal.test.tsx` — generic rows + custom summary, per-row value patch (`REPLACE LINES`) posted to the given endpoint, default menu-item summary, parse error | ✅ (3 tests) |
+| `components/import/ImportModal.test.tsx` — generic rows + custom summary, per-row value patch (`REPLACE LINES`) posted to the given endpoint, default menu-item summary, inline field edit posted with the row, parse error | ✅ (4 tests) |
 | `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard + live TASKS tile refresh (tile return + window focus) + new worker tiles (Kitchen, Deliveries, Gift Cards gating, Training Status manager-only) | ✅ (8 tests) |
 | `ReportsClient.tsx` — OUTCOME badge distinguishes non-DONE rows | ✅ (1 test) |
 | `WorkerSessionGuard.tsx` — idle logout/redirect, activity refresh, refresh throttle, iframe activity relay | ✅ (6 tests) |
