@@ -18,6 +18,14 @@ import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { availableParentTasks, orderTasksWithChildren } from '@/lib/task-subtasks'
 import { getActiveVenueId } from '@/lib/active-venue'
+import { ImportModal } from '@/components/import/ImportModal'
+import {
+  buildTaskImportPrompt,
+  matchTaskRows,
+  parseTaskImportAnswer,
+  resolveTaskImportRefs,
+  type TaskImportValues,
+} from '@/lib/import/task'
 import {
   isActivatedOn,
   isChecklistHidden,
@@ -176,6 +184,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const { requestGuide, nodes: guidePopupNodes } = useGuidePopup('admin')
   const checklistPanelRef = useRef<HTMLDivElement>(null)
   const [tasks, setTasks] = useState<Task[]>([])
+  const [importOpen, setImportOpen] = useState(false)
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [sections, setSections] = useState<Section[]>([])
@@ -684,7 +693,10 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h1 className="font-mono text-xl font-bold uppercase tracking-widest">TASKS &amp; CHECKLISTS</h1>
-        <Button variant="ghost" size="sm" onClick={() => setPdfOpen(true)}>⬇ PDF</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setPdfOpen(true)}>⬇ PDF</Button>
+          <Button variant="ghost" size="sm" onClick={() => setImportOpen(true)}>⬆ IMPORT</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
@@ -1241,6 +1253,39 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           )}
         </div>
       </Modal>
+
+      {importOpen && (
+        <ImportModal<TaskImportValues>
+          title="IMPORT TASKS"
+          prompt={buildTaskImportPrompt()}
+          existing={tasks.map((t) => ({ id: t.id, name: t.title }))}
+          endpoint="/api/admin/import/tasks"
+          venueId={filterVenue || undefined}
+          parse={(text, existing) => {
+            const parsed = parseTaskImportAnswer(text)
+            if ('error' in parsed) return parsed
+            const matched = matchTaskRows(parsed.rows, existing)
+            return {
+              ...parsed,
+              rows: resolveTaskImportRefs(matched, {
+                departments: departments.map((d) => ({ id: d.id, name: d.name })),
+                sections: sections.map((s) => ({
+                  id: s.id,
+                  name: s.name,
+                  departmentName: departments.find((d) => d.id === s.departmentId)?.name ?? null,
+                })),
+                checklists: checklists.map((c) => ({ id: c.id, name: c.name })),
+              }),
+            }
+          }}
+          renderSummary={(v) => ({
+            title: v.title,
+            meta: `${v.scheduleType}${v.scheduleDays.length ? ` · ${v.scheduleDays.length} DAY${v.scheduleDays.length === 1 ? '' : 'S'}` : ''} · DRAFT`,
+          })}
+          onClose={() => setImportOpen(false)}
+          onImported={load}
+        />
+      )}
 
       {guidePopupNodes}
     </div>

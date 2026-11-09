@@ -21,6 +21,15 @@ import { mergeStepImages } from '@/lib/guide-media'
 import { guideStepUsageKey } from '@/lib/image-annotations'
 import { groupGuidesByFolder } from '@/lib/guide-folders'
 import { GUIDE_TYPES, GUIDE_TYPE_LABELS, guideTypeLabel } from '@/lib/guide-types'
+import { ImportModal } from '@/components/import/ImportModal'
+import {
+  buildGuideImportPrompt,
+  matchGuideRows,
+  parseGuideImportAnswer,
+  resolveGuideImportRefs,
+  type GuideImportRefs,
+  type GuideImportValues,
+} from '@/lib/import/guide'
 import { PRODUCT_REFERENCE_DEFAULT_COLUMNS, mergeMenuRows, sanitiseColumns, type ReferenceColumn, type ReferenceMenuItem } from '@/lib/reference-table'
 
 type LinkKind = 'ITEM' | 'TASK' | 'CHECKLIST' | 'GUIDE' | 'SECTION' | 'RECIPE'
@@ -136,6 +145,9 @@ function emptyStep(): Step {
 export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
   const [guides, setGuides] = useState<Guide[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
+  const [importOpen, setImportOpen] = useState(false)
+  const [importRefs, setImportRefs] = useState<GuideImportRefs | null>(null)
+  const [importError, setImportError] = useState('')
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set())
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -373,6 +385,20 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
     setVenueId(getActiveVenueId(role, sessionVenueId, defaultVenueId))
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setOpen(true)
+  }
+
+  async function openImport() {
+    setImportError('')
+    const vid = getActiveVenueId(role, sessionVenueId, defaultVenueId)
+    if (!vid) { setImportError('SELECT A VENUE FIRST'); return }
+    try {
+      const r = await fetch(`/api/admin/import/guides?venueId=${encodeURIComponent(vid)}`)
+      if (!r.ok) { setImportError('COULD NOT LOAD IMPORT TARGETS'); return }
+      setImportRefs(await r.json())
+      setImportOpen(true)
+    } catch {
+      setImportError('COULD NOT CONNECT')
+    }
   }
 
   function openEdit(g: Guide) {
@@ -665,11 +691,13 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
             </Button>
           )}
           <Button size="sm" variant="ghost" onClick={addFolder}>+ NEW FOLDER</Button>
+          <Button size="sm" variant="ghost" onClick={openImport}>⬆ IMPORT</Button>
           <Button size="sm" onClick={openCreate}>+ NEW GUIDE</Button>
         </div>
       </div>
 
       {pdfError && <p className="font-mono text-xs text-danger">{pdfError}</p>}
+      {importError && <p className="font-mono text-xs text-danger">{importError}</p>}
       {showFolders && !loading && (
         <p className="font-mono text-xs text-grey-light">TIP: DRAG A GUIDE CARD ONTO A FOLDER TO FILE IT.</p>
       )}
@@ -1049,6 +1077,43 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
           </div>
         )}
       </Modal>
+
+      {importOpen && importRefs && (
+        <ImportModal<GuideImportValues>
+          title="IMPORT GUIDES"
+          prompt={buildGuideImportPrompt()}
+          existing={filteredGuides.map((g) => ({ id: g.id, name: g.title }))}
+          endpoint="/api/admin/import/guides"
+          venueId={effectiveVenueId || undefined}
+          parse={(text, existing) => {
+            const parsed = parseGuideImportAnswer(text)
+            if ('error' in parsed) return parsed
+            const matched = matchGuideRows(parsed.rows, existing)
+            return { ...parsed, rows: resolveGuideImportRefs(matched, importRefs) }
+          }}
+          renderSummary={(v) => ({
+            title: v.title,
+            meta: `${v.guideType} · ${v.steps.length} STEP${v.steps.length === 1 ? '' : 'S'} · DRAFT`,
+          })}
+          renderRowControls={(row, patch) => (
+            row.action === 'UPDATE' || row.action === 'REVIVE'
+              ? (
+                <label className="flex items-center gap-1 font-mono text-xs uppercase text-grey-light">
+                  <input
+                    type="checkbox"
+                    checked={row.values.replaceSteps}
+                    onChange={(e) => patch({ replaceSteps: e.target.checked })}
+                    className="accent-white"
+                  />
+                  REPLACE STEPS
+                </label>
+              )
+              : null
+          )}
+          onClose={() => setImportOpen(false)}
+          onImported={load}
+        />
+      )}
     </div>
   )
 }

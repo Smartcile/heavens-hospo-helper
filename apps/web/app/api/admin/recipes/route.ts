@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const recipes = await prisma.recipe.findMany({
     where: { venueId, deletedAt: null },
     include: {
-      yieldUnit: { select: { id: true, name: true } },
+      yieldUnit: { select: { id: true, name: true, kind: true } },
       lineItems: {
         include: {
           inventoryItem: { select: { id: true, name: true, unit: true, allergyInfo: true } },
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
           })),
         } : undefined,
       },
-      include: { lineItems: true, yieldUnit: { select: { id: true, name: true } } },
+      include: { lineItems: true, yieldUnit: { select: { id: true, name: true, kind: true } } },
     })
     // Recipes are prep/BOM only. Menu items (the sold products) are authored
     // separately in INVENTORY -> MENU ITEMS.

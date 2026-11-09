@@ -2744,23 +2744,74 @@ or a serve/stock drawdown added later.
 The demo seed also creates `FISH & CHIPS` with a required `SIDE` option group
 (`FRIES / SALAD / FRIES + SALAD +$3.00`) using fixed `00da…` demo UUIDs.
 
-**Shared import framework (#89 phase 1, built 2026-11).** A generic
-copy-paste-LLM → preview → commit path lives in `lib/import/` and is intended
-for products, recipes, tasks and guides (only MENU_ITEM is wired so far).
-`types.ts` defines the row/action/match contract (`CREATE | UPDATE | REVIVE |
-SKIP`, `NEW | MATCH | AMBIGUOUS | DUPLICATE_IN_FILE | SIMILAR`);
-`similarity.ts` normalises names and flags near-copies via token Jaccard +
-Levenshtein; `framework.ts` owns include/action toggles and summaries;
-`menu-item.ts` reuses `parseMenuImportAnswer` (a flat `{ products: [...] }`
-answer is wrapped into the existing menu shape), flattens the result and
-matches it against existing products. `ImportModal` is the shared three-step UI
-(prompt copy/download, paste or load a `.md`/`.json` file, then an editable
-preview with a per-row action). `GET/POST /api/admin/import/menu-items`
-(guards `ops.menus.view` / `ops.menus.create`, MANAGER venue-locked) lists
-existing products and applies the selected rows: CREATE makes a local
-`recipeId: null` product (sizes → `variations`), UPDATE/REVIVE patch the
-target by id, and options are additive by name. Nothing is deleted and nothing
-is pushed to Woo. Re-importing the same answer skips existing names.
+**Shared import framework (#89, built 2026-11).** A generic copy-paste-LLM →
+preview → commit path lives in `lib/import/` and is being rolled out to products,
+recipes, tasks and guides. `types.ts` defines the row/action/match contract
+(`CREATE | UPDATE | REVIVE | SKIP`, `NEW | MATCH | AMBIGUOUS |
+DUPLICATE_IN_FILE | SIMILAR`); `similarity.ts` normalises names and flags
+near-copies via token Jaccard + Levenshtein; `framework.ts` owns
+include/action/summary plus `patchRowValues` (per-row value edits).
+
+`ImportModal` is the shared three-step UI (prompt copy/download, paste or load a
+`.md`/`.json` file, then an editable preview). It is generic (`ImportModal<T>`)
+and takes `endpoint`, an optional `renderSummary` (default = name + `$price`,
+which keeps the MENU_ITEM row byte-for-byte) and an optional `renderRowControls`
+for per-row toggles.
+
+**MENU_ITEM adapter (PR 1)** — `lib/import/menu-item.ts` reuses
+`parseMenuImportAnswer` (a flat `{ products: [...] }` answer is wrapped into the
+existing menu shape), flattens it and matches existing products.
+`GET/POST /api/admin/import/menu-items` (guards `ops.menus.view` / `.create`,
+MANAGER venue-locked) lists products and applies rows: CREATE makes a local
+`recipeId: null` product (sizes → `variations`), UPDATE/REVIVE patch by id,
+options are additive. Nothing is deleted or pushed to Woo.
+
+**RECIPE adapter (PR 2, built 2026-11)** — `lib/import/recipe.ts` (pure) builds
+the LLM prompt and parses name / `yieldQty` / `yieldUnit` / `prepTime` /
+`instructions` / `lines`. A line targets `ITEM` (InventoryItem), `RECIPE`
+(sub-recipe) or `PANTRY` (IngredientReference) **by name**, with `qty` and `uom`
+by name. `matchRecipeRows` gives exact/ambiguous/similar matching;
+`resolveRecipeImportRefs` maps every name against the venue's items, recipes,
+UOMs and Pantry entries and calls the shared pure `unitKindMismatch` (same
+VOLUME/MASS/COUNT + density-bridge rule as `checkRecipeLineUnits`). An unknown
+target or unit is a row **ERROR** and defaults the row to SKIP — it is never
+invented. `GET/POST /api/admin/import/recipes` (guards `ops.recipes.view`,
+`ops.recipes.create`, plus `ops.recipes.edit` when any row is UPDATE/REVIVE;
+MAX 400 rows; MANAGER venue-locked) re-validates every name/id against the venue
+and applies the rows in one `$transaction`. CREATE checks the name and skips a
+duplicate; UPDATE/REVIVE patch the scalars; **`REPLACE LINES` is an explicit
+per-row tick, default OFF** — because `RecipeLineItem` has no `deletedAt`,
+replacing lines is `deleteMany` + recreate and only happens when ticked.
+Recipes are prep/BOM only: nothing creates a `MenuItem` or pushes to Woo. Entry
+point: `⬆ IMPORT` on `/admin/ops?tab=inventory&sub=recipes` (`RecipesClient`).
+
+**TASK adapter (PR 3, built 2026-11)** — `lib/import/task.ts` (pure) parses
+title / description (Markdown → sanitised HTML) / department / section /
+checklist **by name** / completion type / schedule. DAY names (`MON`) and
+numbers (0-6) are both accepted; WEEKLY with no days and MONTHLY without a valid
+option are row ERRORs. `matchTaskRows` gives exact/ambiguous/similar matching;
+`resolveTaskImportRefs` maps department/section/checklist names and defaults the
+row to SKIP on an unknown name. `GET/POST /api/admin/import/tasks` (guards
+`execution.tasks.view` / `.create`, plus `.edit` for UPDATE/REVIVE; MANAGER
+venue-locked) resolves the same names server-side. **Every imported task is
+created `status: DRAFT`** (UPDATE preserves the existing status; REVIVE returns
+to DRAFT) and the optional checklist name links it via `ChecklistTask`.
+
+**GUIDE adapter (PR 3, built 2026-11)** — `lib/import/guide.ts` (pure) accepts
+either the JSON prompt or a **Markdown document** (`lib/import/markdown.ts`:
+H1 → title, H2 → steps, paragraphs/lists → sanitised HTML). Parse title /
+description / category / guideType / body / folder / audiences / tracked /
+sign-off / steps (heading, content, video) / step links. Audiences
+(DEPARTMENT/SECTION/POSITION) and links (ITEM/TASK/CHECKLIST/GUIDE/SECTION/
+RECIPE) are referenced **by name**; unknown names are row ERRORs. A guide with no
+resolved audience gets a loud **`NOBODY WILL SEE THIS`** warning (still DRAFT).
+`GET/POST /api/admin/import/guides` (guards `training.playbook.view` /
+`.create`, plus `.edit` for UPDATE/REVIVE; MANAGER venue-locked) re-validates
+names, creates a missing folder by name, and writes DRAFT guides. UPDATE
+replaces audiences; **`REPLACE STEPS` is an explicit per-row tick, default
+OFF** (deleteMany + recreate only when ticked). PRODUCT_REFERENCE guides are
+rejected here. Entry points: `⬆ IMPORT` on `/admin/execution?tab=tasks`
+(`TasksClient`) and `/admin/training?tab=playbook` (`GuidesClient`).
 
 **COGS** — `lib/menu-cogs.ts` (8 tests, pure): `costPrice` is per ONE stock
 `unit`; `costExploded` converts to grams via the density bridge;
@@ -3185,6 +3236,10 @@ pre-flight.
 | `lib/ingredient`/`llm-prompt.ts` — density prompt build/parse | ✅ (8 tests) |
 | `lib/menu-cogs.ts` / `menu-lines.ts` / `menu-serves.ts` / `menu-sync.ts` | ✅ (8 + 9 + 10 + 9) |
 | `lib/import/similarity.ts` / `menu-item.ts` — normalisation, Jaccard/Levenshtein, near-copy match, flat-product parse, CREATE/UPDATE/SKIP defaults | ✅ (12 tests) |
+| `lib/import/recipe.ts` — prompt, tolerant recipe parse (duplicates, missing yield unit), exact/ambiguous/similar matching, reference resolution (unknown target/unit → row ERROR), pure `unitKindMismatch` | ✅ (15 tests) |
+| `lib/import/markdown.ts` — MD subset → sanitised HTML (headings/lists/bold/italic/links/escaping), guide H1/H2 split, plain-text title fallback | ✅ (9 tests) |
+| `lib/import/task.ts` — prompt, day-name/number parsing, completion/schedule/monthly validation, matching, department/section/checklist resolution | ✅ (12 tests) |
+| `lib/import/guide.ts` — JSON + Markdown guide parse, audiences/links parsing, PRODUCT_REFERENCE rejection, matching, audience/link/folder resolution, NOBODY WILL SEE THIS warning | ✅ (14 tests) |
 | `lib/gift-card-numbers.ts` / `gift-card-template.ts` / `gift-card-history.ts` / `gift-cards-woo.ts` / `gift-cards.ts` | ✅ (10 + 16 + 3 + 8 + 9) |
 | `lib/guide-pdf.ts` / `guide-types.ts` / `guide-folders.ts` / `guides.server.ts` / `guide-media.ts` | ✅ (13 + 4 + 7 + 3 + 6) |
 | `lib/reference-table.ts` — derived MENU_FIELD columns + sanitisation | ✅ (19 tests) |
@@ -3227,6 +3282,8 @@ pre-flight.
 | `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, finished collapse + SHOW FINISHED, coloured status boxes, finished-list sort, multi-day editor, settled UNTICK/REOPEN, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, subtask grouping/ADD SUBTASK, dual early-return paths | ✅ (31 tests) |
 | `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, multi-day list flag, subtask indent/add/parent picker, scroll restore after load, linked item + rich description | ✅ (15 tests) |
 | `MenuItemsClient.test.tsx` — recipe-less product listed and saved with `recipeId: null` | ✅ (1 test) |
+| `RecipesClient.test.tsx` — volume/weight display + header opens the shared recipe importer | ✅ (5 tests) |
+| `components/import/ImportModal.test.tsx` — generic rows + custom summary, per-row value patch (`REPLACE LINES`) posted to the given endpoint, default menu-item summary, parse error | ✅ (3 tests) |
 | `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard | ✅ (2 tests) |
 | `ReportsClient.tsx` — OUTCOME badge distinguishes non-DONE rows | ✅ (1 test) |
 | `WorkerSessionGuard.tsx` — idle logout/redirect, activity refresh, refresh throttle, iframe activity relay | ✅ (6 tests) |
@@ -3277,6 +3334,9 @@ pre-flight.
 | `app/api/admin/tasks/item-options/route.test.ts` — auth, grant, manager venue scope, active/non-deleted items | ✅ (4 tests) |
 | `app/api/admin/menu-items/route.test.ts` — null recipe, cross-venue recipe, recipe-derived allergens | ✅ (3 tests) |
 | `app/api/admin/recipes/route.test.ts` — a recipe save never writes a MenuItem | ✅ (1 test) |
+| `app/api/admin/import/recipes/route.test.ts` — GET candidates + MANAGER scope; POST resolves line ids, skips unknown targets, UPDATE without/with REPLACE LINES, skips CREATE of an existing name, requires `ops.recipes.edit` for UPDATE, MANAGER venue lock, empty payload | ✅ (10 tests) |
+| `app/api/admin/import/tasks/route.test.ts` — GET refs + MANAGER scope; POST creates DRAFT tasks with resolved dept/section + checklist link, skips unknown department / invalid weekly, UPDATE preserves status, edit-permission gate, MANAGER venue lock, empty payload | ✅ (9 tests) |
+| `app/api/admin/import/guides/route.test.ts` — GET refs + MANAGER scope; POST creates DRAFT guides with audiences/steps/links, creates a missing folder, skips unknown audience/link, warns NOBODY WILL SEE THIS, rejects PRODUCT_REFERENCE, UPDATE with/without REPLACE STEPS, edit-permission gate, MANAGER lock, empty payload | ✅ (13 tests) |
 | `app/api/admin/swiftpos/staff/route.test.ts` — LINK sets the PIN from the clerk id, keeps an existing PIN, and links without a PIN on a clash | ✅ (3 tests) |
 
 ## PRE-COMMIT CHECKLIST

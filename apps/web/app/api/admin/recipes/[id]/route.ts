@@ -61,7 +61,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const updated = await tx.recipe.findUnique({
       where: { id: params.id },
       include: {
-        yieldUnit: { select: { id: true, name: true } },
+        yieldUnit: { select: { id: true, name: true, kind: true } },
         lineItems: {
           include: {
             inventoryItem: { select: { id: true, name: true, unit: true } },

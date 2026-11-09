@@ -98,6 +98,16 @@ describe('RecipesClient — volume/weight display mode', () => {
     expect(screen.getByText('×2 CUP')).toBeTruthy()
   })
 
+  it('opens the shared recipe importer from the header', async () => {
+    render(<RecipesClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('PIZZA DOUGH')).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: /IMPORT/ }))
+
+    await waitFor(() => expect(screen.getByText(/I'm importing recipes/)).toBeTruthy())
+    expect(screen.getByText('COPY PROMPT')).toBeTruthy()
+  })
+
   it('filters the line unit list to the ingredient\u2019s kind plus its bridges', async () => {
     await openRecipe()
     // Second line is EGGS — an EACH item with a 50 g unit weight.

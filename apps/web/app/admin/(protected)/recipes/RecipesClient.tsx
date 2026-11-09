@@ -9,11 +9,19 @@ import { ListBox, ListRow } from '@/components/ui/ListBox'
 import { Modal } from '@/components/ui/Modal'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { convertLine, convertQty, resolveItemKind, uomsForItem } from '@/lib/unit-convert'
+import { ImportModal } from '@/components/import/ImportModal'
+import {
+  buildRecipeImportPrompt,
+  matchRecipeRows,
+  parseRecipeImportAnswer,
+  resolveRecipeImportRefs,
+  type RecipeImportValues,
+} from '@/lib/import/recipe'
 
 interface Recipe {
   id: string; name: string; yieldQty: number; yieldUnitId: string; instructions: string | null
   prepTime: number | null; version: number; isActive: boolean
-  yieldUnit?: { id: string; name: string }
+  yieldUnit?: { id: string; name: string; kind?: string | null }
   lineItems?: LineItem[]
   menuItem?: { id: string; price: number; wooProductId: string | null; wooCategoryId: string | null; imageUrl: string | null; shortDescription: string | null; isVariable: boolean; variations: Variation[] | null; dietaryInfo: string | null; swiftPosId?: string | null; tastingNotes?: string | null; vintage?: string | null; howToServe?: string | null } | null
 }
@@ -59,6 +67,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   const [isCreating, setIsCreating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [recipeSearch, setRecipeSearch] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
 
   const [formName, setFormName] = useState('')
   const [formYieldQty, setFormYieldQty] = useState('1')
@@ -360,7 +369,7 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h1 className="font-mono text-lg font-bold uppercase tracking-widest text-white">RECIPES</h1>
-
+        <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)}>⬆ IMPORT</Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -601,6 +610,57 @@ export function RecipesClient({ role, sessionVenueId, defaultVenueId }: { role: 
           </div>
         </div>
       </Modal>
+
+      {importOpen && (
+        <ImportModal<RecipeImportValues>
+          title="IMPORT RECIPES"
+          prompt={buildRecipeImportPrompt()}
+          existing={recipes.map((r) => ({ id: r.id, name: r.name }))}
+          endpoint="/api/admin/import/recipes"
+          venueId={venueId}
+          parse={(text, existing) => {
+            const parsed = parseRecipeImportAnswer(text)
+            if ('error' in parsed) return parsed
+            const matched = matchRecipeRows(parsed.rows, existing)
+            return {
+              ...parsed,
+              rows: resolveRecipeImportRefs(matched, {
+                items: inventoryItems.map((i) => ({
+                  id: i.id,
+                  name: i.name,
+                  unit: i.unit,
+                  densityGramsPerMl: i.densityGramsPerMl ?? null,
+                  weightPerUnitGrams: i.weightPerUnitGrams ?? null,
+                })),
+                recipes: recipes.map((r) => ({ id: r.id, name: r.name, yieldUnitKind: r.yieldUnit?.kind ?? null })),
+                uoms: uoms.map((u) => ({ id: u.id, name: u.name, baseUnit: u.baseUnit, conversionRatio: u.conversionRatio, kind: u.kind ?? null })),
+                pantry: pantryRefs.map((p) => ({ id: p.id, name: p.name })),
+              }),
+            }
+          }}
+          renderSummary={(v) => ({
+            title: v.name,
+            meta: `${v.yieldQty} ${v.yieldUnit || '?'} · ${v.lines.length} LINE${v.lines.length === 1 ? '' : 'S'}`,
+          })}
+          renderRowControls={(row, patch) => (
+            row.action === 'UPDATE' || row.action === 'REVIVE'
+              ? (
+                <label className="flex items-center gap-1 font-mono text-xs uppercase text-grey-light">
+                  <input
+                    type="checkbox"
+                    checked={row.values.replaceLines}
+                    onChange={(e) => patch({ replaceLines: e.target.checked })}
+                    className="accent-white"
+                  />
+                  REPLACE LINES
+                </label>
+              )
+              : null
+          )}
+          onClose={() => setImportOpen(false)}
+          onImported={load}
+        />
+      )}
 
     </div>
   )
