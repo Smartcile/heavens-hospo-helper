@@ -22,7 +22,7 @@ import {
 import {
   formatDateLong,
   firstOfMonthKey,
-  keyOfDay,
+  localDayKey,
   mondayOf,
   MONTH_ABBR,
   monthGrid,
@@ -82,13 +82,13 @@ export function WorkerAvailabilityClient() {
   useWorkerImmersive(!!selected)
 
   const [month, setMonth] = useState(() => {
-    const d = parseDay(keyOfDay(new Date()))
+    const d = parseDay(localDayKey())
     return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 }
   })
-  const [weekStart, setWeekStart] = useState(() => mondayOf(keyOfDay(new Date())))
+  const [weekStart, setWeekStart] = useState(() => mondayOf(localDayKey()))
 
   const monthKey = `${month.year}-${String(month.month).padStart(2, '0')}`
-  const today = data?.today ?? keyOfDay(new Date())
+  const today = data?.today ?? localDayKey()
 
   const range = useMemo(() => {
     if (view === 'week') return { start: weekStart, end: shiftDay(weekStart, 6) }
