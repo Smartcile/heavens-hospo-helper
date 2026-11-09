@@ -1085,6 +1085,12 @@ export function GuidesClient({ role, sessionVenueId, defaultVenueId }: { role: s
           existing={filteredGuides.map((g) => ({ id: g.id, name: g.title }))}
           endpoint="/api/admin/import/guides"
           venueId={effectiveVenueId || undefined}
+          fields={[
+            { key: 'title', label: 'TITLE' },
+            { key: 'description', label: 'DESCRIPTION', kind: 'textarea' },
+            { key: 'category', label: 'CATEGORY' },
+            { key: 'bodyHtml', label: 'BODY (HTML)', kind: 'textarea' },
+          ]}
           parse={(text, existing) => {
             const parsed = parseGuideImportAnswer(text)
             if ('error' in parsed) return parsed

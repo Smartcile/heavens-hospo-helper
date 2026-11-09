@@ -10,7 +10,7 @@ import { MenuItemServesEditor } from '@/components/admin/MenuItemServesEditor'
 import { MenuItemDetailsModal } from '@/components/admin/MenuItemDetailsModal'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { ImportModal } from '@/components/import/ImportModal'
-import { buildMenuItemImportPrompt, matchMenuItemRows, parseMenuItemImportAnswer } from '@/lib/import/menu-item'
+import { buildMenuItemImportPrompt, matchMenuItemRows, parseMenuItemImportAnswer, type MenuItemImportValues } from '@/lib/import/menu-item'
 import type { ImportExisting } from '@/lib/import/types'
 import type { AllergenSource } from '@/lib/allergens'
 
@@ -374,12 +374,17 @@ export function MenuItemsClient({
         <MenuItemDetailsModal menuItemId={selectedId} menuItemName={formName} venueId={venueId} onClose={() => setDetailsOpen(false)} onSaved={load} />
       )}
       {importOpen && (
-        <ImportModal
+        <ImportModal<MenuItemImportValues>
           title="IMPORT MENU ITEMS"
           prompt={buildMenuItemImportPrompt()}
           existing={items.map((i): ImportExisting => ({ id: i.id, name: i.name }))}
           endpoint="/api/admin/import/menu-items"
           venueId={venueId}
+          fields={[
+            { key: 'name', label: 'NAME' },
+            { key: 'price', label: 'PRICE', kind: 'number' },
+            { key: 'description', label: 'DESCRIPTION', kind: 'textarea' },
+          ]}
           parse={(text, existing) => {
             const parsed = parseMenuItemImportAnswer(text)
             return 'error' in parsed ? parsed : { ...parsed, rows: matchMenuItemRows(parsed.rows, existing) }

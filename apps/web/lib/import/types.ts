@@ -52,3 +52,15 @@ export interface ImportSummary {
   skipped: number
   warnings: string[]
 }
+
+/**
+ * A scalar field the operator may correct inline in the preview, before import.
+ * Adapters pass these to the shared `ImportModal`; arrays/collections are left to
+ * the explicit per-row gates (REPLACE LINES / STEPS).
+ */
+export interface ImportField<T> {
+  key: keyof T & string
+  label: string
+  kind?: 'text' | 'number' | 'textarea'
+  placeholder?: string
+}

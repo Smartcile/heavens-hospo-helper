@@ -4,7 +4,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { patchRowValues, setRowAction, setRowInclude, summariseRows, rowsToPayload } from '@/lib/import/framework'
-import type { ImportExisting, ImportParseResult, ImportRow, ImportRowAction, ImportSummary } from '@/lib/import/types'
+import type { ImportExisting, ImportField, ImportParseResult, ImportRow, ImportRowAction, ImportSummary } from '@/lib/import/types'
 
 export function ImportModal<T>({
   title,
@@ -13,6 +13,7 @@ export function ImportModal<T>({
   parse,
   endpoint,
   venueId,
+  fields,
   renderSummary,
   renderRowControls,
   onClose,
@@ -26,6 +27,8 @@ export function ImportModal<T>({
   endpoint: string
   /** Active venue for an ADMIN (a MANAGER is always locked to their own). */
   venueId?: string
+  /** Scalar fields the operator can correct inline before importing. */
+  fields?: ImportField<T>[]
   /** Optional row title/meta renderer. Defaults to `name` + `$price` (menu items). */
   renderSummary?: (values: T) => { title: string; meta?: string | null }
   /** Optional per-row control rendered beside the action select. */
@@ -41,8 +44,18 @@ export function ImportModal<T>({
   const [busy, setBusy] = useState(false)
   const [summary, setSummary] = useState<ImportSummary | null>(null)
   const [copied, setCopied] = useState(false)
+  const [editing, setEditing] = useState<Set<string>>(new Set())
 
   const counts = useMemo(() => summariseRows(rows), [rows])
+
+  function toggleEditing(id: string) {
+    setEditing((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   function summaryFor(values: T): { title: string; meta?: string | null } {
     const custom = renderSummary?.(values)
@@ -188,6 +201,16 @@ export function ImportModal<T>({
                         </span>
                       )}
                       {renderRowControls?.(row, (next) => setRows((prev) => patchRowValues(prev, row.id, next)))}
+                      {fields && fields.length > 0 && (
+                        <button
+                          type="button"
+                          aria-label={`${editing.has(row.id) ? 'CLOSE EDIT' : 'EDIT'} ${summary.title}`}
+                          onClick={() => toggleEditing(row.id)}
+                          className="font-mono text-xs uppercase text-warning hover:text-white transition-colors px-1 py-0.5"
+                        >
+                          {editing.has(row.id) ? 'DONE' : 'EDIT'}
+                        </button>
+                      )}
                       <select
                         value={row.action}
                         onChange={(e) => setRows((prev) => setRowAction(prev, row.id, e.target.value as ImportRowAction))}
@@ -199,6 +222,45 @@ export function ImportModal<T>({
                         <option value="SKIP">SKIP</option>
                       </select>
                     </div>
+                    {fields && fields.length > 0 && editing.has(row.id) && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-5 pt-1">
+                        {fields.map((field) => {
+                          const raw = row.values[field.key]
+                          const isNumber = field.kind === 'number'
+                          const change = (next: string) => {
+                            const value = isNumber
+                              ? (next === '' ? null : Number(next))
+                              : next
+                            setRows((prev) => patchRowValues(prev, row.id, { [field.key]: value } as Partial<T>))
+                          }
+                          return (
+                            <label key={field.key} className={field.kind === 'textarea' ? 'block sm:col-span-2' : 'block'}>
+                              <span className="block font-mono text-xs uppercase text-grey-light mb-0.5">{field.label}</span>
+                              {field.kind === 'textarea' ? (
+                                <textarea
+                                  aria-label={`${field.label} FOR ${summary.title}`}
+                                  placeholder={field.placeholder}
+                                  rows={2}
+                                  value={raw == null ? '' : String(raw)}
+                                  onChange={(e) => change(e.target.value)}
+                                  className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white placeholder:text-grey-light"
+                                />
+                              ) : (
+                                <input
+                                  type={isNumber ? 'number' : 'text'}
+                                  step={isNumber ? 'any' : undefined}
+                                  aria-label={`${field.label} FOR ${summary.title}`}
+                                  placeholder={field.placeholder}
+                                  value={raw == null ? '' : String(raw)}
+                                  onChange={(e) => change(e.target.value)}
+                                  className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white placeholder:text-grey-light"
+                                />
+                              )}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )}
                     {row.issues.map((issue, i) => (
                       <p key={i} className={`font-mono text-xs uppercase pl-5 ${issue.severity === 'ERROR' ? 'text-danger' : 'text-warning'}`}>
                         {issue.message}

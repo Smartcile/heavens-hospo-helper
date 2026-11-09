@@ -122,6 +122,55 @@ describe('ImportModal (shared shell)', () => {
     expect(screen.getByText('$16.50')).toBeDefined()
   })
 
+  it('lets the operator edit a field inline before importing', async () => {
+    const parse = vi.fn(() => ({
+      rows: [{
+        id: 'i0',
+        values: { name: 'FISH', price: 16.5 },
+        include: true,
+        action: 'CREATE' as const,
+        issues: [],
+      }],
+      issues: [],
+    }))
+
+    render(
+      <ImportModal<MenuValues>
+        title="IMPORT MENU ITEMS"
+        prompt="PROMPT"
+        existing={[]}
+        parse={parse}
+        endpoint="/api/admin/import/menu-items"
+        fields={[
+          { key: 'name', label: 'NAME' },
+          { key: 'price', label: 'PRICE', kind: 'number' },
+        ]}
+        onClose={() => {}}
+        onImported={() => {}}
+      />,
+    )
+
+    goToPreview()
+    await screen.findByText('FISH')
+
+    fireEvent.click(screen.getByRole('button', { name: 'EDIT FISH' }))
+    fireEvent.change(screen.getByLabelText('NAME FOR FISH'), { target: { value: 'GRILLED FISH' } })
+    fireEvent.change(screen.getByLabelText('PRICE FOR GRILLED FISH'), { target: { value: '18' } })
+
+    await screen.findByText('GRILLED FISH')
+    fireEvent.click(screen.getByText('IMPORT SELECTED'))
+
+    await waitFor(() => {
+      const call = vi.mocked(global.fetch).mock.calls.find(
+        ([url]) => String(url) === '/api/admin/import/menu-items',
+      )
+      expect(call).toBeDefined()
+      const body = JSON.parse(String((call![1] as RequestInit).body))
+      expect(body.rows[0].values.name).toBe('GRILLED FISH')
+      expect(body.rows[0].values.price).toBe(18)
+    })
+  })
+
   it('shows a parse error and stays on the paste step', async () => {
     const parse = vi.fn(() => ({ error: 'NO JSON FOUND IN THE ANSWER' }))
 
