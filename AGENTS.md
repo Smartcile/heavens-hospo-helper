@@ -2871,9 +2871,9 @@ replace / void / reset / delete (voided only). Guards:
 
 **Worker issue** — `/w/giftcards` (`WorkerGiftCardsClient`) for floor staff with
 `performance.giftcards.issue` (`lib/worker-gift-access.ts`) — issue next premade
-+ print. ⚠️ Known bug: the client POSTs to `/api/worker/giftcards/issue`, which
-does not exist (the issuer is `POST /api/worker/giftcards`) — verify before
-relying on it.
++ print. The dashboard exposes a **GIFT CARDS** tile only when
+`GET /api/worker/giftcards/access` allows it, and the client issues via
+`POST /api/worker/giftcards` (the old dead `/issue` URL was fixed in #73).
 
 ### Tips (built 2026-09)
 `TipsPeriod` (`fromDate`/`toDate`, `cashCounts Json`, `posTotal`,
@@ -3294,7 +3294,7 @@ pre-flight.
 | `MenuItemsClient.test.tsx` — recipe-less product listed and saved with `recipeId: null` | ✅ (1 test) |
 | `RecipesClient.test.tsx` — volume/weight display + header opens the shared recipe importer | ✅ (5 tests) |
 | `components/import/ImportModal.test.tsx` — generic rows + custom summary, per-row value patch (`REPLACE LINES`) posted to the given endpoint, default menu-item summary, parse error | ✅ (3 tests) |
-| `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard + live TASKS tile refresh (tile return + window focus) | ✅ (4 tests) |
+| `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard + live TASKS tile refresh (tile return + window focus) + new worker tiles (Kitchen, Deliveries, Gift Cards gating, Training Status manager-only) | ✅ (8 tests) |
 | `ReportsClient.tsx` — OUTCOME badge distinguishes non-DONE rows | ✅ (1 test) |
 | `WorkerSessionGuard.tsx` — idle logout/redirect, activity refresh, refresh throttle, iframe activity relay | ✅ (6 tests) |
 | `lib/worker-task-access.ts` — grant matrix (ADMIN/MANAGER bypass, CREATE/EDIT/DELETE, list OR mapping) | ✅ (6 tests) |

@@ -45,7 +45,7 @@ export function WorkerGiftCardsClient() {
     if (!value || value <= 0) { setState((s) => ({ ...s, error: 'ENTER AN AMOUNT' })); return }
     setState((s) => ({ ...s, error: '' }))
     setIssuing(true)
-    const r = await fetch('/api/worker/giftcards/issue', {
+    const r = await fetch('/api/worker/giftcards', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

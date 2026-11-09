@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLiveRefresh } from '@/lib/use-live-refresh'
 
-type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'shifts' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events' | 'help'
+type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'shifts' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events' | 'deliveries' | 'kitchen' | 'giftcards' | 'training-status' | 'help'
 
 interface DashData {
   firstName: string
@@ -23,6 +23,8 @@ interface DashData {
   isClockedIn: boolean
   /** Managers / granted staff can build BEOs from the phone. */
   eventsAllowed: boolean
+  /** Floor staff with the gift-card issue grant can open the issue screen. */
+  giftcardsAllowed: boolean
 }
 
 export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
@@ -96,7 +98,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
   }
 
   async function load() {
-    const [tasksR, noticesR, calR, guidesR, pathwayR, stocktakeR, clockR, eventsR] = await Promise.all([
+    const [tasksR, noticesR, calR, guidesR, pathwayR, stocktakeR, clockR, eventsR, giftCardsR] = await Promise.all([
       fetch('/api/worker/tasks'),
       fetch('/api/worker/notices'),
       fetch('/api/worker/calendar'),
@@ -105,6 +107,8 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
       fetch('/api/worker/stocktake'),
       fetch('/api/worker/timeclock/status'),
       fetch('/api/worker/events/access'),
+      // A failed capability check must not hang the dashboard.
+      fetch('/api/worker/giftcards/access').catch(() => ({ ok: false } as Response)),
     ])
 
     if (tasksR.status === 401) { router.push('/w/login'); return }
@@ -117,6 +121,9 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
     const stocktakes = stocktakeR.ok ? await stocktakeR.json() : []
     const clock = clockR.ok ? await clockR.json() : { isClockedIn: false }
     const eventsAccess = eventsR.ok ? await eventsR.json() : { allowed: false }
+    const giftCardsAccess = giftCardsR.ok
+      ? await giftCardsR.json().catch(() => ({ allowed: false }))
+      : { allowed: false }
 
     const pending = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => !t.isCompleted).length
     const done = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => t.isCompleted).length
@@ -141,6 +148,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
       pendingStocktakes: (stocktakes ?? []).length,
       isClockedIn: clock.isClockedIn ?? false,
       eventsAllowed: !!eventsAccess.allowed,
+      giftcardsAllowed: !!giftCardsAccess.allowed,
     })
     setLoading(false)
   }
@@ -292,6 +300,18 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
         )}
 
         {card(
+          'KITCHEN',
+          'LIVE ORDER PASS',
+          <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="square" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          </svg>,
+          null,
+          'text-grey-light',
+          'border-grey-mid',
+          () => openView('kitchen')
+        )}
+
+        {card(
           'MY SCHEDULE',
           data && data.upcomingShifts > 0
             ? `${data.upcomingShifts} UPCOMING SHIFT${data.upcomingShifts !== 1 ? 'S' : ''}`
@@ -347,6 +367,18 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           () => openView('guides')
         )}
 
+        {(role === 'ADMIN' || role === 'MANAGER') && card(
+          'TRAINING STATUS',
+          'STAFF TRAINING OVERVIEW',
+          <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="square" strokeWidth={1.5} d="M4 19V5m0 14h16M8 16v-4m4 4V8m4 8v-6" />
+          </svg>,
+          null,
+          'text-grey-light',
+          'border-grey-mid',
+          () => openView('training-status')
+        )}
+
         {card(
           'MY POINTS',
           data && data.sopCount > 0
@@ -400,6 +432,18 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
         )}
 
         {card(
+          'DELIVERIES',
+          'GOODS IN & TEMPERATURES',
+          <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="square" strokeWidth={1.5} d="M3 7l9-4 9 4v10l-9 4-9-4V7zM3 7l9 4 9-4M12 11v10" />
+          </svg>,
+          null,
+          'text-grey-light',
+          'border-grey-mid',
+          () => openView('deliveries')
+        )}
+
+        {card(
           'TIME CLOCK',
           data?.isClockedIn ? 'YOU ARE CLOCKED IN' : 'CLOCK IN / OUT',
           <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -409,6 +453,18 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           data?.isClockedIn ? 'text-success' : 'text-grey-light',
           data?.isClockedIn ? 'border-success' : 'border-grey-mid',
           () => openView('timeclock')
+        )}
+
+        {data?.giftcardsAllowed && card(
+          'GIFT CARDS',
+          'ISSUE A CARD',
+          <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="square" strokeWidth={1.5} d="M4 9h16v11H4V9zM2 5h20v4H2V5zM12 5v15M12 5c-1-2-3-3-4-2s0 3 4 2zm0 0c1-2 3-3 4-2s0 3-4 2z" />
+          </svg>,
+          null,
+          'text-grey-light',
+          'border-grey-mid',
+          () => openView('giftcards')
         )}
 
         {data?.eventsAllowed && card(

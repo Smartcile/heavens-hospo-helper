@@ -24,6 +24,7 @@ function mockApi() {
     if (u === '/api/worker/stocktake') return json([])
     if (u === '/api/worker/timeclock/status') return json({ isClockedIn: false })
     if (u === '/api/worker/events/access') return json({ allowed: false })
+    if (u === '/api/worker/giftcards/access') return json({ allowed: false })
     return json({})
   })
 }
@@ -125,5 +126,48 @@ describe('WorkerDashboardClient chrome', () => {
 
     await waitFor(() => expect(screen.getByText(/0 PENDING · 100% DONE/)).toBeDefined())
     expect(taskCalls()).toBeGreaterThanOrEqual(2)
+  })
+
+  it('exposes worker pages that previously had no tile', async () => {
+    render(<WorkerDashboardClient role="STAFF" />)
+    await waitFor(() => expect(screen.getByText('TASKS')).toBeDefined())
+    expect(screen.getByText('KITCHEN')).toBeDefined()
+    expect(screen.getByText('DELIVERIES')).toBeDefined()
+  })
+
+  it('shows the Training Status tile only to managers', async () => {
+    const { unmount } = render(<WorkerDashboardClient role="MANAGER" />)
+    await waitFor(() => expect(screen.getByText('TASKS')).toBeDefined())
+    expect(screen.getByText('TRAINING STATUS')).toBeDefined()
+    unmount()
+
+    render(<WorkerDashboardClient role="STAFF" />)
+    await waitFor(() => expect(screen.getByText('TASKS')).toBeDefined())
+    expect(screen.queryByText('TRAINING STATUS')).toBeNull()
+  })
+
+  it('shows the Gift Cards tile only when the worker may issue cards', async () => {
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') return json({ tasks: [], firstName: 'ALEX' })
+      if (u === '/api/worker/giftcards/access') return json({ allowed: true })
+      return json({})
+    })
+
+    render(<WorkerDashboardClient role="STAFF" />)
+    await waitFor(() => expect(screen.getByText('GIFT CARDS')).toBeDefined())
+  })
+
+  it('still renders when the gift-card access check fails', async () => {
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/giftcards/access') throw new Error('offline')
+      if (u === '/api/worker/tasks') return json({ tasks: [], firstName: 'ALEX' })
+      return json({})
+    })
+
+    render(<WorkerDashboardClient role="STAFF" />)
+    await waitFor(() => expect(screen.getByText('TASKS')).toBeDefined())
+    expect(screen.queryByText('GIFT CARDS')).toBeNull()
   })
 })
