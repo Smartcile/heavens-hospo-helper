@@ -131,7 +131,7 @@ area's **fine tabs** only (CUSTOMERS is a leaf — no bar). Sub-tab = URL
 │ MENU & SERVICES →  MENUS & CATEGORIES | SERVICES                       │
 │ BOOKINGS →        DIARY | TABLE | DELETED                             │
 │ ORDERS →          ALL | SERVICE | KITCHEN | FOH | PRODUCTION | DOCKETS  │
-│ INVENTORY & STOCKTAKE →  INVENTORY | RECIPES | MENU ITEMS | PANTRY BIBLE | STOCKTAKE │
+│ INVENTORY & STOCKTAKE →  INVENTORY | RECIPES | MENU ITEMS | PANTRY BIBLE | STOCKTAKE | PURCHASING | INVOICES │
 │ CUSTOMERS →       (no top bar)                                        │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -144,7 +144,7 @@ Flow order: **Sell → Seat → Serve → Stock**.
 | **BOOKINGS** | `/admin/ops?tab=bookings` | Table reservations. DIARY (timeline), TABLE (tables × time grid with service windows, click-to-create, drag-resize), DELETED (recover with reseat + clash guard). Booking cards have a CUSTOMER button → slide-out customer drawer. Creates calendar events |
 | **ORDERS** | `/admin/ops?tab=orders` | Date-driven orders. Views: ALL / SERVICE / KITCHEN / FOH / PRODUCTION. Filters, saved views, + NEW ORDER. Detail popout: contact (VIEW CUSTOMER → drawer), booking controls, progress buttons, payment, items, Woo status push. DOCKETS: live SwiftPOS open-sale kitchen dockets at the pass (30 s refresh while visible, 30/60/120 min/ALL LINES windows, not-connected/error states) |
 | **CUSTOMERS** | `/admin/ops?tab=customers` | Customer search by phone/name; detail opens the slide-out customer drawer (contact + booking history) |
-| **INVENTORY & STOCKTAKE** | `/admin/ops?tab=inventory` | INVENTORY: master-detail stock system (FOOD/BEVERAGE/OTHER categories, AVAIL = total − placed, deep fields, equipment tracking, furniture form, SHOW DELETED; regular items tagged `CUSTOM`). RECIPES: prep/BOM editor only (ingredients, PANTRY BIBLE references, sub-recipes, yield, instructions); no price/POS/image. MENU ITEMS: the sold products — optional recipe attach, price, descriptions/image, allergens (AllergenPicker), SWIFT POS code, ITEM LINKS (serves/drawdown) and EQUIPMENT. PANTRY BIBLE: searchable known-ingredient density library with BUILT-IN / CUSTOM badges and delete for venue-owned rows. STOCKTAKE: create/count/variance/sign-off |
+| **INVENTORY & STOCKTAKE** | `/admin/ops?tab=inventory` | INVENTORY: master-detail stock system (FOOD/BEVERAGE/OTHER categories, AVAIL = total − placed, deep fields, equipment tracking, furniture form, SHOW DELETED; regular items tagged `CUSTOM`). RECIPES: prep/BOM editor only (ingredients, PANTRY BIBLE references, sub-recipes, yield, instructions); no price/POS/image. MENU ITEMS: the sold products — optional recipe attach, price, descriptions/image, allergens (AllergenPicker), SWIFT POS code, ITEM LINKS (serves/drawdown) and EQUIPMENT. PANTRY BIBLE: searchable known-ingredient density library with BUILT-IN / CUSTOM badges and delete for venue-owned rows. STOCKTAKE: create/count/variance/sign-off. PURCHASING: purchase orders (create → send → receive, partial receipts, receipts update costs and raise PRICE MOVEMENTS). INVOICES: deterministic template-driven PDF/text import → editable preview → commit, with 3-way match badges (MATCHED/UNMATCHED/VARIANCE) and unapproved price movements |
 
 All areas follow the sidebar's active venue; old standalone URLs redirect here
 keeping other query params.
@@ -159,7 +159,7 @@ keeping other query params.
 | **VENUE SETUP** | Stand up a venue in one place: **venues** (add / remove test ones), **roles** (Positions — with training requirements, team readiness, default access, per-role rate) and **departments** |
 | **STRUCTURE** | The org tree + workflow node map (TREE/MAP) — moved here from the sidebar |
 | **UNITS OF MEASURE** | UOM list + CRUD with base-unit ratios and kind (VOLUME/MASS/COUNT) |
-| **SUPPLIERS** | Supplier list + CRUD (used by inventory equipment tracking) |
+| **SUPPLIERS** | Supplier list + CRUD (used by inventory equipment tracking). Selecting a supplier shows the purchasing panel: SUPPLIER SKUs (SKU → inventory item + purchase price), LINE ALIASES (invoice text → item), and INVOICE TEMPLATES with LEARN TEMPLATE (copy a prompt to an external LLM, paste its JSON back) |
 | **QR CODES** | Worker login QR generation/download per venue |
 | **SWIFT POS** | SwiftPOS connection + reporting: SALES / STAFF SYNC / MENU LINKS, plus live kitchen dockets under Ops → Orders |
 | **FILES** | File manager (admin only — hidden from managers) — tree over the server's media + backups folders. Click a file to preview it in a popup (images/PDFs) with **usage tags** (gift card templates, issued card PDFs, product/staff/guide/task photos). DELETE is disabled for linked files |
