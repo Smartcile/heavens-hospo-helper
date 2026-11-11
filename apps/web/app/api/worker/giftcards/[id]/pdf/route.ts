@@ -5,7 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import fs from 'fs'
 
 /** GET /api/worker/giftcards/[id]/pdf — the issued card's PDF for printing. */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getWorkerSession()
   if (!(await workerMayIssueGiftCards(session))) {
     return NextResponse.json({ error: 'ACCESS DENIED' }, { status: 403 })
@@ -20,10 +20,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   }
 
   const buffer = fs.readFileSync(card.pdfPath)
+  // `?inline=1` lets the in-app canvas viewer and the print iframe render the
+  // PDF; the default stays an attachment download.
+  const inline = req.nextUrl.searchParams.get('inline') === '1'
   return new NextResponse(buffer, {
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="Gift Card - ${card.number}.pdf"`,
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="Gift Card - ${card.number}.pdf"`,
     },
   })
 }

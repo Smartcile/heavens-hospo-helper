@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { GiftCardPdfView } from '@/components/worker/GiftCardPdfView'
 
 // Worker gift card issuing — a host/supervisor can sell a physical card from
 // the phone. Uses the LOWEST-numbered draft (1..100 pool) and prints the PDF.
@@ -25,6 +26,7 @@ export function WorkerGiftCardsClient() {
   const [isInternal, setIsInternal] = useState(false)
   const [issuing, setIssuing] = useState(false)
   const [done, setDone] = useState<{ cardId: string; number: string; amount: number } | null>(null)
+  const [viewing, setViewing] = useState<{ cardId: string; number: string } | null>(null)
 
   useEffect(() => {
     fetch('/api/worker/giftcards')
@@ -98,6 +100,18 @@ export function WorkerGiftCardsClient() {
     )
   }
 
+  if (viewing) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col">
+        <GiftCardPdfView
+          cardId={viewing.cardId}
+          number={viewing.number}
+          onBack={() => setViewing(null)}
+        />
+      </div>
+    )
+  }
+
   if (done) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center p-6">
@@ -108,7 +122,7 @@ export function WorkerGiftCardsClient() {
             <div className="font-mono text-xl text-white">${done.amount.toFixed(2)}</div>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <Button onClick={() => window.open(`/api/worker/giftcards/${done.cardId}/pdf`, '_blank')}>VIEW / PRINT PDF</Button>
+            <Button onClick={() => setViewing({ cardId: done.cardId, number: done.number })}>VIEW / PRINT PDF</Button>
             <Button variant="ghost" onClick={() => setDone(null)}>NEXT CARD</Button>
           </div>
           <p className="font-mono text-xs text-grey-light">PRINT THE PDF ON A CARD PRINTER OR STANDARD PAPER.</p>

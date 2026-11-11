@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/Input'
 import { Panel } from '@/components/ui/Panel'
 import { GiftCardModal } from '@/components/admin/GiftCardModal'
 import { IssueGiftCardModal } from '@/components/admin/IssueGiftCardModal'
-import { PdfCanvasViewer } from '@/components/ui/PdfCanvasViewer'
+import { PdfDocumentView } from '@/components/ui/PdfDocumentView'
 
 interface GiftCard {
   id: string
@@ -97,6 +97,8 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewError, setPreviewError] = useState('')
   const previewSeq = useRef(0)
+  // In-app template preview (the row's PREVIEW button) — never a browser tab.
+  const [templatePreview, setTemplatePreview] = useState<GiftCardTemplate | null>(null)
   const [bulkError, setBulkError] = useState('')
 
   const load = useCallback(async () => {
@@ -409,7 +411,7 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                 </div>
                 <div className="flex items-center gap-1 flex-wrap">
                   <Button size="sm" variant="ghost" onClick={() => openMapping(t)} disabled={!t.filePath}>MAPPING</Button>
-                  <Button size="sm" variant="ghost" onClick={() => window.open(`/api/admin/gift-card-templates/${t.id}/preview`, '_blank')} disabled={!t.filePath}>PREVIEW</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setTemplatePreview(t)} disabled={!t.filePath}>PREVIEW</Button>
                   {!t.isActive && (
                     <Button size="sm" variant="ghost" onClick={() => setActive(t)}>SET ACTIVE</Button>
                   )}
@@ -694,7 +696,7 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
                   <span className="font-mono text-xs uppercase text-grey-light">REFRESHES AS YOU MAP</span>
                 </div>
                 {previewUrl ? (
-                  <PdfCanvasViewer url={previewUrl} title="GIFT CARD PREVIEW" />
+                  <PdfDocumentView url={previewUrl} filename="gift-card-preview.pdf" title="GIFT CARD PREVIEW" />
                 ) : (
                   <div className="flex-1 flex items-center justify-center p-4">
                     <p className={`font-mono text-xs uppercase ${previewError ? 'text-danger' : 'text-grey-light'}`}>
@@ -718,6 +720,18 @@ export function GiftCardsClient({ defaultYear }: { defaultYear?: string }) {
           onClose={() => setOpenCardId(null)}
           onChanged={() => load()}
         />
+      )}
+
+      {/* In-app template preview — the OS share/print bar is the way out */}
+      {templatePreview && (
+        <div className="fixed inset-0 z-50 bg-black">
+          <PdfDocumentView
+            url={`/api/admin/gift-card-templates/${templatePreview.id}/preview`}
+            filename={`Gift Card - ${templatePreview.name} - Preview.pdf`}
+            title={`GIFT CARD - ${templatePreview.name}`}
+            onBack={() => setTemplatePreview(null)}
+          />
+        </div>
       )}
     </div>
   )
