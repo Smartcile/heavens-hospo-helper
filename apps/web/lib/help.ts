@@ -99,6 +99,8 @@ export const HELP_REQUIRED_SLUGS = [
   'ops-menu',
   'ops-orders-bookings',
   'inventory',
+  'purchasing',
+  'imports',
   'events',
   'rooms-plans',
   'team-roster-availability',
