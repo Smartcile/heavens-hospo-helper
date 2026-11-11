@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/Input'
 import { Panel } from '@/components/ui/Panel'
 import { PdfCanvasViewer } from '@/components/ui/PdfCanvasViewer'
 import { PdfDocumentView } from '@/components/ui/PdfDocumentView'
+import { remainingBalance } from '@/lib/gift-card-redemption'
 
 // Gift card popup: click any card in the list. Left = the card itself (edit
 // details, status actions, private notes, PDF/email); right = the
@@ -72,6 +73,9 @@ interface CardDetail {
     wooOrderId: string | null
     issuedAt: string | null
     sentAt: string | null
+    expiresAt: string | null
+    redeemedAmount: number | null
+    redeemedAt: string | null
     pdfPath: string | null
     notes: string | null
     createdAt: string
@@ -139,6 +143,8 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
   const [replaceDraft, setReplaceDraft] = useState({ reason: '', customerName: '', customerEmail: '', amount: '', message: '' })
   // Full-screen in-app PDF (share / print / download / back) — no browser tab.
   const [pdfOpen, setPdfOpen] = useState(false)
+  // Partial redemption — empty means "redeem the full balance".
+  const [redeemInput, setRedeemInput] = useState('')
 
   const load = useCallback(async () => {
     const [r, tR] = await Promise.all([
@@ -229,6 +235,39 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
     if (r.ok) { setMessage(`STATUS: ${next}`); onChanged(); load() }
     else { const e = await r.json().catch(() => null); setError(e?.error ?? 'UPDATE FAILED') }
     setSaving(false)
+  }
+
+  async function redeemCard(valueOverride?: number) {
+    if (!card) return
+    const balance = remainingBalance(card)
+    const value = valueOverride ?? (redeemInput.trim() === '' ? balance : parseFloat(redeemInput))
+    if (!value || value <= 0) { setError('ENTER A REDEEM AMOUNT'); return }
+    if (!window.confirm(`REDEEM $${value.toFixed(2)} FROM CARD #${card.number}?`)) return
+    setSaving(true); setError(''); setMessage('')
+    try {
+      const r = await fetch(`/api/admin/gift-cards/${card.id}/redeem`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: value }),
+      })
+      if (r.ok) {
+        const d = await r.json().catch(() => null)
+        setRedeemInput('')
+        setMessage(
+          d?.card?.status === 'REDEEMED'
+            ? 'CARD FULLY REDEEMED — NO BALANCE LEFT'
+            : `REDEEMED $${value.toFixed(2)} — $${Number(d?.balance ?? 0).toFixed(2)} REMAINING`,
+        )
+        onChanged(); load()
+      } else {
+        const e = await r.json().catch(() => null)
+        setError(e?.error ?? 'REDEEM FAILED')
+      }
+    } catch {
+      setError('COULD NOT CONNECT')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function resetCard() {
@@ -398,6 +437,38 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                 </div>
               </div>
               {card?.isInternal && <p className="font-mono text-xs text-warning">INTERNAL — PRINT LATER</p>}
+              {card && (
+                <div className="border-t border-grey-mid pt-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs uppercase text-grey-light">REMAINING BALANCE</span>
+                    <span className="font-mono text-sm text-white">${remainingBalance(card).toFixed(2)}</span>
+                  </div>
+                  {(card.status === 'ISSUED' || card.status === 'SENT') && (
+                    <div className="flex items-end gap-2">
+                      <div className="flex-1">
+                        <label className="font-mono text-xs uppercase text-grey-light block mb-1">
+                          REDEEM AMOUNT ($ — BLANK = FULL BALANCE)
+                        </label>
+                        <Input
+                          type="text"
+                          inputMode="decimal"
+                          value={redeemInput}
+                          onChange={(e) => setRedeemInput(e.target.value)}
+                          placeholder={remainingBalance(card).toFixed(2)}
+                          className="text-right"
+                        />
+                      </div>
+                      <Button size="sm" onClick={() => redeemCard()} disabled={saving}>REDEEM</Button>
+                    </div>
+                  )}
+                  {(card.redeemedAmount ?? 0) > 0 && (
+                    <p className="font-mono text-xs text-grey-light">
+                      REDEEMED TO DATE: ${Number(card.redeemedAmount ?? 0).toFixed(2)}
+                      {card.redeemedAt ? ` · LAST ${fmt(card.redeemedAt)}` : ''}
+                    </p>
+                  )}
+                </div>
+              )}
               {card?.status === 'DRAFT' && usableTemplates.length > 0 && (
                 <div>
                   <label className="font-mono text-xs uppercase text-grey-light block mb-1">CARD TEMPLATE</label>
@@ -426,7 +497,9 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                   </>
                 )}
                 {(card?.status === 'ISSUED' || card?.status === 'SENT') && (
-                  <Button size="sm" variant="ghost" onClick={() => setStatus('REDEEMED')} disabled={saving}>REDEEM</Button>
+                  <Button size="sm" variant="ghost" onClick={() => redeemCard(remainingBalance(card))} disabled={saving}>
+                    REDEEM FULL BALANCE
+                  </Button>
                 )}
                 {(card?.status === 'ISSUED' || card?.status === 'SENT') && (
                   <Button size="sm" variant="ghost" onClick={openReplace} disabled={saving}>REPLACE CARD</Button>
