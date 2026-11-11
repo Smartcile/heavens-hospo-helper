@@ -3156,7 +3156,10 @@ API level 2 with the actual PDF `File`, prefetched so iOS keeps the user
 gesture; `canShareFiles()` hides the button when unsupported), **DOWNLOAD** and
 **OPEN**. The pure, testable helpers live in `lib/pdf-actions.ts`
 (`sanitisePdfFilename`, `canShareFiles`, `sharePdfFile`, `printPdfUrl`,
-`downloadPdfUrl`, `isStandaloneApp`). **Rule:** never `window.open` a PDF a
+`downloadPdfUrl`, `isStandaloneApp`). On phones the viewer also pinch-zooms and
+double-taps between fit and 2× (`lib/pdf-zoom.ts`; one-finger scrolling stays
+native), and the action bar uses 44px buttons (`min-h-11`) with safe-area
+padding so the controls clear the home indicator. **Rule:** never `window.open` a PDF a
 worker must return from; any full-screen document/webpage view needs a back
 affordance. PDF routes accept `?inline=1` for the viewer/print iframe (default
 stays `attachment`); bulk card printing remains a direct download, which is the
@@ -3288,8 +3291,8 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
   .../gift-card-templates/[id]/preview` accepts `values` so the issue popup
   previews the data being typed (debounced). All gift-card previews render in
   `components/ui/PdfCanvasViewer` (pdf.js, no toolbar; scroll, ctrl+wheel
-  zoom, drag-pan; worker at `public/pdf.worker.min.mjs`, copied by
-  `scripts/copy-pdf-worker.mjs` on predev/prebuild). New dep: `pdfjs-dist`.
+  zoom, pinch/double-tap zoom, drag-pan; worker at `public/pdf.worker.min.mjs`,
+  copied by `scripts/copy-pdf-worker.mjs` on predev/prebuild). New dep: `pdfjs-dist`.
 - **Seamless admin ⇄ worker switching.** `POST /api/worker/switch` mints a
   worker session for the signed-in admin/manager (no PIN); AdminNav has
   WORKER VIEW →, the worker dashboard has ADMIN → for managers. Explicit
@@ -3540,6 +3543,7 @@ pre-flight.
 | `lib/import/task.ts` — prompt, day-name/number parsing, completion/schedule/monthly validation, matching, department/section/checklist resolution | ✅ (12 tests) |
 | `lib/import/guide.ts` — JSON + Markdown guide parse, audiences/links parsing, PRODUCT_REFERENCE rejection, matching, audience/link/folder resolution, NOBODY WILL SEE THIS warning | ✅ (14 tests) |
 | `lib/gift-card-numbers.ts` / `gift-card-template.ts` / `gift-card-history.ts` / `gift-cards-woo.ts` / `gift-cards.ts` | ✅ (10 + 16 + 3 + 8 + 9) |
+| `lib/pdf-zoom.ts` — scale clamp, pinch ratio, zoom-around-point scroll, double-tap toggle | ✅ (14 tests) |
 | `lib/guide-pdf.ts` / `guide-types.ts` / `guide-folders.ts` / `guides.server.ts` / `guide-media.ts` | ✅ (13 + 4 + 7 + 3 + 6) |
 | `lib/reference-table.ts` — derived MENU_FIELD columns + sanitisation | ✅ (19 tests) |
 | `lib/rich-text.ts` — `sanitiseRichText` allowlist | ✅ (13 tests) |
@@ -3574,7 +3578,7 @@ pre-flight.
 | `AdminNav.test.tsx` — renders nav groups | ✅ |
 | `FloorPlanEditor.tsx` — 30+ hooks, useMemo, loading gate | ✅ |
 | `BudgetPageClient.tsx` — useCallback + useEffect chain | ✅ |
-| `PdfCanvasViewer.tsx` — pdf.js viewer source + error fallback | ✅ (1 test) |
+| `PdfCanvasViewer.tsx` — pdf.js viewer source + error fallback, double-tap toggle, two-finger pinch, mouse drag-pan, zoom memory | ✅ (6 tests) |
 | `BudgetLinesPanel.tsx` — tree render, totals, add/import flows | ✅ (5 tests) |
 | `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |

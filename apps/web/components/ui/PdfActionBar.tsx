@@ -116,7 +116,7 @@ export function PdfActionBar({ url, downloadUrl, filename, title, onBack, backLa
     <div
       data-testid="pdf-action-bar"
       className={cn(
-        'border-t border-grey-mid bg-black/95 p-2 flex flex-wrap items-center gap-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]',
+        'border-t border-grey-mid bg-black/95 p-2 flex flex-nowrap overflow-x-auto items-center gap-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]',
         className,
       )}
     >
@@ -126,6 +126,7 @@ export function PdfActionBar({ url, downloadUrl, filename, title, onBack, backLa
           variant="ghost"
           aria-label="Back"
           data-testid="pdf-back"
+          className="min-h-11 shrink-0"
           onClick={handleBack}
         >
           {backLabel ?? BACK_LABEL}
@@ -136,6 +137,7 @@ export function PdfActionBar({ url, downloadUrl, filename, title, onBack, backLa
         variant="ghost"
         aria-label="Print"
         data-testid="pdf-print"
+        className="min-h-11 shrink-0"
         onClick={handlePrint}
       >
         PRINT
@@ -146,6 +148,7 @@ export function PdfActionBar({ url, downloadUrl, filename, title, onBack, backLa
           variant="ghost"
           aria-label="Share"
           data-testid="pdf-share"
+          className="min-h-11 shrink-0"
           onClick={handleShare}
         >
           SHARE
@@ -156,6 +159,7 @@ export function PdfActionBar({ url, downloadUrl, filename, title, onBack, backLa
         variant="ghost"
         aria-label="Download"
         data-testid="pdf-download"
+        className="min-h-11 shrink-0"
         onClick={handleDownload}
       >
         DOWNLOAD
@@ -165,6 +169,7 @@ export function PdfActionBar({ url, downloadUrl, filename, title, onBack, backLa
         variant="ghost"
         aria-label="Open in new tab"
         data-testid="pdf-open"
+        className="min-h-11 shrink-0"
         onClick={handleOpen}
       >
         OPEN
@@ -173,7 +178,7 @@ export function PdfActionBar({ url, downloadUrl, filename, title, onBack, backLa
         <span
           data-testid="pdf-status"
           className={cn(
-            'font-mono text-xs uppercase',
+            'shrink-0 font-mono text-xs uppercase',
             statusTone === 'error' ? 'text-danger' : 'text-grey-light',
           )}
         >

@@ -520,6 +520,7 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
       '<p>The issue box with the chosen card number and amount.</p>',
       '<h3>Print or share the PDF</h3>',
       '<p>The card PDF opens inside the app — there is no separate browser tab to lose your place in. A bar along the bottom is the way out.</p>',
+      '<p>On an iPhone, pinch with two fingers or double-tap to zoom the card, and the PRINT and SHARE buttons are thumb-sized and sit clear of the home indicator.</p>',
       '<ol>',
       '<li>Tap <strong>VIEW / PRINT PDF</strong> on the card, or straight after issuing one.</li>',
       '<li><strong>PRINT</strong> sends the card to a printer. Use it for a card printer or standard paper.</li>',
