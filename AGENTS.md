@@ -570,9 +570,12 @@ request, an overdue retrain request (pending > 14 days), or an open
   venue for managers / view-granted staff), the same actions, checks the
   resolve response and surfaces failures inline, and shows a red guide card +
   red RETRAIN NEEDED reason where the guide is marked off.
-- **Help:** the `training-warnings` Heavenly Help article is intentionally
-  deferred — PR #135 owns `content/help/articles.ts` and is frozen for this
-  branch; add the article after #135 merges.
+- **Help:** the `guide-warnings` Heavenly Help article (TEAM / EVERYONE,
+  sortOrder 620) covers the admin warnings list, folder grouping, retrain
+  reasons, the red guide highlight, worker NEEDS ATTENTION and marking
+  retraining. It ships with three screenshots:
+  `/help/guide-warnings-admin.png`, `/help/guide-warnings-modal.png` and
+  `/help/guide-warnings-worker.png`.
 - **Deploy note:** additive only. `prisma db push` creates the enum + table; no
   data migration or backfill is required.
 
