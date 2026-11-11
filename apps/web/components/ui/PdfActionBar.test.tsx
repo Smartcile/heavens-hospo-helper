@@ -76,6 +76,18 @@ describe('PdfActionBar', () => {
     expect(back).toHaveBeenCalledTimes(1)
   })
 
+  it('uses thumb-sized buttons and keeps the safe-area clearance', () => {
+    mocks.canShareFiles.mockReturnValue(true)
+    render(<PdfActionBar {...baseProps()} onBack={() => {}} />)
+
+    const bar = screen.getByTestId('pdf-action-bar')
+    expect(bar.className).toContain('env(safe-area-inset-bottom)')
+    expect(bar.className).toContain('flex-nowrap')
+    for (const id of ['pdf-back', 'pdf-print', 'pdf-share', 'pdf-download', 'pdf-open']) {
+      expect(screen.getByTestId(id).className).toContain('min-h-11')
+    }
+  })
+
   it('shows SHARE when files can be shared and reports SHARED', async () => {
     mocks.canShareFiles.mockReturnValue(true)
     render(<PdfActionBar {...baseProps()} />)
