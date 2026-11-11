@@ -9,7 +9,15 @@ import { TimeInput } from '@/components/ui/TimeInput'
 import { pushToast } from '@/components/ui/Toast'
 import { CustomerDrawer } from '@/components/admin/CustomerDrawer'
 import { OP_STATUS_STYLES } from '@/components/admin/OrdersViews'
+import { OrderOptionPicker } from '@/components/admin/OrderOptionPicker'
 import type { OrderView } from '@/lib/order-views'
+import { normaliseOptionGroups, type MenuOptionGroup } from '@/lib/menu-options'
+import {
+  describeOrderLineOptions,
+  normaliseOrderOptions,
+  optionPriceDelta,
+  type OrderLineOption,
+} from '@/lib/order-options'
 
 const OP_STATUSES = [
   'NEW', 'CONFIRMED', 'IN_PREP', 'READY', 'ARRIVED',
@@ -32,6 +40,9 @@ export function OrderDetailDrawer({
   const [editEnd, setEditEnd] = useState('')
   const [editParty, setEditParty] = useState('')
   const [showCustomer, setShowCustomer] = useState(false)
+  const [editingLineId, setEditingLineId] = useState<string | null>(null)
+  const [editGroups, setEditGroups] = useState<MenuOptionGroup[]>([])
+  const [editOptions, setEditOptions] = useState<OrderLineOption[]>([])
 
   async function patch(body: Record<string, unknown>, successMsg: string) {
     setBusy(true)
@@ -74,6 +85,63 @@ export function OrderDetailDrawer({
     else {
       const err = await res.json().catch(() => ({}))
       pushToast((err.error ?? 'SAVE FAILED').toUpperCase(), 'error')
+    }
+  }
+
+  /** Open the option picker for a line using the groups on the order payload. */
+  function openOptionEditor(item: OrderView['items'][number]) {
+    if (!item.menuItemId) return
+    const groups = normaliseOptionGroups(item.optionGroups ?? [])
+    if (groups.length === 0) {
+      pushToast('THIS PRODUCT HAS NO OPTIONS', 'error')
+      return
+    }
+    setEditingLineId(item.id)
+    setEditGroups(groups)
+    setEditOptions(normaliseOrderOptions(item.options ?? []))
+  }
+
+  /**
+   * Replace every line, applying the edited option choices on one of them.
+   * The API stores `unitPrice + option upcharges`, so the edited line sends the
+   * base price (stored price minus its existing upcharges). Untouched lines
+   * omit `options`, so the API leaves their snapshot and price alone.
+   */
+  async function saveOptions() {
+    if (!editingLineId) return
+    const items = order.items
+      .filter((i) => i.menuItemId)
+      .map((i) => {
+        const common = {
+          id: i.id,
+          menuItemId: i.menuItemId,
+          qty: i.qty,
+          customerNote: i.customerNote,
+          allergenNote: i.allergenNote,
+        }
+
+        if (i.id !== editingLineId) {
+          return { ...common, unitPrice: i.unitPrice }
+        }
+
+        const base = Math.round(((i.unitPrice ?? 0) - optionPriceDelta(i.options ?? [])) * 100) / 100
+        return { ...common, unitPrice: base, options: editOptions }
+      })
+
+    setBusy(true)
+    const res = await fetch(`/api/admin/orders/${order.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    })
+    setBusy(false)
+    if (res.ok) {
+      pushToast('OPTIONS UPDATED', 'success')
+      setEditingLineId(null)
+      onChanged()
+    } else {
+      const err = await res.json().catch(() => ({}))
+      pushToast((err.error ?? 'UPDATE FAILED').toUpperCase(), 'error')
     }
   }
 
@@ -345,9 +413,34 @@ export function OrderDetailDrawer({
                         ))}
                       </div>
                     )}
+                    {describeOrderLineOptions(i.options ?? []) && (
+                      <p className="font-mono text-xs text-accent pl-10 uppercase">
+                        {describeOrderLineOptions(i.options ?? [])}
+                      </p>
+                    )}
                     {i.customerNote && (
                       <p className="font-mono text-xs text-grey-light pl-10 italic">{i.customerNote}</p>
                     )}
+                    {editingLineId === i.id ? (
+                      <div className="pl-10 space-y-2 pt-1">
+                        <OrderOptionPicker
+                          groups={editGroups}
+                          value={editOptions}
+                          onChange={setEditOptions}
+                          disabled={busy}
+                        />
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={saveOptions} loading={busy}>SAVE OPTIONS</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditingLineId(null)}>CANCEL</Button>
+                        </div>
+                      </div>
+                    ) : (i.optionGroups?.length ?? 0) > 0 ? (
+                      <div className="pl-10 pt-0.5">
+                        <Button size="sm" variant="ghost" onClick={() => openOptionEditor(i)}>
+                          OPTIONS
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>

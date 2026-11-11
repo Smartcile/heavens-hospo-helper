@@ -2797,7 +2797,8 @@ from `status` (which mirrors WooCommerce and is payment/store-centric):
 `explodedIngredients` (shape: `{ recipeId, recipeName, orderQty, ingredients[] }`),
 freeing `notes` for genuine operator notes and adding `customerNote` +
 `allergenNote` for per-line allergy requests. `/api/admin/inventory/reconcile`
-reads the new column.
+reads the new column. `options Json?` (added in #118) snapshots the customer's
+product-option choices for the line — see "Order option selection + drawdown".
 
 **Backfill** — `packages/db/prisma/backfill-orders-phase1.ts`
 (`npm run db:backfill-orders` in `packages/db`). Builds customers from existing
@@ -2989,7 +2990,48 @@ replace-set that soft-deletes removed rows and **revives a returning row by its
 unique key**. `MenuItemOptionsEditor` opens from a product menu line's
 **OPTIONS** button; options ride on `ShapedMenuLine.options` and render in
 `MenuLineEditor` + `MenuPreview`. The PDF import maps parsed options onto these
-rows (Phase 3, below); order/POS selection remains out of scope.
+rows (Phase 3, below).
+
+**Order option selection + drawdown (#118, built 2026-11)** — an order line can
+now record the customer's choices and price them. `WooOrderItem.options` is an
+**additive `Json?` snapshot**: `[{ groupId, groupName, choiceId, choiceName,
+priceDelta }]` (a snapshot, not a join, so editing a choice later never rewrites
+order history). `MenuItemOptionChoice` gained additive
+`inventoryItemId?`/`qty?`/`uomId?` (mirroring `MenuItemServe`) for an optional
+stock drawdown per choice. `lib/order-options.ts` is the pure, Prisma-free brain:
+`normaliseOrderOptions`, `describeOrderLineOptions`, `optionPriceDelta`,
+`toggleOptionSelection`, `sortOrderOptions` and `validateOptionSelection`
+(unknown group/choice, `minSelect`/`maxSelect`, single-select cap, and one
+default are enforced; the resolved snapshot uses the **live** group/choice
+ids + `priceDelta`, not the submitted ones). `lib/order-options.server.ts`
+`loadOptionGroupsForItems` loads the live groups (own **and** shared/venue
+products) in two queries.
+
+`POST /api/admin/orders` and `PUT /api/admin/orders/[id]` accept `options` per
+line, re-validate server-side and return **422** `{ error, violations:
+[{ lineIndex, … }] }` on a bad selection. On a line that supplies `options`,
+the submitted `unitPrice` is the **base** product price and the server folds
+the live `priceDelta` into the stored `unitPrice` and line total. A line that
+**omits** `options` keeps its stored snapshot and final price untouched, so
+editing one line never rewrites an untouched legacy line. The GET payload
+projects both `options` (snapshot) and `optionGroups` (live, for the drawer's
+picker). The UI uses `OrderOptionPicker` in `NewOrderModal` (new lines, defaults
+pre-selected) and `OrderDetailDrawer` (edit a line's choices via PUT).
+KITCHEN/FOH/PRODUCTION show the choices per line (`DishTotal.optionBreakdown`)
+while `aggregateDishTotals` still keys on product **name**, and the
+allergen-alert logic is unchanged.
+
+`lib/order-drawdown.ts` is the pure drawdown merge: a base `explodeRecipe` map
+**plus** each selected choice's drawdown via `mergeDrawdown`, gram-aware through
+`canonicalQty` (same rule as the recipe explosion); an unmapped choice is a
+no-op. `lib/order-drawdown.server.ts` `loadChoiceDrawdowns` resolves the live
+choice rows, and `POST /api/admin/inventory/reconcile` now consumes it — this
+only **computes** the implied stock; nothing writes a count or posts a deduction
+(that is #116).
+
+**Deploy note:** additive only. `prisma db push` creates `WooOrderItem.options`
+and the three `MenuItemOptionChoice` columns/indexes; no data migration or
+backfill is required.
 
 **Menu builder** — `/admin/ops?tab=menu&sub=menus` (`MenusClient` +
 `MenuBuilder` / `MenuLineEditor` / `MenuPreview`): local menus with groups +
@@ -3298,7 +3340,7 @@ calls GitHub and no token is needed.
   `START NEW RELEASE` re-fetches the current committed snapshot.
 
 ### EOD Reconciliation (`/api/admin/inventory/reconcile`)
-Aggregates exploded ingredients from completed orders, tallies `requiredBaseQty` per inventory item. Returned as reconciliation report. Deferred inventory deduction (Phase 5).
+Aggregates exploded ingredients from completed orders, tallies `requiredBaseQty` per inventory item, and (since #118) adds each selected product option's optional drawdown via `lib/order-drawdown.ts`/`order-drawdown.server.ts` (gram-aware; unmapped choice is a no-op). Returned as reconciliation report. **Read-only** — deferred inventory deduction is still not built (#116).
 
 ### FOH Operations View — superseded by the Orders rework
 The old ORDERS / FOH VIEW two-tab layout is gone. FOH is now one of the four
@@ -3583,7 +3625,9 @@ pre-flight.
 | `lib/customer-match.ts` — `normaliseEmail`, `normalisePhone`, `buildCustomerKeys`, `findMatch`, `fieldsToEnrich`, `resolveCustomer` | ✅ (27 tests) |
 | `lib/woo-meta-map.ts` — `resolveMetaMap`, `readMeta`, `parseServiceDate/Time`, `parsePartySize`, `parseFulfillmentType`, `resolveOrderMeta` | ✅ (30 tests) |
 | `lib/menu-rules.ts` — `validateOrderAgainstMenu`, `menuAllowsPartySize`, `describePaxRange` | ✅ (19 tests) |
-| `lib/order-views.ts` — `aggregateDishTotals`, `aggregateCategoryTotals`, `collectAllergenAlerts`, `groupByTable`, `groupByTimeSlot`, `summarise`, `applyFilters` | ✅ (34 tests) |
+| `lib/order-views.ts` — `aggregateDishTotals` (incl. option breakdown), `aggregateCategoryTotals`, `collectAllergenAlerts`, `groupByTable`, `groupByTimeSlot`, `summarise`, `applyFilters` | ✅ (38 tests) |
+| `lib/order-options.ts` — snapshot normalise, price delta, describe, toggle, sort, live validate (required/min/max/default/unknown) | ✅ (18 tests) |
+| `lib/order-drawdown.ts` — choice qty, gram-aware base units, merge with recipe explosion, unmapped no-op | ✅ (11 tests) |
 | `lib/order-booking-link.ts` — `findBookingForOrder`, `autoLinkBooking` | ✅ (11 tests) |
 | `lib/beo-blocks.ts` — `BEO_BLOCKS`, `blockDef`, `normaliseConfig`, `stripBoundFields`, `makeBlock`, `moveBlock` | ✅ (32 tests) |
 | `lib/beo-links.ts` / `beo-pdf.ts` — link grouping / BEO PDF variants | ✅ (8 + 11) |
@@ -3679,6 +3723,7 @@ pre-flight.
 | `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 16 + 15 + 33) |
 | `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (13 + 5 + 4) |
 | `StaffingLinesEditor.tsx` — payload mapping, unnamed-row filter, rows, remove | ✅ (5 tests) |
+| `OrderOptionPicker.tsx` — group/choice render, single-select replace, snapshot payload, summary + upcharge, no-groups empty | ✅ (5 tests) |
 | `EventStaffingModal.tsx` — event info, linked shifts CLAIMED/ASSIGNED, listed-seat lock, FIND STAFF, claims review | ✅ (5 tests) |
 | `CalendarEventFormModal.tsx` — create + staffing POST, capacity warning, edit load/PUT | ✅ (2 tests) |
 | `WorkerShiftsClient.tsx` — pickup grid, claim/withdraw, conflict warning, confirmed panel | ✅ (5 tests) |
@@ -3712,6 +3757,8 @@ pre-flight.
 | `app/api/admin/import/tasks/route.test.ts` — GET refs + MANAGER scope; POST creates DRAFT tasks with resolved dept/section + checklist link, skips unknown department / invalid weekly, UPDATE preserves status, edit-permission gate, MANAGER venue lock, empty payload | ✅ (9 tests) |
 | `app/api/admin/import/guides/route.test.ts` — GET refs + MANAGER scope; POST creates DRAFT guides with audiences/steps/links, creates a missing folder, skips unknown audience/link, warns NOBODY WILL SEE THIS, rejects PRODUCT_REFERENCE, UPDATE with/without REPLACE STEPS, edit-permission gate, MANAGER lock, empty payload | ✅ (13 tests) |
 | `app/api/admin/swiftpos/staff/route.test.ts` — LINK sets the PIN from the clerk id, keeps an existing PIN, and links without a PIN on a clash | ✅ (3 tests) |
+| `app/api/admin/orders/route.test.ts` — option snapshot persisted, upcharge folded into price/total, default applied, 422 on required/unknown, no-group line stores none | ✅ (5 tests) |
+| `app/api/admin/orders/[id]/route.test.ts` — PUT re-validates options, folds upcharge, clears snapshot, preserves a line when options are omitted, 422 on unknown / cross-venue product | ✅ (5 tests) |
 | `app/api/admin/guide-warnings/route.test.ts` — auth, view guard, manager venue lock, admin venue param, assign/sign-off flags, 404 | ✅ (6 tests) |
 | `app/api/admin/guide-retrain/route.test.ts` — assign guard, missing staff, venue access/derivation, manager lock, create payload, server error passthrough | ✅ (6 tests) |
 | `app/api/admin/guide-retrain/[id]/route.test.ts` — assign guard, invalid action, request-venue resolution, venue access, RESOLVE/DISMISS mapping, closed-request 409 | ✅ (6 tests) |

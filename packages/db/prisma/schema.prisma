@@ -2939,6 +2939,7 @@ model InventoryItem {
   hsTasks           Task[]       @relation("TaskLinkedItem")
   deliveryItems     DeliveryItem[]
   serves            MenuItemServe[]
+  optionChoices     MenuItemOptionChoice[]
   menuLines         MenuMenuItem[]
   purchaseOrderLines   PurchaseOrderLine[]
   supplierInvoiceLines SupplierInvoiceLine[]
@@ -3140,6 +3141,7 @@ model UnitOfMeasure {
   recipeLineItems   RecipeLineItem[]
   supplierItemCodes SupplierItemCode[]
   serves            MenuItemServe[]
+  optionChoices     MenuItemOptionChoice[]
   purchaseOrderLines   PurchaseOrderLine[]
   supplierInvoiceLines SupplierInvoiceLine[]
 
@@ -3412,21 +3414,32 @@ model MenuItemOptionGroup {
 }
 
 // One choice inside a product option group, with its upcharge.
+// `inventoryItemId` / `qty` / `uomId` are the optional stock drawdown for the
+// choice (mirrors MenuItemServe) — selecting it additively draws the linked
+// stock item. A choice with no target is a no-op for stock. Computed only in
+// #118; nothing posts a deduction yet (that is #116).
 model MenuItemOptionChoice {
-  id         String   @id @default(uuid())
-  groupId    String
-  name       String
-  priceDelta Float    @default(0)
-  isDefault  Boolean  @default(false)
-  sortOrder  Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  deletedAt  DateTime?
+  id              String   @id @default(uuid())
+  groupId         String
+  name            String
+  priceDelta      Float    @default(0)
+  isDefault       Boolean  @default(false)
+  sortOrder       Int      @default(0)
+  inventoryItemId String?
+  qty             Float?
+  uomId           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
 
-  group MenuItemOptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group         MenuItemOptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem?      @relation(fields: [inventoryItemId], references: [id])
+  uom           UnitOfMeasure?      @relation(fields: [uomId], references: [id])
 
   @@unique([groupId, name])
   @@index([groupId])
+  @@index([inventoryItemId])
+  @@index([uomId])
 }
 
 // ── Multiple-link junctions (a thing that applies to several things) ─────────
@@ -3853,6 +3866,10 @@ model WooOrderItem {
   notes               String?
   productName         String? // line-item name exactly as it was ordered
   explodedIngredients Json? // recursive recipe BOM result for this line
+  // Snapshot of the customer's product-option choices for this line:
+  // [{ groupId, groupName, choiceId, choiceName, priceDelta }]. Snapshot, not a
+  // join, so later edits to a choice never rewrite order history.
+  options             Json?
   customerNote        String? // customer request against this line
   allergenNote        String? // allergy requirement for this line — kitchen alert
   kitchenStatus       KitchenStatus @default(PENDING)

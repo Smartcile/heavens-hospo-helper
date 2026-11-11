@@ -3,6 +3,9 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { normaliseOrderOptions } from '@/lib/order-options'
+import { mergeDrawdown, type DrawdownChoice } from '@/lib/order-drawdown'
+import { loadChoiceDrawdowns } from '@/lib/order-drawdown.server'
 
 export async function POST(_req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -12,41 +15,53 @@ export async function POST(_req: NextRequest) {
 
   const venueId = session.user.venueId
 
-  // Find completed orders with exploded ingredient data
-  // (stored on WooOrderItem.explodedIngredients by the sync / webhook handler)
+  // Completed order lines carry the recipe explosion computed at sync time and
+  // the customer's option snapshot. The option drawdown is resolved from the
+  // live choice rows below.
   const orderItems = await prisma.wooOrderItem.findMany({
     where: {
       order: { venueId, status: 'COMPLETED', deletedAt: null },
     },
     select: {
       orderId: true,
+      qty: true,
       explodedIngredients: true,
+      options: true,
     },
   })
 
-  // Tally exploded ingredients from each order item
-  const tally = new Map<string, { requiredBaseQty: number; itemName?: string }>()
+  // Recursive recipe BOM result for the line, plus each selected choice's
+  // additive drawdown (gram-aware). Read-only — #116 will post the deduction.
+  const choiceIds = orderItems.flatMap((li) =>
+    normaliseOrderOptions(li.options).map((o) => o.choiceId),
+  )
+  const drawdownByChoice = await loadChoiceDrawdowns(choiceIds)
+
+  let tally = new Map<string, number>()
   const processedOrders = new Set<string>()
 
   for (const li of orderItems) {
     const blob = li.explodedIngredients as {
       ingredients?: { inventoryItemId: string; requiredBaseQty: number }[]
     } | null
-    if (!blob?.ingredients || !Array.isArray(blob.ingredients)) continue
 
-    for (const ing of blob.ingredients) {
-      const existing = tally.get(ing.inventoryItemId)
-      if (existing) {
-        existing.requiredBaseQty += ing.requiredBaseQty
-      } else {
-        tally.set(ing.inventoryItemId, { requiredBaseQty: ing.requiredBaseQty })
+    if (blob?.ingredients && Array.isArray(blob.ingredients)) {
+      for (const ing of blob.ingredients) {
+        tally.set(ing.inventoryItemId, (tally.get(ing.inventoryItemId) ?? 0) + ing.requiredBaseQty)
       }
     }
-    processedOrders.add(li.orderId)
+
+    const choices = normaliseOrderOptions(li.options)
+      .map((o) => drawdownByChoice.get(o.choiceId))
+      .filter((c): c is DrawdownChoice => !!c)
+
+    tally = mergeDrawdown(tally, choices, li.qty || 1)
+
+    if (blob?.ingredients?.length || choices.length > 0) processedOrders.add(li.orderId)
   }
 
   const details = []
-  for (const [itemId, { requiredBaseQty }] of tally) {
+  for (const [itemId, requiredBaseQty] of tally) {
     const item = await prisma.inventoryItem.findUnique({
       where: { id: itemId },
       select: { id: true, name: true, totalQty: true, densityGramsPerMl: true, weightPerUnitGrams: true },

@@ -5,9 +5,30 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { pushToast } from '@/components/ui/Toast'
 import { validateOrderAgainstMenu, describePaxRange } from '@/lib/menu-rules'
+import { normaliseOptionGroups, type MenuOptionGroup } from '@/lib/menu-options'
+import {
+  optionPriceDelta,
+  validateOptionSelection,
+  type OrderLineOption,
+} from '@/lib/order-options'
+import { OrderOptionPicker } from '@/components/admin/OrderOptionPicker'
 
-interface MenuItemRef { id: string; name: string; price: number; dietaryInfo: string | null }
-interface MenuLink { menuItemId: string; minQty: number | null; maxQty: number | null; menuItem: MenuItemRef }
+interface MenuItemRef {
+  id: string
+  name: string
+  price: number
+  dietaryInfo: string | null
+  /** Raw products carry their option groups under `optionGroups`. */
+  optionGroups?: MenuOptionGroup[]
+}
+interface MenuLink {
+  menuItemId: string
+  minQty: number | null
+  maxQty: number | null
+  menuItem: MenuItemRef
+  /** Shaped menu lines carry the product's option groups under `options`. */
+  options?: MenuOptionGroup[]
+}
 interface Menu {
   id: string; name: string; minPax: number | null; maxPax: number | null
   isActive: boolean; items: MenuLink[]
@@ -17,11 +38,19 @@ interface DraftLine {
   menuItemId: string
   name: string
   qty: string
+  /** Base unit price, before option upcharges. */
   unitPrice: string
   allergenNote: string
+  optionGroups: MenuOptionGroup[]
+  options: OrderLineOption[]
 }
 
 const FULFILLMENT_TYPES = ['DINE_IN', 'PICKUP', 'DELIVERY']
+
+/** The effective per-unit price: base price + the chosen options' upcharges. */
+function effectiveUnitPrice(line: DraftLine): number {
+  return (parseFloat(line.unitPrice) || 0) + optionPriceDelta(line.options)
+}
 
 export function NewOrderModal({
   date, venueId, onClose, onCreated,
@@ -53,10 +82,15 @@ export function NewOrderModal({
 
   const selectedMenu = menus.find((m) => m.id === menuId) ?? null
 
-  // When a menu is chosen, only its items can be ordered.
-  const pickable: MenuItemRef[] = selectedMenu
-    ? selectedMenu.items.map((l) => l.menuItem)
-    : allItems
+  // When a menu is chosen, only its items can be ordered. Each entry carries
+  // the product's live option groups (a shaped menu line puts them on the
+  // line's `options`; a raw product carries `optionGroups`).
+  const pickable = selectedMenu
+    ? selectedMenu.items.map((l) => ({
+        item: l.menuItem,
+        groups: normaliseOptionGroups(l.options ?? l.menuItem.optionGroups ?? []),
+      }))
+    : allItems.map((i) => ({ item: i, groups: normaliseOptionGroups(i.optionGroups ?? []) }))
 
   const violations = useMemo(() => {
     if (!selectedMenu) return []
@@ -73,11 +107,21 @@ export function NewOrderModal({
     )
   }, [selectedMenu, lines, partySize])
 
-  function addLine(item: MenuItemRef) {
+  function addLine(item: MenuItemRef, groups: MenuOptionGroup[]) {
     if (lines.some((l) => l.menuItemId === item.id)) return
+    // A single default choice is the author's "pre-selected" intent.
+    const options = validateOptionSelection(groups, []).resolved
     setLines([
       ...lines,
-      { menuItemId: item.id, name: item.name, qty: '1', unitPrice: item.price.toString(), allergenNote: '' },
+      {
+        menuItemId: item.id,
+        name: item.name,
+        qty: '1',
+        unitPrice: item.price.toString(),
+        allergenNote: '',
+        optionGroups: groups,
+        options,
+      },
     ])
     setItemSearch('')
   }
@@ -87,7 +131,7 @@ export function NewOrderModal({
   }
 
   const total = lines.reduce(
-    (sum, l) => sum + (parseFloat(l.unitPrice) || 0) * (parseInt(l.qty, 10) || 0),
+    (sum, l) => sum + effectiveUnitPrice(l) * (parseInt(l.qty, 10) || 0),
     0,
   )
 
@@ -114,8 +158,10 @@ export function NewOrderModal({
         items: lines.map((l) => ({
           menuItemId: l.menuItemId,
           qty: parseInt(l.qty, 10) || 1,
+          // Base price — the server folds the option upcharges in.
           unitPrice: parseFloat(l.unitPrice) || 0,
           allergenNote: l.allergenNote || null,
+          options: l.options,
         })),
       }),
     })
@@ -130,8 +176,8 @@ export function NewOrderModal({
   }
 
   const available = pickable
-    .filter((i) => !lines.some((l) => l.menuItemId === i.id))
-    .filter((i) => !itemSearch || i.name.toLowerCase().includes(itemSearch.toLowerCase()))
+    .filter((p) => !lines.some((l) => l.menuItemId === p.item.id))
+    .filter((p) => !itemSearch || p.item.name.toLowerCase().includes(itemSearch.toLowerCase()))
     .slice(0, 8)
 
   return (
@@ -209,27 +255,38 @@ export function NewOrderModal({
                   <div className="col-span-1"></div>
                 </div>
                 {lines.map((l) => (
-                  <div key={l.menuItemId} className="grid grid-cols-12 gap-2 items-center">
-                    <span className="col-span-5 font-mono text-xs text-white uppercase truncate">{l.name}</span>
-                    <input
-                      type="number" min="1" value={l.qty}
-                      onChange={(e) => updateLine(l.menuItemId, { qty: e.target.value })}
-                      className="col-span-2 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white text-right"
-                    />
-                    <input
-                      type="number" step="0.01" value={l.unitPrice}
-                      onChange={(e) => updateLine(l.menuItemId, { unitPrice: e.target.value })}
-                      className="col-span-2 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white text-right"
-                    />
-                    <span className="col-span-2 font-mono text-xs text-grey-light text-right">
-                      ${((parseFloat(l.unitPrice) || 0) * (parseInt(l.qty, 10) || 0)).toFixed(2)}
-                    </span>
-                    <button
-                      onClick={() => setLines(lines.filter((x) => x.menuItemId !== l.menuItemId))}
-                      className="col-span-1 font-mono text-xs text-danger border border-danger hover:bg-danger hover:text-black"
-                    >
-                      ✕
-                    </button>
+                  <div key={l.menuItemId} className="space-y-1">
+                    <div className="grid grid-cols-12 gap-2 items-center">
+                      <span className="col-span-5 font-mono text-xs text-white uppercase truncate">{l.name}</span>
+                      <input
+                        type="number" min="1" value={l.qty}
+                        onChange={(e) => updateLine(l.menuItemId, { qty: e.target.value })}
+                        className="col-span-2 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white text-right"
+                      />
+                      <input
+                        type="number" step="0.01" value={l.unitPrice}
+                        onChange={(e) => updateLine(l.menuItemId, { unitPrice: e.target.value })}
+                        className="col-span-2 bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1 outline-none focus:border-white text-right"
+                      />
+                      <span className="col-span-2 font-mono text-xs text-grey-light text-right">
+                        ${(effectiveUnitPrice(l) * (parseInt(l.qty, 10) || 0)).toFixed(2)}
+                      </span>
+                      <button
+                        onClick={() => setLines(lines.filter((x) => x.menuItemId !== l.menuItemId))}
+                        className="col-span-1 font-mono text-xs text-danger border border-danger hover:bg-danger hover:text-black"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    {l.optionGroups.length > 0 && (
+                      <div className="pl-0">
+                        <OrderOptionPicker
+                          groups={l.optionGroups}
+                          value={l.options}
+                          onChange={(options) => updateLine(l.menuItemId, { options })}
+                        />
+                      </div>
+                    )}
                   </div>
                 ))}
                 <div className="flex justify-end font-mono text-sm text-white pt-1 border-t border-grey-mid">
@@ -244,14 +301,14 @@ export function NewOrderModal({
                 {available.length === 0 ? (
                   <p className="font-mono text-xs text-grey-light p-2 uppercase">NO MATCHES</p>
                 ) : (
-                  available.map((i) => (
+                  available.map((p) => (
                     <button
-                      key={i.id}
-                      onClick={() => addLine(i)}
+                      key={p.item.id}
+                      onClick={() => addLine(p.item, p.groups)}
                       className="w-full text-left px-2 py-1.5 hover:bg-grey-mid/20 font-mono text-xs text-white uppercase flex justify-between gap-2"
                     >
-                      <span className="truncate">{i.name}</span>
-                      <span className="text-grey-light shrink-0">${i.price.toFixed(2)}</span>
+                      <span className="truncate">{p.item.name}</span>
+                      <span className="text-grey-light shrink-0">${p.item.price.toFixed(2)}</span>
                     </button>
                   ))
                 )}
