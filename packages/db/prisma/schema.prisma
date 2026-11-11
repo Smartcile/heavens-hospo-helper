@@ -384,6 +384,9 @@ model Venue {
   beoBlockDefs        BeoBlockDef[]
   beoBlockLinks       BeoBlockLink[]
   tipsPeriods         TipsPeriod[]
+  purchaseOrders      PurchaseOrder[]
+  supplierInvoices    SupplierInvoice[]
+  supplierPriceMovements SupplierPriceMovement[]
 }
 
 model Department {
@@ -673,6 +676,8 @@ model Delivery {
   vehicleTemp   Float?
   vehicleVerdict ReadingVerdict @default(NA)
   invoiceRef    String?
+  purchaseOrderId String?
+  invoiceId     String?
   notes         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -681,10 +686,14 @@ model Delivery {
   venue       Venue           @relation(fields: [venueId], references: [id])
   supplier    Supplier?       @relation(fields: [supplierId], references: [id])
   receivedBy  Staff?          @relation(fields: [receivedById], references: [id])
+  purchaseOrder PurchaseOrder?  @relation(fields: [purchaseOrderId], references: [id])
+  invoice       SupplierInvoice? @relation(fields: [invoiceId], references: [id])
   items       DeliveryItem[]
 
   @@index([venueId])
   @@index([supplierId])
+  @@index([purchaseOrderId])
+  @@index([invoiceId])
 }
 
 model DeliveryItem {
@@ -699,16 +708,20 @@ model DeliveryItem {
   verdict           ReadingVerdict      @default(NA)
   disposition       DeliveryDisposition @default(ACCEPTED)
   note              String?
+  purchaseOrderLineId String?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   deletedAt         DateTime?
 
   delivery      Delivery       @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
   inventoryItem InventoryItem  @relation(fields: [inventoryItemId], references: [id])
+  purchaseOrderLine PurchaseOrderLine? @relation(fields: [purchaseOrderLineId], references: [id])
+  invoiceLines  SupplierInvoiceLine[]
   alerts        HsAlert[]
 
   @@index([deliveryId])
   @@index([inventoryItemId])
+  @@index([purchaseOrderLineId])
 }
 
 model QRCode {
@@ -2785,6 +2798,10 @@ model InventoryItem {
   deliveryItems     DeliveryItem[]
   serves            MenuItemServe[]
   menuLines         MenuMenuItem[]
+  purchaseOrderLines   PurchaseOrderLine[]
+  supplierInvoiceLines SupplierInvoiceLine[]
+  supplierItemAliases  SupplierItemAlias[]
+  supplierPriceMovements SupplierPriceMovement[]
 
   // --- Furniture relations ---
   chairItem       InventoryItem?     @relation("FurnitureChair", fields: [chairItemId], references: [id])
@@ -2951,6 +2968,11 @@ model Supplier {
   items     InventoryItem[]
   deliveries Delivery[]
   assetServiceLinks AssetServiceSupplier[]
+  purchaseOrders           PurchaseOrder[]
+  supplierInvoices         SupplierInvoice[]
+  supplierItemAliases      SupplierItemAlias[]
+  supplierInvoiceTemplates SupplierInvoiceTemplate[]
+  supplierPriceMovements   SupplierPriceMovement[]
 
   @@index([venueId])
 }
@@ -2976,6 +2998,8 @@ model UnitOfMeasure {
   recipeLineItems   RecipeLineItem[]
   supplierItemCodes SupplierItemCode[]
   serves            MenuItemServe[]
+  purchaseOrderLines   PurchaseOrderLine[]
+  supplierInvoiceLines SupplierInvoiceLine[]
 
   @@unique([venueId, name])
   @@index([venueId])
@@ -3015,6 +3039,7 @@ model SupplierItemCode {
   notes           String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
 
   supplier      Supplier       @relation(fields: [supplierId], references: [id])
   inventoryItem InventoryItem  @relation(fields: [inventoryItemId], references: [id])
@@ -4055,4 +4080,206 @@ model UpdateConfirmation {
 
   @@unique([version, issueNumber, staffId])
   @@index([staffId, version])
+}
+
+// --- PURCHASING (issue #105) ---
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SENT
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+enum SupplierInvoiceStatus {
+  DRAFT
+  PENDING_MATCH
+  MATCHED
+  VARIANCE
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+enum InvoiceLineMatchStatus {
+  UNMATCHED
+  MATCHED
+  VARIANCE
+}
+
+enum SupplierAliasSource {
+  IMPORT
+  MANUAL
+}
+
+model PurchaseOrder {
+  id          String              @id @default(uuid())
+  venueId     String
+  supplierId  String
+  number      String
+  status      PurchaseOrderStatus @default(DRAFT)
+  orderedAt   DateTime?
+  expectedAt  DateTime?
+  notes       String?
+  subtotal    Float               @default(0)
+  gst         Float               @default(0)
+  total       Float               @default(0)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  deletedAt   DateTime?
+
+  venue      Venue               @relation(fields: [venueId], references: [id])
+  supplier   Supplier            @relation(fields: [supplierId], references: [id])
+  lines      PurchaseOrderLine[]
+  invoices   SupplierInvoice[]
+  deliveries Delivery[]
+
+  @@unique([venueId, number])
+  @@index([venueId])
+  @@index([supplierId])
+}
+
+model PurchaseOrderLine {
+  id              String    @id @default(uuid())
+  purchaseOrderId String
+  inventoryItemId String?
+  description     String
+  qty             Float
+  uomId           String?
+  unitPrice       Float
+  lineTotal       Float
+  receivedQty     Float     @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  purchaseOrder  PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  inventoryItem  InventoryItem?       @relation(fields: [inventoryItemId], references: [id])
+  uom            UnitOfMeasure?       @relation(fields: [uomId], references: [id])
+  receiptItems   DeliveryItem[]
+  invoiceLines   SupplierInvoiceLine[]
+
+  @@index([purchaseOrderId])
+  @@index([inventoryItemId])
+}
+
+model SupplierInvoice {
+  id              String                @id @default(uuid())
+  venueId         String
+  supplierId      String
+  number          String
+  invoiceDate     DateTime?
+  dueDate         DateTime?
+  status          SupplierInvoiceStatus @default(DRAFT)
+  subtotal        Float                 @default(0)
+  gst             Float                 @default(0)
+  total           Float                 @default(0)
+  currency        String                @default("NZD")
+  fileUrl         String?
+  purchaseOrderId String?
+  notes           String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  deletedAt       DateTime?
+
+  venue         Venue                @relation(fields: [venueId], references: [id])
+  supplier      Supplier             @relation(fields: [supplierId], references: [id])
+  purchaseOrder PurchaseOrder?       @relation(fields: [purchaseOrderId], references: [id])
+  lines         SupplierInvoiceLine[]
+  deliveries    Delivery[]
+
+  @@unique([venueId, supplierId, number])
+  @@index([venueId])
+  @@index([supplierId])
+}
+
+model SupplierInvoiceLine {
+  id                  String                @id @default(uuid())
+  invoiceId           String
+  inventoryItemId     String?
+  supplierSku         String?
+  description         String
+  qty                 Float
+  uomId               String?
+  unitPrice           Float
+  lineTotal           Float
+  matchStatus         InvoiceLineMatchStatus @default(UNMATCHED)
+  purchaseOrderLineId String?
+  deliveryItemId      String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  deletedAt           DateTime?
+
+  invoice           SupplierInvoice    @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  inventoryItem     InventoryItem?     @relation(fields: [inventoryItemId], references: [id])
+  uom               UnitOfMeasure?     @relation(fields: [uomId], references: [id])
+  purchaseOrderLine PurchaseOrderLine? @relation(fields: [purchaseOrderLineId], references: [id])
+  deliveryItem      DeliveryItem?      @relation(fields: [deliveryItemId], references: [id])
+
+  @@index([invoiceId])
+  @@index([inventoryItemId])
+}
+
+model SupplierItemAlias {
+  id                String              @id @default(uuid())
+  supplierId        String
+  normalisedTextKey String
+  inventoryItemId   String
+  source            SupplierAliasSource @default(MANUAL)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  deletedAt         DateTime?
+
+  supplier      Supplier      @relation(fields: [supplierId], references: [id])
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+
+  @@unique([supplierId, normalisedTextKey])
+  @@index([supplierId])
+  @@index([inventoryItemId])
+}
+
+model SupplierInvoiceTemplate {
+  id                String    @id @default(uuid())
+  supplierId        String
+  version           Int       @default(1)
+  name              String
+  config            Json
+  sampleFingerprint String?
+  status            String    @default("DRAFT") // DRAFT | ACTIVE
+  lastVerifiedAt    DateTime?
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+
+  @@unique([supplierId, name, version])
+  @@index([supplierId])
+}
+
+model SupplierPriceMovement {
+  id              String    @id @default(uuid())
+  venueId         String
+  supplierId      String?
+  inventoryItemId String
+  source          String // RECEIPT | INVOICE | MANUAL
+  sourceId        String?
+  oldPrice        Float?
+  newPrice        Float
+  delta           Float
+  percent         Float?
+  note            String?
+  acknowledgedAt  DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  venue         Venue         @relation(fields: [venueId], references: [id])
+  supplier      Supplier?     @relation(fields: [supplierId], references: [id])
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+
+  @@index([venueId])
+  @@index([inventoryItemId])
 }

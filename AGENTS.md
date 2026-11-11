@@ -57,7 +57,7 @@ hospo-ops/
 ├── packages/
 │   ├── db/                         # Prisma 7 schema + PG adapter + seed
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma       # 141 models (as of 2026-11)
+│   │   │   ├── schema.prisma       # 148 models (as of 2026-11)
 │   │   │   ├── seed.ts             # Idempotent demo/sample data
 │   │   │   ├── migrate-*.ts        # One-off migrations wired into docker-entrypoint.sh
 │   │   │   └── migrations/         # Legacy 0_init migration (kept for reference)
@@ -1445,6 +1445,73 @@ inventory deduction is still not built.
 Inventory Items tree in one query. `GET /api/admin/structure` extends with
 `floorPlan { tables, chairs, equip }` per section.
 
+### Purchasing (purchase orders, supplier invoices, 3-way match, price movements)
+
+Phase 1 of #105. **New, additive models:** `PurchaseOrder` (+ `PurchaseOrderLine`
+with `receivedQty`), `SupplierInvoice` (+ `SupplierInvoiceLine` with
+`matchStatus UNMATCHED | MATCHED | VARIANCE` and optional PO/receipt links),
+`SupplierItemAlias` (normalised line text → item — the learned recognition
+memory), `SupplierInvoiceTemplate` (versioned `config Json`,
+`status DRAFT | ACTIVE`, `sampleFingerprint`) and `SupplierPriceMovement`
+(old/new/delta/percent, `acknowledgedAt`). `Delivery` / `DeliveryItem` gained
+optional `purchaseOrderId` / `purchaseOrderLineId` / `invoiceId`, so a goods
+receipt is the existing H&S record, linked. `SupplierItemCode` is now live
+(SKU → inventory item + purchase price). Tables are additive (`db push`).
+
+**Pure libs** (Prisma-free, Vitest): `lib/purchasing.ts` (PO totals incl. 15%
+GST, status transitions, partial-receipt maths), `lib/invoice-import.ts`
+(deterministic anchor/column/date parser + template validation + LEARN prompt),
+`lib/invoice-match.ts` (SKU → alias → fuzzy → NEW, plus qty/price variance),
+`lib/supplier-template.ts` (config normalise/version/fingerprint),
+`lib/price-movements.ts` (delta/percent/severity) and `lib/purchasing-api.ts`
+(venue resolution, money helpers). `lib/pdf-text.server.ts` extracts PDF text
+server-side (`pdfjs-dist`); scanned PDFs are out of scope.
+
+**Flow.** Create PO → SEND (DRAFT only) → RECEIVE (full or partial). A receipt
+creates the `Delivery` / `DeliveryItem` rows, applies each received price to
+`InventoryItem.costPrice` / `SupplierItemCode.purchasePrice`, and writes a
+`SupplierPriceMovement` for every change (an alert is raised on any change —
+default is any change). Invoices never change prices; they only flag variance.
+
+**Invoice import is fully offline.** Pick a supplier + an ACTIVE template, feed
+a digital PDF (text extracted server-side) or pasted text → **preview** (header,
+lines, per-line item match, issues) → **commit**. Matching runs
+`SupplierItemCode.supplierSku` → `SupplierItemAlias` →
+`lib/import/similarity` fuzzy → NEW. An unmatched line is never dropped: it
+stays in the payload with `inventoryItemId: null` and commits as `UNMATCHED`.
+Commit upserts confirmed `SupplierItemCode` / `SupplierItemAlias` rows (so repeat
+imports need no manual matching), links PO lines, and sets the invoice status
+MATCHED / VARIANCE / PENDING_MATCH. A duplicate supplier invoice number is 409.
+
+**Template learning is copy-paste, never at import time.** `LEARN TEMPLATE`
+posts a sample to `/supplier-templates/learn-prompt`, which returns a markdown
+prompt to paste into an external LLM; the JSON it returns is validated and saved
+as a new version. Import time never calls an LLM and needs no network.
+
+**UI.** Ops → Inventory → **PURCHASING** (`PurchaseOrdersClient`) and
+**INVOICES** (`SupplierInvoicesClient`); both tabs render `PriceMovementsPanel`.
+Settings → **SUPPLIERS** gains `SupplierPurchasingPanel` (SKUs, aliases,
+templates) under the selected supplier.
+
+**Routes** (guards `ops.purchasing.view | create | edit | delete | approve`;
+MANAGER venue-locked, ADMIN across accessible venues):
+`/api/admin/purchase-orders` (+ `/[id]`, `/[id]/send`, `/[id]/receive`),
+`/api/admin/supplier-invoices` (+ `/[id]`, `/import`, `/import/commit`),
+`/api/admin/supplier-templates` (+ `/[id]`, `/[id]/test`, `/learn-prompt`),
+`/api/admin/supplier-item-codes` (+ `/[id]`),
+`/api/admin/supplier-aliases` (+ `/[id]`) and
+`/api/admin/price-movements` (+ `/[id]`).
+
+**Tests:** `lib/purchasing.test.ts`, `invoice-import.test.ts`,
+`invoice-match.test.ts`, `supplier-template.test.ts`, `price-movements.test.ts`,
+`pdf-text.test.ts`, route tests (`purchase-orders/[id]/receive`,
+`supplier-invoices/import/commit`) and component tests
+`InvoiceImportModal.test.tsx` / `PurchaseOrdersClient.test.tsx`.
+
+**Deferred:** OCR / scanned PDFs, accounting ledger / payment runs, spend
+reports and price-history reporting (Phase 2), and automatic stock deduction
+(not built anywhere).
+
 ### SwiftPOS integration (sales + staff sync + menu links + dockets, 2026-10)
 `Venue.swiftPosBaseUrl` + `MenuItem.swiftPosId` (SwiftPOS `Inventory_Code`).
 For a local Docker stack, point the venue at the host-published SwiftDOSnet
@@ -2486,7 +2553,7 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 > (`MenuItem.variations`), orders (`WooOrder` as the local order store), gift
 > cards, SwiftPOS and `ApiKey` public routes are unaffected.
 
-### Schema: 141 models (as of 2026-11)
+### Schema: 148 models (as of 2026-11)
 Core ERP models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`,
 `RecipeLineItem` (recursive BOM), `IngredientReference` (Pantry Bible),
 `WooIntegration`, `MenuItem` (+ `MenuItemServe`, `MenuItemVenue`), `Menu`,

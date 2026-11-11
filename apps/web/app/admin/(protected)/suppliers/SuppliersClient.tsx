@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { SupplierPurchasingPanel } from '@/components/admin/SupplierPurchasingPanel'
 
 interface Supplier {
   id: string; name: string; contact: string | null; email: string | null
-  phone: string | null; notes: string | null; isActive: boolean
+  phone: string | null; notes: string | null; isActive: boolean; venueId: string
 }
 
 export function SuppliersClient() {
@@ -129,6 +130,13 @@ export function SuppliersClient() {
                   {!isCreating && <Button variant="danger" size="sm" onClick={handleDelete}>DELETE</Button>}
                   <Button variant="ghost" size="sm" onClick={() => { setSelectedId(null); setIsCreating(false); resetForm() }}>CANCEL</Button>
                 </div>
+                {!isCreating && selectedId && (
+                  <SupplierPurchasingPanel
+                    key={selectedId}
+                    supplierId={selectedId}
+                    venueId={suppliers.find((s) => s.id === selectedId)?.venueId}
+                  />
+                )}
               </>
             )}
           </div>

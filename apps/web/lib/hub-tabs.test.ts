@@ -18,7 +18,7 @@ describe('hub-tabs', () => {
     expect(OPS_SUB_TABS.bookings.map((s) => s.id)).toEqual(['diary', 'table', 'deleted'])
     expect(OPS_SUB_TABS.orders.map((s) => s.id)).toEqual(['all', 'service', 'kitchen', 'foh', 'production', 'dockets'])
     expect(OPS_SUB_TABS.orders.find((s) => s.id === 'all')?.title).toContain('EVERY SYNCED ORDER')
-    expect(OPS_SUB_TABS.inventory.map((s) => s.id)).toEqual(['inventory', 'recipes', 'menu-items', 'pantry', 'stocktake'])
+    expect(OPS_SUB_TABS.inventory.map((s) => s.id)).toEqual(['inventory', 'recipes', 'menu-items', 'pantry', 'stocktake', 'purchasing', 'invoices'])
     expect(OPS_SUB_TABS.customers).toBeUndefined()
   })
 

@@ -44,6 +44,8 @@ export const OPS_SUB_TABS: Record<string, TabDef[]> = {
     { id: 'menu-items', label: 'MENU ITEMS' },
     { id: 'pantry', label: 'PANTRY BIBLE' },
     { id: 'stocktake', label: 'STOCKTAKE' },
+    { id: 'purchasing', label: 'PURCHASING' },
+    { id: 'invoices', label: 'INVOICES' },
   ],
 }
 

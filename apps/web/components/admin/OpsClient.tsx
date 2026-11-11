@@ -14,6 +14,8 @@ import { CustomersClient } from '@/app/admin/(protected)/customers/CustomersClie
 import { InventoryClient } from '@/app/admin/(protected)/inventory/InventoryClient'
 import { PantryBibleClient } from '@/components/admin/PantryBibleClient'
 import { StocktakeClient } from '@/app/admin/(protected)/stocktake/StocktakeClient'
+import { PurchaseOrdersClient } from '@/components/admin/PurchaseOrdersClient'
+import { SupplierInvoicesClient } from '@/components/admin/SupplierInvoicesClient'
 
 interface OpsClientProps {
   role: string
@@ -53,6 +55,8 @@ export function OpsClient({ role, sessionVenueId, defaultVenueId }: OpsClientPro
         {area === 'inventory' && sub === 'menu-items' && <MenuItemsClient {...venueProps} />}
         {area === 'inventory' && sub === 'pantry' && <PantryBibleClient {...venueProps} />}
         {area === 'inventory' && sub === 'stocktake' && <StocktakeClient {...venueProps} />}
+        {area === 'inventory' && sub === 'purchasing' && <PurchaseOrdersClient {...venueProps} />}
+        {area === 'inventory' && sub === 'invoices' && <SupplierInvoicesClient {...venueProps} />}
       </div>
     </div>
   )
