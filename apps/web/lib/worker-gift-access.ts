@@ -21,3 +21,13 @@ export async function workerMayIssueGiftCards(session: WorkerSession | null): Pr
   })
   return !!grant
 }
+
+/**
+ * Managers/admins may do everything on the phone (look up, redeem, reset a
+ * card back to DRAFT for reuse). Floor staff with the ISSUE grant may look up
+ * and redeem — never reset, because that re-circulates a physical number.
+ */
+export function workerMayManageGiftCards(session: WorkerSession | null): boolean {
+  if (!session) return false
+  return session.role === 'ADMIN' || session.role === 'MANAGER'
+}

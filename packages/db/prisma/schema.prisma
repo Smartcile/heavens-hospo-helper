@@ -3741,6 +3741,11 @@ model GiftCard {
   issuedAt      DateTime?
   sentAt        DateTime?
   expiresAt     DateTime?
+  // Partial redemptions are supported: remaining balance is amount -
+  // redeemedAmount, and the card only becomes REDEEMED once the balance hits
+  // zero. Additive for #110 (gift-card lookup / balance / reuse on iPhone).
+  redeemedAmount Float     @default(0)
+  redeemedAt     DateTime?
   pdfPath       String?
   notes         String?
   // Append-only lifecycle log: [{ at, type, note }] — created/issued/sent/

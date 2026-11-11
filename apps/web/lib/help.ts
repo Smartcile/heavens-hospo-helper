@@ -105,6 +105,7 @@ export const HELP_REQUIRED_SLUGS = [
   'tasks-guides',
   'tasks-groups',
   'worker-app',
+  'gift-cards',
   'settings',
   'compliance',
 ] as const

@@ -2967,6 +2967,41 @@ replace / void / reset / delete (voided only). Guards:
 `GET /api/worker/giftcards/access` allows it, and the client issues via
 `POST /api/worker/giftcards` (the old dead `/issue` URL was fixed in #73).
 
+**Lookup, balance, redemption & reuse (#110, built 2026-11).** `GiftCard` gains
+**`redeemedAmount Float @default(0)`** and **`redeemedAt DateTime?`** (additive —
+`db push`). The spendable value is `amount - redeemedAmount`. Partial
+redemptions are supported; the card stays `ISSUED`/`SENT` until the balance hits
+zero, then becomes `REDEEMED` and stamps `redeemedAt`. Each redemption appends a
+`REDEEMED` event to the existing `history` JSON (never rewritten, never
+hard-deleted). A card past `expiresAt` is stamped `EXPIRED` and cannot be
+redeemed. Pure rules live in `lib/gift-card-redemption.ts`
+(`remainingBalance`, `isCardExpired`, `validateRedemption`,
+`nextRedemptionState`); the server half
+`lib/gift-card-redemption.server.ts` `redeemGiftCard()` is shared by the worker
+and admin routes so both enforce the same venue-scoped rules.
+
+The worker app is now a phone-first workflow (`WorkerGiftCardsClient`): search
+ANY card by number, customer name or email (case-insensitive, venue-scoped,
+`deletedAt: null`), open it for number / amount / remaining balance / status /
+issued & expiry dates / customer / message / full history, then redeem part or
+all of the balance with thumb-sized controls. The same page sells a card and can
+**PICK a specific DRAFT** (or take the next number), and managers/admins can
+**RESET a card to a blank DRAFT with the SAME number and full history** (reuse;
+the shared `resetGiftCardToDraft()` also backs the admin reset route). The page
+uses `pb-28` so its actions clear the worker bottom bar.
+
+| Route | Methods | Purpose |
+|-------|---------|---------|
+| `/api/worker/giftcards` | GET, POST | GET with no query = module state; `?search=` / `?status=` / `?list=1` = venue-scoped lookup. POST accepts `cardId` to issue that specific DRAFT (else the next premade) |
+| `/api/worker/giftcards/[id]` | GET | Full card + `balance` for the phone detail view |
+| `/api/worker/giftcards/[id]/redeem` | POST | Redeem part or all (`{ amount }`); 400/409 on invalid/over-balance/void/expired |
+| `/api/worker/giftcards/[id]/reset` | POST | Managers/admins only — reset to DRAFT for reuse, same number, history kept |
+| `/api/admin/gift-cards/[id]/redeem` | POST | Same partial/full redemption from the admin card popup |
+
+The admin gift-card popup shows the remaining balance and a redeem amount
+(blank = full balance). `resetGiftCardToDraft()` also clears the new redemption
+fields so a reused card starts clean.
+
 **In-app PDFs (`PdfDocumentView` + `PdfActionBar`).** Every gift-card PDF opens
 *inside* the app — worker issued card (`GiftCardPdfView`, which calls
 `useWorkerImmersive(true)`), the admin card popup, the admin template PREVIEW and

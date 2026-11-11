@@ -113,11 +113,48 @@ export interface IssuedCard {
 }
 
 /**
+ * Generate the card's PDF and claim a specific DRAFT atomically (the claim
+ * only wins while the row is still DRAFT, so two simultaneous issuers never
+ * share a number). Returns null when another issuer won the race.
+ */
+async function claimDraft(
+  venueId: string,
+  draft: { id: string; number: string },
+  details: IssueDetails,
+): Promise<IssuedCard | null> {
+  const pdfPath = await issueGiftCardPdf({
+    venueId,
+    number: draft.number,
+    amount: details.amount,
+    customerName: details.customerName ?? null,
+    message: details.message ?? null,
+    templateId: details.templateId ?? null,
+  })
+
+  const claimed = await prisma.giftCard.updateMany({
+    where: { id: draft.id, status: 'DRAFT', deletedAt: null },
+    data: {
+      amount: details.amount,
+      customerName: details.customerName ?? null,
+      customerEmail: details.customerEmail ?? null,
+      message: details.message ?? null,
+      isInternal: details.isInternal ?? false,
+      wooOrderId: details.wooOrderId ?? null,
+      replacesId: details.replacesId ?? null,
+      notes: details.notes ?? null,
+      pdfPath,
+      status: 'ISSUED',
+      issuedAt: new Date(),
+    },
+  })
+  if (claimed.count !== 1) return null
+  return { id: draft.id, number: draft.number, amount: details.amount, status: 'ISSUED' }
+}
+
+/**
  * Issue the next premade card for the venue: takes the LOWEST-numbered DRAFT
  * (premaking one in the current year's series when none remain), generates its
- * PDF and claims it atomically (the claim only wins while the row is still
- * DRAFT, so two simultaneous issuers never share a number). Returns the issued
- * card or throws.
+ * PDF and claims it atomically. Returns the issued card or throws.
  */
 export async function issuePremade(venueId: string, details: IssueDetails): Promise<IssuedCard> {
   if (!details.amount || details.amount <= 0) throw new Error('Amount is required')
@@ -130,36 +167,109 @@ export async function issuePremade(venueId: string, details: IssueDetails): Prom
     }
     if (!draft) throw new Error('NO GIFT CARDS COULD BE PREMADE — TRY AGAIN')
 
-    const pdfPath = await issueGiftCardPdf({
-      venueId,
-      number: draft.number,
-      amount: details.amount,
-      customerName: details.customerName ?? null,
-      message: details.message ?? null,
-      templateId: details.templateId ?? null,
-    })
-
-    const claimed = await prisma.giftCard.updateMany({
-      where: { id: draft.id, status: 'DRAFT', deletedAt: null },
-      data: {
-        amount: details.amount,
-        customerName: details.customerName ?? null,
-        customerEmail: details.customerEmail ?? null,
-        message: details.message ?? null,
-        isInternal: details.isInternal ?? false,
-        wooOrderId: details.wooOrderId ?? null,
-        replacesId: details.replacesId ?? null,
-        notes: details.notes ?? null,
-        pdfPath,
-        status: 'ISSUED',
-        issuedAt: new Date(),
-      },
-    })
-    if (claimed.count === 1) {
-      return { id: draft.id, number: draft.number, amount: details.amount, status: 'ISSUED' }
-    }
+    const issued = await claimDraft(venueId, draft, details)
+    if (issued) return issued
   }
   throw new Error('A premade card could not be claimed — try again')
+}
+
+/**
+ * Issue a SPECIFIC premade DRAFT chosen by staff (instead of the next number).
+ * Same atomic claim as issuePremade, so a draft shown on a stale phone can
+ * never be issued twice — the loser sees a 409 and refreshes.
+ */
+export async function issueSpecificPremade(
+  venueId: string,
+  cardId: string,
+  details: IssueDetails,
+): Promise<IssuedCard> {
+  if (!details.amount || details.amount <= 0) throw new Error('Amount is required')
+
+  const draft = await prisma.giftCard.findFirst({
+    where: { id: cardId, venueId, status: 'DRAFT', deletedAt: null },
+    select: { id: true, number: true },
+  })
+  if (!draft) throw new Error('CARD NO LONGER AVAILABLE — IT WAS ISSUED ELSEWHERE. REFRESH THE LIST.')
+
+  const issued = await claimDraft(venueId, draft, details)
+  if (!issued) {
+    throw new Error('CARD NO LONGER AVAILABLE — IT WAS ISSUED ELSEWHERE. REFRESH THE LIST.')
+  }
+  return issued
+}
+
+export type ResetGiftCardResult =
+  | { ok: true; card: unknown }
+  | { ok: false; status: number; error: string }
+
+/**
+ * Return a card to a blank DRAFT for reuse with the SAME number and FULL
+ * history. Shared by the admin page and the worker app (managers/admins only
+ * on the phone). Cards in a replacement chain are retired for good.
+ */
+export async function resetGiftCardToDraft(
+  venueId: string,
+  cardId: string,
+): Promise<ResetGiftCardResult> {
+  const card = await prisma.giftCard.findFirst({
+    where: { id: cardId, venueId, deletedAt: null },
+  })
+  if (!card) return { ok: false, status: 404, error: 'Not found' }
+
+  if (!['ISSUED', 'SENT', 'VOIDED'].includes(card.status)) {
+    return {
+      ok: false,
+      status: 400,
+      error: `CARD #${card.number} IS ${card.status} — ONLY ISSUED / SENT / VOIDED CARDS CAN BE RESET`,
+    }
+  }
+  if (card.replacesId) {
+    return {
+      ok: false,
+      status: 400,
+      error: `CARD #${card.number} IS ITSELF A REPLACEMENT — ITS NUMBER IS RETIRED AND CANNOT BE RESET`,
+    }
+  }
+  if (card.status === 'VOIDED') {
+    const replacedBy = await prisma.giftCard.findFirst({
+      where: { venueId: card.venueId, replacesId: card.id, deletedAt: null },
+      select: { number: true },
+    })
+    if (replacedBy) {
+      return {
+        ok: false,
+        status: 400,
+        error: `CARD #${card.number} WAS REPLACED BY #${replacedBy.number} — ITS NUMBER IS RETIRED AND CANNOT BE RESET`,
+      }
+    }
+  }
+
+  await prisma.giftCard.update({
+    where: { id: card.id },
+    data: {
+      status: 'DRAFT',
+      amount: 0,
+      redeemedAmount: 0,
+      redeemedAt: null,
+      customerName: null,
+      customerEmail: null,
+      message: null,
+      pdfPath: null,
+      issuedAt: null,
+      sentAt: null,
+      expiresAt: null,
+      wooOrderId: null,
+    },
+  })
+
+  await logGiftCardEvent(
+    card.id,
+    'RESET',
+    'RESET TO A BLANK DRAFT — CUSTOMER DETAILS, AMOUNT AND PDF CLEARED (HISTORY KEPT)',
+  )
+
+  const updated = await prisma.giftCard.findUnique({ where: { id: card.id } })
+  return { ok: true, card: updated }
 }
 
 // ── Replacement (void + reissue) ────────────────────────────────────────
