@@ -57,7 +57,7 @@ hospo-ops/
 ├── packages/
 │   ├── db/                         # Prisma 7 schema + PG adapter + seed
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma       # 148 models (as of 2026-11)
+│   │   │   ├── schema.prisma       # 151 models (as of 2026-11)
 │   │   │   ├── seed.ts             # Idempotent demo/sample data
 │   │   │   ├── migrate-*.ts        # One-off migrations wired into docker-entrypoint.sh
 │   │   │   └── migrations/         # Legacy 0_init migration (kept for reference)
@@ -993,6 +993,99 @@ the same SAVE / CONVERT / PUSH / PDF actions, calling `/api/worker/events*`.
 (+ `[id]`), `beo-block-links`, `beo-references`, `services` (+ `[id]`). Public
 `events/[token]` + `/request`. Worker mirrors of the above under
 `/api/worker/events*` + `/api/worker/enquiries`.
+
+### Staff attendance events — RSVP + calendar invites (#131, built 2026-11)
+
+A **staff event** (staff get-together, training, briefing) is deliberately
+separate from the customer/BEO `Event` and from `Shift`/`OpenShift`. Accepting an
+invite **never** creates or changes a roster shift.
+
+**Models (3):** `StaffEvent` (`venueId`, title, description, location, `startsAt`,
+`endsAt`, `allDay`, `attendanceRequired`, `allowMaybe`, `requireDeclineReason`,
+optional `responseDeadline`, notes, `status DRAFT|PUBLISHED|CANCELLED`,
+`createdById`, `reminderSentAt`, soft delete), `StaffEventAudience`
+(`kind` = the shared `AudienceKind` DEPARTMENT/SECTION/POSITION + `targetId`),
+`StaffEventInvite` (`staffEventId` + `staffId` unique, `response PENDING|ACCEPTED|
+DECLINED|MAYBE`, `respondedAt`, `reason`, `reminderSentAt`, soft delete).
+`Notice.staffEventId` is a **unique nullable** link: one Notice per event.
+
+**Publishing is the delivery step.** Create/update materialises one
+`StaffEventInvite` per targeted active staff member via the pure
+`resolveStaffEventTargets` (audiences unioned with explicit invitees; no
+audiences and no explicit people = whole venue). A DRAFT stores invites but
+sends nothing. Publishing sets `PUBLISHED`, creates/updates the linked Notice —
+**pinned, IMPORTANT, `requiresAck: false`** (the RSVP is the acknowledgement)
+with `endsAt` = the event end, mirrors `StaffEventAudience` to `NoticeAudience`,
+and materialises invites. The worker notices route delivers a staff-event
+notice **only to people with a live invite**, so a whole-venue notice cannot
+leak an explicit-only invite.
+
+**Responses.** Accept/Decline always; Maybe only when `allowMaybe`. The window
+is `responseDeadline`, else `endsAt`, else `startsAt`; staff can change their
+answer until it closes. `requireDeclineReason` makes a reason mandatory for
+DECLINE. **Dates are venue-local wall clock stored in UTC fields** (the roster
+convention), so window/notice comparisons use `wallClockNow(now, venue.timezone)`
+— never a real-UTC `new Date()` against a stored wall-clock deadline. All of this
+is pure in `lib/staff-events.ts` (`buildStaffEventFields`,
+`validateStaffEventResponse`, `wallClockNow`, `attendanceFor`,
+`resolveStaffEventTargets`, `buildStaffEventIcs`) and is re-validated
+server-side.
+
+**Worker UI.** `/w/notices` renders a first-class staff-event card
+(`StaffEventNoticeCard`) with the full details inline, large ACCEPT / DECLINE
+buttons (MAYBE only when allowed), the current answer, a change-until-deadline
+hint, reminder treatment and **ADD TO CALENDAR** once accepted. Opening
+**FULL DETAILS →** goes to `/w/staff-events/[id]` (same card, standalone).
+`/w/calendar` lists upcoming staff events with the person's response; admin
+`/admin/calendar` shows staff events as a separate `▲ STAFF EVENT` chip, its day
+modal lists them, and both calendars keep shifts/imported events untouched.
+
+**`.ics` invite.** `GET /api/worker/staff-events/[id]/ics` is worker-session and
+invite-checked; it emits title, times (all-day = DATE values with exclusive
+DTEND), location, description and organiser. Timestamps are **floating local**
+(no Z) because the stored values are venue wall clock. Accepting never writes a
+Shift.
+
+**Admin UI.** **Team & execution → Notices** gains a **STAFF EVENTS** tab
+(`StaffEventsPanel`): create/edit (title, description, location, date/times,
+all-day, required/optional, Maybe, decline reason, response deadline, notes,
+audiences + specific people), DRAFT/PUBLISHED, attendance counts
+(YES/NO/MAYBE/NO REPLY), a per-person attendance popup with decline reasons,
+**REMIND NO-REPLIES** (in-app only: stamps `reminderSentAt` on the event and
+every pending invite), delete, and **⬆ IMPORT FROM EMAIL**. Changing the
+audience later keeps existing invites so a response is never lost; PENDING
+invites for people no longer targeted are soft-deleted. No new sidebar entry —
+it lives in the existing Notices hub.
+
+**Import from email (#89 framework).** `lib/import/staff-event.ts` builds the
+copy-paste LLM prompt and tolerantly parses the answer (title, date, times,
+all-day, location, description, required/Maybe/decline flags, optional
+audience `DEPARTMENT:` / `SECTION:` / `POSITION:` name). `ImportModal` previews
+and inline-edits the row, matching an existing event by **title + date**.
+`GET/POST /api/admin/import/staff-events` resolves audience names against the
+venue and creates **DRAFT** events (never published automatically), reporting
+unknown audiences as warnings. One suggested audience per imported event is
+supported (`DEPARTMENT:`, `SECTION:` or `POSITION:` name); specific people and
+extra audiences can be added in the editor after import. The manager reviews the
+list and clicks PUBLISH.
+
+| Route | Methods | Purpose |
+|-------|---------|---------|
+| `/api/admin/staff-events` | GET, POST | List with attendance counts / create (publishes by default, `publish: false` = draft) |
+| `/api/admin/staff-events/[id]` | GET, PUT, DELETE | Detail + invites / edit + resync notice+invites / soft-delete event+notice+invites |
+| `/api/admin/staff-events/[id]/publish` | POST | Publish a draft, materialise invites, send the notice |
+| `/api/admin/staff-events/[id]/remind` | POST | Stamp `reminderSentAt` on the event and every pending invite |
+| `/api/worker/staff-events/[id]` | GET | Invited worker's event view |
+| `/api/worker/staff-events/[id]/respond` | POST | Accept/Decline/Maybe with server-side window + reason validation |
+| `/api/worker/staff-events/[id]/ics` | GET | Downloadable `.ics` for an invited worker |
+| `/api/admin/import/staff-events` | GET, POST | Import refs + existing events / create DRAFT events from reviewed rows |
+
+**Guards:** admin routes reuse `notices.notices.view` (GET) and
+`notices.notices.post` / `.delete` (writes), because the feature lives in the
+Notices hub; MANAGER is venue-locked. Worker routes use the worker JWT and the
+invite row, not a manager grant. **Deploy note:** additive schema only — let
+`prisma db push` create the three tables and the unique `Notice.staffEventId`
+column; no data migration is needed.
 
 ### Floor planner (Phase 1 + 2, built)
 To-scale venue layout editor using **PixiJS v7** canvas (migrated from Konva 2026-06 — Konva's
@@ -2553,7 +2646,7 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 > (`MenuItem.variations`), orders (`WooOrder` as the local order store), gift
 > cards, SwiftPOS and `ApiKey` public routes are unaffected.
 
-### Schema: 148 models (as of 2026-11)
+### Schema: 151 models (as of 2026-11)
 Core ERP models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`,
 `RecipeLineItem` (recursive BOM), `IngredientReference` (Pantry Bible),
 `WooIntegration`, `MenuItem` (+ `MenuItemServe`, `MenuItemVenue`), `Menu`,
@@ -3308,6 +3401,9 @@ pre-flight.
 | `lib/dashboard-widgets.ts` — registry, `parseDashboardLayout`, `moveWidget`, `visibleWidgets` | ✅ (6 tests) |
 | `lib/training-status.ts` — `trainingLevel`, `sortTrainingRows` | ✅ (5 tests) |
 | `lib/notice-groups.ts` — `groupWorkerNotices` | ✅ (4 tests) |
+| `lib/staff-events.ts` — event field builder, response window/validation, wall-clock now, attendee resolution, attendance counts, ICS escaping/folding | ✅ (26 tests) |
+| `lib/staff-events.server.ts` — invite materialisation (audience ∪ explicit, retire pending), linked Notice sync | ✅ (9 tests) |
+| `lib/import/staff-event.ts` — email prompt, tolerant event parse, title+date match | ✅ (8 tests) |
 | `lib/recipe-import.ts` — `missingProductFields` | ✅ (3 tests) |
 | `lib/budget-lines-import.ts` — `parsePnlRows`, `findMonthRow`, `assignParentIndexes`, `monthYearForName`, `buildLineTree`, `treeTotal` | ✅ (18 tests) |
 | `lib/calendar.ts` — `monthDays`, `isValidTime`, `dateKeysBetween` | ✅ |
@@ -3435,6 +3531,8 @@ pre-flight.
 | `CalendarEventFormModal.tsx` — create + staffing POST, capacity warning, edit load/PUT | ✅ (2 tests) |
 | `WorkerShiftsClient.tsx` — pickup grid, claim/withdraw, conflict warning, confirmed panel | ✅ (5 tests) |
 | `TrainingStatusClient.tsx` — status rows + SECTION REVIEWS strip, CONFIRM/DISMISS/error surfacing, position grouping, guide titles, MANAGE GUIDES modal | ✅ (6 tests) |
+| `StaffEventNoticeCard.tsx` — full inline details, Accept/Decline/Maybe gating, required decline reason, current answer, Add to calendar, closed window, reminder | ✅ (8 tests) |
+| `StaffEventsPanel.tsx` — event/attendance counts, remind action, attendance popup with decline reasons | ✅ (2 tests) |
 | `RoomSetupModal.tsx` / `RoomSetupCard.tsx` — editor payload, label preview, photo card, table-plan thumbnail | ✅ (3 + 3 tests) |
 | `StaffAccessDrawer.tsx` / `OpsClient.tsx` / `MenusClient` builder components | ✅ (4 + 7 + tested) |
 | `SwiftPosMenuLinks.tsx` / `KitchenDocketsClient.tsx` / `MenuItemDetailsModal.tsx` / `SwiftPosStaffSync.tsx` | ✅ (4 + 4 + 1 + 2) |
@@ -3459,6 +3557,11 @@ pre-flight.
 | `app/api/admin/import/tasks/route.test.ts` — GET refs + MANAGER scope; POST creates DRAFT tasks with resolved dept/section + checklist link, skips unknown department / invalid weekly, UPDATE preserves status, edit-permission gate, MANAGER venue lock, empty payload | ✅ (9 tests) |
 | `app/api/admin/import/guides/route.test.ts` — GET refs + MANAGER scope; POST creates DRAFT guides with audiences/steps/links, creates a missing folder, skips unknown audience/link, warns NOBODY WILL SEE THIS, rejects PRODUCT_REFERENCE, UPDATE with/without REPLACE STEPS, edit-permission gate, MANAGER lock, empty payload | ✅ (13 tests) |
 | `app/api/admin/swiftpos/staff/route.test.ts` — LINK sets the PIN from the clerk id, keeps an existing PIN, and links without a PIN on a clash | ✅ (3 tests) |
+| `app/api/admin/staff-events/route.test.ts` — create publishes + materialises invites/notice, draft stays private, manager venue lock, explicit invitee validation, invalid times | ✅ (6 tests) |
+| `app/api/admin/staff-events/[id]/remind/route.test.ts` — stamps pending invites + event, draft 409, manager venue block | ✅ (3 tests) |
+| `app/api/worker/staff-events/[id]/respond/route.test.ts` — auth, invite/venue 404, Maybe gate, required decline reason, Accept save + counts, closed deadline 409 | ✅ (6 tests) |
+| `app/api/worker/staff-events/[id]/ics/route.test.ts` — auth, invite check, calendar headers + body | ✅ (3 tests) |
+| `app/api/admin/import/staff-events/route.test.ts` — refs + manager scope, DRAFT create with resolved audience, invalid row skip, unknown audience warning, UPDATE skip, empty payload | ✅ (7 tests) |
 
 ## PRE-COMMIT CHECKLIST
 

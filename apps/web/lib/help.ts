@@ -107,4 +107,5 @@ export const HELP_REQUIRED_SLUGS = [
   'worker-app',
   'settings',
   'compliance',
+  'staff-events',
 ] as const

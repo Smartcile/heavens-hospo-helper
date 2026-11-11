@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { groupWorkerNotices } from '@/lib/notice-groups'
+import { StaffEventNoticeCard, type StaffEventNoticeData } from '@/components/worker/StaffEventNoticeCard'
 
 interface Notice {
   id: string
@@ -13,6 +14,7 @@ interface Notice {
   requiresAck: boolean
   acked: boolean
   createdAt: string
+  staffEvent?: StaffEventNoticeData
 }
 
 export function WorkerNoticesClient() {
@@ -21,6 +23,7 @@ export function WorkerNoticesClient() {
   const [firstName, setFirstName] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState('')
 
   async function load() {
     const r = await fetch('/api/worker/notices')
@@ -40,6 +43,23 @@ export function WorkerNoticesClient() {
     setBusy(null)
   }
 
+  async function respond(id: string, response: 'ACCEPTED' | 'DECLINED' | 'MAYBE', reason?: string) {
+    setBusy(id)
+    setError('')
+    const r = await fetch(`/api/worker/staff-events/${id}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ response, reason }),
+    })
+    if (r.status === 401) { router.push('/w/login'); return }
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}))
+      setError(data.error ?? 'COULD NOT SAVE YOUR RESPONSE')
+    }
+    await load()
+    setBusy(null)
+  }
+
   if (loading) {
     return <div className="min-h-screen bg-black flex items-center justify-center"><p className="font-mono text-sm text-grey-light loading-cursor">LOADING</p></div>
   }
@@ -47,6 +67,16 @@ export function WorkerNoticesClient() {
   const { pinned, unread, acknowledged } = groupWorkerNotices(items)
 
   const card = (n: Notice) => {
+    if (n.staffEvent) {
+      return (
+        <StaffEventNoticeCard
+          key={n.id}
+          event={n.staffEvent}
+          busy={busy === n.staffEvent.id}
+          onRespond={respond}
+        />
+      )
+    }
     const bar = n.priority === 'URGENT' ? 'status-bar-danger' : n.priority === 'IMPORTANT' ? 'status-bar-warning' : ''
     return (
       <div key={n.id} className={`bg-grey-dark border border-grey-mid p-4 ${bar}`}>
@@ -86,6 +116,7 @@ export function WorkerNoticesClient() {
       </div>
 
       <div className="px-4 py-4 space-y-2">
+        {error && <p className="font-mono text-xs uppercase text-danger">{error}</p>}
         {items.length === 0 ? (
           <p className="font-mono text-xs text-grey-light">NO NOTICES RIGHT NOW.</p>
         ) : (

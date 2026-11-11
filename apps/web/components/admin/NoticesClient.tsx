@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { formatDate } from '@/lib/utils'
+import { StaffEventsPanel } from '@/components/admin/StaffEventsPanel'
 
 interface Notice {
   id: string
@@ -88,6 +89,7 @@ function AddAudience({
 }
 
 export function NoticesClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string }) {
+  const [view, setView] = useState<'notices' | 'staff'>('notices')
   const [notices, setNotices] = useState<Notice[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -124,6 +126,10 @@ export function NoticesClient({ role, sessionVenueId, defaultVenueId }: { role: 
   }
 
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tab') === 'staff') setView('staff')
+  }, [])
 
   function openCreate() {
     setEditing(null)
@@ -198,9 +204,28 @@ export function NoticesClient({ role, sessionVenueId, defaultVenueId }: { role: 
           <h1 className="font-mono text-xl font-bold uppercase tracking-widest">NOTICES</h1>
           <p className="font-mono text-xs text-grey-light mt-1 uppercase">POST WHAT&apos;S GOING ON — STAFF SEE IT ON THEIR PHONE</p>
         </div>
-        <Button size="sm" onClick={openCreate}>+ NEW NOTICE</Button>
+        {view === 'notices' && <Button size="sm" onClick={openCreate}>+ NEW NOTICE</Button>}
       </div>
 
+      <div className="flex gap-2 border-b border-grey-mid pb-2">
+        <button
+          onClick={() => setView('notices')}
+          className={`font-mono text-xs uppercase tracking-wider px-3 py-1.5 border ${view === 'notices' ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid hover:border-white hover:text-white'} transition-colors`}
+        >
+          NOTICES
+        </button>
+        <button
+          onClick={() => setView('staff')}
+          className={`font-mono text-xs uppercase tracking-wider px-3 py-1.5 border ${view === 'staff' ? 'bg-white text-black border-white' : 'text-grey-light border-grey-mid hover:border-white hover:text-white'} transition-colors`}
+        >
+          STAFF EVENTS
+        </button>
+      </div>
+
+      {view === 'staff' ? (
+        <StaffEventsPanel role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId} />
+      ) : (
+        <>
       {loading ? (
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
       ) : notices.length === 0 ? (
@@ -239,6 +264,8 @@ export function NoticesClient({ role, sessionVenueId, defaultVenueId }: { role: 
             </div>
           ))}
         </div>
+      )}
+        </>
       )}
 
       {/* Editor */}

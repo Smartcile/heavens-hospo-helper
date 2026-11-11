@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   const venueScope = session.user.role === 'MANAGER' ? session.user.venueId : venueId || undefined
 
   const notices = await prisma.notice.findMany({
-    where: { deletedAt: null, ...(venueScope ? { venueId: venueScope } : {}) },
+    where: { deletedAt: null, staffEventId: null, ...(venueScope ? { venueId: venueScope } : {}) },
     include: {
       department: { select: { id: true, name: true } },
       venue: { select: { id: true, name: true } },
