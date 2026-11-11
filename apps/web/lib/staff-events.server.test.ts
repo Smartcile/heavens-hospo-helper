@@ -65,13 +65,27 @@ describe('materialiseStaffEventInvites', () => {
     expect(tx.staffEventInvite.upsert).toHaveBeenCalledTimes(2)
   })
 
-  it('retires a pending invite when an audience no longer targets them', async () => {
+  it('retires a pending invite when the manager clears explicit people and changes the audience', async () => {
     tx.staffEventInvite.findMany.mockResolvedValue([{ staffId: 'b', response: 'PENDING' }])
-    const result = await materialiseStaffEventInvites(tx as unknown as TxArg, event)
+    const result = await materialiseStaffEventInvites(tx as unknown as TxArg, event, [])
     expect(result.invited).toBe(1)
     expect(tx.staffEventInvite.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ staffId: { notIn: ['a'] } }),
     }))
+  })
+
+  it('derives explicit people from existing rows when no explicit list is supplied', async () => {
+    tx.staffEventInvite.findMany.mockResolvedValue([{ staffId: 'b', response: 'PENDING' }])
+    const result = await materialiseStaffEventInvites(tx as unknown as TxArg, event)
+    expect(result.invited).toBe(2)
+    expect(tx.staffEventInvite.upsert).toHaveBeenCalledTimes(2)
+  })
+
+  it('clearing every specific person on an audience-less event falls back to the whole venue', async () => {
+    tx.staffEventInvite.findMany.mockResolvedValue([{ staffId: 'b', response: 'PENDING' }])
+    const result = await materialiseStaffEventInvites(tx as unknown as TxArg, { ...event, audiences: [] }, [])
+    expect(result.invited).toBe(2)
+    expect(tx.staffEventInvite.upsert).toHaveBeenCalledTimes(2)
   })
 
   it('treats existing invites as the explicit list when there are no audiences', async () => {

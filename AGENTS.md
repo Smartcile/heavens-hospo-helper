@@ -1020,6 +1020,19 @@ and materialises invites. The worker notices route delivers a staff-event
 notice **only to people with a live invite**, so a whole-venue notice cannot
 leak an explicit-only invite.
 
+**Invites are snapshots of who was targeted at save/publish time.** A person
+hired *after* an event is published is **not** invited automatically: edit and
+re-save the event (or publish again) to materialise them. Every admin save
+re-materialises invites, including a DRAFT, so editing specific people is not
+deferred to publish.
+
+**Audience changes retain people.** Responded invites are never removed.
+When a manager saves a changed target set, PENDING invitees who are no longer in
+an audience or the explicit list are soft-deleted; leaving the explicit list
+unspecified on an API call derives it from the rows already present so
+historical clients do not drop people. Clearing **all** specific people on an
+audience-less event falls back to whole-venue targeting.
+
 **Responses.** Accept/Decline always; Maybe only when `allowMaybe`. The window
 is `responseDeadline`, else `endsAt`, else `startsAt`; staff can change their
 answer until it closes. `requireDeclineReason` makes a reason mandatory for
@@ -1064,10 +1077,14 @@ audience `DEPARTMENT:` / `SECTION:` / `POSITION:` name). `ImportModal` previews
 and inline-edits the row, matching an existing event by **title + date**.
 `GET/POST /api/admin/import/staff-events` resolves audience names against the
 venue and creates **DRAFT** events (never published automatically), reporting
-unknown audiences as warnings. One suggested audience per imported event is
-supported (`DEPARTMENT:`, `SECTION:` or `POSITION:` name); specific people and
-extra audiences can be added in the editor after import. The manager reviews the
-list and clicks PUBLISH.
+unknown audiences as warnings. Imported events are created with **no invite
+rows**: publishing materialises a known audience. An unrecognised or missing
+audience gets a loud `NOBODY WILL BE INVITED` warning and publish is blocked
+(`409 SET WHO IS INVITED BEFORE PUBLISHING`) until the manager sets an audience
+or specific people, so a typo can never invite the whole venue. One suggested
+audience per imported event is supported (`DEPARTMENT:`, `SECTION:` or
+`POSITION:` name); specific people and extra audiences can be added in the
+editor after import. The manager reviews the list and clicks PUBLISH.
 
 | Route | Methods | Purpose |
 |-------|---------|---------|
@@ -3401,8 +3418,8 @@ pre-flight.
 | `lib/dashboard-widgets.ts` — registry, `parseDashboardLayout`, `moveWidget`, `visibleWidgets` | ✅ (6 tests) |
 | `lib/training-status.ts` — `trainingLevel`, `sortTrainingRows` | ✅ (5 tests) |
 | `lib/notice-groups.ts` — `groupWorkerNotices` | ✅ (4 tests) |
-| `lib/staff-events.ts` — event field builder, response window/validation, wall-clock now, attendee resolution, attendance counts, ICS escaping/folding | ✅ (26 tests) |
-| `lib/staff-events.server.ts` — invite materialisation (audience ∪ explicit, retire pending), linked Notice sync | ✅ (9 tests) |
+| `lib/staff-events.ts` — event field builder, response window/validation, wall-clock now, attendee resolution, attendance counts, ICS escaping, UTF-8 octet folding, UTC DTSTAMP | ✅ (29 tests) |
+| `lib/staff-events.server.ts` — invite materialisation (audience ∪ explicit, retire pending, explicit-empty → whole venue), linked Notice sync | ✅ (11 tests) |
 | `lib/import/staff-event.ts` — email prompt, tolerant event parse, title+date match | ✅ (8 tests) |
 | `lib/recipe-import.ts` — `missingProductFields` | ✅ (3 tests) |
 | `lib/budget-lines-import.ts` — `parsePnlRows`, `findMonthRow`, `assignParentIndexes`, `monthYearForName`, `buildLineTree`, `treeTotal` | ✅ (18 tests) |
@@ -3531,8 +3548,10 @@ pre-flight.
 | `CalendarEventFormModal.tsx` — create + staffing POST, capacity warning, edit load/PUT | ✅ (2 tests) |
 | `WorkerShiftsClient.tsx` — pickup grid, claim/withdraw, conflict warning, confirmed panel | ✅ (5 tests) |
 | `TrainingStatusClient.tsx` — status rows + SECTION REVIEWS strip, CONFIRM/DISMISS/error surfacing, position grouping, guide titles, MANAGE GUIDES modal | ✅ (6 tests) |
-| `StaffEventNoticeCard.tsx` — full inline details, Accept/Decline/Maybe gating, required decline reason, current answer, Add to calendar, closed window, reminder | ✅ (8 tests) |
-| `StaffEventsPanel.tsx` — event/attendance counts, remind action, attendance popup with decline reasons | ✅ (2 tests) |
+| `StaffEventNoticeCard.tsx` — full inline details, Accept/Decline/Maybe gating, required decline reason, current answer, Add to calendar, closed window, reminder, close-time label fallback | ✅ (9 tests) |
+| `StaffEventsPanel.tsx` — event/attendance counts, remind action, attendance popup with decline reasons, forbidden-picker warning | ✅ (3 tests) |
+| `WorkerNoticesClient.tsx` staff-event branch — inline details, no GOT IT, accept posts to respond | ✅ (2 tests) |
+| `WorkerStaffEventClient.tsx` — detail load, required decline reason, respond payload | ✅ (1 test) |
 | `RoomSetupModal.tsx` / `RoomSetupCard.tsx` — editor payload, label preview, photo card, table-plan thumbnail | ✅ (3 + 3 tests) |
 | `StaffAccessDrawer.tsx` / `OpsClient.tsx` / `MenusClient` builder components | ✅ (4 + 7 + tested) |
 | `SwiftPosMenuLinks.tsx` / `KitchenDocketsClient.tsx` / `MenuItemDetailsModal.tsx` / `SwiftPosStaffSync.tsx` | ✅ (4 + 4 + 1 + 2) |
@@ -3558,10 +3577,13 @@ pre-flight.
 | `app/api/admin/import/guides/route.test.ts` — GET refs + MANAGER scope; POST creates DRAFT guides with audiences/steps/links, creates a missing folder, skips unknown audience/link, warns NOBODY WILL SEE THIS, rejects PRODUCT_REFERENCE, UPDATE with/without REPLACE STEPS, edit-permission gate, MANAGER lock, empty payload | ✅ (13 tests) |
 | `app/api/admin/swiftpos/staff/route.test.ts` — LINK sets the PIN from the clerk id, keeps an existing PIN, and links without a PIN on a clash | ✅ (3 tests) |
 | `app/api/admin/staff-events/route.test.ts` — create publishes + materialises invites/notice, draft stays private, manager venue lock, explicit invitee validation, invalid times | ✅ (6 tests) |
+| `app/api/admin/staff-events/[id]/route.test.ts` — GET/PUT/DELETE, DRAFT resync, published notice sync, audience retention, explicit-empty whole-venue fallback, manager venue block | ✅ (7 tests) |
+| `app/api/admin/staff-events/[id]/publish/route.test.ts` — publish materialises + sends notice, audience-less/no-invite 409, whole-venue draft publish, manager block | ✅ (4 tests) |
 | `app/api/admin/staff-events/[id]/remind/route.test.ts` — stamps pending invites + event, draft 409, manager venue block | ✅ (3 tests) |
+| `app/api/worker/staff-events/[id]/route.test.ts` — PUBLISHED-only lookup, invite check, explicit vs effective deadline | ✅ (5 tests) |
 | `app/api/worker/staff-events/[id]/respond/route.test.ts` — auth, invite/venue 404, Maybe gate, required decline reason, Accept save + counts, closed deadline 409 | ✅ (6 tests) |
-| `app/api/worker/staff-events/[id]/ics/route.test.ts` — auth, invite check, calendar headers + body | ✅ (3 tests) |
-| `app/api/admin/import/staff-events/route.test.ts` — refs + manager scope, DRAFT create with resolved audience, invalid row skip, unknown audience warning, UPDATE skip, empty payload | ✅ (7 tests) |
+| `app/api/worker/staff-events/[id]/ics/route.test.ts` — auth, PUBLISHED-only lookup, invite check, calendar headers + body, UTC DTSTAMP | ✅ (4 tests) |
+| `app/api/admin/import/staff-events/route.test.ts` — refs + manager scope, DRAFT create with resolved audience, no invites on import, unknown audience NOBODY warning, invalid row skip, UPDATE skip, empty payload | ✅ (7 tests) |
 
 ## PRE-COMMIT CHECKLIST
 

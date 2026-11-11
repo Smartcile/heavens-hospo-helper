@@ -33,7 +33,7 @@ const detail = {
   ],
 }
 
-function mockApi(calls: { url: string; method: string }[]) {
+function mockApi(calls: { url: string; method: string }[], fail: string[] = []) {
   vi.spyOn(global, 'fetch').mockImplementation(async (input: unknown, init?: RequestInit) => {
     const url = String(input)
     calls.push({ url, method: init?.method ?? 'GET' })
@@ -41,7 +41,8 @@ function mockApi(calls: { url: string; method: string }[]) {
     if (url.includes('/api/admin/staff-events/e1')) payload = detail
     else if (url.includes('/api/admin/staff-events')) payload = [event]
     else if (url.includes('/api/admin/import/staff-events')) payload = { events: [], departments: [], sections: [], positions: [] }
-    return { ok: true, status: 200, json: async () => payload } as Response
+    const blocked = fail.includes(url)
+    return { ok: !blocked, status: blocked ? 403 : 200, json: async () => payload } as Response
   })
 }
 
@@ -75,5 +76,12 @@ describe('StaffEventsPanel', () => {
     expect(screen.getByText('SAM LEE')).toBeInTheDocument()
     expect(screen.getByText('REASON: SICK')).toBeInTheDocument()
     expect(screen.getByText('NO REPLY')).toBeInTheDocument()
+  })
+
+  it('surfaces a visible warning when a picker is forbidden', async () => {
+    mockApi([], ['/api/admin/staff'])
+    render(<StaffEventsPanel role="ADMIN" sessionVenueId="v1" />)
+    await screen.findByText('TEAM BRIEFING')
+    expect(await screen.findByText(/SOME PICKERS COULD NOT LOAD \(STAFF\)/)).toBeInTheDocument()
   })
 })

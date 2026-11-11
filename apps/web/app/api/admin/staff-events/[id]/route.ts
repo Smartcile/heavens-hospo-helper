@@ -30,6 +30,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     include: {
       audiences: { select: { kind: true, targetId: true } },
       createdBy: { select: { firstName: true, lastName: true } },
+      venue: { select: { name: true } },
       invites: {
         where: { deletedAt: null },
         include: { staff: { select: { id: true, firstName: true, lastName: true, department: { select: { name: true } } } } },
@@ -56,6 +57,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     status: event.status,
     reminderSentAt: event.reminderSentAt,
     venueId: event.venueId,
+    venueName: event.venue.name,
     organiserName: event.createdBy ? `${event.createdBy.firstName} ${event.createdBy.lastName}` : null,
     audiences: event.audiences,
     attendance: attendanceFor(event.invites),
@@ -118,10 +120,11 @@ export async function PUT(req: NextRequest, { params }: Params) {
         },
       })
       const event: StaffEventWithAudiences = { ...updated, audiences }
-      if (updated.status === 'PUBLISHED') {
-        await materialiseStaffEventInvites(tx, event, staffIds ?? [])
-        await syncStaffEventNotice(tx, event)
-      }
+      // Re-materialise on every save, including DRAFTs, so editing specific
+      // people is not deferred until publish. Only a published event also
+      // pushes the change to its Notice.
+      await materialiseStaffEventInvites(tx, event, staffIds ?? undefined)
+      if (updated.status === 'PUBLISHED') await syncStaffEventNotice(tx, event)
     })
     return NextResponse.json({ success: true })
   } catch (e) {

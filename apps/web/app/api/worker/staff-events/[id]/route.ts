@@ -12,7 +12,7 @@ export async function GET(_req: Request, { params }: Params) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const event = await prisma.staffEvent.findFirst({
-    where: { id: params.id, deletedAt: null, venueId: session.venueId },
+    where: { id: params.id, deletedAt: null, venueId: session.venueId, status: 'PUBLISHED' },
     include: {
       createdBy: { select: { firstName: true, lastName: true } },
       venue: { select: { timezone: true } },
@@ -36,7 +36,8 @@ export async function GET(_req: Request, { params }: Params) {
     attendanceRequired: event.attendanceRequired,
     allowMaybe: event.allowMaybe,
     requireDeclineReason: event.requireDeclineReason,
-    responseDeadline: responseDeadlineAt(event),
+    responseDeadline: event.responseDeadline,
+    responseClosesAt: responseDeadlineAt(event),
     notes: event.notes,
     status: event.status,
     organiserName: event.createdBy ? `${event.createdBy.firstName} ${event.createdBy.lastName}` : null,

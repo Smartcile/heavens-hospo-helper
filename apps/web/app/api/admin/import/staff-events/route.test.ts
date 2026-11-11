@@ -95,7 +95,7 @@ describe('POST /api/admin/import/staff-events', () => {
         audiences: { create: [{ kind: 'DEPARTMENT', targetId: 'd1' }] },
       }),
     }))
-    expect(prisma.staffEventInvite.upsert).toHaveBeenCalledTimes(1)
+    expect(prisma.staffEventInvite.upsert).not.toHaveBeenCalled()
     expect(data.warnings).toContain('IMPORTED STAFF EVENTS ARE DRAFT - PUBLISH THEM TO SEND THE NOTICE TO STAFF')
   })
 
@@ -108,7 +108,7 @@ describe('POST /api/admin/import/staff-events', () => {
     expect(prisma.staffEvent.create).not.toHaveBeenCalled()
   })
 
-  it('creates without an audience when the name is unknown, and warns', async () => {
+  it('creates a DRAFT with no invites and a loud warning when the audience is unknown', async () => {
     const unknown = row({ values: { ...row().values, audienceName: 'NOWHERE' } })
     const res = await POST(postReq({ rows: [unknown] }))
     const data = await res.json()
@@ -116,7 +116,9 @@ describe('POST /api/admin/import/staff-events', () => {
     expect(prisma.staffEvent.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ audiences: undefined }),
     }))
-    expect(data.warnings.some((w: string) => w.includes('WITHOUT AN AUDIENCE'))).toBe(true)
+    expect(prisma.staffEventInvite.upsert).not.toHaveBeenCalled()
+    expect(prisma.staffEventInvite.updateMany).not.toHaveBeenCalled()
+    expect(data.warnings.some((w: string) => w.includes('NOBODY WILL BE INVITED'))).toBe(true)
   })
 
   it('rejects UPDATE rows because import only creates', async () => {

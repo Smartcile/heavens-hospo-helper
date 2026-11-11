@@ -105,7 +105,8 @@ export async function GET() {
             attendanceRequired: staffEvent.attendanceRequired,
             allowMaybe: staffEvent.allowMaybe,
             requireDeclineReason: staffEvent.requireDeclineReason,
-            responseDeadline: responseDeadlineAt(staffEvent),
+            responseDeadline: staffEvent.responseDeadline,
+            responseClosesAt: responseDeadlineAt(staffEvent),
             notes: staffEvent.notes,
             status: staffEvent.status,
             organiserName: staffEvent.createdBy

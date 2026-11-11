@@ -14,6 +14,7 @@ export interface StaffEventNoticeData {
   allowMaybe: boolean
   requireDeclineReason: boolean
   responseDeadline: string | null
+  responseClosesAt: string
   notes: string | null
   organiserName: string | null
   reminderSentAt: string | null
@@ -50,7 +51,7 @@ export function StaffEventNoticeCard({
 }: {
   event: StaffEventNoticeData
   busy: boolean
-  onRespond: (id: string, response: 'ACCEPTED' | 'DECLINED' | 'MAYBE', reason?: string) => void
+  onRespond: (id: string, response: 'ACCEPTED' | 'DECLINED' | 'MAYBE', reason?: string) => void | Promise<void>
 }) {
   const [declining, setDeclining] = useState(false)
   const [reason, setReason] = useState('')
@@ -59,10 +60,12 @@ export function StaffEventNoticeCard({
   const responded = event.response !== 'PENDING'
   const reminderDue = !!event.reminderSentAt && !responded
 
-  function decline() {
+  async function decline() {
     if (event.requireDeclineReason && !declining) { setDeclining(true); return }
     if (event.requireDeclineReason && !reason.trim()) return
-    onRespond(event.id, 'DECLINED', reason.trim() || undefined)
+    await onRespond(event.id, 'DECLINED', reason.trim() || undefined)
+    setDeclining(false)
+    setReason('')
   }
 
   return (
@@ -89,9 +92,13 @@ export function StaffEventNoticeCard({
       <div className="mt-3 space-y-1">
         <div className="font-mono text-sm text-white uppercase">{dayLabel(event.startsAt)} · {timeLabel(event)}</div>
         <div className="font-mono text-xs uppercase text-grey-light">{event.location?.trim() || 'LOCATION TO BE CONFIRMED'}</div>
-        {event.responseDeadline && (
+        {event.responseDeadline ? (
           <div className="font-mono text-xs uppercase text-grey-light">
             RESPOND BY {dayLabel(event.responseDeadline)} {event.responseDeadline.slice(11, 16)}
+          </div>
+        ) : (
+          <div className="font-mono text-xs uppercase text-grey-light">
+            RESPONSES CLOSE AT {dayLabel(event.responseClosesAt)} {event.responseClosesAt.slice(11, 16)}
           </div>
         )}
       </div>

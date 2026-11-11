@@ -5,7 +5,6 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { normaliseImportKey } from '@/lib/import/similarity'
 import { buildStaffEventFields } from '@/lib/staff-events'
-import { materialiseStaffEventInvites } from '@/lib/staff-events.server'
 import type { ImportRowAction, ImportSummary } from '@/lib/import/types'
 import type { StaffEventImportValues } from '@/lib/import/staff-event'
 
@@ -135,11 +134,13 @@ export async function POST(req: NextRequest) {
             audiences.push({ kind: kind!, targetId: found.id })
           }
           if (!found || found === 'AMBIGUOUS') {
-            out.warnings.push(`"${built.value.title}" IMPORTED WITHOUT AN AUDIENCE - "${values.audienceName}" WAS NOT UNIQUE IN THIS VENUE`)
+            out.warnings.push(`NOBODY WILL BE INVITED — "${built.value.title}" HAS NO RECOGNISED AUDIENCE. SET WHO IS INVITED BEFORE PUBLISHING.`)
           }
+        } else {
+          out.warnings.push(`NOBODY WILL BE INVITED — "${built.value.title}" HAS NO AUDIENCE. SET WHO IS INVITED BEFORE PUBLISHING.`)
         }
 
-        const created = await tx.staffEvent.create({
+        await tx.staffEvent.create({
           data: {
             ...built.value,
             venueId,
@@ -147,12 +148,10 @@ export async function POST(req: NextRequest) {
             createdById: session.user.id,
             audiences: audiences.length ? { create: audiences } : undefined,
           },
-          select: {
-            id: true, venueId: true, title: true, description: true, location: true,
-            startsAt: true, endsAt: true, allDay: true, attendanceRequired: true, status: true,
-          },
         })
-        await materialiseStaffEventInvites(tx, { ...created, audiences })
+        // Import deliberately leaves invites empty. Publish materialises a
+        // KNOWN audience; an unknown one is blocked from publishing until the
+        // manager sets it, so a typo can never invite the whole venue.
         out.created++
       }
 

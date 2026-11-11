@@ -67,7 +67,7 @@ async function loadAudienceStaff(tx: Tx, venueId: string): Promise<AudienceStaff
 export async function materialiseStaffEventInvites(
   tx: Tx,
   event: StaffEventWithAudiences,
-  explicitStaffIds: readonly string[] = [],
+  explicitStaffIds?: readonly string[],
 ): Promise<{ invited: number; removed: number }> {
   const staff = await loadAudienceStaff(tx, event.venueId)
   const existing = await tx.staffEventInvite.findMany({
@@ -75,31 +75,36 @@ export async function materialiseStaffEventInvites(
     select: { staffId: true, response: true },
   })
   const audiences = audienceRefs(event)
-  // Existing invite rows are the explicit list only for an event with no
-  // audiences. Once an audience exists, explicit people come from the caller,
-  // so removing an audience actually uninvites its pending members.
-  const explicit = audiences.length === 0
-    ? (explicitStaffIds.length ? explicitStaffIds : existing.map((i) => i.staffId))
-    : explicitStaffIds
+  const existingIds = existing.map((i) => i.staffId)
+  const audienceTargets = audiences.length ? resolveStaffEventTargets(staff, audiences, []) : []
 
-  const targets = audiences.length === 0 && explicit.length === 0
-    ? staff.map((s) => s.id)
+  // `undefined` means "derive the explicit set from the rows already there";
+  // an empty array means the manager deliberately cleared them. Deriving keeps
+  // historical clients from dropping invitees, while an explicit empty list
+  // must be honoured (and, on an audience-less event, falls back to whole venue).
+  const explicit = explicitStaffIds !== undefined
+    ? explicitStaffIds
     : audiences.length === 0
-      ? explicit.filter((id) => staff.some((s) => s.id === id))
-      : resolveStaffEventTargets(staff, audiences, explicit)
+      ? existingIds
+      : existingIds.filter((id) => !audienceTargets.includes(id))
 
-  const targetSet = new Set(targets)
+  const targets = audiences.length === 0
+    ? (explicit.length ? explicit : staff.map((s) => s.id))
+    : resolveStaffEventTargets(staff, audiences, explicit)
+  const targetList = [...targets]
+
+  const targetSet = new Set(targetList)
   const removed = await tx.staffEventInvite.updateMany({
     where: {
       staffEventId: event.id,
       deletedAt: null,
       response: 'PENDING',
-      staffId: { notIn: targets.length ? targets : ['__none__'] },
+      staffId: { notIn: targetList.length ? targetList : ['__none__'] },
     },
     data: { deletedAt: new Date() },
   })
 
-  for (const staffId of targets) {
+  for (const staffId of targetList) {
     await tx.staffEventInvite.upsert({
       where: { staffEventId_staffId: { staffEventId: event.id, staffId } },
       update: { deletedAt: null },

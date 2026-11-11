@@ -29,6 +29,17 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
   if (existing.status === 'CANCELLED') return NextResponse.json({ error: 'THIS EVENT IS CANCELLED' }, { status: 409 })
 
+  // An imported event with an unrecognised audience is saved DRAFT with no
+  // invites. Refuse to publish it as an accidental whole-venue invitation.
+  if (existing.audiences.length === 0) {
+    const inviteCount = await prisma.staffEventInvite.count({
+      where: { staffEventId: existing.id, deletedAt: null },
+    })
+    if (inviteCount === 0) {
+      return NextResponse.json({ error: 'SET WHO IS INVITED BEFORE PUBLISHING' }, { status: 409 })
+    }
+  }
+
   try {
     const result = await prisma.$transaction(async (tx) => {
       const updated = await tx.staffEvent.update({

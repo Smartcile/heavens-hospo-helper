@@ -5,10 +5,13 @@ import {
   buildStaffEventFields,
   buildStaffEventIcs,
   escapeIcsText,
+  foldIcsLine,
   formatIcsDate,
   formatIcsLocal,
+  formatIcsStamp,
   isResponseOpen,
   isStaffEventOver,
+  quoteIcsParam,
   resolveStaffEventTargets,
   responseDeadlineAt,
   validateStaffEventResponse,
@@ -179,9 +182,25 @@ describe('ICS generation', () => {
     expect(escapeIcsText('A, B; C\\D\nE')).toBe('A\\, B\\; C\\\\D\\nE')
   })
 
-  it('formats venue-local timestamps and dates', () => {
+  it('formats venue-local timestamps, real UTC DTSTAMP and dates', () => {
     expect(formatIcsLocal(new Date('2026-11-12T18:05:09Z'))).toBe('20261112T180509')
+    expect(formatIcsStamp(new Date('2026-11-12T18:05:09Z'))).toBe('20261112T180509Z')
     expect(formatIcsDate(new Date('2026-11-12T18:05:09Z'))).toBe('20261112')
+  })
+
+  it('quotes parameter values instead of backslash-escaping them', () => {
+    expect(quoteIcsParam('ADA "THE BOSS" MANAGER')).toBe('"ADA \\"THE BOSS\\" MANAGER"')
+  })
+
+  it('folds by UTF-8 octets, not JS characters', () => {
+    const line = `SUMMARY:${'Ā'.repeat(60)}` // 2 bytes per macron character
+    const folded = foldIcsLine(line)
+    const encoder = new TextEncoder()
+    for (const physical of folded.split('\r\n')) {
+      expect(encoder.encode(physical).length).toBeLessThanOrEqual(75)
+    }
+    expect(folded.split('\r\n').slice(1).every((part) => part.startsWith(' '))).toBe(true)
+    expect(folded.replace(/\r\n /g, '')).toBe(line)
   })
 
   it('emits a timed event with organiser and escaped summary', () => {
@@ -201,8 +220,27 @@ describe('ICS generation', () => {
     expect(ics).toContain('SUMMARY:BRIEFING\\, ALL STAFF')
     expect(ics).toContain('DESCRIPTION:Bring: notes\\; questions')
     expect(ics).toContain('LOCATION:Function Room')
-    expect(ics).toContain('ORGANIZER;CN=ADA MANAGER:mailto:noreply@hospo.local')
+    expect(ics).toContain('ORGANIZER;CN="ADA MANAGER":mailto:noreply@hospo.local')
+    expect(ics).toMatch(/DTSTAMP:\d{8}T\d{6}Z/)
+    expect(ics).toContain('DTSTART:20261112T180000')
+    expect(ics).toContain('DTEND:20261112T200000')
     expect(ics.endsWith('END:VCALENDAR\r\n')).toBe(true)
+  })
+
+  it('keeps a multi-byte summary intact through folding', () => {
+    const title = 'NGĀTI WHAKAARO TEAM BRIEFING — WHARE KAI, LEVEL 2, FUNCTION ROOM'
+    const ics = buildStaffEventIcs({
+      uid: 'staff-event-3@hospo-ops',
+      title,
+      startsAt: new Date('2026-11-12T18:00:00Z'),
+      endsAt: new Date('2026-11-12T20:00:00Z'),
+      organiserName: 'WHĀNAU MANAGER',
+    })
+    const summaryPhysical = ics.split('\r\n').filter((line) => line.startsWith('SUMMARY:') || line.startsWith(' '))
+    // Joining the folded summary back must reproduce the escaped title exactly.
+    const joined = summaryPhysical.join('').replace(/\r\n/g, '')
+    expect(joined).toContain('NGĀTI WHAKAARO')
+    expect(new TextEncoder().encode(summaryPhysical[0]).length).toBeLessThanOrEqual(75)
   })
 
   it('emits an all-day event with an exclusive DTEND date', () => {

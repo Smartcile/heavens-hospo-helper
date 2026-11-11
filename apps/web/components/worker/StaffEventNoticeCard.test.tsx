@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { StaffEventNoticeCard, type StaffEventNoticeData } from './StaffEventNoticeCard'
 
 const base: StaffEventNoticeData = {
@@ -14,6 +14,7 @@ const base: StaffEventNoticeData = {
   allowMaybe: false,
   requireDeclineReason: false,
   responseDeadline: '2026-11-10T23:59:00.000Z',
+  responseClosesAt: '2026-11-10T23:59:00.000Z',
   notes: 'Bring a notebook.',
   organiserName: 'ADA MANAGER',
   reminderSentAt: null,
@@ -56,7 +57,7 @@ describe('StaffEventNoticeCard', () => {
     expect(onRespond).toHaveBeenCalledWith('e1', 'MAYBE')
   })
 
-  it('asks for a reason before a required decline is sent', () => {
+  it('asks for a reason before a required decline is sent', async () => {
     const onRespond = vi.fn()
     render(<StaffEventNoticeCard event={{ ...base, requireDeclineReason: true }} busy={false} onRespond={onRespond} />)
     fireEvent.click(screen.getByRole('button', { name: 'DECLINE' }))
@@ -67,6 +68,13 @@ describe('StaffEventNoticeCard', () => {
     expect(confirm).not.toBeDisabled()
     fireEvent.click(confirm)
     expect(onRespond).toHaveBeenCalledWith('e1', 'DECLINED', 'SICK')
+    await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument())
+  })
+
+  it('labels the close time when there is no explicit deadline', () => {
+    render(<StaffEventNoticeCard event={{ ...base, responseDeadline: null, responseClosesAt: base.endsAt as string }} busy={false} onRespond={() => {}} />)
+    expect(screen.getByText(/RESPONSES CLOSE AT/)).toBeInTheDocument()
+    expect(screen.queryByText(/RESPOND BY/)).not.toBeInTheDocument()
   })
 
   it('decides immediately when no reason is required', () => {

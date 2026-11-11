@@ -154,6 +154,7 @@ export function StaffEventsPanel({ role, sessionVenueId, defaultVenueId }: { rol
   const [form, setForm] = useState({ ...EMPTY, venueId: getActiveVenueId(role, sessionVenueId, defaultVenueId) })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [pickerError, setPickerError] = useState('')
 
   const [attendanceForEvent, setAttendanceForEvent] = useState<Detail | null>(null)
   const [attendanceLoading, setAttendanceLoading] = useState(false)
@@ -176,6 +177,13 @@ export function StaffEventsPanel({ role, sessionVenueId, defaultVenueId }: { rol
       fetch(`/api/admin/staff${venueParam}`),
     ])
     const [eData, vData, dData, secData, pData, sData] = await Promise.all([eR.json(), vR.json(), dR.json(), secR.json(), pR.json(), sR.json()])
+    const misses: string[] = []
+    if (!vR.ok) misses.push('VENUES')
+    if (!dR.ok) misses.push('DEPARTMENTS')
+    if (!secR.ok) misses.push('SECTIONS')
+    if (!pR.ok) misses.push('POSITIONS')
+    if (!sR.ok) misses.push('STAFF')
+    setPickerError(misses.length ? `SOME PICKERS COULD NOT LOAD (${misses.join(', ')}). YOU MAY NOT HAVE ACCESS TO THEM.` : '')
     setEvents(Array.isArray(eData) ? eData : [])
     setVenues(Array.isArray(vData) ? vData : [])
     setDepartments(Array.isArray(dData) ? dData : [])
@@ -327,6 +335,7 @@ export function StaffEventsPanel({ role, sessionVenueId, defaultVenueId }: { rol
       </div>
 
       {error && <p className="font-mono text-xs uppercase text-danger">{error}</p>}
+      {pickerError && <p className="font-mono text-xs uppercase text-warning">{pickerError}</p>}
 
       {loading ? (
         <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>

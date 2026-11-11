@@ -300,18 +300,43 @@ export function formatIcsDate(date: Date): string {
   return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}`
 }
 
-/** Fold a content line at 75 octets (RFC 5545 §3.1). */
+/** DTSTAMP is the one real instant in the file and must be UTC with a Z. */
+export function formatIcsStamp(date: Date): string {
+  return `${formatIcsLocal(date)}Z`
+}
+
+/** Quote an iCalendar parameter value (RFC 5545 §3.2). */
+export function quoteIcsParam(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ')}"`
+}
+
+/**
+ * Fold a content line at 75 OCTETS (RFC 5545 §3.1), not JS characters —
+ * macrons and emoji are multi-byte and would otherwise overflow the line.
+ */
 export function foldIcsLine(line: string): string {
-  if (line.length <= 75) return line
+  const encoder = new TextEncoder()
+  const chars = Array.from(line)
   const chunks: string[] = []
-  let rest = line
-  chunks.push(rest.slice(0, 75))
-  rest = rest.slice(75)
-  while (rest.length > 74) {
-    chunks.push(` ${rest.slice(0, 74)}`)
-    rest = rest.slice(74)
+  let current = ''
+  let currentBytes = 0
+  let first = true
+
+  for (const char of chars) {
+    const bytes = encoder.encode(char).length
+    // Continuation lines begin with a space, so only 74 octets are available.
+    const limit = first ? 75 : 74
+    if (currentBytes + bytes > limit) {
+      chunks.push(first ? current : ` ${current}`)
+      first = false
+      current = char
+      currentBytes = bytes
+    } else {
+      current += char
+      currentBytes += bytes
+    }
   }
-  if (rest.length) chunks.push(` ${rest}`)
+  if (current) chunks.push(first ? current : ` ${current}`)
   return chunks.join('\r\n')
 }
 
@@ -343,7 +368,7 @@ export function buildStaffEventIcs(options: StaffEventIcsOptions): string {
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',
     `UID:${escapeIcsText(options.uid)}`,
-    `DTSTAMP:${formatIcsLocal(now)}`,
+    `DTSTAMP:${formatIcsStamp(now)}`,
   ]
 
   if (options.allDay) {
@@ -359,7 +384,7 @@ export function buildStaffEventIcs(options: StaffEventIcsOptions): string {
   if (options.description) lines.push(`DESCRIPTION:${escapeIcsText(options.description)}`)
   if (options.location) lines.push(`LOCATION:${escapeIcsText(options.location)}`)
   const organiser = options.organiserName?.trim() || 'HOSPO OPS'
-  lines.push(`ORGANIZER;CN=${escapeIcsText(organiser)}:mailto:noreply@hospo.local`)
+  lines.push(`ORGANIZER;CN=${quoteIcsParam(organiser)}:mailto:noreply@hospo.local`)
   lines.push('STATUS:CONFIRMED')
 
   if (options.reminderMinutes && options.reminderMinutes > 0) {
