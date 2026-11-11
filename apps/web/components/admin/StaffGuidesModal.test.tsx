@@ -50,11 +50,23 @@ const items = [
   },
 ]
 
-function mockFetch() {
+function mockFetch(opts: {
+  canSignOff?: boolean
+  canAssign?: boolean
+  itemsOverride?: typeof items
+} = {}) {
   return vi.spyOn(global, 'fetch').mockImplementation(async (url: string | URL | Request) => {
     const u = String(url)
     if (u.includes('/api/admin/staff/s1/guides')) {
-      return { ok: true, json: async () => ({ items, folders }) } as Response
+      return {
+        ok: true,
+        json: async () => ({
+          items: opts.itemsOverride ?? items,
+          folders,
+          canSignOff: opts.canSignOff !== false,
+          canAssign: opts.canAssign !== false,
+        }),
+      } as Response
     }
     if (u.includes('/api/admin/guides')) {
       return { ok: true, json: async () => [] } as Response
@@ -83,6 +95,23 @@ describe('StaffGuidesModal folder grouping + retrain warnings', () => {
     await waitFor(() => expect(queryByText('BAR (1)')).toBeNull())
     expect(getByText('COFFEE MENU')).toBeTruthy()
     expect(getByText('OPENING LIST')).toBeTruthy()
+  })
+
+  it('hides signing-off and retraining actions the manager is not granted', async () => {
+    const withRequest = items.map((item, index) =>
+      index === 0 ? { ...item, retrainRequestId: 'r1' } : item,
+    )
+    mockFetch({ canSignOff: false, canAssign: false, itemsOverride: withRequest as typeof items })
+    const { getByText, queryByText, queryAllByText } = render(
+      <StaffGuidesModal staffId="s1" staffName="SMITH, JANE" onClose={() => {}} />,
+    )
+
+    await waitFor(() => expect(getByText('COFFEE MENU')).toBeTruthy())
+    expect(queryAllByText('MARK RETRAINED')).toHaveLength(0)
+    expect(queryByText('MARK TRAINED')).toBeNull()
+    expect(queryByText('REVOKE')).toBeNull()
+    expect(queryAllByText('MARK FOR RETRAINING')).toHaveLength(0)
+    expect(queryByText('DISMISS WARNING')).toBeNull()
   })
 
   it('opens the shared mark-for-retraining flow for a warning', async () => {

@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
-import { getAccessibleVenueIds, getManagerVenueId } from '@/lib/venue-scope'
+import { getAccessibleVenueIds } from '@/lib/venue-scope'
 import { resolveRetrainRequest } from '@/lib/guide-warnings.server'
 
 // RESOLVE = training was redone; DISMISS = manager has acknowledged it. Both
@@ -20,7 +20,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   let venueId: string | null = null
   if (session.user.role === 'MANAGER') {
-    venueId = getManagerVenueId(session, req)
+    // Same effective venue as the read route (GET /api/admin/guide-warnings).
+    venueId = session.user.venueId
   } else {
     const request = await prisma.guideRetrainRequest.findFirst({
       where: { id: params.id, deletedAt: null },

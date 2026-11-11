@@ -153,7 +153,7 @@ describe('TrainingStatusClient warnings', () => {
     },
   ]
 
-  function mockWarningsFetch() {
+  function mockWarningsFetch(opts: { canAssign?: boolean; canSignOff?: boolean } = {}) {
     return vi.spyOn(global, 'fetch').mockImplementation(async (url: string | URL | Request) => {
       const u = String(url)
       if (u.includes('/api/admin/guide-warnings')) {
@@ -165,7 +165,8 @@ describe('TrainingStatusClient warnings', () => {
             folders: [{ id: 'f1', name: 'BAR', sortOrder: 0 }],
             staff: [{ id: 's1', name: 'SMITH, JANE' }],
             guides: [{ id: 'g1', title: 'COFFEE MENU', folderId: 'f1' }],
-            canAssign: true,
+            canAssign: opts.canAssign !== false,
+            canSignOff: opts.canSignOff !== false,
           }),
         } as Response
       }
@@ -205,6 +206,34 @@ describe('TrainingStatusClient warnings', () => {
       expect(resolve).toBeDefined()
       expect(JSON.parse((resolve![1] as RequestInit).body as string)).toEqual({ action: 'RESOLVE' })
     })
+  })
+
+  it('hides actions the manager is not granted', async () => {
+    mockWarningsFetch({ canAssign: false, canSignOff: false })
+    const { getByText, queryByText, queryAllByText } = render(
+      <TrainingStatusClient role="MANAGER" sessionVenueId="v1" defaultVenueId="v1" />,
+    )
+
+    await waitFor(() => expect(getByText('WARNINGS (1)')).toBeTruthy())
+    expect(queryByText('MARK RETRAINED')).toBeNull()
+    expect(queryByText('DISMISS')).toBeNull()
+    expect(queryAllByText('MARK FOR RETRAINING')).toHaveLength(0)
+    // Reading/opening the guide is still allowed.
+    expect(getByText('OPEN GUIDE')).toBeTruthy()
+  })
+
+  it('groups warnings by folder while keeping the flat option', async () => {
+    mockWarningsFetch()
+    const { getByText, queryByText } = render(
+      <TrainingStatusClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />,
+    )
+
+    await waitFor(() => expect(getByText('BY FOLDER')).toBeTruthy())
+    fireEvent.click(getByText('BY FOLDER'))
+    await waitFor(() => expect(getByText('BAR (1)')).toBeTruthy())
+    fireEvent.click(getByText('FLAT'))
+    await waitFor(() => expect(queryByText('BAR (1)')).toBeNull())
+    expect(getByText(/COFFEE MENU/)).toBeTruthy()
   })
 
   it('dismisses an explicit retrain request', async () => {

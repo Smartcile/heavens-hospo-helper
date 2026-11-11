@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
-import { getAccessibleVenueIds, getManagerVenueId } from '@/lib/venue-scope'
+import { getAccessibleVenueIds } from '@/lib/venue-scope'
 import { createRetrainRequests } from '@/lib/guide-warnings.server'
 
 // Mark one or more people-for-guides as needing retraining. Venue-checked; the
@@ -24,7 +24,8 @@ export async function POST(req: NextRequest) {
 
   let venueId: string | null = null
   if (session.user.role === 'MANAGER') {
-    venueId = getManagerVenueId(session, req)
+    // Same effective venue as the read route (GET /api/admin/guide-warnings).
+    venueId = session.user.venueId
   } else {
     const accessible = getAccessibleVenueIds(session)
     const requested = body.venueId?.trim() || null

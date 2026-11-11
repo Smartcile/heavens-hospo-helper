@@ -1,11 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest, NextResponse } from 'next/server'
 
-const { getServerSession, guardAccess, getManagerVenueId, getAccessibleVenueIds, createRetrainRequests, prisma } =
+const { getServerSession, guardAccess, getAccessibleVenueIds, createRetrainRequests, prisma } =
   vi.hoisted(() => ({
     getServerSession: vi.fn(),
     guardAccess: vi.fn(),
-    getManagerVenueId: vi.fn(),
     getAccessibleVenueIds: vi.fn(),
     createRetrainRequests: vi.fn(),
     prisma: { staff: { findFirst: vi.fn() } },
@@ -14,7 +13,7 @@ const { getServerSession, guardAccess, getManagerVenueId, getAccessibleVenueIds,
 vi.mock('next-auth', () => ({ getServerSession }))
 vi.mock('@/lib/auth', () => ({ authOptions: {} }))
 vi.mock('@/lib/permissions', () => ({ guardAccess }))
-vi.mock('@/lib/venue-scope', () => ({ getManagerVenueId, getAccessibleVenueIds }))
+vi.mock('@/lib/venue-scope', () => ({ getAccessibleVenueIds }))
 vi.mock('@hospo-ops/db', () => ({ prisma }))
 vi.mock('@/lib/guide-warnings.server', () => ({ createRetrainRequests }))
 
@@ -26,7 +25,6 @@ beforeEach(() => {
   vi.clearAllMocks()
   getServerSession.mockResolvedValue({ user: { id: 'u1', role: 'ADMIN', venueId: 'v1' } })
   guardAccess.mockResolvedValue(null)
-  getManagerVenueId.mockReturnValue('v1')
   getAccessibleVenueIds.mockReturnValue(['v1', 'v2'])
   prisma.staff.findFirst.mockResolvedValue({ venueId: 'v1' })
   createRetrainRequests.mockResolvedValue({
@@ -69,10 +67,9 @@ describe('POST /api/admin/guide-retrain', () => {
     expect(await res.json()).toMatchObject({ created: [{ id: 'r1', guideId: 'g1' }] })
   })
 
-  it('pins a manager to their effective venue', async () => {
+  it('pins a manager to their session venue, matching the read route', async () => {
     getServerSession.mockResolvedValue({ user: { id: 'u1', role: 'MANAGER', venueId: 'v1' } })
     await POST(req({ staffId: 's1', guideIds: ['g1'], venueId: 'v2' }))
-    expect(getManagerVenueId).toHaveBeenCalled()
     expect(createRetrainRequests).toHaveBeenCalledWith(expect.objectContaining({ venueId: 'v1' }))
   })
 

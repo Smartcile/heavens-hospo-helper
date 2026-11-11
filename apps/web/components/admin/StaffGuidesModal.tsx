@@ -49,6 +49,8 @@ export function StaffGuidesModal({
 }) {
   const [items, setItems] = useState<GuideItem[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
+  const [canSignOff, setCanSignOff] = useState(true)
+  const [canAssign, setCanAssign] = useState(true)
   const [allGuides, setAllGuides] = useState<AllGuide[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
@@ -67,6 +69,8 @@ export function StaffGuidesModal({
     const aData = await aR.json()
     setItems(gData.items ?? [])
     setFolders(gData.folders ?? [])
+    setCanSignOff(gData.canSignOff !== false)
+    setCanAssign(gData.canAssign !== false)
     setAllGuides((aData ?? []).map((g: AllGuide) => ({ id: g.id, title: g.title })))
     setLoading(false)
   }
@@ -193,7 +197,7 @@ export function StaffGuidesModal({
             )}
           </div>
           <div className="flex flex-col items-end gap-1 flex-shrink-0">
-            {(!it.completed || it.stale) && (
+            {canSignOff && (!it.retrainRequestId || canAssign) && (!it.completed || it.stale) && (
               <button
                 onClick={() => markTrained(it)}
                 disabled={busy === it.id}
@@ -202,10 +206,10 @@ export function StaffGuidesModal({
                 {busy === it.id ? '...' : it.stale ? 'MARK RETRAINED' : 'MARK TRAINED'}
               </button>
             )}
-            {it.completed && (
+            {canSignOff && it.completed && (
               <button onClick={() => revoke(it.id)} disabled={busy === it.id} className="font-mono text-xs uppercase text-grey-light hover:text-danger transition-colors">REVOKE</button>
             )}
-            {it.needsAction && !it.retrainRequestId && (
+            {canAssign && it.needsAction && !it.retrainRequestId && (
               <button
                 onClick={() => setRetrain({ guideIds: [it.id] })}
                 className="font-mono text-xs uppercase text-warning hover:text-white transition-colors"
@@ -213,7 +217,7 @@ export function StaffGuidesModal({
                 MARK FOR RETRAINING
               </button>
             )}
-            {it.retrainRequestId && (
+            {canAssign && it.retrainRequestId && (
               <button
                 onClick={() => dismissWarning(it.retrainRequestId!)}
                 disabled={busy === it.retrainRequestId}

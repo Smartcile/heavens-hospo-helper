@@ -14,7 +14,7 @@ const { getServerSession, guardAccess, getManagerVenueId, getAccessibleVenueIds,
 vi.mock('next-auth', () => ({ getServerSession }))
 vi.mock('@/lib/auth', () => ({ authOptions: {} }))
 vi.mock('@/lib/permissions', () => ({ guardAccess }))
-vi.mock('@/lib/venue-scope', () => ({ getManagerVenueId, getAccessibleVenueIds }))
+vi.mock('@/lib/venue-scope', () => ({ getAccessibleVenueIds }))
 vi.mock('@hospo-ops/db', () => ({ prisma }))
 vi.mock('@/lib/guide-warnings.server', () => ({ resolveRetrainRequest }))
 
@@ -27,7 +27,6 @@ beforeEach(() => {
   vi.clearAllMocks()
   getServerSession.mockResolvedValue({ user: { id: 'u1', role: 'ADMIN', venueId: 'v1' } })
   guardAccess.mockResolvedValue(null)
-  getManagerVenueId.mockReturnValue('v1')
   getAccessibleVenueIds.mockReturnValue(['v1', 'v2'])
   prisma.guideRetrainRequest.findFirst.mockResolvedValue({ venueId: 'v2' })
   resolveRetrainRequest.mockResolvedValue({ ok: true, request: { id: 'r1', status: 'DONE' } })

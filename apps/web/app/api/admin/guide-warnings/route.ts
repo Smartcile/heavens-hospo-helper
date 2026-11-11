@@ -20,8 +20,10 @@ export async function GET(req: NextRequest) {
   const data = await guideWarningsForVenue(venueId)
   if (!data) return NextResponse.json({ error: 'Venue not found' }, { status: 404 })
 
-  return NextResponse.json({
-    ...data,
-    canAssign: await canAccess(session, req, 'training.playbook.assign'),
-  })
+  const [canAssign, canSignOff] = await Promise.all([
+    canAccess(session, req, 'training.playbook.assign'),
+    canAccess(session, req, 'training.playbook.signoff'),
+  ])
+
+  return NextResponse.json({ ...data, canAssign, canSignOff })
 }

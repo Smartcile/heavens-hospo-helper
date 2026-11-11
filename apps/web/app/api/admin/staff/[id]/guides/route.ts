@@ -4,7 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { resolveStaffGuides } from '@/lib/guides'
 import { guideTrainingState } from '@/lib/guide-warnings'
 import { prisma } from '@hospo-ops/db'
-import { guardAccess } from '@/lib/permissions'
+import { canAccess, guardAccess } from '@/lib/permissions'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -114,5 +114,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     }
   })
 
-  return NextResponse.json({ items, folders })
+  const [canSignOff, canAssign] = await Promise.all([
+    canAccess(session, _req, 'training.playbook.signoff'),
+    canAccess(session, _req, 'training.playbook.assign'),
+  ])
+
+  return NextResponse.json({ items, folders, canSignOff, canAssign })
 }

@@ -10,6 +10,7 @@ import { groupByPosition } from '@/lib/staff-groups'
 import { sortTrainingRows, type TrainingLevel } from '@/lib/training-status'
 import {
   filterWarnings,
+  groupWarningsByFolder,
   sortWarnings,
   warningSummary,
   WARNING_KIND_LABELS,
@@ -107,6 +108,8 @@ export function TrainingStatusClient({
   const [warningStaff, setWarningStaff] = useState<{ id: string; name: string }[]>([])
   const [warningGuides, setWarningGuides] = useState<WarningGuideOption[]>([])
   const [canAssign, setCanAssign] = useState(false)
+  const [canSignOff, setCanSignOff] = useState(false)
+  const [warningGrouping, setWarningGrouping] = useState<'FLAT' | 'FOLDER'>('FLAT')
   const [warningsError, setWarningsError] = useState('')
   const [busyWarningId, setBusyWarningId] = useState<string | null>(null)
   const [kindFilter, setKindFilter] = useState<WarningKind | 'ALL'>('ALL')
@@ -130,12 +133,14 @@ export function TrainingStatusClient({
       staff?: { id: string; name: string }[]
       guides?: WarningGuideOption[]
       canAssign?: boolean
+      canSignOff?: boolean
     }
     setWarnings(payload.warnings ?? [])
     setWarningFolders(payload.folders ?? [])
     setWarningStaff(payload.staff ?? [])
     setWarningGuides(payload.guides ?? [])
     setCanAssign(!!payload.canAssign)
+    setCanSignOff(!!payload.canSignOff)
     setWarningsError('')
   }
 
@@ -214,11 +219,16 @@ export function TrainingStatusClient({
         return
       }
       if (warning.requestId) {
-        await fetch(`/api/admin/guide-retrain/${warning.requestId}`, {
+        const resolve = await fetch(`/api/admin/guide-retrain/${warning.requestId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'RESOLVE' }),
         })
+        if (!resolve.ok) {
+          const d = (await resolve.json().catch(() => ({}))) as { error?: string }
+          setWarningsError((d.error ?? 'RETRAINED — BUT COULD NOT CLEAR THE WARNING').toUpperCase())
+          return
+        }
       }
       await loadWarnings()
     } finally {
@@ -261,6 +271,102 @@ export function TrainingStatusClient({
     [warnings, kindFilter, severityFilter, folderFilter, personFilter, warningSort],
   )
   const warningCounts = warningSummary(visibleWarnings)
+  const warningGroups = useMemo(
+    () => groupWarningsByFolder(visibleWarnings, warningFolders),
+    [visibleWarnings, warningFolders],
+  )
+
+  function renderWarningRow(w: GuideWarning) {
+    const guideLabel = w.guideTitle ?? (w.guideId ? 'GUIDE REMOVED' : null)
+    return (
+      <div
+        key={w.id}
+        className={`border border-grey-mid border-l-4 ${WARNING_BORDER[w.severity]} p-3 space-y-2`}
+      >
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <div className="min-w-0">
+            <div className="font-mono text-sm uppercase text-white">
+              {w.staffName}
+              {guideLabel && <span className="text-grey-light"> · {guideLabel}</span>}
+            </div>
+            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+              <span
+                className={`font-mono text-xs uppercase border px-1.5 py-0.5 ${
+                  w.severity === 'CRITICAL'
+                    ? 'border-danger/60 text-danger'
+                    : 'border-warning/60 text-warning'
+                }`}
+              >
+                {WARNING_KIND_LABELS[w.kind]}
+              </span>
+              {w.folderName && (
+                <span className="font-mono text-2xs uppercase text-grey-light">{w.folderName}</span>
+              )}
+              {w.since && (
+                <span className="font-mono text-2xs uppercase text-grey-light">
+                  SINCE {w.since.slice(0, 10)}
+                </span>
+              )}
+              {w.due && (
+                <span className="font-mono text-2xs uppercase text-warning">
+                  DUE {w.due.slice(0, 10)}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {w.guideId && (
+              <button
+                type="button"
+                onClick={() => setManageStaff({ id: w.staffId, name: w.staffName })}
+                className="font-mono text-xs uppercase border border-grey-mid px-2.5 py-1 text-white hover:border-white transition-colors"
+              >
+                OPEN GUIDE
+              </button>
+            )}
+            {canSignOff && w.guideId && (!w.requestId || canAssign) && (
+              <button
+                type="button"
+                disabled={busyWarningId === w.id}
+                onClick={() => markRetrained(w)}
+                className="font-mono text-xs uppercase border border-success/60 px-2.5 py-1 text-success hover:border-success disabled:opacity-40"
+              >
+                MARK RETRAINED
+              </button>
+            )}
+            {canAssign && (
+              <button
+                type="button"
+                onClick={() =>
+                  setRetrainModal({ staffId: w.staffId, guideIds: w.guideId ? [w.guideId] : [] })
+                }
+                className="font-mono text-xs uppercase border border-warning/60 px-2.5 py-1 text-warning hover:border-warning transition-colors"
+              >
+                MARK FOR RETRAINING
+              </button>
+            )}
+            {canAssign && w.requestId && (
+              <button
+                type="button"
+                disabled={busyWarningId === w.id}
+                onClick={() => dismissWarning(w)}
+                className="font-mono text-xs uppercase border border-grey-mid px-2.5 py-1 text-grey-light hover:text-white disabled:opacity-40"
+              >
+                DISMISS
+              </button>
+            )}
+          </div>
+        </div>
+        <p
+          className={`font-mono text-xs ${
+            w.severity === 'CRITICAL' ? 'text-danger' : 'text-warning'
+          }`}
+        >
+          {w.reasonText}
+        </p>
+      </div>
+    )
+  }
 
   if (loading) {
     return <p className="font-mono text-xs text-grey-light loading-cursor">LOADING</p>
@@ -380,6 +486,24 @@ export function TrainingStatusClient({
             <span className="font-mono text-2xs uppercase text-danger">
               {warningCounts.critical} URGENT
             </span>
+            {warnings.length > 0 && warningFolders.length > 0 && (
+              <div className="flex gap-1">
+                {(['FLAT', 'FOLDER'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setWarningGrouping(mode)}
+                    className={`font-mono text-2xs uppercase border px-2 py-1 transition-colors ${
+                      warningGrouping === mode
+                        ? 'border-white text-white'
+                        : 'border-grey-mid text-grey-light hover:text-white'
+                    }`}
+                  >
+                    {mode === 'FLAT' ? 'FLAT' : 'BY FOLDER'}
+                  </button>
+                ))}
+              </div>
+            )}
             {canAssign && (
               <button
                 type="button"
@@ -447,95 +571,19 @@ export function TrainingStatusClient({
           <p className="font-mono text-xs text-grey-light">
             {warnings.length === 0 ? 'NO TRAINING NEEDS ATTENTION.' : 'NO WARNINGS MATCH THESE FILTERS.'}
           </p>
-        ) : (
-          visibleWarnings.map((w) => (
-            <div
-              key={w.id}
-              className={`border border-grey-mid border-l-4 ${WARNING_BORDER[w.severity]} p-3 space-y-2`}
-            >
-              <div className="flex items-start justify-between gap-2 flex-wrap">
-                <div className="min-w-0">
-                  <div className="font-mono text-sm uppercase text-white">
-                    {w.staffName}
-                    {w.guideTitle && <span className="text-grey-light"> · {w.guideTitle}</span>}
-                  </div>
-                  <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                    <span
-                      className={`font-mono text-xs uppercase border px-1.5 py-0.5 ${
-                        w.severity === 'CRITICAL'
-                          ? 'border-danger/60 text-danger'
-                          : 'border-warning/60 text-warning'
-                      }`}
-                    >
-                      {WARNING_KIND_LABELS[w.kind]}
-                    </span>
-                    {w.folderName && (
-                      <span className="font-mono text-2xs uppercase text-grey-light">{w.folderName}</span>
-                    )}
-                    {w.since && (
-                      <span className="font-mono text-2xs uppercase text-grey-light">
-                        SINCE {w.since.slice(0, 10)}
-                      </span>
-                    )}
-                    {w.due && (
-                      <span className="font-mono text-2xs uppercase text-warning">
-                        DUE {w.due.slice(0, 10)}
-                      </span>
-                    )}
-                  </div>
+        ) : warningGrouping === 'FOLDER' && warningFolders.length > 0 ? (
+          <div className="space-y-3">
+            {warningGroups.map(({ folder, warnings: groupWarnings }) => (
+              <div key={folder?.id ?? '__unfiled__'} className="space-y-2">
+                <div className="font-mono text-2xs uppercase tracking-widest text-grey-light border-b border-grey-mid pb-1">
+                  {folder ? folder.name : 'UNFILED'} ({groupWarnings.length})
                 </div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {w.guideId && (
-                    <button
-                      type="button"
-                      onClick={() => setManageStaff({ id: w.staffId, name: w.staffName })}
-                      className="font-mono text-xs uppercase border border-grey-mid px-2.5 py-1 text-white hover:border-white transition-colors"
-                    >
-                      OPEN GUIDE
-                    </button>
-                  )}
-                  {w.guideId && (
-                    <button
-                      type="button"
-                      disabled={busyWarningId === w.id}
-                      onClick={() => markRetrained(w)}
-                      className="font-mono text-xs uppercase border border-success/60 px-2.5 py-1 text-success hover:border-success disabled:opacity-40"
-                    >
-                      MARK RETRAINED
-                    </button>
-                  )}
-                  {canAssign && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setRetrainModal({ staffId: w.staffId, guideIds: w.guideId ? [w.guideId] : [] })
-                      }
-                      className="font-mono text-xs uppercase border border-warning/60 px-2.5 py-1 text-warning hover:border-warning transition-colors"
-                    >
-                      MARK FOR RETRAINING
-                    </button>
-                  )}
-                  {w.requestId && (
-                    <button
-                      type="button"
-                      disabled={busyWarningId === w.id}
-                      onClick={() => dismissWarning(w)}
-                      className="font-mono text-xs uppercase border border-grey-mid px-2.5 py-1 text-grey-light hover:text-white disabled:opacity-40"
-                    >
-                      DISMISS
-                    </button>
-                  )}
-                </div>
+                {groupWarnings.map(renderWarningRow)}
               </div>
-              <p
-                className={`font-mono text-xs ${
-                  w.severity === 'CRITICAL' ? 'text-danger' : 'text-warning'
-                }`}
-              >
-                {w.reasonText}
-              </p>
-            </div>
-          ))
+            ))}
+          </div>
+        ) : (
+          visibleWarnings.map(renderWarningRow)
         )}
       </div>
 

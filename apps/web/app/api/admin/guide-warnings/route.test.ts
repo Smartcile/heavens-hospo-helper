@@ -57,10 +57,20 @@ describe('GET /api/admin/guide-warnings', () => {
     expect(guideWarningsForVenue).toHaveBeenCalledWith('v1')
   })
 
-  it('lets an admin read the requested venue and reports the assign grant', async () => {
+  it('lets an admin read the requested venue and reports the action grants', async () => {
     const res = await GET(request('http://localhost/api/admin/guide-warnings?venueId=v2'))
     expect(guideWarningsForVenue).toHaveBeenCalledWith('v2')
-    expect(await res.json()).toMatchObject({ canAssign: true, venueName: 'MAIN' })
+    expect(await res.json()).toMatchObject({
+      canAssign: true,
+      canSignOff: true,
+      venueName: 'MAIN',
+    })
+  })
+
+  it('hides both action grants when the manager lacks them', async () => {
+    canAccess.mockResolvedValue(false)
+    const res = await GET(request())
+    expect(await res.json()).toMatchObject({ canAssign: false, canSignOff: false })
   })
 
   it('404s when the venue does not exist', async () => {

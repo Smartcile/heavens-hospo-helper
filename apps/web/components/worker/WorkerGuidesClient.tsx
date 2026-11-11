@@ -403,11 +403,16 @@ function GuidesInner({ role }: { role: string }) {
         return
       }
       if (warning.requestId) {
-        await fetch(`/api/worker/guide-retrain/${warning.requestId}`, {
+        const resolve = await fetch(`/api/worker/guide-retrain/${warning.requestId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'RESOLVE' }),
         })
+        if (!resolve.ok) {
+          const d = (await resolve.json().catch(() => ({}))) as { error?: string }
+          setWarningError((d.error ?? 'RETRAINED — BUT COULD NOT CLEAR THE WARNING').toUpperCase())
+          return
+        }
       }
       await load()
     } finally {
@@ -687,6 +692,7 @@ function GuidesInner({ role }: { role: string }) {
               const managesOthers = role === 'ADMIN' || role === 'MANAGER'
               const isSelf = w.staffId === myStaffId
               const markable = !!guide && (managesOthers || (isSelf && !guide.requiresSignOff))
+              const guideLabel = w.guideTitle ?? (w.guideId ? 'GUIDE REMOVED' : null)
               return (
                 <div
                   key={w.id}
@@ -696,7 +702,7 @@ function GuidesInner({ role }: { role: string }) {
                 >
                   <div className="font-mono text-xs uppercase text-white">
                     {w.staffName}
-                    {w.guideTitle && <span className="text-grey-light"> · {w.guideTitle}</span>}
+                    {guideLabel && <span className="text-grey-light"> · {guideLabel}</span>}
                   </div>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span
@@ -716,7 +722,7 @@ function GuidesInner({ role }: { role: string }) {
                     {w.reasonText}
                   </p>
                   <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                    {w.guideId && (
+                    {guide && (
                       <button
                         type="button"
                         onClick={() => openWarningGuide(w)}
