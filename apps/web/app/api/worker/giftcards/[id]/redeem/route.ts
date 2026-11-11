@@ -11,6 +11,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const body = await req.json().catch(() => null)
-  const result = await redeemGiftCard(session!.venueId, params.id, body?.amount)
+  const result = await redeemGiftCard(session!.venueId, params.id, body?.amount, {
+    actor: session!.firstName,
+  })
   return NextResponse.json(result.body, { status: result.status })
 }

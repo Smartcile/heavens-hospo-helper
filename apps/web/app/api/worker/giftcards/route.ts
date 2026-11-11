@@ -4,6 +4,7 @@ import { workerMayIssueGiftCards, workerMayManageGiftCards } from '@/lib/worker-
 import { prisma } from '@hospo-ops/db'
 import { issuePremade, issueSpecificPremade, nextPremadeNumber } from '@/lib/gift-cards'
 import { giftCardSortValue } from '@/lib/gift-card-numbers'
+import { MAX_GIFT_CARD_AMOUNT } from '@/lib/gift-card-redemption'
 import { logGiftCardEvent } from '@/lib/gift-card-history'
 
 // ── Worker gift cards ────────────────────────────────────────────────────
@@ -13,7 +14,7 @@ import { logGiftCardEvent } from '@/lib/gift-card-history'
 // issued card (number / customer name / email), shows its remaining balance
 // and redeems part or all of it. No number is ever invented at issue time.
 
-const MAX_AMOUNT = 10000
+const MAX_AMOUNT = MAX_GIFT_CARD_AMOUNT
 const CARD_STATUSES = ['DRAFT', 'ISSUED', 'SENT', 'REDEEMED', 'VOIDED', 'EXPIRED']
 
 const LIST_SELECT = {
@@ -67,7 +68,10 @@ export async function GET(req: NextRequest) {
     })
     cards.sort((a, b) => giftCardSortValue(b.number) - giftCardSortValue(a.number))
 
-    return NextResponse.json({ cards, canManage: workerMayManageGiftCards(session) })
+    return NextResponse.json({
+      cards,
+      canManage: await workerMayManageGiftCards(session),
+    })
   }
 
   const drafts = await prisma.giftCard.findMany({
@@ -82,7 +86,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     allowed: true,
-    canManage: workerMayManageGiftCards(session),
+    canManage: await workerMayManageGiftCards(session),
     draft,
     draftCount: drafts.length,
     nextNumber,

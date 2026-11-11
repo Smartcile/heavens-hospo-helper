@@ -5,7 +5,9 @@
 // zero, at which point it becomes REDEEMED. Every redemption is appended to
 // the card's lifecycle history by the server half.
 
-export const MAX_REDEEM_AMOUNT = 10000
+// One cap for both issuing and redeeming so the two flows cannot drift.
+export const MAX_GIFT_CARD_AMOUNT = 10000
+export const MAX_REDEEM_AMOUNT = MAX_GIFT_CARD_AMOUNT
 
 export interface RedeemableCard {
   amount: number
@@ -58,8 +60,8 @@ export function validateRedemption(
   if (!Number.isFinite(value) || value <= 0) {
     return { status: 400, error: 'ENTER A REDEEM AMOUNT GREATER THAN $0' }
   }
-  if (value > MAX_REDEEM_AMOUNT) {
-    return { status: 400, error: `AMOUNT MUST BE $${MAX_REDEEM_AMOUNT} OR LESS` }
+  if (value > MAX_GIFT_CARD_AMOUNT) {
+    return { status: 400, error: `AMOUNT MUST BE $${MAX_GIFT_CARD_AMOUNT} OR LESS` }
   }
 
   const label = card.number ? `CARD #${card.number}` : 'THIS CARD'

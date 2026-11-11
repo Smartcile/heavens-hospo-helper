@@ -44,7 +44,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.getWorkerSession.mockResolvedValue({ staffId: 'st1', venueId: 'v1', role: 'STAFF' })
   mocks.workerMayIssueGiftCards.mockResolvedValue(true)
-  mocks.workerMayManageGiftCards.mockReturnValue(false)
+  mocks.workerMayManageGiftCards.mockResolvedValue(false)
   mocks.prisma.giftCard.findMany.mockResolvedValue(rows)
   mocks.nextPremadeNumber.mockResolvedValue(null)
   mocks.logGiftCardEvent.mockResolvedValue(undefined)

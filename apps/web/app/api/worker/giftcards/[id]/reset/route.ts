@@ -10,7 +10,7 @@ import { resetGiftCardToDraft } from '@/lib/gift-cards'
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getWorkerSession()
-  if (!workerMayManageGiftCards(session)) {
+  if (!(await workerMayManageGiftCards(session))) {
     return NextResponse.json({ error: 'ACCESS DENIED' }, { status: 403 })
   }
 

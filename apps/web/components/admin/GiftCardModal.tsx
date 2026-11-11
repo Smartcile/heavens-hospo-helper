@@ -244,25 +244,30 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
     if (!value || value <= 0) { setError('ENTER A REDEEM AMOUNT'); return }
     if (!window.confirm(`REDEEM $${value.toFixed(2)} FROM CARD #${card.number}?`)) return
     setSaving(true); setError(''); setMessage('')
-    const r = await fetch(`/api/admin/gift-cards/${card.id}/redeem`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount: value }),
-    })
-    if (r.ok) {
-      const d = await r.json().catch(() => null)
-      setRedeemInput('')
-      setMessage(
-        d?.card?.status === 'REDEEMED'
-          ? 'CARD FULLY REDEEMED — NO BALANCE LEFT'
-          : `REDEEMED $${value.toFixed(2)} — $${Number(d?.balance ?? 0).toFixed(2)} REMAINING`,
-      )
-      onChanged(); load()
-    } else {
-      const e = await r.json().catch(() => null)
-      setError(e?.error ?? 'REDEEM FAILED')
+    try {
+      const r = await fetch(`/api/admin/gift-cards/${card.id}/redeem`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: value }),
+      })
+      if (r.ok) {
+        const d = await r.json().catch(() => null)
+        setRedeemInput('')
+        setMessage(
+          d?.card?.status === 'REDEEMED'
+            ? 'CARD FULLY REDEEMED — NO BALANCE LEFT'
+            : `REDEEMED $${value.toFixed(2)} — $${Number(d?.balance ?? 0).toFixed(2)} REMAINING`,
+        )
+        onChanged(); load()
+      } else {
+        const e = await r.json().catch(() => null)
+        setError(e?.error ?? 'REDEEM FAILED')
+      }
+    } catch {
+      setError('COULD NOT CONNECT')
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
   }
 
   async function resetCard() {

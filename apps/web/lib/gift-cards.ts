@@ -1,7 +1,12 @@
 import { prisma } from '@hospo-ops/db'
 import { giftCardNumberForYear, parseGiftCardNumber, GIFT_CARD_YEAR_MAX_SEQUENCE } from './gift-card-numbers'
 import { issueGiftCardPdf } from './gift-card-issue'
-import { logGiftCardEvent, logOrderEvent } from './gift-card-history'
+import {
+  appendHistoryEvent,
+  logGiftCardEvent,
+  logOrderEvent,
+  type GiftCardHistoryEvent,
+} from './gift-card-history'
 import { getTodayDate } from '@/lib/utils'
 
 // ── Gift card numbers: PREMADE year-series drafts ───────────────────────
@@ -244,8 +249,23 @@ export async function resetGiftCardToDraft(
     }
   }
 
-  await prisma.giftCard.update({
-    where: { id: card.id },
+  const history = appendHistoryEvent(
+    card.history as unknown as GiftCardHistoryEvent[],
+    'RESET',
+    'RESET TO A BLANK DRAFT — CUSTOMER DETAILS, AMOUNT AND PDF CLEARED (HISTORY KEPT)',
+  )
+
+  // Optimistic conditional write: only reset the exact state we inspected, so
+  // a concurrent redemption/issue cannot be silently overwritten. History is
+  // part of the same write, never a second read-modify-write.
+  const reset = await prisma.giftCard.updateMany({
+    where: {
+      id: card.id,
+      venueId,
+      deletedAt: null,
+      status: card.status,
+      redeemedAmount: card.redeemedAmount,
+    },
     data: {
       status: 'DRAFT',
       amount: 0,
@@ -259,14 +279,16 @@ export async function resetGiftCardToDraft(
       sentAt: null,
       expiresAt: null,
       wooOrderId: null,
+      history: JSON.parse(JSON.stringify(history)),
     },
   })
-
-  await logGiftCardEvent(
-    card.id,
-    'RESET',
-    'RESET TO A BLANK DRAFT — CUSTOMER DETAILS, AMOUNT AND PDF CLEARED (HISTORY KEPT)',
-  )
+  if (reset.count !== 1) {
+    return {
+      ok: false,
+      status: 409,
+      error: `CARD #${card.number} CHANGED WHILE RESETTING — REFRESH AND TRY AGAIN`,
+    }
+  }
 
   const updated = await prisma.giftCard.findUnique({ where: { id: card.id } })
   return { ok: true, card: updated }

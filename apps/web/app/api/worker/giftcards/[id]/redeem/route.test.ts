@@ -19,7 +19,7 @@ const params = { params: { id: 'c1' } }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.getWorkerSession.mockResolvedValue({ staffId: 'st1', venueId: 'v1', role: 'STAFF' })
+  mocks.getWorkerSession.mockResolvedValue({ staffId: 'st1', venueId: 'v1', role: 'STAFF', firstName: 'ANN' })
   mocks.workerMayIssueGiftCards.mockResolvedValue(true)
 })
 
@@ -35,7 +35,7 @@ describe('POST /api/worker/giftcards/[id]/redeem', () => {
     mocks.redeemGiftCard.mockResolvedValue({ status: 200, body: { balance: 40 } })
     const res = await POST(req({ amount: 10 }), params)
     expect(res.status).toBe(200)
-    expect(mocks.redeemGiftCard).toHaveBeenCalledWith('v1', 'c1', 10)
+    expect(mocks.redeemGiftCard).toHaveBeenCalledWith('v1', 'c1', 10, { actor: 'ANN' })
     expect(await res.json()).toEqual({ balance: 40 })
   })
 

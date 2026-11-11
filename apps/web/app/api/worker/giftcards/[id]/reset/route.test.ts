@@ -18,18 +18,18 @@ const params = { params: { id: 'c1' } }
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.getWorkerSession.mockResolvedValue({ staffId: 'st1', venueId: 'v1', role: 'STAFF' })
-  mocks.workerMayManageGiftCards.mockReturnValue(false)
+  mocks.workerMayManageGiftCards.mockResolvedValue(false)
 })
 
 describe('POST /api/worker/giftcards/[id]/reset', () => {
-  it('is managers/admins only — floor staff cannot re-circulate a number', async () => {
+  it('refuses a session without the manage grant before touching the card', async () => {
     const res = await POST({} as NextRequest, params)
     expect(res.status).toBe(403)
     expect(mocks.resetGiftCardToDraft).not.toHaveBeenCalled()
   })
 
   it('reuses the card with the same number and keeps history', async () => {
-    mocks.workerMayManageGiftCards.mockReturnValue(true)
+    mocks.workerMayManageGiftCards.mockResolvedValue(true)
     mocks.resetGiftCardToDraft.mockResolvedValue({
       ok: true,
       card: { id: 'c1', number: '20260001', status: 'DRAFT', amount: 0, history: [{ type: 'RESET' }] },
@@ -37,12 +37,13 @@ describe('POST /api/worker/giftcards/[id]/reset', () => {
 
     const res = await POST({} as NextRequest, params)
     expect(res.status).toBe(200)
+    expect(mocks.workerMayManageGiftCards).toHaveBeenCalled()
     expect(mocks.resetGiftCardToDraft).toHaveBeenCalledWith('v1', 'c1')
     expect(await res.json()).toMatchObject({ number: '20260001', status: 'DRAFT' })
   })
 
   it('passes helper failures through', async () => {
-    mocks.workerMayManageGiftCards.mockReturnValue(true)
+    mocks.workerMayManageGiftCards.mockResolvedValue(true)
     mocks.resetGiftCardToDraft.mockResolvedValue({
       ok: false,
       status: 400,

@@ -4,16 +4,19 @@ const mocks = vi.hoisted(() => ({
   prisma: {
     giftCard: {
       findFirst: vi.fn(),
-      update: vi.fn(),
+      updateMany: vi.fn(),
       findUnique: vi.fn(),
     },
   },
-  logGiftCardEvent: vi.fn(),
 }))
 
 vi.mock('@hospo-ops/db', () => ({ prisma: mocks.prisma }))
 vi.mock('./gift-card-history', () => ({
-  logGiftCardEvent: mocks.logGiftCardEvent,
+  appendHistoryEvent: vi.fn((history: unknown[], type: string, note: string) => [
+    ...history,
+    { at: '2026-11-11T00:00:00.000Z', type, note },
+  ]),
+  logGiftCardEvent: vi.fn(),
   logOrderEvent: vi.fn(),
 }))
 vi.mock('./gift-card-issue', () => ({ issueGiftCardPdf: vi.fn() }))
@@ -30,6 +33,7 @@ function card(overrides: Record<string, unknown> = {}) {
     redeemedAt: new Date(),
     status: 'ISSUED',
     replacesId: null,
+    history: [{ at: '2026-11-01T00:00:00.000Z', type: 'ISSUED', note: 'PDF GENERATED' }],
     ...overrides,
   }
 }
@@ -37,17 +41,23 @@ function card(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.prisma.giftCard.findFirst.mockResolvedValue(card())
-  mocks.prisma.giftCard.update.mockResolvedValue({ id: 'c1' })
+  mocks.prisma.giftCard.updateMany.mockResolvedValue({ count: 1 })
   mocks.prisma.giftCard.findUnique.mockResolvedValue(card({ status: 'DRAFT', amount: 0 }))
 })
 
 describe('resetGiftCardToDraft', () => {
-  it('reuses the same number, clears value/redemption and keeps history', async () => {
+  it('reuses the same number, clears value/redemption and appends RESET history atomically', async () => {
     const result = await resetGiftCardToDraft('v1', 'c1')
 
     expect(result.ok).toBe(true)
-    const update = mocks.prisma.giftCard.update.mock.calls[0][0]
-    expect(update.data).toMatchObject({
+    const call = mocks.prisma.giftCard.updateMany.mock.calls[0][0]
+    expect(call.where).toMatchObject({
+      id: 'c1',
+      venueId: 'v1',
+      status: 'ISSUED',
+      redeemedAmount: 10,
+    })
+    expect(call.data).toMatchObject({
       status: 'DRAFT',
       amount: 0,
       redeemedAmount: 0,
@@ -56,15 +66,25 @@ describe('resetGiftCardToDraft', () => {
       pdfPath: null,
     })
     // The number is never rewritten — reuse keeps it.
-    expect(update.data.number).toBeUndefined()
-    expect(mocks.logGiftCardEvent).toHaveBeenCalledWith('c1', 'RESET', expect.stringContaining('HISTORY KEPT'))
+    expect(call.data.number).toBeUndefined()
+    expect(call.data.history).toHaveLength(2)
+    expect(call.data.history[1]).toMatchObject({ type: 'RESET' })
+    expect(call.data.history[1].note).toContain('HISTORY KEPT')
+  })
+
+  it('returns 409 and writes nothing when the card changed after it was read', async () => {
+    mocks.prisma.giftCard.updateMany.mockResolvedValue({ count: 0 })
+    const result = await resetGiftCardToDraft('v1', 'c1')
+    expect(result).toMatchObject({ ok: false, status: 409 })
+    expect(result.ok ? '' : result.error).toContain('CHANGED WHILE RESETTING')
+    expect(mocks.prisma.giftCard.findUnique).not.toHaveBeenCalled()
   })
 
   it('refuses a card that is itself a replacement', async () => {
     mocks.prisma.giftCard.findFirst.mockResolvedValue(card({ replacesId: 'old' }))
     const result = await resetGiftCardToDraft('v1', 'c1')
     expect(result).toMatchObject({ ok: false, status: 400 })
-    expect(mocks.prisma.giftCard.update).not.toHaveBeenCalled()
+    expect(mocks.prisma.giftCard.updateMany).not.toHaveBeenCalled()
   })
 
   it('refuses a voided card whose number was replaced', async () => {
@@ -75,13 +95,13 @@ describe('resetGiftCardToDraft', () => {
     const result = await resetGiftCardToDraft('v1', 'c1')
     expect(result).toMatchObject({ ok: false, status: 400 })
     expect(result.ok ? '' : result.error).toContain('REPLACED BY #20260009')
-    expect(mocks.prisma.giftCard.update).not.toHaveBeenCalled()
+    expect(mocks.prisma.giftCard.updateMany).not.toHaveBeenCalled()
   })
 
   it('only resets ISSUED / SENT / VOIDED cards', async () => {
     mocks.prisma.giftCard.findFirst.mockResolvedValue(card({ status: 'DRAFT' }))
     const result = await resetGiftCardToDraft('v1', 'c1')
     expect(result).toMatchObject({ ok: false, status: 400 })
-    expect(mocks.prisma.giftCard.update).not.toHaveBeenCalled()
+    expect(mocks.prisma.giftCard.updateMany).not.toHaveBeenCalled()
   })
 })
