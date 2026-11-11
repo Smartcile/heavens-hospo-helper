@@ -131,6 +131,18 @@ describe('PdfCanvasViewer', () => {
     expect(scrollTop).toBe(70)
   })
 
+  it('zooms around the cursor with ctrl/⌘ + wheel and ignores a plain wheel', async () => {
+    render(<PdfCanvasViewer url="/api/admin/gift-cards/wheel/pdf?inline=1" title="WHEEL" />)
+    const viewer = screen.getByTitle('WHEEL')
+    await waitFor(() => expect(scaleOf(viewer)).toBe(1.4))
+
+    fireEvent.wheel(viewer, { deltaY: 100 })
+    expect(scaleOf(viewer)).toBe(1.4)
+
+    fireEvent.wheel(viewer, { ctrlKey: true, deltaY: -100, clientX: 50, clientY: 50 })
+    await waitFor(() => expect(scaleOf(viewer)).toBeCloseTo(1.568, 3))
+  })
+
   it('remembers the zoom level when the same document is reopened', async () => {
     let now = 5_000
     vi.spyOn(Date, 'now').mockImplementation(() => now)

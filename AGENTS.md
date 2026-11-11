@@ -3578,7 +3578,7 @@ pre-flight.
 | `AdminNav.test.tsx` — renders nav groups | ✅ |
 | `FloorPlanEditor.tsx` — 30+ hooks, useMemo, loading gate | ✅ |
 | `BudgetPageClient.tsx` — useCallback + useEffect chain | ✅ |
-| `PdfCanvasViewer.tsx` — pdf.js viewer source + error fallback, double-tap toggle, two-finger pinch, mouse drag-pan, zoom memory | ✅ (5 tests) |
+| `PdfCanvasViewer.tsx` — pdf.js viewer source + error fallback, double-tap toggle, two-finger pinch, mouse drag-pan, zoom memory | ✅ (6 tests) |
 | `BudgetLinesPanel.tsx` — tree render, totals, add/import flows | ✅ (5 tests) |
 | `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |

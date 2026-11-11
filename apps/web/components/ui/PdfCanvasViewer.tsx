@@ -9,8 +9,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import {
-  MIN_SCALE,
-  MAX_SCALE,
   clampScale,
   pinchScale,
   toggleZoom,
