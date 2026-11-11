@@ -131,6 +131,9 @@ export interface ResolvedGuide {
   requiresSignOff: boolean
   isOnboarding: boolean
   folderId: string | null
+  folder: { id: string; name: string } | null
+  /** Last guide change — used to derive the re-training warning. */
+  updatedAt: Date
   source: GuideSource
   assignmentReason: string | null
   completed: boolean
@@ -206,6 +209,7 @@ export async function resolveStaffGuides(
     },
     include: {
       department: { select: { id: true, name: true } },
+      folder: { select: { id: true, name: true } },
       audiences: { select: { kind: true, targetId: true } },
       ...(opts.includeSteps
         ? {
@@ -304,6 +308,8 @@ export async function resolveStaffGuides(
       requiresSignOff: g.requiresSignOff,
       isOnboarding: g.isOnboarding,
       folderId: g.folderId ?? null,
+      folder: g.folder,
+      updatedAt: g.updatedAt,
       source,
       assignmentReason: reasonMap.get(g.id) ?? null,
       completed: !!comp,
@@ -348,6 +354,8 @@ export async function resolveStaffGuides(
       requiresSignOff: g.requiresSignOff,
       isOnboarding: g.isOnboarding,
       folderId: g.folderId ?? null,
+      folder: g.folder,
+      updatedAt: g.updatedAt,
       source,
       assignmentReason: reasonMap.get(g.id) ?? null,
       completed: false,

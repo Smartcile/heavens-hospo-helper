@@ -7,6 +7,8 @@ import type { WorkerSession } from '@hospo-ops/types'
 
 const EDIT_KEYS = ['training.playbook.create', 'training.playbook.edit']
 const PUBLISH_KEYS = ['training.playbook.publish']
+const VIEW_KEYS = ['training.playbook.view']
+const ASSIGN_KEYS = ['training.playbook.assign']
 
 async function hasAnyGrant(session: WorkerSession, keys: string[]): Promise<boolean> {
   const grant = await prisma.staffPermission.findFirst({
@@ -36,4 +38,24 @@ export async function workerGuideAccess(session: WorkerSession | null): Promise<
     hasAnyGrant(session, PUBLISH_KEYS),
   ])
   return { canEdit, canPublish }
+}
+
+/**
+ * Marking SOMEONE ELSE for retraining needs the ASSIGN / SIGN-OFF grant (the
+ * same one the admin sign-off route uses). Managers/admins always pass.
+ */
+export async function workerMayAssignTraining(session: WorkerSession | null): Promise<boolean> {
+  if (!session) return false
+  if (session.role === 'ADMIN' || session.role === 'MANAGER') return true
+  return hasAnyGrant(session, ASSIGN_KEYS)
+}
+
+/**
+ * Seeing the whole venue's warnings needs the PLAYBOOK VIEW grant; everyone
+ * else may only see their own warnings. Managers/admins always pass.
+ */
+export async function workerMayViewAllTraining(session: WorkerSession | null): Promise<boolean> {
+  if (!session) return false
+  if (session.role === 'ADMIN' || session.role === 'MANAGER') return true
+  return hasAnyGrant(session, VIEW_KEYS)
 }

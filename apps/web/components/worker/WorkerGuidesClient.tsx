@@ -5,6 +5,15 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { WorkerPathwayTree, type TreeNode, type TreeEdge } from '@/components/worker/WorkerPathwayTree'
 import { WorkerGuideEditor } from '@/components/worker/WorkerGuideEditor'
 import { GuideReaderContent } from '@/components/GuideReaderContent'
+import { RetrainRequestModal } from '@/components/admin/RetrainRequestModal'
+import {
+  filterWarnings,
+  sortWarnings,
+  WARNING_KIND_LABELS,
+  type GuideWarning,
+  type WarningKind,
+  type WarningSort,
+} from '@/lib/guide-warnings'
 import { groupGuidesByFolder } from '@/lib/guide-folders'
 import { moveItem } from '@/lib/array'
 import { nearestIndex } from '@/lib/reorder'
@@ -46,7 +55,13 @@ interface GuideItem {
   isTracked: boolean
   source: string
   folderId: string | null
+  folderName?: string | null
   completed: boolean
+  needsAction?: boolean
+  stale?: boolean
+  severity?: 'WARNING' | 'CRITICAL' | null
+  reasonText?: string | null
+  retrainRequestId?: string | null
   department: { id: string; name: string } | null
   steps: Step[]
 }
@@ -56,6 +71,9 @@ interface Folder {
   name: string
   sortOrder: number
 }
+
+interface WarningFolder { id: string; name: string; sortOrder: number }
+interface WarningGuideOption { id: string; title: string; folderId: string | null }
 
 const UNFILED_KEY = '__unfiled__'
 
@@ -79,6 +97,7 @@ function GuidesInner({ role }: { role: string }) {
   const [reference, setReference] = useState<GuideItem[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
   const [firstName, setFirstName] = useState('')
+  const [myStaffId, setMyStaffId] = useState('')
   const [loading, setLoading] = useState(true)
   const [active, setActive] = useState<GuideItem | null>(null)
   const [saving, setSaving] = useState(false)
@@ -89,9 +108,21 @@ function GuidesInner({ role }: { role: string }) {
   const [lockNote, setLockNote] = useState('')
   const [canEdit, setCanEdit] = useState(false)
   const [canPublish, setCanPublish] = useState(false)
+  const [canAssign, setCanAssign] = useState(false)
+  const [canViewAll, setCanViewAll] = useState(false)
   const [editor, setEditor] = useState<{ id: string | null } | null>(null)
+  const [warnings, setWarnings] = useState<GuideWarning[]>([])
+  const [warningFolders, setWarningFolders] = useState<WarningFolder[]>([])
+  const [warningStaff, setWarningStaff] = useState<{ id: string; name: string }[]>([])
+  const [warningGuides, setWarningGuides] = useState<WarningGuideOption[]>([])
+  const [warningError, setWarningError] = useState('')
+  const [busyWarningId, setBusyWarningId] = useState<string | null>(null)
+  const [kindFilter, setKindFilter] = useState<WarningKind | 'ALL'>('ALL')
+  const [personFilter, setPersonFilter] = useState('ALL')
+  const [warningSort, setWarningSort] = useState<WarningSort>('severity')
+  const [retrainModal, setRetrainModal] = useState<{ staffId?: string; guideIds?: string[] } | null>(null)
 
-  useWorkerImmersive(!!active || !!editor)
+  useWorkerImmersive(!!active || !!editor || !!retrainModal)
 
   // Folder view + pointer drag-and-drop (works with mouse AND touch — the ⠿
   // grips carry `touch-action: none`, so a swipe on a grip drags instead of
@@ -109,9 +140,10 @@ function GuidesInner({ role }: { role: string }) {
   const overFolderHeaderRef = useRef<string | null>(null)
 
   async function load(openId?: string | null) {
-    const [gR, pR] = await Promise.all([
+    const [gR, pR, wR] = await Promise.all([
       fetch('/api/worker/guides'),
       fetch('/api/worker/pathway'),
+      fetch('/api/worker/guide-warnings'),
     ])
     if (gR.status === 401) { router.push('/w/login'); return }
     const data = await gR.json()
@@ -119,8 +151,24 @@ function GuidesInner({ role }: { role: string }) {
     setReference(data.reference ?? [])
     setFolders(data.folders ?? [])
     setFirstName(data.firstName ?? '')
+    setMyStaffId(data.staffId ?? '')
     setCanEdit(!!data.canEdit)
     setCanPublish(!!data.canPublish)
+    setCanAssign(!!data.canAssign)
+
+    if (wR.ok) {
+      const w = (await wR.json().catch(() => null)) ?? {}
+      setWarnings(w.warnings ?? [])
+      setWarningFolders(w.retrainOptions?.folders ?? w.folders ?? [])
+      setWarningStaff(w.retrainOptions?.staff ?? w.staff ?? [])
+      setWarningGuides(w.retrainOptions?.guides ?? w.guides ?? [])
+      setCanViewAll(!!w.canViewAll)
+      setCanAssign(!!w.canAssign)
+      setWarningError('')
+    } else {
+      setWarnings([])
+      setWarningError(`COULD NOT LOAD WARNINGS (${wR.status})`)
+    }
 
     if (pR.ok) {
       const p = await pR.json()
@@ -315,15 +363,98 @@ function GuidesInner({ role }: { role: string }) {
 
   const done = items.filter((i) => i.completed).length
 
+  const visibleWarnings = useMemo(
+    () =>
+      sortWarnings(
+        filterWarnings(warnings, {
+          kind: kindFilter,
+          staffId: personFilter === 'ALL' ? undefined : personFilter,
+        }),
+        warningSort,
+      ),
+    [warnings, kindFilter, personFilter, warningSort],
+  )
+
+  function openWarningGuide(warning: GuideWarning) {
+    const guide = warning.guideId
+      ? allGuides.find((g) => g.id === warning.guideId) ?? null
+      : null
+    if (guide) setActive(guide)
+  }
+
+  async function markWarningRetrained(warning: GuideWarning) {
+    if (!warning.guideId) return
+    const managesOthers = role === 'ADMIN' || role === 'MANAGER'
+    const isSelf = warning.staffId === myStaffId
+    if (!managesOthers && !isSelf) return
+    setBusyWarningId(warning.id)
+    setWarningError('')
+    try {
+      const r = managesOthers
+        ? await fetch('/api/admin/guides/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ guideId: warning.guideId, staffId: warning.staffId }),
+          })
+        : await fetch(`/api/worker/guides/${warning.guideId}/complete`, { method: 'POST' })
+      if (!r.ok) {
+        const d = (await r.json().catch(() => ({}))) as { error?: string }
+        setWarningError((d.error ?? 'COULD NOT MARK RETRAINED').toUpperCase())
+        return
+      }
+      if (warning.requestId) {
+        const resolve = await fetch(`/api/worker/guide-retrain/${warning.requestId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'RESOLVE' }),
+        })
+        if (!resolve.ok) {
+          const d = (await resolve.json().catch(() => ({}))) as { error?: string }
+          setWarningError((d.error ?? 'RETRAINED — BUT COULD NOT CLEAR THE WARNING').toUpperCase())
+          return
+        }
+      }
+      await load()
+    } finally {
+      setBusyWarningId(null)
+    }
+  }
+
+  async function dismissWarning(warning: GuideWarning) {
+    if (!warning.requestId) return
+    setBusyWarningId(warning.id)
+    setWarningError('')
+    try {
+      const r = await fetch(`/api/worker/guide-retrain/${warning.requestId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'DISMISS' }),
+      })
+      if (!r.ok) {
+        const d = (await r.json().catch(() => ({}))) as { error?: string }
+        setWarningError((d.error ?? 'COULD NOT DISMISS').toUpperCase())
+        return
+      }
+      await load()
+    } finally {
+      setBusyWarningId(null)
+    }
+  }
+
   function renderGuideCard(it: GuideItem) {
     const isReference = !it.isTracked
+    const flagged = !isReference && (!!it.stale || !!it.retrainRequestId)
     return (
       <button
         key={it.id}
         type="button"
         onClick={() => setActive(it)}
         className={`relative w-full text-left bg-grey-dark border p-4 transition-colors active:bg-black ${
-          isReference ? 'border-grey-mid/60' : 'border-grey-mid'
+          flagged
+            ? 'border-danger border-l-4 border-l-danger bg-danger/10'
+            : isReference
+              ? 'border-grey-mid/60'
+              : 'border-grey-mid'
         } ${draggingGuideId === it.id ? 'opacity-40 border-white' : 'hover:border-white'}`}
       >
         {canEdit && (
@@ -357,7 +488,11 @@ function GuidesInner({ role }: { role: string }) {
               {it.department && <span className={`font-mono text-xs ${isReference ? 'text-grey-light/70' : 'text-grey-light'}`}>{it.department.name}</span>}
               <span className={`font-mono text-xs ${isReference ? 'text-grey-light/70' : 'text-grey-light'}`}>{it.steps.length} STEP{it.steps.length !== 1 ? 'S' : ''}</span>
               {!isReference && it.requiresSignOff && !it.completed && <span className="font-mono text-xs text-grey-light">· SIGN-OFF</span>}
+              {flagged && <span className="font-mono text-xs text-danger">{it.retrainRequestId ? 'RETRAIN REQUESTED' : 'RETRAIN'}</span>}
             </div>
+            {flagged && it.reasonText && (
+              <p className="mt-1 font-mono text-2xs text-danger">{it.reasonText}</p>
+            )}
           </div>
         </div>
       </button>
@@ -403,11 +538,19 @@ function GuidesInner({ role }: { role: string }) {
         </div>
 
         <div className="px-4 pb-8 pt-4 border-t border-grey-mid">
+          {(active.stale || active.retrainRequestId) && (
+            <div className="border border-danger bg-danger/10 p-3 mb-3">
+              <p className="font-mono text-xs uppercase text-danger">RETRAIN NEEDED</p>
+              {active.reasonText && (
+                <p className="font-mono text-xs text-danger mt-1">{active.reasonText}</p>
+              )}
+            </div>
+          )}
           {!active.isTracked ? (
             <div className="status-bar-success pl-3">
               <p className="font-mono text-sm text-grey-light uppercase">REFERENCE GUIDE — READ ONLY</p>
             </div>
-          ) : active.completed ? (
+          ) : active.completed && !active.stale && !active.retrainRequestId ? (
             <div className="status-bar-success pl-3">
               <p className="font-mono text-sm text-success uppercase">COMPLETED</p>
             </div>
@@ -486,6 +629,146 @@ function GuidesInner({ role }: { role: string }) {
           ))}
         </div>
       </div>
+
+      {warnings.length > 0 && (
+        <div className="px-4 pt-4 space-y-2 border-b border-grey-mid pb-4">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="font-mono text-xs uppercase tracking-widest text-grey-light">
+              NEEDS ATTENTION ({warnings.length})
+            </div>
+            {canAssign && (
+              <button
+                type="button"
+                onClick={() => setRetrainModal({})}
+                className="font-mono text-xs uppercase border border-warning/60 px-2.5 py-1 text-warning"
+              >
+                MARK FOR RETRAINING
+              </button>
+            )}
+          </div>
+
+          <div className="flex gap-2 flex-wrap">
+            <select
+              value={kindFilter}
+              onChange={(e) => setKindFilter(e.target.value as WarningKind | 'ALL')}
+              className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
+            >
+              <option value="ALL">ALL KINDS</option>
+              {Object.entries(WARNING_KIND_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+            <select
+              value={warningSort}
+              onChange={(e) => setWarningSort(e.target.value as WarningSort)}
+              className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
+            >
+              <option value="severity">MOST URGENT</option>
+              <option value="oldest">OLDEST FIRST</option>
+              <option value="person">PERSON</option>
+              <option value="guide">GUIDE</option>
+            </select>
+            {canViewAll && (
+              <select
+                value={personFilter}
+                onChange={(e) => setPersonFilter(e.target.value)}
+                className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
+              >
+                <option value="ALL">EVERYONE</option>
+                {warningStaff.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {warningError && <p className="font-mono text-xs text-danger">{warningError}</p>}
+
+          {visibleWarnings.length === 0 ? (
+            <p className="font-mono text-xs text-grey-light">NOTHING MATCHES THESE FILTERS.</p>
+          ) : (
+            visibleWarnings.map((w) => {
+              const guide = w.guideId ? allGuides.find((g) => g.id === w.guideId) : null
+              const managesOthers = role === 'ADMIN' || role === 'MANAGER'
+              const isSelf = w.staffId === myStaffId
+              const markable = !!guide && (managesOthers || (isSelf && !guide.requiresSignOff))
+              const guideLabel = w.guideTitle ?? (w.guideId ? 'GUIDE REMOVED' : null)
+              return (
+                <div
+                  key={w.id}
+                  className={`border border-grey-mid border-l-4 p-3 space-y-1.5 ${
+                    w.severity === 'CRITICAL' ? 'border-l-danger bg-danger/10' : 'border-l-warning'
+                  }`}
+                >
+                  <div className="font-mono text-xs uppercase text-white">
+                    {w.staffName}
+                    {guideLabel && <span className="text-grey-light"> · {guideLabel}</span>}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span
+                      className={`font-mono text-2xs uppercase border px-1.5 py-0.5 ${
+                        w.severity === 'CRITICAL'
+                          ? 'border-danger/60 text-danger'
+                          : 'border-warning/60 text-warning'
+                      }`}
+                    >
+                      {WARNING_KIND_LABELS[w.kind]}
+                    </span>
+                    {w.folderName && (
+                      <span className="font-mono text-2xs uppercase text-grey-light">{w.folderName}</span>
+                    )}
+                  </div>
+                  <p className={`font-mono text-xs ${w.severity === 'CRITICAL' ? 'text-danger' : 'text-warning'}`}>
+                    {w.reasonText}
+                  </p>
+                  <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                    {guide && (
+                      <button
+                        type="button"
+                        onClick={() => openWarningGuide(w)}
+                        className="font-mono text-2xs uppercase border border-grey-mid px-2 py-1 text-white"
+                      >
+                        OPEN GUIDE
+                      </button>
+                    )}
+                    {markable && (
+                      <button
+                        type="button"
+                        disabled={busyWarningId === w.id}
+                        onClick={() => markWarningRetrained(w)}
+                        className="font-mono text-2xs uppercase border border-success/60 px-2 py-1 text-success disabled:opacity-40"
+                      >
+                        MARK RETRAINED
+                      </button>
+                    )}
+                    {canAssign && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setRetrainModal({ staffId: w.staffId, guideIds: w.guideId ? [w.guideId] : [] })
+                        }
+                        className="font-mono text-2xs uppercase border border-warning/60 px-2 py-1 text-warning"
+                      >
+                        MARK FOR RETRAINING
+                      </button>
+                    )}
+                    {w.requestId && canAssign && (
+                      <button
+                        type="button"
+                        disabled={busyWarningId === w.id}
+                        onClick={() => dismissWarning(w)}
+                        className="font-mono text-2xs uppercase border border-grey-mid px-2 py-1 text-grey-light disabled:opacity-40"
+                      >
+                        DISMISS
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      )}
 
       {tab === 'tree' && pathway && (
         <div className="py-2">
@@ -577,6 +860,19 @@ function GuidesInner({ role }: { role: string }) {
           </div>
         )}
       </div>
+
+      {retrainModal && (
+        <RetrainRequestModal
+          endpoint="/api/worker/guide-retrain"
+          staffOptions={warningStaff}
+          guideOptions={warningGuides}
+          folders={warningFolders}
+          initialStaffId={retrainModal.staffId}
+          initialGuideIds={retrainModal.guideIds}
+          onClose={() => setRetrainModal(null)}
+          onCreated={load}
+        />
+      )}
     </div>
   )
 }

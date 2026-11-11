@@ -343,6 +343,7 @@ model Venue {
   trainingModules     TrainingModule[]
   guides              Guide[]
   guideFolders        GuideFolder[]
+  guideRetrainRequests GuideRetrainRequest[]
   taskTemplates       TaskTemplate[]
   shiftNotes          ShiftNote[]
   shifts              Shift[]
@@ -489,6 +490,9 @@ model Staff {
   trainingCompletions  TrainingCompletion[]
   guideCompletions     GuideCompletion[]
   guideAssignments     GuideAssignment[]
+  guideRetrainRequests GuideRetrainRequest[] @relation("GuideRetrainStaff")
+  guideRetrainRequestsMade GuideRetrainRequest[] @relation("GuideRetrainRequestedBy")
+  guideRetrainRequestsResolved GuideRetrainRequest[] @relation("GuideRetrainResolvedBy")
   shiftNotes           ShiftNote[]
   shifts               Shift[]
   timeOffRequests      TimeOffRequest[]
@@ -2178,6 +2182,7 @@ model Guide {
   taskGuides  TaskGuide[]
   completions GuideCompletion[]
   assignments GuideAssignment[]
+  retrainRequests GuideRetrainRequest[]
   followUps   FollowUp[]
   audiences   GuideAudience[]
   positionRequirements PositionGuideRequirement[]
@@ -2358,6 +2363,45 @@ model GuideAssignment {
   staff Staff @relation(fields: [staffId], references: [id])
 
   @@unique([guideId, staffId])
+}
+
+// An explicit "mark this person for retraining on this guide" request. This is
+// the actionable layer on top of the inferred stale-completion warning: it
+// stores WHY someone was flagged, who asked, and whether a manager has closed
+// it out. Soft-delete only — resolving/dismissing keeps the row for the audit
+// trail (and so a dismissed request does not immediately reappear).
+enum GuideRetrainStatus {
+  PENDING
+  DONE
+  DISMISSED
+}
+
+model GuideRetrainRequest {
+  id            String             @id @default(uuid())
+  venueId       String
+  staffId       String
+  guideId       String
+  // Plain-English reason captured when the request was raised ("MENU CHANGED",
+  // "TRAINED BEFORE THE UPDATE", etc.). Null = manager left it blank.
+  reason        String?
+  status        GuideRetrainStatus @default(PENDING)
+  requestedById String?
+  resolvedById  String?
+  resolvedAt    DateTime?
+  note          String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  deletedAt     DateTime?
+
+  venue       Venue @relation(fields: [venueId], references: [id])
+  staff       Staff @relation("GuideRetrainStaff", fields: [staffId], references: [id])
+  guide       Guide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  requestedBy Staff? @relation("GuideRetrainRequestedBy", fields: [requestedById], references: [id])
+  resolvedBy  Staff? @relation("GuideRetrainResolvedBy", fields: [resolvedById], references: [id])
+
+  @@index([venueId, status])
+  @@index([staffId])
+  @@index([guideId])
 }
 
 // --- PATHWAYS (the authored onboarding / progression tree) ---

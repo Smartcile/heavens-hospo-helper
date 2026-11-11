@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { resolveStaffGuides } from '@/lib/guides'
+import { guideTrainingState } from '@/lib/guide-warnings'
 import { prisma } from '@hospo-ops/db'
-import { guardAccess } from '@/lib/permissions'
+import { canAccess, guardAccess } from '@/lib/permissions'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -43,27 +44,80 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       )
     : new Map<string, string>()
 
-  const items = resolved.items.map((g) => ({
-    id: g.id,
-    title: g.title,
-    description: g.description,
-    category: g.category,
-    requiresSignOff: g.requiresSignOff,
-    isOnboarding: g.isOnboarding,
-    source: g.source,
-    assignmentReason: g.assignmentReason,
-    completed: g.completed,
-    completion: g.completion
-      ? {
-          completedAt: g.completion.completedAt.toISOString(),
-          selfCompleted: g.completion.selfCompleted,
-          signedOffByName: g.completion.signedOffById
-            ? signOffNames.get(g.completion.signedOffById) ?? null
-            : null,
-          note: g.completion.note,
-        }
-      : null,
-  }))
+  // Pending retrain requests appear on the guide row (red + plain-English why),
+  // so the manager can act at the exact item being marked off.
+  const guideIds = resolved.items.map((g) => g.id)
+  const [requests, folders] = await Promise.all([
+    guideIds.length
+      ? prisma.guideRetrainRequest.findMany({
+          where: {
+            venueId: staff.venueId,
+            staffId: params.id,
+            guideId: { in: guideIds },
+            status: 'PENDING',
+            deletedAt: null,
+          },
+          select: { id: true, guideId: true, reason: true, createdAt: true },
+        })
+      : [],
+    prisma.guideFolder.findMany({
+      where: { venueId: staff.venueId, deletedAt: null },
+      select: { id: true, name: true, sortOrder: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    }),
+  ])
+  const requestByGuide = new Map(requests.map((r) => [r.guideId, r]))
 
-  return NextResponse.json({ items })
+  const items = resolved.items.map((g) => {
+    const request = requestByGuide.get(g.id) ?? null
+    const state = guideTrainingState({
+      updatedAt: g.updatedAt.toISOString(),
+      requiresSignOff: g.requiresSignOff,
+      completion: g.completion ? { completedAt: g.completion.completedAt.toISOString() } : null,
+      request: request
+        ? {
+            id: request.id,
+            guideId: request.guideId,
+            reason: request.reason,
+            requestedAt: request.createdAt.toISOString(),
+          }
+        : null,
+    })
+    return {
+      id: g.id,
+      title: g.title,
+      description: g.description,
+      category: g.category,
+      requiresSignOff: g.requiresSignOff,
+      isOnboarding: g.isOnboarding,
+      folderId: g.folderId,
+      folderName: g.folder?.name ?? null,
+      updatedAt: g.updatedAt.toISOString(),
+      source: g.source,
+      assignmentReason: g.assignmentReason,
+      completed: g.completed,
+      stale: state.stale,
+      needsAction: state.needsAction,
+      severity: state.severity,
+      reasonText: state.reasonText,
+      retrainRequestId: state.requestId,
+      completion: g.completion
+        ? {
+            completedAt: g.completion.completedAt.toISOString(),
+            selfCompleted: g.completion.selfCompleted,
+            signedOffByName: g.completion.signedOffById
+              ? signOffNames.get(g.completion.signedOffById) ?? null
+              : null,
+            note: g.completion.note,
+          }
+        : null,
+    }
+  })
+
+  const [canSignOff, canAssign] = await Promise.all([
+    canAccess(session, _req, 'training.playbook.signoff'),
+    canAccess(session, _req, 'training.playbook.assign'),
+  ])
+
+  return NextResponse.json({ items, folders, canSignOff, canAssign })
 }

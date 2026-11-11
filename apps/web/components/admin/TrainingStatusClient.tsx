@@ -4,11 +4,24 @@
 // first (managers can catch them in person), then everyone else. Green = good,
 // yellow = bits to work on, red = retraining or overdue follow-ups.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { groupByPosition } from '@/lib/staff-groups'
 import { sortTrainingRows, type TrainingLevel } from '@/lib/training-status'
+import {
+  filterWarnings,
+  groupWarningsByFolder,
+  sortWarnings,
+  warningSummary,
+  WARNING_KIND_LABELS,
+  type GuideWarning,
+  type WarningKind,
+  type WarningSeverity,
+  type WarningSort,
+} from '@/lib/guide-warnings'
 import { StaffGuidesModal } from '@/components/admin/StaffGuidesModal'
+import { RetrainRequestModal } from '@/components/admin/RetrainRequestModal'
+import { Select } from '@/components/ui/Select'
 
 interface Row {
   id: string
@@ -45,6 +58,21 @@ interface Payload {
   summary: { green: number; yellow: number; red: number }
 }
 
+interface WarningFolder { id: string; name: string; sortOrder: number }
+interface WarningGuideOption { id: string; title: string; folderId: string | null }
+
+const WARNING_SORT_OPTIONS: { value: WarningSort; label: string }[] = [
+  { value: 'severity', label: 'MOST URGENT' },
+  { value: 'oldest', label: 'OLDEST FIRST' },
+  { value: 'person', label: 'PERSON' },
+  { value: 'guide', label: 'GUIDE' },
+]
+
+const WARNING_BORDER: Record<WarningSeverity, string> = {
+  CRITICAL: 'border-l-danger bg-danger/10',
+  WARNING: 'border-l-warning',
+}
+
 const LEVEL_ACCENT: Record<TrainingLevel, string> = {
   GREEN: 'border-l-success',
   YELLOW: 'border-l-warning',
@@ -75,6 +103,46 @@ export function TrainingStatusClient({
   const [busyReviewId, setBusyReviewId] = useState<string | null>(null)
   const [reviewsError, setReviewsError] = useState('')
   const [manageStaff, setManageStaff] = useState<{ id: string; name: string } | null>(null)
+  const [warnings, setWarnings] = useState<GuideWarning[]>([])
+  const [warningFolders, setWarningFolders] = useState<WarningFolder[]>([])
+  const [warningStaff, setWarningStaff] = useState<{ id: string; name: string }[]>([])
+  const [warningGuides, setWarningGuides] = useState<WarningGuideOption[]>([])
+  const [canAssign, setCanAssign] = useState(false)
+  const [canSignOff, setCanSignOff] = useState(false)
+  const [warningGrouping, setWarningGrouping] = useState<'FLAT' | 'FOLDER'>('FLAT')
+  const [warningsError, setWarningsError] = useState('')
+  const [busyWarningId, setBusyWarningId] = useState<string | null>(null)
+  const [kindFilter, setKindFilter] = useState<WarningKind | 'ALL'>('ALL')
+  const [severityFilter, setSeverityFilter] = useState<WarningSeverity | 'ALL'>('ALL')
+  const [folderFilter, setFolderFilter] = useState<string>('ALL')
+  const [personFilter, setPersonFilter] = useState<string>('ALL')
+  const [warningSort, setWarningSort] = useState<WarningSort>('severity')
+  const [retrainModal, setRetrainModal] = useState<{ staffId?: string; guideIds?: string[] } | null>(null)
+
+  async function loadWarnings() {
+    const venueQuery = venueId ? `?venueId=${encodeURIComponent(venueId)}` : ''
+    const res = await fetch(`/api/admin/guide-warnings${venueQuery}`)
+    if (!res.ok) {
+      setWarnings([])
+      setWarningsError(`COULD NOT LOAD WARNINGS (${res.status})`)
+      return
+    }
+    const payload = (await res.json()) as {
+      warnings?: GuideWarning[]
+      folders?: WarningFolder[]
+      staff?: { id: string; name: string }[]
+      guides?: WarningGuideOption[]
+      canAssign?: boolean
+      canSignOff?: boolean
+    }
+    setWarnings(payload.warnings ?? [])
+    setWarningFolders(payload.folders ?? [])
+    setWarningStaff(payload.staff ?? [])
+    setWarningGuides(payload.guides ?? [])
+    setCanAssign(!!payload.canAssign)
+    setCanSignOff(!!payload.canSignOff)
+    setWarningsError('')
+  }
 
   useEffect(() => {
     async function load() {
@@ -84,6 +152,7 @@ export function TrainingStatusClient({
       const [statusRes, reviewsRes] = await Promise.all([
         fetch(`/api/admin/training/status${venueQuery}`),
         fetch(`/api/admin/section-work${venueQuery ? `${venueQuery}&status=ALL` : '?status=ALL'}`),
+        loadWarnings(),
       ])
       if (statusRes.ok) {
         setData((await statusRes.json()) as Payload)
@@ -101,7 +170,7 @@ export function TrainingStatusClient({
       setLoading(false)
     }
     load()
-  }, [venueId])
+  }, [venueId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function actOnReview(review: SectionReview, action: 'CONFIRM' | 'DISMISS' | 'REOPEN') {
     setBusyReviewId(review.id)
@@ -132,6 +201,171 @@ export function TrainingStatusClient({
     } finally {
       setBusyReviewId(null)
     }
+  }
+
+  async function markRetrained(warning: GuideWarning) {
+    if (!warning.guideId) return
+    setBusyWarningId(warning.id)
+    setWarningsError('')
+    try {
+      const r = await fetch('/api/admin/guides/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guideId: warning.guideId, staffId: warning.staffId }),
+      })
+      if (!r.ok) {
+        const d = (await r.json().catch(() => ({}))) as { error?: string }
+        setWarningsError((d.error ?? 'COULD NOT MARK RETRAINED').toUpperCase())
+        return
+      }
+      if (warning.requestId) {
+        const resolve = await fetch(`/api/admin/guide-retrain/${warning.requestId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'RESOLVE' }),
+        })
+        if (!resolve.ok) {
+          const d = (await resolve.json().catch(() => ({}))) as { error?: string }
+          setWarningsError((d.error ?? 'RETRAINED — BUT COULD NOT CLEAR THE WARNING').toUpperCase())
+          return
+        }
+      }
+      await loadWarnings()
+    } finally {
+      setBusyWarningId(null)
+    }
+  }
+
+  async function dismissWarning(warning: GuideWarning) {
+    if (!warning.requestId) return
+    setBusyWarningId(warning.id)
+    setWarningsError('')
+    try {
+      const r = await fetch(`/api/admin/guide-retrain/${warning.requestId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'DISMISS' }),
+      })
+      if (!r.ok) {
+        const d = (await r.json().catch(() => ({}))) as { error?: string }
+        setWarningsError((d.error ?? 'COULD NOT DISMISS').toUpperCase())
+        return
+      }
+      await loadWarnings()
+    } finally {
+      setBusyWarningId(null)
+    }
+  }
+
+  const visibleWarnings = useMemo(
+    () =>
+      sortWarnings(
+        filterWarnings(warnings, {
+          kind: kindFilter,
+          severity: severityFilter,
+          folderId: folderFilter,
+          staffId: personFilter === 'ALL' ? undefined : personFilter,
+        }),
+        warningSort,
+      ),
+    [warnings, kindFilter, severityFilter, folderFilter, personFilter, warningSort],
+  )
+  const warningCounts = warningSummary(visibleWarnings)
+  const warningGroups = useMemo(
+    () => groupWarningsByFolder(visibleWarnings, warningFolders),
+    [visibleWarnings, warningFolders],
+  )
+
+  function renderWarningRow(w: GuideWarning) {
+    const guideLabel = w.guideTitle ?? (w.guideId ? 'GUIDE REMOVED' : null)
+    return (
+      <div
+        key={w.id}
+        className={`border border-grey-mid border-l-4 ${WARNING_BORDER[w.severity]} p-3 space-y-2`}
+      >
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <div className="min-w-0">
+            <div className="font-mono text-sm uppercase text-white">
+              {w.staffName}
+              {guideLabel && <span className="text-grey-light"> · {guideLabel}</span>}
+            </div>
+            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+              <span
+                className={`font-mono text-xs uppercase border px-1.5 py-0.5 ${
+                  w.severity === 'CRITICAL'
+                    ? 'border-danger/60 text-danger'
+                    : 'border-warning/60 text-warning'
+                }`}
+              >
+                {WARNING_KIND_LABELS[w.kind]}
+              </span>
+              {w.folderName && (
+                <span className="font-mono text-2xs uppercase text-grey-light">{w.folderName}</span>
+              )}
+              {w.since && (
+                <span className="font-mono text-2xs uppercase text-grey-light">
+                  SINCE {w.since.slice(0, 10)}
+                </span>
+              )}
+              {w.due && (
+                <span className="font-mono text-2xs uppercase text-warning">
+                  DUE {w.due.slice(0, 10)}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {w.guideId && (
+              <button
+                type="button"
+                onClick={() => setManageStaff({ id: w.staffId, name: w.staffName })}
+                className="font-mono text-xs uppercase border border-grey-mid px-2.5 py-1 text-white hover:border-white transition-colors"
+              >
+                OPEN GUIDE
+              </button>
+            )}
+            {canSignOff && w.guideId && (!w.requestId || canAssign) && (
+              <button
+                type="button"
+                disabled={busyWarningId === w.id}
+                onClick={() => markRetrained(w)}
+                className="font-mono text-xs uppercase border border-success/60 px-2.5 py-1 text-success hover:border-success disabled:opacity-40"
+              >
+                MARK RETRAINED
+              </button>
+            )}
+            {canAssign && (
+              <button
+                type="button"
+                onClick={() =>
+                  setRetrainModal({ staffId: w.staffId, guideIds: w.guideId ? [w.guideId] : [] })
+                }
+                className="font-mono text-xs uppercase border border-warning/60 px-2.5 py-1 text-warning hover:border-warning transition-colors"
+              >
+                MARK FOR RETRAINING
+              </button>
+            )}
+            {canAssign && w.requestId && (
+              <button
+                type="button"
+                disabled={busyWarningId === w.id}
+                onClick={() => dismissWarning(w)}
+                className="font-mono text-xs uppercase border border-grey-mid px-2.5 py-1 text-grey-light hover:text-white disabled:opacity-40"
+              >
+                DISMISS
+              </button>
+            )}
+          </div>
+        </div>
+        <p
+          className={`font-mono text-xs ${
+            w.severity === 'CRITICAL' ? 'text-danger' : 'text-warning'
+          }`}
+        >
+          {w.reasonText}
+        </p>
+      </div>
+    )
   }
 
   if (loading) {
@@ -244,6 +478,116 @@ export function TrainingStatusClient({
       </div>
 
       <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <h2 className="font-mono text-xs uppercase tracking-widest text-grey-light">
+            WARNINGS ({warnings.length})
+          </h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-mono text-2xs uppercase text-danger">
+              {warningCounts.critical} URGENT
+            </span>
+            {warnings.length > 0 && warningFolders.length > 0 && (
+              <div className="flex gap-1">
+                {(['FLAT', 'FOLDER'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setWarningGrouping(mode)}
+                    className={`font-mono text-2xs uppercase border px-2 py-1 transition-colors ${
+                      warningGrouping === mode
+                        ? 'border-white text-white'
+                        : 'border-grey-mid text-grey-light hover:text-white'
+                    }`}
+                  >
+                    {mode === 'FLAT' ? 'FLAT' : 'BY FOLDER'}
+                  </button>
+                ))}
+              </div>
+            )}
+            {canAssign && (
+              <button
+                type="button"
+                onClick={() => setRetrainModal({})}
+                className="font-mono text-xs uppercase border border-warning/60 px-2.5 py-1 text-warning hover:border-warning transition-colors"
+              >
+                MARK FOR RETRAINING
+              </button>
+            )}
+          </div>
+        </div>
+
+        {warningsError && <p className="font-mono text-xs text-danger">{warningsError}</p>}
+
+        {warnings.length > 0 && (
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
+            <Select
+              label="KIND"
+              value={kindFilter}
+              onChange={(e) => setKindFilter(e.target.value as WarningKind | 'ALL')}
+              options={[
+                { value: 'ALL', label: 'ALL KINDS' },
+                ...Object.entries(WARNING_KIND_LABELS).map(([value, label]) => ({ value, label })),
+              ]}
+            />
+            <Select
+              label="SEVERITY"
+              value={severityFilter}
+              onChange={(e) => setSeverityFilter(e.target.value as WarningSeverity | 'ALL')}
+              options={[
+                { value: 'ALL', label: 'ALL' },
+                { value: 'CRITICAL', label: 'URGENT' },
+                { value: 'WARNING', label: 'ATTENTION' },
+              ]}
+            />
+            <Select
+              label="FOLDER"
+              value={folderFilter}
+              onChange={(e) => setFolderFilter(e.target.value)}
+              options={[
+                { value: 'ALL', label: 'ALL FOLDERS' },
+                { value: 'UNFILED', label: 'UNFILED' },
+                ...warningFolders.map((f) => ({ value: f.id, label: f.name })),
+              ]}
+            />
+            <Select
+              label="PERSON"
+              value={personFilter}
+              onChange={(e) => setPersonFilter(e.target.value)}
+              options={[
+                { value: 'ALL', label: 'EVERYONE' },
+                ...warningStaff.map((s) => ({ value: s.id, label: s.name })),
+              ]}
+            />
+            <Select
+              label="SORT"
+              value={warningSort}
+              onChange={(e) => setWarningSort(e.target.value as WarningSort)}
+              options={WARNING_SORT_OPTIONS}
+            />
+          </div>
+        )}
+
+        {visibleWarnings.length === 0 ? (
+          <p className="font-mono text-xs text-grey-light">
+            {warnings.length === 0 ? 'NO TRAINING NEEDS ATTENTION.' : 'NO WARNINGS MATCH THESE FILTERS.'}
+          </p>
+        ) : warningGrouping === 'FOLDER' && warningFolders.length > 0 ? (
+          <div className="space-y-3">
+            {warningGroups.map(({ folder, warnings: groupWarnings }) => (
+              <div key={folder?.id ?? '__unfiled__'} className="space-y-2">
+                <div className="font-mono text-2xs uppercase tracking-widest text-grey-light border-b border-grey-mid pb-1">
+                  {folder ? folder.name : 'UNFILED'} ({groupWarnings.length})
+                </div>
+                {groupWarnings.map(renderWarningRow)}
+              </div>
+            ))}
+          </div>
+        ) : (
+          visibleWarnings.map(renderWarningRow)
+        )}
+      </div>
+
+      <div className="space-y-2">
         <h2 className="font-mono text-xs uppercase tracking-widest text-grey-light">
           SECTION REVIEWS ({pendingReviews.length})
         </h2>
@@ -341,6 +685,19 @@ export function TrainingStatusClient({
           staffId={manageStaff.id}
           staffName={manageStaff.name}
           onClose={() => setManageStaff(null)}
+        />
+      )}
+
+      {retrainModal && (
+        <RetrainRequestModal
+          endpoint="/api/admin/guide-retrain"
+          staffOptions={warningStaff}
+          guideOptions={warningGuides}
+          folders={warningFolders}
+          initialStaffId={retrainModal.staffId}
+          initialGuideIds={retrainModal.guideIds}
+          onClose={() => setRetrainModal(null)}
+          onCreated={loadWarnings}
         />
       )}
     </div>
