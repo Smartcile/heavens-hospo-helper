@@ -15,6 +15,7 @@ import { FurnitureForm } from '@/components/admin/FurnitureForm'
 import { MultiImagePicker } from '@/components/ui/MultiImagePicker'
 import { inventoryItemUsageKey } from '@/lib/image-annotations'
 import { getActiveVenueId } from '@/lib/active-venue'
+import { summariseInventoryBlockers, type InventoryBlocker } from '@/lib/inventory-usage'
 import type { FurnitureView } from '@hospo-ops/types'
 
 interface Category { id: string; name: string; isBuiltIn: boolean; venueId: string | null; tab: string | null; showDeepFields: boolean; showEquipmentFields: boolean }
@@ -61,6 +62,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
   const [editingCat, setEditingCat] = useState<Category | null>(null)
   const [showDeleted, setShowDeleted] = useState(false)
   const [deletedItems, setDeletedItems] = useState<Item[]>([])
+  const [deleteBlocked, setDeleteBlocked] = useState<{ name: string; blockers: InventoryBlocker[] } | null>(null)
   const [maintLogs, setMaintLogs] = useState<{ id: string; note: string; createdAt: string; staffName: string | null }[]>([])
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [showCatDropdown, setShowCatDropdown] = useState(false)
@@ -258,9 +260,16 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
     load(); loadDeleted()
   }
 
-  async function purgeItem(id: string) {
+  async function purgeItem(id: string, name: string) {
     if (!confirm('PERMANENTLY DELETE THIS ITEM? THIS CANNOT BE UNDONE.')) return
-    await fetch(`/api/admin/inventory/${id}?permanent=1`, { method: 'DELETE' })
+    const r = await fetch(`/api/admin/inventory/${id}?permanent=1`, { method: 'DELETE' })
+    if (r.status === 409) {
+      const d = await r.json().catch(() => null)
+      if (Array.isArray(d?.blockers) && d.blockers.length > 0) {
+        setDeleteBlocked({ name, blockers: d.blockers as InventoryBlocker[] })
+        return
+      }
+    }
     load(); loadDeleted()
   }
 
@@ -387,8 +396,15 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
     load()
   }
 
-  async function deleteItem(id: string) {
-    await fetch(`/api/admin/inventory/${id}`, { method: 'DELETE' })
+  async function deleteItem(id: string, name: string) {
+    const r = await fetch(`/api/admin/inventory/${id}`, { method: 'DELETE' })
+    if (r.status === 409) {
+      const d = await r.json().catch(() => null)
+      if (Array.isArray(d?.blockers) && d.blockers.length > 0) {
+        setDeleteBlocked({ name, blockers: d.blockers as InventoryBlocker[] })
+        return
+      }
+    }
     if (selectedItem?.id === id) { setSelectedItem(null); resetForm() }
     load()
   }
@@ -585,7 +601,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                                 }
                               }}
                                 className="font-mono text-xs text-gold border border-gold px-1.5 py-0.5 hover:text-white hover:border-white uppercase"                                >EDIT</button>
-                              <button onClick={() => deleteItem(item.id)}
+                              <button onClick={() => deleteItem(item.id, item.name)}
                                 className="font-mono text-xs text-danger hover:text-white border border-grey-mid px-1.5 py-0.5">DLT</button>
                             </div>
                           </div>
@@ -616,7 +632,7 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
                     <span className="font-mono text-xs text-grey-light line-through">{item.name}</span>
                     <div className="flex gap-2">
                       <button onClick={() => restoreItem(item.id)} className="font-mono text-xs text-success hover:text-white border border-grey-mid px-1.5 py-0.5">RESTORE</button>
-                      <button onClick={() => purgeItem(item.id)} className="font-mono text-xs text-danger hover:text-white border border-grey-mid px-1.5 py-0.5">PURGE</button>
+                      <button onClick={() => purgeItem(item.id, item.name)} className="font-mono text-xs text-danger hover:text-white border border-grey-mid px-1.5 py-0.5">PURGE</button>
                     </div>
                   </div>
                 ))}
@@ -1109,6 +1125,34 @@ export function InventoryClient({ role, sessionVenueId, defaultVenueId }: { role
             <Button variant="ghost" size="sm" onClick={() => setShowLlmModal(false)}>CLOSE</Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Delete protection: the item is still referenced somewhere. */}
+      <Modal isOpen={!!deleteBlocked} onClose={() => setDeleteBlocked(null)} title="ITEM IS STILL IN USE" size="md">
+        {deleteBlocked && (
+          <div className="space-y-3">
+            <p className="font-mono text-xs uppercase text-white">{deleteBlocked.name}</p>
+            <p className="font-mono text-xs text-grey-light leading-relaxed">
+              {summariseInventoryBlockers(deleteBlocked.blockers)}
+            </p>
+            <div className="border border-danger/60 divide-y divide-grey-mid">
+              {deleteBlocked.blockers.map((blocker) => (
+                <div key={blocker.kind} className="flex items-center justify-between gap-3 px-3 py-2">
+                  <span className="font-mono text-xs text-white">{blocker.label}</span>
+                  <a
+                    href={blocker.href}
+                    className="font-mono text-xs uppercase text-gold border border-grey-mid px-1.5 py-0.5 hover:border-white hover:text-white shrink-0"
+                  >
+                    OPEN →
+                  </a>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end">
+              <Button variant="ghost" size="sm" onClick={() => setDeleteBlocked(null)}>CANCEL</Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   )

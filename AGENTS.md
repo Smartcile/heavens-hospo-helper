@@ -1333,6 +1333,28 @@ based on the selected category. Items can be edited (PUT) and duplicated, and
 owned. `GET /api/admin/inventory` returns `placedCount` (from
 `_count.elements`) so the UI computes `availableQty = totalQty - placedCount`.
 
+**Delete protection (#117).** `DELETE /api/admin/inventory/[id]` refuses to
+soft-delete or permanently purge an item that a live record still references. It
+returns **409** `{ error: 'IN USE', blockers: [{ kind, count, label, href }] }`
+instead of deleting; `label` is plain English ("Used in 2 recipes") and `href`
+is the admin page that owns the link. No override exists — the user removes the
+link and retries, or cancels. Blockers are counted by
+`lib/inventory-usage.server.ts` `findInventoryBlockers()` for: floor plan
+elements and setup placements (`ElementInventoryItem`, `SetupItem`), stocktakes
+(`StocktakeLineItem`), recipes (`RecipeLineItem`), task item links
+(`Task.linkedItemId`), product equipment links (`MenuItemInventoryItem`), POS
+serves (`MenuItemServe`), menu stock lines (`MenuMenuItem`), supplier codes and
+aliases (`SupplierItemCode`, `SupplierItemAlias`), purchasing history
+(`PurchaseOrderLine`, `SupplierInvoiceLine`, `SupplierPriceMovement`), deliveries
+(`DeliveryItem`) and furniture BOM children (`FurnitureBomItem`). Soft-deleted
+parents are ignored (a deleted stocktake/recipe/task is not "in use"); the
+owner's own child rows (storage locations, maintenance logs, a furniture item's
+own BOM) do not block. The pure formatting/sorting helpers live in
+`lib/inventory-usage.ts`; the inventory UI shows the blockers in a modal
+(`ITEM IS STILL IN USE`) with an `OPEN →` link per row. Legacy
+`TableProfileItem`/`StepInventoryItem` rows are cascade-only and not treated as
+live usage.
+
 **Recipes vs Menu Items (built 2026-11).** They are separate authoring surfaces
 under Inventory & Stocktake. **RECIPES** (`RecipesClient`) is the prep/BOM
 editor only: ingredients, PANTRY BIBLE references, sub-recipes, yield,
@@ -3237,7 +3259,6 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
 | Passkeys / WebAuthn login | Admin + worker login upgrade (alongside email/password + PIN) | 2 |
 | Push notifications | Not yet wired | 2 |
 | S3 file uploads | `UPLOAD_PROVIDER=s3` env var stub | 2 |
-| Inventory delete protection | API check against ElementInventoryItem + StocktakeLineItem | 2 |
 | Sensor loggers (ESP32) | LOGGERS tab is a placeholder; no `/api/sensors/*` | 5 |
 | SwiftPOS deep sync | Roster data → automatic task assignment | 5 |
 | Auto inventory deduction | EOD reconcile is read-only; nothing mutates stock | 5 |
@@ -3255,8 +3276,8 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
 > registry), public API (`ApiKey`), food-safety diary (delivery + reading
 > tasks), SwiftPOS sales/drawdown reporting, SwiftPOS staff sync
 > (Settings → SWIFT POS → STAFF SYNC), SwiftPOS menu-item linking
-> (Settings → SWIFT POS → MENU LINKS) and live kitchen dockets
-> (Ops → Orders → DOCKETS).
+> (Settings → SWIFT POS → MENU LINKS), live kitchen dockets
+> (Ops → Orders → DOCKETS) and inventory delete protection (#117).
 
 ## TESTING
 

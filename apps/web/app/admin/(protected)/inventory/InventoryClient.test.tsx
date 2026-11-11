@@ -19,10 +19,19 @@ const REFS = [{ id: 'r1', name: 'FLOUR - 00', densityGramsPerMl: 0.528, weightPe
 
 let putBody: any = null
 
-function mockFetch() {
-  vi.spyOn(global, 'fetch').mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+interface Blocker { kind: string; count: number; label: string; href: string }
+
+function fetchImpl(deleteBlockers?: Blocker[]) {
+  return (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     const method = init?.method ?? 'GET'
+    if (url.includes('/api/admin/inventory/') && method === 'DELETE' && deleteBlockers) {
+      return Promise.resolve({
+        ok: false,
+        status: 409,
+        json: async () => ({ error: 'IN USE', blockers: deleteBlockers }),
+      } as Response)
+    }
     if (url.includes('/api/admin/inventory/categories')) {
       return Promise.resolve({ ok: true, json: async () => [CATEGORY] } as Response)
     }
@@ -40,7 +49,11 @@ function mockFetch() {
       return Promise.resolve({ ok: true, json: async () => [FLOUR] } as Response)
     }
     return Promise.resolve({ ok: true, json: async () => [] } as Response)
-  })
+  }
+}
+
+function mockFetch(deleteBlockers?: Blocker[]) {
+  vi.spyOn(global, 'fetch').mockImplementation(fetchImpl(deleteBlockers))
 }
 
 describe('InventoryClient — density capture', () => {
@@ -86,5 +99,24 @@ describe('InventoryClient — density capture', () => {
     await waitFor(() => expect(putBody).toBeTruthy())
     expect(putBody.densityGramsPerMl).toBeCloseTo(0.528, 3)
     expect(putBody.weightPerUnitGrams).toBeNull()
+  })
+
+  it('shows the blockers instead of deleting an item that is still in use', async () => {
+    vi.mocked(global.fetch).mockImplementation(fetchImpl([
+      { kind: 'RECIPE', count: 2, label: 'Used in 2 recipes', href: '/admin/ops?tab=inventory&sub=recipes' },
+      { kind: 'STOCKTAKE', count: 1, label: 'Counted in a stocktake', href: '/admin/ops?tab=inventory&sub=stocktake' },
+    ]))
+
+    render(<InventoryClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'FOOD' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'FOOD' }))
+    await waitFor(() => expect(screen.getAllByText(/^FLOUR - 00/).length).toBeGreaterThan(0))
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'DLT' })[0])
+
+    expect(await screen.findByText('ITEM IS STILL IN USE')).toBeTruthy()
+    expect(screen.getByText('Used in 2 recipes')).toBeTruthy()
+    expect(screen.getByText('Counted in a stocktake')).toBeTruthy()
+    expect(screen.getByText(/This item is still in use \(3 links\)/)).toBeTruthy()
   })
 })
