@@ -69,6 +69,51 @@ const rect = (left: number, top: number, width: number, height: number): DOMRect
 describe('WorkerGuidesClient', () => {
   afterEach(() => { vi.restoreAllMocks() })
 
+  it('shows the worker their needs-attention warnings and flags the guide card in red', async () => {
+    const warning = {
+      id: 'request:r1',
+      kind: 'RETRAIN_REQUESTED',
+      severity: 'CRITICAL',
+      staffId: 's1',
+      staffName: 'SMITH, JANE',
+      guideId: 'g1',
+      guideTitle: 'FOOD SAFETY BASICS',
+      folderId: null,
+      folderName: null,
+      reasonText: 'Marked for retraining on 10 NOV 2026 — SEEN UNSAFE.',
+      since: '2026-11-10T00:00:00.000Z',
+      due: '2026-11-24T00:00:00.000Z',
+      requestId: 'r1',
+      followUpId: null,
+    }
+    const flagged = {
+      ...tracked,
+      stale: true,
+      needsAction: true,
+      severity: 'CRITICAL',
+      reasonText: warning.reasonText,
+      retrainRequestId: 'r1',
+    }
+    globalThis.fetch = vi.fn(async (url: string) => {
+      const json = (data: unknown) =>
+        Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(data) })
+      if (String(url).startsWith('/api/worker/guides')) {
+        return json({ staffId: 's1', firstName: 'ALEX', items: [flagged], reference: [] })
+      }
+      if (String(url).startsWith('/api/worker/pathway')) return json({ pathway: null })
+      if (String(url).startsWith('/api/worker/guide-warnings')) {
+        return json({ warnings: [warning], folders: [], staff: [{ id: 's1', name: 'SMITH, JANE' }], guides: [], canViewAll: false, canAssign: false })
+      }
+      return json(null)
+    }) as unknown as typeof fetch
+
+    render(<WorkerGuidesClient />)
+
+    await waitFor(() => expect(screen.getByText('NEEDS ATTENTION (1)')).toBeTruthy())
+    expect(screen.getAllByText(/Marked for retraining on 10 NOV 2026/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('RETRAIN REQUESTED').length).toBeGreaterThanOrEqual(1)
+  })
+
   it('shows tracked guides and untracked reference guides in the bible', async () => {
     globalThis.fetch = mockFetch()
     render(<WorkerGuidesClient />)

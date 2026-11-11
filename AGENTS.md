@@ -57,7 +57,7 @@ hospo-ops/
 ├── packages/
 │   ├── db/                         # Prisma 7 schema + PG adapter + seed
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma       # 151 models (as of 2026-11)
+│   │   │   ├── schema.prisma       # 152 models (as of 2026-11)
 │   │   │   ├── seed.ts             # Idempotent demo/sample data
 │   │   │   ├── migrate-*.ts        # One-off migrations wired into docker-entrypoint.sh
 │   │   │   └── migrations/         # Legacy 0_init migration (kept for reference)
@@ -516,6 +516,57 @@ show inline. The Staff edit modal shows pending sections as outlined
 
 `GET /api/admin/training/status` no longer returns or reconciles section reviews —
 the section-work queue is the single path.
+
+### Guide warnings + retraining (#130, built 2026-11)
+
+The actionable layer on top of `Guide.version` / the stale completion badge. A
+**warning** is one of: a stale completion, a missing required guide, a pending
+manager sign-off (sign-off guide with no completion), an explicit retrain
+request, an overdue retrain request (pending > 14 days), or an open
+`FollowUp`. Dismissing closes the REQUEST only — it never deletes a completion.
+
+- **`GuideRetrainRequest`** (additive model) — `venueId`, `staffId`, `guideId`,
+  `reason String?`, `status PENDING|DONE|DISMISSED`, `requestedById`,
+  `resolvedById?`, `resolvedAt?`, `note?`, timestamps + `deletedAt`; indexes
+  `(venueId,status)`, `staffId`, `guideId`. Creating one also upserts a
+  `GuideAssignment(reason: 'RETRAIN REQUEST')` so the guide lands in that
+  person's My Guides/training list even when it did not previously apply.
+- **Pure brain — `lib/guide-warnings.ts`** (Prisma-free, client-safe):
+  `buildWarnings` (`MISSING | STALE | SIGN_OFF_PENDING | RETRAIN_REQUESTED |
+  OVERDUE | FOLLOW_UP`), `warningReasonText` (plain English, deterministic
+  dates), `filterWarnings`, `sortWarnings`, `groupWarningsByFolder`,
+  `guideTrainingState` (one guide's red-highlight state, shared by the sign-off
+  modal and worker card) and `warningSummary`. An explicit request always wins
+  over the inferred stale/missing warning for the same guide — no duplicates.
+- **Server — `lib/guide-warnings.server.ts`** does batched reads (fixed query
+  count) reusing the same `guideSource` applicability predicate as the guide
+  lists. `createRetrainRequests` validates venue + staff, only accepts
+  PUBLISHED + tracked guides, skips an already-PENDING request
+  (`ALREADY REQUESTED`), and writes request + assignment in one transaction.
+  `resolveRetrainRequest` enforces PENDING → DONE/DISMISSED (409 otherwise).
+- **Routes:** `GET /api/admin/guide-warnings` (`training.playbook.view`,
+  MANAGER venue-locked, returns `canAssign`), `POST /api/admin/guide-retrain`
+  and `PATCH /api/admin/guide-retrain/[id]` (`training.playbook.assign`).
+  Worker mirrors: `GET /api/worker/guide-warnings` (all venue for
+  managers/`training.playbook.view`, otherwise only the session person's own),
+  `POST /api/worker/guide-retrain` and `PATCH /api/worker/guide-retrain/[id]`
+  (managers/admins or `training.playbook.assign`; venue is always the session
+  venue). `retrainOptions` carries the person/guide picker for authorised staff.
+- **UI:** `TrainingStatusClient` has a filterable/sortable **WARNINGS** section
+  (kind, severity, folder, person; most-urgent/oldest/person/guide) with OPEN
+  GUIDE, MARK RETRAINED (reuses the existing completion/sign-off routes and
+  resolves the request), MARK FOR RETRAINING (`RetrainRequestModal`) and
+  DISMISS. `StaffGuidesModal` groups by folder with an **ALL GUIDES** flat
+  toggle, red row + plain-English reason for stale/requested guides, and
+  MARK RETRAINED / MARK FOR RETRAINING / DISMISS WARNING at the item.
+  `WorkerGuidesClient` shows a NEEDS ATTENTION strip (own warnings, or the whole
+  venue for managers / view-granted staff), the same actions, and a red guide
+  card + red RETRAIN NEEDED reason where the guide is marked off.
+- **Help:** the `training-warnings` Heavenly Help article is intentionally
+  deferred — PR #135 owns `content/help/articles.ts` and is frozen for this
+  branch; add the article after #135 merges.
+- **Deploy note:** additive only. `prisma db push` creates the enum + table; no
+  data migration or backfill is required.
 
 ### External embeds + calendar import + NZ breaks
 Per-venue integration links live on `Venue` (`loadedRosterUrl`,
@@ -2690,7 +2741,7 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 > (`MenuItem.variations`), orders (`WooOrder` as the local order store), gift
 > cards, SwiftPOS and `ApiKey` public routes are unaffected.
 
-### Schema: 151 models (as of 2026-11)
+### Schema: 152 models (as of 2026-11)
 Core ERP models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`,
 `RecipeLineItem` (recursive BOM), `IngredientReference` (Pantry Bible),
 `WooIntegration`, `MenuItem` (+ `MenuItemServe`, `MenuItemVenue`), `Menu`,
@@ -3444,7 +3495,7 @@ regression test. No test, no merge.
 **Config:** `apps/web/vitest.config.ts`, setup via `apps/web/vitest-setup.ts`
 **Location:** test files live alongside components (e.g. `FloorPlanEditor.test.tsx`
 next to `FloorPlanEditor.tsx`).
-**Scale (2026-10):** 228 test files / 2,076 cases across `lib`, route handlers and components.
+**Scale (2026-11):** 334 test files / 2,891 cases across `lib`, route handlers and components.
 
 ```bash
 npm run test          # runs all tests once (also: npm run test in root via turbo)
@@ -3484,6 +3535,7 @@ pre-flight.
 | `lib/budget-math.ts` — `generateDailyBudgetsNormalized`, `computeBreakdowns` | ✅ |
 | `lib/dashboard-widgets.ts` — registry, `parseDashboardLayout`, `moveWidget`, `visibleWidgets` | ✅ (6 tests) |
 | `lib/training-status.ts` — `trainingLevel`, `sortTrainingRows` | ✅ (5 tests) |
+| `lib/guide-warnings.ts` — warning kinds, plain-English reasons, filter/sort/folder grouping, per-guide training state | ✅ (12 tests) |
 | `lib/notice-groups.ts` — `groupWorkerNotices` | ✅ (4 tests) |
 | `lib/staff-events.ts` — event field builder, response window/validation, wall-clock now, attendee resolution, attendance counts, ICS escaping, UTF-8 octet folding, UTC DTSTAMP | ✅ (29 tests) |
 | `lib/staff-events.server.ts` — invite materialisation (audience ∪ explicit, retire pending, explicit-empty → whole venue), linked Notice sync | ✅ (11 tests) |
@@ -3606,7 +3658,7 @@ pre-flight.
 | `PositionsPanel.tsx` — list, ALL DEPARTMENTS, empty state, blank-name guard, POST body | ✅ (5 tests) |
 | `GuidesClient.tsx` — folders, publish, product-reference rows, PDF actions | ✅ (10 tests) |
 | `ReferenceTableEditor.tsx` — column kinds, derived cells, row editing | ✅ (5 tests) |
-| `WorkerGuidesClient.tsx` — BIBLE / MY TREE, folder grouping, edit gating | ✅ (11 tests) |
+| `WorkerGuidesClient.tsx` — BIBLE / MY TREE, folder grouping, edit gating, needs-attention warnings + red guide card | ✅ (12 tests) |
 | `EventBuilder.tsx` / `PipelinePanel.tsx` / `EnquiriesPanel.tsx` — BEO builder, pipeline board, intake | ✅ (5 + 2 + 4) |
 | `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 16 + 15 + 33) |
 | `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (13 + 5 + 4) |
@@ -3614,7 +3666,8 @@ pre-flight.
 | `EventStaffingModal.tsx` — event info, linked shifts CLAIMED/ASSIGNED, listed-seat lock, FIND STAFF, claims review | ✅ (5 tests) |
 | `CalendarEventFormModal.tsx` — create + staffing POST, capacity warning, edit load/PUT | ✅ (2 tests) |
 | `WorkerShiftsClient.tsx` — pickup grid, claim/withdraw, conflict warning, confirmed panel | ✅ (5 tests) |
-| `TrainingStatusClient.tsx` — status rows + SECTION REVIEWS strip, CONFIRM/DISMISS/error surfacing, position grouping, guide titles, MANAGE GUIDES modal | ✅ (6 tests) |
+| `TrainingStatusClient.tsx` — status rows + WARNINGS list (mark retrained / dismiss) + SECTION REVIEWS strip, CONFIRM/DISMISS/error surfacing, position grouping, guide titles, MANAGE GUIDES modal | ✅ (8 tests) |
+| `StaffGuidesModal.tsx` — folder grouping + ALL GUIDES flat view, stale red warning reason, mark-for-retraining flow | ✅ (2 tests) |
 | `StaffEventNoticeCard.tsx` — full inline details, Accept/Decline/Maybe gating, required decline reason, current answer, Add to calendar, closed window, reminder, close-time label fallback | ✅ (9 tests) |
 | `StaffEventsPanel.tsx` — event/attendance counts, remind action, attendance popup with decline reasons, forbidden-picker warning | ✅ (3 tests) |
 | `WorkerNoticesClient.tsx` staff-event branch — inline details, no GOT IT, accept posts to respond | ✅ (2 tests) |
@@ -3643,6 +3696,12 @@ pre-flight.
 | `app/api/admin/import/tasks/route.test.ts` — GET refs + MANAGER scope; POST creates DRAFT tasks with resolved dept/section + checklist link, skips unknown department / invalid weekly, UPDATE preserves status, edit-permission gate, MANAGER venue lock, empty payload | ✅ (9 tests) |
 | `app/api/admin/import/guides/route.test.ts` — GET refs + MANAGER scope; POST creates DRAFT guides with audiences/steps/links, creates a missing folder, skips unknown audience/link, warns NOBODY WILL SEE THIS, rejects PRODUCT_REFERENCE, UPDATE with/without REPLACE STEPS, edit-permission gate, MANAGER lock, empty payload | ✅ (13 tests) |
 | `app/api/admin/swiftpos/staff/route.test.ts` — LINK sets the PIN from the clerk id, keeps an existing PIN, and links without a PIN on a clash | ✅ (3 tests) |
+| `app/api/admin/guide-warnings/route.test.ts` — auth, view guard, manager venue lock, admin venue param, assign flag, 404 | ✅ (5 tests) |
+| `app/api/admin/guide-retrain/route.test.ts` — assign guard, missing staff, venue access/derivation, manager lock, create payload, server error passthrough | ✅ (6 tests) |
+| `app/api/admin/guide-retrain/[id]/route.test.ts` — assign guard, invalid action, request-venue resolution, venue access, RESOLVE/DISMISS mapping, closed-request 409 | ✅ (6 tests) |
+| `app/api/worker/guide-retrain/route.test.ts` — auth, assign grant, session-venue lock, missing staff | ✅ (4 tests) |
+| `app/api/worker/guide-retrain/[id]/route.test.ts` — assign guard, invalid action, session-venue resolve, 409 | ✅ (4 tests) |
+| `app/api/worker/guide-warnings/route.test.ts` — auth, own-only warnings for staff, whole venue + picker for managers | ✅ (3 tests) |
 | `app/api/admin/staff-events/route.test.ts` — create publishes + materialises invites/notice, draft stays private, manager venue lock, explicit invitee validation, invalid times | ✅ (6 tests) |
 | `app/api/admin/staff-events/[id]/route.test.ts` — GET/PUT/DELETE, DRAFT resync, published notice sync, audience retention, explicit-empty whole-venue fallback, manager venue block | ✅ (7 tests) |
 | `app/api/admin/staff-events/[id]/publish/route.test.ts` — publish materialises + sends notice, audience-less/no-invite 409, whole-venue draft publish, manager block | ✅ (4 tests) |
