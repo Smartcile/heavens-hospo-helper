@@ -124,7 +124,12 @@ export function OrderDetailDrawer({
           return { ...common, unitPrice: i.unitPrice }
         }
 
-        const base = Math.round(((i.unitPrice ?? 0) - optionPriceDelta(i.options ?? [])) * 100) / 100
+        // The stored price includes the old upcharges; send the base so the
+        // API can fold in the new ones. With no stored price, the product's
+        // list price is the base (never 0 - delta, which goes negative).
+        const base = i.unitPrice != null
+          ? Math.round((i.unitPrice - optionPriceDelta(i.options ?? [])) * 100) / 100
+          : (i.menuItemPrice ?? 0)
         return { ...common, unitPrice: base, options: editOptions }
       })
 
@@ -141,7 +146,8 @@ export function OrderDetailDrawer({
       onChanged()
     } else {
       const err = await res.json().catch(() => ({}))
-      pushToast((err.error ?? 'UPDATE FAILED').toUpperCase(), 'error')
+      const detail = err.violations?.[0]?.message
+      pushToast((detail ?? err.error ?? 'UPDATE FAILED').toUpperCase(), 'error')
     }
   }
 

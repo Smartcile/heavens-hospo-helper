@@ -67,6 +67,15 @@ export async function findInventoryBlockers(
         ...(live ? { deletedAt: null, menuItem: { deletedAt: null } } : {}),
       },
     }),
+    // Product option drawdown (a choice can be mapped to a stock item).
+    prisma.menuItemOptionChoice.count({
+      where: {
+        inventoryItemId: itemId,
+        ...(live
+          ? { deletedAt: null, group: { deletedAt: null, menuItem: { deletedAt: null } } }
+          : {}),
+      },
+    }),
     // Stock lines on a menu.
     prisma.menuMenuItem.count({
       where: { inventoryItemId: itemId, ...(live ? { menu: { deletedAt: null } } : {}) },
@@ -115,6 +124,7 @@ export async function findInventoryBlockers(
     'TASK',
     'PRODUCT_LINK',
     'SERVE',
+    'MENU_OPTION',
     'MENU_LINE',
     'SUPPLIER_CODE',
     'PURCHASE_ORDER',

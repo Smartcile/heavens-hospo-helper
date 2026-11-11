@@ -139,6 +139,7 @@ const ORDER_INCLUDE = {
         select: {
           id: true,
           name: true,
+          price: true,
           dietaryInfo: true,
           recipeId: true,
           optionGroups: optionGroupInclude,
@@ -195,6 +196,7 @@ type OrderRow = {
     menuItem: {
       id: string
       name: string
+      price: number
       dietaryInfo: string | null
       recipeId: string | null
       optionGroups?: unknown
@@ -214,6 +216,7 @@ function projectOrders(
       name: i.menuItem?.name ?? i.productName ?? 'UNKNOWN',
       qty: i.qty,
       unitPrice: i.unitPrice,
+      menuItemPrice: i.menuItem?.price ?? null,
       dietaryInfo: i.menuItem?.dietaryInfo ?? null,
       customerNote: i.customerNote,
       allergenNote: i.allergenNote,
@@ -424,10 +427,15 @@ export async function POST(req: NextRequest) {
 
     const base = line.unitPrice == null ? null : Number(line.unitPrice)
     const delta = optionPriceDelta(result.resolved)
+    const productPrice = optionCheck.priceByItem.get(line.menuItemId) ?? 0
     resolvedOptions.push(result.resolved)
     finalUnitPrices.push(
       base == null
-        ? delta > 0 ? delta : null
+        // No base price supplied: fall back to the product's list price so an
+        // upcharge on a zero-priced line is never stored as just the delta.
+        ? result.resolved.length > 0
+          ? Math.round((productPrice + delta) * 100) / 100
+          : null
         : Math.round((base + delta) * 100) / 100,
     )
   }

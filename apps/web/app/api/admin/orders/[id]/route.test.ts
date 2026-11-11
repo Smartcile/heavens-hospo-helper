@@ -54,6 +54,7 @@ beforeEach(() => {
   prisma.$transaction.mockImplementation(async (fn: (tx: typeof prisma) => unknown) => fn(prisma))
   loadOptionGroupsForItems.mockResolvedValue({
     groupsByItem: new Map([['m1', [SIDE_GROUP]]]),
+    priceByItem: new Map([['m1', 18]]),
     missingItemIds: [],
   })
 })
@@ -119,7 +120,11 @@ describe('PUT /api/admin/orders/[id] options', () => {
   })
 
   it('clears the snapshot when a product has no option groups', async () => {
-    loadOptionGroupsForItems.mockResolvedValue({ groupsByItem: new Map(), missingItemIds: [] })
+    loadOptionGroupsForItems.mockResolvedValue({
+      groupsByItem: new Map(),
+      priceByItem: new Map(),
+      missingItemIds: [],
+    })
 
     const res = await PUT(
       req({ items: [{ id: 'li1', menuItemId: 'm1', qty: 1, unitPrice: 10, options: [] }] }),
@@ -155,9 +160,35 @@ describe('PUT /api/admin/orders/[id] options', () => {
     expect(data.options).toBeUndefined()
   })
 
+  it('falls back to the product price when unitPrice is null and an option has an upcharge', async () => {
+    const res = await PUT(
+      req({
+        items: [
+          {
+            id: 'li1',
+            menuItemId: 'm1',
+            qty: 1,
+            unitPrice: null,
+            options: [
+              { groupId: 'g-side', groupName: 'SIDE', choiceId: 'c-salad', choiceName: 'SALAD', priceDelta: 3 },
+            ],
+          },
+        ],
+      }),
+      params,
+    )
+
+    expect(res.status).toBe(200)
+    expect(prisma.wooOrderItem.update).toHaveBeenCalledWith({
+      where: { id: 'li1' },
+      data: expect.objectContaining({ unitPrice: 21 }),
+    })
+  })
+
   it('rejects a product that is not in the order venue', async () => {
     loadOptionGroupsForItems.mockResolvedValue({
       groupsByItem: new Map(),
+      priceByItem: new Map(),
       missingItemIds: ['m1'],
     })
 

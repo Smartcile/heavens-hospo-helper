@@ -7,6 +7,8 @@ import { normaliseOptionGroups, type MenuOptionGroup } from './menu-options'
 
 export interface LoadedOptionGroups {
   groupsByItem: Map<string, MenuOptionGroup[]>
+  /** The product's list price, used when a line supplies no base price. */
+  priceByItem: Map<string, number>
   /** Requested product ids that are missing, deleted or belong to another venue. */
   missingItemIds: string[]
 }
@@ -20,7 +22,9 @@ export async function loadOptionGroupsForItems(
   venueId: string,
 ): Promise<LoadedOptionGroups> {
   const ids = [...new Set(menuItemIds.filter(Boolean))]
-  if (ids.length === 0) return { groupsByItem: new Map(), missingItemIds: [] }
+  if (ids.length === 0) {
+    return { groupsByItem: new Map(), priceByItem: new Map(), missingItemIds: [] }
+  }
 
   const items = await prisma.menuItem.findMany({
     where: {
@@ -29,10 +33,11 @@ export async function loadOptionGroupsForItems(
       // Own products, or products shared into this venue via MenuItemVenue.
       OR: [{ venueId }, { venueShares: { some: { venueId, isActive: true } } }],
     },
-    select: { id: true },
+    select: { id: true, price: true },
   })
   const valid = new Set(items.map((i) => i.id))
   const missingItemIds = ids.filter((id) => !valid.has(id))
+  const priceByItem = new Map(items.map((i) => [i.id, i.price]))
 
   const rows = valid.size
     ? await prisma.menuItemOptionGroup.findMany({
@@ -53,5 +58,5 @@ export async function loadOptionGroupsForItems(
     groupsByItem.set(row.menuItemId, list)
   }
 
-  return { groupsByItem, missingItemIds }
+  return { groupsByItem, priceByItem, missingItemIds }
 }

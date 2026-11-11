@@ -16,6 +16,8 @@ export interface OrderLineView {
   name: string
   qty: number
   unitPrice: number | null
+  /** The product's list price — the base when a stored line price is null. */
+  menuItemPrice?: number | null
   dietaryInfo: string | null
   customerNote: string | null
   allergenNote: string | null

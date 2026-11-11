@@ -70,6 +70,7 @@ beforeEach(() => {
   prisma.wooOrder.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'o1', ...data }))
   loadOptionGroupsForItems.mockResolvedValue({
     groupsByItem: new Map([['m1', [SIDE_GROUP]]]),
+    priceByItem: new Map([['m1', 18]]),
     missingItemIds: [],
   })
 })
@@ -115,9 +116,33 @@ describe('POST /api/admin/orders options', () => {
     ])
   })
 
+  it('falls back to the product price when unitPrice is null and an option has an upcharge', async () => {
+    const res = await POST(
+      req(
+        baseBody([
+          {
+            menuItemId: 'm1',
+            qty: 1,
+            unitPrice: null,
+            options: [
+              { groupId: 'g-side', groupName: 'SIDE', choiceId: 'c-salad', choiceName: 'SALAD', priceDelta: 3 },
+            ],
+          },
+        ]),
+      ),
+    )
+
+    expect(res.status).toBe(201)
+    const data = prisma.wooOrder.create.mock.calls[0][0].data
+    // Product price 18 + SALAD 3 — never just the delta.
+    expect(data.items.create[0].unitPrice).toBe(21)
+    expect(data.totalAmount).toBe(21)
+  })
+
   it('returns 422 when a required group has no choice', async () => {
     loadOptionGroupsForItems.mockResolvedValue({
       groupsByItem: new Map([['m1', [REQUIRED_NO_DEFAULT]]]),
+      priceByItem: new Map([['m1', 18]]),
       missingItemIds: [],
     })
 
@@ -152,7 +177,11 @@ describe('POST /api/admin/orders options', () => {
   })
 
   it('stores no options when the product has none', async () => {
-    loadOptionGroupsForItems.mockResolvedValue({ groupsByItem: new Map(), missingItemIds: [] })
+    loadOptionGroupsForItems.mockResolvedValue({
+      groupsByItem: new Map(),
+      priceByItem: new Map(),
+      missingItemIds: [],
+    })
 
     const res = await POST(req(baseBody([{ menuItemId: 'm1', qty: 1, unitPrice: 10 }])))
 

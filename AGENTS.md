@@ -1515,7 +1515,8 @@ link and retries, or cancels. Blockers are counted by
 elements and setup placements (`ElementInventoryItem`, `SetupItem`), stocktakes
 (`StocktakeLineItem`), recipes (`RecipeLineItem`), task item links
 (`Task.linkedItemId`), product equipment links (`MenuItemInventoryItem`), POS
-serves (`MenuItemServe`), menu stock lines (`MenuMenuItem`), supplier codes and
+serves (`MenuItemServe`), product option drawdowns (`MenuItemOptionChoice`),
+menu stock lines (`MenuMenuItem`), supplier codes and
 aliases (`SupplierItemCode`, `SupplierItemAlias`), purchasing history
 (`PurchaseOrderLine`, `SupplierInvoiceLine`, `SupplierPriceMovement`), deliveries
 (`DeliveryItem`) and furniture BOM children (`FurnitureBomItem`). Soft-deleted
@@ -2998,25 +2999,36 @@ now record the customer's choices and price them. `WooOrderItem.options` is an
 priceDelta }]` (a snapshot, not a join, so editing a choice later never rewrites
 order history). `MenuItemOptionChoice` gained additive
 `inventoryItemId?`/`qty?`/`uomId?` (mirroring `MenuItemServe`) for an optional
-stock drawdown per choice. `lib/order-options.ts` is the pure, Prisma-free brain:
+stock drawdown per choice. **These drawdown fields have no authoring UI yet** —
+they are phase-2 plumbing so the reconcile path can compute what #116 will post;
+editing them on a choice is a follow-up. `lib/order-options.ts` is the pure,
+Prisma-free brain:
 `normaliseOrderOptions`, `describeOrderLineOptions`, `optionPriceDelta`,
 `toggleOptionSelection`, `sortOrderOptions` and `validateOptionSelection`
 (unknown group/choice, `minSelect`/`maxSelect`, single-select cap, and one
 default are enforced; the resolved snapshot uses the **live** group/choice
-ids + `priceDelta`, not the submitted ones). `lib/order-options.server.ts`
+ids + `priceDelta`, not the submitted ones; the one-default rule only applies to
+single-select groups, so an untouched multi-select group cannot 422).
+`lib/order-options.server.ts`
 `loadOptionGroupsForItems` loads the live groups (own **and** shared/venue
-products) in two queries.
+products) and their list prices in two queries.
 
 `POST /api/admin/orders` and `PUT /api/admin/orders/[id]` accept `options` per
 line, re-validate server-side and return **422** `{ error, violations:
 [{ lineIndex, … }] }` on a bad selection. On a line that supplies `options`,
 the submitted `unitPrice` is the **base** product price and the server folds
-the live `priceDelta` into the stored `unitPrice` and line total. A line that
+the live `priceDelta` into the stored `unitPrice` and line total. A null
+`unitPrice` falls back to the product's `MenuItem.price` (never just the
+upcharge). A line that
 **omits** `options` keeps its stored snapshot and final price untouched, so
 editing one line never rewrites an untouched legacy line. The GET payload
 projects both `options` (snapshot) and `optionGroups` (live, for the drawer's
 picker). The UI uses `OrderOptionPicker` in `NewOrderModal` (new lines, defaults
-pre-selected) and `OrderDetailDrawer` (edit a line's choices via PUT).
+pre-selected) and `OrderDetailDrawer` (edit a line's choices via PUT; sends the
+base = stored price − old upcharges, or the product price when the stored price
+is null). `NewOrderModal` reads the **shaped** menu lines returned by
+`/api/admin/menus` (`menuItemId`/`name`/`price`/`options`, no nested `menuItem`),
+so the picker works for both the free-item and menu paths.
 KITCHEN/FOH/PRODUCTION show the choices per line (`DishTotal.optionBreakdown`)
 while `aggregateDishTotals` still keys on product **name**, and the
 allergen-alert logic is unchanged.
@@ -3626,8 +3638,10 @@ pre-flight.
 | `lib/woo-meta-map.ts` — `resolveMetaMap`, `readMeta`, `parseServiceDate/Time`, `parsePartySize`, `parseFulfillmentType`, `resolveOrderMeta` | ✅ (30 tests) |
 | `lib/menu-rules.ts` — `validateOrderAgainstMenu`, `menuAllowsPartySize`, `describePaxRange` | ✅ (19 tests) |
 | `lib/order-views.ts` — `aggregateDishTotals` (incl. option breakdown), `aggregateCategoryTotals`, `collectAllergenAlerts`, `groupByTable`, `groupByTimeSlot`, `summarise`, `applyFilters` | ✅ (38 tests) |
-| `lib/order-options.ts` — snapshot normalise, price delta, describe, toggle, sort, live validate (required/min/max/default/unknown) | ✅ (18 tests) |
+| `lib/order-options.ts` — snapshot normalise, price delta, describe, toggle, sort, live validate (required/min/max/default/unknown, multi-select defaults) | ✅ (19 tests) |
+| `lib/order-options.server.ts` — own/shared/missing product load, price map, empty short-circuit | ✅ (3 tests) |
 | `lib/order-drawdown.ts` — choice qty, gram-aware base units, merge with recipe explosion, unmapped no-op | ✅ (11 tests) |
+| `lib/order-drawdown.server.ts` — choice-id mapping, UOM/density passthrough, dedupe/empty | ✅ (2 tests) |
 | `lib/order-booking-link.ts` — `findBookingForOrder`, `autoLinkBooking` | ✅ (11 tests) |
 | `lib/beo-blocks.ts` — `BEO_BLOCKS`, `blockDef`, `normaliseConfig`, `stripBoundFields`, `makeBlock`, `moveBlock` | ✅ (32 tests) |
 | `lib/beo-links.ts` / `beo-pdf.ts` — link grouping / BEO PDF variants | ✅ (8 + 11) |
@@ -3724,6 +3738,8 @@ pre-flight.
 | `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (13 + 5 + 4) |
 | `StaffingLinesEditor.tsx` — payload mapping, unnamed-row filter, rows, remove | ✅ (5 tests) |
 | `OrderOptionPicker.tsx` — group/choice render, single-select replace, snapshot payload, summary + upcharge, no-groups empty | ✅ (5 tests) |
+| `NewOrderModal.test.tsx` — default preselected, total = base + upcharge, POST sends the base unitPrice + snapshot, shaped menu line picker | ✅ (4 tests) |
+| `OrderDetailDrawer.test.tsx` — booking controls; chosen options shown; PUT edits snapshot; stored-price base; null-price product fallback | ✅ (8 tests) |
 | `EventStaffingModal.tsx` — event info, linked shifts CLAIMED/ASSIGNED, listed-seat lock, FIND STAFF, claims review | ✅ (5 tests) |
 | `CalendarEventFormModal.tsx` — create + staffing POST, capacity warning, edit load/PUT | ✅ (2 tests) |
 | `WorkerShiftsClient.tsx` — pickup grid, claim/withdraw, conflict warning, confirmed panel | ✅ (5 tests) |
@@ -3757,8 +3773,9 @@ pre-flight.
 | `app/api/admin/import/tasks/route.test.ts` — GET refs + MANAGER scope; POST creates DRAFT tasks with resolved dept/section + checklist link, skips unknown department / invalid weekly, UPDATE preserves status, edit-permission gate, MANAGER venue lock, empty payload | ✅ (9 tests) |
 | `app/api/admin/import/guides/route.test.ts` — GET refs + MANAGER scope; POST creates DRAFT guides with audiences/steps/links, creates a missing folder, skips unknown audience/link, warns NOBODY WILL SEE THIS, rejects PRODUCT_REFERENCE, UPDATE with/without REPLACE STEPS, edit-permission gate, MANAGER lock, empty payload | ✅ (13 tests) |
 | `app/api/admin/swiftpos/staff/route.test.ts` — LINK sets the PIN from the clerk id, keeps an existing PIN, and links without a PIN on a clash | ✅ (3 tests) |
-| `app/api/admin/orders/route.test.ts` — option snapshot persisted, upcharge folded into price/total, default applied, 422 on required/unknown, no-group line stores none | ✅ (5 tests) |
-| `app/api/admin/orders/[id]/route.test.ts` — PUT re-validates options, folds upcharge, clears snapshot, preserves a line when options are omitted, 422 on unknown / cross-venue product | ✅ (5 tests) |
+| `app/api/admin/orders/route.test.ts` — option snapshot persisted, upcharge folded into price/total, default applied, null-price product fallback, 422 on required/unknown, no-group line stores none | ✅ (6 tests) |
+| `app/api/admin/orders/[id]/route.test.ts` — PUT re-validates options, folds upcharge, clears snapshot, preserves a line when options are omitted, null-price fallback, 422 on unknown / cross-venue product | ✅ (6 tests) |
+| `app/api/admin/inventory/reconcile/route.test.ts` — choice drawdown × line qty + gram-aware merge; read-only (no stock writes) | ✅ (2 tests) |
 | `app/api/admin/guide-warnings/route.test.ts` — auth, view guard, manager venue lock, admin venue param, assign/sign-off flags, 404 | ✅ (6 tests) |
 | `app/api/admin/guide-retrain/route.test.ts` — assign guard, missing staff, venue access/derivation, manager lock, create payload, server error passthrough | ✅ (6 tests) |
 | `app/api/admin/guide-retrain/[id]/route.test.ts` — assign guard, invalid action, request-venue resolution, venue access, RESOLVE/DISMISS mapping, closed-request 409 | ✅ (6 tests) |

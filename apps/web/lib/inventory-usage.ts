@@ -13,6 +13,7 @@ export type InventoryBlockerKind =
   | 'TASK'
   | 'PRODUCT_LINK'
   | 'SERVE'
+  | 'MENU_OPTION'
   | 'MENU_LINE'
   | 'SUPPLIER_CODE'
   | 'PURCHASE_ORDER'
@@ -40,6 +41,7 @@ export const INVENTORY_BLOCKER_HREF: Record<InventoryBlockerKind, string> = {
   TASK: '/admin/execution?tab=tasks',
   PRODUCT_LINK: '/admin/ops?tab=inventory&sub=menu-items',
   SERVE: '/admin/ops?tab=inventory&sub=menu-items',
+  MENU_OPTION: '/admin/ops?tab=inventory&sub=menu-items',
   MENU_LINE: '/admin/ops?tab=menu&sub=menus',
   SUPPLIER_CODE: '/admin/settings?tab=suppliers',
   PURCHASE_ORDER: '/admin/ops?tab=inventory&sub=purchasing',
@@ -70,6 +72,8 @@ export function describeInventoryBlocker(kind: InventoryBlockerKind, count: numb
       return `Linked to ${plural(n, 'a menu product', `${n} menu products`)}`
     case 'SERVE':
       return `Used as a serve on ${plural(n, 'a menu product', `${n} menu products`)}`
+    case 'MENU_OPTION':
+      return `Used as a product option on ${plural(n, 'a menu product', `${n} menu products`)}`
     case 'MENU_LINE':
       return `Listed on ${plural(n, 'a menu', `${n} menus`)}`
     case 'SUPPLIER_CODE':
@@ -100,6 +104,7 @@ export const INVENTORY_BLOCKER_ORDER: InventoryBlockerKind[] = [
   'TASK',
   'PRODUCT_LINK',
   'SERVE',
+  'MENU_OPTION',
   'MENU_LINE',
   'SUPPLIER_CODE',
   'PURCHASE_ORDER',

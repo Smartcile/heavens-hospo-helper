@@ -21,17 +21,23 @@ interface MenuItemRef {
   /** Raw products carry their option groups under `optionGroups`. */
   optionGroups?: MenuOptionGroup[]
 }
-interface MenuLink {
-  menuItemId: string
+/**
+ * `/api/admin/menus` returns SHAPED lines (`shapeMenuLine`), not nested
+ * `menuItem` objects: product lines carry the flattened fields plus `options`.
+ */
+interface MenuLine {
+  menuItemId: string | null
+  name: string
+  price: number | null
+  dietaryInfo: string | null
   minQty: number | null
   maxQty: number | null
-  menuItem: MenuItemRef
-  /** Shaped menu lines carry the product's option groups under `options`. */
+  /** The product's live option groups on the shaped line. */
   options?: MenuOptionGroup[]
 }
 interface Menu {
   id: string; name: string; minPax: number | null; maxPax: number | null
-  isActive: boolean; items: MenuLink[]
+  isActive: boolean; items: MenuLine[]
 }
 
 interface DraftLine {
@@ -82,26 +88,35 @@ export function NewOrderModal({
 
   const selectedMenu = menus.find((m) => m.id === menuId) ?? null
 
-  // When a menu is chosen, only its items can be ordered. Each entry carries
-  // the product's live option groups (a shaped menu line puts them on the
-  // line's `options`; a raw product carries `optionGroups`).
+  // When a menu is chosen, only its PRODUCT lines can be ordered. Build the
+  // item from the shaped line's flattened fields (stock lines have no
+  // `menuItemId` and are skipped).
   const pickable = selectedMenu
-    ? selectedMenu.items.map((l) => ({
-        item: l.menuItem,
-        groups: normaliseOptionGroups(l.options ?? l.menuItem.optionGroups ?? []),
-      }))
+    ? selectedMenu.items
+        .filter((l) => !!l.menuItemId)
+        .map((l) => ({
+          item: {
+            id: l.menuItemId as string,
+            name: l.name,
+            price: l.price ?? 0,
+            dietaryInfo: l.dietaryInfo,
+          } as MenuItemRef,
+          groups: normaliseOptionGroups(l.options ?? []),
+        }))
     : allItems.map((i) => ({ item: i, groups: normaliseOptionGroups(i.optionGroups ?? []) }))
 
   const violations = useMemo(() => {
     if (!selectedMenu) return []
     return validateOrderAgainstMenu(
       { name: selectedMenu.name, minPax: selectedMenu.minPax, maxPax: selectedMenu.maxPax },
-      selectedMenu.items.map((l) => ({
-        menuItemId: l.menuItemId,
-        name: l.menuItem.name,
-        minQty: l.minQty,
-        maxQty: l.maxQty,
-      })),
+      selectedMenu.items
+        .filter((l) => !!l.menuItemId)
+        .map((l) => ({
+          menuItemId: l.menuItemId as string,
+          name: l.name,
+          minQty: l.minQty,
+          maxQty: l.maxQty,
+        })),
       lines.map((l) => ({ menuItemId: l.menuItemId, qty: parseInt(l.qty, 10) || 0 })),
       partySize === '' ? null : parseInt(partySize, 10),
     )

@@ -220,10 +220,15 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
 
     const delta = optionPriceDelta(result.resolved)
+    const productPrice = optionCheck.priceByItem.get(line.menuItemId) ?? 0
     resolvedOptions.push(result.resolved)
     finalUnitPrices.push(
       base == null
-        ? delta > 0 ? delta : null
+        // No base price supplied: fall back to the product's list price so an
+        // upcharge on a zero-priced line is never stored as just the delta.
+        ? result.resolved.length > 0
+          ? Math.round((productPrice + delta) * 100) / 100
+          : null
         : Math.round((base + delta) * 100) / 100,
     )
   }

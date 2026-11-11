@@ -204,6 +204,19 @@ describe('validateOptionSelection', () => {
     )
   })
 
+  it('does not 422 an untouched multi-select group with several defaults', () => {
+    const multi = groups().map((g) =>
+      g.id === 'g-extras'
+        ? { ...g, choices: g.choices.map((c) => ({ ...c, isDefault: c.id !== 'c-cheese' })) }
+        : g,
+    )
+    const result = validateOptionSelection(multi, [])
+    expect(result.violations).toEqual([])
+    // The single-select SIDE group still applies its default; the ambiguous
+    // multi-select defaults are left untouched.
+    expect(result.resolved.map((o) => o.choiceId)).toEqual(['c-fries'])
+  })
+
   it('resolves a multi-select selection in group + choice order', () => {
     const result = validateOptionSelection(groups(), [
       selected({ groupId: 'g-extras', groupName: 'EXTRAS', choiceId: 'c-bacon', choiceName: 'BACON', priceDelta: 2 }),

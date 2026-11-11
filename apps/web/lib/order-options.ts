@@ -242,7 +242,10 @@ export function validateOptionSelection(
       const defaults = group.choices.filter((c) => c.isDefault && c.id)
       if (defaults.length === 1) {
         picks = [toOption(group, defaults[0])]
-      } else if (defaults.length > 1) {
+      } else if (defaults.length > 1 && group.maxSelect === 1) {
+        // Only single-select groups can have a single meaningful default. A
+        // multi-select group may legitimately mark several choices as defaults
+        // (e.g. "all sauces"), so an untouched group must not 422.
         violations.push({
           groupId: group.id,
           groupName: group.name,
