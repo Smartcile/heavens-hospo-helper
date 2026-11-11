@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Panel } from '@/components/ui/Panel'
 import { PdfCanvasViewer } from '@/components/ui/PdfCanvasViewer'
+import { PdfDocumentView } from '@/components/ui/PdfDocumentView'
 
 // Gift card popup: click any card in the list. Left = the card itself (edit
 // details, status actions, private notes, PDF/email); right = the
@@ -136,6 +137,8 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
   // Replacement popup — the new card starts from the old card's details.
   const [replaceOpen, setReplaceOpen] = useState(false)
   const [replaceDraft, setReplaceDraft] = useState({ reason: '', customerName: '', customerEmail: '', amount: '', message: '' })
+  // Full-screen in-app PDF (share / print / download / back) — no browser tab.
+  const [pdfOpen, setPdfOpen] = useState(false)
 
   const load = useCallback(async () => {
     const [r, tR] = await Promise.all([
@@ -418,7 +421,7 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                 )}
                 {card?.pdfPath && (
                   <>
-                    <Button size="sm" variant="ghost" onClick={() => window.open(`/api/admin/gift-cards/${card.id}/pdf`, '_blank')}>DOWNLOAD PDF</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setPdfOpen(true)}>VIEW / PRINT PDF</Button>
                     <Button size="sm" variant="ghost" onClick={() => { setError(''); setSendOpen(true) }}>SEND EMAIL</Button>
                   </>
                 )}
@@ -669,6 +672,18 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                 <Button variant="ghost" size="sm" onClick={() => setReplaceOpen(false)}>CANCEL</Button>
               </div>
             </Panel>
+          </div>
+        )}
+        {/* Full-screen in-app PDF viewer — no browser tab dead end */}
+        {pdfOpen && card && (
+          <div className="fixed inset-0 z-50 bg-black" onClick={(e) => e.stopPropagation()}>
+            <PdfDocumentView
+              url={`/api/admin/gift-cards/${card.id}/pdf?inline=1`}
+              downloadUrl={`/api/admin/gift-cards/${card.id}/pdf`}
+              filename={`Gift Card - ${card.number}.pdf`}
+              title={`GIFT CARD ${card.number}`}
+              onBack={() => setPdfOpen(false)}
+            />
           </div>
         )}
       </Panel>

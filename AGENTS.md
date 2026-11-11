@@ -2900,6 +2900,23 @@ replace / void / reset / delete (voided only). Guards:
 `GET /api/worker/giftcards/access` allows it, and the client issues via
 `POST /api/worker/giftcards` (the old dead `/issue` URL was fixed in #73).
 
+**In-app PDFs (`PdfDocumentView` + `PdfActionBar`).** Every gift-card PDF opens
+*inside* the app — worker issued card (`GiftCardPdfView`, which calls
+`useWorkerImmersive(true)`), the admin card popup, the admin template PREVIEW and
+the template live preview. `components/ui/PdfDocumentView` stacks
+`PdfCanvasViewer` over `PdfActionBar`, whose bottom bar is the only way out:
+**BACK** (shown whenever `onBack` is passed, and always in a standalone/PWA),
+**PRINT** (a hidden same-origin iframe with `?inline=1`), **SHARE** (Web Share
+API level 2 with the actual PDF `File`, prefetched so iOS keeps the user
+gesture; `canShareFiles()` hides the button when unsupported), **DOWNLOAD** and
+**OPEN**. The pure, testable helpers live in `lib/pdf-actions.ts`
+(`sanitisePdfFilename`, `canShareFiles`, `sharePdfFile`, `printPdfUrl`,
+`downloadPdfUrl`, `isStandaloneApp`). **Rule:** never `window.open` a PDF a
+worker must return from; any full-screen document/webpage view needs a back
+affordance. PDF routes accept `?inline=1` for the viewer/print iframe (default
+stays `attachment`); bulk card printing remains a direct download, which is the
+right action for a stack.
+
 ### Tips (built 2026-09)
 `TipsPeriod` (`fromDate`/`toDate`, `cashCounts Json`, `posTotal`,
 `shares Json`, `notes`) + `lib/tips.ts` (tested) allocate pooled tips across
