@@ -15,6 +15,8 @@ import {
   writeBom,
 } from '@/lib/furniture-server'
 import { guardAccess } from '@/lib/permissions'
+import { findInventoryBlockers } from '@/lib/inventory-usage.server'
+import { INVENTORY_IN_USE_ERROR } from '@/lib/inventory-usage'
 
 interface Params { params: { id: string } }
 
@@ -104,14 +106,13 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   const existing = await loadScoped(params.id, getManagerVenueId(session, req))
   if (!existing) return NextResponse.json({ error: 'Furniture not found' }, { status: 404 })
 
-  // Deleting furniture that is still on a layout would leave placements
-  // pointing at nothing, so say what's in the way instead of breaking the plan.
-  const placed = await prisma.setupItem.count({
-    where: { furnitureItemId: params.id, deletedAt: null, setup: { deletedAt: null } },
-  })
-  if (placed > 0) {
+  // Deleting furniture that is still on a layout (or referenced by a recipe,
+  // purchase record, task, etc.) would break those records, so say what is in
+  // the way instead of leaving them pointing at nothing.
+  const blockers = await findInventoryBlockers(params.id)
+  if (blockers.length > 0) {
     return NextResponse.json(
-      { error: `STILL PLACED ON ${placed} TABLE LAYOUT SPOT${placed === 1 ? '' : 'S'} — REMOVE IT FROM THE PLAN FIRST` },
+      { error: INVENTORY_IN_USE_ERROR, blockers },
       { status: 409 },
     )
   }

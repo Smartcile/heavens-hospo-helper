@@ -5,7 +5,7 @@
 // on the server and again here before render. Screenshots in an article open in
 // a full-screen lightbox (click / Escape closes).
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { sanitiseHelpRichText } from '@/lib/rich-text'
 import { groupHelpArticles, searchHelpArticles, type HelpArticleView } from '@/lib/help'
 
@@ -14,12 +14,25 @@ interface LightboxImage {
   alt: string
 }
 
+// Sanitised help HTML emits plain `<img src alt>`; make each screenshot a
+// focusable button so keyboard users can open the lightbox too.
+function enhanceHelpImages(html: string): string {
+  return html.replace(/<img\b([^>]*)>/gi, (_tag, attrs: string) => {
+    const altMatch = attrs.match(/\balt="([^"]*)"/i)
+    const alt = altMatch?.[1] ?? ''
+    const label = alt ? `Open image: ${alt}` : 'Open image'
+    return `<img${attrs} tabindex="0" role="button" aria-label="${label}">`
+  })
+}
+
 export function HelpClient({ endpoint }: { endpoint: string }) {
   const [articles, setArticles] = useState<HelpArticleView[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [openSlug, setOpenSlug] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState<LightboxImage | null>(null)
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null)
+  const restoreFocusRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -33,11 +46,16 @@ export function HelpClient({ endpoint }: { endpoint: string }) {
 
   useEffect(() => {
     if (!lightbox) return
+    const previous = restoreFocusRef.current
+    closeButtonRef.current?.focus()
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setLightbox(null)
     }
     document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      previous?.focus?.()
+    }
   }, [lightbox])
 
   const filtered = useMemo(() => searchHelpArticles(articles, query), [articles, query])
@@ -48,11 +66,23 @@ export function HelpClient({ endpoint }: { endpoint: string }) {
     return <p className="font-mono text-xs uppercase text-grey-light loading-cursor">LOADING</p>
   }
 
+  function openLightbox(target: HTMLElement) {
+    if (target.tagName !== 'IMG') return
+    const img = target as HTMLImageElement
+    restoreFocusRef.current = img
+    setLightbox({ src: img.getAttribute('src') ?? '', alt: img.getAttribute('alt') ?? '' })
+  }
+
   function handleBodyClick(event: React.MouseEvent<HTMLDivElement>) {
+    openLightbox(event.target as HTMLElement)
+  }
+
+  function handleBodyKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'Enter' && event.key !== ' ') return
     const target = event.target as HTMLElement | null
     if (!target || target.tagName !== 'IMG') return
-    const img = target as HTMLImageElement
-    setLightbox({ src: img.getAttribute('src') ?? '', alt: img.getAttribute('alt') ?? '' })
+    event.preventDefault()
+    openLightbox(target)
   }
 
   if (open) {
@@ -80,8 +110,9 @@ export function HelpClient({ endpoint }: { endpoint: string }) {
 
         <div
           onClick={handleBodyClick}
-          className="help-body w-full border border-grey-mid bg-grey-dark/10 p-5 font-mono text-sm text-white space-y-4 [&_h2]:border [&_h2]:border-grey-mid [&_h2]:bg-grey-dark [&_h2]:px-4 [&_h2]:py-2 [&_h2]:text-base [&_h2]:font-bold [&_h2]:uppercase [&_h2]:tracking-wider [&_h2]:mt-6 [&_h3]:border-l-2 [&_h3]:border-gold [&_h3]:pl-3 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:uppercase [&_h3]:text-accent [&_h3]:mt-5 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1.5 [&_li]:leading-relaxed [&_p]:leading-relaxed [&_a]:text-gold [&_a]:underline [&_code]:border [&_code]:border-grey-mid [&_code]:px-1 [&_img]:block [&_img]:w-full [&_img]:h-auto [&_img]:my-3 [&_img]:border [&_img]:border-grey-mid [&_img]:cursor-zoom-in"
-          dangerouslySetInnerHTML={{ __html: sanitiseHelpRichText(open.bodyHtml ?? '') }}
+          onKeyDown={handleBodyKeyDown}
+          className="help-body w-full border border-grey-mid bg-grey-dark/10 p-5 font-mono text-sm text-white space-y-4 [&_h2]:border [&_h2]:border-grey-mid [&_h2]:bg-grey-dark [&_h2]:px-4 [&_h2]:py-2 [&_h2]:text-base [&_h2]:font-bold [&_h2]:uppercase [&_h2]:tracking-wider [&_h2]:mt-6 [&_h3]:border-l-2 [&_h3]:border-gold [&_h3]:pl-3 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:uppercase [&_h3]:text-accent [&_h3]:mt-5 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1.5 [&_li]:leading-relaxed [&_p]:leading-relaxed [&_a]:text-gold [&_a]:underline [&_code]:border [&_code]:border-grey-mid [&_code]:px-1 [&_img]:block [&_img]:w-full [&_img]:h-auto [&_img]:my-3 [&_img]:border [&_img]:border-grey-mid [&_img]:cursor-zoom-in [&_img]:focus-visible:outline [&_img]:focus-visible:outline-2 [&_img]:focus-visible:outline-white"
+          dangerouslySetInnerHTML={{ __html: enhanceHelpImages(sanitiseHelpRichText(open.bodyHtml ?? '')) }}
         />
 
         <div className="flex justify-end">
@@ -102,6 +133,7 @@ export function HelpClient({ endpoint }: { endpoint: string }) {
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
           >
             <button
+              ref={closeButtonRef}
               type="button"
               onClick={() => setLightbox(null)}
               aria-label="Close image"

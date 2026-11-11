@@ -1349,11 +1349,16 @@ aliases (`SupplierItemCode`, `SupplierItemAlias`), purchasing history
 (`DeliveryItem`) and furniture BOM children (`FurnitureBomItem`). Soft-deleted
 parents are ignored (a deleted stocktake/recipe/task is not "in use"); the
 owner's own child rows (storage locations, maintenance logs, a furniture item's
-own BOM) do not block. The pure formatting/sorting helpers live in
-`lib/inventory-usage.ts`; the inventory UI shows the blockers in a modal
-(`ITEM IS STILL IN USE`) with an `OPEN →` link per row. Legacy
-`TableProfileItem`/`StepInventoryItem` rows are cascade-only and not treated as
-live usage.
+own BOM) do not block. **A permanent purge (`?permanent=1`) calls the helper
+with `{ includeDeletedParents: true }`**, which counts every physical row — a
+soft-deleted supplier code/alias/price movement/delivery or stocktake line still
+carries a required FK, so ignoring it would let `inventoryItem.delete()` throw
+P2003. `DELETE /api/admin/furniture/[id]` uses the same helper (setup
+placements are the furniture-specific case) and returns the same 409 shape. The
+pure formatting/sorting helpers live in `lib/inventory-usage.ts`; the inventory
+UI shows the blockers in a modal (`ITEM IS STILL IN USE`) with an `OPEN →` link
+per row. Legacy `TableProfileItem`/`StepInventoryItem` rows are cascade-only and
+not treated as live usage.
 
 **Recipes vs Menu Items (built 2026-11).** They are separate authoring surfaces
 under Inventory & Stocktake. **RECIPES** (`RecipesClient`) is the prep/BOM

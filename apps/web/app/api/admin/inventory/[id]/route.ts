@@ -158,9 +158,10 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // Never delete (or purge) an item a live record still points at. The caller
-  // can remove those links first, then try again.
-  const blockers = await findInventoryBlockers(params.id)
+  // Never delete (or purge) an item a live record still points at. A permanent
+  // purge also counts soft-deleted links, because their FK still makes the
+  // hard delete fail. The caller can remove those links first, then try again.
+  const blockers = await findInventoryBlockers(params.id, { includeDeletedParents: permanent })
   if (blockers.length > 0) {
     return NextResponse.json(
       { error: INVENTORY_IN_USE_ERROR, blockers },

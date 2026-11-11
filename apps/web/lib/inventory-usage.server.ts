@@ -1,7 +1,12 @@
-// DB half of inventory delete protection. Every live relation on
-// InventoryItem is counted here, so a soft delete (and the permanent-purge
-// path) refuses to break a floor plan, stocktake, recipe or purchase record.
-// Soft-deleted parents are ignored — they are no longer "in use".
+// DB half of inventory delete protection. Every relation on InventoryItem is
+// counted here, so a soft delete (and the permanent-purge path) refuses to
+// break a floor plan, stocktake, recipe or purchase record.
+//
+// Default mode ignores soft-deleted parents/rows — they are no longer "in use".
+// `includeDeletedParents` (used for `?permanent=1`) counts every PHYSICAL row
+// instead: a soft-deleted supplier code / alias / price movement / delivery or
+// stocktake line still carries a required FK, so a hard delete would throw
+// P2003 even though it was hidden from the soft-delete check.
 
 import { prisma } from '@hospo-ops/db'
 import {
@@ -12,62 +17,93 @@ import {
   type InventoryBlockerKind,
 } from './inventory-usage'
 
-export async function findInventoryBlockers(itemId: string): Promise<InventoryBlocker[]> {
+export interface FindInventoryBlockersOptions {
+  /**
+   * Permanent purge: count physical rows regardless of soft-deleted parents
+   * or child rows. Returns the same 409 blocker list.
+   */
+  includeDeletedParents?: boolean
+}
+
+export async function findInventoryBlockers(
+  itemId: string,
+  options: FindInventoryBlockersOptions = {},
+): Promise<InventoryBlocker[]> {
+  const live = !options.includeDeletedParents
+
   const counts = await Promise.all([
     // Floor plans: base-plan elements and placed furniture in a setup.
     prisma.elementInventoryItem.count({
-      where: { itemId, element: { deletedAt: null } },
+      where: { itemId, ...(live ? { element: { deletedAt: null } } : {}) },
     }),
     prisma.setupItem.count({
-      where: { furnitureItemId: itemId, deletedAt: null, setup: { deletedAt: null } },
+      where: {
+        furnitureItemId: itemId,
+        ...(live ? { deletedAt: null, setup: { deletedAt: null } } : {}),
+      },
     }),
     // Stocktake counts.
     prisma.stocktakeLineItem.count({
-      where: { itemId, record: { deletedAt: null } },
+      where: { itemId, ...(live ? { record: { deletedAt: null } } : {}) },
     }),
     // Recipe ingredients / sub-recipes.
     prisma.recipeLineItem.count({
-      where: { inventoryItemId: itemId, recipe: { deletedAt: null } },
+      where: { inventoryItemId: itemId, ...(live ? { recipe: { deletedAt: null } } : {}) },
     }),
     // Task item links (H&S readings and everyday tasks).
     prisma.task.count({
-      where: { linkedItemId: itemId, deletedAt: null },
+      where: { linkedItemId: itemId, ...(live ? { deletedAt: null } : {}) },
     }),
     // Product equipment / stock links and POS serves.
     prisma.menuItemInventoryItem.count({
-      where: { inventoryItemId: itemId, deletedAt: null, menuItem: { deletedAt: null } },
+      where: {
+        inventoryItemId: itemId,
+        ...(live ? { deletedAt: null, menuItem: { deletedAt: null } } : {}),
+      },
     }),
     prisma.menuItemServe.count({
-      where: { inventoryItemId: itemId, deletedAt: null, menuItem: { deletedAt: null } },
+      where: {
+        inventoryItemId: itemId,
+        ...(live ? { deletedAt: null, menuItem: { deletedAt: null } } : {}),
+      },
     }),
     // Stock lines on a menu.
     prisma.menuMenuItem.count({
-      where: { inventoryItemId: itemId, menu: { deletedAt: null } },
+      where: { inventoryItemId: itemId, ...(live ? { menu: { deletedAt: null } } : {}) },
     }),
     // Supplier SKU / recognition memory.
     prisma.supplierItemCode.count({
-      where: { inventoryItemId: itemId, deletedAt: null },
+      where: { inventoryItemId: itemId, ...(live ? { deletedAt: null } : {}) },
     }),
     // Purchasing / receiving / invoicing history.
     prisma.purchaseOrderLine.count({
-      where: { inventoryItemId: itemId, deletedAt: null, purchaseOrder: { deletedAt: null } },
+      where: {
+        inventoryItemId: itemId,
+        ...(live ? { deletedAt: null, purchaseOrder: { deletedAt: null } } : {}),
+      },
     }),
     prisma.supplierInvoiceLine.count({
-      where: { inventoryItemId: itemId, deletedAt: null, invoice: { deletedAt: null } },
+      where: {
+        inventoryItemId: itemId,
+        ...(live ? { deletedAt: null, invoice: { deletedAt: null } } : {}),
+      },
     }),
     prisma.deliveryItem.count({
-      where: { inventoryItemId: itemId, deletedAt: null, delivery: { deletedAt: null } },
+      where: {
+        inventoryItemId: itemId,
+        ...(live ? { deletedAt: null, delivery: { deletedAt: null } } : {}),
+      },
     }),
     // This item as a component of furniture (the parent furniture's own BOM is
     // owned by the furniture and does not block).
     prisma.furnitureBomItem.count({
-      where: { inventoryItemId: itemId, furniture: { deletedAt: null } },
+      where: { inventoryItemId: itemId, ...(live ? { furniture: { deletedAt: null } } : {}) },
     }),
     prisma.supplierItemAlias.count({
-      where: { inventoryItemId: itemId, deletedAt: null },
+      where: { inventoryItemId: itemId, ...(live ? { deletedAt: null } : {}) },
     }),
     prisma.supplierPriceMovement.count({
-      where: { inventoryItemId: itemId, deletedAt: null },
+      where: { inventoryItemId: itemId, ...(live ? { deletedAt: null } : {}) },
     }),
   ])
 

@@ -111,4 +111,35 @@ describe('findInventoryBlockers', () => {
       where: { inventoryItemId: 'i1', furniture: { deletedAt: null } },
     })
   })
+
+  it('counts every physical row for a permanent purge, including soft-deleted parents', async () => {
+    await findInventoryBlockers('i1', { includeDeletedParents: true })
+
+    // Required FKs that would throw P2003 on a hard delete even when the
+    // parent (or the link row itself) was soft-deleted.
+    expect(prisma.stocktakeLineItem.count).toHaveBeenCalledWith({
+      where: { itemId: 'i1' },
+    })
+    expect(prisma.supplierItemCode.count).toHaveBeenCalledWith({
+      where: { inventoryItemId: 'i1' },
+    })
+    expect(prisma.supplierItemAlias.count).toHaveBeenCalledWith({
+      where: { inventoryItemId: 'i1' },
+    })
+    expect(prisma.supplierPriceMovement.count).toHaveBeenCalledWith({
+      where: { inventoryItemId: 'i1' },
+    })
+    expect(prisma.deliveryItem.count).toHaveBeenCalledWith({
+      where: { inventoryItemId: 'i1' },
+    })
+    expect(prisma.elementInventoryItem.count).toHaveBeenCalledWith({
+      where: { itemId: 'i1' },
+    })
+    expect(prisma.setupItem.count).toHaveBeenCalledWith({
+      where: { furnitureItemId: 'i1' },
+    })
+    expect(prisma.task.count).toHaveBeenCalledWith({
+      where: { linkedItemId: 'i1' },
+    })
+  })
 })

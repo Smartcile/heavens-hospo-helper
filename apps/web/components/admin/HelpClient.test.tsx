@@ -68,4 +68,40 @@ describe('HelpClient', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close image' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
+
+  it('opens a screenshot with the keyboard, focuses the close control and restores focus on close', async () => {
+    mockFetch()
+    render(<HelpClient endpoint="/api/admin/help" />)
+
+    fireEvent.click(await screen.findByText('INVENTORY'))
+    const image = await screen.findByAltText('Delete blocked popup listing where the item is used')
+    expect(image.getAttribute('tabindex')).toBe('0')
+    expect(image.getAttribute('role')).toBe('button')
+    expect(image.getAttribute('aria-label')).toBe(
+      'Open image: Delete blocked popup listing where the item is used',
+    )
+
+    image.focus()
+    fireEvent.keyDown(image, { key: 'Enter' })
+    expect(screen.getByRole('dialog')).toBeDefined()
+
+    const close = screen.getByRole('button', { name: 'Close image' })
+    await waitFor(() => expect(document.activeElement).toBe(close))
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(image))
+  })
+
+  it('opens the lightbox with Space as well as Enter', async () => {
+    mockFetch()
+    render(<HelpClient endpoint="/api/admin/help" />)
+
+    fireEvent.click(await screen.findByText('INVENTORY'))
+    const image = await screen.findByAltText('Delete blocked popup listing where the item is used')
+
+    image.focus()
+    fireEvent.keyDown(image, { key: ' ' })
+    expect(screen.getByRole('dialog')).toBeDefined()
+  })
 })

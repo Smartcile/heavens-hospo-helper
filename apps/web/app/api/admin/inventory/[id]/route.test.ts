@@ -44,6 +44,7 @@ describe('/api/admin/inventory/[id] DELETE — in-use protection', () => {
     const res = await DELETE(deleteReq(), params)
 
     expect(res.status).toBe(200)
+    expect(findInventoryBlockers).toHaveBeenCalledWith('i1', { includeDeletedParents: false })
     expect(prisma.inventoryItem.update).toHaveBeenCalledWith({
       where: { id: 'i1' },
       data: { deletedAt: expect.any(Date) },
@@ -82,6 +83,24 @@ describe('/api/admin/inventory/[id] DELETE — in-use protection', () => {
     expect(res.status).toBe(409)
     expect(prisma.inventoryItem.delete).not.toHaveBeenCalled()
     expect(prisma.inventoryItem.update).not.toHaveBeenCalled()
+  })
+
+  it('allows a soft delete but blocks a purge when only a soft-deleted parent references it', async () => {
+    findInventoryBlockers.mockImplementation(
+      async (_id: string, options?: { includeDeletedParents?: boolean }) =>
+        options?.includeDeletedParents
+          ? [{ kind: 'SUPPLIER_CODE', count: 1, label: 'Has a supplier code', href: '/admin/settings?tab=suppliers' }]
+          : [],
+    )
+
+    const soft = await DELETE(deleteReq(), params)
+    expect(soft.status).toBe(200)
+    expect(findInventoryBlockers).toHaveBeenCalledWith('i1', { includeDeletedParents: false })
+
+    const purge = await DELETE(deleteReq(true), params)
+    expect(purge.status).toBe(409)
+    expect(findInventoryBlockers).toHaveBeenCalledWith('i1', { includeDeletedParents: true })
+    expect(prisma.inventoryItem.delete).not.toHaveBeenCalled()
   })
 
   it('purges a deleted item when nothing references it', async () => {
