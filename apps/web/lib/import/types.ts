@@ -1,4 +1,4 @@
-export type ImportEntity = 'MENU_ITEM' | 'RECIPE' | 'TASK' | 'GUIDE'
+export type ImportEntity = 'MENU_ITEM' | 'RECIPE' | 'TASK' | 'GUIDE' | 'STAFF_EVENT'
 
 export type ImportRowAction = 'CREATE' | 'UPDATE' | 'SKIP' | 'REVIVE'
 

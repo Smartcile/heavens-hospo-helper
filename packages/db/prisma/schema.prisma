@@ -102,6 +102,22 @@ enum NoticePriority {
   URGENT
 }
 
+// A staff-attendance event (get-together, training, briefing) is separate from
+// a customer/BEO Event. It reaches staff through a linked Notice + calendar
+// entry, and attendance is tracked per invited person.
+enum StaffEventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+}
+
+enum StaffEventResponse {
+  PENDING
+  ACCEPTED
+  DECLINED
+  MAYBE
+}
+
 enum CalendarSource {
   GOOGLE
   ICAL
@@ -333,6 +349,7 @@ model Venue {
   timeOffRequests     TimeOffRequest[]
   staffAvailabilities StaffAvailability[]
   notices             Notice[]
+  staffEvents         StaffEvent[]
   calendarEvents      CalendarEvent[]
   calendarFeeds       CalendarFeed[]
   areas               Area[]
@@ -477,6 +494,8 @@ model Staff {
   timeOffRequests      TimeOffRequest[]
   availabilities       StaffAvailability[]
   noticeAcks           NoticeAck[]
+  staffEventsCreated   StaffEvent[]     @relation("StaffEventCreatedBy")
+  staffEventInvites    StaffEventInvite[]
   sections             StaffSection[]
   sectionWorkReviews   SectionWorkReview[] @relation("SectionWorkStaff")
   reviewedSectionWorkReviews SectionWorkReview[] @relation("SectionWorkReviewer")
@@ -940,15 +959,94 @@ model Notice {
   endsAt       DateTime? // active-window end (null = no expiry)
   isActive     Boolean        @default(true)
   createdById  String?
+  // Set when this notice is the in-app face of a staff event. The RSVP on the
+  // event is the acknowledgement, so staff-event notices set requiresAck false.
+  staffEventId String?        @unique
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
   deletedAt    DateTime?
 
   venue      Venue       @relation(fields: [venueId], references: [id])
   department Department? @relation(fields: [departmentId], references: [id])
+  staffEvent StaffEvent? @relation("StaffEventNotice", fields: [staffEventId], references: [id])
   acks       NoticeAck[]
   // Who a notice targets. Empty = whole venue (like departmentId null).
   audiences  NoticeAudience[]
+}
+
+// --- STAFF ATTENDANCE EVENTS ---
+//
+// A manager-created staff event: a staff get-together, training session or
+// briefing. It is NOT a Shift/OpenShift and accepting never changes the roster.
+// Publishing creates one linked Notice (so it reaches the existing Notices
+// area) and materialises one StaffEventInvite per targeted active staff member.
+model StaffEvent {
+  id                    String            @id @default(uuid())
+  venueId               String
+  title                 String // ALL CAPS
+  description           String?
+  location              String?
+  startsAt              DateTime
+  endsAt                DateTime?
+  allDay                Boolean           @default(false)
+  attendanceRequired    Boolean           @default(false)
+  allowMaybe            Boolean           @default(false)
+  requireDeclineReason  Boolean           @default(false)
+  responseDeadline      DateTime?
+  notes                 String? // dress code, what to bring
+  status                StaffEventStatus  @default(DRAFT)
+  createdById           String?
+  reminderSentAt        DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  deletedAt             DateTime?
+
+  venue     Venue                @relation(fields: [venueId], references: [id])
+  createdBy Staff?               @relation("StaffEventCreatedBy", fields: [createdById], references: [id])
+  notice    Notice?              @relation("StaffEventNotice")
+  audiences StaffEventAudience[]
+  invites   StaffEventInvite[]
+
+  @@index([venueId, startsAt])
+  @@index([status])
+}
+
+// Who a staff event targets (mirrors GuideAudience / NoticeAudience). Empty
+// audiences + no invite rows means the whole venue.
+model StaffEventAudience {
+  id           String       @id @default(uuid())
+  staffEventId String
+  kind         AudienceKind
+  targetId     String
+  createdAt    DateTime     @default(now())
+
+  staffEvent StaffEvent @relation(fields: [staffEventId], references: [id], onDelete: Cascade)
+
+  @@unique([staffEventId, kind, targetId])
+  @@index([staffEventId])
+}
+
+// One per invited person. Materialised when the event is published/created so
+// attendance is a single indexed read and an explicit-staff invite survives a
+// narrow audience.
+model StaffEventInvite {
+  id             String             @id @default(uuid())
+  staffEventId   String
+  staffId        String
+  response       StaffEventResponse @default(PENDING)
+  respondedAt    DateTime?
+  reason         String? // decline reason (required only when the event says so)
+  reminderSentAt DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  deletedAt      DateTime?
+
+  staffEvent StaffEvent @relation(fields: [staffEventId], references: [id], onDelete: Cascade)
+  staff      Staff      @relation(fields: [staffId], references: [id])
+
+  @@unique([staffEventId, staffId])
+  @@index([staffId])
+  @@index([staffEventId, response])
 }
 
 // A notice audience — mirrors GuideAudience (kind + polymorphic targetId). Lets

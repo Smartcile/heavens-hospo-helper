@@ -26,6 +26,16 @@ interface DayData {
     startsAt: string
     endsAt: string | null
   }[]
+  staffEvents: {
+    id: string
+    title: string
+    time: string | null
+    allDay: boolean
+    location: string | null
+    attendanceRequired: boolean
+    startsAt: string
+    endsAt: string | null
+  }[]
   dutiesRequired: boolean
 }
 
@@ -49,7 +59,7 @@ export async function GET(req: NextRequest) {
 
   const { first, last, days } = monthDays(year, month)
 
-  const [shifts, timeOff, tasks, events] = await Promise.all([
+  const [shifts, timeOff, tasks, events, staffEvents] = await Promise.all([
     prisma.shift.findMany({
       where: { deletedAt: null, date: { gte: first, lte: last }, ...(venueScope ? { venueId: venueScope } : {}) },
       include: {
@@ -84,6 +94,16 @@ export async function GET(req: NextRequest) {
         feed: { select: { area: { select: { id: true, name: true, colour: true } } } },
       },
     }),
+    prisma.staffEvent.findMany({
+      where: {
+        deletedAt: null,
+        status: 'PUBLISHED',
+        startsAt: { lte: new Date(last.getTime() + 86400000) },
+        ...(venueScope ? { venueId: venueScope } : {}),
+        OR: [{ endsAt: null, startsAt: { gte: first } }, { endsAt: { gte: first } }],
+      },
+      orderBy: { startsAt: 'asc' },
+    }),
   ])
 
   // Build empty day map
@@ -93,6 +113,7 @@ export async function GET(req: NextRequest) {
       shifts: [],
       timeOff: [],
       events: [],
+      staffEvents: [],
       dutiesRequired: tasks.some((t) => isTaskDueOnDate(t, d)),
     }
   }
@@ -146,6 +167,25 @@ export async function GET(req: NextRequest) {
     }
     for (const key of dateKeysBetween(ev.startsAt, rangeEnd)) {
       if (dayMap[key]) dayMap[key].events.push(entry)
+    }
+  }
+
+  for (const key of Object.keys(dayMap)) {
+    const entries = staffEvents.filter((ev) => {
+      const rangeEnd = ev.endsAt ?? ev.startsAt
+      return dateKeysBetween(ev.startsAt, rangeEnd).includes(key)
+    })
+    for (const ev of entries) {
+      dayMap[key].staffEvents.push({
+        id: ev.id,
+        title: ev.title,
+        time: ev.allDay ? null : utcTime(ev.startsAt),
+        allDay: ev.allDay,
+        location: ev.location,
+        attendanceRequired: ev.attendanceRequired,
+        startsAt: ev.startsAt.toISOString(),
+        endsAt: ev.endsAt ? ev.endsAt.toISOString() : null,
+      })
     }
   }
 

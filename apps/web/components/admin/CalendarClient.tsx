@@ -33,8 +33,19 @@ interface EventItem {
   floorPlanName?: string | null
 }
 
+interface StaffEventItem {
+  id: string
+  title: string
+  time: string | null
+  allDay: boolean
+  location: string | null
+  attendanceRequired: boolean
+  startsAt: string
+  endsAt: string | null
+}
+
 interface FloorPlanLite { slug: string; name: string }
-interface DayData { shifts: ShiftItem[]; timeOff: TimeOffItem[]; events: EventItem[]; dutiesRequired: boolean }
+interface DayData { shifts: ShiftItem[]; timeOff: TimeOffItem[]; events: EventItem[]; staffEvents: StaffEventItem[]; dutiesRequired: boolean }
 
 interface Venue {
   id: string
@@ -397,6 +408,14 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
                   {data && data.events.length > 2 && (
                     <div className="font-mono text-xs text-accent">+{data.events.length - 2} EVENT{data.events.length - 2 > 1 ? 'S' : ''}</div>
                   )}
+                  {data?.staffEvents.slice(0, 2).map((ev) => (
+                    <div key={ev.id} className="font-mono text-xs text-warning truncate leading-tight">
+                      ▲ {ev.time ? `${ev.time} ` : ''}{ev.title}
+                    </div>
+                  ))}
+                  {data && data.staffEvents.length > 2 && (
+                    <div className="font-mono text-xs text-warning">+{data.staffEvents.length - 2} STAFF EVENT{data.staffEvents.length - 2 > 1 ? 'S' : ''}</div>
+                  )}
                 </button>
               )
             })}
@@ -410,6 +429,7 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
         <span><span className="text-warning">▮</span> OFF (PENDING)</span>
         <span><span className="text-accent">▮</span> DUTIES DUE</span>
         <span><span className="text-accent">◆</span> IMPORTED EVENT</span>
+        <span><span className="text-warning">▲</span> STAFF EVENT</span>
       </div>
       </>
       )}
@@ -512,6 +532,31 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
                       </div>
                     )
                   })}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="font-mono text-xs uppercase tracking-wider text-grey-light">STAFF EVENTS</div>
+                <Link href="/admin/notices?tab=staff" className="font-mono text-2xs uppercase text-grey-light hover:text-white transition-colors">
+                  MANAGE →
+                </Link>
+              </div>
+              {!openDayData || openDayData.staffEvents.length === 0 ? (
+                <p className="font-mono text-xs text-grey-light">NO STAFF EVENTS.</p>
+              ) : (
+                <div className="space-y-1">
+                  {openDayData.staffEvents.map((ev) => (
+                    <div key={ev.id} className="border border-grey-mid p-2">
+                      <div className="font-mono text-xs text-warning truncate">
+                        ▲ {ev.allDay ? 'ALL DAY' : ev.time} · {ev.title}
+                      </div>
+                      <div className="font-mono text-2xs uppercase text-grey-light">
+                        {ev.location?.trim() || 'LOCATION TBC'} · {ev.attendanceRequired ? 'ATTENDANCE REQUIRED' : 'OPTIONAL'}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

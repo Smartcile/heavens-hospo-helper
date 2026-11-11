@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { getTodayDate } from '@/lib/utils'
+import { allowedResponses, isResponseOpen, responseDeadlineAt, wallClockNow } from '@/lib/staff-events'
 
 // A worker's own upcoming (published) shifts. Time off now lives on the unified
 // availability calendar (`/w/availability`).
@@ -37,6 +38,25 @@ export async function GET() {
     },
   })
 
+  // Staff events are invitations, never shifts — they sit in their own list.
+  const staffEvents = await prisma.staffEvent.findMany({
+    where: {
+      venueId: session.venueId,
+      deletedAt: null,
+      status: 'PUBLISHED',
+      invites: { some: { staffId: session.staffId, deletedAt: null } },
+      OR: [{ endsAt: null, startsAt: { gte: today } }, { endsAt: { gte: today } }],
+    },
+    include: {
+      invites: { where: { staffId: session.staffId, deletedAt: null }, select: { response: true } },
+    },
+    orderBy: { startsAt: 'asc' },
+    take: 60,
+  })
+
+  const now = new Date()
+  const wallNow = wallClockNow(now, venue?.timezone)
+
   return NextResponse.json({
     firstName: session.firstName,
     openShiftCount,
@@ -47,6 +67,20 @@ export async function GET() {
       endTime: s.endTime,
       departmentName: s.department?.name ?? null,
       note: s.note,
+    })),
+    staffEvents: staffEvents.map((e) => ({
+      id: e.id,
+      title: e.title,
+      location: e.location,
+      startsAt: e.startsAt,
+      endsAt: e.endsAt,
+      allDay: e.allDay,
+      attendanceRequired: e.attendanceRequired,
+      response: e.invites[0]?.response ?? 'PENDING',
+      responseDeadline: responseDeadlineAt(e),
+      canRespond: isResponseOpen(e, wallNow),
+      allowedResponses: allowedResponses(e.allowMaybe),
+      icsUrl: `/api/worker/staff-events/${e.id}/ics`,
     })),
   })
 }
