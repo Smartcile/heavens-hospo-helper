@@ -374,4 +374,20 @@ describe('RosterClient', () => {
     expect(screen.getByText('8.5H · 1.5H UNDER MIN')).toBeDefined()
     expect(screen.getByText('MIN 10H · WANTED 20H · TARGET 30H')).toBeDefined()
   })
+
+  it('hides weekly hour targets in DAY view because the total is one day only', async () => {
+    const targeted = {
+      ...data,
+      staff: [{ ...data.staff[0], minHoursPerWeek: 10, wantedHoursPerWeek: 20, targetHoursPerWeek: 30 }],
+    }
+    mockFetch([[], [], targeted])
+
+    render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findByText('8.5H · 1.5H UNDER MIN')
+    fireEvent.click(screen.getByText('DAY'))
+
+    await waitFor(() => expect(screen.queryByText('8.5H · 1.5H UNDER MIN')).toBeNull())
+    expect(screen.queryByText('MIN 10H · WANTED 20H · TARGET 30H')).toBeNull()
+  })
 })

@@ -697,7 +697,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
           <div className="font-mono text-2xs text-grey-light mt-0.5">
             {t ? `${t.hours.toFixed(2)}HRS / $${t.cost.toFixed(2)}` : '0HRS / $0.00'}
           </div>
-          {hourStatus.goals.length > 0 && (
+          {view === 'week' && hourStatus.goals.length > 0 && (
             <>
               <span
                 className={`inline-block font-mono text-2xs uppercase px-1 mt-0.5 border ${hourStatusTone(hourStatus.level)}`}

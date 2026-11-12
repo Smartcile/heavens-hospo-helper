@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import bcrypt from 'bcryptjs'
 import { getAccessibleVenueIds } from '@/lib/venue-scope'
 import { guardAccess } from '@/lib/permissions'
+import { parseHourTarget } from '@/lib/roster-hours'
 
 const STAFF_SELECT = {
   id: true,
@@ -151,6 +152,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const minHours = parseHourTarget(minHoursPerWeek)
+  const wantedHours = parseHourTarget(wantedHoursPerWeek)
+  const targetHours = parseHourTarget(targetHoursPerWeek)
+  if (!minHours.ok || !wantedHours.ok || !targetHours.ok) {
+    return NextResponse.json({ error: 'HOUR TARGETS MUST BE NON-NEGATIVE NUMBERS' }, { status: 400 })
+  }
+
   const normalisedEmail = email?.trim().toLowerCase() || null
   if (normalisedEmail) {
     const clash = await prisma.staff.findFirst({
@@ -174,9 +182,9 @@ export async function POST(req: NextRequest) {
       departmentId: departmentId ?? null,
       hourlyRate: hourlyRate != null ? Number(hourlyRate) : null,
       employmentType: employmentType || null,
-      minHoursPerWeek: minHoursPerWeek != null ? Number(minHoursPerWeek) : null,
-      wantedHoursPerWeek: wantedHoursPerWeek != null ? Number(wantedHoursPerWeek) : null,
-      targetHoursPerWeek: targetHoursPerWeek != null ? Number(targetHoursPerWeek) : null,
+      minHoursPerWeek: minHours.value,
+      wantedHoursPerWeek: wantedHours.value,
+      targetHoursPerWeek: targetHours.value,
       swiftPosId: swiftPosId?.trim() || null,
       myHrId: myHrId?.trim() || null,
       loadedReportsId: loadedReportsId?.trim() || null,

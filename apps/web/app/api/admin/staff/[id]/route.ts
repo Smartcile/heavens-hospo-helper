@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import bcrypt from 'bcryptjs'
 import { guardAccess } from '@/lib/permissions'
 import { dismissPendingSectionWorkForGrant } from '@/lib/section-work.server'
+import { parseHourTarget } from '@/lib/roster-hours'
 
 interface Params {
   params: { id: string }
@@ -73,9 +74,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (isActive !== undefined) updates.isActive = isActive
   if (hourlyRate !== undefined) updates.hourlyRate = hourlyRate != null ? Number(hourlyRate) : null
   if (employmentType !== undefined) updates.employmentType = employmentType || null
-  if (body.minHoursPerWeek !== undefined) updates.minHoursPerWeek = body.minHoursPerWeek != null ? Number(body.minHoursPerWeek) : null
-  if (body.wantedHoursPerWeek !== undefined) updates.wantedHoursPerWeek = body.wantedHoursPerWeek != null ? Number(body.wantedHoursPerWeek) : null
-  if (body.targetHoursPerWeek !== undefined) updates.targetHoursPerWeek = body.targetHoursPerWeek != null ? Number(body.targetHoursPerWeek) : null
+  for (const field of ['minHoursPerWeek', 'wantedHoursPerWeek', 'targetHoursPerWeek'] as const) {
+    if (body[field] !== undefined) {
+      const parsed = parseHourTarget(body[field])
+      if (!parsed.ok) {
+        return NextResponse.json({ error: 'HOUR TARGETS MUST BE NON-NEGATIVE NUMBERS' }, { status: 400 })
+      }
+      updates[field] = parsed.value
+    }
+  }
   if (body.taxCode !== undefined) updates.taxCode = body.taxCode?.trim() || null
   if (body.kiwiSaverRate !== undefined) updates.kiwiSaverRate = body.kiwiSaverRate != null ? Number(body.kiwiSaverRate) : null
   if (body.studentLoan !== undefined) updates.studentLoan = !!body.studentLoan

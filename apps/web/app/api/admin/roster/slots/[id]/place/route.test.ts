@@ -5,6 +5,7 @@ const { prisma, getServerSession, guardAccess, resolveScopedVenueId } = vi.hoist
   prisma: {
     rosterSlot: { findUnique: vi.fn() },
     staff: { findMany: vi.fn() },
+    position: { findFirst: vi.fn() },
     shift: { createMany: vi.fn() },
   },
   getServerSession: vi.fn(),
@@ -46,10 +47,21 @@ beforeEach(() => {
   resolveScopedVenueId.mockReturnValue({ venueId: 'v1' })
   prisma.rosterSlot.findUnique.mockResolvedValue(slot())
   prisma.staff.findMany.mockResolvedValue([{ id: 's1', departmentId: 'd1' }])
+  prisma.position.findFirst.mockResolvedValue({ id: 'p1' })
   prisma.shift.createMany.mockResolvedValue({ count: 1 })
 })
 
 describe('POST /api/admin/roster/slots/[id]/place', () => {
+  it('returns 401 without a session', async () => {
+    getServerSession.mockResolvedValue(null)
+    expect((await POST(req({ date: '2026-11-16', staffIds: ['s1'] }), params)).status).toBe(401)
+  })
+
+  it('404s an unknown slot', async () => {
+    prisma.rosterSlot.findUnique.mockResolvedValue(null)
+    expect((await POST(req({ date: '2026-11-16', staffIds: ['s1'] }), params)).status).toBe(404)
+  })
+
   it('creates a DRAFT shift for each selected staff member and reports unfilled seats', async () => {
     const res = await POST(req({ date: '2026-11-16', staffIds: ['s1'] }), params)
     const body = await res.json()
@@ -68,6 +80,15 @@ describe('POST /api/admin/roster/slots/[id]/place', () => {
       status: 'DRAFT',
     })
     expect(data[0].date.toISOString().slice(0, 10)).toBe('2026-11-16')
+  })
+
+  it('clears a slot position that no longer exists', async () => {
+    prisma.position.findFirst.mockResolvedValue(null)
+    const res = await POST(req({ date: '2026-11-16', staffIds: ['s1'] }), params)
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.clearedPositionId).toBe('p1')
+    expect(prisma.shift.createMany.mock.calls[0][0].data[0].positionId).toBeNull()
   })
 
   it('rejects selecting more staff than the headcount', async () => {

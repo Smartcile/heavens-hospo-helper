@@ -119,10 +119,16 @@ function hourStatusLabel(hours: number, level: HourTargetLevel, unmet: HourGoal[
   return `${formatHours(hours)} · ${goal.kind.toUpperCase()} MET`
 }
 
-/** Progress towards a goal, clamped to 0–100. */
-export function hourProgressPct(hours: number, goalHours: number): number {
-  if (!Number.isFinite(goalHours) || goalHours <= 0) return 0
-  return Math.max(0, Math.min(100, Math.round(((Number.isFinite(hours) ? hours : 0) / goalHours) * 100)))
+/**
+ * Parse a weekly hour target from an API payload. Accepts a finite,
+ * non-negative number (or a numeric string). Blank/null/undefined means "not
+ * set". Anything else is rejected so a negative target can never be stored.
+ */
+export function parseHourTarget(value: unknown): { ok: boolean; value: number | null } {
+  if (value === null || value === undefined || value === '') return { ok: true, value: null }
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n) || n < 0) return { ok: false, value: null }
+  return { ok: true, value: Math.round(n * 100) / 100 }
 }
 
 /** Tailwind classes for the roster hour-status chip. */

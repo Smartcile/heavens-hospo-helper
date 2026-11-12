@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
       'Booking', 'BookingTable',
       'BudgetPeriod', 'BudgetCategory', 'BudgetDay', 'BudgetDayAllocation',
       'StocktakeRecord', 'StocktakeLineItem',
-      'Shift', 'ShiftNote', 'TimeOffRequest',
+      'Shift', 'ShiftNote', 'RosterTemplate', 'RosterTemplateShift', 'RosterSlot', 'TimeOffRequest',
       'StaffNotice',
       'PaletteDefault',
       'QRCode',

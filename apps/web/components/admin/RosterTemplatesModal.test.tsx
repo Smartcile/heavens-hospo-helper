@@ -67,7 +67,8 @@ describe('RosterTemplatesModal', () => {
     render(<RosterTemplatesModal venueId="v1" weekStart="2026-11-09" onClose={vi.fn()} onApplied={onApplied} />)
     await screen.findByText('SUMMER WEEK')
 
-    fireEvent.change(screen.getByDisplayValue('2026-11-09'), { target: { value: '2026-11-16' } })
+    // The target week defaults to the week after the one being viewed.
+    expect(screen.getByDisplayValue('2026-11-16')).toBeDefined()
     fireEvent.click(screen.getByText('APPLY'))
 
     await waitFor(() => {
@@ -77,5 +78,42 @@ describe('RosterTemplatesModal', () => {
     })
     expect(await screen.findByText('APPLIED SUMMER WEEK — 5 CREATED · 2 REPLACED · 1 STAFF SKIPPED')).toBeDefined()
     expect(onApplied).toHaveBeenCalled()
+  })
+
+  it('asks for confirmation before a REPLACE apply and does nothing when cancelled', async () => {
+    const spy = mockFetch(({ url }) => {
+      if (url.includes('/templates?')) return templates
+      if (url.includes('/apply')) return { created: 1 }
+      return {}
+    })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<RosterTemplatesModal venueId="v1" weekStart="2026-11-09" onClose={vi.fn()} onApplied={vi.fn()} />)
+    await screen.findByText('SUMMER WEEK')
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'REPLACE' } })
+    fireEvent.click(screen.getByText('APPLY'))
+
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('INCLUDING PUBLISHED SHIFTS'))
+    expect(spy.mock.calls.some(([url]) => String(url) === '/api/admin/roster/templates/t1/apply')).toBe(false)
+  })
+
+  it('applies in REPLACE mode after confirmation', async () => {
+    const spy = mockFetch(({ url }) => {
+      if (url.includes('/templates?')) return templates
+      if (url.includes('/apply')) return { created: 1 }
+      return {}
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<RosterTemplatesModal venueId="v1" weekStart="2026-11-09" onClose={vi.fn()} onApplied={vi.fn()} />)
+    await screen.findByText('SUMMER WEEK')
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'REPLACE' } })
+    fireEvent.click(screen.getByText('APPLY'))
+
+    await waitFor(() => {
+      const call = spy.mock.calls.find(([url]) => String(url) === '/api/admin/roster/templates/t1/apply')
+      expect(call).toBeDefined()
+      expect(JSON.parse(String(call![1]!.body))).toMatchObject({ mode: 'REPLACE' })
+    })
   })
 })

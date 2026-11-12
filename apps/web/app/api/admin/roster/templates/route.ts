@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 
   const templates = await prisma.rosterTemplate.findMany({
     where: { venueId, deletedAt: null },
-    include: { shifts: { orderBy: { sortOrder: 'asc' } } },
+    include: { shifts: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } } },
     orderBy: { createdAt: 'desc' },
   })
 

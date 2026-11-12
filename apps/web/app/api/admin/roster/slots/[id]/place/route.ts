@@ -32,10 +32,19 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (!isDateKey(date)) return NextResponse.json({ error: 'DATE MUST BE YYYY-MM-DD' }, { status: 400 })
   if (!slot.isActive) return NextResponse.json({ error: 'THIS SLOT IS INACTIVE' }, { status: 409 })
 
-  const staff = await prisma.staff.findMany({
-    where: { id: { in: Array.isArray(staffIds) ? staffIds : [] }, venueId: slot.venueId, deletedAt: null, isActive: true },
-    select: { id: true, departmentId: true },
-  })
+  const [staff, position] = await Promise.all([
+    prisma.staff.findMany({
+      where: { id: { in: Array.isArray(staffIds) ? staffIds : [] }, venueId: slot.venueId, deletedAt: null, isActive: true },
+      select: { id: true, departmentId: true },
+    }),
+    slot.positionId
+      ? prisma.position.findFirst({
+        where: { id: slot.positionId, venueId: slot.venueId, deletedAt: null },
+        select: { id: true },
+      })
+      : Promise.resolve(null),
+  ])
+  const clearedPositionId = slot.positionId && !position ? slot.positionId : null
   const staffIdsValid = new Set(staff.map((s) => s.id))
   const departmentByStaff = new Map(staff.map((s) => [s.id, s.departmentId]))
   const plan = planSlotPlacement(slot.headcount, Array.isArray(staffIds) ? staffIds : [], staffIdsValid)
@@ -53,7 +62,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       staffId,
       venueId: slot.venueId,
       departmentId: departmentByStaff.get(staffId) ?? null,
-      positionId: slot.positionId,
+      positionId: clearedPositionId ? null : slot.positionId,
       date: shiftDate,
       startTime: slot.startTime,
       endTime: slot.endTime,
@@ -69,6 +78,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     created: plan.selected.length,
     skippedSeats: plan.skippedSeats,
     skippedStaffIds: plan.skippedStaffIds,
+    clearedPositionId,
     date,
   })
 }

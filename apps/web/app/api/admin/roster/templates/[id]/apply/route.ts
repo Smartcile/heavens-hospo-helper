@@ -37,17 +37,22 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const template = await prisma.rosterTemplate.findUnique({
     where: { id: params.id },
-    include: { shifts: { orderBy: { sortOrder: 'asc' } } },
+    include: { shifts: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } } },
   })
   if (!template || template.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (template.venueId !== venueId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const staff = await prisma.staff.findMany({
-    where: { venueId, deletedAt: null, isActive: true },
-    select: { id: true, departmentId: true },
-  })
+  const [staff, positions] = await Promise.all([
+    prisma.staff.findMany({
+      where: { venueId, deletedAt: null, isActive: true },
+      select: { id: true, departmentId: true },
+    }),
+    prisma.position.findMany({ where: { venueId, deletedAt: null }, select: { id: true } }),
+  ])
   const staffIds = new Set(staff.map((s) => s.id))
   const departmentByStaff = new Map(staff.map((s) => [s.id, s.departmentId]))
+  const positionIds = new Set(positions.map((p) => p.id))
+  const clearedPositionIds = new Set<string>()
 
   const plan = buildTemplateWeekRows(template.shifts, targetWeekStart, staffIds)
   if (plan.rows.length === 0) {
@@ -57,21 +62,28 @@ export async function POST(req: NextRequest, { params }: Params) {
     )
   }
 
-  const rows: DraftShiftData[] = plan.rows.map((r) => ({
-    staffId: r.staffId,
-    venueId,
-    departmentId: departmentByStaff.get(r.staffId) ?? null,
-    positionId: r.positionId,
-    date: new Date(`${r.date}T00:00:00Z`),
-    startTime: r.startTime,
-    endTime: r.endTime,
-    breakMinutes: r.breakMinutes,
-    colour: r.colour,
-    tag: r.tag,
-    note: r.note,
-    status: 'DRAFT',
-    createdById: session.user.id,
-  }))
+  const rows: DraftShiftData[] = plan.rows.map((r) => {
+    let positionId = r.positionId
+    if (positionId && !positionIds.has(positionId)) {
+      clearedPositionIds.add(positionId)
+      positionId = null
+    }
+    return {
+      staffId: r.staffId,
+      venueId,
+      departmentId: departmentByStaff.get(r.staffId) ?? null,
+      positionId,
+      date: new Date(`${r.date}T00:00:00Z`),
+      startTime: r.startTime,
+      endTime: r.endTime,
+      breakMinutes: r.breakMinutes,
+      colour: r.colour,
+      tag: r.tag,
+      note: r.note,
+      status: 'DRAFT',
+      createdById: session.user.id,
+    }
+  })
 
   const result = await writeShiftWeek(venueId, targetWeekStart, applyMode, rows)
   return NextResponse.json({
@@ -79,5 +91,6 @@ export async function POST(req: NextRequest, { params }: Params) {
     weekStart: targetWeekStart,
     mode: applyMode,
     skippedStaffIds: plan.skippedStaffIds,
+    clearedPositionIds: [...clearedPositionIds],
   })
 }

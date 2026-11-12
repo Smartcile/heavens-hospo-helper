@@ -25,6 +25,12 @@ export function RosterCopyWeekModal({
   const [notice, setNotice] = useState('')
 
   async function copyWeek() {
+    if (mode === 'REPLACE') {
+      const ok = confirm(
+        `REPLACE WILL DELETE EVERY SHIFT IN THE TARGET WEEK (${formatDateLong(mondayOf(targetStart))}), INCLUDING PUBLISHED SHIFTS. CONTINUE?`,
+      )
+      if (!ok) return
+    }
     setBusy(true); setError(''); setNotice('')
     const r = await fetch('/api/admin/roster/copy', {
       method: 'POST',

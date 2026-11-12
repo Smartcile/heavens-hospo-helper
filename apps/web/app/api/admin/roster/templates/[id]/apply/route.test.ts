@@ -5,6 +5,7 @@ const { prisma, getServerSession, guardAccess, resolveScopedVenueId, releaseSeat
   prisma: {
     rosterTemplate: { findUnique: vi.fn() },
     staff: { findMany: vi.fn() },
+    position: { findMany: vi.fn() },
     shift: { findMany: vi.fn(), update: vi.fn(), createMany: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -46,6 +47,7 @@ beforeEach(() => {
   resolveScopedVenueId.mockReturnValue({ venueId: 'v1' })
   prisma.rosterTemplate.findUnique.mockResolvedValue(template())
   prisma.staff.findMany.mockResolvedValue([{ id: 's1', departmentId: 'd1' }])
+  prisma.position.findMany.mockResolvedValue([{ id: 'p1' }])
   prisma.shift.findMany.mockResolvedValue([])
   prisma.shift.update.mockResolvedValue({})
   prisma.shift.createMany.mockResolvedValue({ count: 1 })
@@ -53,6 +55,16 @@ beforeEach(() => {
 })
 
 describe('POST /api/admin/roster/templates/[id]/apply', () => {
+  it('returns 401 without a session', async () => {
+    getServerSession.mockResolvedValue(null)
+    expect((await POST(req({ venueId: 'v1', weekStart: '2026-11-30' }), params)).status).toBe(401)
+  })
+
+  it('404s an unknown template', async () => {
+    prisma.rosterTemplate.findUnique.mockResolvedValue(null)
+    expect((await POST(req({ venueId: 'v1', weekStart: '2026-11-30' }), params)).status).toBe(404)
+  })
+
   it('creates DRAFT shifts in ADD mode and reports skipped staff', async () => {
     const res = await POST(req({ venueId: 'v1', weekStart: '2026-11-30', mode: 'ADD' }), params)
     const body = await res.json()
@@ -78,6 +90,15 @@ describe('POST /api/admin/roster/templates/[id]/apply', () => {
     expect(res.status).toBe(200)
     expect(prisma.shift.update).toHaveBeenCalledWith({ where: { id: 'old1' }, data: { deletedAt: expect.any(Date) } })
     expect(releaseSeatForShift).toHaveBeenCalledWith('old1', prisma)
+  })
+
+  it('clears a position that no longer exists instead of risking an FK abort', async () => {
+    prisma.position.findMany.mockResolvedValue([])
+    const res = await POST(req({ venueId: 'v1', weekStart: '2026-11-30' }), params)
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.clearedPositionIds).toEqual(['p1'])
+    expect(prisma.shift.createMany.mock.calls[0][0].data[0].positionId).toBeNull()
   })
 
   it('422s when no active staff remain', async () => {

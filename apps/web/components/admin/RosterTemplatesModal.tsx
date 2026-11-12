@@ -53,7 +53,7 @@ export function RosterTemplatesModal({
   const [notice, setNotice] = useState('')
   const [name, setName] = useState('')
   const [notes, setNotes] = useState('')
-  const [targetWeek, setTargetWeek] = useState(weekStart)
+  const [targetWeek, setTargetWeek] = useState(() => shiftDay(weekStart, 7))
   const [mode, setMode] = useState<'ADD' | 'REPLACE'>('ADD')
 
   const loadTemplates = useCallback(async () => {
@@ -84,6 +84,12 @@ export function RosterTemplatesModal({
   }
 
   async function applyTemplate(template: TemplateRow) {
+    if (mode === 'REPLACE') {
+      const ok = confirm(
+        `REPLACE WILL DELETE EVERY SHIFT IN THE TARGET WEEK (${formatDateLong(targetWeek)}), INCLUDING PUBLISHED SHIFTS. CONTINUE?`,
+      )
+      if (!ok) return
+    }
     setBusy(true); setError(''); setNotice('')
     const r = await fetch(`/api/admin/roster/templates/${template.id}/apply`, {
       method: 'POST',

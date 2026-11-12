@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
   describeHourTargets,
   hourGoals,
-  hourProgressPct,
   hourStatusTone,
   hourTargetStatus,
+  parseHourTarget,
 } from '@/lib/roster-hours'
 
 describe('hourGoals', () => {
@@ -70,12 +70,18 @@ describe('describeHourTargets', () => {
   })
 })
 
-describe('hourProgressPct', () => {
-  it('clamps progress to 0–100', () => {
-    expect(hourProgressPct(20, 40)).toBe(50)
-    expect(hourProgressPct(80, 40)).toBe(100)
-    expect(hourProgressPct(-5, 40)).toBe(0)
-    expect(hourProgressPct(10, 0)).toBe(0)
+describe('parseHourTarget', () => {
+  it('accepts finite non-negative numbers and blanks', () => {
+    expect(parseHourTarget(20)).toEqual({ ok: true, value: 20 })
+    expect(parseHourTarget('30.5')).toEqual({ ok: true, value: 30.5 })
+    expect(parseHourTarget(null)).toEqual({ ok: true, value: null })
+    expect(parseHourTarget('')).toEqual({ ok: true, value: null })
+  })
+
+  it('rejects negative, non-finite and non-numeric targets', () => {
+    expect(parseHourTarget(-1)).toEqual({ ok: false, value: null })
+    expect(parseHourTarget('abc')).toEqual({ ok: false, value: null })
+    expect(parseHourTarget(Number.POSITIVE_INFINITY)).toEqual({ ok: false, value: null })
   })
 })
 

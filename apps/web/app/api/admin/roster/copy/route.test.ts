@@ -50,6 +50,11 @@ beforeEach(() => {
 })
 
 describe('POST /api/admin/roster/copy', () => {
+  it('returns 401 without a session', async () => {
+    getServerSession.mockResolvedValue(null)
+    expect((await POST(req({ venueId: 'v1', sourceStart: '2026-11-09', targetStart: '2026-11-16' }))).status).toBe(401)
+  })
+
   it('copies a week onto the target week in ADD mode', async () => {
     const res = await POST(req({ venueId: 'v1', sourceStart: '2026-11-09', targetStart: '2026-11-16', mode: 'ADD' }))
     const body = await res.json()
