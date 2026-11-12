@@ -4,6 +4,7 @@
 // must not offer an outcome in the UI that the server then rejects).
 
 import { prisma } from '@hospo-ops/db'
+import { checklistApplicabilityWhere } from '@/lib/checklist-applicability'
 import type { TaskOutcome } from '@/lib/task-outcomes'
 import type { ChecklistEventWindow, ChecklistScheduleWindow } from '@/lib/checklist-activation'
 
@@ -66,25 +67,12 @@ export async function applicableChecklistsForStaff(opts: {
   const positionIds = (staffCtx?.positions ?? []).map((p) => p.positionId)
 
   const checklists = await prisma.checklist.findMany({
-    where: {
-      deletedAt: null,
-      isActive: true,
-      venueId: opts.venueId,
-      ...(opts.taskId ? { tasks: { some: { taskId: opts.taskId } } } : {}),
-      OR: [
-        ...(departmentIds ? [{ departmentId: { in: departmentIds }, audiences: { none: {} } }] : []),
-        { departmentId: null, audiences: { none: {} } },
-        ...(opts.departmentId
-          ? [{ audiences: { some: { kind: 'DEPARTMENT' as const, targetId: opts.departmentId } } }]
-          : []),
-        ...(sectionIds.length
-          ? [{ audiences: { some: { kind: 'SECTION' as const, targetId: { in: sectionIds } } } }]
-          : []),
-        ...(positionIds.length
-          ? [{ audiences: { some: { kind: 'POSITION' as const, targetId: { in: positionIds } } } }]
-          : []),
-      ],
-    },
+    where: checklistApplicabilityWhere(opts.venueId, {
+      departmentIds,
+      sectionIds,
+      positionIds,
+      taskId: opts.taskId,
+    }),
     select: {
       id: true,
       name: true,
