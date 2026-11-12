@@ -170,4 +170,45 @@ describe('WorkerDashboardClient chrome', () => {
     await waitFor(() => expect(screen.getByText('TASKS')).toBeDefined())
     expect(screen.queryByText('GIFT CARDS')).toBeNull()
   })
+
+  it('shows the Guest Parking tile only when the venue has enabled it', async () => {
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') return json({ tasks: [], firstName: 'ALEX' })
+      if (u === '/api/worker/parking/access')
+        return json({ enabled: true, health: { ok: true, stale: false, message: 'OK' } })
+      return json({})
+    })
+
+    render(<WorkerDashboardClient role="STAFF" />)
+    await waitFor(() => expect(screen.getByText('GUEST PARKING')).toBeDefined())
+    expect(screen.getByText('REGISTER A GUEST PLATE')).toBeDefined()
+  })
+
+  it('flags a failed parking health check on the tile', async () => {
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') return json({ tasks: [], firstName: 'ALEX' })
+      if (u === '/api/worker/parking/access')
+        return json({ enabled: true, health: { ok: false, stale: false, message: 'HTTP 502' } })
+      return json({})
+    })
+
+    render(<WorkerDashboardClient role="STAFF" />)
+    await waitFor(() => expect(screen.getByText('GUEST PARKING')).toBeDefined())
+    expect(screen.getByText(/SERVICE WARNING/)).toBeDefined()
+  })
+
+  it('hides the Guest Parking tile when disabled', async () => {
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') return json({ tasks: [], firstName: 'ALEX' })
+      if (u === '/api/worker/parking/access') return json({ enabled: false, health: null })
+      return json({})
+    })
+
+    render(<WorkerDashboardClient role="STAFF" />)
+    await waitFor(() => expect(screen.getByText('TASKS')).toBeDefined())
+    expect(screen.queryByText('GUEST PARKING')).toBeNull()
+  })
 })

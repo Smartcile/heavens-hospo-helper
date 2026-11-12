@@ -57,7 +57,7 @@ hospo-ops/
 ├── packages/
 │   ├── db/                         # Prisma 7 schema + PG adapter + seed
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma       # 155 models (as of 2026-11)
+│   │   │   ├── schema.prisma       # 158 models (as of 2026-11)
 │   │   │   ├── seed.ts             # Idempotent demo/sample data
 │   │   │   ├── migrate-*.ts        # One-off migrations wired into docker-entrypoint.sh
 │   │   │   └── migrations/         # Legacy 0_init migration (kept for reference)
@@ -1827,6 +1827,67 @@ Route: `GET /api/admin/swiftpos/dockets?venueId=&minutes=` (guard
 SwiftDOSnet problem `detail`/`title`).
 
 
+### Guest parking (Scan2Pay) — optional, OFF by default (built 2026-11)
+
+Registers a guest's number plate with the Scan2Pay carpark so they get the
+**free 90-minute** window instead of the 15-minute grace. The integration is
+**disabled and invisible by default** so a FOSS install cannot accidentally use
+it: nothing is shown to workers and no outbound traffic is sent until an admin
+saves a `scan2pay.nz` carpark URL and enables it in **Settings → GENERAL →
+GUEST PARKING**.
+
+- **Config** — `ParkingConfig` (one per venue, `@@unique([venueId])`):
+  `enabled`, `entryUrl` (the `…/Parking/Scan?carparkId=…` URL — the only input),
+  derived `carparkId`/`carparkName`, `durationMinutes` (default 90),
+  `healthCheckMode READINESS|FULL|OFF`, `healthPlate` (default `STELLA`) and the
+  cached `lastCheckAt/lastCheckOk/lastCheckMessage`. Only `scan2pay.nz` URLs are
+  accepted; the carpark name is read from the Scan page on save.
+- **Registration** — `ParkingRegistration` is the audit row per attempt
+  (`status CONFIRMED | FAILED | ALREADY_ACTIVE`, window, confirmation ref, HTTP
+  status, snippet, who registered). Duplicate protection is per plate per
+  venue-local day; an existing session is never resubmitted (the site allows one
+  free claim per plate per day) and the UI offers the **EXTEND ON SCAN2PAY** link
+  instead.
+- **Flow** — server-side only (`lib/scan2pay.server.ts`): GET the SelectTime page
+  with a manual cookie jar, read the ASP.NET antiforgery token, then POST
+  `/Parking/CreateSession` with `EntryTime`/`ExitTime` as venue-local
+  `yyyy-MM-ddTHH:mm:ss`. CreateSession redirects to a Payment page; the server
+  extracts its `token`, POSTs `/Parking/ProcessPayment?token=…`
+  (`{ CustomerEmail: "" }`) and follows the returned Confirmation page
+  (`Payment Successful!`). A Stripe `sessionId` (a paid flow) is reported as
+  `PAYMENT REQUIRED` instead of being silently confirmed. Times come from the
+  arrival instant formatted in `Venue.timezone`; beyond 90 minutes is a Scan2Pay
+  Stripe flow we link to, not automate. No official API exists — this is HTML
+  form automation.
+- **Worker** — **GUEST PARKING** tile (only when enabled) → `/w/parking`
+  (`WorkerParkingClient`): big plate input, arrival defaults to now with
+  `-30/-15/-5/NOW` and a full `datetime-local` picker, one SUBMIT, success card
+  with paid-until + confirmation + extend link, `ALREADY REGISTERED` card, and
+  today's registrations. `/api/worker/parking/access` gates the tile and carries
+  the health state.
+- **Health check** — `lib/parking-health.server.ts` runs daily at **05:00**
+  (venue-local via the internal cron) and records `ParkingHealthCheck` rows.
+  `READINESS` (default) only GETs the form with the fake plate — no session is
+  created; `FULL` submits it end-to-end (a real $0 fake session); `OFF` disables
+  it. A failed/stale (>36h) check warns in Settings, the admin dashboard
+  **ATTENTION** widget and a **SERVICE WARNING** strip on the worker tile.
+  `GET /api/cron/parking-health` (`CRON_SECRET`, `?force=1`) is the external
+  fallback; `POST /api/admin/parking/health` is the manual RUN CHECK NOW.
+
+| Route | Methods | Purpose |
+|---|---|---|
+| `/api/admin/parking/config` | GET, PUT | Read/save the venue config (admin or own-venue manager) |
+| `/api/admin/parking/health` | POST | Run a check now |
+| `/api/admin/parking/registrations` | GET | Recent registrations (admin history) |
+| `/api/worker/parking/access` | GET | `{ enabled, health }` for the dashboard tile |
+| `/api/worker/parking` | GET, POST | Today's registrations; register a plate |
+| `/api/cron/parking-health` | GET | External scheduler fallback |
+
+**Deploy note:** additive only — `prisma db push` creates the three tables; no
+data migration. The demo seed does not enable it. **Risk:** HTML automation and
+one free claim per plate/day; treat the URL as private.
+
+
 ### Unified staff identity
 A single `Staff` profile carries external-system link IDs — `swiftPosId`,
 `myHrId`, `loadedReportsId` — so one person maps across SwiftPOS, MyHR, and
@@ -2799,7 +2860,7 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 > (`MenuItem.variations`), orders (`WooOrder` as the local order store), gift
 > cards, SwiftPOS and `ApiKey` public routes are unaffected.
 
-### Schema: 155 models (as of 2026-11)
+### Schema: 158 models (as of 2026-11)
 Core ERP models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`,
 `RecipeLineItem` (recursive BOM), `IngredientReference` (Pantry Bible),
 `WooIntegration`, `MenuItem` (+ `MenuItemServe`, `MenuItemVenue`), `Menu`,
@@ -3007,7 +3068,7 @@ Receives `order.created` / `order.updated` AND `product.created` / `product.upda
 | `/api/admin/order-views/[id]` | PUT, DELETE | Saved view CRUD |
 
 ### Internal Cron Scheduler (`instrumentation.ts` + `lib/internal-cron.ts`)
-Started once on server boot via Next's `instrumentationHook` (enabled in next.config.mjs). Minute tick; pure `dueJobs(state, now, tz)` decides what fires (Vitest-covered). Job: expiry scan daily 03:00 in `DEFAULT_TIMEZONE` (`runExpiryScan` in `lib/expiry-scan.ts`). The Woo product/order pull jobs were removed in Phase 0. Fully self-contained — no host crontab. Disable with `INTERNAL_CRON=false`. Dev hot-reload guarded via `globalThis.__hospoInternalCron`.
+Started once on server boot via Next's `instrumentationHook` (enabled in next.config.mjs). Minute tick; pure `dueJobs(state, now, tz)` decides what fires (Vitest-covered). Job: expiry scan daily 03:00 in `DEFAULT_TIMEZONE` (`runExpiryScan` in `lib/expiry-scan.ts`) and the guest-parking health check daily 05:00 (`runParkingHealthChecks` in `lib/parking-health.server.ts`, enabled venues only; READINESS GET-only by default). The Woo product/order pull jobs were removed in Phase 0. Fully self-contained — no host crontab. Disable with `INTERNAL_CRON=false`. Dev hot-reload guarded via `globalThis.__hospoInternalCron`.
 
 ### Cron Endpoints (`/api/cron/`) — external scheduler fallback
 - `expiry-scan`: thin wrapper over `runExpiryScan()` — sweeps expired `InventoryItem`s, traces BOM to parent products, applies `fallbackCategoryId`
@@ -3740,6 +3801,9 @@ pre-flight.
 | `lib/woo-push.ts` — `mapStatusToWoo`, `buildProductPushPayload` (images, categories, variable products), `pushVariationPrices`, `isSelfEcho` echo guard | ✅ |
 | `lib/woo-sync.ts` — `runProductPull`, `upsertProductFromWoo`, `fetchWooCategories`, `fetchProductVariations` | ✅ |
 | `lib/internal-cron.ts` — `dueJobs`, `localParts` (scheduler due-checks) | ✅ |
+| `lib/parking.ts` — URL/plate validation, venue-local 90-minute window, antiforgery/session/result parsers, cookie jar, health state | ✅ (38 tests) |
+| `lib/scan2pay.server.ts` — cookie-jar GET, antiforgery POST, existing-session short-circuit, redirects, payment/confirmation step, failures | ✅ (18 tests) |
+| `lib/parking-health.server.ts` — enabled-only runs, daily dedupe, READINESS/FULL/OFF, failure recording | ✅ (11 tests) |
 | `lib/auth.ts` — `authOptions` | ⬜ TODO |
 
 ### Component Regression Tests
@@ -3761,7 +3825,9 @@ pre-flight.
 | `MenuItemsClient.test.tsx` — recipe-less product listed and saved with `recipeId: null` | ✅ (1 test) |
 | `RecipesClient.test.tsx` — volume/weight display + header opens the shared recipe importer | ✅ (5 tests) |
 | `components/import/ImportModal.test.tsx` — generic rows + custom summary, per-row value patch (`REPLACE LINES`) posted to the given endpoint, default menu-item summary, inline field edit posted with the row, parse error | ✅ (4 tests) |
-| `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard + live TASKS tile refresh (tile return + window focus) + new worker tiles (Kitchen, Deliveries, Gift Cards gating, Training Status manager-only) | ✅ (8 tests) |
+| `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard + live TASKS tile refresh (tile return + window focus) + new worker tiles (Kitchen, Deliveries, Gift Cards gating, Guest Parking gating/warning, Training Status manager-only) | ✅ (11 tests) |
+| `WorkerParkingClient.tsx` — plate input, arrival quick-adjust, success/duplicate/error cards, service warning, today's list | ✅ (6 tests) |
+| `GuestParkingSettings.tsx` — config load/save, toggle, RUN CHECK NOW, health warning, save error | ✅ (5 tests) |
 | `ReportsClient.tsx` — OUTCOME badge distinguishes non-DONE rows | ✅ (1 test) |
 | `WorkerSessionGuard.tsx` — idle logout/redirect, activity refresh, refresh throttle, iframe activity relay | ✅ (6 tests) |
 | `lib/worker-task-access.ts` — grant matrix (ADMIN/MANAGER bypass, CREATE/EDIT/DELETE, list OR mapping) | ✅ (6 tests) |
@@ -3852,6 +3918,9 @@ pre-flight.
 | `app/api/worker/staff-events/[id]/respond/route.test.ts` — auth, invite/venue 404, Maybe gate, required decline reason, Accept save + counts, closed deadline 409 | ✅ (6 tests) |
 | `app/api/worker/staff-events/[id]/ics/route.test.ts` — auth, PUBLISHED-only lookup, invite check, calendar headers + body, UTC DTSTAMP | ✅ (4 tests) |
 | `app/api/admin/import/staff-events/route.test.ts` — refs + manager scope, DRAFT create with resolved audience, no invites on import, unknown audience NOBODY warning, invalid row skip, UPDATE skip, empty payload | ✅ (7 tests) |
+| `app/api/admin/parking/config/route.test.ts` — auth, defaults, host/path validation, enable-requires-URL, create/update/revive, duration clamp, manager venue lock | ✅ (10 tests) |
+| `app/api/worker/parking/route.test.ts` — auth, disabled 403, plate/arrival validation, duplicate 409 + extend link, success persistence, upstream 502 | ✅ (9 tests) |
+| `app/api/cron/parking-health/route.test.ts` — CRON_SECRET auth, summary counts, `?force=1` | ✅ (3 tests) |
 
 ## PRE-COMMIT CHECKLIST
 

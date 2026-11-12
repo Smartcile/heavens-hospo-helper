@@ -407,6 +407,9 @@ model Venue {
   purchaseOrders      PurchaseOrder[]
   supplierInvoices    SupplierInvoice[]
   supplierPriceMovements SupplierPriceMovement[]
+  parkingConfig       ParkingConfig?
+  parkingRegistrations ParkingRegistration[]
+  parkingHealthChecks ParkingHealthCheck[]
 }
 
 model Department {
@@ -524,6 +527,7 @@ model Staff {
   openShiftsFilled     OpenShift[]      @relation("OpenShiftFilledBy")
   openShiftClaims      OpenShiftClaim[]
   updateConfirmations  UpdateConfirmation[]
+  parkingRegistrations ParkingRegistration[]
 }
 
 // A single granted function within the permission tree (area → sub-area →
@@ -4520,4 +4524,74 @@ model SupplierPriceMovement {
 
   @@index([venueId])
   @@index([inventoryItemId])
+}
+
+// --- GUEST PARKING (Scan2Pay) ---
+// Per-venue config for the optional guest-parking automation. Disabled and
+// silent by default; nothing is shown to workers or called outbound until an
+// admin saves a Scan2Pay carpark URL and enables it. See AGENTS.md.
+model ParkingConfig {
+  id               String    @id @default(uuid())
+  venueId          String    @unique
+  enabled          Boolean   @default(false)
+  entryUrl         String? // e.g. https://scan2pay.nz/Parking/Scan?carparkId=19
+  carparkId        Int?
+  carparkName      String?
+  durationMinutes  Int       @default(90)
+  healthCheckMode  String    @default("READINESS") // READINESS | FULL | OFF
+  healthPlate      String    @default("STELLA")
+  lastCheckAt      DateTime?
+  lastCheckOk      Boolean?
+  lastCheckMessage String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  venue Venue @relation(fields: [venueId], references: [id])
+}
+
+// One row per guest-plate registration attempt (audit + worker "today" list).
+model ParkingRegistration {
+  id              String    @id @default(uuid())
+  venueId         String
+  staffId         String?
+  licensePlate    String
+  carparkId       Int
+  carparkName     String?
+  arrivedAt       DateTime
+  startsAt        DateTime
+  expiresAt       DateTime
+  durationMinutes Int       @default(90)
+  status          String    @default("SUBMITTED") // CONFIRMED | FAILED | ALREADY_ACTIVE
+  confirmationRef String?
+  responseSnippet String?
+  httpStatus      Int?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  venue Venue  @relation(fields: [venueId], references: [id])
+  staff Staff? @relation(fields: [staffId], references: [id])
+
+  @@index([venueId, createdAt])
+  @@index([venueId, licensePlate, createdAt])
+}
+
+// Daily readiness/full health-check history for the parking integration.
+model ParkingHealthCheck {
+  id         String    @id @default(uuid())
+  venueId    String
+  mode       String // READINESS | FULL
+  ok         Boolean
+  httpStatus Int?
+  message    String
+  durationMs Int?
+  checkedAt  DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@index([venueId, checkedAt])
 }

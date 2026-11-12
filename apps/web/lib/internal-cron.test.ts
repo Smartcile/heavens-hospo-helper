@@ -7,6 +7,8 @@ const TZ = 'Pacific/Auckland'
 const UTC_1400 = new Date('2026-07-15T14:00:00Z')
 // 2026-07-15 15:00 UTC = 2026-07-16 03:00 NZST
 const UTC_1500 = new Date('2026-07-15T15:00:00Z')
+// 2026-07-15 17:00 UTC = 2026-07-16 05:00 NZST
+const UTC_1700 = new Date('2026-07-15T17:00:00Z')
 
 describe('localParts', () => {
   it('converts UTC to the venue-local date and hour', () => {
@@ -21,22 +23,44 @@ describe('localParts', () => {
 
 describe('dueJobs — expiry scan', () => {
   it('is NOT due before 03:00 local time', () => {
-    const state: CronState = { lastExpiryScanDate: null }
+    const state: CronState = { lastExpiryScanDate: null, lastParkingHealthDate: null }
     expect(dueJobs(state, UTC_1400, TZ).expiryScan).toBe(false) // 02:00 local
   })
 
   it('is due at 03:00 local time when not yet run today', () => {
-    const state: CronState = { lastExpiryScanDate: null }
+    const state: CronState = { lastExpiryScanDate: null, lastParkingHealthDate: null }
     expect(dueJobs(state, UTC_1500, TZ).expiryScan).toBe(true) // 03:00 local
   })
 
   it('is NOT due again on the same local date', () => {
-    const state: CronState = { lastExpiryScanDate: '2026-07-16' }
+    const state: CronState = { lastExpiryScanDate: '2026-07-16', lastParkingHealthDate: null }
     expect(dueJobs(state, UTC_1500, TZ).expiryScan).toBe(false)
   })
 
   it('is due again the next local day', () => {
-    const state: CronState = { lastExpiryScanDate: '2026-07-15' }
+    const state: CronState = { lastExpiryScanDate: '2026-07-15', lastParkingHealthDate: null }
     expect(dueJobs(state, UTC_1500, TZ).expiryScan).toBe(true)
+  })
+})
+
+describe('dueJobs — parking health', () => {
+  it('is NOT due before 05:00 local time', () => {
+    const state: CronState = { lastExpiryScanDate: null, lastParkingHealthDate: null }
+    expect(dueJobs(state, UTC_1500, TZ).parkingHealth).toBe(false) // 03:00 local
+  })
+
+  it('is due at 05:00 local time when not yet run today', () => {
+    const state: CronState = { lastExpiryScanDate: null, lastParkingHealthDate: null }
+    expect(dueJobs(state, UTC_1700, TZ).parkingHealth).toBe(true) // 05:00 local
+  })
+
+  it('is NOT due again on the same local date', () => {
+    const state: CronState = { lastExpiryScanDate: null, lastParkingHealthDate: '2026-07-16' }
+    expect(dueJobs(state, UTC_1700, TZ).parkingHealth).toBe(false)
+  })
+
+  it('is due again the next local day', () => {
+    const state: CronState = { lastExpiryScanDate: null, lastParkingHealthDate: '2026-07-15' }
+    expect(dueJobs(state, UTC_1700, TZ).parkingHealth).toBe(true)
   })
 })
