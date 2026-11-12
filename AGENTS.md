@@ -2156,6 +2156,7 @@ Key helpers in `lib/venue-scope.ts`: `getManagerVenueId(session, req)` returns t
 
 - **Worker task list** (`/api/worker/tasks`): resolves linked departments from `DepartmentLink`, includes their tasks/checklists via `departmentId: { in: [...linkedIds] }`
 - **Admin task list** (`/api/admin/tasks`): same resolution when filtering by department
+- **List applicability** (`lib/checklist-applicability.server.ts`): a `ChecklistAudience` of kind `DEPARTMENT` matches the staff member's home department **and every linked department** (pure `checklistApplicabilityWhere` in `lib/checklist-applicability.ts`) — the same scope the worker task query uses. Without this, a list scoped to a linked department was hidden while its tasks still appeared, so they rendered in the worker's Department -> Section bucket instead of inside the list.
 - **Department UI** (`OrganisationClient`): SearchSelect-style inline picker in the EDIT modal; selected departments appear as removable tags
 - **Structure tree** (`StructureClient`): shows `→ DEPT1, DEPT2` arrows on department nodes
 
