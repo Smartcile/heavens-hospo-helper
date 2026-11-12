@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
 const { prisma, getServerSession, guardAccess, resolveScopedVenueId } = vi.hoisted(() => ({
-  prisma: { rosterTemplate: { findUnique: vi.fn(), update: vi.fn() } },
+  prisma: {
+    rosterTemplate: { findUnique: vi.fn(), update: vi.fn() },
+    rosterTemplateShift: { updateMany: vi.fn() },
+    $transaction: vi.fn(),
+  },
   getServerSession: vi.fn(),
   guardAccess: vi.fn(),
   resolveScopedVenueId: vi.fn(),
@@ -26,6 +30,8 @@ beforeEach(() => {
   resolveScopedVenueId.mockReturnValue({ venueId: 'v1' })
   prisma.rosterTemplate.findUnique.mockResolvedValue({ id: 't1', venueId: 'v1', deletedAt: null })
   prisma.rosterTemplate.update.mockResolvedValue({})
+  prisma.rosterTemplateShift.updateMany.mockResolvedValue({ count: 2 })
+  prisma.$transaction.mockImplementation(async (fn: (tx: typeof prisma) => unknown) => fn(prisma))
 })
 
 describe('DELETE /api/admin/roster/templates/[id]', () => {
@@ -45,12 +51,22 @@ describe('DELETE /api/admin/roster/templates/[id]', () => {
     expect(prisma.rosterTemplate.update).not.toHaveBeenCalled()
   })
 
-  it('soft-deletes the template', async () => {
+  it('soft-deletes the template and its shifts together', async () => {
     const res = await DELETE(req, params)
     expect(res.status).toBe(200)
     expect(prisma.rosterTemplate.update).toHaveBeenCalledWith({
       where: { id: 't1' },
       data: { deletedAt: expect.any(Date) },
     })
+    expect(prisma.rosterTemplateShift.updateMany).toHaveBeenCalledWith({
+      where: { templateId: 't1', deletedAt: null },
+      data: { deletedAt: expect.any(Date) },
+    })
+  })
+
+  it('leaves the parent and children alone when the venue check fails', async () => {
+    resolveScopedVenueId.mockReturnValue({ venueId: 'v2' })
+    expect((await DELETE(req, params)).status).toBe(403)
+    expect(prisma.rosterTemplateShift.updateMany).not.toHaveBeenCalled()
   })
 })

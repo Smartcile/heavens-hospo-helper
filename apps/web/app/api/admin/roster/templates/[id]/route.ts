@@ -26,6 +26,13 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  await prisma.rosterTemplate.update({ where: { id: params.id }, data: { deletedAt: new Date() } })
+  const deletedAt = new Date()
+  await prisma.$transaction(async (tx) => {
+    await tx.rosterTemplate.update({ where: { id: params.id }, data: { deletedAt } })
+    await tx.rosterTemplateShift.updateMany({
+      where: { templateId: params.id, deletedAt: null },
+      data: { deletedAt },
+    })
+  })
   return NextResponse.json({ success: true })
 }

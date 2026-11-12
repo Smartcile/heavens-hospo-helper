@@ -840,14 +840,17 @@ minimum), `Staff.wantedHoursPerWeek` (casual requested) and
 `Staff.targetHoursPerWeek` (admin aim) are additive `Float?` columns edited in
 the Staff form under ROSTER HOURS PER WEEK. The roster staff column shows the
 scheduled paid hours against them: red under the minimum, warning under the
-highest soft goal, green when met/over. `lib/roster-hours.ts` (pure) owns
-`hourGoals`, `hourTargetStatus` (none / under-min / under-goal / met / over),
-`describeHourTargets`, `hourProgressPct` and `hourStatusTone`. **These values
-never affect payroll** — planning visibility only.
+highest soft goal, green when met/over. The status chip is shown in **WEEK
+view only** — a day-view total is one day, not a week, so it would be
+misleading. `lib/roster-hours.ts` (pure) owns `hourGoals`, `hourTargetStatus`
+(none / under-min / under-goal / met / over), `describeHourTargets`,
+`parseHourTarget` and `hourStatusTone`. **These values never affect payroll** —
+planning visibility only.
 
 **Roster week templates + copy (#139, built 2026-11).** `RosterTemplate`
 (venueId, name, notes) + `RosterTemplateShift` (staffId, positionId, `dayIndex`
 0=Monday…6=Sunday, times, break, colour/tag/note, sortOrder, soft delete).
+Deleting a template stamps `deletedAt` on its shifts in the same transaction.
 Staff/position ids are plain strings so a purged person degrades to a reported
 skip. **TEMPLATES** saves the displayed week normalised to Monday–Sunday;
 **APPLY** writes DRAFT shifts into a target week in **ADD** or **REPLACE** mode
@@ -3821,7 +3824,7 @@ pre-flight.
 | `app/api/admin/import/guides/route.test.ts` — GET refs + MANAGER scope; POST creates DRAFT guides with audiences/steps/links, creates a missing folder, skips unknown audience/link, warns NOBODY WILL SEE THIS, rejects PRODUCT_REFERENCE, UPDATE with/without REPLACE STEPS, edit-permission gate, MANAGER lock, empty payload | ✅ (13 tests) |
 | `app/api/admin/swiftpos/staff/route.test.ts` — LINK sets the PIN from the clerk id, keeps an existing PIN, and links without a PIN on a clash | ✅ (3 tests) |
 | `app/api/admin/roster/templates/route.test.ts` — auth/guard, list with names, save week normalised to day indexes, empty-week 422 | ✅ (7 tests) |
-| `app/api/admin/roster/templates/[id]/route.test.ts` — delete soft-deletes, 404/403 | ✅ (4 tests) |
+| `app/api/admin/roster/templates/[id]/route.test.ts` — delete soft-deletes the template and its shifts, 404/403 | ✅ (5 tests) |
 | `app/api/admin/roster/templates/[id]/apply/route.test.ts` — ADD creates DRAFT rows + skips staff, REPLACE soft-deletes/releases, missing position cleared, no-active-staff 422, cross-venue 403, bad date 400, 401/404 | ✅ (8 tests) |
 | `app/api/admin/roster/copy/route.test.ts` — ADD copy, REPLACE clear/release, inactive-staff 422, same-week/invalid-date 400, 401 | ✅ (6 tests) |
 | `app/api/admin/roster/slots/route.test.ts` — list with position names, create, invalid input, cross-venue position | ✅ (5 tests) |
