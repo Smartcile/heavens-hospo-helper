@@ -2081,8 +2081,9 @@ old deployments can migrate.
 - **Sections** — `Section` (under `Department`; denormalised `venueId`). `Task.sectionId`
   + `TaskSection` (a task can cover several sections; a section implies its
   department — enforced in the task API). `Staff ⇄ Section` many-to-many
-  (`StaffSection`). CRUD at `/admin/sections`; section pickers on the Task and
-  Staff forms; rendered on the structure tree.
+  (`StaffSection`). CRUD at `/admin/sections` (also embedded, venue-scoped, in
+  Settings → VENUE SETUP via `SectionsClient` with a `scopeVenueId`); section
+  pickers on the Task and Staff forms; rendered on the structure tree.
 - **Legacy resources** — `TrainingModule.kind` (`ResourceKind`: TRAINING | SOP | FAQ | HOWTO),
   `ResourceSection`, `ResourceLink`. Authored on the old Training page — the
   guide system now owns all of this.

@@ -1,14 +1,15 @@
 'use client'
 
-// SETTINGS → VENUE SETUP. One place to stand up a venue: departments, roles
-// (positions, with their training requirements + default access) and — for an
-// admin — the venue list itself (create / remove test venues).
+// SETTINGS → VENUE SETUP. One place to stand up a venue: departments, sections,
+// roles (positions, with their training requirements + default access) and — for
+// an admin — the venue list itself (create / remove test venues).
 
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { PositionsPanel } from '@/components/admin/PositionsPanel'
 import { DepartmentsClient } from '@/components/admin/DepartmentsClient'
+import { SectionsClient } from '@/components/admin/SectionsClient'
 import { getActiveVenueId } from '@/lib/active-venue'
 
 interface Venue { id: string; name: string; isActive: boolean }
@@ -72,7 +73,7 @@ export function VenueSetupClient({
       <div>
         <h1 className="font-mono text-xl font-bold uppercase tracking-widest">VENUE SETUP</h1>
         <p className="font-mono text-xs text-grey-light mt-1 uppercase">
-          DEPARTMENTS · ROLES (WITH TRAINING REQUIREMENTS + DEFAULT ACCESS){role === 'ADMIN' ? ' · VENUES' : ''}
+          DEPARTMENTS · SECTIONS · ROLES (WITH TRAINING REQUIREMENTS + DEFAULT ACCESS){role === 'ADMIN' ? ' · VENUES' : ''}
         </p>
       </div>
 
@@ -117,6 +118,8 @@ export function VenueSetupClient({
       <PositionsPanel venueId={venueId} />
 
       <DepartmentsClient role={role} venueId={venueId} />
+
+      <SectionsClient role={role} venueId={venueId} scopeVenueId={venueId} />
     </div>
   )
 }
