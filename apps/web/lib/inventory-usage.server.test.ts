@@ -8,6 +8,7 @@ const models = [
   'task',
   'menuItemInventoryItem',
   'menuItemServe',
+  'menuItemOptionChoice',
   'menuMenuItem',
   'supplierItemCode',
   'purchaseOrderLine',
@@ -27,6 +28,7 @@ const { prisma } = vi.hoisted(() => {
     'task',
     'menuItemInventoryItem',
     'menuItemServe',
+    'menuItemOptionChoice',
     'menuMenuItem',
     'supplierItemCode',
     'purchaseOrderLine',
@@ -70,6 +72,7 @@ describe('findInventoryBlockers', () => {
       { model: 'task', kind: 'TASK', label: 'Linked to a task' },
       { model: 'menuItemInventoryItem', kind: 'PRODUCT_LINK', label: 'Linked to a menu product' },
       { model: 'menuItemServe', kind: 'SERVE', label: 'Used as a serve on a menu product' },
+      { model: 'menuItemOptionChoice', kind: 'MENU_OPTION', label: 'Used as a product option on a menu product' },
       { model: 'menuMenuItem', kind: 'MENU_LINE', label: 'Listed on a menu' },
       { model: 'supplierItemCode', kind: 'SUPPLIER_CODE', label: 'Has a supplier code' },
       { model: 'purchaseOrderLine', kind: 'PURCHASE_ORDER', label: 'On a purchase order' },
@@ -110,6 +113,13 @@ describe('findInventoryBlockers', () => {
     expect(prisma.furnitureBomItem.count).toHaveBeenCalledWith({
       where: { inventoryItemId: 'i1', furniture: { deletedAt: null } },
     })
+    expect(prisma.menuItemOptionChoice.count).toHaveBeenCalledWith({
+      where: {
+        inventoryItemId: 'i1',
+        deletedAt: null,
+        group: { deletedAt: null, menuItem: { deletedAt: null } },
+      },
+    })
   })
 
   it('counts every physical row for a permanent purge, including soft-deleted parents', async () => {
@@ -140,6 +150,9 @@ describe('findInventoryBlockers', () => {
     })
     expect(prisma.task.count).toHaveBeenCalledWith({
       where: { linkedItemId: 'i1' },
+    })
+    expect(prisma.menuItemOptionChoice.count).toHaveBeenCalledWith({
+      where: { inventoryItemId: 'i1' },
     })
   })
 })

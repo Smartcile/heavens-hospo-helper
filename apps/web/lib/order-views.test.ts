@@ -124,6 +124,34 @@ describe('aggregateDishTotals', () => {
   it('handles no orders', () => {
     expect(aggregateDishTotals([])).toEqual([])
   })
+
+  it('keeps the dish total whole and surfaces the chosen options per line', () => {
+    const fries = {
+      groupId: 'g-side',
+      groupName: 'SIDE',
+      choiceId: 'c-fries',
+      choiceName: 'FRIES',
+      priceDelta: 0,
+    }
+    const salad = { ...fries, choiceId: 'c-salad', choiceName: 'SALAD', priceDelta: 3 }
+    const orders = [
+      order({ id: 'a', items: [line({ qty: 2, options: [fries] })] }),
+      order({ id: 'b', items: [line({ qty: 1, options: [salad] })] }),
+      order({ id: 'c', items: [line({ qty: 4, options: [fries] })] }),
+    ]
+    const totals = aggregateDishTotals(orders)
+    // One cook line — options never split the dish total.
+    expect(totals).toHaveLength(1)
+    expect(totals[0].qty).toBe(7)
+    expect(totals[0].optionBreakdown).toEqual([
+      { options: 'SIDE: FRIES', qty: 6 },
+      { options: 'SIDE: SALAD', qty: 1 },
+    ])
+  })
+
+  it('leaves the option breakdown empty when no choices were made', () => {
+    expect(aggregateDishTotals([order({ items: [line({ qty: 1 })] })])[0].optionBreakdown).toEqual([])
+  })
 })
 
 describe('aggregateCategoryTotals', () => {

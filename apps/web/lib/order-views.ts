@@ -7,16 +7,25 @@
  * costs a round-trip, and every projection is testable without a database.
  */
 
+import { describeOrderLineOptions, type OrderLineOption } from './order-options'
+import type { MenuOptionGroup } from './menu-options'
+
 export interface OrderLineView {
   id: string
   menuItemId: string | null
   name: string
   qty: number
   unitPrice: number | null
+  /** The product's list price — the base when a stored line price is null. */
+  menuItemPrice?: number | null
   dietaryInfo: string | null
   customerNote: string | null
   allergenNote: string | null
   kitchenStatus: string
+  /** Snapshot of the customer's product-option choices for this line. */
+  options?: OrderLineOption[]
+  /** Live product option groups — only used to edit the choices. */
+  optionGroups?: MenuOptionGroup[]
 }
 
 export interface OrderView {
@@ -68,11 +77,25 @@ export function parseAllergens(value: string | null | undefined): string[] {
 
 // ── KITCHEN ────────────────────────────────────────────────────────────
 
+export interface DishOptionBreakdown {
+  /** "SIDE: FRIES, SALAD" — the chosen options for this line. */
+  options: string
+  qty: number
+}
+
 export interface DishTotal {
   menuItemId: string | null
   name: string
   qty: number
   allergens: string[]
+  /** Chosen options per line, aggregated by the option summary (not split out of `qty`). */
+  optionBreakdown: DishOptionBreakdown[]
+}
+
+function addOptionBreakdown(list: DishOptionBreakdown[], label: string, qty: number): void {
+  const existing = list.find((e) => e.options === label)
+  if (existing) existing.qty += qty
+  else list.push({ options: label, qty })
 }
 
 /** Total quantity per dish across every order — what the kitchen actually cooks. */
@@ -84,18 +107,27 @@ export function aggregateDishTotals(orders: OrderView[]): DishTotal[] {
       // Key on name, not id: the same dish sold as two Woo products should
       // still show the kitchen one number to cook.
       const key = item.name.toUpperCase()
+      const optionLabel = describeOrderLineOptions(item.options ?? [])
       const existing = byName.get(key)
       if (existing) {
         existing.qty += item.qty
+        if (optionLabel) addOptionBreakdown(existing.optionBreakdown, optionLabel, item.qty)
       } else {
-        byName.set(key, {
+        const entry: DishTotal = {
           menuItemId: item.menuItemId,
           name: item.name.toUpperCase(),
           qty: item.qty,
           allergens: parseAllergens(item.dietaryInfo),
-        })
+          optionBreakdown: [],
+        }
+        if (optionLabel) addOptionBreakdown(entry.optionBreakdown, optionLabel, item.qty)
+        byName.set(key, entry)
       }
     }
+  }
+
+  for (const dish of byName.values()) {
+    dish.optionBreakdown.sort((a, b) => b.qty - a.qty || a.options.localeCompare(b.options))
   }
 
   return [...byName.values()].sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name))

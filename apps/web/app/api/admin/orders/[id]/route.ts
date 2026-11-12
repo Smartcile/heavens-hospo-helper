@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { prisma } from '@hospo-ops/db'
+import { prisma, Prisma } from '@hospo-ops/db'
 import { resolveCustomer } from '@/lib/customer-match'
 import { logOrderEvent } from '@/lib/gift-card-history'
 import type { OrderStatus, OrderOpStatus, PaymentStatus, FulfillmentType } from '@prisma/client'
 import { guardAccess } from '@/lib/permissions'
+import {
+  optionPriceDelta,
+  validateOptionSelection,
+  type OptionViolation,
+  type OrderLineOption,
+} from '@/lib/order-options'
+import { loadOptionGroupsForItems } from '@/lib/order-options.server'
 
 const VALID_STATUSES: OrderStatus[] = ['PENDING', 'PROCESSING', 'COMPLETED', 'CANCELLED']
 const VALID_OP_STATUSES: OrderOpStatus[] = [
@@ -159,7 +166,79 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'items array is required' }, { status: 400 })
   }
 
-  const lines = body.items.filter((l: { menuItemId?: string }) => l?.menuItemId)
+  const lines = body.items.filter((l: { menuItemId?: string }) => l?.menuItemId) as {
+    id?: string
+    menuItemId: string
+    qty?: number
+    unitPrice?: number | string | null
+    customerNote?: string | null
+    allergenNote?: string | null
+    options?: unknown
+  }[]
+
+  // A line that supplies `options` is validated against the live product
+  // groups and re-priced (the submitted `unitPrice` is the base price). A line
+  // that omits `options` keeps its stored snapshot and final price untouched —
+  // so editing one line never rewrites an untouched legacy line.
+  const existingItems = await prisma.wooOrderItem.findMany({
+    where: { orderId: params.id },
+    select: { id: true, options: true, unitPrice: true },
+  })
+
+  const optionCheck = await loadOptionGroupsForItems(
+    lines.filter((l) => l.options !== undefined).map((l) => l.menuItemId),
+    scoped.order!.venueId,
+  )
+  const optionViolations: (OptionViolation & { lineIndex: number })[] = []
+  const resolvedOptions: (OrderLineOption[] | null)[] = []
+  const finalUnitPrices: (number | null)[] = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+
+    const base = line.unitPrice == null || line.unitPrice === '' ? null : Number(line.unitPrice)
+
+    // `options` omitted → preserve the stored choice + final price.
+    if (line.options === undefined) {
+      const existing = line.id ? existingItems.find((e) => e.id === line.id) : undefined
+      resolvedOptions.push(null)
+      finalUnitPrices.push(existing ? existing.unitPrice : base)
+      continue
+    }
+
+    if (optionCheck.missingItemIds.includes(line.menuItemId)) {
+      optionViolations.push({ lineIndex: i, message: `LINE ${i + 1} — PRODUCT NOT FOUND IN THIS VENUE` })
+      resolvedOptions.push([])
+      finalUnitPrices.push(null)
+      continue
+    }
+
+    const groups = optionCheck.groupsByItem.get(line.menuItemId) ?? []
+    const result = validateOptionSelection(groups, line.options)
+    for (const violation of result.violations) {
+      optionViolations.push({ ...violation, lineIndex: i })
+    }
+
+    const delta = optionPriceDelta(result.resolved)
+    const productPrice = optionCheck.priceByItem.get(line.menuItemId) ?? 0
+    resolvedOptions.push(result.resolved)
+    finalUnitPrices.push(
+      base == null
+        // No base price supplied: fall back to the product's list price so an
+        // upcharge on a zero-priced line is never stored as just the delta.
+        ? result.resolved.length > 0
+          ? Math.round((productPrice + delta) * 100) / 100
+          : null
+        : Math.round((base + delta) * 100) / 100,
+    )
+  }
+
+  if (optionViolations.length > 0) {
+    return NextResponse.json(
+      { error: 'Invalid product options', violations: optionViolations },
+      { status: 422 },
+    )
+  }
 
   await prisma.$transaction(async (tx) => {
     const existing = await tx.wooOrderItem.findMany({
@@ -168,10 +247,20 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     })
     const keep = new Set<string>()
 
-    for (const l of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i]
+      const options = resolvedOptions[i]
       const payload = {
         qty: Number(l.qty) || 1,
-        unitPrice: l.unitPrice == null || l.unitPrice === '' ? null : Number(l.unitPrice),
+        unitPrice: finalUnitPrices[i],
+        // `null` means "leave the stored snapshot alone".
+        ...(options === null
+          ? {}
+          : {
+              options: options.length
+                ? (options as unknown as Prisma.InputJsonValue)
+                : Prisma.DbNull,
+            }),
         customerNote: l.customerNote || null,
         allergenNote: l.allergenNote || null,
       }
@@ -181,7 +270,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         keep.add(l.id)
       } else {
         const created = await tx.wooOrderItem.create({
-          data: { orderId: params.id, menuItemId: l.menuItemId, ...payload },
+          data: {
+            orderId: params.id,
+            menuItemId: l.menuItemId,
+            ...payload,
+            ...(options === null ? { options: Prisma.DbNull } : {}),
+          },
         })
         keep.add(created.id)
       }
@@ -190,9 +284,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const remove = existing.filter((e) => !keep.has(e.id)).map((e) => e.id)
     if (remove.length > 0) await tx.wooOrderItem.deleteMany({ where: { id: { in: remove } } })
 
-    const total = lines.reduce(
-      (sum: number, l: { unitPrice?: number; qty?: number }) =>
-        sum + (Number(l.unitPrice) || 0) * (Number(l.qty) || 0),
+    const total = finalUnitPrices.reduce(
+      (sum: number, price, i) => sum + (price ?? 0) * (Number(lines[i].qty) || 0),
       0,
     )
     await tx.wooOrder.update({ where: { id: params.id }, data: { totalAmount: total } })

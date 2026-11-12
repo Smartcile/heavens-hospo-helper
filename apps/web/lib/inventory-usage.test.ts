@@ -15,6 +15,8 @@ describe('inventory-usage', () => {
     expect(describeInventoryBlocker('FLOOR_PLAN_ELEMENT', 1)).toBe('Used on a floor plan element')
     expect(describeInventoryBlocker('STOCKTAKE', 2)).toBe('Counted in 2 stocktakes')
     expect(describeInventoryBlocker('TASK', 1)).toBe('Linked to a task')
+    expect(describeInventoryBlocker('MENU_OPTION', 1)).toBe('Used as a product option on a menu product')
+    expect(describeInventoryBlocker('MENU_OPTION', 2)).toBe('Used as a product option on 2 menu products')
     expect(describeInventoryBlocker('FURNITURE_BOM', 2)).toBe('Used on 2 furniture bills of materials')
   })
 
@@ -23,6 +25,7 @@ describe('inventory-usage', () => {
     expect(INVENTORY_BLOCKER_HREF.RECIPE).toBe('/admin/ops?tab=inventory&sub=recipes')
     expect(INVENTORY_BLOCKER_HREF.STOCKTAKE).toBe('/admin/ops?tab=inventory&sub=stocktake')
     expect(INVENTORY_BLOCKER_HREF.FLOOR_PLAN_ELEMENT).toBe('/admin/events?tab=rooms')
+    expect(INVENTORY_BLOCKER_HREF.MENU_OPTION).toBe('/admin/ops?tab=inventory&sub=menu-items')
   })
 
   it('sorts blockers into the fixed human order', () => {

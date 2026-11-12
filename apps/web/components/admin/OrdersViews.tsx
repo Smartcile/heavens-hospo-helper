@@ -10,6 +10,7 @@ import {
   spansMultipleDays,
   type OrderView,
 } from '@/lib/order-views'
+import { describeOrderLineOptions } from '@/lib/order-options'
 
 export const OP_STATUS_STYLES: Record<string, string> = {
   NEW: 'text-grey-light border-grey-mid',
@@ -73,7 +74,10 @@ function OrderCard({
 
       {order.items.length > 0 && (
         <p className="font-mono text-xs text-grey-light truncate">
-          {order.items.map((i) => `${i.qty}× ${i.name}`).join('  ·  ')}
+          {order.items.map((i) => {
+            const options = describeOrderLineOptions(i.options ?? [])
+            return `${i.qty}× ${i.name}${options ? ` (${options})` : ''}`
+          }).join('  ·  ')}
         </p>
       )}
     </button>
@@ -168,9 +172,16 @@ export function KitchenView({
           </div>
           <div className="divide-y divide-grey-mid">
             {dishes.map((d) => (
-              <div key={d.name} className="px-3 py-2 flex items-center gap-3">
+              <div key={d.name} className="px-3 py-2 flex items-start gap-3">
                 <span className="font-mono text-lg text-white w-12 shrink-0 text-right">{d.qty}</span>
-                <span className="font-mono text-xs text-white uppercase flex-1 truncate">{d.name}</span>
+                <div className="flex-1 min-w-0 space-y-0.5">
+                  <span className="font-mono text-xs text-white uppercase block truncate">{d.name}</span>
+                  {d.optionBreakdown.map((o) => (
+                    <span key={o.options} className="font-mono text-xs text-accent block truncate">
+                      {o.qty}× {o.options}
+                    </span>
+                  ))}
+                </div>
                 <div className="flex gap-1 flex-wrap justify-end">
                   {d.allergens.map((a) => (
                     <Tag key={a} label={a} className="text-gold border-gold" />
@@ -262,7 +273,14 @@ export function ProductionView({ orders }: { orders: OrderView[] }) {
               <span className="font-mono text-xs text-grey-light border border-grey-mid w-4 h-4 inline-block" />
               <span className="font-mono text-sm text-white">{d.qty}</span>
             </div>
-            <div className="col-span-6 font-mono text-xs text-white uppercase truncate">{d.name}</div>
+            <div className="col-span-6 space-y-0.5 min-w-0">
+              <div className="font-mono text-xs text-white uppercase truncate">{d.name}</div>
+              {d.optionBreakdown.map((o) => (
+                <div key={o.options} className="font-mono text-xs text-accent truncate">
+                  {o.qty}× {o.options}
+                </div>
+              ))}
+            </div>
             <div className="col-span-4 flex gap-1 flex-wrap">
               {d.allergens.length === 0 ? (
                 <span className="font-mono text-xs text-grey-light">—</span>

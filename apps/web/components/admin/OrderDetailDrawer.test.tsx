@@ -33,6 +33,52 @@ function order(overrides: Partial<OrderView> = {}): OrderView {
 
 const ok = () => ({ ok: true, json: async () => ({}) } as Response)
 
+const SIDE_GROUP = {
+  id: 'g-side',
+  name: 'SIDE',
+  minSelect: 1,
+  maxSelect: 1,
+  sortOrder: 0,
+  choices: [
+    { id: 'c-fries', name: 'FRIES', priceDelta: 0, isDefault: true, sortOrder: 0 },
+    { id: 'c-salad', name: 'SALAD', priceDelta: 3, isDefault: false, sortOrder: 1 },
+  ],
+}
+
+const SALAD_SNAPSHOT = {
+  groupId: 'g-side',
+  groupName: 'SIDE',
+  choiceId: 'c-salad',
+  choiceName: 'SALAD',
+  priceDelta: 3,
+}
+
+function line(overrides: Partial<OrderView['items'][number]> = {}): OrderView['items'][number] {
+  return {
+    id: 'li1',
+    menuItemId: 'm1',
+    name: 'FISH & CHIPS',
+    qty: 1,
+    unitPrice: 18,
+    dietaryInfo: null,
+    customerNote: null,
+    allergenNote: null,
+    kitchenStatus: 'PENDING',
+    options: [
+      { groupId: 'g-side', groupName: 'SIDE', choiceId: 'c-fries', choiceName: 'FRIES', priceDelta: 0 },
+    ],
+    optionGroups: [SIDE_GROUP],
+    ...overrides,
+  }
+}
+
+function lastPutBody(): { items: Record<string, unknown>[] } {
+  const call = vi.mocked(global.fetch).mock.calls.find(
+    ([url, init]) => url === '/api/admin/orders/o1' && (init as RequestInit | undefined)?.method === 'PUT',
+  )
+  return JSON.parse(String((call?.[1] as RequestInit).body))
+}
+
 describe('OrderDetailDrawer booking controls', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -110,5 +156,94 @@ describe('OrderDetailDrawer booking controls', () => {
     expect(screen.getByText('DELIVERY TIME')).toBeTruthy()
     expect(screen.queryByText('PARTY')).toBeNull()
     expect(screen.queryByText('BOOKING')).toBeNull()
+  })
+})
+
+describe('OrderDetailDrawer line options', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(global, 'fetch').mockResolvedValue(ok())
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('shows the chosen options for a line', () => {
+    render(<OrderDetailDrawer order={order({ items: [line()] })} onClose={() => {}} onChanged={() => {}} />)
+    expect(screen.getByText('SIDE: FRIES')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'OPTIONS' })).toBeTruthy()
+  })
+
+  it('edits a line choice and PUTs the new snapshot', async () => {
+    const onChanged = vi.fn()
+    render(<OrderDetailDrawer order={order({ items: [line()] })} onClose={() => {}} onChanged={onChanged} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'OPTIONS' }))
+    fireEvent.click(screen.getByRole('button', { name: /SALAD/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'SAVE OPTIONS' }))
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/admin/orders/o1',
+        expect.objectContaining({ method: 'PUT' }),
+      )
+    })
+
+    const body = lastPutBody()
+    expect(body.items[0]).toMatchObject({
+      id: 'li1',
+      menuItemId: 'm1',
+      unitPrice: 18,
+      options: [
+        { groupId: 'g-side', groupName: 'SIDE', choiceId: 'c-salad', choiceName: 'SALAD', priceDelta: 3 },
+      ],
+    })
+    expect(onChanged).toHaveBeenCalled()
+  })
+
+  it('sends the base when the stored price already includes an upcharge', async () => {
+    const onChanged = vi.fn()
+    // The line is stored at 21 because SALAD (+3) is already included. The
+    // picker must send base 18 before the API applies the new FRIES delta (0).
+    render(
+      <OrderDetailDrawer
+        order={order({ items: [line({ unitPrice: 21, options: [SALAD_SNAPSHOT] })] })}
+        onClose={() => {}}
+        onChanged={onChanged}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'OPTIONS' }))
+    fireEvent.click(screen.getByRole('button', { name: /FRIES/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'SAVE OPTIONS' }))
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalled())
+    const body = lastPutBody()
+    expect(body.items[0]).toMatchObject({
+      unitPrice: 18,
+      options: [
+        { groupId: 'g-side', groupName: 'SIDE', choiceId: 'c-fries', choiceName: 'FRIES', priceDelta: 0 },
+      ],
+    })
+  })
+
+  it('falls back to the product price when the stored price is null', async () => {
+    const onChanged = vi.fn()
+    render(
+      <OrderDetailDrawer
+        order={order({ items: [line({ unitPrice: null, menuItemPrice: 18, options: [SALAD_SNAPSHOT] })] })}
+        onClose={() => {}}
+        onChanged={onChanged}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'OPTIONS' }))
+    fireEvent.click(screen.getByRole('button', { name: /FRIES/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'SAVE OPTIONS' }))
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalled())
+    // Never 0 - 3 = -3; the product's list price is the base.
+    expect(lastPutBody().items[0].unitPrice).toBe(18)
   })
 })

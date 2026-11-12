@@ -1,12 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { prisma } from '@hospo-ops/db'
+import { prisma, Prisma } from '@hospo-ops/db'
 import { resolveCustomer } from '@/lib/customer-match'
 import { validateOrderAgainstMenu } from '@/lib/menu-rules'
 import { autoLinkBooking } from '@/lib/order-booking-link'
 import type { OrderView, OrderLineView } from '@/lib/order-views'
 import { guardAccess } from '@/lib/permissions'
+import { optionGroupInclude } from '@/lib/menu-lines.server'
+import { normaliseOptionGroups } from '@/lib/menu-options'
+import {
+  normaliseOrderOptions,
+  optionPriceDelta,
+  validateOptionSelection,
+  type OptionViolation,
+  type OrderLineOption,
+} from '@/lib/order-options'
+import { loadOptionGroupsForItems } from '@/lib/order-options.server'
 
 /*
  * One payload, four views.
@@ -125,7 +135,16 @@ const ORDER_INCLUDE = {
   },
   items: {
     include: {
-      menuItem: { select: { id: true, name: true, dietaryInfo: true, recipeId: true } },
+      menuItem: {
+        select: {
+          id: true,
+          name: true,
+          price: true,
+          dietaryInfo: true,
+          recipeId: true,
+          optionGroups: optionGroupInclude,
+        },
+      },
     },
   },
 } as const
@@ -170,10 +189,18 @@ type OrderRow = {
     qty: number
     unitPrice: number | null
     productName: string | null
+    options: unknown
     customerNote: string | null
     allergenNote: string | null
     kitchenStatus: string
-    menuItem: { id: string; name: string; dietaryInfo: string | null; recipeId: string | null } | null
+    menuItem: {
+      id: string
+      name: string
+      price: number
+      dietaryInfo: string | null
+      recipeId: string | null
+      optionGroups?: unknown
+    } | null
   }[]
 }
 
@@ -189,10 +216,13 @@ function projectOrders(
       name: i.menuItem?.name ?? i.productName ?? 'UNKNOWN',
       qty: i.qty,
       unitPrice: i.unitPrice,
+      menuItemPrice: i.menuItem?.price ?? null,
       dietaryInfo: i.menuItem?.dietaryInfo ?? null,
       customerNote: i.customerNote,
       allergenNote: i.allergenNote,
       kitchenStatus: i.kitchenStatus,
+      options: normaliseOrderOptions(i.options),
+      optionGroups: normaliseOptionGroups(i.menuItem?.optionGroups),
     }))
 
     return {
@@ -328,8 +358,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'serviceDate (YYYY-MM-DD) is required' }, { status: 400 })
   }
 
-  const lines: { menuItemId: string; qty: number; unitPrice?: number; customerNote?: string; allergenNote?: string }[] =
-    Array.isArray(body.items) ? body.items.filter((l: { menuItemId?: string }) => l?.menuItemId) : []
+  const lines: {
+    menuItemId: string
+    qty: number
+    unitPrice?: number
+    customerNote?: string
+    allergenNote?: string
+    options?: unknown
+  }[] = Array.isArray(body.items)
+    ? body.items.filter((l: { menuItemId?: string }) => l?.menuItemId)
+    : []
 
   const partySize = body.partySize == null || body.partySize === '' ? null : Number(body.partySize)
 
@@ -364,6 +402,51 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Product options are re-validated against the product's LIVE groups — the
+  // client-side picker is only feedback. The live upcharges are folded into the
+  // stored line price; the incoming `unitPrice` is the base product price.
+  const optionCheck = await loadOptionGroupsForItems(lines.map((l) => l.menuItemId), venueId)
+  const optionViolations: (OptionViolation & { lineIndex: number })[] = []
+  const resolvedOptions: OrderLineOption[][] = []
+  const finalUnitPrices: (number | null)[] = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (optionCheck.missingItemIds.includes(line.menuItemId)) {
+      optionViolations.push({ lineIndex: i, message: `LINE ${i + 1} — PRODUCT NOT FOUND IN THIS VENUE` })
+      resolvedOptions.push([])
+      finalUnitPrices.push(null)
+      continue
+    }
+
+    const groups = optionCheck.groupsByItem.get(line.menuItemId) ?? []
+    const result = validateOptionSelection(groups, line.options)
+    for (const violation of result.violations) {
+      optionViolations.push({ ...violation, lineIndex: i })
+    }
+
+    const base = line.unitPrice == null ? null : Number(line.unitPrice)
+    const delta = optionPriceDelta(result.resolved)
+    const productPrice = optionCheck.priceByItem.get(line.menuItemId) ?? 0
+    resolvedOptions.push(result.resolved)
+    finalUnitPrices.push(
+      base == null
+        // No base price supplied: fall back to the product's list price so an
+        // upcharge on a zero-priced line is never stored as just the delta.
+        ? result.resolved.length > 0
+          ? Math.round((productPrice + delta) * 100) / 100
+          : null
+        : Math.round((base + delta) * 100) / 100,
+    )
+  }
+
+  if (optionViolations.length > 0) {
+    return NextResponse.json(
+      { error: 'Invalid product options', violations: optionViolations },
+      { status: 422 },
+    )
+  }
+
   const customerId = await resolveCustomer(prisma, venueId, {
     name: body.customerName,
     email: body.customerEmail,
@@ -373,7 +456,7 @@ export async function POST(req: NextRequest) {
   const orderNumber = await nextOrderNumber(venueId)
 
   const totalAmount = lines.reduce(
-    (sum, l) => sum + (Number(l.unitPrice) || 0) * (Number(l.qty) || 0),
+    (sum, l, i) => sum + (finalUnitPrices[i] ?? 0) * (Number(l.qty) || 0),
     0,
   )
 
@@ -399,10 +482,13 @@ export async function POST(req: NextRequest) {
       notes: body.notes || null,
       allergenNote: body.allergenNote || null,
       items: {
-        create: lines.map((l) => ({
+        create: lines.map((l, i) => ({
           menuItemId: l.menuItemId,
           qty: Number(l.qty) || 1,
-          unitPrice: l.unitPrice == null ? null : Number(l.unitPrice),
+          unitPrice: finalUnitPrices[i],
+          options: resolvedOptions[i].length
+            ? (resolvedOptions[i] as unknown as Prisma.InputJsonValue)
+            : Prisma.DbNull,
           customerNote: l.customerNote || null,
           allergenNote: l.allergenNote || null,
         })),
