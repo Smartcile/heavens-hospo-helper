@@ -18,6 +18,8 @@ interface Props {
   title?: string
   onBack?: () => void
   backLabel?: string
+  showOpen?: boolean
+  showDownload?: boolean
   className?: string
 }
 
@@ -29,7 +31,17 @@ const BACK_LABEL = 'BACK'
  * the actual PDF file (prefetched so iOS keeps the user gesture), DOWNLOAD saves
  * and OPEN is the desktop escape hatch.
  */
-export function PdfActionBar({ url, downloadUrl, filename, title, onBack, backLabel, className }: Props) {
+export function PdfActionBar({
+  url,
+  downloadUrl,
+  filename,
+  title,
+  onBack,
+  backLabel,
+  showOpen = true,
+  showDownload = true,
+  className,
+}: Props) {
   const [status, setStatus] = useState('')
   const [statusTone, setStatusTone] = useState<'info' | 'error'>('info')
   const shareBlobRef = useRef<Blob | null>(null)
@@ -154,26 +166,30 @@ export function PdfActionBar({ url, downloadUrl, filename, title, onBack, backLa
           SHARE
         </Button>
       )}
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label="Download"
-        data-testid="pdf-download"
-        className="min-h-11 shrink-0"
-        onClick={handleDownload}
-      >
-        DOWNLOAD
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label="Open in new tab"
-        data-testid="pdf-open"
-        className="min-h-11 shrink-0"
-        onClick={handleOpen}
-      >
-        OPEN
-      </Button>
+      {showDownload && (
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label="Download"
+          data-testid="pdf-download"
+          className="min-h-11 shrink-0"
+          onClick={handleDownload}
+        >
+          DOWNLOAD
+        </Button>
+      )}
+      {showOpen && (
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label="Open in new tab"
+          data-testid="pdf-open"
+          className="min-h-11 shrink-0"
+          onClick={handleOpen}
+        >
+          OPEN
+        </Button>
+      )}
       {status && (
         <span
           data-testid="pdf-status"

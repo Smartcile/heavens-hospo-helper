@@ -39,4 +39,25 @@ describe('PdfDocumentView', () => {
     expect(screen.getByTestId('pdf-open')).toBeTruthy()
     expect(await screen.findByText('PREVIEW UNAVAILABLE')).toBeTruthy()
   })
+
+  it('forwards showOpen and showDownload to the action bar', async () => {
+    render(
+      <PdfDocumentView
+        url="/api/worker/giftcards/card-1/pdf?inline=1"
+        downloadUrl="/api/worker/giftcards/card-1/pdf"
+        filename="Gift Card - 20260001.pdf"
+        title="GIFT CARD 20260001"
+        onBack={() => {}}
+        showOpen={false}
+        showDownload={false}
+      />,
+    )
+
+    expect(screen.getByTestId('pdf-action-bar')).toBeTruthy()
+    expect(screen.getByTestId('pdf-back')).toBeTruthy()
+    expect(screen.getByTestId('pdf-print')).toBeTruthy()
+    expect(screen.queryByTestId('pdf-download')).toBeNull()
+    expect(screen.queryByTestId('pdf-open')).toBeNull()
+    expect(await screen.findByText('PREVIEW UNAVAILABLE')).toBeTruthy()
+  })
 })

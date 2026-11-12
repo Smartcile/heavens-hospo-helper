@@ -21,6 +21,8 @@ export function GiftCardPdfView({ cardId, number, onBack }: Props) {
       title={`GIFT CARD ${number}`}
       onBack={onBack}
       backLabel="BACK TO CARD"
+      showOpen={false}
+      showDownload={false}
     />
   )
 }
