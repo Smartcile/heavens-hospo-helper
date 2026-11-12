@@ -23,6 +23,9 @@ interface StaffMember {
   profilePhotoUrl: string | null
   hourlyRate: number | null
   employmentType: string | null
+  minHoursPerWeek: number | null
+  wantedHoursPerWeek: number | null
+  targetHoursPerWeek: number | null
   taxCode: string | null
   kiwiSaverRate: number | null
   studentLoan: boolean
@@ -55,6 +58,9 @@ interface FormState {
   departmentId: string
   hourlyRate: string
   employmentType: string
+  minHoursPerWeek: string
+  wantedHoursPerWeek: string
+  targetHoursPerWeek: string
   taxCode: string
   kiwiSaverRate: string
   studentLoan: boolean
@@ -78,6 +84,9 @@ const EMPTY_FORM: FormState = {
   departmentId: '',
   hourlyRate: '',
   employmentType: '',
+  minHoursPerWeek: '',
+  wantedHoursPerWeek: '',
+  targetHoursPerWeek: '',
   taxCode: '',
   kiwiSaverRate: '',
   studentLoan: false,
@@ -167,6 +176,9 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
       loadedReportsId: s.loadedReportsId ?? '',
       hourlyRate: s.hourlyRate != null ? String(s.hourlyRate) : '',
       employmentType: s.employmentType ?? '',
+      minHoursPerWeek: s.minHoursPerWeek != null ? String(s.minHoursPerWeek) : '',
+      wantedHoursPerWeek: s.wantedHoursPerWeek != null ? String(s.wantedHoursPerWeek) : '',
+      targetHoursPerWeek: s.targetHoursPerWeek != null ? String(s.targetHoursPerWeek) : '',
       taxCode: s.taxCode ?? '',
       kiwiSaverRate: s.kiwiSaverRate != null ? String(s.kiwiSaverRate) : '',
       studentLoan: s.studentLoan ?? false,
@@ -228,6 +240,9 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
       loadedReportsId: form.loadedReportsId || null,
       hourlyRate: form.hourlyRate ? Number(form.hourlyRate) : null,
       employmentType: form.employmentType || null,
+      minHoursPerWeek: form.minHoursPerWeek ? Number(form.minHoursPerWeek) : null,
+      wantedHoursPerWeek: form.wantedHoursPerWeek ? Number(form.wantedHoursPerWeek) : null,
+      targetHoursPerWeek: form.targetHoursPerWeek ? Number(form.targetHoursPerWeek) : null,
       taxCode: form.taxCode || null,
       kiwiSaverRate: form.kiwiSaverRate ? Number(form.kiwiSaverRate) : null,
       studentLoan: form.studentLoan,
@@ -522,6 +537,16 @@ export function StaffClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 { value: 'CASUAL', label: 'CASUAL' },
               ]}
             />
+          </div>
+
+          <div className="border-l-4 border-l-grey-mid pl-3 space-y-3">
+            <p className="font-mono text-xs uppercase tracking-wider text-grey-light">ROSTER HOURS PER WEEK</p>
+            <div className="grid grid-cols-3 gap-3">
+              <Input label="Contract Min" type="number" min="0" step="0.5" value={form.minHoursPerWeek} onChange={(e) => setForm({ ...form, minHoursPerWeek: e.target.value })} placeholder="20" />
+              <Input label="Wanted (Casual)" type="number" min="0" step="0.5" value={form.wantedHoursPerWeek} onChange={(e) => setForm({ ...form, wantedHoursPerWeek: e.target.value })} placeholder="30" />
+              <Input label="Admin Target" type="number" min="0" step="0.5" value={form.targetHoursPerWeek} onChange={(e) => setForm({ ...form, targetHoursPerWeek: e.target.value })} placeholder="40" />
+            </div>
+            <p className="font-mono text-2xs uppercase text-grey-light">PLANNING ONLY — THESE DO NOT AFFECT PAYROLL.</p>
           </div>
 
           <div className="border-l-4 border-l-grey-mid pl-3 space-y-3">

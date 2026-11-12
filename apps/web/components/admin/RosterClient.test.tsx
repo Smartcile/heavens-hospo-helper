@@ -359,4 +359,19 @@ describe('RosterClient', () => {
     // Manual events can be edited straight from the staffing modal.
     expect(screen.getByText('EDIT EVENT')).toBeDefined()
   })
+
+  it('shows weekly hour targets and an under-minimum warning', async () => {
+    const targeted = {
+      ...data,
+      staff: [{ ...data.staff[0], minHoursPerWeek: 10, wantedHoursPerWeek: 20, targetHoursPerWeek: 30 }],
+    }
+    mockFetch([[], [], targeted])
+
+    render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findByText(/LIAM HEAVEN/)
+    // The mocked shift is 8.5 paid hours, so it is below the 10h minimum.
+    expect(screen.getByText('8.5H · 1.5H UNDER MIN')).toBeDefined()
+    expect(screen.getByText('MIN 10H · WANTED 20H · TARGET 30H')).toBeDefined()
+  })
 })

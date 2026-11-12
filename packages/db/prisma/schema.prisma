@@ -347,6 +347,8 @@ model Venue {
   taskTemplates       TaskTemplate[]
   shiftNotes          ShiftNote[]
   shifts              Shift[]
+  rosterTemplates     RosterTemplate[]
+  rosterSlots         RosterSlot[]
   timeOffRequests     TimeOffRequest[]
   staffAvailabilities StaffAvailability[]
   notices             Notice[]
@@ -469,6 +471,10 @@ model Staff {
   loadedReportsId String? // LoadedReports id
   hourlyRate      Float? // pay rate per hour
   employmentType  String? // FULL_TIME | PART_TIME | CASUAL
+  // Weekly hour targets for roster planning visibility only. No payroll effect.
+  minHoursPerWeek    Float? // contractual minimum hours per week
+  wantedHoursPerWeek Float? // casual staff's requested hours per week
+  targetHoursPerWeek Float? // admin's target hours per week
   defaultVenueId  String? // admin's preferred default venue across all modules
   // Dashboard customisation: `{ order: string[], hidden: string[] }` of widget
   // ids — drag-to-reorder + show/hide on /admin. Null = default layout.
@@ -1113,6 +1119,73 @@ model Shift {
   @@index([venueId, date])
   @@index([staffId, date])
   @@index([calendarEventId])
+}
+
+// A reusable weekly roster template. Captures a week's shifts normalised to
+// Monday-Sunday day indexes so it can be re-applied to any other week. Staff
+// and position ids are stored as plain strings: a purged person degrades to a
+// reported skip at apply time rather than blocking the template.
+model RosterTemplate {
+  id        String    @id @default(uuid())
+  venueId   String
+  name      String
+  notes     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  venue  Venue                 @relation(fields: [venueId], references: [id])
+  shifts RosterTemplateShift[]
+
+  @@index([venueId])
+  @@index([venueId, name])
+}
+
+// One shift inside a RosterTemplate. `dayIndex` is 0 = Monday … 6 = Sunday.
+model RosterTemplateShift {
+  id           String   @id @default(uuid())
+  templateId   String
+  staffId      String
+  positionId   String?
+  dayIndex     Int
+  startTime    String // "HH:mm"
+  endTime      String // "HH:mm"
+  breakMinutes Int      @default(0)
+  colour       String?
+  tag          String?
+  note         String?
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  template RosterTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+}
+
+// A reusable shift preset: role + time window + headcount. Placing one on a
+// chosen day creates the matching DRAFT shifts for the selected staff.
+model RosterSlot {
+  id           String   @id @default(uuid())
+  venueId      String
+  name         String
+  positionId   String?
+  startTime    String // "HH:mm"
+  endTime      String // "HH:mm"
+  breakMinutes Int      @default(0)
+  headcount    Int      @default(1)
+  colour       String?
+  tag          String?
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@index([venueId])
+  @@index([venueId, sortOrder])
 }
 
 // A physical space in the venue — "MEETING ROOM 1", "FUNCTION ROOM". Created in

@@ -21,6 +21,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
     select: {
       id: true, firstName: true, lastName: true, email: true, role: true, venueId: true,
       departmentId: true, isActive: true, hourlyRate: true, employmentType: true,
+      minHoursPerWeek: true, wantedHoursPerWeek: true, targetHoursPerWeek: true,
       taxCode: true, kiwiSaverRate: true, studentLoan: true,
       swiftPosId: true, myHrId: true, loadedReportsId: true,
       sections: { select: { sectionId: true } },
@@ -72,6 +73,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (isActive !== undefined) updates.isActive = isActive
   if (hourlyRate !== undefined) updates.hourlyRate = hourlyRate != null ? Number(hourlyRate) : null
   if (employmentType !== undefined) updates.employmentType = employmentType || null
+  if (body.minHoursPerWeek !== undefined) updates.minHoursPerWeek = body.minHoursPerWeek != null ? Number(body.minHoursPerWeek) : null
+  if (body.wantedHoursPerWeek !== undefined) updates.wantedHoursPerWeek = body.wantedHoursPerWeek != null ? Number(body.wantedHoursPerWeek) : null
+  if (body.targetHoursPerWeek !== undefined) updates.targetHoursPerWeek = body.targetHoursPerWeek != null ? Number(body.targetHoursPerWeek) : null
   if (body.taxCode !== undefined) updates.taxCode = body.taxCode?.trim() || null
   if (body.kiwiSaverRate !== undefined) updates.kiwiSaverRate = body.kiwiSaverRate != null ? Number(body.kiwiSaverRate) : null
   if (body.studentLoan !== undefined) updates.studentLoan = !!body.studentLoan
@@ -157,6 +161,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
       loadedReportsId: true,
       hourlyRate: true,
       employmentType: true,
+      minHoursPerWeek: true,
+      wantedHoursPerWeek: true,
+      targetHoursPerWeek: true,
       defaultVenueId: true,
       staffVenues: { select: { venueId: true } },
     },
