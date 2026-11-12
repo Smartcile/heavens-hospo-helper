@@ -156,7 +156,7 @@ keeping other query params.
 | Tab | What it does |
 |---|---|
 | **GENERAL** | Integrations (legacy ROOM CALENDARS editor — the canonical home is now Events → Rooms & Plans → ROOMS; Loaded embed + refresh), WooCommerce (store keys, webhook secret, order field mapping, API keys — plugin-paired stores show MANAGED BY PLUGIN read-only with MANUAL OVERRIDE), DEMO VENUE, BACKUP & RESTORE, VENUE SHARING, NZ break entitlements, default venue, change password/PIN |
-| **VENUE SETUP** | Stand up a venue in one place: **venues** (add / remove test ones), **roles** (Positions — with training requirements, team readiness, default access, per-role rate) and **departments** |
+| **VENUE SETUP** | Stand up a venue in one place: **venues** (add / remove test ones), **roles** (Positions — with training requirements, team readiness, default access, per-role rate), **departments** and **sections** (add / edit / delete without leaving the page) |
 | **STRUCTURE** | The org tree + workflow node map (TREE/MAP) — moved here from the sidebar |
 | **UNITS OF MEASURE** | UOM list + CRUD with base-unit ratios and kind (VOLUME/MASS/COUNT) |
 | **SUPPLIERS** | Supplier list + CRUD (used by inventory equipment tracking). Selecting a supplier shows the purchasing panel: SUPPLIER SKUs (SKU → inventory item + purchase price), LINE ALIASES (invoice text → item), and INVOICE TEMPLATES with LEARN TEMPLATE (copy a prompt to an external LLM, paste its JSON back) |

@@ -37,7 +37,7 @@ function pickUnusedColour(usedHexes: Set<string>): string {
   return fallback ? fallback.value : DEPT_COLOURS[Math.floor(Math.random() * DEPT_COLOURS.length)].value
 }
 
-export function SectionsClient({ role, venueId }: { role: string; venueId: string }) {
+export function SectionsClient({ role, venueId, scopeVenueId }: { role: string; venueId: string; scopeVenueId?: string }) {
   const [sections, setSections] = useState<Section[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(true)
@@ -48,17 +48,18 @@ export function SectionsClient({ role, venueId }: { role: string; venueId: strin
   const [error, setError] = useState('')
 
   async function load() {
+    const qs = scopeVenueId ? `?venueId=${encodeURIComponent(scopeVenueId)}` : ''
     const [sR, dR] = await Promise.all([
-      fetch('/api/admin/sections'),
-      fetch('/api/admin/departments'),
+      fetch(`/api/admin/sections${qs}`),
+      fetch(`/api/admin/departments${qs}`),
     ])
     const [sData, dData] = await Promise.all([sR.json(), dR.json()])
     setSections(sData)
-    setDepartments(dData)
+    setDepartments(scopeVenueId ? (dData as Department[]).filter((d) => d.venueId === scopeVenueId) : dData)
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [scopeVenueId])
 
   function openCreate() {
     setEditing(null)
