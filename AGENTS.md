@@ -57,7 +57,7 @@ hospo-ops/
 ├── packages/
 │   ├── db/                         # Prisma 7 schema + PG adapter + seed
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma       # 152 models (as of 2026-11)
+│   │   │   ├── schema.prisma       # 155 models (as of 2026-11)
 │   │   │   ├── seed.ts             # Idempotent demo/sample data
 │   │   │   ├── migrate-*.ts        # One-off migrations wired into docker-entrypoint.sh
 │   │   │   └── migrations/         # Legacy 0_init migration (kept for reference)
@@ -812,7 +812,7 @@ weekly series, the modal also offers **JUST THESE DAYS** (standalone copies) or
 worker availability view has no drag-fill — workers tap a day to edit. Rectangle
 hit-testing is the shared `lib/cell-fill.ts`.
 
-**Roster** — `/admin/team?tab=roster` (`RosterClient`, 13 tests): week/day grid,
+**Roster** — `/admin/team?tab=roster` (`RosterClient`, 14 tests): week/day grid,
 staff grouped by derived Position (drag headers; persisted `Position.sortOrder`),
 DRAFT/MIXED/PUBLISHED week status (`ShiftStatus`; only PUBLISHED shifts reach
 workers) with bulk publish via `POST /api/admin/roster/publish`, shift modal
@@ -834,6 +834,50 @@ Creating a shift defaults Role to the person's top-ranked Position; editing
 loads the shift's own role and note (the roster payload now carries `note`).
 Rectangle math in `lib/cell-fill.ts`. Routes: `GET /api/admin/roster`,
 `POST /api/admin/roster/publish`, `POST/PUT/DELETE /api/admin/shifts(+/[id])`.
+
+**Roster hour targets (#139, built 2026-11).** `Staff.minHoursPerWeek` (contract
+minimum), `Staff.wantedHoursPerWeek` (casual requested) and
+`Staff.targetHoursPerWeek` (admin aim) are additive `Float?` columns edited in
+the Staff form under ROSTER HOURS PER WEEK. The roster staff column shows the
+scheduled paid hours against them: red under the minimum, warning under the
+highest soft goal, green when met/over. The status chip is shown in **WEEK
+view only** — a day-view total is one day, not a week, so it would be
+misleading. `lib/roster-hours.ts` (pure) owns `hourGoals`, `hourTargetStatus`
+(none / under-min / under-goal / met / over), `describeHourTargets`,
+`parseHourTarget` and `hourStatusTone`. **These values never affect payroll** —
+planning visibility only.
+
+**Roster week templates + copy (#139, built 2026-11).** `RosterTemplate`
+(venueId, name, notes) + `RosterTemplateShift` (staffId, positionId, `dayIndex`
+0=Monday…6=Sunday, times, break, colour/tag/note, sortOrder, soft delete).
+Deleting a template stamps `deletedAt` on its shifts in the same transaction.
+Staff/position ids are plain strings so a purged person degrades to a reported
+skip. **TEMPLATES** saves the displayed week normalised to Monday–Sunday;
+**APPLY** writes DRAFT shifts into a target week in **ADD** or **REPLACE** mode
+(REPLACE asks for confirmation, soft-deletes the target week — including
+published shifts — and releases its open-shift seats). **COPY WEEK** does the
+same directly from the displayed week. Missing/inactive staff are skipped and
+reported; a template position that no longer exists is nulled and reported as
+`clearedPositionIds`. `lib/roster-template.ts` is the pure mapping
+(`dayIndexFromDate`, `dateForDayIndex`, `normaliseWeekToTemplate`,
+`buildTemplateWeekRows`, `buildCopyWeekRows`); `lib/roster-week.server.ts` owns
+the transactional write. Routes: `GET/POST /api/admin/roster/templates`,
+`DELETE /api/admin/roster/templates/[id]`,
+`POST /api/admin/roster/templates/[id]/apply`, `POST /api/admin/roster/copy`.
+
+**Working slots (#139, built 2026-11).** `RosterSlot` (venueId, name,
+positionId?, start/end, break, `headcount` 1–50, colour/tag, isActive,
+sortOrder) is a reusable shift preset — role + time + headcount, **not** an
+unassigned requirement layer. **SLOTS** in the roster toolbar creates/edits/
+deletes them and **PLACE** puts one on a chosen day for the selected staff,
+creating one DRAFT shift per person. Fewer staff than the headcount leaves
+unfilled seats (reported); more is rejected. A slot position that no longer
+exists is nulled on the created shifts and reported as `clearedPositionId`.
+`lib/roster-slot.ts` (pure) owns
+`validateRosterSlot`, `planSlotPlacement` and `describeRosterSlot`. Routes:
+`GET/POST /api/admin/roster/slots`, `PUT/DELETE /api/admin/roster/slots/[id]`,
+`POST /api/admin/roster/slots/[id]/place`. All roster template/slot writes use
+`team.roster.edit`; reads use `team.roster.view`.
 
 **Areas + event staffing + open shifts (built 2026-10, reworked 2026-10).**
 `Area` is a physical event space (name, colour, optional floor-plan link,
@@ -2753,7 +2797,7 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 > (`MenuItem.variations`), orders (`WooOrder` as the local order store), gift
 > cards, SwiftPOS and `ApiKey` public routes are unaffected.
 
-### Schema: 152 models (as of 2026-11)
+### Schema: 155 models (as of 2026-11)
 Core ERP models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`,
 `RecipeLineItem` (recursive BOM), `IngredientReference` (Pantry Bible),
 `WooIntegration`, `MenuItem` (+ `MenuItemServe`, `MenuItemVenue`), `Menu`,
@@ -3563,7 +3607,7 @@ regression test. No test, no merge.
 **Config:** `apps/web/vitest.config.ts`, setup via `apps/web/vitest-setup.ts`
 **Location:** test files live alongside components (e.g. `FloorPlanEditor.test.tsx`
 next to `FloorPlanEditor.tsx`).
-**Scale (2026-11):** 337 test files / 2,923 cases across `lib`, route handlers and components.
+**Scale (2026-11):** 360 test files / 3,100 cases across `lib`, route handlers and components.
 
 ```bash
 npm run test          # runs all tests once (also: npm run test in root via turbo)
@@ -3654,6 +3698,9 @@ pre-flight.
 | `lib/open-shifts.ts` / `open-shifts.server.ts` — seat expansion, claimable rules, find/claim/approve/cancel | ✅ (12 + 19 tests) |
 | `lib/event-roster.ts` — room/day grid, multi-day + all-day mapping, room matching | ✅ (10 tests) |
 | `lib/roster-math.ts` / `roster-pdf.ts` / `staff-rate.ts` | ✅ (14 + 2 + 5) |
+| `lib/roster-hours.ts` — goal collection, hour-target status (none/under-min/under-goal/met/over), labels, tone, hour-target parsing | ✅ (12 tests) |
+| `lib/roster-template.ts` — day-index mapping, week normalisation, template apply/copy planning, staff skips, date/mode validation | ✅ (10 tests) |
+| `lib/roster-slot.ts` — slot validation (name/times/break/headcount), seat planning (dedupe/skips/unfilled/max), description | ✅ (11 tests) |
 | `lib/nz-payroll.ts` / `payroll.ts` — PAYE/ACC/KiwiSaver engine + payrun bridge | ✅ (26 + 6) |
 | `lib/food-safety.ts` — verdicts, GFMP defaults, health metrics | ✅ (37 tests) |
 | `lib/unit-convert.ts` — grams canonicalisation + UOM kind helpers | ✅ (37 tests) |
@@ -3735,7 +3782,10 @@ pre-flight.
 | `WorkerGuidesClient.tsx` — BIBLE / MY TREE, folder grouping, edit gating, needs-attention warnings + red guide card, mark-retrained/dismiss/mark-for-retraining success + failure paths | ✅ (18 tests) |
 | `EventBuilder.tsx` / `PipelinePanel.tsx` / `EnquiriesPanel.tsx` — BEO builder, pipeline board, intake | ✅ (5 + 2 + 4) |
 | `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 16 + 15 + 33) |
-| `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (13 + 5 + 4) |
+| `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (15 + 5 + 4) |
+| `RosterTemplatesModal.tsx` — template list, save current week, apply to target week, REPLACE confirmation, next-week default | ✅ (5 tests) |
+| `RosterCopyWeekModal.tsx` — ADD copy, REPLACE confirmation, next-week default | ✅ (3 tests) |
+| `RosterSlotsModal.tsx` — slot list, create slot, place slot for selected staff | ✅ (3 tests) |
 | `StaffingLinesEditor.tsx` — payload mapping, unnamed-row filter, rows, remove | ✅ (5 tests) |
 | `OrderOptionPicker.tsx` — group/choice render, single-select replace, snapshot payload, summary + upcharge, no-groups empty | ✅ (5 tests) |
 | `NewOrderModal.test.tsx` — default preselected, total = base + upcharge, POST sends the base unitPrice + snapshot, shaped menu line picker | ✅ (4 tests) |
@@ -3773,6 +3823,14 @@ pre-flight.
 | `app/api/admin/import/tasks/route.test.ts` — GET refs + MANAGER scope; POST creates DRAFT tasks with resolved dept/section + checklist link, skips unknown department / invalid weekly, UPDATE preserves status, edit-permission gate, MANAGER venue lock, empty payload | ✅ (9 tests) |
 | `app/api/admin/import/guides/route.test.ts` — GET refs + MANAGER scope; POST creates DRAFT guides with audiences/steps/links, creates a missing folder, skips unknown audience/link, warns NOBODY WILL SEE THIS, rejects PRODUCT_REFERENCE, UPDATE with/without REPLACE STEPS, edit-permission gate, MANAGER lock, empty payload | ✅ (13 tests) |
 | `app/api/admin/swiftpos/staff/route.test.ts` — LINK sets the PIN from the clerk id, keeps an existing PIN, and links without a PIN on a clash | ✅ (3 tests) |
+| `app/api/admin/roster/templates/route.test.ts` — auth/guard, list with names, save week normalised to day indexes, empty-week 422 | ✅ (7 tests) |
+| `app/api/admin/roster/templates/[id]/route.test.ts` — delete soft-deletes the template and its shifts, 404/403 | ✅ (5 tests) |
+| `app/api/admin/roster/templates/[id]/apply/route.test.ts` — ADD creates DRAFT rows + skips staff, REPLACE soft-deletes/releases, missing position cleared, no-active-staff 422, cross-venue 403, bad date 400, 401/404 | ✅ (8 tests) |
+| `app/api/admin/roster/copy/route.test.ts` — ADD copy, REPLACE clear/release, inactive-staff 422, same-week/invalid-date 400, 401 | ✅ (6 tests) |
+| `app/api/admin/roster/slots/route.test.ts` — list with position names, create, invalid input, cross-venue position | ✅ (5 tests) |
+| `app/api/admin/roster/slots/[id]/route.test.ts` — update, invalid input, 404/403, soft delete | ✅ (6 tests) |
+| `app/api/admin/roster/slots/[id]/place/route.test.ts` — DRAFT shifts + unfilled seats, missing position cleared, over-headcount 422, inactive 409, missing date 400, no staff 422, cross-venue 403, 401/404 | ✅ (9 tests) |
+| `app/api/admin/staff/[id]/route.test.ts` — section-review dismiss + weekly hour-target validation (negative rejected, two-decimal rounding) | ✅ (4 tests) |
 | `app/api/admin/orders/route.test.ts` — option snapshot persisted, upcharge folded into price/total, default applied, null-price product fallback, 422 on required/unknown, no-group line stores none | ✅ (6 tests) |
 | `app/api/admin/orders/[id]/route.test.ts` — PUT re-validates options, folds upcharge, clears snapshot, preserves a line when options are omitted, null-price fallback, 422 on unknown / cross-venue product | ✅ (6 tests) |
 | `app/api/admin/inventory/reconcile/route.test.ts` — choice drawdown × line qty + gram-aware merge; read-only (no stock writes) | ✅ (2 tests) |

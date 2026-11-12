@@ -50,4 +50,18 @@ describe('PUT /api/admin/staff/[id]', () => {
     await PUT(request({ firstName: 'JANE' }), params)
     expect(dismissPendingSectionWorkForGrant).not.toHaveBeenCalled()
   })
+
+  it('rejects a negative weekly hour target', async () => {
+    const res = await PUT(request({ minHoursPerWeek: -1 }), params)
+    expect(res.status).toBe(400)
+    expect(prisma.staff.update).not.toHaveBeenCalled()
+  })
+
+  it('stores finite hour targets rounded to two decimals', async () => {
+    const res = await PUT(request({ targetHoursPerWeek: '38.456' }), params)
+    expect(res.status).toBe(200)
+    expect(prisma.staff.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ targetHoursPerWeek: 38.46 }),
+    }))
+  })
 })

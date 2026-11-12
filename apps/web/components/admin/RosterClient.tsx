@@ -8,6 +8,9 @@ import { DateNav } from '@/components/admin/DateNav'
 import { EventStaffingModal, EventClaimsModal } from '@/components/admin/EventStaffingModal'
 import { CalendarEventFormModal } from '@/components/admin/CalendarEventFormModal'
 import { StaffEditModal } from '@/components/admin/StaffEditModal'
+import { RosterTemplatesModal } from '@/components/admin/RosterTemplatesModal'
+import { RosterCopyWeekModal } from '@/components/admin/RosterCopyWeekModal'
+import { RosterSlotsModal } from '@/components/admin/RosterSlotsModal'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { moveItem } from '@/lib/array'
 import { fillRect, fillTargets, inFillRect, type FillCell } from '@/lib/cell-fill'
@@ -19,6 +22,7 @@ import { nearestIndex, type Rect } from '@/lib/reorder'
 import { useScrollRestore } from '@/lib/use-scroll-restore'
 import { buildStaffGroups, insertSubset, sortByPinnedAvailability, topPositionId } from '@/lib/staff-groups'
 import { colourForShift, rateForShift, rosterWeekSummary, staffWeekTotals, type RosterShift, type StaffRate } from '@/lib/roster-math'
+import { describeHourTargets, hourStatusTone, hourTargetStatus } from '@/lib/roster-hours'
 import { generateRosterPdf } from '@/lib/roster-pdf'
 import {
   availabilityMeta,
@@ -36,6 +40,9 @@ interface RosterStaff {
   lastName: string
   hourlyRate: number | null
   employmentType: string | null
+  minHoursPerWeek: number | null
+  wantedHoursPerWeek: number | null
+  targetHoursPerWeek: number | null
   departmentName: string | null
   positions: { id: string; name: string; colour: string | null; rate: number | null }[]
 }
@@ -137,6 +144,9 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
   // Analyze / Visualize modals
   const [showAnalyze, setShowAnalyze] = useState(false)
   const [showVisualize, setShowVisualize] = useState(false)
+  const [showTemplates, setShowTemplates] = useState(false)
+  const [showCopyWeek, setShowCopyWeek] = useState(false)
+  const [showSlots, setShowSlots] = useState(false)
 
   // Events tab (same staff grid + event chips in the day headers)
   const [openEventId, setOpenEventId] = useState<string | null>(null)
@@ -676,6 +686,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
     const t = totals.byStaff.get(s.id)
     const n = rowNumber.get(s.id) ?? 0
     const ri = n - 1
+    const hourStatus = hourTargetStatus(t?.hours ?? 0, s)
     return (
       <div key={s.id} className="contents">
         {/* Staff cell — sticky left */}
@@ -686,6 +697,19 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
           <div className="font-mono text-2xs text-grey-light mt-0.5">
             {t ? `${t.hours.toFixed(2)}HRS / $${t.cost.toFixed(2)}` : '0HRS / $0.00'}
           </div>
+          {view === 'week' && hourStatus.goals.length > 0 && (
+            <>
+              <span
+                className={`inline-block font-mono text-2xs uppercase px-1 mt-0.5 border ${hourStatusTone(hourStatus.level)}`}
+                title={`${hourStatus.label} · ${describeHourTargets(s)}`}
+              >
+                {hourStatus.label}
+              </span>
+              <div className="font-mono text-2xs uppercase text-grey-light mt-0.5 truncate" title={describeHourTargets(s)}>
+                {describeHourTargets(s)}
+              </div>
+            </>
+          )}
           {s.positions.length > 0 && (
             <div className="font-mono text-2xs text-grey-light mt-0.5 truncate">{s.positions.map((p) => p.name).join(' · ')}</div>
           )}
@@ -828,6 +852,13 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
               options={[{ value: '', label: 'ALL ROLES' }, ...positions.map(p => ({ value: p.id, label: p.name }))]} />
           </div>
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="NAME..." className="w-40" />
+          {tab === 'staff' && (
+            <>
+              <Button size="sm" variant="ghost" onClick={() => setShowTemplates(true)}>TEMPLATES</Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowCopyWeek(true)}>COPY WEEK</Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowSlots(true)}>SLOTS</Button>
+            </>
+          )}
           <Button size="sm" variant="ghost" onClick={printRoster}>PRINT</Button>
           <Button size="sm" variant="ghost" onClick={toggleFullscreen}>{fullscreen ? 'EXIT FS' : 'FULLSCREEN'}</Button>
           <Button size="sm"
@@ -1162,6 +1193,35 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
           defaultDate={weekStart}
           onClose={() => { setCreateEventOpen(false); setEditEventId(null) }}
           onSaved={() => { setCreateEventOpen(false); setEditEventId(null); eventRoster.reload() }}
+        />
+      )}
+
+      {showTemplates && (
+        <RosterTemplatesModal
+          venueId={venueId}
+          weekStart={mondayOf(weekStart)}
+          onClose={() => setShowTemplates(false)}
+          onApplied={() => load(true)}
+        />
+      )}
+
+      {showCopyWeek && (
+        <RosterCopyWeekModal
+          venueId={venueId}
+          sourceStart={mondayOf(weekStart)}
+          onClose={() => setShowCopyWeek(false)}
+          onDone={() => load(true)}
+        />
+      )}
+
+      {showSlots && (
+        <RosterSlotsModal
+          venueId={venueId}
+          positions={positions}
+          staff={data?.staff ?? []}
+          defaultDate={weekStart}
+          onClose={() => setShowSlots(false)}
+          onPlaced={() => load(true)}
         />
       )}
     </div>

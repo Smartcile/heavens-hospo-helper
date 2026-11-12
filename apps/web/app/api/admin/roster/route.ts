@@ -34,6 +34,9 @@ export async function GET(req: NextRequest) {
         lastName: true,
         hourlyRate: true,
         employmentType: true,
+        minHoursPerWeek: true,
+        wantedHoursPerWeek: true,
+        targetHoursPerWeek: true,
         department: { select: { name: true } },
         positions: {
           select: {
@@ -146,6 +149,9 @@ export async function GET(req: NextRequest) {
       lastName: s.lastName,
       hourlyRate: s.hourlyRate,
       employmentType: s.employmentType,
+      minHoursPerWeek: s.minHoursPerWeek,
+      wantedHoursPerWeek: s.wantedHoursPerWeek,
+      targetHoursPerWeek: s.targetHoursPerWeek,
       departmentName: s.department?.name ?? null,
       positions: s.positions.map((sp) => ({
         id: sp.position.id,

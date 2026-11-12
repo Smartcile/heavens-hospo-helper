@@ -15,6 +15,7 @@ interface StaffData {
   id: string; firstName: string; lastName: string; email: string | null; role: string
   venueId: string; departmentId: string | null
   hourlyRate: number | null; employmentType: string | null
+  minHoursPerWeek: number | null; wantedHoursPerWeek: number | null; targetHoursPerWeek: number | null
   taxCode: string | null; kiwiSaverRate: number | null; studentLoan: boolean
   swiftPosId: string | null; myHrId: string | null; loadedReportsId: string | null
   sections: { sectionId: string }[]
@@ -117,6 +118,7 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
       firstName: staff.firstName, lastName: staff.lastName,
       email: staff.email || null, departmentId: staff.departmentId || null,
       hourlyRate: staff.hourlyRate, employmentType: staff.employmentType || null,
+      minHoursPerWeek: staff.minHoursPerWeek, wantedHoursPerWeek: staff.wantedHoursPerWeek, targetHoursPerWeek: staff.targetHoursPerWeek,
       taxCode: staff.taxCode || null, kiwiSaverRate: staff.kiwiSaverRate, studentLoan: staff.studentLoan,
       swiftPosId: staff.swiftPosId || null, myHrId: staff.myHrId || null, loadedReportsId: staff.loadedReportsId || null,
       sectionIds,
@@ -170,6 +172,16 @@ export function StaffEditModal({ staffId, role, onClose, onSaved }: { staffId: s
               { value: 'PART_TIME', label: 'PART TIME' },
               { value: 'CASUAL', label: 'CASUAL' },
             ]} />
+          </div>
+
+          <div className="border-l-4 border-l-grey-mid pl-3 space-y-3">
+            <p className="font-mono text-xs uppercase tracking-wider text-grey-light">ROSTER HOURS PER WEEK</p>
+            <div className="grid grid-cols-3 gap-3">
+              <Input label="Contract Min" type="number" min="0" step="0.5" value={staff.minHoursPerWeek != null ? String(staff.minHoursPerWeek) : ''} onChange={(e) => patch({ minHoursPerWeek: e.target.value ? Number(e.target.value) : null })} placeholder="20" />
+              <Input label="Wanted (Casual)" type="number" min="0" step="0.5" value={staff.wantedHoursPerWeek != null ? String(staff.wantedHoursPerWeek) : ''} onChange={(e) => patch({ wantedHoursPerWeek: e.target.value ? Number(e.target.value) : null })} placeholder="30" />
+              <Input label="Admin Target" type="number" min="0" step="0.5" value={staff.targetHoursPerWeek != null ? String(staff.targetHoursPerWeek) : ''} onChange={(e) => patch({ targetHoursPerWeek: e.target.value ? Number(e.target.value) : null })} placeholder="40" />
+            </div>
+            <p className="font-mono text-2xs uppercase text-grey-light">PLANNING ONLY — THESE DO NOT AFFECT PAYROLL.</p>
           </div>
 
           <div className="border-l-4 border-l-grey-mid pl-3 space-y-3">

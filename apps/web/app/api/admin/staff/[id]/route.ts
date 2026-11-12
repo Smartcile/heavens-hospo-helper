@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import bcrypt from 'bcryptjs'
 import { guardAccess } from '@/lib/permissions'
 import { dismissPendingSectionWorkForGrant } from '@/lib/section-work.server'
+import { parseHourTarget } from '@/lib/roster-hours'
 
 interface Params {
   params: { id: string }
@@ -21,6 +22,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
     select: {
       id: true, firstName: true, lastName: true, email: true, role: true, venueId: true,
       departmentId: true, isActive: true, hourlyRate: true, employmentType: true,
+      minHoursPerWeek: true, wantedHoursPerWeek: true, targetHoursPerWeek: true,
       taxCode: true, kiwiSaverRate: true, studentLoan: true,
       swiftPosId: true, myHrId: true, loadedReportsId: true,
       sections: { select: { sectionId: true } },
@@ -72,6 +74,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (isActive !== undefined) updates.isActive = isActive
   if (hourlyRate !== undefined) updates.hourlyRate = hourlyRate != null ? Number(hourlyRate) : null
   if (employmentType !== undefined) updates.employmentType = employmentType || null
+  for (const field of ['minHoursPerWeek', 'wantedHoursPerWeek', 'targetHoursPerWeek'] as const) {
+    if (body[field] !== undefined) {
+      const parsed = parseHourTarget(body[field])
+      if (!parsed.ok) {
+        return NextResponse.json({ error: 'HOUR TARGETS MUST BE NON-NEGATIVE NUMBERS' }, { status: 400 })
+      }
+      updates[field] = parsed.value
+    }
+  }
   if (body.taxCode !== undefined) updates.taxCode = body.taxCode?.trim() || null
   if (body.kiwiSaverRate !== undefined) updates.kiwiSaverRate = body.kiwiSaverRate != null ? Number(body.kiwiSaverRate) : null
   if (body.studentLoan !== undefined) updates.studentLoan = !!body.studentLoan
@@ -157,6 +168,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
       loadedReportsId: true,
       hourlyRate: true,
       employmentType: true,
+      minHoursPerWeek: true,
+      wantedHoursPerWeek: true,
+      targetHoursPerWeek: true,
       defaultVenueId: true,
       staffVenues: { select: { venueId: true } },
     },
