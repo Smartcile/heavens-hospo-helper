@@ -49,6 +49,7 @@ interface WidgetExtra {
   hsAlertsOpen: number
   clockedIn: number
   training: { summary: { green: number; yellow: number; red: number }; onShiftActionNeeded: number } | null
+  parkingHealth: { ok: boolean; stale: boolean; message: string } | null
 }
 
 export function DashboardClient({ role }: { role: string }) {
@@ -151,7 +152,9 @@ export function DashboardClient({ role }: { role: string }) {
         if (!overdue) return null
         const missed = overdue.totalMissed
         const pending = stats.overdueCount
-        if (missed === 0 && pending === 0) {
+        const parkingWarning =
+          extra?.parkingHealth && !extra.parkingHealth.ok ? extra.parkingHealth : null
+        if (missed === 0 && pending === 0 && !parkingWarning) {
           return (
             <Panel padding="lg" className="status-bar-success h-full">
               <p className="font-mono text-sm text-success uppercase tracking-wider">ALL CLEAR — EVERYTHING ON TRACK</p>
@@ -162,8 +165,8 @@ export function DashboardClient({ role }: { role: string }) {
           )
         }
         return (
-          <Panel padding="lg" className={`${missed > 0 ? 'status-bar-danger' : 'status-bar-warning'} h-full`}>
-            <p className={`font-mono text-sm uppercase tracking-wider ${missed > 0 ? 'text-danger' : 'text-warning'}`}>
+          <Panel padding="lg" className={`${missed > 0 || parkingWarning ? 'status-bar-danger' : 'status-bar-warning'} h-full`}>
+            <p className={`font-mono text-sm uppercase tracking-wider ${missed > 0 || parkingWarning ? 'text-danger' : 'text-warning'}`}>
               ATTENTION NEEDED
             </p>
             <p className="font-mono text-xs text-white mt-1">
@@ -171,6 +174,11 @@ export function DashboardClient({ role }: { role: string }) {
               {missed > 0 && pending > 0 && <span className="text-grey-light"> · </span>}
               {pending > 0 && <span className="text-warning">{pending} STILL PENDING TODAY</span>}
             </p>
+            {parkingWarning && (
+              <p className="font-mono text-xs text-danger mt-1">
+                PARKING SYNC FAILED — {parkingWarning.message}
+              </p>
+            )}
           </Panel>
         )
       }

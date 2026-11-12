@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLiveRefresh } from '@/lib/use-live-refresh'
 
-type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'shifts' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events' | 'deliveries' | 'kitchen' | 'giftcards' | 'training-status' | 'help'
+type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'shifts' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events' | 'deliveries' | 'kitchen' | 'giftcards' | 'parking' | 'training-status' | 'help'
 
 interface DashData {
   firstName: string
@@ -25,6 +25,10 @@ interface DashData {
   eventsAllowed: boolean
   /** Floor staff with the gift-card issue grant can open the issue screen. */
   giftcardsAllowed: boolean
+  /** Guest parking is enabled for the venue. */
+  parkingAllowed: boolean
+  /** Non-null when the last parking health check failed or is stale. */
+  parkingWarning: string | null
 }
 
 export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
@@ -98,7 +102,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
   }
 
   async function load() {
-    const [tasksR, noticesR, calR, guidesR, pathwayR, stocktakeR, clockR, eventsR, giftCardsR] = await Promise.all([
+    const [tasksR, noticesR, calR, guidesR, pathwayR, stocktakeR, clockR, eventsR, giftCardsR, parkingR] = await Promise.all([
       fetch('/api/worker/tasks'),
       fetch('/api/worker/notices'),
       fetch('/api/worker/calendar'),
@@ -109,6 +113,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
       fetch('/api/worker/events/access'),
       // A failed capability check must not hang the dashboard.
       fetch('/api/worker/giftcards/access').catch(() => ({ ok: false } as Response)),
+      fetch('/api/worker/parking/access').catch(() => ({ ok: false } as Response)),
     ])
 
     if (tasksR.status === 401) { router.push('/w/login'); return }
@@ -124,6 +129,9 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
     const giftCardsAccess = giftCardsR.ok
       ? await giftCardsR.json().catch(() => ({ allowed: false }))
       : { allowed: false }
+    const parkingAccess = parkingR.ok
+      ? await parkingR.json().catch(() => ({ enabled: false, health: null }))
+      : { enabled: false, health: null }
 
     const pending = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => !t.isCompleted).length
     const done = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => t.isCompleted).length
@@ -149,6 +157,11 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
       isClockedIn: clock.isClockedIn ?? false,
       eventsAllowed: !!eventsAccess.allowed,
       giftcardsAllowed: !!giftCardsAccess.allowed,
+      parkingAllowed: !!parkingAccess.enabled,
+      parkingWarning:
+        parkingAccess.enabled && parkingAccess.health && !parkingAccess.health.ok
+          ? parkingAccess.health.message || 'LAST CHECK FAILED'
+          : null,
     })
     setLoading(false)
   }
@@ -441,6 +454,18 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           'text-grey-light',
           'border-grey-mid',
           () => openView('deliveries')
+        )}
+
+        {data?.parkingAllowed && card(
+          'GUEST PARKING',
+          data.parkingWarning ? 'SERVICE WARNING — LAST CHECK FAILED' : 'REGISTER A GUEST PLATE',
+          <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="square" strokeWidth={1.5} d="M3 13l2-5a2 2 0 011.9-1.3h10.2A2 2 0 0119 8l2 5M3 13h18M3 13v5h2v-2h14v2h2v-5M7 16h.01M17 16h.01" />
+          </svg>,
+          data.parkingWarning ? 'WARNING' : null,
+          'text-danger',
+          data.parkingWarning ? 'border-danger' : 'border-grey-mid',
+          () => openView('parking')
         )}
 
         {card(

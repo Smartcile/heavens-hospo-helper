@@ -17,6 +17,7 @@ import { UomsClient } from '@/app/admin/(protected)/uoms/UomsClient'
 import { SuppliersClient } from '@/app/admin/(protected)/suppliers/SuppliersClient'
 import { QRCodesClient } from '@/components/admin/QRCodesClient'
 import { SwiftPosSalesClient } from '@/components/admin/SwiftPosSalesClient'
+import { GuestParkingSettings } from '@/components/admin/GuestParkingSettings'
 import {
   AVAILABILITY_WEEKDAYS,
   quarterHourEndOptions,
@@ -1158,6 +1159,8 @@ export function SettingsClient({
             <Button onClick={handleChangePin} loading={pinSaving} size="sm" variant="ghost">UPDATE PIN</Button>
           </div>
         </div>
+
+        <GuestParkingSettings venueId={venueId} role={role} />
       </div>
         </div>
         )}

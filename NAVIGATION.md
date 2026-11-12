@@ -181,9 +181,10 @@ keeping other query params.
 │   │ FLOOR PLAN · STOCKTAKE     │ │
 │   │ TIME CLOCK · KITCHEN       │ │
 │   │ DELIVERIES · GIFT CARDS*   │ │
-│   │ TRAINING STATUS* · EVENTS* │ │
+│   │ GUEST PARKING* · TRAINING  │ │
+│   │ STATUS* · EVENTS*          │ │
 │   └────────────────────────────┘ │
-│   * permission-gated tiles       │
+│   * shown by grant or setting    │
 └──────────────────────────────────┘
 ```
 
@@ -193,6 +194,7 @@ keeping other query params.
 | **Dashboard** | `/w/dashboard` | Today's due tasks per department, guides % complete, pending stocktake, notices, clock state |
 | **Tasks** | `/w/tasks` | Whole-floor due tasks grouped by Checklist → Department → Section; shared completion ("BY NAME"). A `📖 GUIDE` badge on a task (and the reader's step links) opens the guide in a popup — `OPEN IN A POPUP?` then a full-screen `← BACK` reader. READING tasks (fridge/freezer temps, probe calibration) show a big numeric input with a live PASS/FAIL verdict as you type; an out-of-range reading raises an alert (CRITICAL also posts an URGENT notice) |
 | **Deliveries** | `/w/deliveries` | Receive stock on the floor: supplier picker, vehicle temp, search products, per-line qty/temp/disposition with live verdicts, RECORD DELIVERY. Failed lines raise alerts the manager resolves in the Compliance hub |
+| **Guest Parking** | `/w/parking` | Register a guest's number plate with Scan2Pay for the free 90-minute window (only when the venue has enabled it in Settings → GENERAL → GUEST PARKING). Plate input, arrival defaults to now with NOW/-5/-15/-30 plus a full picker, one SUBMIT, success card with paid-until + confirmation + EXTEND ON SCAN2PAY link, ALREADY REGISTERED card, and today's registrations. A SERVICE WARNING strip appears when the daily health check has failed |
 | **Guides** | `/w/guides` | BIBLE (every applicable published guide — tracked ones are completable, untracked REFERENCE SOPs/FAQs/HOWTOs appear under "REFERENCE — READ ANY TIME" and open read-only; step reader shows linked tasks/tools/lists, MARK COMPLETE) + MY TREE (pathway progress, locked nodes readable but not bankable). Managers also get **TRAINING STATUS →** |
 | **Training Status** | `/w/training-status` | Manager-only (ADMIN/MANAGER) training board inside the worker chrome: position-grouped staff, missing/stale guide titles, MANAGE GUIDES, section reviews |
 | **Kitchen** | `/w/kitchen` | Today's order items by table, allergy badges, prep totals. Auto-refresh 15s |

@@ -12,13 +12,16 @@
 // ──────────────────────────────────────────────────────────────────────
 
 export const EXPIRY_SCAN_HOUR = 3
+export const PARKING_HEALTH_HOUR = 5
 
 export interface CronState {
   lastExpiryScanDate: string | null
+  lastParkingHealthDate: string | null
 }
 
 export interface DueJobs {
   expiryScan: boolean
+  parkingHealth: boolean
 }
 
 // Local calendar date key + hour for a timezone, e.g. { dateKey: '2026-07-15', hour: 3 }
@@ -43,8 +46,10 @@ export function localParts(now: Date, timezone: string): { dateKey: string; hour
 export function dueJobs(state: CronState, now: Date, timezone: string): DueJobs {
   const { dateKey, hour } = localParts(now, timezone)
   const expiryScan = hour >= EXPIRY_SCAN_HOUR && state.lastExpiryScanDate !== dateKey
+  const parkingHealth =
+    hour >= PARKING_HEALTH_HOUR && state.lastParkingHealthDate !== dateKey
 
-  return { expiryScan }
+  return { expiryScan, parkingHealth }
 }
 
 // ── Runtime ───────────────────────────────────────────────────────────
@@ -71,6 +76,20 @@ async function tick(state: CronState) {
       console.error('[internal-cron] expiry scan failed:', e)
     }
   }
+
+  if (due.parkingHealth) {
+    state.lastParkingHealthDate = localParts(now, timezone).dateKey
+    try {
+      const { runParkingHealthChecks } = await import('@/lib/parking-health.server')
+      const results = await runParkingHealthChecks({ now })
+      const failed = results.filter((r) => !r.ok && !r.skipped)
+      console.log(
+        `[internal-cron] parking health: ${results.length} checked, ${failed.length} failed`,
+      )
+    } catch (e) {
+      console.error('[internal-cron] parking health failed:', e)
+    }
+  }
 }
 
 export function startInternalCron() {
@@ -80,10 +99,10 @@ export function startInternalCron() {
   }
   if (globalThis.__hospoInternalCron?.started) return
 
-  const state: CronState = { lastExpiryScanDate: null }
+  const state: CronState = { lastExpiryScanDate: null, lastParkingHealthDate: null }
   globalThis.__hospoInternalCron = { started: true, state }
 
-  console.log('[internal-cron] started — expiry scan daily 03:00')
+  console.log('[internal-cron] started — expiry scan daily 03:00, parking health daily 05:00')
   setInterval(() => {
     tick(state).catch((e) => console.error('[internal-cron] tick failed:', e))
   }, TICK_MS)
