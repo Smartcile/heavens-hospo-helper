@@ -77,6 +77,9 @@ describe('WorkerGiftCardsClient', () => {
 
     expect(await screen.findByTestId('pdf-document-view')).toBeTruthy()
     expect(screen.getByTitle('GIFT CARD 20260001')).toBeTruthy()
+    expect(screen.getByTestId('pdf-back')).toBeTruthy()
+    expect(screen.queryByTestId('pdf-open')).toBeNull()
+    expect(screen.queryByTestId('pdf-download')).toBeNull()
     expect(open).not.toHaveBeenCalled()
     expect(mocks.useWorkerImmersive).toHaveBeenCalledWith(true)
   })
