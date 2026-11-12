@@ -57,6 +57,20 @@ describe('PdfActionBar', () => {
     expect(open).toHaveBeenCalledWith('/api/admin/gift-cards/card-1/pdf?inline=1', '_blank', 'noopener')
   })
 
+  it('hides OPEN and DOWNLOAD when the flags are false, keeping the in-app actions', () => {
+    mocks.canShareFiles.mockReturnValue(true)
+    render(<PdfActionBar {...baseProps()} onBack={() => {}} showOpen={false} showDownload={false} />)
+
+    expect(screen.queryByTestId('pdf-open')).toBeNull()
+    expect(screen.queryByTestId('pdf-download')).toBeNull()
+    expect(screen.getByTestId('pdf-back')).toBeTruthy()
+    expect(screen.getByTestId('pdf-print')).toBeTruthy()
+    expect(screen.getByTestId('pdf-share')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('pdf-print'))
+    expect(mocks.printPdfUrl).toHaveBeenCalledWith('/api/admin/gift-cards/card-1/pdf?inline=1')
+  })
+
   it('owns BACK when onBack is supplied', () => {
     const onBack = vi.fn()
     render(<PdfActionBar {...baseProps()} onBack={onBack} backLabel="BACK TO CARD" />)

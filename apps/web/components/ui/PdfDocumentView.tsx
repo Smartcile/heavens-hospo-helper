@@ -11,11 +11,23 @@ interface Props {
   title?: string
   onBack?: () => void
   backLabel?: string
+  showOpen?: boolean
+  showDownload?: boolean
   className?: string
 }
 
 /** A full-height in-app PDF: canvas viewer plus the bottom action bar. */
-export function PdfDocumentView({ url, downloadUrl, filename, title, onBack, backLabel, className }: Props) {
+export function PdfDocumentView({
+  url,
+  downloadUrl,
+  filename,
+  title,
+  onBack,
+  backLabel,
+  showOpen,
+  showDownload,
+  className,
+}: Props) {
   return (
     <div
       data-testid="pdf-document-view"
@@ -31,6 +43,8 @@ export function PdfDocumentView({ url, downloadUrl, filename, title, onBack, bac
         title={title}
         onBack={onBack}
         backLabel={backLabel}
+        showOpen={showOpen}
+        showDownload={showDownload}
       />
     </div>
   )

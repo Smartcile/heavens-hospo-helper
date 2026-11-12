@@ -3315,7 +3315,9 @@ the template live preview. `components/ui/PdfDocumentView` stacks
 **PRINT** (a hidden same-origin iframe with `?inline=1`), **SHARE** (Web Share
 API level 2 with the actual PDF `File`, prefetched so iOS keeps the user
 gesture; `canShareFiles()` hides the button when unsupported), **DOWNLOAD** and
-**OPEN**. The pure, testable helpers live in `lib/pdf-actions.ts`
+**OPEN**. `showOpen` / `showDownload` (default `true`) gate the last two buttons;
+the worker gift-card PDF passes both `false` so it stays in the app, while admin
+gift-card surfaces keep the full bar. The pure, testable helpers live in `lib/pdf-actions.ts`
 (`sanitisePdfFilename`, `canShareFiles`, `sharePdfFile`, `printPdfUrl`,
 `downloadPdfUrl`, `isStandaloneApp`). On phones the viewer also pinch-zooms and
 double-taps between fit and 2× (`lib/pdf-zoom.ts`; one-finger scrolling stays
