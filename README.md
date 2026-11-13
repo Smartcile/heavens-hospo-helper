@@ -492,6 +492,26 @@ service that mirrors the POS. It never talks to SwiftPOS directly.
 - **Kitchen dockets** — **Ops → Orders → DOCKETS** shows live open sales,
   refreshing every 30 seconds while visible (30/60/120 min / ALL LINES windows).
 
+### FREE THE CARPARK (FTP)
+
+The customer-facing parking layer. Everything lives in **Settings → FTP**.
+
+- **Customer kiosk** — run `/park` on an iPad. The small **car icon** on the
+  landing page opens it. Unlock the iPad once with the kiosk code (shown once),
+  and for the hardest lock turn on iPad **Guided Access**. A guest taps their
+  plate on the big keypad, sees the end time and a large QR code to view or
+  extend, and the screen clears itself on a visible timer.
+- **Privacy** — the kiosk does **not** store guest plates. Nothing is written to
+  the database; the plate disappears when the timer ends.
+- **Custom email** — set one in the 90 MINUTE CAR PARK area. It is inserted
+  automatically whenever the parking form asks for an email.
+- **4 hour carpark** — the settings (name, URL, duration) are ready; the kiosk
+  tab stays disabled until you paste the URL and enable it.
+- **Staff number plates** — staff add or change their plate in the worker app
+  (**Parking → MY NUMBER PLATE**). A change needs a note and a manager approval.
+  Approve/reject and tick **ENTERED IN SYSTEM** in Settings → FTP → STAFF CAR
+  PARK.
+
 ---
 
 ## HOW TO GENERATE AND PRINT A QR CODE

@@ -112,4 +112,5 @@ export const HELP_REQUIRED_SLUGS = [
   'compliance',
   'staff-events',
   'guide-warnings',
+  'free-the-carpark',
 ] as const

@@ -127,6 +127,11 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  const ftp = await prisma.ftpSettings.findUnique({
+    where: { venueId: session.venueId },
+    select: { contactEmail: true },
+  })
+
   const result = await registerParking({
     target: {
       baseUrl: SCAN2PAY_BASE_URL,
@@ -137,6 +142,7 @@ export async function POST(req: NextRequest) {
     plate,
     arrivedAt,
     timezone,
+    customerEmail: ftp?.contactEmail ?? null,
   })
 
   const registration = await prisma.parkingRegistration.create({

@@ -410,6 +410,9 @@ model Venue {
   parkingConfig       ParkingConfig?
   parkingRegistrations ParkingRegistration[]
   parkingHealthChecks ParkingHealthCheck[]
+  ftpSettings         FtpSettings?
+  staffParkingPlates  StaffParkingPlate[]
+  staffParkingPlateRequests StaffParkingPlateRequest[]
 }
 
 model Department {
@@ -528,6 +531,8 @@ model Staff {
   openShiftClaims      OpenShiftClaim[]
   updateConfirmations  UpdateConfirmation[]
   parkingRegistrations ParkingRegistration[]
+  staffParkingPlates   StaffParkingPlate[]
+  staffParkingPlateRequests StaffParkingPlateRequest[]
 }
 
 // A single granted function within the permission tree (area → sub-area →
@@ -4594,4 +4599,85 @@ model ParkingHealthCheck {
   venue Venue @relation(fields: [venueId], references: [id])
 
   @@index([venueId, checkedAt])
+}
+
+// --- FREE THE CARPARK (FTP) ---
+// Venue-level settings for the customer kiosk, the custom email inserted when a
+// carpark flow requires one, the (not-yet-connected) 4-hour carpark and the
+// staff carpark. See AGENTS.md → "Free the Carpark (FTP)".
+model FtpSettings {
+  id                        String    @id @default(uuid())
+  venueId                   String    @unique
+  // Email inserted automatically wherever the carpark form requires one.
+  contactEmail              String?
+  // Customer kiosk (public /park). The code is stored hashed (sha256) and the
+  // raw value is only ever shown once when it is set or rotated.
+  kioskEnabled              Boolean   @default(false)
+  kioskCodeHash             String?
+  kioskCodeHint             String?
+  kioskAutoResetSeconds     Int       @default(60)
+  // 4-hour carpark — settings only until a flow/URL is available.
+  fourHourName              String?
+  fourHourEnabled           Boolean   @default(false)
+  fourHourEntryUrl          String?
+  fourHourDurationMinutes   Int?
+  // Staff carpark + staff plate workflow (worker app only).
+  staffParkingEnabled       Boolean   @default(false)
+  staffCarparkName          String?
+  staffCarparkNotes         String?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+  deletedAt                 DateTime?
+
+  venue Venue @relation(fields: [venueId], references: [id])
+}
+
+// The approved plate(s) a staff member currently holds. Multiple rows per
+// person are allowed (e.g. two cars). Retiring keeps the history.
+model StaffParkingPlate {
+  id              String    @id @default(uuid())
+  venueId         String
+  staffId         String
+  plate           String
+  status          String    @default("ACTIVE") // ACTIVE | RETIRED
+  enteredInSystem Boolean   @default(false)
+  enteredAt       DateTime?
+  enteredById     String?
+  approvedAt      DateTime?
+  approvedById    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  venue Venue @relation(fields: [venueId], references: [id])
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@index([venueId, staffId])
+  @@index([venueId, plate])
+  @@index([venueId, enteredInSystem])
+}
+
+// Append-only submission for a first plate, an extra plate or a change. A
+// manager approves/rejects; nothing changes on the staff member's record until
+// approved. `reason` is required once the person already has a plate.
+model StaffParkingPlateRequest {
+  id              String    @id @default(uuid())
+  venueId         String
+  staffId         String
+  plate           String
+  previousPlate   String?
+  reason          String?
+  status          String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  reviewedById    String?
+  reviewedAt      DateTime?
+  reviewNote      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  venue Venue @relation(fields: [venueId], references: [id])
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@index([venueId, status])
+  @@index([venueId, staffId])
 }

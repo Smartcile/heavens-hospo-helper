@@ -57,7 +57,7 @@ hospo-ops/
 ├── packages/
 │   ├── db/                         # Prisma 7 schema + PG adapter + seed
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma       # 158 models (as of 2026-11)
+│   │   │   ├── schema.prisma       # 161 models (as of 2026-11)
 │   │   │   ├── seed.ts             # Idempotent demo/sample data
 │   │   │   ├── migrate-*.ts        # One-off migrations wired into docker-entrypoint.sh
 │   │   │   └── migrations/         # Legacy 0_init migration (kept for reference)
@@ -1833,8 +1833,8 @@ Registers a guest's number plate with the Scan2Pay carpark so they get the
 **free 90-minute** window instead of the 15-minute grace. The integration is
 **disabled and invisible by default** so a FOSS install cannot accidentally use
 it: nothing is shown to workers and no outbound traffic is sent until an admin
-saves a `scan2pay.nz` carpark URL and enables it in **Settings → GENERAL →
-GUEST PARKING**.
+saves a `scan2pay.nz` carpark URL and enables it in **Settings → FTP →
+90 MINUTE CAR PARK**.
 
 - **Config** — `ParkingConfig` (one per venue, `@@unique([venueId])`):
   `enabled`, `entryUrl` (the `…/Parking/Scan?carparkId=…` URL — the only input),
@@ -1853,18 +1853,20 @@ GUEST PARKING**.
   `/Parking/CreateSession` with `EntryTime`/`ExitTime` as venue-local
   `yyyy-MM-ddTHH:mm:ss`. CreateSession redirects to a Payment page; the server
   extracts its `token`, POSTs `/Parking/ProcessPayment?token=…`
-  (`{ CustomerEmail: "" }`) and follows the returned Confirmation page
+  (`{ CustomerEmail }` — the venue's FTP custom email when set, else blank) and
+  follows the returned Confirmation page
   (`Payment Successful!`). A Stripe `sessionId` (a paid flow) is reported as
   `PAYMENT REQUIRED` instead of being silently confirmed. Times come from the
   arrival instant formatted in `Venue.timezone`; beyond 90 minutes is a Scan2Pay
   Stripe flow we link to, not automate. No official API exists — this is HTML
   form automation.
-- **Worker** — **GUEST PARKING** tile (only when enabled) → `/w/parking`
-  (`WorkerParkingClient`): big plate input, arrival defaults to now with
+- **Worker** — **PARKING** tile (shown when guest parking OR staff plates are
+  enabled) → `/w/parking` (`WorkerParkingClient` + `WorkerStaffPlateCard`): the
+  guest form is the big plate input, arrival defaults to now with
   `-30/-15/-5/NOW` and a full `datetime-local` picker, one SUBMIT, success card
   with paid-until + confirmation + extend link, `ALREADY REGISTERED` card, and
-  today's registrations. `/api/worker/parking/access` gates the tile and carries
-  the health state.
+  today's registrations. `/api/worker/parking/access` gates the tile and returns
+  `{ enabled, staffParkingEnabled, health }`.
 - **Health check** — `lib/parking-health.server.ts` runs daily at **05:00**
   (venue-local via the internal cron) and records `ParkingHealthCheck` rows.
   `READINESS` (default) only GETs the form with the fake plate — no session is
@@ -1886,6 +1888,95 @@ GUEST PARKING**.
 **Deploy note:** additive only — `prisma db push` creates the three tables; no
 data migration. The demo seed does not enable it. **Risk:** HTML automation and
 one free claim per plate/day; treat the URL as private.
+
+
+### Free the Carpark (FTP) — customer kiosk + staff plates (built 2026-11)
+
+The public-facing layer on top of the guest-parking automation. Everything is
+configured in **Settings → FTP** (a new `SETTINGS_TABS` entry, between SWIFT POS
+and FILES). The tab is visible to ADMIN + MANAGER; the **kiosk code** section is
+ADMIN-only. `FtpSettings` is one row per venue (`@@unique([venueId])`).
+
+**Customer kiosk (`/park`, public).**
+- A small **car icon** on the landing page (`/`) opens `/park`; the iPad is
+  unlocked once with a random kiosk code set in Settings → FTP. The code is
+  stored as a **sha256 hash** (`kioskCodeHash`) and the raw value is shown only
+  once when set/rotated. The signed HTTP-only cookie
+  (`hospo-parking-kiosk`, 30 days, JWT via `lib/parking-kiosk.server.ts`)
+  carries `venueId` + the current `codeHash`, so **rotating the code invalidates
+  every iPad**.
+- The customer flow uses a **custom on-screen keypad** (`PlateKeypad`), not a
+  native input: no autocorrect and the layout never jumps. Plate boxes are 1–6
+  alphanumeric. Register calls `POST /api/public/parking/kiosk/register` with
+  the cookie, reuses `registerParking`, and **writes nothing to the database** —
+  the plate lives only in memory and in Scan2Pay's session.
+- Result: big plate, `FREE PARKING UNTIL HH:MM` (or `ALREADY REGISTERED` with the
+  existing expiry), a **large QR code** for the Scan2Pay `SelectTime` URL
+  (“SCAN ME WITH YOUR PHONE CAMERA TO VIEW OR EXTEND”), and a **visible
+  countdown** (`kioskAutoResetSeconds`, 15–300) with **START AGAIN**. At zero the
+  plate/QR/result are wiped and the entry screen returns.
+- Always-present **SPEAK WITH STAFF** opens `KioskStaffSheet`: the plate, end
+  time, QR/open link, and the only exit. **EXIT KIOSK** requires a **5-second
+  hold**, then the kiosk code; 5 wrong codes lock for 60 seconds. Exiting clears
+  the cookie. Settings recommends iPad **Guided Access** as the outer lock.
+- The kiosk shows `90 MINUTE` and `4 HOUR` tabs; 4 HOUR is visibly disabled
+  (“SOON”) until `fourHourEnabled` + a URL are saved.
+- `/park/layout.tsx` is `force-dynamic`, `noindex`, fixed full-screen, and the
+  page/API responses set `Cache-Control: no-store`.
+
+**Staff number plates (worker app only).**
+- `StaffParkingPlate` is the approved plate(s) per staff member (multiple rows
+  allowed; `ACTIVE`/`RETIRED`, plus `enteredInSystem`/`enteredAt`/`enteredById`).
+  `StaffParkingPlateRequest` is the append-only submission (`PENDING` /
+  `APPROVED` / `REJECTED`, optional `previousPlate`, required `reason` when the
+  person already has a plate, review stamp/note).
+- Worker `/w/parking` → `WorkerStaffPlateCard`: current plates + whether they
+  are in the parking system, pending requests, **ADD ANOTHER PLATE** and
+  **CHANGE**. A first plate needs no reason; an add/change **requires a note**.
+  Nothing changes until a manager approves.
+- Admin **Settings → FTP → STAFF CAR PARK → STAFF NUMBER PLATES**
+  (`StaffPlatesPanel`) is the single list: **TO APPROVE**, **TO ENTER**,
+  **ALL PLATES**. APPROVE retires the specific replaced plate (an add keeps the
+  others) and creates the new `ACTIVE` plate with `enteredInSystem: false`;
+  REJECT closes the request. The **ENTERED IN SYSTEM** tick is manual for now.
+- Staff plates are deliberately **worker-app only** — not exposed on the shared
+  customer kiosk.
+
+**Custom email.** `FtpSettings.contactEmail` is passed to
+`registerParking({ customerEmail })` → `completePayment` as `CustomerEmail`, so
+a form that asks for an email gets the venue's address without the guest typing
+it. The 4-hour carpark settings (`fourHourName`, `fourHourEnabled`,
+`fourHourEntryUrl`, `fourHourDurationMinutes`) are stored now; the flow arrives
+with the real URL. `staffCarparkName` / `staffCarparkNotes` label the staff area.
+
+**Pure libs.** `lib/parking-kiosk.ts` (cookie name, code formatting, plate
+keypad, countdown; client-safe), `lib/parking-kiosk.server.ts` (sha256, random
+code, signed cookie), `lib/staff-parking.ts` (submission/review rules,
+replace-vs-add planning), `lib/ftp-settings.ts` (email/URL/duration validation +
+view defaults) and `lib/rate-limit.ts` (in-memory fixed window for the public
+routes).
+
+| Route | Methods | Purpose |
+|---|---|---|
+| `/api/public/parking/kiosk/unlock` | POST | Verify the kiosk code, set the signed cookie |
+| `/api/public/parking/kiosk/lock` | POST | Verify the code again and clear the cookie (exit) |
+| `/api/public/parking/kiosk/register` | POST | Register a plate for the kiosk (cookie-gated, no DB write) |
+| `/api/admin/parking/ftp` | GET, PUT | Read/save the FTP settings |
+| `/api/admin/parking/ftp/kiosk-code` | POST | Mint/rotate the kiosk code (ADMIN only; raw shown once) |
+| `/api/admin/parking/staff-plates` | GET | Requests + plates + counts for the admin list |
+| `/api/admin/parking/staff-plates/[id]/review` | POST | APPROVE / REJECT a request |
+| `/api/admin/parking/staff-plates/[id]` | PATCH | Toggle the ENTERED IN SYSTEM tick |
+| `/api/worker/parking/staff-plate` | GET, POST | Own plates + requests; submit an add/change |
+
+**Help.** The `free-the-carpark` Heavenly Help article (ADMIN / EVERYONE,
+sortOrder 640) is a plain-English guide to setup, the customer flow, the exit,
+staff plates and privacy. It ships with five screenshots:
+`/help/ftp-settings.png`, `/help/ftp-kiosk.png`, `/help/ftp-kiosk-result.png`,
+`/help/ftp-staff-plates.png` and `/help/ftp-worker-staff-plate.png`.
+
+**Deploy note:** additive only — `prisma db push` creates `FtpSettings`,
+`StaffParkingPlate` and `StaffParkingPlateRequest`; no data migration. The demo
+seed does not enable the kiosk or staff plates.
 
 
 ### Unified staff identity
@@ -2860,7 +2951,7 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 > (`MenuItem.variations`), orders (`WooOrder` as the local order store), gift
 > cards, SwiftPOS and `ApiKey` public routes are unaffected.
 
-### Schema: 158 models (as of 2026-11)
+### Schema: 161 models (as of 2026-11)
 Core ERP models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`,
 `RecipeLineItem` (recursive BOM), `IngredientReference` (Pantry Bible),
 `WooIntegration`, `MenuItem` (+ `MenuItemServe`, `MenuItemVenue`), `Menu`,
@@ -3804,6 +3895,11 @@ pre-flight.
 | `lib/parking.ts` — URL/plate validation, venue-local 90-minute window, antiforgery/session/result parsers, cookie jar, health state | ✅ (38 tests) |
 | `lib/scan2pay.server.ts` — cookie-jar GET, antiforgery POST, existing-session short-circuit, redirects, payment/confirmation step, failures | ✅ (18 tests) |
 | `lib/parking-health.server.ts` — enabled-only runs, daily dedupe, READINESS/FULL/OFF, failure recording | ✅ (11 tests) |
+| `lib/parking-kiosk.ts` — kiosk code normalise/validate, plate keypad, countdown/clock formatting | ✅ (9 tests) |
+| `lib/parking-kiosk.server.ts` — sha256 hashing, code generation/hint, signed cookie round-trip, tamper rejection | ✅ (6 tests) |
+| `lib/staff-parking.ts` — submission errors (plate, duplicate, pending, owner, reason, length), review transitions, add-vs-replace planning, sorting | ✅ (14 tests) |
+| `lib/ftp-settings.ts` — email/URL/duration validation, FTP input normalisation, view defaults, kiosk URL | ✅ (10 tests) |
+| `lib/rate-limit.ts` — fixed-window allow/block/reset, independent keys, client key | ✅ (5 tests) |
 | `lib/auth.ts` — `authOptions` | ⬜ TODO |
 
 ### Component Regression Tests
@@ -3825,9 +3921,15 @@ pre-flight.
 | `MenuItemsClient.test.tsx` — recipe-less product listed and saved with `recipeId: null` | ✅ (1 test) |
 | `RecipesClient.test.tsx` — volume/weight display + header opens the shared recipe importer | ✅ (5 tests) |
 | `components/import/ImportModal.test.tsx` — generic rows + custom summary, per-row value patch (`REPLACE LINES`) posted to the given endpoint, default menu-item summary, inline field edit posted with the row, parse error | ✅ (4 tests) |
-| `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard + live TASKS tile refresh (tile return + window focus) + new worker tiles (Kitchen, Deliveries, Gift Cards gating, Guest Parking gating/warning, Training Status manager-only) | ✅ (11 tests) |
+| `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard + live TASKS tile refresh (tile return + window focus) + new worker tiles (Kitchen, Deliveries, Gift Cards gating, Parking gating/warning + staff-plate-only tile, Training Status manager-only) | ✅ (12 tests) |
 | `WorkerParkingClient.tsx` — plate input, arrival quick-adjust, success/duplicate/error cards, service warning, today's list | ✅ (6 tests) |
 | `GuestParkingSettings.tsx` — config load/save, toggle, RUN CHECK NOW, health warning, save error | ✅ (5 tests) |
+| `KioskParkingClient.tsx` — plate entry, success/already/failed, QR + countdown reset, START AGAIN, staff sheet, 4 hour disabled | ✅ (6 tests) |
+| `PlateKeypad.tsx` — letters/digits/edit keys, callbacks, disabled state | ✅ (3 tests) |
+| `KioskUnlock.tsx` — code submit, error, changed-code note | ✅ (3 tests) |
+| `FtpSettingsClient.tsx` — four areas, kiosk URL/code, save, 4 hour disabled | ✅ (4 tests) |
+| `StaffPlatesPanel.tsx` — pending request list, approve with note, entered tick | ✅ (3 tests) |
+| `WorkerStaffPlateCard.tsx` — hidden when off, current plate/system state, add/change request | ✅ (3 tests) |
 | `ReportsClient.tsx` — OUTCOME badge distinguishes non-DONE rows | ✅ (1 test) |
 | `WorkerSessionGuard.tsx` — idle logout/redirect, activity refresh, refresh throttle, iframe activity relay | ✅ (6 tests) |
 | `lib/worker-task-access.ts` — grant matrix (ADMIN/MANAGER bypass, CREATE/EDIT/DELETE, list OR mapping) | ✅ (6 tests) |
@@ -3921,6 +4023,15 @@ pre-flight.
 | `app/api/admin/parking/config/route.test.ts` — auth, defaults, host/path validation, enable-requires-URL, create/update/revive, duration clamp, manager venue lock | ✅ (10 tests) |
 | `app/api/worker/parking/route.test.ts` — auth, disabled 403, plate/arrival validation, duplicate 409 + extend link, success persistence, upstream 502 | ✅ (9 tests) |
 | `app/api/cron/parking-health/route.test.ts` — CRON_SECRET auth, summary counts, `?force=1` | ✅ (3 tests) |
+| `app/api/public/parking/kiosk/unlock/route.test.ts` — short code, wrong code, parking disabled, success cookie | ✅ (4 tests) |
+| `app/api/public/parking/kiosk/lock/route.test.ts` — no session, wrong code, correct code clears | ✅ (3 tests) |
+| `app/api/public/parking/kiosk/register/route.test.ts` — locked/rotated, plate validation, success + QR, no DB write, ALREADY_ACTIVE, upstream failure | ✅ (6 tests) |
+| `app/api/admin/parking/ftp/route.test.ts` — auth, defaults, manager lock, email/4h validation, kiosk requires parking, save | ✅ (9 tests) |
+| `app/api/admin/parking/ftp/kiosk-code/route.test.ts` — admin-only, hashed code once, venue selection | ✅ (3 tests) |
+| `app/api/admin/parking/staff-plates/route.test.ts` — auth, lists + counts, manager venue lock | ✅ (2 tests) |
+| `app/api/admin/parking/staff-plates/[id]/review/route.test.ts` — 404/403, invalid action, double review 409, reject, approve replaces plate | ✅ (6 tests) |
+| `app/api/admin/parking/staff-plates/[id]/route.test.ts` — 404/403, mark entered, clear stamp | ✅ (4 tests) |
+| `app/api/worker/parking/staff-plate/route.test.ts` — auth, disabled, own plates, note required, add/change, other owner | ✅ (8 tests) |
 
 ## PRE-COMMIT CHECKLIST
 

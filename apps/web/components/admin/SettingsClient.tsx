@@ -17,7 +17,7 @@ import { UomsClient } from '@/app/admin/(protected)/uoms/UomsClient'
 import { SuppliersClient } from '@/app/admin/(protected)/suppliers/SuppliersClient'
 import { QRCodesClient } from '@/components/admin/QRCodesClient'
 import { SwiftPosSalesClient } from '@/components/admin/SwiftPosSalesClient'
-import { GuestParkingSettings } from '@/components/admin/GuestParkingSettings'
+import { FtpSettingsClient } from '@/components/admin/FtpSettingsClient'
 import {
   AVAILABILITY_WEEKDAYS,
   quarterHourEndOptions,
@@ -1160,7 +1160,6 @@ export function SettingsClient({
           </div>
         </div>
 
-        <GuestParkingSettings venueId={venueId} role={role} />
       </div>
         </div>
         )}
@@ -1175,6 +1174,13 @@ export function SettingsClient({
         {tab === 'suppliers' && <SuppliersClient />}
         {tab === 'qrcodes' && <QRCodesClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId ?? undefined} />}
         {tab === 'swiftpos' && <SwiftPosSalesClient role={role} sessionVenueId={sessionVenueId} defaultVenueId={defaultVenueId ?? undefined} />}
+        {tab === 'ftp' && (
+          <FtpSettingsClient
+            role={role}
+            sessionVenueId={sessionVenueId}
+            initialVenueId={venueId}
+          />
+        )}
         {tab === 'files' && role === 'ADMIN' && (
           <div className="max-w-4xl space-y-3">
             <h1 className="font-mono text-xl font-bold uppercase tracking-widest">FILE MANAGER</h1>

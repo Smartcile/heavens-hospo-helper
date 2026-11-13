@@ -103,6 +103,7 @@ export const SETTINGS_TABS: TabDef[] = [
   { id: 'suppliers', label: 'SUPPLIERS' },
   { id: 'qrcodes', label: 'QR CODES' },
   { id: 'swiftpos', label: 'SWIFT POS' },
+  { id: 'ftp', label: 'FTP' }, // Free the Carpark — see SettingsClient
   { id: 'files', label: 'FILES' }, // admin-only — see SettingsClient
   { id: 'updates', label: 'UPDATES' }, // admin-only — see SettingsClient
 ]
