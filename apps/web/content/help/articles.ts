@@ -359,6 +359,7 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
       '<p>The footer shows paid hours and cost against the budgeted sales for the week, plus any availability or training warnings on individual shifts. Those warnings never block a save.</p>',
       '<h3>Review availability</h3>',
       '<p>Workers declare their availability from their phone. The AVAILABILITY tab is the manager’s review grid.</p>',
+      '<p>Editing a day that is part of a weekly series defaults to <strong>JUST THIS DAY</strong>; choosing <strong>FROM THIS DAY ONWARDS</strong> is a deliberate series-wide edit and leaves the earlier days untouched.</p>',
       '<ol>',
       '<li>Open <strong>Team → AVAILABILITY</strong>. Anyone with pending work is listed for approval.</li>',
       '<li>Open a person to see their declarations and any change requests, with the current day shown next to the proposed one.</li>',

@@ -468,7 +468,7 @@ export function WorkerAvailabilityClient() {
             presets={data.presets}
             allowedScopes={WORKER_EDIT_SCOPES}
             allowSeriesEnd={false}
-            initialScope="FROM"
+            initialScope="THIS"
             canRequestRemoval={!!selectedEntry?.seriesId}
             onRequestSeriesRemoval={() => setRemovalOpen(true)}
             busy={saving}

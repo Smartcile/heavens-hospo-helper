@@ -198,6 +198,87 @@ describe('WorkerAvailabilityClient', () => {
     expect(screen.getByText('MON')).toBeDefined()
   })
 
+  it('defaults a weekly-series day to JUST THIS DAY', async () => {
+    useMonthView()
+    const seriesDay = {
+      ...payload,
+      entries: [{ ...payload.entries[0], seriesId: 's1' }],
+      series: [{ id: 's1', startDate: todayKey, endDate: null, count: 104 }],
+    }
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({ mode: 'SAVED', skipped: [] }) } as Response
+      return { ok: true, status: 200, json: async () => seriesDay } as Response
+    })
+
+    render(<WorkerAvailabilityClient />)
+    await screen.findByText('MY AVAILABILITY')
+    fireEvent.click(screen.getByText(String(parseDay(todayKey).getUTCDate())))
+
+    expect(await screen.findByText('JUST THIS DAY')).toBeDefined()
+    // JUST THIS DAY is preselected; FROM stays available but is not the default.
+    expect(screen.getByText('JUST THIS DAY').className).toContain('bg-white')
+    expect(screen.getByText('FROM THIS DAY ONWARDS').className).not.toContain('bg-white')
+    fireEvent.click(screen.getByRole('button', { name: /^SAVE$/ }))
+
+    await waitFor(() => {
+      const post = spy.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(post).toBeDefined()
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body.scope).toBe('THIS')
+      expect(body.seriesId).toBe('s1')
+    })
+  })
+
+  it('still sends FROM when the worker chooses the series edit', async () => {
+    useMonthView()
+    const seriesDay = {
+      ...payload,
+      entries: [{ ...payload.entries[0], seriesId: 's1' }],
+      series: [{ id: 's1', startDate: todayKey, endDate: null, count: 104 }],
+    }
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({ mode: 'SAVED', skipped: [] }) } as Response
+      return { ok: true, status: 200, json: async () => seriesDay } as Response
+    })
+
+    render(<WorkerAvailabilityClient />)
+    await screen.findByText('MY AVAILABILITY')
+    fireEvent.click(screen.getByText(String(parseDay(todayKey).getUTCDate())))
+    fireEvent.click(await screen.findByText('FROM THIS DAY ONWARDS'))
+    fireEvent.click(screen.getByRole('button', { name: /^SAVE$/ }))
+
+    await waitFor(() => {
+      const post = spy.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(post).toBeDefined()
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body.scope).toBe('FROM')
+    })
+  })
+
+  it('leaves a non-series day unchanged with no scope choice', async () => {
+    useMonthView()
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({ mode: 'SAVED', skipped: [] }) } as Response
+      return { ok: true, status: 200, json: async () => payload } as Response
+    })
+
+    render(<WorkerAvailabilityClient />)
+    await screen.findByText('MY AVAILABILITY')
+    fireEvent.click(screen.getByText(String(parseDay(todayKey).getUTCDate())))
+
+    expect(await screen.findByText('TIME OFF REQUEST')).toBeDefined()
+    expect(screen.queryByText('JUST THIS DAY')).toBeNull()
+    expect(screen.queryByText('FROM THIS DAY ONWARDS')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /^SAVE$/ }))
+
+    await waitFor(() => {
+      const post = spy.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(post).toBeDefined()
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body.scope).toBeNull()
+    })
+  })
+
   it('shows a manager lock and sends the series save as a FROM change request', async () => {
     useMonthView()
     const locked = {
@@ -220,7 +301,8 @@ describe('WorkerAvailabilityClient', () => {
     fireEvent.click(screen.getByText(String(parseDay(todayKey).getUTCDate())))
 
     expect(await screen.findByText(/YOUR CHANGES WILL BE SENT AS A REQUEST/)).toBeDefined()
-    expect(screen.getByText('FROM THIS DAY ONWARDS')).toBeDefined()
+    // The series edit is still a deliberate, explicit choice.
+    fireEvent.click(screen.getByText('FROM THIS DAY ONWARDS'))
     expect(screen.queryByText('ALL IN THE SERIES')).toBeNull()
     fireEvent.click(screen.getByText('SEND CHANGE REQUEST'))
 
