@@ -170,7 +170,22 @@ describe('AvailabilityDayEditor', () => {
     expect(screen.getByText('JUST THIS DAY')).toBeDefined()
   })
 
-  it('defaults a worker series edit to FROM and explains the anchor', () => {
+  it('honours initialScope="THIS" for a worker series day', () => {
+    const { onSave } = renderEditor({
+      entry: entry({ seriesId: 's1' }),
+      series,
+      allowedScopes: ['THIS', 'FROM'],
+      allowSeriesEnd: false,
+      initialScope: 'THIS',
+    })
+
+    expect(screen.getByText('JUST THIS DAY').className).toContain('bg-white')
+    expect(screen.getByText('FROM THIS DAY ONWARDS').className).not.toContain('bg-white')
+    fireEvent.click(screen.getByText('SAVE'))
+    expect(onSave.mock.calls[0][1].scope).toBe('THIS')
+  })
+
+  it('honours an explicit initialScope="FROM" and explains the anchor', () => {
     const { onSave } = renderEditor({
       entry: entry({ seriesId: 's1' }),
       series,
@@ -315,7 +330,7 @@ describe('AvailabilityDayEditor', () => {
     expect(onSaveReviewNote).toHaveBeenCalledWith('AFTER')
   })
 
-  it('sends manager-locked worker saves as a change request defaulting to FROM', () => {
+  it('sends manager-locked worker saves as a change request with the chosen scope', () => {
     const { onSave } = renderEditor({
       entry: entry({ seriesId: 's1', status: 'APPROVED', lockedAt: '2026-10-20T01:00:00.000Z' }),
       series,

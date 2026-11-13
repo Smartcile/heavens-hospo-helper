@@ -734,9 +734,10 @@ correct) or apply the change to every occurrence from the clicked day onwards
 (`FROM`, rows rewritten in place with the same `seriesId`; earlier days are
 never touched). `ALL` is outside the worker policy and is clamped to `THIS`,
 and an anchor before the venue-local today is rejected with a 400. The worker
-editor hides `ALL` and `CHANGE SERIES END`, defaults a series edit to `FROM`,
-and shows `FROM <date> ONWARDS — PAST DAYS UNCHANGED`; `JUST THIS DAY` stays the
-explicit one-off detach. A series day also offers **`REQUEST REMOVAL`**, which
+editor hides `ALL` and `CHANGE SERIES END` and defaults a series edit to
+`JUST THIS DAY` (`THIS`, the one-off detach); choosing `FROM` is a deliberate
+series edit and shows `FROM <date> ONWARDS — PAST DAYS UNCHANGED`. A series day
+also offers **`REQUEST REMOVAL`**, which
 posts to `POST /api/worker/availability/series-request`: it validates the
 series belongs to the session's staff member, files a `CLEAR`/`FROM`
 `AvailabilityEditRequest` for future occurrences only, skips manager-locked days
