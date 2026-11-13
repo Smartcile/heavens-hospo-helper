@@ -3,11 +3,9 @@ export function toUpperCase(value: string): string {
 }
 
 export function formatDate(date: Date | string): string {
-  return new Date(date).toLocaleDateString('en-NZ', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  })
+  const d = new Date(date)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`
 }
 
 export function formatTime(date: Date | string): string {

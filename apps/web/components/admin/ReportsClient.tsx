@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { DateInput } from '@/components/ui/DateInput'
 import { getActiveVenueId } from '@/lib/active-venue'
-import { formatDateTime } from '@/lib/utils'
+import { formatDate, formatDateTime } from '@/lib/utils'
 import { OUTCOME_LABELS, type TaskOutcome } from '@/lib/task-outcomes'
 
 interface Completion {
@@ -179,7 +179,7 @@ export function ReportsClient({ role, sessionVenueId, defaultVenueId }: { role: 
                 completions.map((c) => (
                   <tr key={c.id} className="hover:bg-black/20 transition-colors">
                     <td className="px-4 py-2 font-mono text-xs text-white whitespace-nowrap">
-                      {new Date(c.scheduledDate).toLocaleDateString('en-NZ')}
+                      {formatDate(c.scheduledDate)}
                     </td>
                     <td className="px-4 py-2 font-mono text-xs text-white whitespace-nowrap">
                       {c.staff.firstName} {c.staff.lastName}

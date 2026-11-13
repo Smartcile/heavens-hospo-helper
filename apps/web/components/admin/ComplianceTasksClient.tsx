@@ -13,6 +13,7 @@ import {
   gfmpDefaultFor,
 } from '@/lib/food-safety'
 import { describeSchedule } from '@/lib/scheduling'
+import { formatDateDMY, localDayKey } from '@/lib/date-nav'
 import { cn } from '@/lib/utils'
 
 interface ComplianceTasksClientProps {
@@ -145,7 +146,7 @@ function lastCompleted(task: SummaryTask): string | null {
   const cs = task.completions
   if (cs.length === 0) return null
   const latest = cs.reduce((a, b) => (a.completedAt > b.completedAt ? a : b))
-  return new Date(latest.completedAt).toLocaleDateString()
+  return formatDateDMY(localDayKey(new Date(latest.completedAt)))
 }
 
 export function ComplianceTasksClient({ role, sessionVenueId, defaultVenueId }: ComplianceTasksClientProps) {

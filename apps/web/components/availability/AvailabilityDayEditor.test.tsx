@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { AvailabilityDayEditor } from '@/components/availability/AvailabilityDayEditor'
 import { DEFAULT_AVAILABILITY_PRESETS, type AvailabilityEntry, type AvailabilitySeries } from '@/lib/availability'
 
@@ -46,6 +46,16 @@ function renderEditor(props: Partial<Parameters<typeof AvailabilityDayEditor>[0]
 }
 
 describe('AvailabilityDayEditor', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ comments: [], canDelete: false }),
+    } as Response)
+  })
+
+  afterEach(() => { vi.restoreAllMocks() })
+
   it('adds a quick-pick window with the auto-complement and saves all windows', () => {
     const { onSave } = renderEditor()
 
@@ -63,21 +73,17 @@ describe('AvailabilityDayEditor', () => {
     ])
   })
 
-  it('ticks time off just before the manager note and sends the reason', () => {
+  it('ticks time off and saves without a separate note input', () => {
     const { onSave } = renderEditor()
 
     fireEvent.click(screen.getByText('TIME OFF REQUEST'))
-    // The old separate note area is gone — the manager note is the one note.
-    expect(screen.queryByPlaceholderText('NOTE (OPTIONAL)')).toBeNull()
-    const off = screen.getByText('TIME OFF REQUEST')
-    const note = screen.getByPlaceholderText('NOTE FOR THE MANAGER (OPTIONAL)')
-    expect(off.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    fireEvent.change(note, { target: { value: 'FAMILY WEDDING' } })
+    expect(screen.queryByPlaceholderText('NOTE FOR THE MANAGER (OPTIONAL)')).toBeNull()
+    expect(screen.getByText('COMMENTS')).toBeDefined()
     fireEvent.click(screen.getByText('SAVE'))
 
     const draft = onSave.mock.calls[0][0]
     expect(draft.timeOff).toBe(true)
-    expect(onSave.mock.calls[0][1].reason).toBe('FAMILY WEDDING')
+    expect(draft.notes).toBeNull()
   })
 
   it('preserves an existing stored note when saving', () => {
@@ -87,22 +93,13 @@ describe('AvailabilityDayEditor', () => {
     expect(onSave.mock.calls[0][0].notes).toBe('UNI ON TUESDAYS')
   })
 
-  it('prefills the stored note into the editable field', () => {
+  it('renders the comment thread instead of the old note areas', () => {
     renderEditor({ entry: entry({ notes: 'UNI ON TUESDAYS' }) })
 
-    const note = screen.getByPlaceholderText('NOTE FOR THE MANAGER (OPTIONAL)') as HTMLInputElement
-    expect(note.value).toBe('UNI ON TUESDAYS')
-  })
-
-  it('sends a newly typed note as both the day note and the request reason', () => {
-    const { onSave } = renderEditor()
-
-    const note = screen.getByPlaceholderText('NOTE FOR THE MANAGER (OPTIONAL)')
-    fireEvent.change(note, { target: { value: '  NEED SUNDAY OFF  ' } })
-    fireEvent.click(screen.getByText('SAVE'))
-
-    expect(onSave.mock.calls[0][0].notes).toBe('NEED SUNDAY OFF')
-    expect(onSave.mock.calls[0][1].reason).toBe('NEED SUNDAY OFF')
+    expect(screen.getByText('COMMENTS')).toBeDefined()
+    expect(screen.getByPlaceholderText('ADD A COMMENT')).toBeDefined()
+    expect(screen.queryByPlaceholderText('NOTE FOR THE MANAGER (OPTIONAL)')).toBeNull()
+    expect(screen.queryByText('SAVE REVIEW NOTE')).toBeNull()
   })
 
   it('offers the series scopes and passes the chosen one', () => {
@@ -112,6 +109,7 @@ describe('AvailabilityDayEditor', () => {
     })
 
     expect(screen.getByText('JUST THIS DAY')).toBeDefined()
+    expect(screen.getByText(/COMMENT IS STORED ON THIS DAY/)).toBeDefined()
     fireEvent.click(screen.getByText('FROM THIS DAY ONWARDS'))
     fireEvent.click(screen.getByText('SAVE (ASKS A MANAGER)'))
 
@@ -170,7 +168,22 @@ describe('AvailabilityDayEditor', () => {
     expect(screen.getByText('JUST THIS DAY')).toBeDefined()
   })
 
-  it('defaults a worker series edit to FROM and explains the anchor', () => {
+  it('honours initialScope="THIS" for a worker series day', () => {
+    const { onSave } = renderEditor({
+      entry: entry({ seriesId: 's1' }),
+      series,
+      allowedScopes: ['THIS', 'FROM'],
+      allowSeriesEnd: false,
+      initialScope: 'THIS',
+    })
+
+    expect(screen.getByText('JUST THIS DAY').className).toContain('bg-white')
+    expect(screen.getByText('FROM THIS DAY ONWARDS').className).not.toContain('bg-white')
+    fireEvent.click(screen.getByText('SAVE'))
+    expect(onSave.mock.calls[0][1].scope).toBe('THIS')
+  })
+
+  it('honours an explicit initialScope="FROM" and explains the anchor', () => {
     const { onSave } = renderEditor({
       entry: entry({ seriesId: 's1' }),
       series,
@@ -239,13 +252,12 @@ describe('AvailabilityDayEditor', () => {
     expect(screen.getByText(/LEAVES THE SERIES/)).toBeDefined()
   })
 
-  it('locks availability controls but keeps the note editable for an admin', () => {
-    const onSaveNote = vi.fn()
+  it('locks availability controls but keeps the comment thread for an admin', async () => {
     const onToggleLock = vi.fn()
     renderEditor({
       entry: entry({ status: 'APPROVED', lockedAt: '2026-10-20T01:00:00.000Z', lockedReason: 'CONFIRMED' }),
       canOverride: true,
-      onSaveNote,
+      staffId: 'st1',
       onToggleLock,
     })
 
@@ -254,68 +266,151 @@ describe('AvailabilityDayEditor', () => {
     const controls = allDay.closest('fieldset') as HTMLFieldSetElement
     expect(controls.disabled).toBe(true)
 
-    const note = screen.getByPlaceholderText('NOTE FOR THE MANAGER (OPTIONAL)')
-    fireEvent.change(note, { target: { value: '  RANG THE VENUE  ' } })
-    fireEvent.click(screen.getByText('SAVE NOTE'))
-    expect(onSaveNote).toHaveBeenCalledWith('RANG THE VENUE')
+    // Comments stay writable on a locked day (once the capability loads).
+    expect(await screen.findByPlaceholderText('ADD A COMMENT')).toBeDefined()
+    expect(screen.queryByPlaceholderText('NOTE FOR THE MANAGER (OPTIONAL)')).toBeNull()
 
     fireEvent.click(screen.getByText('UNLOCK'))
     expect(onToggleLock).toHaveBeenCalledWith(false, null)
   })
 
-  it('prefills and saves the manager review note for an admin', () => {
-    const onSaveReviewNote = vi.fn()
-    renderEditor({
-      entry: entry({ reviewNote: 'OLD REVIEW' }),
-      canOverride: true,
-      onSaveReviewNote,
-    })
+  it('shows the comment thread (with the admin staff id) instead of a review note', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        comments: [{
+          id: 'c1', body: 'CHECKED BY PHONE', source: 'MANAGER', authorId: 'm1',
+          authorName: 'MORGAN LEE', createdAt: '2026-11-12T03:00:00.000Z', canDelete: true,
+        }],
+        canDelete: true,
+      }),
+    } as Response)
 
-    const input = screen.getByLabelText('Review note') as HTMLInputElement
-    expect(input.value).toBe('OLD REVIEW')
-    fireEvent.change(input, { target: { value: '  NEW REVIEW  ' } })
-    fireEvent.click(screen.getByText('SAVE REVIEW NOTE'))
+    renderEditor({ entry: entry({ reviewNote: 'OLD REVIEW' }), canOverride: true, staffId: 'st1' })
 
-    expect(onSaveReviewNote).toHaveBeenCalledWith('NEW REVIEW')
-  })
-
-  it('clears the review note when the admin saves a blank value', () => {
-    const onSaveReviewNote = vi.fn()
-    renderEditor({ entry: entry({ reviewNote: 'OLD REVIEW' }), canOverride: true, onSaveReviewNote })
-
-    fireEvent.change(screen.getByLabelText('Review note'), { target: { value: '   ' } })
-    fireEvent.click(screen.getByText('SAVE REVIEW NOTE'))
-
-    expect(onSaveReviewNote).toHaveBeenCalledWith(null)
-  })
-
-  it('keeps the review note read-only for a worker', () => {
-    renderEditor({ entry: entry({ reviewNote: 'MANAGER ONLY' }) })
-
-    expect(screen.getByText(/MANAGER: MANAGER ONLY/)).toBeDefined()
+    expect(await screen.findByText('CHECKED BY PHONE')).toBeDefined()
     expect(screen.queryByLabelText('Review note')).toBeNull()
     expect(screen.queryByText('SAVE REVIEW NOTE')).toBeNull()
+    expect(String(fetchSpy.mock.calls[0][0])).toContain('/api/admin/availability/comments')
+    expect(String(fetchSpy.mock.calls[0][0])).toContain('staffId=st1')
   })
 
-  it('keeps the review note editable on a locked day', () => {
-    const onSaveReviewNote = vi.fn()
-    renderEditor({
-      entry: entry({ status: 'APPROVED', lockedAt: '2026-10-20T01:00:00.000Z', reviewNote: 'BEFORE' }),
-      canOverride: true,
-      onSaveNote: vi.fn(),
-      onSaveReviewNote,
-      onToggleLock: vi.fn(),
+  it('keeps the review note read-only for a worker (no review inputs)', () => {
+    renderEditor({ entry: entry({ reviewNote: 'MANAGER ONLY' }) })
+
+    expect(screen.queryByText(/MANAGER: MANAGER ONLY/)).toBeNull()
+    expect(screen.queryByLabelText('Review note')).toBeNull()
+    expect(screen.queryByText('SAVE REVIEW NOTE')).toBeNull()
+    expect(screen.getByText('COMMENTS')).toBeDefined()
+  })
+
+  it('does not resurrect a deleted comment when saving', async () => {
+    let deleted = false
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('/api/worker/availability/comments')) {
+        if (init?.method === 'DELETE') {
+          deleted = true
+          return { ok: true, status: 200, json: async () => ({ success: true }) } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            canAdd: true,
+            canDelete: true,
+            comments: deleted ? [] : [{
+              id: 'c1', body: 'DELETED TEXT', source: 'WORKER_APP', authorId: 'st1',
+              authorName: 'TAYLOR REED', createdAt: '2026-11-12T01:00:00.000Z', canDelete: true,
+            }],
+          }),
+        } as Response
+      }
+      return { ok: true, status: 200, json: async () => ({ comments: [] }) } as Response
     })
 
-    const input = screen.getByLabelText('Review note') as HTMLInputElement
-    expect(input.disabled).toBe(false)
-    fireEvent.change(input, { target: { value: 'AFTER' } })
-    fireEvent.click(screen.getByText('SAVE REVIEW NOTE'))
+    const { onSave } = renderEditor({ entry: entry({ notes: 'ORIGINAL' }) })
+    expect(await screen.findByText('DELETED TEXT')).toBeDefined()
 
-    expect(onSaveReviewNote).toHaveBeenCalledWith('AFTER')
+    fireEvent.click(screen.getByLabelText('Delete comment c1'))
+    await waitFor(() => expect(screen.queryByText('DELETED TEXT')).toBeNull())
+
+    fireEvent.click(screen.getByText('SAVE'))
+    expect(onSave.mock.calls[0][0].notes).toBeNull()
+    expect(onSave.mock.calls[0][1].reason).toBeNull()
   })
 
-  it('sends manager-locked worker saves as a change request defaulting to FROM', () => {
+  it('hides add and delete controls when the manager has no edit grant', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        canAdd: false,
+        canDelete: false,
+        comments: [{
+          id: 'c1', body: 'READ ONLY', source: 'MANAGER', authorId: 'm1',
+          authorName: 'MORGAN LEE', createdAt: '2026-11-12T01:00:00.000Z', canDelete: false,
+        }],
+      }),
+    } as Response)
+
+    renderEditor({ canOverride: true, staffId: 'st1' })
+    expect(await screen.findByText('READ ONLY')).toBeDefined()
+    expect(screen.queryByPlaceholderText('ADD A COMMENT')).toBeNull()
+    expect(screen.queryByLabelText('Delete comment c1')).toBeNull()
+  })
+
+  it('never sends a manager comment as the worker request reason', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        canAdd: true,
+        canDelete: false,
+        comments: [{
+          id: 'c1', body: 'MANAGER NOTE', source: 'MANAGER', authorId: 'm1',
+          authorName: 'MORGAN LEE', createdAt: '2026-11-12T01:00:00.000Z', canDelete: false,
+        }],
+      }),
+    } as Response)
+
+    const { onSave } = renderEditor()
+    expect(await screen.findByText('MANAGER NOTE')).toBeDefined()
+
+    fireEvent.click(screen.getByText('SAVE'))
+    expect(onSave.mock.calls[0][0].notes).toBe('MANAGER NOTE')
+    expect(onSave.mock.calls[0][1].reason).toBeNull()
+  })
+
+  it('uses the newest WORKER_APP comment for the request reason even when a manager commented later', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        canAdd: true,
+        canDelete: false,
+        comments: [
+          {
+            id: 'c2', body: 'MANAGER REPLY', source: 'MANAGER', authorId: 'm1',
+            authorName: 'MORGAN LEE', createdAt: '2026-11-12T02:00:00.000Z', canDelete: false,
+          },
+          {
+            id: 'c1', body: 'WORKER NOTE', source: 'WORKER_APP', authorId: 'st1',
+            authorName: 'TAYLOR REED', createdAt: '2026-11-12T01:00:00.000Z', canDelete: false,
+          },
+        ],
+      }),
+    } as Response)
+
+    const { onSave } = renderEditor()
+    expect(await screen.findByText('MANAGER REPLY')).toBeDefined()
+
+    fireEvent.click(screen.getByText('SAVE'))
+    expect(onSave.mock.calls[0][0].notes).toBe('MANAGER REPLY')
+    expect(onSave.mock.calls[0][1].reason).toBe('WORKER NOTE')
+  })
+
+  it('sends manager-locked worker saves as a change request with the chosen scope', () => {
     const { onSave } = renderEditor({
       entry: entry({ seriesId: 's1', status: 'APPROVED', lockedAt: '2026-10-20T01:00:00.000Z' }),
       series,

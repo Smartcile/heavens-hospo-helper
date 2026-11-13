@@ -210,7 +210,7 @@ export function WorkerTimeclockClient() {
                   <div key={s.id} className="bg-grey-dark border border-grey-mid p-3 flex items-center justify-between gap-2">
                     <div>
                       <div className="font-mono text-xs text-white">
-                        {new Date(s.clockIn).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+                        {new Date(s.clockIn).toLocaleDateString('en-NZ', { weekday: 'short', day: '2-digit', month: 'short' })}
                       </div>
                       <div className="font-mono text-xs text-grey-light">
                         {new Date(s.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

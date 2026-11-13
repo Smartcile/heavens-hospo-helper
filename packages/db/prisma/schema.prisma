@@ -220,6 +220,14 @@ enum AvailabilityRequestStatus {
   DISCARDED
 }
 
+// Who wrote an availability comment. Stamped automatically — workers write from
+// the app, managers from the admin panel, SYSTEM for backfilled/automated rows.
+enum AvailabilityCommentSource {
+  WORKER_APP
+  MANAGER
+  SYSTEM
+}
+
 // Time clock session approval — only APPROVED sessions count for payroll.
 enum ApprovalStatus {
   PENDING
@@ -326,6 +334,9 @@ model Venue {
   // Worker phone-session inactivity timeout in minutes. Null / 0 = fall back
   // to the WORKER_SESSION_EXPIRY_MINUTES env. Clamped to 5–480 on read/write.
   workerSessionTimeoutMinutes Int?  @default(15)
+  // When true, floor staff may delete their own availability comments. Default
+  // false: managers only (staff still add comments; they just cannot remove them).
+  staffCanDeleteAvailabilityComments Boolean @default(false)
   // Geo-fence for timeclock punches (centre point + allowed radius in metres).
   // Null means geo-fencing is off for this venue.
   geoLat                 Float?
@@ -351,6 +362,7 @@ model Venue {
   rosterSlots         RosterSlot[]
   timeOffRequests     TimeOffRequest[]
   staffAvailabilities StaffAvailability[]
+  availabilityComments AvailabilityComment[]
   notices             Notice[]
   staffEvents         StaffEvent[]
   calendarEvents      CalendarEvent[]
@@ -509,6 +521,7 @@ model Staff {
   shifts               Shift[]
   timeOffRequests      TimeOffRequest[]
   availabilities       StaffAvailability[]
+  availabilityComments AvailabilityComment[]
   noticeAcks           NoticeAck[]
   staffEventsCreated   StaffEvent[]     @relation("StaffEventCreatedBy")
   staffEventInvites    StaffEventInvite[]
@@ -1531,6 +1544,31 @@ model AvailabilityEditRequest {
 
   @@index([venueId, status])
   @@index([staffId, date])
+}
+
+// Free-text comment history for one staff member's availability day. The
+// current/latest body is mirrored onto StaffAvailability.notes so the grids and
+// month cells keep their cheap read; every row remains for the full history.
+// `legacyRef` is set only by the idempotent backfill (old notes / review notes).
+model AvailabilityComment {
+  id        String                    @id @default(uuid())
+  venueId   String
+  staffId   String
+  date      DateTime                  @db.Date
+  seriesId  String?
+  body      String
+  source    AvailabilityCommentSource @default(WORKER_APP)
+  authorId  String?
+  legacyRef String?                   @unique
+  createdAt DateTime                  @default(now())
+  updatedAt DateTime                  @updatedAt
+  deletedAt DateTime?
+
+  staff Staff @relation(fields: [staffId], references: [id])
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@index([staffId, date])
+  @@index([venueId, date])
 }
 
 // ── TIME CLOCK + PAYROLL ──

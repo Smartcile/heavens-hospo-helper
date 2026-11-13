@@ -82,6 +82,13 @@ echo "▸ Linking room feeds to first-class Areas (post-sync)..."
 npm run db:migrate-areas || echo "⚠ Area migration step failed (see error above) — continuing to start the app."
 
 echo ""
+echo "▸ Backfilling availability notes into comment threads (post-sync)..."
+# Each old notes / reason / reviewNote value becomes one AvailabilityComment row
+# with its original author + timestamp. Deterministic legacyRef values make the
+# backfill idempotent, so re-running never duplicates a comment.
+npm run db:migrate-availability-comments || echo "⚠ Availability comment backfill failed (see error above) — continuing to start the app."
+
+echo ""
 echo "▸ Seeding database (safe to re-run)..."
 cd /app/packages/db
 npm run db:seed || echo "⚠ Seed step failed (see error above) — continuing to start the app."

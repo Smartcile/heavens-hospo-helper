@@ -610,7 +610,22 @@ async function storeRequest(
   input: { staffId: string; venueId: string; dateKey: string; reason: string | null },
   plan: AvailabilityPlan,
 ): Promise<string> {
-  const reason = input.reason?.trim() || plan.availability?.notes?.trim() || null
+  // Only a worker's own comment may become the request reason. The day note is
+  // NOT a fallback — it can be a manager comment and would misattribute words.
+  let reason = input.reason?.trim() || null
+  if (!reason) {
+    const workerComment = await prisma.availabilityComment.findFirst({
+      where: {
+        staffId: input.staffId,
+        date: utcDay(input.dateKey),
+        source: 'WORKER_APP',
+        deletedAt: null,
+      },
+      orderBy: [{ createdAt: 'desc' }, { updatedAt: 'desc' }],
+      select: { body: true },
+    })
+    reason = workerComment?.body.trim() || null
+  }
   const request = await prisma.availabilityEditRequest.create({
     data: {
       staffId: input.staffId,

@@ -508,7 +508,7 @@ export function ClocksClient({ role, sessionVenueId, defaultVenueId }: { role: s
                       {e.timeClock.staff.firstName} {e.timeClock.staff.lastName}
                     </span>
                     <span className="font-mono text-xs text-grey-light">
-                      {new Date(e.editedAt).toLocaleString([], { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}
+                      {new Date(e.editedAt).toLocaleString('en-NZ', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}
                     </span>
                   </div>
                   <div className="font-mono text-xs text-grey-light mt-1">

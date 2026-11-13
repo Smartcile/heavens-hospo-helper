@@ -210,26 +210,6 @@ export function WorkerAvailabilityClient() {
     load()
   }
 
-  // Notes-only PATCH — applies immediately, even on a manager-locked day.
-  async function saveNote(dateKey: string, notes: string | null) {
-    const entry = entryByDate.get(dateKey)
-    if (!entry?.id) { setError('SAVE THE DAY BEFORE ADDING A NOTE'); return }
-    setSaving(true); setError('')
-    const r = await fetch(`/api/worker/availability/${entry.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ notes }),
-    })
-    setSaving(false)
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}))
-      setError((d.error ?? 'COULD NOT SAVE THE NOTE').toUpperCase())
-      return
-    }
-    setFlash('NOTE SAVED')
-    load()
-  }
-
   if (loading || !data) {
     return <div className="min-h-screen bg-black flex items-center justify-center"><p className="font-mono text-sm text-grey-light loading-cursor">LOADING</p></div>
   }
@@ -468,13 +448,13 @@ export function WorkerAvailabilityClient() {
             presets={data.presets}
             allowedScopes={WORKER_EDIT_SCOPES}
             allowSeriesEnd={false}
-            initialScope="FROM"
+            initialScope="THIS"
             canRequestRemoval={!!selectedEntry?.seriesId}
             onRequestSeriesRemoval={() => setRemovalOpen(true)}
             busy={saving}
             error={error || null}
             onSave={save}
-            onSaveNote={(notes) => saveNote(selected, notes)}
+            onCommentsMutated={load}
             onClose={() => { if (!saving) { setSelected(null); setError('') } }}
           />
         )}

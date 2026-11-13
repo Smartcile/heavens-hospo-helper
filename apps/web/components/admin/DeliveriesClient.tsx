@@ -79,7 +79,7 @@ const EMPTY_LINE: LineForm = {
 }
 
 function fmtDate(d: string) {
-  return new Date(d).toLocaleString([], { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return new Date(d).toLocaleString('en-NZ', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 export function DeliveriesClient({ role, sessionVenueId, defaultVenueId }: DeliveriesClientProps) {

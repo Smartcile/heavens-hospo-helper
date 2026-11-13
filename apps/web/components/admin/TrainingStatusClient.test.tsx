@@ -129,6 +129,192 @@ describe('TrainingStatusClient board', () => {
 
     await waitFor(() => expect(getByText('GUIDES — SMITH, JANE')).toBeTruthy())
   })
+
+  it('expands a person to folder-grouped guides with trained / to do / retrain state', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u.includes('/api/admin/section-work')) {
+        return { ok: true, json: async () => ({ reviews: [] }) } as Response
+      }
+      if (u.includes('/api/admin/staff/') && u.includes('/guides')) {
+        return {
+          ok: true,
+          json: async () => ({
+            items: [
+              { id: 'g1', title: 'OPENING LIST', folderId: 'f1', completed: true, stale: false, retrainRequestId: null },
+              { id: 'g2', title: 'MILK STATION', folderId: 'f1', completed: false, stale: false, retrainRequestId: null },
+              { id: 'g3', title: 'COFFEE MENU UPDATE', folderId: 'f2', completed: true, stale: true, retrainRequestId: null },
+            ],
+            folders: [
+              { id: 'f1', name: 'BAR', sortOrder: 0 },
+              { id: 'f2', name: 'KITCHEN', sortOrder: 1 },
+            ],
+          }),
+        } as Response
+      }
+      if (u.includes('/api/admin/guides')) {
+        return { ok: true, json: async () => [] } as Response
+      }
+      return { ok: true, json: async () => payload } as Response
+    })
+
+    const { getByText, queryByText } = render(
+      <TrainingStatusClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />,
+    )
+
+    await waitFor(() => expect(getByText('BARISTA (1)')).toBeTruthy())
+    // Collapsed by default: no folder groups until the row is expanded.
+    expect(getByText('SHOW GUIDES ▼')).toBeTruthy()
+    expect(queryByText('BAR (2)')).toBeNull()
+    expect(queryByText('KITCHEN (1)')).toBeNull()
+    fireEvent.click(getByText('SHOW GUIDES ▼'))
+
+    await waitFor(() => expect(getByText('BAR (2)')).toBeTruthy())
+    expect(getByText('KITCHEN (1)')).toBeTruthy()
+    expect(getByText('OPENING LIST')).toBeTruthy()
+    expect(getByText('MILK STATION')).toBeTruthy()
+    expect(getByText('COFFEE MENU UPDATE')).toBeTruthy()
+    expect(getByText('TRAINED')).toBeTruthy()
+    expect(getByText('TO DO')).toBeTruthy()
+    expect(getByText('RETRAIN')).toBeTruthy()
+  })
+
+  it('marks a guide trained from the MANAGE GUIDES modal', async () => {
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u.includes('/api/admin/section-work')) {
+        return { ok: true, json: async () => ({ reviews: [] }) } as Response
+      }
+      if (u.includes('/api/admin/guides/complete')) {
+        return { ok: true, json: async () => ({ id: 'c1' }) } as Response
+      }
+      if (u.includes('/api/admin/staff/') && u.includes('/guides')) {
+        return {
+          ok: true,
+          json: async () => ({
+            items: [
+              { id: 'g2', title: 'MILK STATION', folderId: 'f1', completed: false, stale: false, retrainRequestId: null },
+            ],
+            folders: [{ id: 'f1', name: 'BAR', sortOrder: 0 }],
+            canSignOff: true,
+            canAssign: true,
+          }),
+        } as Response
+      }
+      if (u.includes('/api/admin/guides')) {
+        return { ok: true, json: async () => [] } as Response
+      }
+      return { ok: true, json: async () => payload } as Response
+    })
+
+    const { getByText, getAllByText } = render(
+      <TrainingStatusClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />,
+    )
+
+    await waitFor(() => expect(getByText('BARISTA (1)')).toBeTruthy())
+    fireEvent.click(getAllByText('MANAGE GUIDES →')[0])
+
+    await waitFor(() => expect(getByText('MARK TRAINED')).toBeTruthy())
+    fireEvent.click(getByText('MARK TRAINED'))
+
+    await waitFor(() => {
+      const complete = spy.mock.calls.find(
+        (c) => String(c[0]).includes('/api/admin/guides/complete') && c[1]?.method === 'POST',
+      )
+      expect(complete).toBeDefined()
+      expect(JSON.parse((complete![1] as RequestInit).body as string)).toEqual({
+        guideId: 'g2',
+        staffId: 's1',
+      })
+    })
+  })
+
+  const staffGuidesPayload = {
+    items: [
+      { id: 'g1', title: 'OPENING LIST', folderId: 'f1', completed: true, stale: false, retrainRequestId: null },
+    ],
+    folders: [{ id: 'f1', name: 'BAR', sortOrder: 0 }],
+    canSignOff: true,
+    canAssign: true,
+  }
+
+  function mockStaffGuides(handler: () => Response | Promise<Response>) {
+    return vi.spyOn(global, 'fetch').mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u.includes('/api/admin/section-work')) {
+        return { ok: true, json: async () => ({ reviews: [] }) } as Response
+      }
+      if (u.includes('/api/admin/staff/') && u.includes('/guides')) {
+        return handler()
+      }
+      if (u.includes('/api/admin/guides')) {
+        return { ok: true, json: async () => [] } as Response
+      }
+      return { ok: true, json: async () => payload } as Response
+    })
+  }
+
+  const staffGuideCalls = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls.filter((c) => String(c[0]).includes('/api/admin/staff/s1/guides')).length
+
+  it('refetches the per-staff guides every time a person is expanded', async () => {
+    const spy = mockStaffGuides(() => ({ ok: true, json: async () => staffGuidesPayload } as Response))
+    const { getByText } = render(
+      <TrainingStatusClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />,
+    )
+
+    await waitFor(() => expect(getByText('BARISTA (1)')).toBeTruthy())
+    fireEvent.click(getByText('SHOW GUIDES ▼'))
+    await waitFor(() => expect(getByText('BAR (1)')).toBeTruthy())
+    expect(staffGuideCalls(spy)).toBe(1)
+
+    fireEvent.click(getByText('HIDE GUIDES ▲'))
+    fireEvent.click(getByText('SHOW GUIDES ▼'))
+
+    await waitFor(() => expect(staffGuideCalls(spy)).toBe(2))
+  })
+
+  it('refetches an expanded row when the MANAGE GUIDES modal closes', async () => {
+    const spy = mockStaffGuides(() => ({ ok: true, json: async () => staffGuidesPayload } as Response))
+    const { getByText } = render(
+      <TrainingStatusClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />,
+    )
+
+    await waitFor(() => expect(getByText('BARISTA (1)')).toBeTruthy())
+    fireEvent.click(getByText('SHOW GUIDES ▼'))
+    await waitFor(() => expect(getByText('BAR (1)')).toBeTruthy())
+
+    fireEvent.click(getByText('MANAGE GUIDES →'))
+    // Expand (1) + the modal's own load (2).
+    await waitFor(() => expect(getByText('CLOSE')).toBeTruthy())
+    await waitFor(() => expect(staffGuideCalls(spy)).toBe(2))
+
+    fireEvent.click(getByText('CLOSE'))
+    await waitFor(() => expect(staffGuideCalls(spy)).toBe(3))
+  })
+
+  it('retries a failed guides load on collapse → re-expand', async () => {
+    let attempt = 0
+    mockStaffGuides(() => {
+      attempt += 1
+      return attempt === 1
+        ? ({ ok: false, status: 500, json: async () => ({}) } as Response)
+        : ({ ok: true, json: async () => staffGuidesPayload } as Response)
+    })
+    const { getByText } = render(
+      <TrainingStatusClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />,
+    )
+
+    await waitFor(() => expect(getByText('BARISTA (1)')).toBeTruthy())
+    fireEvent.click(getByText('SHOW GUIDES ▼'))
+    await waitFor(() => expect(getByText('COULD NOT LOAD GUIDES (500)')).toBeTruthy())
+
+    fireEvent.click(getByText('HIDE GUIDES ▲'))
+    fireEvent.click(getByText('SHOW GUIDES ▼'))
+
+    await waitFor(() => expect(getByText('BAR (1)')).toBeTruthy())
+    expect(attempt).toBe(2)
+  })
 })
 
 describe('TrainingStatusClient warnings', () => {

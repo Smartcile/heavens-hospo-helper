@@ -24,6 +24,7 @@ import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
 import { useGuidePopup } from '@/components/GuidePopup'
 import { useWorkerImmersive } from '@/components/worker/useWorkerImmersive'
 import { useLiveRefresh } from '@/lib/use-live-refresh'
+import { formatDateDMY, localDayKey } from '@/lib/date-nav'
 import type { CalendarEventSummary } from '@/lib/checklist-activation'
 
 type TaskState = WorkerTaskView
@@ -1513,7 +1514,7 @@ export function WorkerTasksClient({
             {activeTask.inProgress && outcome === 'DONE' && (
               <div className="border-l-4 border-l-warning pl-3 py-1">
                 <p className="font-mono text-xs text-warning uppercase">
-                  IN PROGRESS SINCE {new Date(activeTask.inProgress.since).toLocaleDateString()}
+                  IN PROGRESS SINCE {formatDateDMY(localDayKey(new Date(activeTask.inProgress.since)))}
                   {activeTask.inProgress.byName ? ` · ${activeTask.inProgress.byName}` : ''}
                 </p>
                 {activeTask.inProgress.note && (

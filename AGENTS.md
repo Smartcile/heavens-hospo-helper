@@ -57,7 +57,7 @@ hospo-ops/
 ├── packages/
 │   ├── db/                         # Prisma 7 schema + PG adapter + seed
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma       # 161 models (as of 2026-11)
+│   │   │   ├── schema.prisma       # 162 models (as of 2026-11)
 │   │   │   ├── seed.ts             # Idempotent demo/sample data
 │   │   │   ├── migrate-*.ts        # One-off migrations wired into docker-entrypoint.sh
 │   │   │   └── migrations/         # Legacy 0_init migration (kept for reference)
@@ -140,7 +140,8 @@ BudgetDayAllocation shape) → `prisma db push --accept-data-loss` (with a
 `--force-reset` fallback for ancient DBs) → `db:migrate-furniture` →
 `db:migrate-uom` → `db:migrate-step-links` + `db:backfill-guide-audiences` →
 `db:migrate-timeoff` → `db:migrate-calendar-feeds` → `db:migrate-areas` →
-`db:seed` (idempotent) → `db:seed-help` (Heavenly Help sync, writes only
+`db:migrate-availability-comments` → `db:seed` (idempotent) →
+`db:seed-help` (Heavenly Help sync, writes only
 changed articles) → `next start -H 0.0.0.0 -p 3000`.
 Every migration step is non-fatal (`|| echo …`) except the db push reset. No
 manual migrate/seed step is needed.
@@ -181,7 +182,7 @@ cd packages/db && npx prisma studio
 `docker-entrypoint.sh` unless noted): `db:migrate-budget`,
 `db:migrate-furniture`, `db:migrate-uom`, `db:migrate-step-links`,
 `db:backfill-guide-audiences`, `db:migrate-timeoff`, `db:migrate-calendar-feeds`,
-`db:migrate-areas`. Manual/dev-only:
+`db:migrate-areas`, `db:migrate-availability-comments`. Manual/dev-only:
 `db:migrate-to-guides` (not wired — the legacy Training models now only exist
 to keep old deployments migratable), `db:backfill-orders`,
 `db:mock-furniture`, `db:mock-menu`, `db:verify-furniture`.
@@ -566,16 +567,17 @@ request, an overdue retrain request (pending > 14 days), or an open
   **ALL GUIDES** flat toggle, red row + plain-English reason for
   stale/requested guides, and grant-gated MARK RETRAINED / MARK FOR RETRAINING /
   DISMISS WARNING (`canSignOff` / `canAssign` come from the staff-guides GET).
-  `WorkerGuidesClient` shows a NEEDS ATTENTION strip (own warnings, or the whole
-  venue for managers / view-granted staff), the same actions, checks the
-  resolve response and surfaces failures inline, and shows a red guide card +
-  red RETRAIN NEEDED reason where the guide is marked off.
+  `WorkerGuidesClient` (`/w/guides`) is now the bible/tree only — it has no
+  warnings strip and no training-status link. It still shows a red guide card +
+  red RETRAIN NEEDED reason where the guide is marked off. Warnings and
+  training now live on the training status board (`TrainingStatusClient` /
+  `/w/training-status`). The worker `/api/worker/guide-warnings` and
+  `/api/worker/guide-retrain` routes still exist but have **no live worker UI**
+  after this change (a staff own-training view remains out of scope).
 - **Help:** the `guide-warnings` Heavenly Help article (TEAM / EVERYONE,
   sortOrder 620) covers the admin warnings list, folder grouping, retrain
-  reasons, the red guide highlight, worker NEEDS ATTENTION and marking
-  retraining. It ships with three screenshots:
-  `/help/guide-warnings-admin.png`, `/help/guide-warnings-modal.png` and
-  `/help/guide-warnings-worker.png`.
+  reasons and the red guide highlight. It ships with two screenshots:
+  `/help/guide-warnings-admin.png` and `/help/guide-warnings-modal.png`.
 - **Deploy note:** additive only. `prisma db push` creates the enum + table; no
   data migration or backfill is required.
 
@@ -697,34 +699,65 @@ pure-AVAILABLE worker saves never lock. A locked day:
   `cancelPendingAvailability`).
 
 The shared `AvailabilityDayEditor` renders locked days read-only for admins
-(`LOCKED — UNLOCK TO EDIT`, `SAVE NOTE`, `UNLOCK`) and lets workers submit a
-change request (`SEND CHANGE REQUEST`).
+(`LOCKED — UNLOCK TO EDIT`, `UNLOCK`, comments still writable) and lets workers
+submit a change request (`SEND CHANGE REQUEST`).
 
-**Review notes (#61).** `StaffAvailability.reviewNote` is the manager's note
-from a CONFIRM/DECLINE and is independent of the worker's `notes`. It is
-surfaced and editable without re-running the review:
-
-- the admin grid cell shows a compact `✎ REVIEW` marker whose `title` /
-  `aria-label` carries the full note (the worker `NOTE:` text stays separate);
-- the day editor shows managers a `REVIEW NOTE` input + `SAVE REVIEW NOTE`
-  (prefilled from `entry.reviewNote`; works on a locked day because it is a
-  note, not availability). Workers keep the read-only `MANAGER: …` line;
-- the declaration card prefills its review-note input and offers `SAVE NOTE`,
-  which posts `action: 'NOTE'` to `/api/admin/availability/review`; that action
-  resolves the same `ids` / `seriesId+staffId` where and writes only
-  `reviewNote` (no status change, no PENDING filter);
-- the declaration card also makes the **worker** note inline-editable
-  (`SAVE WORKER NOTE`), looping the notes-only `PATCH
-  /api/admin/availability/[id]` over every row id in the declaration, so a
-  series note reaches all its occurrences;
-- `PATCH /api/admin/availability/[id]` accepts `reviewNote` and writes only it.
-  It does **not** restamp `reviewedAt`/`reviewedById` — those stay the decision
-  stamp. A worker PATCH still accepts `notes` only.
-
-A save that moves a row back to `PENDING` (`executeSet` with `status:
-'PENDING'`) clears `reviewNote`/`reviewedAt`/`reviewedById`, so a stale manager
-note never appears on a fresh declaration. Admin overrides are `APPROVED` and
+**Legacy review notes (#61).** `StaffAvailability.reviewNote` and
+`AvailabilityEditRequest.reviewNote` are historical columns. The old separate
+REVIEW NOTE inputs, the `✎ REVIEW` grid marker and the declaration card's
+notes-only actions are gone; existing values are backfilled into the comment
+thread. `POST /api/admin/availability/review` still accepts `action: 'NOTE'`
+for compatibility, and `PATCH /api/admin/availability/[id]` still accepts
+`reviewNote`, but the UI no longer calls either. A save that moves a row back to
+`PENDING` (`executeSet` with `status: 'PENDING'`) clears
+`reviewNote`/`reviewedAt`/`reviewedById`; admin overrides are `APPROVED` and
 leave the review stamp alone.
+
+**Comments replace the note areas (#152, built 2026-11).** Each staff member +
+day now has one history thread in `AvailabilityComment` (`venueId`, `staffId`,
+`date @db.Date`, optional `seriesId`, `body`, `source WORKER_APP | MANAGER |
+SYSTEM`, optional `authorId`, unique `legacyRef` for the backfill, soft delete;
+indexes `(staffId, date)` and `(venueId, date)`). The UI (`AvailabilityCommentThread`)
+replaces the old WORKER NOTE / REVIEW NOTE inputs on the declaration card, edit
+request card and `AvailabilityDayEditor`; rows are one line until expanded, show
+author · source · time · body, and offer delete when the server allows it.
+Sources are stamped automatically (`VIA APP` for workers, `MANAGER` for admin).
+`StaffAvailability.notes` stays the current/latest comment (the grid, roster
+overlay and worker month cells keep their cheap read) and every comment write
+mirrors the newest live body back onto it. Managers can always delete; staff can
+only delete their own when `Venue.staffCanDeleteAvailabilityComments` is true
+(**default false** = managers only; toggled in Settings → GENERAL → ROSTER
+AVAILABILITY). A multi-day declaration posts its comment to every affected day;
+a restricted manager without `team.availability.edit` gets a read-only thread
+(`canAdd` / `canDelete` from the GET), and an old request `reason` with no
+matching comment is shown as a `LEGACY REASON` line. The confirm/decline review
+flow, locks and the edit-request pipeline are unchanged.
+
+Routes: `GET/POST/DELETE /api/admin/availability/comments` (GET
+`team.availability.view`, writes `team.availability.edit`; MANAGER venue-locked,
+ADMIN uses the `admin-active-venue` cookie; `?staffId=&date=`) and
+`GET/POST/DELETE /api/worker/availability/comments` (worker JWT, own staff only,
+`?date=`; DELETE 403 unless the venue toggle allows deleting their own comment).
+`GET` returns newest-first comments + the effective per-comment `canDelete`; POST
+caps the body at 500 characters. The idempotent `db:migrate-availability-comments`
+(wired after `db push`, so it runs on every boot) converts the old `notes` /
+`reason` / `reviewNote` columns on `StaffAvailability` and `AvailabilityEditRequest`
+into comment rows with their original author + timestamp. It plans against every
+existing comment (live **and** soft-deleted): an existing `legacyRef` is skipped;
+a seed whose staff + day + body already exists is written as a soft-deleted
+**tombstone** carrying its `legacyRef` (so a later boot can never duplicate a
+normal comment or resurrect a deleted one); otherwise it creates a live comment.
+**The boot pass never writes `StaffAvailability.notes`** — runtime comment writes
+call `mirrorAvailabilityCommentNotes`, and a boot re-mirror would overwrite a
+newer series note on a non-anchor day. Worker series saves store the comment on
+the anchor day and show a caption that the latest note is applied to every day
+the save writes.
+
+**Dates are day-first (#152).** `lib/date-nav.ts` adds `formatDateDMY`
+(`12-11-2026`) and `formatDateDayDMY` (`THU 12-11-2026`), and `formatDateShort`
+is now DD-MM-YYYY (never `AUG 9, 2026`). The request popup shows the weekday +
+DMY. Locale-less `toLocaleDateString()` calls were replaced with the shared
+day-first helper so a US device cannot render `MM/DD/YYYY`.
 
 **Worker series edits + removal requests (#59) + admin bulk clear (#13) +
 weekly default (#7) + in-place refresh (#16)** - worker writes pass
@@ -734,9 +767,10 @@ correct) or apply the change to every occurrence from the clicked day onwards
 (`FROM`, rows rewritten in place with the same `seriesId`; earlier days are
 never touched). `ALL` is outside the worker policy and is clamped to `THIS`,
 and an anchor before the venue-local today is rejected with a 400. The worker
-editor hides `ALL` and `CHANGE SERIES END`, defaults a series edit to `FROM`,
-and shows `FROM <date> ONWARDS — PAST DAYS UNCHANGED`; `JUST THIS DAY` stays the
-explicit one-off detach. A series day also offers **`REQUEST REMOVAL`**, which
+editor hides `ALL` and `CHANGE SERIES END` and defaults a series edit to
+`JUST THIS DAY` (`THIS`, the one-off detach); choosing `FROM` is a deliberate
+series edit and shows `FROM <date> ONWARDS — PAST DAYS UNCHANGED`. A series day
+also offers **`REQUEST REMOVAL`**, which
 posts to `POST /api/worker/availability/series-request`: it validates the
 series belongs to the session's staff member, files a `CLEAR`/`FROM`
 `AvailabilityEditRequest` for future occurrences only, skips manager-locked days
@@ -2951,7 +2985,7 @@ Child:   <input onChange={(e) => onEdit(e.target.value)} />
 > (`MenuItem.variations`), orders (`WooOrder` as the local order store), gift
 > cards, SwiftPOS and `ApiKey` public routes are unaffected.
 
-### Schema: 161 models (as of 2026-11)
+### Schema: 162 models (as of 2026-11)
 Core ERP models: `Supplier`, `UnitOfMeasure`, `SupplierItemCode`, `Recipe`,
 `RecipeLineItem` (recursive BOM), `IngredientReference` (Pantry Bible),
 `WooIntegration`, `MenuItem` (+ `MenuItemServe`, `MenuItemVenue`), `Menu`,
@@ -3627,14 +3661,18 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
   availability/roster) with on-shift people first inside each group. Each row
   has **MANAGE GUIDES →**, which opens the existing `StaffGuidesModal` (mark
   trained / sign off / revoke / assign) so training can be completed without
-  leaving the board. It also renders the **SECTION REVIEWS** strip
+  leaving the board, plus **SHOW GUIDES ▼** to expand that person's guides
+  grouped by folder with a TRAINED / TO DO / RETRAIN state per guide (lazy
+  loaded from `GET /api/admin/staff/[id]/guides`). It also renders the
+  **SECTION REVIEWS** strip
   (confirm/dismiss/reopen pending section-work reviews — see "Section-work
   reviews"). Staff rows come from `GET /api/admin/training/status` backed by
   `lib/training-status.server.ts` (pure rules + sort in `lib/training-status.ts`);
   reviews come from
   `GET /api/admin/section-work?status=ALL` (the single reconcile path). Managers
-  get a TRAINING STATUS → button on the worker `/w/guides` header; it opens
-  `/w/training-status`, the same board rendered inside the worker chrome.
+  reach the same board via the dashboard **TRAINING STATUS** tile or
+  `/w/training-status` (rendered inside the worker chrome); it is no longer
+  linked from the worker `/w/guides` header.
 - **Notices grouping.** Worker notices split into PINNED (top) / unread /
   READ / ACKNOWLEDGED (bottom group) via `lib/notice-groups.ts`.
 - **Drag-reorder lists.** Guide steps reorder by drag or ↑/↓ in both editors
@@ -3763,7 +3801,7 @@ regression test. No test, no merge.
 **Config:** `apps/web/vitest.config.ts`, setup via `apps/web/vitest-setup.ts`
 **Location:** test files live alongside components (e.g. `FloorPlanEditor.test.tsx`
 next to `FloorPlanEditor.tsx`).
-**Scale (2026-11):** 360 test files / 3,100 cases across `lib`, route handlers and components.
+**Scale (2026-11):** 377 test files / 3,278 cases across `lib`, route handlers and components.
 
 ```bash
 npm run test          # runs all tests once (also: npm run test in root via turbo)
@@ -3796,6 +3834,8 @@ pre-flight.
 |---|---|
 | `lib/array.ts` — `moveItem` | ✅ |
 | `lib/cell-fill.ts` — `fillRect`, `fillTargets`, `inFillRect` (drag-fill rectangles), `dayRange`, `toggleSelection` (bulk-clear selection) | ✅ (11 tests) |
+| `lib/availability-comments.ts` / `availability-comments.server.ts` - source/limit + real calendar-date validation; mirror the newest live body onto notes | ✅ (2 + 2 tests) |
+| `packages/db/prisma/availability-comment-backfill.ts` - legacy column conversion, deterministic refs, tombstone/legacyRef boot planner | ✅ (11 tests) |
 | `lib/use-scroll-restore.ts` — `captureScroll`, `restoreScroll`, `useScrollRestore` (in-place refresh) | ✅ (4 tests) |
 | `lib/use-live-refresh.ts` — `shouldPoll` + `useLiveRefresh` (visibility-gated interval, focus/visibility refresh, cleanup) | ✅ (7 tests) |
 | `lib/booth-trace.ts` — `traceBoothPerimeter` | ✅ |
@@ -3847,7 +3887,7 @@ pre-flight.
 | `lib/beo-links.ts` / `beo-pdf.ts` — link grouping / BEO PDF variants | ✅ (8 + 11) |
 | `lib/event-flow.ts` / `event-pricing.ts` / `event-share.ts` | ✅ (6 + 10 + 8) |
 | `lib/service-schedule.ts` / `service-windows.ts` / `service-seating.ts` | ✅ (19 + 20 + 11) |
-| `lib/availability.ts` / `availability.server.ts` — window algebra, free-window state (PARTIAL) + plan→execute + weekly cut-off gate + series-day detach + edit-proposal→entry mapping + add-window splitting | ✅ (78 + 43) |
+| `lib/availability.ts` / `availability.server.ts` — window algebra, free-window state (PARTIAL) + plan→execute + weekly cut-off gate + series-day detach + edit-proposal→entry mapping + add-window splitting | ✅ (78 + 45) |
 | `lib/event-roster.ts` — area resolution + per-day event buckets | ✅ (11 tests) |
 | `lib/manual-event.ts` — validation, UTC date/time mapping, capacity check | ✅ (9 tests) |
 | `lib/calendar-feeds.ts` — feed URL expansion, room naming | ✅ (9 tests) |
@@ -3915,7 +3955,7 @@ pre-flight.
 | `BudgetLinesPanel.tsx` — tree render, totals, add/import flows | ✅ (5 tests) |
 | `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |
-| `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (19 tests) |
+| `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (21 tests) |
 | `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, finished collapse + SHOW FINISHED, coloured status boxes, finished-list sort, multi-day editor, settled UNTICK/REOPEN, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, subtask grouping/ADD SUBTASK, dual early-return paths, live-refresh on focus + pause while an editor is open, task groups + bulk NOT_REQUIRED confirmation | ✅ (33 tests) |
 | `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, multi-day list flag, subtask indent/add/parent picker, scroll restore after load, linked item + rich description | ✅ (15 tests) |
 | `MenuItemsClient.test.tsx` — recipe-less product listed and saved with `recipeId: null` | ✅ (1 test) |
@@ -3951,9 +3991,9 @@ pre-flight.
 | `PositionsPanel.tsx` — list, ALL DEPARTMENTS, empty state, blank-name guard, POST body | ✅ (5 tests) |
 | `GuidesClient.tsx` — folders, publish, product-reference rows, PDF actions | ✅ (10 tests) |
 | `ReferenceTableEditor.tsx` — column kinds, derived cells, row editing | ✅ (5 tests) |
-| `WorkerGuidesClient.tsx` — BIBLE / MY TREE, folder grouping, edit gating, needs-attention warnings + red guide card, mark-retrained/dismiss/mark-for-retraining success + failure paths | ✅ (18 tests) |
+| `WorkerGuidesClient.tsx` — BIBLE / MY TREE, folder grouping + drag, edit gating, red guide card + guide reader; no training-status link and no needs-attention strip | ✅ (13 tests) |
 | `EventBuilder.tsx` / `PipelinePanel.tsx` / `EnquiriesPanel.tsx` — BEO builder, pipeline board, intake | ✅ (5 + 2 + 4) |
-| `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 16 + 15 + 33) |
+| `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 30 + 20 + 43) |
 | `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (15 + 5 + 4) |
 | `RosterTemplatesModal.tsx` — template list, save current week, apply to target week, REPLACE confirmation, next-week default | ✅ (5 tests) |
 | `RosterCopyWeekModal.tsx` — ADD copy, REPLACE confirmation, next-week default | ✅ (3 tests) |
@@ -3965,7 +4005,7 @@ pre-flight.
 | `EventStaffingModal.tsx` — event info, linked shifts CLAIMED/ASSIGNED, listed-seat lock, FIND STAFF, claims review | ✅ (5 tests) |
 | `CalendarEventFormModal.tsx` — create + staffing POST, capacity warning, edit load/PUT | ✅ (2 tests) |
 | `WorkerShiftsClient.tsx` — pickup grid, claim/withdraw, conflict warning, confirmed panel | ✅ (5 tests) |
-| `TrainingStatusClient.tsx` — status rows + WARNINGS list (flat/folder, grant-gated mark retrained / dismiss) + SECTION REVIEWS strip, CONFIRM/DISMISS/error surfacing, position grouping, guide titles, MANAGE GUIDES modal | ✅ (10 tests) |
+| `TrainingStatusClient.tsx` — status rows + WARNINGS list (flat/folder, grant-gated mark retrained / dismiss) + SECTION REVIEWS strip, CONFIRM/DISMISS/error surfacing, position grouping, guide titles, MANAGE GUIDES modal, `SHOW GUIDES ▼` person → folder-grouped expansion (trained/to-do/retrain, always refetched on expand and after the modal closes) | ✅ (15 tests) |
 | `StaffGuidesModal.tsx` — folder grouping + ALL GUIDES flat view, stale red warning reason, mark-for-retraining flow, grant-gated actions | ✅ (3 tests) |
 | `StaffEventNoticeCard.tsx` — full inline details, Accept/Decline/Maybe gating, required decline reason, current answer, Add to calendar, closed window, reminder, close-time label fallback | ✅ (9 tests) |
 | `StaffEventsPanel.tsx` — event/attendance counts, remind action, attendance popup with decline reasons, forbidden-picker warning | ✅ (3 tests) |
@@ -3982,6 +4022,8 @@ pre-flight.
 | Target | Coverage |
 |---|---|
 | `app/api/admin/availability/route.test.ts` — GET includes the off-range edit request's current row; POST returns the locked-day 409 | ✅ (2 tests) |
+| `app/api/admin/availability/comments/route.test.ts` - auth, venue scope + explicit venueId, restricted-manager canAdd/canDelete, MANAGER stamping, delete, impossible date | ✅ (13 tests) |
+| `app/api/worker/availability/comments/route.test.ts` - auth, own-day scope, WORKER_APP stamping, toggle-gated own delete, impossible date | ✅ (9 tests) |
 | `app/api/worker/availability/series-request/route.test.ts` — auth, required date/series, request delegation, 404/409 passthrough | ✅ (5 tests) |
 | `app/api/worker/availability/route.test.ts` — auth, past-anchor 400, FROM + worker scope policy passthrough | ✅ (3 tests) |
 | `app/api/worker/checklists/[id]/not-required/route.test.ts` — auth, body mapping (group/taskIds/note), error status passthrough | ✅ (3 tests) |
