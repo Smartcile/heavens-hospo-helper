@@ -181,7 +181,7 @@ describe('WorkerDashboardClient chrome', () => {
     })
 
     render(<WorkerDashboardClient role="STAFF" />)
-    await waitFor(() => expect(screen.getByText('GUEST PARKING')).toBeDefined())
+    await waitFor(() => expect(screen.getByText('PARKING')).toBeDefined())
     expect(screen.getByText('REGISTER A GUEST PLATE')).toBeDefined()
   })
 
@@ -195,20 +195,35 @@ describe('WorkerDashboardClient chrome', () => {
     })
 
     render(<WorkerDashboardClient role="STAFF" />)
-    await waitFor(() => expect(screen.getByText('GUEST PARKING')).toBeDefined())
+    await waitFor(() => expect(screen.getByText('PARKING')).toBeDefined())
     expect(screen.getByText(/SERVICE WARNING/)).toBeDefined()
   })
 
-  it('hides the Guest Parking tile when disabled', async () => {
+  it('shows the tile for staff plates even when guest parking is off', async () => {
     vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request) => {
       const u = String(url)
       if (u === '/api/worker/tasks') return json({ tasks: [], firstName: 'ALEX' })
-      if (u === '/api/worker/parking/access') return json({ enabled: false, health: null })
+      if (u === '/api/worker/parking/access')
+        return json({ enabled: false, staffParkingEnabled: true, health: null })
+      return json({})
+    })
+
+    render(<WorkerDashboardClient role="STAFF" />)
+    await waitFor(() => expect(screen.getByText('PARKING')).toBeDefined())
+    expect(screen.getByText('STAFF NUMBER PLATES')).toBeDefined()
+  })
+
+  it('hides the parking tile when both guest and staff parking are off', async () => {
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') return json({ tasks: [], firstName: 'ALEX' })
+      if (u === '/api/worker/parking/access')
+        return json({ enabled: false, staffParkingEnabled: false, health: null })
       return json({})
     })
 
     render(<WorkerDashboardClient role="STAFF" />)
     await waitFor(() => expect(screen.getByText('TASKS')).toBeDefined())
-    expect(screen.queryByText('GUEST PARKING')).toBeNull()
+    expect(screen.queryByText('PARKING')).toBeNull()
   })
 })

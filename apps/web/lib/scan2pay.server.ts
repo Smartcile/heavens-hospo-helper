@@ -52,6 +52,8 @@ export interface RegisterParkingArgs {
   plate: string
   arrivedAt: Date
   timezone: string
+  /** Venue's configured email, inserted when Scan2Pay asks for one. */
+  customerEmail?: string | null
 }
 
 export interface RegisterParkingResult {
@@ -150,6 +152,7 @@ async function completePayment(
   paymentPage: PageResult,
   target: ParkingTarget,
   token: string,
+  customerEmail?: string | null,
 ): Promise<Omit<RegisterParkingResult, 'licensePlate' | 'window'>> {
   const headers = new Headers({
     'Content-Type': 'application/json',
@@ -164,7 +167,7 @@ async function completePayment(
     {
       method: 'POST',
       headers,
-      body: JSON.stringify({ CustomerEmail: '' }),
+      body: JSON.stringify({ CustomerEmail: customerEmail?.trim() || '' }),
       redirect: 'manual',
       cache: 'no-store',
       signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -280,6 +283,7 @@ async function postSession(
   arrivedAt: Date,
   timezone: string,
   select: SelectTimeResult,
+  customerEmail?: string | null,
 ): Promise<RegisterParkingResult> {
   const window = buildParkingWindow(arrivedAt, timezone, target.durationMinutes)
 
@@ -309,7 +313,7 @@ async function postSession(
 
   const token = extractPaymentToken(page)
   if (token) {
-    const paid = await completePayment(page, target, token)
+    const paid = await completePayment(page, target, token, customerEmail)
     return { ...paid, licensePlate: plate, window }
   }
 
@@ -383,7 +387,14 @@ export async function registerParking(args: RegisterParkingArgs): Promise<Regist
   }
 
   try {
-    return await postSession(args.target, plate, args.arrivedAt, args.timezone, select)
+    return await postSession(
+      args.target,
+      plate,
+      args.arrivedAt,
+      args.timezone,
+      select,
+      args.customerEmail,
+    )
   } catch (error) {
     return failure(`COULD NOT REACH SCAN2PAY: ${errorMessage(error)}`, 0, plate, window)
   }

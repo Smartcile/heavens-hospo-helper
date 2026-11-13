@@ -54,13 +54,30 @@ export default function Home() {
         </span>
       </button>
 
-      {/* Admin login lives behind a discreet full-width button */}
-      <button
-        onClick={() => setAdminOpen(true)}
-        className="w-full min-h-[48px] flex items-center justify-center border-t border-grey-mid px-4 pt-4 pb-safe font-mono text-xs uppercase tracking-widest text-grey-light hover:text-white transition-colors"
-      >
-        <span className="pb-4">ADMIN LOGIN</span>
-      </button>
+      {/* Admin login lives behind a discreet full-width button. The small car
+          icon opens the customer parking kiosk (Settings → FTP controls it). */}
+      <div className="flex items-stretch border-t border-grey-mid">
+        <button
+          onClick={() => setAdminOpen(true)}
+          className="flex-1 min-h-[48px] flex items-center justify-center px-4 pt-4 pb-safe font-mono text-xs uppercase tracking-widest text-grey-light hover:text-white transition-colors"
+        >
+          <span className="pb-4">ADMIN LOGIN</span>
+        </button>
+        <button
+          onClick={() => router.push('/park')}
+          aria-label="Open the car park kiosk"
+          title="Car park kiosk"
+          className="shrink-0 w-16 min-h-[48px] flex items-center justify-center border-l border-grey-mid pb-safe text-grey-light hover:text-white transition-colors"
+        >
+          <svg className="w-6 h-6 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+            <path
+              strokeLinecap="square"
+              strokeWidth={1.5}
+              d="M4 14l2-5.5A2 2 0 018 7h8a2 2 0 011.9 1.5L20 14M4 14h16M4 14v4h2v-2h12v2h2v-4M7.5 16h.01M16.5 16h.01"
+            />
+          </svg>
+        </button>
+      </div>
 
       <Modal isOpen={adminOpen} onClose={() => setAdminOpen(false)} title="ADMIN LOGIN" size="md">
         <form onSubmit={handleSubmit} className="space-y-4">

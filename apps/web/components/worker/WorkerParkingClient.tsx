@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/Button'
+import { WorkerStaffPlateCard } from '@/components/worker/WorkerStaffPlateCard'
 
 interface ParkingRegistration {
   id: string
@@ -179,7 +180,8 @@ export function WorkerParkingClient() {
 
   if (!data?.enabled) {
     return (
-      <div className="min-h-screen bg-black p-4">
+      <div className="min-h-screen bg-black p-4 pb-28 space-y-4">
+        <WorkerStaffPlateCard />
         <div className="border border-grey-mid p-4">
           <h1 className="font-mono text-sm font-bold uppercase tracking-widest text-white">GUEST PARKING</h1>
           <p className="font-mono text-xs text-grey-light mt-2">
@@ -202,6 +204,8 @@ export function WorkerParkingClient() {
           {data.config?.carparkName || 'CARPARK'} · {durationMinutes} MINUTE FREE WINDOW
         </p>
       </div>
+
+      <WorkerStaffPlateCard />
 
       {warning && (
         <div className="border border-danger/50 bg-danger/10 p-3 space-y-1">

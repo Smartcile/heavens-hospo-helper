@@ -9,6 +9,7 @@ const { getWorkerSession, registerParking, parkingHealthForVenue, prisma } = vi.
     parkingConfig: { findUnique: vi.fn() },
     parkingRegistration: { findMany: vi.fn(), create: vi.fn() },
     venue: { findUnique: vi.fn() },
+    ftpSettings: { findUnique: vi.fn() },
   },
 }))
 
@@ -49,6 +50,7 @@ beforeEach(() => {
   getWorkerSession.mockResolvedValue({ staffId: 's1', venueId: 'v1', role: 'STAFF' })
   prisma.parkingConfig.findUnique.mockResolvedValue(CONFIG)
   prisma.venue.findUnique.mockResolvedValue({ timezone: 'Pacific/Auckland' })
+  prisma.ftpSettings.findUnique.mockResolvedValue(null)
   prisma.parkingRegistration.findMany.mockResolvedValue([])
   prisma.parkingRegistration.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     id: 'r1',

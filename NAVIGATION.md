@@ -47,7 +47,7 @@ with its default sub-tab, e.g. OPS HUB → Menu & Services → MENUS & CATEGORIE
 │ ▾ PERFORMANCE (the "Results")                                 │
 │     REPORTS · BUDGET · TIPS · GIFT CARDS                      │
 │ ▾ SETUP & CONFIG (the "Plumbing" — bottom)                    │
-│     SETTINGS          /admin/settings — 9 tabs (below)        │
+│     SETTINGS          /admin/settings — 10 tabs (below)       │
 │ SIGN OUT                                                     │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -114,7 +114,7 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 
 | Item | URL | What it does |
 |---|---|---|
-| **Settings** | `/admin/settings` | 9 tabs — GENERAL · VENUE SETUP · STRUCTURE · UNITS OF MEASURE · SUPPLIERS · QR CODES · SWIFT POS (SALES / STAFF SYNC / MENU LINKS) · FILES (admin) · UPDATES (admin) (section 3). Floor plans / rooms now live under Events → Rooms & Plans |
+| **Settings** | `/admin/settings` | 10 tabs — GENERAL · VENUE SETUP · STRUCTURE · UNITS OF MEASURE · SUPPLIERS · QR CODES · SWIFT POS (SALES / STAFF SYNC / MENU LINKS) · FTP (customer kiosk, custom email, 4 hour carpark, staff plates) · FILES (admin) · UPDATES (admin) (section 3). Floor plans / rooms now live under Events → Rooms & Plans |
 
 **Bottom utility links:** `✕ HEAVENLY HELP` → `/admin/help` (global in-app help catalogue, seeded from the repo and searchable) and `WORKER VIEW →`.
 
@@ -151,7 +151,7 @@ keeping other query params.
 
 ---
 
-## 3. SETTINGS — the 9 tabs (`/admin/settings`)
+## 3. SETTINGS — the 10 tabs (`/admin/settings`)
 
 | Tab | What it does |
 |---|---|
@@ -162,6 +162,7 @@ keeping other query params.
 | **SUPPLIERS** | Supplier list + CRUD (used by inventory equipment tracking). Selecting a supplier shows the purchasing panel: SUPPLIER SKUs (SKU → inventory item + purchase price), LINE ALIASES (invoice text → item), and INVOICE TEMPLATES with LEARN TEMPLATE (copy a prompt to an external LLM, paste its JSON back) |
 | **QR CODES** | Worker login QR generation/download per venue |
 | **SWIFT POS** | SwiftPOS connection + reporting: SALES / STAFF SYNC / MENU LINKS, plus live kitchen dockets under Ops → Orders |
+| **FTP** | Free the Carpark: enable and code the customer kiosk (public `/park`, opened by the small car icon on the landing page), set the custom carpark email, configure the (not-yet-connected) 4 hour carpark, and run the staff plate approval list (APPROVE / REJECT / ENTERED IN SYSTEM). The kiosk code section is admin-only |
 | **FILES** | File manager (admin only — hidden from managers) — tree over the server's media + backups folders. Click a file to preview it in a popup (images/PDFs) with **usage tags** (gift card templates, issued card PDFs, product/staff/guide/task photos). DELETE is disabled for linked files |
 | **UPDATES** | Update verification (admin only — hidden from managers) — every GitHub issue in the committed release snapshot, grouped by `[AREA]`, CLOSED by default with an OPEN toggle, search, per-row issue link, progress (`x/y VERIFIED`) and a live-saving tick per admin. Ticks are keyed to the snapshot version, so starting a new release keeps the old batch's ticks. Snapshot regenerated with `npm run sync:updates` |
 
@@ -181,7 +182,7 @@ keeping other query params.
 │   │ FLOOR PLAN · STOCKTAKE     │ │
 │   │ TIME CLOCK · KITCHEN       │ │
 │   │ DELIVERIES · GIFT CARDS*   │ │
-│   │ GUEST PARKING* · TRAINING  │ │
+│   │ PARKING* · TRAINING       │ │
 │   │ STATUS* · EVENTS*          │ │
 │   └────────────────────────────┘ │
 │   * shown by grant or setting    │
@@ -194,7 +195,7 @@ keeping other query params.
 | **Dashboard** | `/w/dashboard` | Today's due tasks per department, guides % complete, pending stocktake, notices, clock state |
 | **Tasks** | `/w/tasks` | Whole-floor due tasks grouped by Checklist → Department → Section; shared completion ("BY NAME"). A `📖 GUIDE` badge on a task (and the reader's step links) opens the guide in a popup — `OPEN IN A POPUP?` then a full-screen `← BACK` reader. READING tasks (fridge/freezer temps, probe calibration) show a big numeric input with a live PASS/FAIL verdict as you type; an out-of-range reading raises an alert (CRITICAL also posts an URGENT notice) |
 | **Deliveries** | `/w/deliveries` | Receive stock on the floor: supplier picker, vehicle temp, search products, per-line qty/temp/disposition with live verdicts, RECORD DELIVERY. Failed lines raise alerts the manager resolves in the Compliance hub |
-| **Guest Parking** | `/w/parking` | Register a guest's number plate with Scan2Pay for the free 90-minute window (only when the venue has enabled it in Settings → GENERAL → GUEST PARKING). Plate input, arrival defaults to now with NOW/-5/-15/-30 plus a full picker, one SUBMIT, success card with paid-until + confirmation + EXTEND ON SCAN2PAY link, ALREADY REGISTERED card, and today's registrations. A SERVICE WARNING strip appears when the daily health check has failed |
+| **Parking** | `/w/parking` | Two things. **GUEST PARKING**: register a guest's number plate with Scan2Pay for the free 90-minute window (plate input, arrival defaults to now with NOW/-5/-15/-30 plus a full picker, one SUBMIT, success card with paid-until + confirmation + EXTEND ON SCAN2PAY link, ALREADY REGISTERED card, and today's registrations; a SERVICE WARNING strip appears when the daily health check has failed). **MY NUMBER PLATE**: staff plates — see the current plate and whether it is in the external parking system, add another or change a plate (a note is required), and track the pending approval. The tile shows when either guest parking or staff plates are enabled in Settings → FTP |
 | **Guides** | `/w/guides` | Bible/tree only: BIBLE (every applicable published guide — tracked ones are completable, untracked REFERENCE SOPs/FAQs/HOWTOs appear under "REFERENCE — READ ANY TIME" and open read-only; step reader shows linked tasks/tools/lists, MARK COMPLETE) + MY TREE (pathway progress, locked nodes readable but not bankable). No warnings strip and no training-status link |
 | **Training Status** | `/w/training-status` | Manager-only (ADMIN/MANAGER) training board inside the worker chrome: position-grouped staff, missing/stale guide titles, MANAGE GUIDES, SHOW GUIDES (guides grouped by folder with TRAINED / TO DO / RETRAIN), section reviews. Managers reach it from the dashboard **TRAINING STATUS** tile (or Team & execution → Training → STATUS) |
 | **Kitchen** | `/w/kitchen` | Today's order items by table, allergy badges, prep totals. Auto-refresh 15s |
