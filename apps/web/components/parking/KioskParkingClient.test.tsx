@@ -13,6 +13,8 @@ function jsonResponse(body: unknown, status = 200): Promise<Response> {
 }
 
 const CONFIG: KioskParkingConfig = {
+  venueId: 'v1',
+  requireCode: false,
   venueName: 'THE VENUE',
   carparkName: 'THE LANDING CARPARK',
   durationMinutes: 90,
@@ -70,6 +72,7 @@ describe('KioskParkingClient', () => {
 
     const body = JSON.parse(String(fetchMock.mock.calls[0][1].body))
     expect(body.licensePlate).toBe('QUZ69')
+    expect(body.venueId).toBe('v1')
   })
 
   it('starts again and wipes the plate', async () => {

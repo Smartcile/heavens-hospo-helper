@@ -51,6 +51,7 @@ describe('GET /api/admin/parking/ftp', () => {
     const body = await (await GET(get())).json()
     expect(body.settings).toMatchObject({
       kioskEnabled: false,
+      kioskRequireCode: false,
       kioskAutoResetSeconds: 60,
       fourHourName: '4 HOUR CAR PARK',
       staffParkingEnabled: false,
@@ -95,6 +96,12 @@ describe('PUT /api/admin/parking/ftp', () => {
     prisma.parkingConfig.findUnique.mockResolvedValue({ enabled: false, carparkId: 19, deletedAt: null })
     const res = await PUT(put({ kioskEnabled: true }))
     expect(res.status).toBe(422)
+  })
+
+  it('refuses to require a code before one has been set', async () => {
+    const res = await PUT(put({ kioskRequireCode: true }))
+    expect(res.status).toBe(422)
+    expect((await res.json()).error).toContain('SET A KIOSK CODE')
   })
 
   it('saves a valid FTP payload', async () => {

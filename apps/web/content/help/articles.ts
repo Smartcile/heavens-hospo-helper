@@ -604,9 +604,9 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
       '<li>Open <strong>Settings → FTP</strong>.</li>',
       '<li>In <strong>90 MINUTE CAR PARK</strong>, connect the carpark (see the Guest Parking section below) and add your <strong>custom email</strong> if the parking form asks for one. The app inserts that email for you, so guests never have to type it.</li>',
       '<li>In <strong>CUSTOMER KIOSK</strong>, tick <strong>ENABLE THE KIOSK</strong>.</li>',
-      '<li>Click <strong>SET CODE</strong>. A short kiosk code appears <strong>once</strong>. Write it down and keep it private — you need it to unlock and to leave the kiosk.</li>',
+      '<li><strong>Optional lock:</strong> tick <strong>REQUIRE KIOSK CODE</strong> and click <strong>SET CODE</strong>. The code appears <strong>once</strong>. Leave the box unticked and the kiosk opens straight to the plate screen with no code.</li>',
       '<li>Set the <strong>auto-reset seconds</strong>. This is how long the end time and QR code stay on screen after a guest registers. 60 seconds is a good start.</li>',
-      '<li>Click <strong>COPY URL</strong> and open that URL on the iPad. Enter the kiosk code once. The iPad now opens straight into the customer screen.</li>',
+      '<li>Click <strong>COPY URL</strong> and open that URL on the iPad. If the code is on, enter it once. Otherwise it goes straight to the customer screen.</li>',
       '<li>For the hardest lock, turn on <strong>iPad Guided Access</strong> (Settings → Accessibility → Guided Access, then triple-click the side button while the kiosk is open). The app has its own exit gate as well.</li>',
       '</ol>',
       '<img src="/help/ftp-settings.png" alt="The FTP settings page with the customer kiosk, 90 minute, 4 hour and staff carpark areas">',
@@ -628,7 +628,7 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
       '<p>After registering: the end time, a large QR code and a countdown that clears the screen.</p>',
 
       '<h3>Leaving kiosk mode (staff)</h3>',
-      '<p>The customer screen has no visible exit. Tap <strong>SPEAK WITH STAFF</strong>, then <strong>HOLD 5 SECONDS TO EXIT</strong>, then enter the kiosk code. Five wrong codes wait a minute. Exiting clears the iPad, so a guest cannot get back in without the code.</p>',
+      '<p>The customer screen has no visible exit. Tap <strong>SPEAK WITH STAFF</strong>, then <strong>HOLD 5 SECONDS TO EXIT</strong>. If the kiosk code is on, enter it; if it is off, the hold shows an <strong>EXIT KIOSK</strong> button. Five wrong codes wait a minute.</p>',
 
       '<h3>Staff number plates</h3>',
       '<ol>',

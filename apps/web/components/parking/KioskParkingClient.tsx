@@ -11,6 +11,8 @@ import { PlateKeypad } from './PlateKeypad'
 import { KioskStaffSheet } from './KioskStaffSheet'
 
 export interface KioskParkingConfig {
+  venueId: string
+  requireCode: boolean
   venueName: string
   carparkName: string
   durationMinutes: number
@@ -99,7 +101,7 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
       const res = await fetch('/api/public/parking/kiosk/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ licensePlate: plate }),
+        body: JSON.stringify({ licensePlate: plate, venueId: config.venueId }),
         cache: 'no-store',
         signal: controller.signal,
       })
@@ -353,6 +355,7 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
       <KioskStaffSheet
         open={staffOpen}
         onClose={() => setStaffOpen(false)}
+        requireCode={config.requireCode}
         plate={result?.plate ?? (plate || null)}
         endTime={result?.endTime ?? null}
         linkUrl={result?.linkUrl ?? null}

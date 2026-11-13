@@ -10,6 +10,7 @@ import {
 interface KioskStaffSheetProps {
   open: boolean
   onClose: () => void
+  requireCode: boolean
   plate: string | null
   endTime: string | null
   linkUrl: string | null
@@ -19,6 +20,7 @@ interface KioskStaffSheetProps {
 export function KioskStaffSheet({
   open,
   onClose,
+  requireCode,
   plate,
   endTime,
   linkUrl,
@@ -187,6 +189,33 @@ export function KioskStaffSheet({
                 {locked ? `LOCKED — ${Math.ceil((lockedUntil - now) / 1000)}S` : 'HOLD 5 SECONDS TO EXIT'}
               </span>
             </button>
+          ) : !requireCode ? (
+            <div className="space-y-3">
+              <p className="font-mono text-xs uppercase text-grey-light">
+                THE KIOSK CODE IS OFF. THIS CLOSES KIOSK MODE.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setArmed(false)
+                    setHoldMs(0)
+                  }}
+                  className="border border-grey-mid py-3 font-mono text-xs uppercase tracking-wider text-white"
+                >
+                  CANCEL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.href = '/'
+                  }}
+                  className="border border-danger bg-danger/10 py-3 font-mono text-xs font-bold uppercase tracking-wider text-danger"
+                >
+                  EXIT KIOSK
+                </button>
+              </div>
+            </div>
           ) : (
             <form onSubmit={exit} className="space-y-3">
               <p className="font-mono text-xs uppercase text-grey-light">

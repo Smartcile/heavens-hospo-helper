@@ -16,6 +16,7 @@ const FTP = {
   settings: {
     contactEmail: 'carpark@venue.nz',
     kioskEnabled: true,
+    kioskRequireCode: false,
     kioskCodeHint: '45',
     kioskAutoResetSeconds: 60,
     fourHourName: '4 HOUR CAR PARK',

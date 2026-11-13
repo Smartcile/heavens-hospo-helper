@@ -10,6 +10,7 @@ export const DEFAULT_STAFF_CARPARK_NAME = 'STAFF CARPARK'
 export interface FtpSettingsInput {
   contactEmail: string | null
   kioskEnabled: boolean
+  kioskRequireCode: boolean
   kioskAutoResetSeconds: number
   fourHourName: string
   fourHourEnabled: boolean
@@ -92,6 +93,7 @@ export function normaliseFtpInput(body: Record<string, unknown>): NormaliseFtpRe
     value: {
       contactEmail: normaliseEmail(body.contactEmail),
       kioskEnabled: body.kioskEnabled === true,
+      kioskRequireCode: body.kioskRequireCode === true,
       kioskAutoResetSeconds: clampKioskResetSeconds(body.kioskAutoResetSeconds),
       fourHourName,
       fourHourEnabled,
@@ -110,6 +112,7 @@ export function normaliseFtpInput(body: Record<string, unknown>): NormaliseFtpRe
 export function ftpSettingsView(row: {
   contactEmail?: string | null
   kioskEnabled?: boolean | null
+  kioskRequireCode?: boolean | null
   kioskCodeHint?: string | null
   kioskAutoResetSeconds?: number | null
   fourHourName?: string | null
@@ -123,6 +126,7 @@ export function ftpSettingsView(row: {
   return {
     contactEmail: row?.contactEmail ?? null,
     kioskEnabled: Boolean(row?.kioskEnabled),
+    kioskRequireCode: row?.kioskRequireCode === true,
     kioskCodeHint: row?.kioskCodeHint ?? null,
     kioskAutoResetSeconds: clampKioskResetSeconds(row?.kioskAutoResetSeconds),
     fourHourName: row?.fourHourName ?? DEFAULT_FOUR_HOUR_NAME,
@@ -138,7 +142,10 @@ export function ftpSettingsView(row: {
   }
 }
 
-export function kioskUrlFor(appUrl: string | undefined | null): string {
+export function kioskUrlFor(
+  appUrl: string | undefined | null,
+  venueId?: string | null,
+): string {
   const base = (appUrl ?? '').trim().replace(/\/+$/, '') || 'http://localhost:3000'
-  return `${base}/park`
+  return venueId ? `${base}/park?venue=${encodeURIComponent(venueId)}` : `${base}/park`
 }

@@ -29,33 +29,38 @@ export async function POST(req: NextRequest) {
   }
 
   const session = await getKioskSession()
-  if (!session) return noStore({ error: 'KIOSK LOCKED' }, 401)
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+
+  // Open kiosks (code off) identify the venue in the body. A session always
+  // wins, so a previously unlocked iPad keeps working after the mode changes.
+  const venueId =
+    session?.venueId ?? (typeof body.venueId === 'string' ? body.venueId : '')
+  if (!venueId) return noStore({ error: 'KIOSK LOCKED' }, 401)
 
   const [settings, config] = await Promise.all([
-    prisma.ftpSettings.findUnique({ where: { venueId: session.venueId } }),
-    prisma.parkingConfig.findUnique({ where: { venueId: session.venueId } }),
+    prisma.ftpSettings.findUnique({ where: { venueId } }),
+    prisma.parkingConfig.findUnique({ where: { venueId } }),
   ])
 
-  if (
-    !settings ||
-    settings.deletedAt ||
-    !settings.kioskEnabled ||
-    settings.kioskCodeHash !== session.codeHash
-  ) {
+  if (!settings || settings.deletedAt || !settings.kioskEnabled) {
     return noStore({ error: 'KIOSK LOCKED' }, 401)
+  }
+  if (settings.kioskRequireCode === true) {
+    if (!session || settings.kioskCodeHash !== session.codeHash) {
+      return noStore({ error: 'KIOSK LOCKED' }, 401)
+    }
   }
   if (!config || !config.enabled || config.deletedAt || !config.carparkId) {
     return noStore({ error: 'GUEST PARKING IS NOT ENABLED FOR THIS VENUE' }, 403)
   }
 
-  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
   const plate = normalisePlate(typeof body.licensePlate === 'string' ? body.licensePlate : '')
   if (!isValidPlate(plate)) {
     return noStore({ error: 'NUMBER PLATE MUST BE 1–6 LETTERS OR DIGITS' }, 422)
   }
 
   const venue = await prisma.venue.findUnique({
-    where: { id: session.venueId },
+    where: { id: venueId },
     select: { timezone: true },
   })
   const timezone = venue?.timezone || 'Pacific/Auckland'

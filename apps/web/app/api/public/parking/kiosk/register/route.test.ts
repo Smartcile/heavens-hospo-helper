@@ -24,6 +24,7 @@ import { POST } from './route'
 const SETTINGS = {
   venueId: 'v1',
   kioskEnabled: true,
+  kioskRequireCode: false,
   kioskCodeHash: 'hash',
   contactEmail: 'carpark@venue.nz',
   deletedAt: null,
@@ -78,14 +79,35 @@ beforeEach(() => {
 })
 
 describe('POST /api/public/parking/kiosk/register', () => {
-  it('requires an unlocked kiosk', async () => {
+  it('needs a venue when there is no session', async () => {
     getKioskSession.mockResolvedValue(null)
     const res = await POST(req({ licensePlate: 'QUZ69' }))
     expect(res.status).toBe(401)
   })
 
-  it('locks out a rotated code', async () => {
-    prisma.ftpSettings.findUnique.mockResolvedValue({ ...SETTINGS, kioskCodeHash: 'old' })
+  it('registers without a session when the kiosk code is off', async () => {
+    getKioskSession.mockResolvedValue(null)
+    const res = await POST(req({ licensePlate: 'QUZ69', venueId: 'v1' }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).status).toBe('CONFIRMED')
+  })
+
+  it('refuses an open request for a code-required kiosk', async () => {
+    getKioskSession.mockResolvedValue(null)
+    prisma.ftpSettings.findUnique.mockResolvedValue({
+      ...SETTINGS,
+      kioskRequireCode: true,
+    })
+    const res = await POST(req({ licensePlate: 'QUZ69', venueId: 'v1' }))
+    expect(res.status).toBe(401)
+  })
+
+  it('locks out a rotated code when the code is required', async () => {
+    prisma.ftpSettings.findUnique.mockResolvedValue({
+      ...SETTINGS,
+      kioskRequireCode: true,
+      kioskCodeHash: 'old',
+    })
     const res = await POST(req({ licensePlate: 'QUZ69' }))
     expect(res.status).toBe(401)
   })
