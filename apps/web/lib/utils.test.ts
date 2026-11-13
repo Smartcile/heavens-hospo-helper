@@ -8,9 +8,11 @@ describe('toUpperCase', () => {
 })
 
 describe('formatDate', () => {
-  it('formats a date in en-NZ locale', () => {
-    const result = formatDate(new Date('2026-07-05'))
-    expect(result).toMatch(/\d{2}\/\d{2}\/\d{4}/)
+  it('formats a day-first DD-MM-YYYY date', () => {
+    const result = formatDate(new Date(2026, 6, 5))
+    expect(result).toMatch(/^\d{2}-\d{2}-\d{4}$/)
+    expect(result).not.toMatch(/\d{1,2}\/\d{1,2}\/\d{2}/)
+    expect(result).toBe('05-07-2026')
   })
 })
 
@@ -22,9 +24,10 @@ describe('formatTime', () => {
 })
 
 describe('formatDateTime', () => {
-  it('combines date and time', () => {
-    const result = formatDateTime(new Date('2026-07-05T14:30:00'))
-    expect(result).toMatch(/\d{2}\/\d{2}\/\d{4}/)
+  it('combines a DD-MM-YYYY date and time', () => {
+    const result = formatDateTime(new Date(2026, 6, 5, 14, 30))
+    expect(result).toMatch(/\d{2}-\d{2}-\d{4}/)
+    expect(result).not.toMatch(/\d{1,2}\/\d{1,2}\/\d{2}/)
     expect(result).toContain(' ')
   })
 })

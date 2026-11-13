@@ -5,9 +5,13 @@
 // list, the auto-complement, time-off requests, weekly series and the
 // JUST THIS / FROM / ALL scope choice for series days.
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Select } from '@/components/ui/Select'
 import { AvailabilityBar } from '@/components/availability/AvailabilityBar'
+import {
+  AvailabilityCommentThread,
+  type AvailabilityCommentItem,
+} from '@/components/availability/AvailabilityCommentThread'
 import { formatDateLong } from '@/lib/date-nav'
 import {
   addWindow,
@@ -99,14 +103,15 @@ export function AvailabilityDayEditor({
   busy = false,
   error,
   onSave,
-  onSaveNote,
-  onSaveReviewNote,
   onToggleLock,
   onClose,
   canDeleteSeries = false,
   onRequestDeleteSeries,
   canRequestRemoval = false,
   onRequestSeriesRemoval,
+  staffId = null,
+  venueId = null,
+  onCommentsMutated,
 }: {
   dateKey: string
   entry: AvailabilityEntry | null
@@ -121,10 +126,12 @@ export function AvailabilityDayEditor({
   busy?: boolean
   error?: string | null
   onSave: (draft: EditorDraft, options: EditorSaveOptions) => void
-  /** Notes-only PATCH — works on locked/past days, applies immediately. */
-  onSaveNote?: (notes: string | null) => void
-  /** Admin only: write the manager review note (works on locked days). */
-  onSaveReviewNote?: (reviewNote: string | null) => void
+  /** Admin only: the person whose day this is (comment thread). */
+  staffId?: string | null
+  /** Admin only: the page's effective venue (works before the cookie exists). */
+  venueId?: string | null
+  /** Refresh the parent availability payload after a comment add/delete. */
+  onCommentsMutated?: () => void
   /** Admin only: set/clear the day-level lock (optional reason). */
   onToggleLock?: (locked: boolean, reason: string | null) => void
   /** Admin only: open the delete-series warning (scope is chosen there). */
@@ -142,7 +149,8 @@ export function AvailabilityDayEditor({
   const [windows, setWindows] = useState<AvailabilityWindow[]>(entry && !entry.isAllDay ? entry.windows : [])
   const [timeOff, setTimeOff] = useState(entry?.timeOff ?? false)
   const [note, setNote] = useState(entry?.notes ?? '')
-  const [reviewNote, setReviewNote] = useState(entry?.reviewNote ?? '')
+  const [workerComment, setWorkerComment] = useState<AvailabilityCommentItem | null>(null)
+  const hadCommentRef = useRef(false)
   const [repeatOn, setRepeatOn] = useState(false)
   const [noEnd, setNoEnd] = useState(() => (series ? !series.endDate : false))
   const [weeks, setWeeks] = useState(() =>
@@ -208,18 +216,17 @@ export function AvailabilityDayEditor({
       timeOff,
       notes: note.trim() || null,
     }
+    // Only a worker's own comment may become the request reason — a newer
+    // manager comment must not suppress an older worker comment.
+    const workerReason = workerComment?.body.trim() ?? ''
     onSave(draft, {
       // A worker still repeats a brand-new non-series day as usual; on an
       // existing series `repeat` only carries a deliberate series-end change
       // (hidden for workers in this flow).
       repeat: currentRepeat(),
       scope: series ? scope : null,
-      reason: note.trim() || null,
+      reason: workerReason || null,
     })
-  }
-
-  function saveNote() {
-    onSaveNote?.(note.trim() || null)
   }
 
   function toggleLock() {
@@ -249,9 +256,6 @@ export function AvailabilityDayEditor({
             <span className="font-mono text-2xs uppercase text-grey-light">{entry.windows.length} WINDOWS</span>
           )}
         </div>
-      )}
-      {entry?.reviewNote && !(canOverride && onSaveReviewNote) && (
-        <p className="font-mono text-2xs uppercase text-grey-light border-l border-grey-mid pl-2">MANAGER: {entry.reviewNote}</p>
       )}
       {managerLocked && (
         <p className="font-mono text-2xs uppercase text-warning border border-warning/60 bg-warning/10 px-2 py-1.5">
@@ -497,47 +501,28 @@ export function AvailabilityDayEditor({
       </div>
       </fieldset>
 
-      {/* Note — always editable, even on a locked/past day. */}
-      <div className="space-y-2">
-        <input
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="NOTE FOR THE MANAGER (OPTIONAL)"
-          className="field w-full"
-        />
-        {managerLocked && onSaveNote && (
-          <button
-            type="button"
-            onClick={saveNote}
-            disabled={busy}
-            className="h-9 px-3 border border-accent text-accent font-mono text-xs uppercase hover:bg-accent hover:text-black transition-colors disabled:opacity-40"
-          >
-            SAVE NOTE
-          </button>
-        )}
-      </div>
-
-      {/* Manager review note — a note, so it stays editable on a locked day. */}
-      {canOverride && onSaveReviewNote && (
-        <div className="space-y-2">
-          <div className="label">REVIEW NOTE</div>
-          <input
-            value={reviewNote}
-            onChange={(e) => setReviewNote(e.target.value)}
-            placeholder="REVIEW NOTE (OPTIONAL)"
-            aria-label="Review note"
-            className="field w-full"
-          />
-          <button
-            type="button"
-            onClick={() => onSaveReviewNote(reviewNote.trim() || null)}
-            disabled={busy}
-            className="h-9 px-3 border border-accent text-accent font-mono text-xs uppercase hover:bg-accent hover:text-black transition-colors disabled:opacity-40"
-          >
-            SAVE REVIEW NOTE
-          </button>
-        </div>
-      )}
+      {/* One comment history per person/day — history replaces the old notes. */}
+      <AvailabilityCommentThread
+        mode={canOverride ? 'admin' : 'worker'}
+        staffId={staffId}
+        venueId={venueId}
+        dateKey={dateKey}
+        seriesId={entry?.seriesId ?? null}
+        caption={series || entry?.seriesId
+          ? 'COMMENT IS STORED ON THIS DAY — THE LATEST NOTE IS APPLIED TO EVERY DAY THIS SAVE WRITES.'
+          : undefined}
+        onChanged={(latest, all) => {
+          setWorkerComment(all.find((c) => c.source === 'WORKER_APP') ?? null)
+          if (latest) {
+            hadCommentRef.current = true
+            setNote(latest.body)
+          } else if (hadCommentRef.current) {
+            // The last comment was deleted: do not resurrect it on save.
+            setNote('')
+          }
+        }}
+        onMutated={onCommentsMutated}
+      />
 
       {canOverride && onToggleLock && !managerLocked && (
         <div className="flex items-center gap-2">

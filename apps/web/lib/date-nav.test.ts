@@ -3,6 +3,8 @@ import {
   ordinal,
   formatDateLong,
   formatDateRange,
+  formatDateDMY,
+  formatDateDayDMY,
   formatDateShort,
   firstOfMonthKey,
   endOfMonthKey,
@@ -47,12 +49,48 @@ describe('formatDateLong', () => {
   })
 })
 
+describe('formatDateDMY', () => {
+  it('formats as DD-MM-YYYY', () => {
+    expect(formatDateDMY('2026-11-12')).toBe('12-11-2026')
+    expect(formatDateDMY('2026-01-05')).toBe('05-01-2026')
+    expect(formatDateDMY('2025-12-31')).toBe('31-12-2025')
+  })
+
+  it('pads single-digit days and months', () => {
+    expect(formatDateDMY('2026-02-03')).toBe('03-02-2026')
+    expect(formatDateDMY('2026-09-09')).toBe('09-09-2026')
+  })
+
+  it('handles a leap day', () => {
+    expect(formatDateDMY('2028-02-29')).toBe('29-02-2028')
+  })
+})
+
+describe('formatDateDayDMY', () => {
+  it('prefixes the short weekday to DD-MM-YYYY', () => {
+    expect(formatDateDayDMY('2026-11-12')).toBe('THU 12-11-2026')
+    expect(formatDateDayDMY('2026-11-09')).toBe('MON 09-11-2026')
+    expect(formatDateDayDMY('2026-08-09')).toBe('SUN 09-08-2026')
+  })
+
+  it('handles a leap day', () => {
+    expect(formatDateDayDMY('2028-02-29')).toBe('TUE 29-02-2028')
+  })
+})
+
 describe('formatDateShort', () => {
-  it('formats as MON D, YYYY in uppercase', () => {
-    expect(formatDateShort('2026-08-09')).toBe('AUG 9, 2026')
-    expect(formatDateShort('2026-08-14')).toBe('AUG 14, 2026')
-    expect(formatDateShort('2025-01-01')).toBe('JAN 1, 2025')
-    expect(formatDateShort('2026-12-25')).toBe('DEC 25, 2026')
+  it('is day-first DD-MM-YYYY (never US ordering)', () => {
+    expect(formatDateShort('2026-11-12')).toBe('12-11-2026')
+    expect(formatDateShort('2026-08-09')).toBe('09-08-2026')
+  })
+
+  it('never renders MM/DD or M/D/YY ordering', () => {
+    const samples = ['2026-08-09', '2025-01-01', '2026-12-25', '2028-02-29', '2026-11-12']
+    for (const key of samples) {
+      const out = formatDateShort(key)
+      expect(out).toMatch(/^\d{2}-\d{2}-\d{4}$/)
+      expect(out).not.toMatch(/\d{1,2}\/\d{1,2}\/\d{2}/)
+    }
   })
 })
 

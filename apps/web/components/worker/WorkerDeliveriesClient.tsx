@@ -64,7 +64,7 @@ const EMPTY_LINE: LineForm = {
 }
 
 function fmtTime(d: string) {
-  return new Date(d).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+  return new Date(d).toLocaleString('en-NZ', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
 export function WorkerDeliveriesClient() {

@@ -63,3 +63,22 @@ describe('PUT /api/admin/venues/[id] — worker session timeout', () => {
     })
   })
 })
+
+describe('PUT /api/admin/venues/[id] — availability comment deletion', () => {
+  it('saves the staff comment-delete toggle', async () => {
+    const res = await PUT(request({ staffCanDeleteAvailabilityComments: true }), params)
+    expect(res.status).toBe(200)
+    expect(mocks.venueUpdate).toHaveBeenLastCalledWith({
+      where: { id: 'venue-1' },
+      data: { staffCanDeleteAvailabilityComments: true },
+    })
+  })
+
+  it('coerces anything other than true to false', async () => {
+    await PUT(request({ staffCanDeleteAvailabilityComments: 'yes' }), params)
+    expect(mocks.venueUpdate).toHaveBeenLastCalledWith({
+      where: { id: 'venue-1' },
+      data: { staffCanDeleteAvailabilityComments: false },
+    })
+  })
+})

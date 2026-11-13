@@ -16,13 +16,14 @@ import { Modal } from '@/components/ui/Modal'
 import { DateNav } from '@/components/admin/DateNav'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { AvailabilityBar } from '@/components/availability/AvailabilityBar'
+import { AvailabilityCommentThread } from '@/components/availability/AvailabilityCommentThread'
 import { AvailabilityDayEditor, type EditorDraft, type EditorSaveOptions } from '@/components/availability/AvailabilityDayEditor'
 import { StaffEditModal } from '@/components/admin/StaffEditModal'
 import { moveItem } from '@/lib/array'
 import { dayRange, fillRect, fillTargets, inFillRect, toggleSelection } from '@/lib/cell-fill'
 import { useScrollRestore } from '@/lib/use-scroll-restore'
 import { dateKeysBetween } from '@/lib/calendar'
-import { formatDateLong, localDayKey, mondayOf, parseDay, shiftDay, type DateRange } from '@/lib/date-nav'
+import { formatDateDayDMY, formatDateDMY, formatDateLong, localDayKey, mondayOf, parseDay, shiftDay, type DateRange } from '@/lib/date-nav'
 import { nearestIndex, type Rect } from '@/lib/reorder'
 import { buildStaffGroups, insertSubset, sortByPinnedAvailability } from '@/lib/staff-groups'
 import {
@@ -109,7 +110,6 @@ interface EditorTarget {
   scope?: AvailabilityScope | null
   /** Edit request this override came from — marked APPLIED after a save. */
   requestId?: string | null
-  requestReviewNote?: string | null
   /** Opening from a declaration / edit request: saving re-locks the day. */
   lockOnSave?: boolean
 }
@@ -159,7 +159,6 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
   const [filterOpen, setFilterOpen] = useState(false)
   const [visibleStaffIds, setVisibleStaffIds] = useState<Set<string> | null>(null)
   const [editStaffId, setEditStaffId] = useState<string | null>(null)
-  const [notes, setNotes] = useState<Record<string, string>>({})
   const [pinnedDay, setPinnedDay] = useState<string | null>(null)
   const [groupByPosition, setGroupByPosition] = useState(true)
   const [draggingGroup, setDraggingGroup] = useState<string | null>(null)
@@ -619,9 +618,9 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
     return s ? `${s.firstName} ${s.lastName}` : 'STAFF'
   }
 
-  async function review(kind: 'ids' | 'series', ids: string[], staffId: string, seriesId: string | null, action: 'APPROVE' | 'DECLINE' | 'DELETE', noteKey: string) {
+  async function review(kind: 'ids' | 'series', ids: string[], staffId: string, seriesId: string | null, action: 'APPROVE' | 'DECLINE' | 'DELETE') {
     setBusy(true)
-    const body: Record<string, unknown> = { venueId, action, reviewNote: notes[noteKey] ?? null }
+    const body: Record<string, unknown> = { venueId, action, reviewNote: null }
     if (kind === 'series' && seriesId) { body.seriesId = seriesId; body.staffId = staffId }
     else body.ids = ids
     const r = await fetch('/api/admin/availability/review', {
@@ -639,7 +638,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
     const r = await fetch(`/api/admin/availability/requests/${id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, reviewNote: notes[`req:${id}`] ?? null }),
+      body: JSON.stringify({ action, reviewNote: null }),
     })
     setBusy(false)
     if (!r.ok) { const d = await r.json().catch(() => ({})); setError((d.error ?? 'REQUEST FAILED').toUpperCase()); return }
@@ -785,7 +784,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
       const mark = await fetch(`/api/admin/availability/requests/${target.requestId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'MARK_APPLIED', reviewNote: target.requestReviewNote ?? null }),
+        body: JSON.stringify({ action: 'MARK_APPLIED', reviewNote: null }),
       })
       if (!mark.ok) {
         setBusy(false)
@@ -832,96 +831,6 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
     setEditor(null)
     if (skipped > 0) setNotice(`${skipped} LOCKED DAY${skipped === 1 ? '' : 'S'} SKIPPED — UNLOCK FIRST.`)
     load(true)
-  }
-
-  // Notes-only PATCH: allowed on locked/past days, never touches availability.
-  async function saveNote(target: EditorTarget, notes: string | null) {
-    const entry = target.entry ?? entryFor(target.staffId, target.date)
-    if (!entry?.id) { setError('SAVE THE DAY BEFORE ADDING A NOTE'); return }
-    setBusy(true); setError('')
-    const r = await fetch(`/api/admin/availability/${entry.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ notes }),
-    })
-    setBusy(false)
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}))
-      setError((d.error ?? 'COULD NOT SAVE THE NOTE').toUpperCase())
-      return
-    }
-    const d = await r.json().catch(() => ({}))
-    // A queue-opened editor holds its own snapshot entry — refresh it so the
-    // note shows without closing and reopening the day.
-    setEditor((prev) => (
-      prev && prev.staffId === target.staffId && prev.date === target.date && prev.entry
-        ? { ...prev, entry: { ...prev.entry, notes: d.notes ?? notes } }
-        : prev
-    ))
-    await load(true)
-  }
-
-  // Manager review note on one day — a note, so it works on a locked day and
-  // never changes status, availability, lock or series membership.
-  async function saveReviewNote(target: EditorTarget, reviewNote: string | null) {
-    const entry = target.entry ?? entryFor(target.staffId, target.date)
-    if (!entry?.id) { setError('SAVE THE DAY BEFORE ADDING A REVIEW NOTE'); return }
-    setBusy(true); setError('')
-    const r = await fetch(`/api/admin/availability/${entry.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reviewNote }),
-    })
-    setBusy(false)
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}))
-      setError((d.error ?? 'COULD NOT SAVE THE REVIEW NOTE').toUpperCase())
-      return
-    }
-    const d = await r.json().catch(() => ({}))
-    setEditor((prev) => (
-      prev && prev.staffId === target.staffId && prev.date === target.date && prev.entry
-        ? { ...prev, entry: { ...prev.entry, reviewNote: d.reviewNote ?? reviewNote } }
-        : prev
-    ))
-    await load(true)
-  }
-
-  // Review note for a whole declaration (ids or series) without a verdict.
-  async function saveDeclarationReviewNote(rows: AvailabilityEntry[], reviewNote: string | null) {
-    const first = rows[0]
-    if (!first) return
-    setBusy(true); setError('')
-    const body: Record<string, unknown> = { venueId, action: 'NOTE', reviewNote }
-    if (first.seriesId) { body.seriesId = first.seriesId; body.staffId = first.staffId }
-    else body.ids = rows.map((r) => r.id).filter((id): id is string => !!id)
-    const r = await fetch('/api/admin/availability/review', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    setBusy(false)
-    if (!r.ok) { const d = await r.json().catch(() => ({})); setError((d.error ?? 'NOTE SAVE FAILED').toUpperCase()); return }
-    await load(true)
-  }
-
-  // Worker note edited from the declaration card — loop the notes-only PATCH
-  // over every row in the declaration (all occurrences of a series included).
-  async function saveDeclarationWorkerNote(rows: AvailabilityEntry[], notesValue: string | null) {
-    const ids = rows.map((r) => r.id).filter((id): id is string => !!id)
-    if (ids.length === 0) { setError('SAVE THE DAY BEFORE ADDING A NOTE'); return }
-    setBusy(true); setError('')
-    const results = await Promise.all(ids.map((id) =>
-      fetch(`/api/admin/availability/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes: notesValue }),
-      }),
-    ))
-    setBusy(false)
-    const failed = results.filter((r) => !r.ok).length
-    await load(true)
-    if (failed > 0) setError(`${failed} NOTE${failed === 1 ? '' : 'S'} FAILED TO SAVE`)
   }
 
   // Lock/unlock one day. The modal stays open so the manager sees the result.
@@ -978,8 +887,8 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
     const first = rows[0]
     const dates = rows.map((r) => r.date).sort()
     const rangeLabel = dates[0] === dates[dates.length - 1]
-      ? dates[0]
-      : `${dates[0]} → ${dates[dates.length - 1]}`
+      ? formatDateDMY(dates[0])
+      : `${formatDateDMY(dates[0])} → ${formatDateDMY(dates[dates.length - 1])}`
     return (
       <div key={key} className="border border-grey-mid p-3 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -996,45 +905,16 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
           <div className="flex-1"><AvailabilityBar windows={first.windows} isAllDay={first.isAllDay} type={first.type} labelled showType /></div>
           <span className="font-mono text-2xs uppercase text-grey-light">{describeWindows(first.windows, first.isAllDay, first.type)}</span>
         </div>
-        {first.notes && <p className="font-mono text-2xs uppercase text-grey-light">NOTE: {first.notes}</p>}
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div className="space-y-2">
-            <div className="label">WORKER NOTE</div>
-            <input
-              value={notes[`worker:${key}`] ?? first.notes ?? ''}
-              onChange={(e) => setNotes({ ...notes, [`worker:${key}`]: e.target.value })}
-              placeholder="WORKER NOTE (OPTIONAL)"
-              aria-label="Worker note for declaration"
-              className="field w-full"
-            />
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => saveDeclarationWorkerNote(rows, notes[`worker:${key}`] ?? first.notes ?? null)}
-              className="h-9 px-3 border border-grey-mid text-grey-light font-mono text-xs uppercase hover:border-white hover:text-white disabled:opacity-40"
-            >
-              SAVE WORKER NOTE
-            </button>
-          </div>
-          <div className="space-y-2">
-            <div className="label">REVIEW NOTE</div>
-            <input
-              value={notes[key] ?? first.reviewNote ?? ''}
-              onChange={(e) => setNotes({ ...notes, [key]: e.target.value })}
-              placeholder="REVIEW NOTE (OPTIONAL)"
-              aria-label="Review note for declaration"
-              className="field w-full"
-            />
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => saveDeclarationReviewNote(rows, notes[key] ?? first.reviewNote ?? null)}
-              className="h-9 px-3 border border-accent text-accent font-mono text-xs uppercase hover:bg-accent hover:text-black disabled:opacity-40"
-            >
-              SAVE NOTE
-            </button>
-          </div>
-        </div>
+        <AvailabilityCommentThread
+          mode="admin"
+          staffId={first.staffId ?? ''}
+          venueId={venueId}
+          dateKey={first.date}
+          seriesId={first.seriesId}
+          dateKeys={dates}
+          caption={dates.length > 1 ? 'ADD APPLIES THE COMMENT TO EVERY DAY IN THIS DECLARATION.' : undefined}
+          onMutated={() => load(true)}
+        />
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -1049,11 +929,11 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
           >
             OPEN / EDIT
           </button>
-          <button disabled={busy} onClick={() => review(first.seriesId ? 'series' : 'ids', rows.map((r) => r.id!).filter(Boolean), first.staffId ?? '', first.seriesId, 'APPROVE', key)}
+          <button disabled={busy} onClick={() => review(first.seriesId ? 'series' : 'ids', rows.map((r) => r.id!).filter(Boolean), first.staffId ?? '', first.seriesId, 'APPROVE')}
             className="h-9 px-3 bg-success text-black font-mono text-xs uppercase font-bold hover:opacity-80 disabled:opacity-40">CONFIRM</button>
-          <button disabled={busy} onClick={() => review(first.seriesId ? 'series' : 'ids', rows.map((r) => r.id!).filter(Boolean), first.staffId ?? '', first.seriesId, 'DECLINE', key)}
+          <button disabled={busy} onClick={() => review(first.seriesId ? 'series' : 'ids', rows.map((r) => r.id!).filter(Boolean), first.staffId ?? '', first.seriesId, 'DECLINE')}
             className="h-9 px-3 border border-danger text-danger font-mono text-xs uppercase hover:bg-danger hover:text-black disabled:opacity-40">DECLINE</button>
-          <button disabled={busy} onClick={() => review(first.seriesId ? 'series' : 'ids', rows.map((r) => r.id!).filter(Boolean), first.staffId ?? '', first.seriesId, 'DELETE', key)}
+          <button disabled={busy} onClick={() => review(first.seriesId ? 'series' : 'ids', rows.map((r) => r.id!).filter(Boolean), first.staffId ?? '', first.seriesId, 'DELETE')}
             title="CANCEL THIS DECLARATION WITHOUT APPROVING OR DECLINING"
             className="h-9 px-3 border border-grey-mid text-grey-light font-mono text-xs uppercase hover:border-danger hover:text-danger disabled:opacity-40">CANCEL</button>
         </div>
@@ -1076,7 +956,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <span className="font-mono text-sm text-white uppercase">EDIT REQUEST</span>
-            <span className="font-mono text-xs text-grey-light ml-2">{req.date} · {req.scope === 'THIS' ? 'JUST THIS DAY' : req.scope === 'FROM' ? 'FROM THIS DAY' : 'ALL IN SERIES'}</span>
+            <span className="font-mono text-xs text-grey-light ml-2">{formatDateDayDMY(req.date)} · {req.scope === 'THIS' ? 'JUST THIS DAY' : req.scope === 'FROM' ? 'FROM THIS DAY' : 'ALL IN SERIES'}</span>
           </div>
           <span className="font-mono text-2xs uppercase text-accent">{req.action} · {payloadSummary(req)}</span>
         </div>
@@ -1113,14 +993,14 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
         <p className="font-mono text-2xs uppercase text-warning border border-warning/50 bg-warning/10 px-2 py-1.5">
           APPLYING OR OVERRIDING REPLACES THE CURRENT APPROVED DAY.
         </p>
-        {req.reason && <p className="font-mono text-2xs uppercase text-grey-light">WORKER: {req.reason}</p>}
-
-        <input
-          value={notes[`req:${req.id}`] ?? ''}
-          onChange={(e) => setNotes({ ...notes, [`req:${req.id}`]: e.target.value })}
-          placeholder="REVIEW NOTE (OPTIONAL)"
-          aria-label="Review note for edit request"
-          className="field w-full"
+        <AvailabilityCommentThread
+          mode="admin"
+          staffId={req.staffId}
+          venueId={venueId}
+          dateKey={req.date}
+          seriesId={req.seriesId}
+          legacyReason={req.reason}
+          onMutated={() => load(true)}
         />
         <div className="flex flex-wrap items-center gap-2">
           <button disabled={busy} onClick={() => resolveRequest(req.id, 'APPLY')}
@@ -1134,7 +1014,6 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
                 staffId: req.staffId,
                 date: req.date,
                 requestId: req.id,
-                requestReviewNote: notes[`req:${req.id}`] ?? null,
                 lockOnSave: true,
               })}
               className="h-9 px-3 border border-accent text-accent font-mono text-xs uppercase hover:bg-accent hover:text-black disabled:opacity-40"
@@ -1151,7 +1030,6 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
                 entry: proposed,
                 scope: req.scope,
                 requestId: req.id,
-                requestReviewNote: notes[`req:${req.id}`] ?? null,
                 lockOnSave: true,
               })}
               className="h-9 px-3 border border-accent text-accent font-mono text-xs uppercase hover:bg-accent hover:text-black disabled:opacity-40"
@@ -1210,15 +1088,6 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
                       <span className={`font-mono text-2xs uppercase border px-1 ${statusMeta(entry.status).badge}`}>{entry.status}</span>
                     )}
                     {entry.timeOff && <span className="font-mono text-2xs uppercase text-warning">TO</span>}
-                    {entry.reviewNote && (
-                      <span
-                        title={entry.reviewNote}
-                        aria-label={`Review note: ${entry.reviewNote}`}
-                        className="font-mono text-2xs uppercase text-accent"
-                      >
-                        ✎ REVIEW
-                      </span>
-                    )}
                   </div>
                   {entry.notes && (
                     <p title={entry.notes} className="font-mono text-2xs uppercase text-grey-light truncate">NOTE: {entry.notes}</p>
@@ -1578,9 +1447,10 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
             initialScope={editor.scope ?? 'THIS'}
             busy={busy}
             error={error || null}
+            staffId={editor.staffId}
+            venueId={venueId}
             onSave={(draft, options) => save(editor, draft, options)}
-            onSaveNote={(notes) => saveNote(editor, notes)}
-            onSaveReviewNote={(reviewNote) => saveReviewNote(editor, reviewNote)}
+            onCommentsMutated={() => load(true)}
             onToggleLock={(locked, reason) => toggleLock(editor, locked, reason)}
             canDeleteSeries={role === 'ADMIN'}
             onRequestDeleteSeries={() => setDeleteSeriesOpen(true)}

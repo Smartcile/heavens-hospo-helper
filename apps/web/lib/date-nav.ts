@@ -95,10 +95,21 @@ export function formatDateRange(range: DateRange): string {
   return `${ordinal(s.getUTCDate())} ${MONTH_NAMES[s.getUTCMonth()]} ${s.getUTCFullYear()} – ${ordinal(e.getUTCDate())} ${MONTH_NAMES[e.getUTCMonth()]} ${e.getUTCFullYear()}`
 }
 
-/** "2026-08-09" → "AUG 9, 2026" */
-export function formatDateShort(key: string): string {
+/** "2026-11-12" → "12-11-2026" (day-first — never US ordering). */
+export function formatDateDMY(key: string): string {
   const d = parseDay(key)
-  return `${MONTH_ABBR[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`
+  return `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${d.getUTCFullYear()}`
+}
+
+/** "2026-11-12" → "THU 12-11-2026" (weekday + day-first date). */
+export function formatDateDayDMY(key: string): string {
+  const d = parseDay(key)
+  return `${DAY_NAMES[d.getUTCDay()].slice(0, 3)} ${formatDateDMY(key)}`
+}
+
+/** "2026-08-09" → "09-08-2026" — kept short for the DateNav range summary. */
+export function formatDateShort(key: string): string {
+  return formatDateDMY(key)
 }
 
 /** First day of the month containing key. */

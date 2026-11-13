@@ -7,6 +7,7 @@ import { Panel } from '@/components/ui/Panel'
 import { PdfCanvasViewer } from '@/components/ui/PdfCanvasViewer'
 import { PdfDocumentView } from '@/components/ui/PdfDocumentView'
 import { remainingBalance } from '@/lib/gift-card-redemption'
+import { formatDateTime } from '@/lib/utils'
 
 // Gift card popup: click any card in the list. Left = the card itself (edit
 // details, status actions, private notes, PDF/email); right = the
@@ -122,7 +123,7 @@ const ORDER_EVENT_LABELS: Record<string, string> = {
 function fmt(iso: string | null | undefined): string {
   if (!iso) return '—'
   const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
+  return Number.isNaN(d.getTime()) ? '—' : formatDateTime(d)
 }
 
 export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; onClose: () => void; onChanged: () => void }) {

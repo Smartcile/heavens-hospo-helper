@@ -23,7 +23,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
 
   const body = await req.json()
-  const { name, address, timezone, isActive, loadedRosterUrl, googleCalendarUrl, icalFeedUrl, swiftPosBaseUrl, externalRefreshMinutes, availabilityLockDays, availabilityCutoff, availabilityPresets, workerSessionTimeoutMinutes, sharingEnabled, sharedWooVenueId } = body
+  const { name, address, timezone, isActive, loadedRosterUrl, googleCalendarUrl, icalFeedUrl, swiftPosBaseUrl, externalRefreshMinutes, availabilityLockDays, availabilityCutoff, availabilityPresets, staffCanDeleteAvailabilityComments, workerSessionTimeoutMinutes, sharingEnabled, sharedWooVenueId } = body
 
   const data: Record<string, unknown> = {}
   // Integration settings — editable by an admin or the venue's own manager.
@@ -45,6 +45,10 @@ export async function PUT(req: NextRequest, { params }: Params) {
   // 15-minute grid so a bad payload can never poison the worker editor.
   if (availabilityPresets !== undefined) {
     data.availabilityPresets = resolveAvailabilityPresets(availabilityPresets) as unknown as Prisma.InputJsonValue
+  }
+  // Staff comment-delete permission — default off (managers only).
+  if (staffCanDeleteAvailabilityComments !== undefined) {
+    data.staffCanDeleteAvailabilityComments = staffCanDeleteAvailabilityComments === true
   }
   // Worker phone-session idle timeout. Blank / 0 / null = env fallback;
   // non-numeric input is rejected (400) and other numbers are clamped to the

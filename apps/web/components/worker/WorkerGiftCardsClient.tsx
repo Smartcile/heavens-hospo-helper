@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { GiftCardPdfView } from '@/components/worker/GiftCardPdfView'
 import { remainingBalance } from '@/lib/gift-card-redemption'
+import { formatDateDMY, localDayKey } from '@/lib/date-nav'
 
 // Worker gift cards — a phone-first workflow for the floor:
 //   1. Look up ANY card by number, customer name or email
@@ -67,7 +68,7 @@ function money(value: number): string {
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—'
   const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString()
+  return Number.isNaN(d.getTime()) ? '—' : formatDateDMY(localDayKey(d))
 }
 
 export function WorkerGiftCardsClient() {
