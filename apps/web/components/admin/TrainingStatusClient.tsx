@@ -19,6 +19,7 @@ import {
   type WarningSeverity,
   type WarningSort,
 } from '@/lib/guide-warnings'
+import { groupGuidesByFolder } from '@/lib/guide-folders'
 import { StaffGuidesModal } from '@/components/admin/StaffGuidesModal'
 import { RetrainRequestModal } from '@/components/admin/RetrainRequestModal'
 import { Select } from '@/components/ui/Select'
@@ -60,6 +61,22 @@ interface Payload {
 
 interface WarningFolder { id: string; name: string; sortOrder: number }
 interface WarningGuideOption { id: string; title: string; folderId: string | null }
+
+interface StaffGuide {
+  id: string
+  title: string
+  folderId: string | null
+  completed: boolean
+  stale: boolean
+  retrainRequestId: string | null
+}
+
+interface StaffGuidesState {
+  loading: boolean
+  error: string
+  items: StaffGuide[]
+  folders: WarningFolder[]
+}
 
 const WARNING_SORT_OPTIONS: { value: WarningSort; label: string }[] = [
   { value: 'severity', label: 'MOST URGENT' },
@@ -118,6 +135,45 @@ export function TrainingStatusClient({
   const [personFilter, setPersonFilter] = useState<string>('ALL')
   const [warningSort, setWarningSort] = useState<WarningSort>('severity')
   const [retrainModal, setRetrainModal] = useState<{ staffId?: string; guideIds?: string[] } | null>(null)
+  const [expandedStaff, setExpandedStaff] = useState<Set<string>>(new Set())
+  const [staffGuides, setStaffGuides] = useState<Record<string, StaffGuidesState>>({})
+
+  async function loadStaffGuides(staffId: string) {
+    setStaffGuides((prev) => ({ ...prev, [staffId]: { loading: true, error: '', items: [], folders: [] } }))
+    try {
+      const res = await fetch(`/api/admin/staff/${staffId}/guides`)
+      if (!res.ok) {
+        setStaffGuides((prev) => ({
+          ...prev,
+          [staffId]: { loading: false, error: `COULD NOT LOAD GUIDES (${res.status})`, items: [], folders: [] },
+        }))
+        return
+      }
+      const payload = (await res.json()) as { items?: StaffGuide[]; folders?: WarningFolder[] }
+      setStaffGuides((prev) => ({
+        ...prev,
+        [staffId]: { loading: false, error: '', items: payload.items ?? [], folders: payload.folders ?? [] },
+      }))
+    } catch {
+      setStaffGuides((prev) => ({
+        ...prev,
+        [staffId]: { loading: false, error: 'COULD NOT LOAD GUIDES', items: [], folders: [] },
+      }))
+    }
+  }
+
+  function toggleStaff(staffId: string) {
+    const expanding = !expandedStaff.has(staffId)
+    setExpandedStaff((prev) => {
+      const next = new Set(prev)
+      if (next.has(staffId)) next.delete(staffId)
+      else next.add(staffId)
+      return next
+    })
+    // Always refetch on expand so a failed load is retryable and the folder
+    // view reflects changes made in the MANAGE GUIDES modal.
+    if (expanding) loadStaffGuides(staffId)
+  }
 
   async function loadWarnings() {
     const venueQuery = venueId ? `?venueId=${encodeURIComponent(venueId)}` : ''
@@ -384,6 +440,52 @@ export function TrainingStatusClient({
     (s) => s.positionIds,
   ).map((g) => ({ ...g, items: sortTrainingRows(g.items) }))
 
+  function guideStateChip(g: StaffGuide) {
+    if (g.stale || g.retrainRequestId) {
+      return { label: 'RETRAIN', className: 'border-danger/60 text-danger' }
+    }
+    if (g.completed) {
+      return { label: 'TRAINED', className: 'border-success/60 text-success' }
+    }
+    return { label: 'TO DO', className: 'border-warning/60 text-warning' }
+  }
+
+  function renderStaffGuides(staffId: string) {
+    const state = staffGuides[staffId]
+    if (!state || state.loading) {
+      return <p className="font-mono text-xs text-grey-light loading-cursor">LOADING GUIDES</p>
+    }
+    if (state.error) {
+      return <p className="font-mono text-xs text-danger">{state.error}</p>
+    }
+    if (state.items.length === 0) {
+      return <p className="font-mono text-xs text-grey-light">NO GUIDES APPLY TO THIS PERSON YET.</p>
+    }
+    const folderGroups = groupGuidesByFolder(state.items, state.folders).filter((g) => g.guides.length > 0)
+    return (
+      <div className="space-y-3">
+        {folderGroups.map(({ folder, guides }) => (
+          <div key={folder?.id ?? '__unfiled__'} className="space-y-1">
+            <div className="font-mono text-2xs uppercase tracking-widest text-grey-light border-b border-grey-mid pb-1">
+              {folder ? folder.name : 'UNFILED'} ({guides.length})
+            </div>
+            {guides.map((g) => {
+              const chip = guideStateChip(g)
+              return (
+                <div key={g.id} className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs uppercase text-white truncate">{g.title}</span>
+                  <span className={`font-mono text-2xs uppercase border px-1.5 py-0.5 shrink-0 ${chip.className}`}>
+                    {chip.label}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   const row = (s: Row) => {
     const pct = s.requiredCount > 0 ? Math.round((s.completedCount / s.requiredCount) * 100) : 100
     return (
@@ -451,7 +553,18 @@ export function TrainingStatusClient({
           </p>
         )}
 
-        <div className="mt-2 flex justify-end">
+        {expandedStaff.has(s.id) && (
+          <div className="mt-3 border-t border-grey-mid pt-3">{renderStaffGuides(s.id)}</div>
+        )}
+
+        <div className="mt-2 flex justify-end gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => toggleStaff(s.id)}
+            className="font-mono text-xs uppercase border border-grey-mid px-3 py-1.5 text-grey-light hover:border-white hover:text-white transition-colors"
+          >
+            {expandedStaff.has(s.id) ? 'HIDE GUIDES ▲' : 'SHOW GUIDES ▼'}
+          </button>
           <button
             type="button"
             onClick={() => setManageStaff({ id: s.id, name: s.name })}
@@ -684,7 +797,13 @@ export function TrainingStatusClient({
         <StaffGuidesModal
           staffId={manageStaff.id}
           staffName={manageStaff.name}
-          onClose={() => setManageStaff(null)}
+          onClose={() => {
+            const staffId = manageStaff.id
+            setManageStaff(null)
+            // Refresh the expanded folder view if it was open while training
+            // was marked off, revoked, signed off or assigned.
+            if (expandedStaff.has(staffId)) loadStaffGuides(staffId)
+          }}
         />
       )}
 

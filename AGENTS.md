@@ -566,16 +566,17 @@ request, an overdue retrain request (pending > 14 days), or an open
   **ALL GUIDES** flat toggle, red row + plain-English reason for
   stale/requested guides, and grant-gated MARK RETRAINED / MARK FOR RETRAINING /
   DISMISS WARNING (`canSignOff` / `canAssign` come from the staff-guides GET).
-  `WorkerGuidesClient` shows a NEEDS ATTENTION strip (own warnings, or the whole
-  venue for managers / view-granted staff), the same actions, checks the
-  resolve response and surfaces failures inline, and shows a red guide card +
-  red RETRAIN NEEDED reason where the guide is marked off.
+  `WorkerGuidesClient` (`/w/guides`) is now the bible/tree only — it has no
+  warnings strip and no training-status link. It still shows a red guide card +
+  red RETRAIN NEEDED reason where the guide is marked off. Warnings and
+  training now live on the training status board (`TrainingStatusClient` /
+  `/w/training-status`). The worker `/api/worker/guide-warnings` and
+  `/api/worker/guide-retrain` routes still exist but have **no live worker UI**
+  after this change (a staff own-training view remains out of scope).
 - **Help:** the `guide-warnings` Heavenly Help article (TEAM / EVERYONE,
   sortOrder 620) covers the admin warnings list, folder grouping, retrain
-  reasons, the red guide highlight, worker NEEDS ATTENTION and marking
-  retraining. It ships with three screenshots:
-  `/help/guide-warnings-admin.png`, `/help/guide-warnings-modal.png` and
-  `/help/guide-warnings-worker.png`.
+  reasons and the red guide highlight. It ships with two screenshots:
+  `/help/guide-warnings-admin.png` and `/help/guide-warnings-modal.png`.
 - **Deploy note:** additive only. `prisma db push` creates the enum + table; no
   data migration or backfill is required.
 
@@ -3536,14 +3537,18 @@ view renderers on `/admin/orders` (see "Orders Rework — Phase 4"), fed by
   availability/roster) with on-shift people first inside each group. Each row
   has **MANAGE GUIDES →**, which opens the existing `StaffGuidesModal` (mark
   trained / sign off / revoke / assign) so training can be completed without
-  leaving the board. It also renders the **SECTION REVIEWS** strip
+  leaving the board, plus **SHOW GUIDES ▼** to expand that person's guides
+  grouped by folder with a TRAINED / TO DO / RETRAIN state per guide (lazy
+  loaded from `GET /api/admin/staff/[id]/guides`). It also renders the
+  **SECTION REVIEWS** strip
   (confirm/dismiss/reopen pending section-work reviews — see "Section-work
   reviews"). Staff rows come from `GET /api/admin/training/status` backed by
   `lib/training-status.server.ts` (pure rules + sort in `lib/training-status.ts`);
   reviews come from
   `GET /api/admin/section-work?status=ALL` (the single reconcile path). Managers
-  get a TRAINING STATUS → button on the worker `/w/guides` header; it opens
-  `/w/training-status`, the same board rendered inside the worker chrome.
+  reach the same board via the dashboard **TRAINING STATUS** tile or
+  `/w/training-status` (rendered inside the worker chrome); it is no longer
+  linked from the worker `/w/guides` header.
 - **Notices grouping.** Worker notices split into PINNED (top) / unread /
   READ / ACKNOWLEDGED (bottom group) via `lib/notice-groups.ts`.
 - **Drag-reorder lists.** Guide steps reorder by drag or ↑/↓ in both editors
@@ -3849,7 +3854,7 @@ pre-flight.
 | `PositionsPanel.tsx` — list, ALL DEPARTMENTS, empty state, blank-name guard, POST body | ✅ (5 tests) |
 | `GuidesClient.tsx` — folders, publish, product-reference rows, PDF actions | ✅ (10 tests) |
 | `ReferenceTableEditor.tsx` — column kinds, derived cells, row editing | ✅ (5 tests) |
-| `WorkerGuidesClient.tsx` — BIBLE / MY TREE, folder grouping, edit gating, needs-attention warnings + red guide card, mark-retrained/dismiss/mark-for-retraining success + failure paths | ✅ (18 tests) |
+| `WorkerGuidesClient.tsx` — BIBLE / MY TREE, folder grouping + drag, edit gating, red guide card + guide reader; no training-status link and no needs-attention strip | ✅ (13 tests) |
 | `EventBuilder.tsx` / `PipelinePanel.tsx` / `EnquiriesPanel.tsx` — BEO builder, pipeline board, intake | ✅ (5 + 2 + 4) |
 | `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 16 + 15 + 33) |
 | `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (15 + 5 + 4) |
@@ -3863,7 +3868,7 @@ pre-flight.
 | `EventStaffingModal.tsx` — event info, linked shifts CLAIMED/ASSIGNED, listed-seat lock, FIND STAFF, claims review | ✅ (5 tests) |
 | `CalendarEventFormModal.tsx` — create + staffing POST, capacity warning, edit load/PUT | ✅ (2 tests) |
 | `WorkerShiftsClient.tsx` — pickup grid, claim/withdraw, conflict warning, confirmed panel | ✅ (5 tests) |
-| `TrainingStatusClient.tsx` — status rows + WARNINGS list (flat/folder, grant-gated mark retrained / dismiss) + SECTION REVIEWS strip, CONFIRM/DISMISS/error surfacing, position grouping, guide titles, MANAGE GUIDES modal | ✅ (10 tests) |
+| `TrainingStatusClient.tsx` — status rows + WARNINGS list (flat/folder, grant-gated mark retrained / dismiss) + SECTION REVIEWS strip, CONFIRM/DISMISS/error surfacing, position grouping, guide titles, MANAGE GUIDES modal, `SHOW GUIDES ▼` person → folder-grouped expansion (trained/to-do/retrain, always refetched on expand and after the modal closes) | ✅ (15 tests) |
 | `StaffGuidesModal.tsx` — folder grouping + ALL GUIDES flat view, stale red warning reason, mark-for-retraining flow, grant-gated actions | ✅ (3 tests) |
 | `StaffEventNoticeCard.tsx` — full inline details, Accept/Decline/Maybe gating, required decline reason, current answer, Add to calendar, closed window, reminder, close-time label fallback | ✅ (9 tests) |
 | `StaffEventsPanel.tsx` — event/attendance counts, remind action, attendance popup with decline reasons, forbidden-picker warning | ✅ (3 tests) |

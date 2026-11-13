@@ -1,5 +1,14 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeAll } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+
+// jsdom has no ResizeObserver; the pathway tree uses one to re-measure connectors.
+beforeAll(() => {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver
+})
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -69,217 +78,45 @@ const rect = (left: number, top: number, width: number, height: number): DOMRect
 describe('WorkerGuidesClient', () => {
   afterEach(() => { vi.restoreAllMocks() })
 
-  it('shows the worker their needs-attention warnings and flags the guide card in red', async () => {
-    const warning = {
-      id: 'request:r1',
-      kind: 'RETRAIN_REQUESTED',
-      severity: 'CRITICAL',
-      staffId: 's1',
-      staffName: 'SMITH, JANE',
-      guideId: 'g1',
-      guideTitle: 'FOOD SAFETY BASICS',
-      folderId: null,
-      folderName: null,
-      reasonText: 'Marked for retraining on 10 NOV 2026 — SEEN UNSAFE.',
-      since: '2026-11-10T00:00:00.000Z',
-      due: '2026-11-24T00:00:00.000Z',
-      requestId: 'r1',
-      followUpId: null,
-    }
-    const flagged = {
-      ...tracked,
-      stale: true,
-      needsAction: true,
-      severity: 'CRITICAL',
-      reasonText: warning.reasonText,
-      retrainRequestId: 'r1',
-    }
-    globalThis.fetch = vi.fn(async (url: string) => {
-      const json = (data: unknown) =>
-        Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(data) })
+  it('no longer shows a training status link or a needs-attention strip', async () => {
+    globalThis.fetch = mockFetch()
+    render(<WorkerGuidesClient role="ADMIN" />)
+
+    await waitFor(() => expect(screen.getByText('FOOD SAFETY BASICS')).toBeTruthy())
+    expect(screen.queryByText(/TRAINING STATUS/)).toBeNull()
+    expect(screen.queryByText(/NEEDS ATTENTION/)).toBeNull()
+  })
+
+  it('switches between MY TREE and BIBLE', async () => {
+    globalThis.fetch = vi.fn((url: string) => {
+      const json = (data: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(data) })
       if (String(url).startsWith('/api/worker/guides')) {
-        return json({ staffId: 's1', firstName: 'ALEX', items: [flagged], reference: [] })
+        return json({ firstName: 'ALEX', items: [tracked], reference: [reference] })
       }
-      if (String(url).startsWith('/api/worker/pathway')) return json({ pathway: null })
-      if (String(url).startsWith('/api/worker/guide-warnings')) {
-        return json({ warnings: [warning], folders: [], staff: [{ id: 's1', name: 'SMITH, JANE' }], guides: [], canViewAll: false, canAssign: false })
+      if (String(url).startsWith('/api/worker/pathway')) {
+        return json({
+          pathway: {
+            id: 'p1',
+            name: 'ONBOARDING',
+            description: null,
+            nodes: [
+              { id: 'n1', kind: 'GUIDE', title: 'FOOD SAFETY BASICS NODE', stage: 0, points: 10, status: 'AVAILABLE', blockedBy: [], targetId: 'g1' },
+            ],
+            edges: [],
+            progress: { earnedPoints: 0, totalPoints: 10, level: 1, nextLevelAt: 20 },
+          },
+        })
       }
       return json(null)
     }) as unknown as typeof fetch
 
     render(<WorkerGuidesClient />)
 
-    await waitFor(() => expect(screen.getByText('NEEDS ATTENTION (1)')).toBeTruthy())
-    expect(screen.getAllByText(/Marked for retraining on 10 NOV 2026/).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('RETRAIN REQUESTED').length).toBeGreaterThanOrEqual(1)
-  })
+    await waitFor(() => expect(screen.getByText('FOOD SAFETY BASICS NODE')).toBeTruthy())
+    expect(screen.getAllByText('ONBOARDING').length).toBeGreaterThanOrEqual(1)
 
-  function mockWarningActions(opts: {
-    canAssign?: boolean
-    completeOk?: boolean
-    resolveOk?: boolean
-    retrainOk?: boolean
-  } = {}) {
-    const warning = {
-      id: 'request:r1',
-      kind: 'RETRAIN_REQUESTED',
-      severity: 'WARNING',
-      staffId: 's1',
-      staffName: 'SMITH, JANE',
-      guideId: 'g1',
-      guideTitle: 'FOOD SAFETY BASICS',
-      folderId: null,
-      folderName: null,
-      reasonText: 'Marked for retraining on 10 NOV 2026 — SEEN UNSAFE.',
-      since: '2026-11-10T00:00:00.000Z',
-      due: '2026-11-24T00:00:00.000Z',
-      requestId: 'r1',
-      followUpId: null,
-    }
-    const flagged = {
-      ...tracked,
-      stale: true,
-      needsAction: true,
-      severity: 'WARNING',
-      reasonText: warning.reasonText,
-      retrainRequestId: 'r1',
-    }
-    return vi.fn(async (url: string, init?: RequestInit) => {
-      const json = (data: unknown, ok = true, status = 200) =>
-        Promise.resolve({ ok, status, json: () => Promise.resolve(data) })
-      const u = String(url)
-      const method = init?.method ?? 'GET'
-      if (u.startsWith('/api/worker/guides/g1/complete')) {
-        return opts.completeOk === false
-          ? json({ error: 'COULD NOT COMPLETE' }, false, 400)
-          : json({ id: 'c1' }, true, 201)
-      }
-      if (u.startsWith('/api/worker/guide-retrain/r1') && method === 'PATCH') {
-        return opts.resolveOk === false
-          ? json({ error: 'Forbidden' }, false, 403)
-          : json({ id: 'r1', status: 'DONE' })
-      }
-      if (u.startsWith('/api/worker/guide-retrain') && method === 'POST') {
-        return opts.retrainOk === false
-          ? json({ error: 'NOPE' }, false, 422)
-          : json({ created: [{ id: 'r2' }], skipped: [] }, true, 201)
-      }
-      if (u.startsWith('/api/worker/guides')) {
-        return json({ staffId: 's1', firstName: 'ALEX', items: [flagged], reference: [] })
-      }
-      if (u.startsWith('/api/worker/pathway')) return json({ pathway: null })
-      if (u.startsWith('/api/worker/guide-warnings')) {
-        return json({
-          warnings: [warning],
-          folders: [],
-          staff: [{ id: 's1', name: 'SMITH, JANE' }],
-          guides: [{ id: 'g1', title: 'FOOD SAFETY BASICS', folderId: null }],
-          canViewAll: false,
-          canAssign: !!opts.canAssign,
-          retrainOptions: opts.canAssign
-            ? {
-                staff: [{ id: 's1', name: 'SMITH, JANE' }],
-                guides: [{ id: 'g1', title: 'FOOD SAFETY BASICS', folderId: null }],
-                folders: [],
-              }
-            : null,
-        })
-      }
-      return json(null)
-    })
-  }
-
-  it('lets the target worker self-complete AND clear their own request', async () => {
-    const spy = mockWarningActions()
-    globalThis.fetch = spy as unknown as typeof fetch
-    render(<WorkerGuidesClient />)
-
-    await waitFor(() => expect(screen.getByText('MARK RETRAINED')).toBeTruthy())
-    fireEvent.click(screen.getByText('MARK RETRAINED'))
-
-    await waitFor(() => {
-      expect(
-        spy.mock.calls.some(
-          (c) => String(c[0]).includes('/api/worker/guides/g1/complete') && c[1]?.method === 'POST',
-        ),
-      ).toBe(true)
-      const resolve = spy.mock.calls.find(
-        (c) => String(c[0]).includes('/api/worker/guide-retrain/r1') && c[1]?.method === 'PATCH',
-      )
-      expect(resolve).toBeDefined()
-      expect(JSON.parse((resolve![1] as RequestInit).body as string)).toEqual({ action: 'RESOLVE' })
-    })
-  })
-
-  it('surfaces a failed request clear instead of silently reloading', async () => {
-    globalThis.fetch = mockWarningActions({ resolveOk: false }) as unknown as typeof fetch
-    render(<WorkerGuidesClient />)
-
-    await waitFor(() => expect(screen.getByText('MARK RETRAINED')).toBeTruthy())
-    fireEvent.click(screen.getByText('MARK RETRAINED'))
-
-    await waitFor(() => expect(screen.getByText('FORBIDDEN')).toBeTruthy())
-  })
-
-  it('dismisses a request', async () => {
-    const spy = mockWarningActions({ canAssign: true })
-    globalThis.fetch = spy as unknown as typeof fetch
-    render(<WorkerGuidesClient />)
-
-    await waitFor(() => expect(screen.getByText('DISMISS')).toBeTruthy())
-    fireEvent.click(screen.getByText('DISMISS'))
-
-    await waitFor(() => {
-      const call = spy.mock.calls.find(
-        (c) => String(c[0]).includes('/api/worker/guide-retrain/r1') && c[1]?.method === 'PATCH',
-      )
-      expect(call).toBeDefined()
-      expect(JSON.parse((call![1] as RequestInit).body as string)).toEqual({ action: 'DISMISS' })
-    })
-  })
-
-  it('surfaces a failed dismiss', async () => {
-    globalThis.fetch = mockWarningActions({ canAssign: true, resolveOk: false }) as unknown as typeof fetch
-    render(<WorkerGuidesClient />)
-
-    await waitFor(() => expect(screen.getByText('DISMISS')).toBeTruthy())
-    fireEvent.click(screen.getByText('DISMISS'))
-
-    await waitFor(() => expect(screen.getByText('FORBIDDEN')).toBeTruthy())
-  })
-
-  it('marks someone for retraining from the warnings list', async () => {
-    const spy = mockWarningActions({ canAssign: true })
-    globalThis.fetch = spy as unknown as typeof fetch
-    render(<WorkerGuidesClient />)
-
-    await waitFor(() => expect(screen.getAllByText('MARK FOR RETRAINING').length).toBeGreaterThan(0))
-    fireEvent.click(screen.getAllByText('MARK FOR RETRAINING').at(-1)!)
-    await waitFor(() => expect(screen.getByText('MARK 1 FOR RETRAINING')).toBeTruthy())
-    fireEvent.click(screen.getByText('MARK 1 FOR RETRAINING'))
-
-    await waitFor(() => {
-      const post = spy.mock.calls.find(
-        (c) => String(c[0]).includes('/api/worker/guide-retrain') && c[1]?.method === 'POST',
-      )
-      expect(post).toBeDefined()
-      expect(JSON.parse((post![1] as RequestInit).body as string)).toMatchObject({
-        staffId: 's1',
-        guideIds: ['g1'],
-      })
-    })
-  })
-
-  it('surfaces a failed mark-for-retraining request', async () => {
-    globalThis.fetch = mockWarningActions({ canAssign: true, retrainOk: false }) as unknown as typeof fetch
-    render(<WorkerGuidesClient />)
-
-    await waitFor(() => expect(screen.getAllByText('MARK FOR RETRAINING').length).toBeGreaterThan(0))
-    fireEvent.click(screen.getAllByText('MARK FOR RETRAINING').at(-1)!)
-    await waitFor(() => expect(screen.getByText('MARK 1 FOR RETRAINING')).toBeTruthy())
-    fireEvent.click(screen.getByText('MARK 1 FOR RETRAINING'))
-
-    await waitFor(() => expect(screen.getByText('NOPE')).toBeTruthy())
+    fireEvent.click(screen.getByText('BIBLE'))
+    await waitFor(() => expect(screen.getByText('FOOD SAFETY BASICS')).toBeTruthy())
   })
 
   it('shows tracked guides and untracked reference guides in the bible', async () => {
