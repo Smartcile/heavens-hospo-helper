@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
+import { formatDate } from '@/lib/utils'
 import { Input } from '@/components/ui/Input'
 import {
   confirmedIssueSet,
@@ -29,7 +30,7 @@ type RowState = 'saving' | 'saved'
 function formatGeneratedAt(value: string): string {
   if (!value) return 'UNKNOWN'
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-NZ')
+  return Number.isNaN(date.getTime()) ? value : formatDate(date)
 }
 
 /**

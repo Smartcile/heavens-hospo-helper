@@ -207,4 +207,23 @@ describe('SettingsClient — worker session timeout', () => {
       expect(putBodies()).toContainEqual({ workerSessionTimeoutMinutes: null })
     )
   })
+
+  it('saves the staff comment-delete toggle from the roster availability block', async () => {
+    await renderSettings()
+
+    const toggle = screen.getByLabelText('Staff may delete their own availability comments')
+    expect(toggle.textContent).toBe('OFF')
+    fireEvent.click(toggle)
+    expect(toggle.textContent).toBe('ON')
+
+    const heading = screen.getByRole('heading', { name: 'ROSTER AVAILABILITY' })
+    const section = heading.closest('div') as HTMLElement
+    fireEvent.click(within(section).getByRole('button', { name: 'SAVE' }))
+
+    await waitFor(() =>
+      expect(putBodies()).toContainEqual(
+        expect.objectContaining({ staffCanDeleteAvailabilityComments: true })
+      )
+    )
+  })
 })

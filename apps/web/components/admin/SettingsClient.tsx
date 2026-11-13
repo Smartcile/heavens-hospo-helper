@@ -39,6 +39,7 @@ interface Venue {
   availabilityCutoff: unknown
   availabilityPresets: unknown
   workerSessionTimeoutMinutes: number | null
+  staffCanDeleteAvailabilityComments: boolean
   sharingEnabled: boolean
 }
 
@@ -147,6 +148,7 @@ export function SettingsClient({
   const [cutoffDay, setCutoffDay] = useState('4')
   const [cutoffTime, setCutoffTime] = useState('17:00')
   const [presets, setPresets] = useState<AvailabilityPreset[]>(() => resolveAvailabilityPresets(null))
+  const [staffCanDeleteComments, setStaffCanDeleteComments] = useState(false)
   const [lockSaving, setLockSaving] = useState(false)
   const [lockMessage, setLockMessage] = useState('')
 
@@ -236,6 +238,7 @@ export function SettingsClient({
     setCutoffDay(String(cutoff?.day ?? 4))
     setCutoffTime(cutoff?.time ?? '17:00')
     setPresets(resolveAvailabilityPresets(v.availabilityPresets))
+    setStaffCanDeleteComments(v.staffCanDeleteAvailabilityComments ?? false)
     setWorkerSessionMinutes(String(v.workerSessionTimeoutMinutes ?? 0))
     setSharingEnabled(v.sharingEnabled ?? false)
   }
@@ -525,6 +528,7 @@ export function SettingsClient({
         availabilityLockDays: Math.max(0, Math.floor(Number(lockDays) || 0)),
         availabilityCutoff: cutoffOn ? { day: Number(cutoffDay), time: cutoffTime } : null,
         availabilityPresets: presets,
+        staffCanDeleteAvailabilityComments: staffCanDeleteComments,
       }),
     })
     setLockSaving(false)
@@ -874,6 +878,23 @@ export function SettingsClient({
                 CHANGES AFTER {describeAvailabilityCutoff({ day: Number(cutoffDay), time: cutoffTime })} NEED MANAGER APPROVAL.
               </p>
             )}
+          </div>
+
+          <div className="border border-grey-mid p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-mono text-2xs uppercase text-grey-light tracking-wider">Staff may delete their own comments</div>
+              <button
+                type="button"
+                aria-label="Staff may delete their own availability comments"
+                onClick={() => setStaffCanDeleteComments(!staffCanDeleteComments)}
+                className={`font-mono text-xs uppercase px-3 py-1.5 border ${staffCanDeleteComments ? 'border-success text-success' : 'border-grey-mid text-grey-light'}`}
+              >
+                {staffCanDeleteComments ? 'ON' : 'OFF'}
+              </button>
+            </div>
+            <p className="font-mono text-2xs uppercase text-grey-light">
+              OFF (DEFAULT): ONLY MANAGERS CAN DELETE AVAILABILITY COMMENTS. WORKERS CAN STILL ADD THEM.
+            </p>
           </div>
 
           <div className="space-y-2">

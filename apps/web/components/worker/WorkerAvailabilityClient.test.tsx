@@ -369,14 +369,19 @@ describe('WorkerAvailabilityClient', () => {
     expect(screen.getByText(/REMOVE SERIES · FROM THIS DAY/)).toBeDefined()
   })
 
-  it('saves a note on a locked day through the notes-only PATCH', async () => {
+  it('adds an own comment on a locked day through the comment thread', async () => {
     useMonthView()
     const locked = {
       ...payload,
       entries: [{ ...payload.entries[0], lockedAt: '2026-10-20T01:00:00.000Z' }],
     }
-    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (_url: unknown, init?: RequestInit) => {
-      if (init?.method === 'PATCH') return { ok: true, status: 200, json: async () => ({ success: true, notes: 'CALLED IN' }) } as Response
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('/api/worker/availability/comments')) {
+        if (init?.method === 'POST') {
+          return { ok: true, status: 200, json: async () => ({ comment: { id: 'c1', body: 'CALLED IN', canDelete: false } }) } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ comments: [], canDelete: false }) } as Response
+      }
       return { ok: true, status: 200, json: async () => locked } as Response
     })
 
@@ -384,15 +389,21 @@ describe('WorkerAvailabilityClient', () => {
     await screen.findByText('MY AVAILABILITY')
     fireEvent.click(screen.getByText(String(parseDay(todayKey).getUTCDate())))
 
-    const note = await screen.findByPlaceholderText('NOTE FOR THE MANAGER (OPTIONAL)')
-    fireEvent.change(note, { target: { value: 'CALLED IN' } })
-    fireEvent.click(screen.getByText('SAVE NOTE'))
+    expect(screen.queryByPlaceholderText('NOTE FOR THE MANAGER (OPTIONAL)')).toBeNull()
+    const input = await screen.findByPlaceholderText('ADD A COMMENT')
+    fireEvent.change(input, { target: { value: '  CALLED IN  ' } })
+    fireEvent.click(screen.getByText('ADD'))
 
     await waitFor(() => {
-      const patch = spy.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'PATCH')
-      expect(patch).toBeDefined()
-      expect(String(patch![0])).toBe('/api/worker/availability/a1')
-      expect(JSON.parse((patch![1] as RequestInit).body as string)).toEqual({ notes: 'CALLED IN' })
+      const post = spy.mock.calls.find((c) =>
+        String(c[0]).includes('/api/worker/availability/comments') &&
+        (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(post).toBeDefined()
+      expect(JSON.parse((post![1] as RequestInit).body as string)).toEqual({
+        date: todayKey,
+        body: 'CALLED IN',
+        seriesId: null,
+      })
     })
   })
 

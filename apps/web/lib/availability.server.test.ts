@@ -16,6 +16,9 @@ const { db } = vi.hoisted(() => {
       findUnique: vi.fn(),
       update: vi.fn(),
     },
+    availabilityComment: {
+      findFirst: vi.fn(),
+    },
     venue: {
       findUnique: vi.fn(),
     },
@@ -63,6 +66,7 @@ beforeEach(() => {
   db.staffAvailability.createMany.mockResolvedValue({ count: 0 })
   db.availabilityEditRequest.create.mockResolvedValue({ id: 'req1' })
   db.availabilityEditRequest.findFirst.mockResolvedValue(null)
+  db.availabilityComment.findFirst.mockResolvedValue(null)
   db.venue.findUnique.mockResolvedValue({ timezone: 'Pacific/Auckland' })
   db.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(db))
 })
@@ -605,7 +609,7 @@ describe('availability notes', () => {
     expect(db.staffAvailability.updateMany.mock.calls[0][0].data.notes).toBe('NEED SUNDAY OFF')
   })
 
-  it('carries the note into an edit request and mirrors it as the reason', async () => {
+  it('does not use the day note as the request reason when there is no worker comment', async () => {
     db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
 
     const out = await saveAvailability(
@@ -616,7 +620,40 @@ describe('availability notes', () => {
     expect(out).toMatchObject({ mode: 'REQUEST', requestId: 'req1' })
     const data = db.availabilityEditRequest.create.mock.calls[0][0].data
     expect(data.payload.availability.notes).toBe('NEED SUNDAY OFF')
-    expect(data.reason).toBe('NEED SUNDAY OFF')
+    expect(data.reason).toBeNull()
+    expect(db.availabilityComment.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        staffId: 'st1',
+        date: day('2026-10-15'),
+        source: 'WORKER_APP',
+        deletedAt: null,
+      }),
+    }))
+  })
+
+  it('uses the newest WORKER_APP comment as the request reason', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+    db.availabilityComment.findFirst.mockResolvedValueOnce({ body: 'VIA TXT' })
+
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: rawNote, repeat: null, scope: null, seriesId: null, reason: null },
+      gate,
+    )
+
+    expect(out).toMatchObject({ mode: 'REQUEST', requestId: 'req1' })
+    expect(db.availabilityEditRequest.create.mock.calls[0][0].data.reason).toBe('VIA TXT')
+  })
+
+  it('keeps an explicit request reason ahead of the worker comment', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+
+    await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: rawNote, repeat: null, scope: null, seriesId: null, reason: 'SWAP' },
+      gate,
+    )
+
+    expect(db.availabilityEditRequest.create.mock.calls[0][0].data.reason).toBe('SWAP')
+    expect(db.availabilityComment.findFirst).not.toHaveBeenCalled()
   })
 
   it('writes the note on an admin override', async () => {

@@ -5,7 +5,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
 import { AvailabilityAdminClient } from '@/components/admin/AvailabilityAdminClient'
 import { DEFAULT_AVAILABILITY_PRESETS } from '@/lib/availability'
-import { localDayKey, mondayOf, shiftDay } from '@/lib/date-nav'
+import { formatDateDayDMY, localDayKey, mondayOf, shiftDay } from '@/lib/date-nav'
 
 const monday = mondayOf(localDayKey())
 
@@ -58,7 +58,7 @@ describe('AvailabilityAdminClient', () => {
     fireEvent.click(screen.getByText('OPEN →'))
 
     expect(screen.getByText(/TIME OFF — CHECK LEAVE PAY/)).toBeDefined()
-    expect(screen.getByText('NOTE: LEAVE')).toBeDefined()
+    expect(screen.getAllByText('COMMENTS').length).toBeGreaterThan(0)
     fireEvent.click(screen.getByText('CONFIRM'))
 
     await waitFor(() => {
@@ -127,11 +127,14 @@ describe('AvailabilityAdminClient', () => {
     await screen.findAllByText('TAYLOR REED')
     fireEvent.click(screen.getByText('OPEN →'))
 
+    // The request popup shows the weekday with a day-first DD-MM-YYYY date.
+    expect(screen.getByText(new RegExp(`${formatDateDayDMY(monday)} · JUST THIS DAY`))).toBeDefined()
     expect(screen.getByText('CURRENT DAY')).toBeDefined()
     expect(screen.getByText('PROPOSED')).toBeDefined()
     expect(screen.getAllByText('NOTE: OLD NOTE').length).toBeGreaterThan(0)
     expect(screen.getByText('NOTE: NEW NOTE')).toBeDefined()
-    expect(screen.getByText('WORKER: SWAPPED A SHIFT')).toBeDefined()
+    expect(screen.getAllByText('COMMENTS').length).toBeGreaterThan(0)
+    expect(await screen.findByText(/LEGACY REASON: SWAPPED A SHIFT/)).toBeDefined()
     expect(screen.getByText(/REPLACES THE CURRENT APPROVED DAY/)).toBeDefined()
   })
 
@@ -143,7 +146,7 @@ describe('AvailabilityAdminClient', () => {
     fireEvent.click(screen.getByText('OPEN →'))
     fireEvent.click(screen.getByText('OPEN / EDIT'))
 
-    expect(await screen.findByDisplayValue('LEAVE')).toBeDefined()
+    expect(await screen.findByText('COMMENTS')).toBeDefined()
     fireEvent.click(screen.getByText('SAVE'))
 
     await waitFor(() => {
@@ -176,7 +179,7 @@ describe('AvailabilityAdminClient', () => {
     fireEvent.click(screen.getByText('OPEN →'))
     fireEvent.click(screen.getByText('OPEN / EDIT PROPOSED'))
 
-    expect(await screen.findByDisplayValue('NEW NOTE')).toBeDefined()
+    expect(await screen.findByText('COMMENTS')).toBeDefined()
     fireEvent.click(screen.getByText('SAVE'))
 
     await waitFor(() => {
@@ -651,7 +654,7 @@ describe('AvailabilityAdminClient', () => {
     })
   })
 
-  it('saves a note on a locked day through the notes-only PATCH', async () => {
+  it('adds a comment on a locked day through the comment thread', async () => {
     const locked = {
       ...data,
       entries: [{
@@ -661,19 +664,36 @@ describe('AvailabilityAdminClient', () => {
       }],
       queue: { pending: [], requests: [] },
     }
-    const spy = mockFetch(locked)
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('/api/admin/availability/comments')) {
+        if (init?.method === 'POST') {
+          return { ok: true, status: 200, json: async () => ({ comment: { id: 'c1', body: 'AGREED ON THE PHONE', canDelete: true } }) } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ comments: [], canDelete: true }) } as Response
+      }
+      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({ success: true }) } as Response
+      return { ok: true, status: 200, json: async () => locked } as Response
+    })
     render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 
     await screen.findAllByText('TAYLOR REED')
     fireEvent.click(screen.getByText('00:00–24:00'))
-    const note = await screen.findByPlaceholderText('NOTE FOR THE MANAGER (OPTIONAL)')
-    fireEvent.change(note, { target: { value: '  AGREED ON THE PHONE  ' } })
-    fireEvent.click(screen.getByText('SAVE NOTE'))
+    const input = await screen.findByPlaceholderText('ADD A COMMENT')
+    fireEvent.change(input, { target: { value: '  AGREED ON THE PHONE  ' } })
+    fireEvent.click(screen.getByText('ADD'))
 
     await waitFor(() => {
-      const patch = spy.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'PATCH')
-      expect(patch).toBeDefined()
-      expect(JSON.parse((patch![1] as RequestInit).body as string)).toEqual({ notes: 'AGREED ON THE PHONE' })
+      const post = spy.mock.calls.find((c) =>
+        String(c[0]).includes('/api/admin/availability/comments') &&
+        (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(post).toBeDefined()
+      expect(JSON.parse((post![1] as RequestInit).body as string)).toEqual({
+        date: monday,
+        body: 'AGREED ON THE PHONE',
+        seriesId: null,
+        staffId: 'st1',
+        venueId: 'v1',
+      })
     })
   })
 
@@ -1075,7 +1095,7 @@ describe('AvailabilityAdminClient', () => {
     expect(screen.queryByText(/LOCK SELECTED/)).toBeNull()
   })
 
-  it('shows a review-note marker on the grid with the note as its title', async () => {
+  it('no longer renders the legacy review-note grid marker', async () => {
     mockFetch({
       ...data,
       entries: [{ ...avEntry('e1', monday), reviewNote: 'CALLED BACK' }],
@@ -1084,61 +1104,111 @@ describe('AvailabilityAdminClient', () => {
     render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 
     await screen.findAllByText('TAYLOR REED')
-    const marker = await screen.findByLabelText('Review note: CALLED BACK')
-    expect(marker.getAttribute('title')).toBe('CALLED BACK')
-    expect(marker.textContent).toContain('REVIEW')
+    expect(screen.queryByLabelText('Review note: CALLED BACK')).toBeNull()
   })
 
-  it('prefills the declaration review note and saves it without a verdict', async () => {
-    const withReview = {
-      ...data,
-      queue: {
-        pending: [{ ...data.queue.pending[0], reviewNote: 'EXISTING REVIEW' }],
-        requests: [],
-      },
-    }
-    const spy = mockFetch(withReview)
+  it('shows the comment thread on a declaration and adds a comment', async () => {
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('/api/admin/availability/comments')) {
+        if (init?.method === 'POST') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ comment: { id: 'c1', body: 'CALLED BACK', source: 'MANAGER', canDelete: true } }),
+          } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ comments: [], canDelete: true }) } as Response
+      }
+      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({ success: true }) } as Response
+      return { ok: true, status: 200, json: async () => ({ ...data, queue: { ...data.queue, requests: [] } }) } as Response
+    })
     render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 
     await screen.findAllByText('TAYLOR REED')
     fireEvent.click(screen.getByText('OPEN →'))
 
-    const input = screen.getByLabelText('Review note for declaration') as HTMLInputElement
-    expect(input.value).toBe('EXISTING REVIEW')
-    fireEvent.click(screen.getByText('SAVE NOTE'))
+    expect(screen.queryByLabelText('Review note for declaration')).toBeNull()
+    expect(screen.queryByLabelText('Worker note for declaration')).toBeNull()
+
+    const input = await screen.findByPlaceholderText('ADD A COMMENT')
+    fireEvent.change(input, { target: { value: '  CALLED BACK  ' } })
+    fireEvent.click(screen.getByText('ADD'))
 
     await waitFor(() => {
-      const post = spy.mock.calls.find((c) => String(c[0]).includes('/availability/review'))
+      const post = spy.mock.calls.find((c) =>
+        String(c[0]).includes('/api/admin/availability/comments') &&
+        (c[1] as RequestInit | undefined)?.method === 'POST')
       expect(post).toBeDefined()
       const body = JSON.parse((post![1] as RequestInit).body as string)
-      expect(body.action).toBe('NOTE')
-      expect(body.ids).toEqual(['p1'])
-      expect(body.reviewNote).toBe('EXISTING REVIEW')
+      expect(body).toEqual({ date: monday, body: 'CALLED BACK', seriesId: null, staffId: 'st1', venueId: 'v1' })
     })
   })
 
-  it('saves the worker note inline for every row in a declaration', async () => {
-    const p1 = { ...data.queue.pending[0], id: 'p1', seriesId: 's1', seriesEndDate: null }
+  it('posts a declaration comment to every day in the series', async () => {
+    const p1 = { ...data.queue.pending[0], id: 'p1', date: monday, seriesId: 's1', seriesEndDate: null }
     const p2 = { ...data.queue.pending[0], id: 'p2', date: shiftDay(monday, 7), seriesId: 's1', seriesEndDate: null }
-    const spy = mockFetch({ ...data, queue: { pending: [p1, p2], requests: [] } })
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('/api/admin/availability/comments')) {
+        if (init?.method === 'POST') {
+          return { ok: true, status: 200, json: async () => ({ comment: { id: 'c1', body: 'CALLED BACK', canDelete: true } }) } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ comments: [], canDelete: true, canAdd: true }) } as Response
+      }
+      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({ success: true }) } as Response
+      return { ok: true, status: 200, json: async () => ({ ...data, queue: { pending: [p1, p2], requests: [] } }) } as Response
+    })
     render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 
     await screen.findAllByText('TAYLOR REED')
     fireEvent.click(screen.getByText('OPEN →'))
 
-    const input = screen.getByLabelText('Worker note for declaration') as HTMLInputElement
-    expect(input.value).toBe('LEAVE')
-    fireEvent.change(input, { target: { value: 'NEW WORKER NOTE' } })
-    fireEvent.click(screen.getByText('SAVE WORKER NOTE'))
+    const input = await screen.findByPlaceholderText('ADD A COMMENT')
+    expect(screen.getByText(/ADD APPLIES THE COMMENT TO EVERY DAY/)).toBeDefined()
+    fireEvent.change(input, { target: { value: 'CALLED BACK' } })
+    fireEvent.click(screen.getByText('ADD'))
 
     await waitFor(() => {
-      const patches = spy.mock.calls.filter((c) =>
-        (c[1] as RequestInit | undefined)?.method === 'PATCH' &&
-        /\/api\/admin\/availability\/(p1|p2)$/.test(String(c[0])))
-      expect(patches).toHaveLength(2)
-      for (const patch of patches) {
-        expect(JSON.parse((patch[1] as RequestInit).body as string)).toEqual({ notes: 'NEW WORKER NOTE' })
+      const posts = spy.mock.calls.filter((c) =>
+        String(c[0]).includes('/api/admin/availability/comments') &&
+        (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(posts).toHaveLength(2)
+      const dates = posts.map((p) => JSON.parse((p[1] as RequestInit).body as string).date).sort()
+      expect(dates).toEqual([monday, shiftDay(monday, 7)].sort())
+    })
+  })
+
+  it('deletes a comment from the declaration thread when the server allows it', async () => {
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('/api/admin/availability/comments')) {
+        if (init?.method === 'DELETE') return { ok: true, status: 200, json: async () => ({ success: true }) } as Response
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            comments: [{
+              id: 'c1', body: 'OLD NOTE', source: 'WORKER_APP', authorId: 'st1',
+              authorName: 'TAYLOR REED', createdAt: '2026-11-12T01:00:00.000Z', canDelete: true,
+            }],
+            canDelete: true,
+          }),
+        } as Response
       }
+      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({ success: true }) } as Response
+      return { ok: true, status: 200, json: async () => ({ ...data, queue: { ...data.queue, requests: [] } }) } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+
+    fireEvent.click(await screen.findByLabelText('Delete comment c1'))
+
+    await waitFor(() => {
+      const del = spy.mock.calls.find((c) =>
+        String(c[0]).includes('/api/admin/availability/comments') &&
+        (c[1] as RequestInit | undefined)?.method === 'DELETE')
+      expect(del).toBeDefined()
+      expect(JSON.parse((del![1] as RequestInit).body as string)).toEqual({ id: 'c1', venueId: 'v1' })
     })
   })
 })
