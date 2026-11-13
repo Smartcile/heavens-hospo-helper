@@ -23,6 +23,7 @@ interface Venue {
 interface FtpSettings {
   contactEmail: string | null
   kioskEnabled: boolean
+  kioskRequireCode: boolean
   kioskCodeHint: string | null
   kioskAutoResetSeconds: number
   fourHourName: string
@@ -43,6 +44,7 @@ interface FtpData {
 const EMPTY: FtpSettings = {
   contactEmail: null,
   kioskEnabled: false,
+  kioskRequireCode: false,
   kioskCodeHint: null,
   kioskAutoResetSeconds: DEFAULT_KIOSK_RESET_SECONDS,
   fourHourName: DEFAULT_FOUR_HOUR_NAME,
@@ -236,6 +238,23 @@ export function FtpSettingsClient({
                 ENABLE 90 MINUTE PARKING FIRST.
               </p>
             )}
+
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.kioskRequireCode}
+                onChange={(e) => patch('kioskRequireCode', e.target.checked)}
+                disabled={!form.kioskCodeHint}
+                className="h-4 w-4 accent-white"
+              />
+              <span className="font-mono text-xs uppercase text-white">REQUIRE KIOSK CODE</span>
+            </label>
+            <p className="font-mono text-2xs uppercase text-grey-light">
+              {form.kioskRequireCode
+                ? 'THE iPAD ASKS FOR THE CODE BEFORE THE PLATE SCREEN.'
+                : 'THE KIOSK OPENS DIRECTLY — NO CODE NEEDED.'}
+              {!form.kioskCodeHint ? ' SET A CODE FIRST TO TURN THIS ON.' : ''}
+            </p>
 
             <div className="grid gap-3 md:grid-cols-2">
               <Input

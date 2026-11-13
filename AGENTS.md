@@ -1932,18 +1932,22 @@ and FILES). The tab is visible to ADMIN + MANAGER; the **kiosk code** section is
 ADMIN-only. `FtpSettings` is one row per venue (`@@unique([venueId])`).
 
 **Customer kiosk (`/park`, public).**
-- A small **car icon** on the landing page (`/`) opens `/park`; the iPad is
-  unlocked once with a random kiosk code set in Settings → FTP. The code is
-  stored as a **sha256 hash** (`kioskCodeHash`) and the raw value is shown only
-  once when set/rotated. The signed HTTP-only cookie
-  (`hospo-parking-kiosk`, 30 days, JWT via `lib/parking-kiosk.server.ts`)
-  carries `venueId` + the current `codeHash`, so **rotating the code invalidates
-  every iPad**.
+- A small **car icon** on the landing page (`/`) opens `/park`. The kiosk code is
+  **opt-in** (`FtpSettings.kioskRequireCode`, default **OFF**): with it off the
+  page resolves the venue from `?venue=` (the COPY URL) or the most recently
+  updated open kiosk and goes straight to the plate screen. With it on, the iPad
+  is unlocked once with a random code. The code is stored as a **sha256 hash**
+  (`kioskCodeHash`) and the raw value is shown only once when set/rotated. The
+  signed HTTP-only cookie (`hospo-parking-kiosk`, 30 days, JWT via
+  `lib/parking-kiosk.server.ts`) carries `venueId` + the current `codeHash`, so
+  **rotating the code invalidates every iPad**. Requiring the code without
+  setting one returns 422.
 - The customer flow uses a **custom on-screen keypad** (`PlateKeypad`), not a
   native input: no autocorrect and the layout never jumps. Plate boxes are 1–6
-  alphanumeric. Register calls `POST /api/public/parking/kiosk/register` with
-  the cookie, reuses `registerParking`, and **writes nothing to the database** —
-  the plate lives only in memory and in Scan2Pay's session.
+  alphanumeric. Register calls `POST /api/public/parking/kiosk/register` with the
+  session cookie (or `venueId` when the code is off), reuses `registerParking`,
+  and **writes nothing to the database** — the plate lives only in memory and in
+  Scan2Pay's session.
 - Result: big plate, `FREE PARKING UNTIL HH:MM` (or `ALREADY REGISTERED` with the
   existing expiry), a **large QR code** for the Scan2Pay `SelectTime` URL
   (“SCAN ME WITH YOUR PHONE CAMERA TO VIEW OR EXTEND”), and a **visible
@@ -1951,8 +1955,9 @@ ADMIN-only. `FtpSettings` is one row per venue (`@@unique([venueId])`).
   plate/QR/result are wiped and the entry screen returns.
 - Always-present **SPEAK WITH STAFF** opens `KioskStaffSheet`: the plate, end
   time, QR/open link, and the only exit. **EXIT KIOSK** requires a **5-second
-  hold**, then the kiosk code; 5 wrong codes lock for 60 seconds. Exiting clears
-  the cookie. Settings recommends iPad **Guided Access** as the outer lock.
+  hold**; with the code on it then asks for the code (5 wrong codes lock for 60
+  seconds), with the code off the hold reveals an EXIT KIOSK button. Settings
+  recommends iPad **Guided Access** as the outer lock.
 - The kiosk shows `90 MINUTE` and `4 HOUR` tabs; 4 HOUR is visibly disabled
   (“SOON”) until `fourHourEnabled` + a URL are saved.
 - `/park/layout.tsx` is `force-dynamic`, `noindex`, fixed full-screen, and the
@@ -1994,7 +1999,7 @@ routes).
 |---|---|---|
 | `/api/public/parking/kiosk/unlock` | POST | Verify the kiosk code, set the signed cookie |
 | `/api/public/parking/kiosk/lock` | POST | Verify the code again and clear the cookie (exit) |
-| `/api/public/parking/kiosk/register` | POST | Register a plate for the kiosk (cookie-gated, no DB write) |
+| `/api/public/parking/kiosk/register` | POST | Register a plate (session cookie, or `venueId` when the code is off; no DB write) |
 | `/api/admin/parking/ftp` | GET, PUT | Read/save the FTP settings |
 | `/api/admin/parking/ftp/kiosk-code` | POST | Mint/rotate the kiosk code (ADMIN only; raw shown once) |
 | `/api/admin/parking/staff-plates` | GET | Requests + plates + counts for the admin list |
@@ -4067,8 +4072,8 @@ pre-flight.
 | `app/api/cron/parking-health/route.test.ts` — CRON_SECRET auth, summary counts, `?force=1` | ✅ (3 tests) |
 | `app/api/public/parking/kiosk/unlock/route.test.ts` — short code, wrong code, parking disabled, success cookie | ✅ (4 tests) |
 | `app/api/public/parking/kiosk/lock/route.test.ts` — no session, wrong code, correct code clears | ✅ (3 tests) |
-| `app/api/public/parking/kiosk/register/route.test.ts` — locked/rotated, plate validation, success + QR, no DB write, ALREADY_ACTIVE, upstream failure | ✅ (6 tests) |
-| `app/api/admin/parking/ftp/route.test.ts` — auth, defaults, manager lock, email/4h validation, kiosk requires parking, save | ✅ (9 tests) |
+| `app/api/public/parking/kiosk/register/route.test.ts` — open mode without a session, code-required/rotated, plate validation, success + QR, no DB write, ALREADY_ACTIVE, upstream failure | ✅ (8 tests) |
+| `app/api/admin/parking/ftp/route.test.ts` — auth, defaults, manager lock, email/4h validation, kiosk requires parking, require-code needs a code, save | ✅ (10 tests) |
 | `app/api/admin/parking/ftp/kiosk-code/route.test.ts` — admin-only, hashed code once, venue selection | ✅ (3 tests) |
 | `app/api/admin/parking/staff-plates/route.test.ts` — auth, lists + counts, manager venue lock | ✅ (2 tests) |
 | `app/api/admin/parking/staff-plates/[id]/review/route.test.ts` — 404/403, invalid action, double review 409, reject, approve replaces plate | ✅ (6 tests) |

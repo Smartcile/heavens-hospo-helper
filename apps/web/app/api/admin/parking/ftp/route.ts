@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
       carparkName: parking?.carparkName ?? null,
       durationMinutes: parking?.durationMinutes ?? 90,
     },
-    kioskUrl: kioskUrlFor(appUrl()),
+    kioskUrl: kioskUrlFor(appUrl(), scoped.venueId),
   })
 }
 
@@ -63,6 +63,19 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  if (input.value.kioskRequireCode) {
+    const existing = await prisma.ftpSettings.findUnique({
+      where: { venueId: scoped.venueId },
+      select: { kioskCodeHash: true },
+    })
+    if (!existing?.kioskCodeHash) {
+      return NextResponse.json(
+        { error: 'SET A KIOSK CODE BEFORE REQUIRING IT' },
+        { status: 422 },
+      )
+    }
+  }
+
   const data = { ...input.value, deletedAt: null }
   const row = await prisma.ftpSettings.upsert({
     where: { venueId: scoped.venueId },
@@ -72,6 +85,6 @@ export async function PUT(req: NextRequest) {
 
   return NextResponse.json({
     settings: ftpSettingsView(row),
-    kioskUrl: kioskUrlFor(appUrl()),
+    kioskUrl: kioskUrlFor(appUrl(), scoped.venueId),
   })
 }

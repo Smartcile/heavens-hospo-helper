@@ -4651,6 +4651,9 @@ model FtpSettings {
   // Customer kiosk (public /park). The code is stored hashed (sha256) and the
   // raw value is only ever shown once when it is set or rotated.
   kioskEnabled              Boolean   @default(false)
+  // OFF by default: the kiosk opens straight to the plate screen. Turn this on
+  // to require the kiosk code on the iPad.
+  kioskRequireCode          Boolean   @default(false)
   kioskCodeHash             String?
   kioskCodeHint             String?
   kioskAutoResetSeconds     Int       @default(60)

@@ -53,6 +53,7 @@ describe('normaliseFtpInput', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.value.contactEmail).toBeNull()
+    expect(result.value.kioskRequireCode).toBe(false)
     expect(result.value.kioskAutoResetSeconds).toBe(DEFAULT_KIOSK_RESET_SECONDS)
     expect(result.value.fourHourName).toBe(DEFAULT_FOUR_HOUR_NAME)
     expect(result.value.fourHourDurationMinutes).toBe(DEFAULT_FOUR_HOUR_MINUTES)
@@ -74,6 +75,7 @@ describe('normaliseFtpInput', () => {
     const result = normaliseFtpInput({
       contactEmail: ' carpark@venue.nz ',
       kioskEnabled: true,
+      kioskRequireCode: true,
       kioskAutoResetSeconds: 45,
       fourHourName: ' long stay ',
       fourHourEnabled: true,
@@ -88,6 +90,7 @@ describe('normaliseFtpInput', () => {
     expect(result.value).toMatchObject({
       contactEmail: 'carpark@venue.nz',
       kioskEnabled: true,
+      kioskRequireCode: true,
       kioskAutoResetSeconds: 45,
       fourHourName: 'LONG STAY',
       fourHourEnabled: true,
@@ -103,6 +106,7 @@ describe('ftpSettingsView', () => {
   it('fills defaults for a missing row', () => {
     expect(ftpSettingsView(null)).toMatchObject({
       kioskEnabled: false,
+      kioskRequireCode: false,
       kioskAutoResetSeconds: DEFAULT_KIOSK_RESET_SECONDS,
       fourHourName: DEFAULT_FOUR_HOUR_NAME,
       staffParkingEnabled: false,
@@ -113,6 +117,7 @@ describe('ftpSettingsView', () => {
 describe('kioskUrlFor', () => {
   it('builds /park and strips a trailing slash', () => {
     expect(kioskUrlFor('https://venue.nz/')).toBe('https://venue.nz/park')
+    expect(kioskUrlFor('https://venue.nz/', 'v1')).toBe('https://venue.nz/park?venue=v1')
     expect(kioskUrlFor(undefined)).toBe('http://localhost:3000/park')
   })
 })
