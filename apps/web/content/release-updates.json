@@ -1,6 +1,6 @@
 {
   "version": "1022",
-  "generatedAt": "2026-11-12T11:27:56.006Z",
+  "generatedAt": "2026-11-14T10:42:39.702Z",
   "repo": "Smartcile/heavens-hospo-helper",
   "issues": [
     {
@@ -1048,7 +1048,83 @@
       "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/146",
       "closedAt": null,
       "labels": [
-        "enhancement"
+        "enhancement",
+        "agent:planned"
+      ]
+    },
+    {
+      "number": 152,
+      "title": "[AVAILABILITY] Weekday on requests, DD-MM-YYYY dates, comment threads",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/152",
+      "closedAt": "2026-11-13T08:33:06Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 153,
+      "title": "[AVAILABILITY] Default worker availability edits to a single day",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/153",
+      "closedAt": "2026-11-13T06:49:16Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 154,
+      "title": "[GUIDES] Separate the worker guides bible from training status",
+      "state": "CLOSED",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/154",
+      "closedAt": "2026-11-13T06:49:50Z",
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
+      ]
+    },
+    {
+      "number": 157,
+      "title": "[AVAILABILITY] Flag requests inside the current week or past cut-off",
+      "state": "OPEN",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/157",
+      "closedAt": null,
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:working"
+      ]
+    },
+    {
+      "number": 159,
+      "title": "[AVAILABILITY] Stop APPLY silently skipping locked days",
+      "state": "OPEN",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/159",
+      "closedAt": null,
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:working"
+      ]
+    },
+    {
+      "number": 162,
+      "title": "[AVAILABILITY] Unlock series days when editing/deleting a locked series",
+      "state": "OPEN",
+      "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/162",
+      "closedAt": null,
+      "labels": [
+        "agent:planned",
+        "agent:approved",
+        "agent:working"
       ]
     }
   ]
