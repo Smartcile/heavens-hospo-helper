@@ -86,7 +86,11 @@ describe('GET /api/admin/availability (off-range edit requests)', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-11-08T20:00:00Z')) // 09:00 on the 9th in Auckland
     try {
-      db.venue.findUnique.mockResolvedValue({ availabilityPresets: null, timezone: 'Pacific/Auckland' })
+      db.venue.findUnique.mockResolvedValue({
+        availabilityPresets: null,
+        availabilityCutoff: { day: 4, time: '17:00' },
+        timezone: 'Pacific/Auckland',
+      })
       db.staff.findMany.mockResolvedValue([])
       db.position.findMany.mockResolvedValue([])
       db.staffAvailability.findMany.mockResolvedValue([])
@@ -100,6 +104,9 @@ describe('GET /api/admin/availability (off-range edit requests)', () => {
       expect(res.status).toBe(200)
       // UTC is still 2026-11-08; the venue day is 2026-11-09.
       expect(body.today).toBe('2026-11-09')
+      // The cut-off warning uses the same venue-local clock (09:00 = 540 min).
+      expect(body.cutoff).toEqual({ day: 4, time: '17:00' })
+      expect(body.nowMinutes).toBe(540)
     } finally {
       vi.useRealTimers()
     }

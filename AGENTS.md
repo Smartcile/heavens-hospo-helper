@@ -674,7 +674,8 @@ its stored plan. FILTER STAFF narrows the grid only (never the approvals queue)
 and groups with no matching staff are hidden. Notes show on worker month/week
 cells, the admin grid, edit-request previews and worker pending-request cards.
 Routes: `/api/admin/availability` (+ `/clear`, `/review` incl. `NOTE`, `/[id]`
-PATCH notes/reviewNote/lock, `/requests/[id]`), `/api/worker/availability`
+PATCH notes/reviewNote/lock, `/requests/[id]`, `/delete-series`,
+`/unlock-series`), `/api/worker/availability`
 (`/[id]` PATCH notes;
 the worker `/clear` and `/[id]` DELETE both return 403 — clearing is a manager
 action — plus `/requests/[id]`). Guards:
@@ -705,6 +706,15 @@ auto-approved pure-AVAILABLE worker saves never lock. A locked day:
 The shared `AvailabilityDayEditor` renders locked days read-only for admins
 (`LOCKED — UNLOCK TO EDIT`, `UNLOCK`, comments still writable) and lets workers
 submit a change request (`SEND CHANGE REQUEST`).
+
+**UNLOCK SERIES (#162).** A series day also offers **`UNLOCK SERIES`** (ADMIN or
+`team.availability.edit`). It opens a per-date review list (every occurrence,
+with `N OF M DAYS LOCKED`) and clears the lock on the selected dates — default
+all locked dates, with `SELECT ALL` / `CLEAR` to exclude a stray day. It only
+touches rows with that exact `seriesId`, so a day detached with a THIS edit
+(`seriesId: null`) keeps its own manual lock. `GET
+/api/admin/availability/unlock-series` returns the review list; `POST` unlocks
+the whole series (or the subset sent as `dates`).
 
 **Legacy review notes (#61).** `StaffAvailability.reviewNote` and
 `AvailabilityEditRequest.reviewNote` are historical columns. The old separate
@@ -807,17 +817,25 @@ plain `addWindow` would silently no-op) gains an editable row. A non-normalised
 split is edited through `addWindow`, so moving the new row's edge opens a real
 gap that persists instead of merging straight back.
 
-**Popup has no CLEAR; ADMIN series delete.** The day editor
+**Popup has no CLEAR; series actions.** The day editor
 (`AvailabilityDayEditor`) no longer renders a CLEAR button (worker or admin) —
 clearing is main-screen only (`SELECT DAYS` → `CLEAR SELECTED (n)`). A series day
-gets **`DELETE SERIES`** for **ADMIN** only, opening a warning modal with
-`JUST THIS DAY` / `FROM THIS DAY ONWARDS` / `WHOLE SERIES`. It posts to
-`POST /api/admin/availability/delete-series` (strict ADMIN; reuses
-`clearAvailability` with `bypass`, soft-deletes), skips locked days (reported as
-`skipped`) and dismisses pending `AvailabilityEditRequest` rows for the removed
-dates. Managers keep the grid clear; the old `/clear` route is unchanged. The
+gets **`UNLOCK SERIES`** and **`DELETE SERIES`** (ADMIN or
+`team.availability.edit`). DELETE uses the same per-date review modal and keeps
+`JUST THIS DAY` / `FROM THIS DAY ONWARDS` / `WHOLE SERIES`; the dates the
+manager selected are sent as `unlockDates`, so **UNLOCK & DELETE** actually
+removes them instead of silently skipping. It posts to
+`POST /api/admin/availability/delete-series` (reuses `clearAvailability` with
+`bypass`, soft-deletes), still reports any locked day the manager did **not**
+select in `skipped`, and dismisses pending `AvailabilityEditRequest` rows for
+the removed dates. Nothing is unlocked unless the client sends `unlockDates`.
+Managers keep the grid clear; the old `/clear` route is unchanged. The
 admin review card labels a CLEAR request by its scope — `CLEAR THIS DAY` /
-`REMOVE SERIES FROM THIS DAY` / `REMOVE WHOLE SERIES`.
+`REMOVE SERIES FROM THIS DAY` / `REMOVE WHOLE SERIES`. A pending request whose
+target days are still locked shows **`UNLOCK & APPLY`**: it unlocks those dates
+(series via `/unlock-series`, a detached day via the `/[id]` lock PATCH) and then
+applies the request, so an accepted request really happens; if the apply still
+returns 409 the request stays pending.
 
 The worker view
 defaults to **WEEKLY** and remembers the toggle in
@@ -839,6 +857,16 @@ an `AvailabilityEditRequest` even when no protected row is touched
 `planPastCutoff` gate check (gate carries `cutoff` + venue-local `nowMinutes`).
 The worker GET returns `cutoff` and the phone shows a deadline banner. Admin
 writes bypass it.
+
+**Cut-off warning chips (#157, warning only).** The admin GET also returns
+`cutoff` and `nowMinutes` (venue-local, from the shared `venueNow` clock). For
+every pending declaration and edit request `requestCutoffState(...)` marks
+`PAST_CUTOFF` or `CURRENT_WEEK` and the queue shows a compact chip plus a
+"CHECK THE ROSTER BEFORE APPLYING" strip. It is advisory only — APPLY / CONFIRM
+are never blocked and server behaviour is unchanged. (`cutoffDeadlineKey` puts a
+week's deadline in the previous week, so the calendar week containing today is
+always past its own deadline; `CURRENT_WEEK` therefore flags the upcoming
+Monday–Sunday week that is actually being rostered.)
 
 **Worker session timeout** — `Venue.workerSessionTimeoutMinutes Int? @default(15)`
 is the phone inactivity limit, set in Settings → GENERAL → WORKER SESSION
