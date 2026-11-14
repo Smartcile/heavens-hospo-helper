@@ -83,10 +83,13 @@ export async function POST(req: NextRequest) {
 
   // Confirming a declaration covers any pending request whose whole target set
   // now sits inside the confirmed dates — otherwise confirming would silently
-  // orphan the request in the queue. Partial overlaps stay PENDING.
+  // orphan the request in the queue. Only genuinely APPROVED rows count:
+  // a DECLINED occurrence in the same series is not evidence that covers it.
+  // Partial overlaps stay PENDING.
+  let superseded = 0
   if (approve) {
     const confirmed = await prisma.staffAvailability.findMany({
-      where: { ...where, venueId, deletedAt: null },
+      where: { ...where, venueId, deletedAt: null, status: 'APPROVED' },
       select: { staffId: true, date: true },
     })
     const byStaff = new Map<string, string[]>()
@@ -96,9 +99,9 @@ export async function POST(req: NextRequest) {
       byStaff.set(row.staffId, dates)
     }
     for (const [staffId, dates] of byStaff) {
-      await supersedeRequestsCoveredBy({ staffId, venueId, dates, actorId: session.user.id })
+      superseded += await supersedeRequestsCoveredBy({ staffId, venueId, dates, actorId: session.user.id })
     }
   }
 
-  return NextResponse.json({ updated: result.count })
+  return NextResponse.json({ updated: result.count, superseded })
 }

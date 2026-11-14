@@ -684,6 +684,22 @@ describe('apply-time guard', () => {
     expect(db.availabilityEditRequest.update).not.toHaveBeenCalled()
   })
 
+  it('reports RESOLVED (not PAST) when the plan targets no dates at all', async () => {
+    db.availabilityEditRequest.findUnique.mockResolvedValueOnce(pendingSet({
+      payload: {
+        action: 'SET', anchor: '2026-10-15', scope: 'THIS', availability: payload,
+        writeDates: [], removeDates: [], seriesId: null,
+        syncSeriesId: null, seriesEndDate: null, syncSeriesEnd: false,
+      },
+    }))
+
+    const out = await applyEditRequest('r1', 'admin1', null, { todayKey: '2026-10-08' })
+
+    expect(out).toEqual({ applied: false, reason: 'RESOLVED', skipped: [], wrote: 0 })
+    expect(db.staffAvailability.findMany).not.toHaveBeenCalled()
+    expect(db.availabilityEditRequest.update).not.toHaveBeenCalled()
+  })
+
   it('locks a single-day THIS apply', async () => {
     db.availabilityEditRequest.findUnique.mockResolvedValueOnce(pendingSet())
     db.staffAvailability.findMany.mockResolvedValueOnce([])
@@ -1008,6 +1024,27 @@ describe('saveAvailability lock rule', () => {
     const data = db.staffAvailability.updateMany.mock.calls[0][0].data
     expect(data.lockedAt).toBeNull()
     expect(data.lockedById).toBeNull()
+  })
+
+  it('does not lock a FROM override even when it has one remaining occurrence', async () => {
+    const fixture = [
+      { date: day('2026-10-15'), seriesEndDate: day('2026-10-29') },
+      { date: day('2026-10-22'), seriesEndDate: day('2026-10-29') },
+      { date: day('2026-10-29'), seriesEndDate: day('2026-10-29') },
+    ]
+    db.staffAvailability.findMany.mockResolvedValueOnce(fixture)
+
+    await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-29', raw: payload, repeat: null, scope: 'FROM', seriesId: 's1', reason: null, lockById: 'admin1', lockReason: null },
+      adminGate,
+    )
+
+    // Exactly one date is written, but the scope is FROM — a series edit must
+    // never stamp a lock.
+    const writeCall = db.staffAvailability.updateMany.mock.calls[0][0]
+    expect(writeCall.where.date.in).toEqual([day('2026-10-29')])
+    expect(writeCall.data.lockedAt).toBeNull()
+    expect(writeCall.data.lockedById).toBeNull()
   })
 })
 

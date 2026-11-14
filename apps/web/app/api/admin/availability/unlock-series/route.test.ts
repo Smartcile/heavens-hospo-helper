@@ -88,6 +88,14 @@ describe('GET /api/admin/availability/unlock-series', () => {
     const res = await GET(makeReq(getUrl))
     expect(res.status).toBe(404)
   })
+
+  it('forbids an ADMIN from a venue they cannot access', async () => {
+    const res = await GET(makeReq(
+      'http://localhost/api/admin/availability/unlock-series?staffId=st1&seriesId=s1&venueId=v2',
+    ))
+    expect(res.status).toBe(403)
+    expect(db.staffAvailability.findMany).not.toHaveBeenCalled()
+  })
 })
 
 describe('POST /api/admin/availability/unlock-series', () => {
@@ -127,6 +135,23 @@ describe('POST /api/admin/availability/unlock-series', () => {
   it('returns 400 for a malformed date', async () => {
     const res = await POST(makeReq(getUrl, { staffId: 'st1', venueId: 'v1', seriesId: 's1', dates: ['nope'] }))
     expect(res.status).toBe(400)
+    expect(unlockSeriesAvailability).not.toHaveBeenCalled()
+  })
+
+  it('returns 400 for an explicit empty date list (distinct from an omitted one)', async () => {
+    const res = await POST(makeReq(getUrl, { staffId: 'st1', venueId: 'v1', seriesId: 's1', dates: [] }))
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({
+      error: 'PICK AT LEAST ONE DAY OR OMIT DATES TO UNLOCK THE WHOLE SERIES',
+    })
+    expect(unlockSeriesAvailability).not.toHaveBeenCalled()
+  })
+
+  it('forbids an ADMIN from a venue they cannot access', async () => {
+    const res = await POST(makeReq(getUrl, { staffId: 'st1', venueId: 'v2', seriesId: 's1' }))
+
+    expect(res.status).toBe(403)
     expect(unlockSeriesAvailability).not.toHaveBeenCalled()
   })
 

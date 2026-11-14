@@ -161,7 +161,8 @@ describe('AvailabilityAdminClient', () => {
     expect(screen.getByText('LOCKED — UNLOCK FIRST BEFORE APPLYING')).toBeDefined()
   })
 
-  it('only lists people who have pending items', async () => {    const withIdleStaff = {
+  it('only lists people who have pending items', async () => {
+    const withIdleStaff = {
       ...data,
       staff: [
         { id: 'st1', firstName: 'TAYLOR', lastName: 'REED', employmentType: 'CASUAL' },
@@ -271,6 +272,51 @@ describe('AvailabilityAdminClient', () => {
       const body = JSON.parse((mark![1] as RequestInit).body as string)
       expect(body.action).toBe('MARK_APPLIED')
     })
+  })
+
+  it('does not retire the request when a save skips locked days', async () => {
+    const requestOnly = {
+      ...data,
+      queue: {
+        pending: [],
+        requests: [{
+          ...data.queue.requests[0],
+          payload: { availability: { isAllDay: true, type: 'AVAILABLE', windows: [], timeOff: false, notes: 'NEW NOTE' } },
+        }],
+      },
+    }
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).endsWith('/api/admin/availability') && init?.method === 'POST') {
+        return { ok: true, status: 200, json: async () => ({ mode: 'SAVED', saved: [], skipped: ['2026-10-22'] }) } as Response
+      }
+      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({ success: true }) } as Response
+      return { ok: true, status: 200, json: async () => requestOnly } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(screen.getByText('OPEN / EDIT PROPOSED'))
+    fireEvent.click(await screen.findByText('SAVE'))
+
+    expect(await screen.findByText('1 LOCKED DAY(S) SKIPPED — UNLOCK SERIES FIRST')).toBeDefined()
+    expect(spy.mock.calls.some((c) => String(c[0]).includes('/requests/req1'))).toBe(false)
+  })
+
+  it('shows a notice when confirming supersedes pending requests', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('/api/admin/availability/review') && init?.method === 'POST') {
+        return { ok: true, status: 200, json: async () => ({ updated: 1, superseded: 2 }) } as Response
+      }
+      return { ok: true, status: 200, json: async () => data } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(screen.getByText('CONFIRM'))
+
+    expect((await screen.findAllByText('2 PENDING REQUESTS SUPERSEDED')).length).toBeGreaterThan(0)
   })
 
   it('applies an old CLEAR request from the queue', async () => {

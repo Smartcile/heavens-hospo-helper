@@ -668,6 +668,8 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
 
   async function review(kind: 'ids' | 'series', ids: string[], staffId: string, seriesId: string | null, action: 'APPROVE' | 'DECLINE' | 'DELETE') {
     setBusy(true)
+    setError('')
+    setNotice('')
     const body: Record<string, unknown> = { venueId, action, reviewNote: null }
     if (kind === 'series' && seriesId) { body.seriesId = seriesId; body.staffId = staffId }
     else body.ids = ids
@@ -678,6 +680,10 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
     })
     setBusy(false)
     if (!r.ok) { const d = await r.json().catch(() => ({})); setError((d.error ?? 'REVIEW FAILED').toUpperCase()); return }
+    const d = await r.json().catch(() => ({})) as { superseded?: number }
+    if (typeof d.superseded === 'number' && d.superseded > 0) {
+      setNotice(`${d.superseded} PENDING REQUEST${d.superseded === 1 ? '' : 'S'} SUPERSEDED`)
+    }
     load(true)
   }
 
@@ -841,6 +847,18 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
       setBusy(false)
       const d = await r.json().catch(() => ({}))
       setError((d.error ?? 'SAVE FAILED').toUpperCase())
+      return
+    }
+    const out = await r.json().catch(() => ({})) as { skipped?: unknown }
+    const skipped = Array.isArray(out.skipped) ? out.skipped : []
+    if (skipped.length > 0) {
+      // The partial save already happened, but the locked days were not
+      // written. Do NOT retire the request — it must stay PENDING so those
+      // days are not silently treated as applied.
+      setBusy(false)
+      setEditor(null)
+      setNotice(`${skipped.length} LOCKED DAY(S) SKIPPED — UNLOCK SERIES FIRST`)
+      load(true)
       return
     }
     if (target.requestId) {

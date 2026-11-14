@@ -131,4 +131,25 @@ describe('POST /api/admin/availability/review APPROVE lock rule', () => {
     expect(data).not.toHaveProperty('lockedAt')
     expect(supersedeRequestsCoveredBy).not.toHaveBeenCalled()
   })
+
+  it('only supersedes on APPROVED dates, never a DECLINED occurrence in the series', async () => {
+    // The series has an APPROVED day and a DECLINED day. The confirmed query
+    // asks for APPROVED rows only, so the declined date cannot cover a request.
+    db.staffAvailability.findMany.mockResolvedValueOnce([
+      { staffId: 'st1', date: new Date('2026-10-15T00:00:00Z') },
+    ])
+    supersedeRequestsCoveredBy.mockResolvedValue(2)
+
+    const res = await POST(req({ action: 'APPROVE', seriesId: 's1', staffId: 'st1' }))
+
+    expect(db.staffAvailability.findMany.mock.calls[0][0].where).toMatchObject({ status: 'APPROVED' })
+    expect(supersedeRequestsCoveredBy).toHaveBeenCalledTimes(1)
+    expect(supersedeRequestsCoveredBy).toHaveBeenCalledWith({
+      staffId: 'st1',
+      venueId: 'v1',
+      dates: ['2026-10-15'],
+      actorId: 'u1',
+    })
+    expect(await res.json()).toEqual({ updated: 2, superseded: 2 })
+  })
 })

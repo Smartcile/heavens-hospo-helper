@@ -5,6 +5,7 @@ const { db, getServerSession, clearAvailability, parseScope, unlockSeriesAvailab
   db: {
     staff: { findFirst: vi.fn(), findUnique: vi.fn() },
     staffPermission: { findUnique: vi.fn() },
+    staffAvailability: { findMany: vi.fn() },
     availabilityEditRequest: { updateMany: vi.fn() },
   },
   getServerSession: vi.fn(),
@@ -37,6 +38,11 @@ beforeEach(() => {
   db.staff.findFirst.mockResolvedValue({ id: 'st1' })
   db.staff.findUnique.mockResolvedValue({ restricted: false })
   db.staffPermission.findUnique.mockResolvedValue(null)
+  db.staffAvailability.findMany.mockResolvedValue([
+    { date: new Date('2026-10-01T00:00:00.000Z') },
+    { date: new Date('2026-10-08T00:00:00.000Z') },
+    { date: new Date('2026-10-15T00:00:00.000Z') },
+  ])
   db.availabilityEditRequest.updateMany.mockResolvedValue({ count: 0 })
   clearAvailability.mockResolvedValue({ mode: 'SAVED', skipped: [], plan: { removeDates: [] } })
   unlockSeriesAvailability.mockResolvedValue({ unlocked: [], count: 0 })
@@ -102,6 +108,22 @@ describe('POST /api/admin/availability/delete-series', () => {
     expect(unlockSeriesAvailability.mock.invocationCallOrder[0])
       .toBeLessThan(clearAvailability.mock.invocationCallOrder[0])
     expect(json).toMatchObject({ unlocked: ['2026-10-08'], unlockedCount: 1 })
+  })
+
+  it('ignores an unlock date outside the requested scope', async () => {
+    await POST(req({ ...body, scope: 'THIS', unlockDates: ['2026-10-08', '2026-10-15'] }))
+
+    expect(unlockSeriesAvailability).toHaveBeenCalledWith(
+      expect.objectContaining({ dates: ['2026-10-08'] }),
+    )
+  })
+
+  it('forbids an ADMIN acting on a venue they cannot access', async () => {
+    const res = await POST(req({ ...body, venueId: 'v2' }))
+
+    expect(res.status).toBe(403)
+    expect(clearAvailability).not.toHaveBeenCalled()
+    expect(unlockSeriesAvailability).not.toHaveBeenCalled()
   })
 
   it('forwards the scope and discards pending requests for the removed days', async () => {

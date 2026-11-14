@@ -1498,10 +1498,12 @@ model StaffAvailability {
   reviewNote    String? // manager's note on approve/decline
   reviewedById  String?
   reviewedAt    DateTime?
-  // Day-level lock. Set manually by a manager (via the day editor) or
-  // automatically when a manager approves a declaration / applies an edit
-  // request. Worker saves/clears touching a locked day become edit requests;
-  // admin writes skip locked days until they are unlocked. Notes stay editable.
+  // Day-level lock. Stamped on a SINGLE-DAY approval / apply only; a series
+  // (or any multi-day write) is never locked, so its days stay protected by
+  // the weekly cut-off gate and the edit-request path instead. Can also be set
+  // manually by a manager via the day editor. Worker saves/clears touching a
+  // locked day become edit requests; admin writes skip locked days until they
+  // are unlocked. Notes stay editable.
   lockedAt      DateTime?
   lockedById    String?
   lockedReason  String?

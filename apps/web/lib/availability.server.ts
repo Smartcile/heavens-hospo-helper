@@ -711,11 +711,12 @@ export async function saveAvailability(input: SaveInput, gate: AvailabilityGate)
     }
   }
 
-  // A single-day admin override may stamp a day-level lock. A series write
-  // must never lock — series/future days are protected by the cut-off gate and
-  // the approved-UNAVAILABLE edit-request path, and individual locks are
-  // manual, single-day, detached rows.
-  const lock = gate.bypass && input.lockById && planned.plan.writeDates.length === 1
+  // A single-day admin override may stamp a day-level lock. A series write —
+  // even one that currently has a single remaining occurrence — must never
+  // lock. Series/future days are protected by the cut-off gate and the
+  // approved-UNAVAILABLE edit-request path, and individual locks are manual,
+  // single-day, detached rows. Mirrors `applyEditRequest`.
+  const lock = gate.bypass && input.lockById && planned.plan.scope === 'THIS' && planned.plan.writeDates.length === 1
     ? { byId: input.lockById, reason: input.lockReason ?? null }
     : undefined
   await executeSet(
@@ -955,6 +956,11 @@ export async function applyEditRequest(
 
   const writeDates = storedPlan.writeDates ?? []
   const removeDates = storedPlan.removeDates ?? []
+  // A stored plan that targets nothing is already resolved — there is nothing
+  // to apply and it is not a "past" failure, so don't report misleadingly.
+  if (writeDates.length === 0 && removeDates.length === 0) {
+    return { applied: false, reason: 'RESOLVED', skipped: [], wrote: 0 }
+  }
   const locked = await lockedDatesAmong(request.staffId, [...writeDates, ...removeDates])
   const lockedSet = new Set(locked)
   const past = [...writeDates, ...removeDates].filter((d) => d < todayKey)

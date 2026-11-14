@@ -4036,7 +4036,7 @@ pre-flight.
 | `ReferenceTableEditor.tsx` — column kinds, derived cells, row editing | ✅ (5 tests) |
 | `WorkerGuidesClient.tsx` — BIBLE / MY TREE, folder grouping + drag, edit gating, red guide card + guide reader; no training-status link and no needs-attention strip | ✅ (13 tests) |
 | `EventBuilder.tsx` / `PipelinePanel.tsx` / `EnquiriesPanel.tsx` — BEO builder, pipeline board, intake | ✅ (5 + 2 + 4) |
-| `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 30 + 20 + 43) |
+| `AvailabilityBar.tsx` / `AvailabilityDayEditor.tsx` / `WorkerAvailabilityClient.tsx` / `AvailabilityAdminClient.tsx` | ✅ (4 + 30 + 20 + 53) |
 | `RosterClient.tsx` / `ClocksClient.tsx` / `PayrollClient.tsx` | ✅ (15 + 5 + 4) |
 | `RosterTemplatesModal.tsx` — template list, save current week, apply to target week, REPLACE confirmation, next-week default | ✅ (5 tests) |
 | `RosterCopyWeekModal.tsx` — ADD copy, REPLACE confirmation, next-week default | ✅ (3 tests) |
@@ -4065,6 +4065,10 @@ pre-flight.
 | Target | Coverage |
 |---|---|
 | `app/api/admin/availability/route.test.ts` — GET includes the off-range edit request's current row; POST returns the locked-day 409 | ✅ (2 tests) |
+| `app/api/admin/availability/review/route.test.ts` — NOTE actions; APPROVE locks only a single day; only APPROVED rows supersede pending requests (a DECLINED occurrence never covers one) | ✅ (9 tests) |
+| `app/api/admin/availability/requests/[id]/route.test.ts` — APPLY 409 LOCKED/PAST/RESOLVED + partial apply; DISCARD/MARK_APPLIED | ✅ (6 tests) |
+| `app/api/admin/availability/unlock-series/route.test.ts` — series review list, whole/selected unlock, explicit empty `dates` 400, ADMIN venue access | ✅ (13 tests) |
+| `app/api/admin/availability/delete-series/route.test.ts` — scope filtering, `unlockDates` constrained to the requested scope, ADMIN venue access, all-locked 409 | ✅ (10 tests) |
 | `app/api/admin/availability/comments/route.test.ts` - auth, venue scope + explicit venueId, restricted-manager canAdd/canDelete, MANAGER stamping, delete, impossible date | ✅ (13 tests) |
 | `app/api/worker/availability/comments/route.test.ts` - auth, own-day scope, WORKER_APP stamping, toggle-gated own delete, impossible date | ✅ (9 tests) |
 | `app/api/worker/availability/series-request/route.test.ts` — auth, required date/series, request delegation, 404/409 passthrough | ✅ (5 tests) |
