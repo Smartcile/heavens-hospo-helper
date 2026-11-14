@@ -33,18 +33,33 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  let ok = false
-  let skipped: string[] = []
   if (action === 'APPLY') {
     const result = await applyEditRequest(params.id, session.user.id, body?.reviewNote)
-    ok = result.applied
-    skipped = result.skipped
-  } else if (action === 'MARK_APPLIED') {
+    if (!result.applied) {
+      if (result.reason === 'LOCKED') {
+        return NextResponse.json(
+          { error: 'LOCKED — UNLOCK FIRST', locked: result.skipped, skipped: result.skipped },
+          { status: 409 },
+        )
+      }
+      if (result.reason === 'PAST') {
+        return NextResponse.json(
+          { error: 'ALL DAYS ARE IN THE PAST — DISCARD THIS REQUEST', skipped: result.skipped },
+          { status: 409 },
+        )
+      }
+      return NextResponse.json({ error: 'REQUEST ALREADY RESOLVED' }, { status: 409 })
+    }
+    return NextResponse.json({ success: true, skipped: result.skipped, wrote: result.wrote })
+  }
+
+  let ok = false
+  if (action === 'MARK_APPLIED') {
     ok = await markEditRequestApplied(params.id, session.user.id, body?.reviewNote)
   } else {
     ok = await discardEditRequest(params.id, session.user.id, body?.reviewNote)
   }
 
   if (!ok) return NextResponse.json({ error: 'REQUEST ALREADY RESOLVED' }, { status: 409 })
-  return NextResponse.json({ success: true, skipped })
+  return NextResponse.json({ success: true, skipped: [] })
 }

@@ -33,6 +33,7 @@ import {
   isEntryLocked,
   isFreeAt,
   proposalToEntry,
+  requestTargetDates,
   seriesEndDateKey,
   statusMeta,
   type AvailabilityEntry,
@@ -69,7 +70,7 @@ interface AdminEditRequest {
   scope: AvailabilityScope
   seriesId: string | null
   action: 'SET' | 'CLEAR'
-  payload: { availability?: AvailabilityPayloadLike | null } | null
+  payload: { availability?: AvailabilityPayloadLike | null; writeDates?: string[]; removeDates?: string[] } | null
   reason: string | null
   status: string
   reviewNote: string | null
@@ -635,13 +636,28 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
 
   async function resolveRequest(id: string, action: 'APPLY' | 'DISCARD') {
     setBusy(true)
+    setError('')
+    setNotice('')
     const r = await fetch(`/api/admin/availability/requests/${id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, reviewNote: null }),
     })
+    const d = await r.json().catch(() => ({})) as { error?: string; skipped?: string[]; wrote?: number }
     setBusy(false)
-    if (!r.ok) { const d = await r.json().catch(() => ({})); setError((d.error ?? 'REQUEST FAILED').toUpperCase()); return }
+    if (!r.ok) {
+      setError((d.error ?? 'REQUEST FAILED').toUpperCase())
+      return
+    }
+    if (action === 'APPLY') {
+      if (typeof d.wrote === 'number' && d.wrote === 0) {
+        setError('NOTHING WAS APPLIED — CHECK THE REQUEST')
+        return
+      }
+      if (Array.isArray(d.skipped) && d.skipped.length > 0) {
+        setNotice(`${d.skipped.length} DAY(S) SKIPPED — LOCKED/PAST`)
+      }
+    }
     load(true)
   }
 
@@ -951,6 +967,11 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
       status: 'PENDING',
     })
     const proposedNote = req.payload?.availability?.notes ?? proposed?.notes ?? null
+    const targetDates = (() => {
+      const targets = requestTargetDates(req.payload)
+      return targets.length > 0 ? targets : [req.date]
+    })()
+    const lockedTargets = targetDates.filter((d) => isEntryLocked(entryFor(req.staffId, d)))
     return (
       <div key={req.id} className="border border-accent/50 bg-accent/5 p-3 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -960,6 +981,31 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
           </div>
           <span className="font-mono text-2xs uppercase text-accent">{req.action} · {payloadSummary(req)}</span>
         </div>
+
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="font-mono text-2xs uppercase tracking-wider text-grey-light">TARGET DAYS:</span>
+          {targetDates.map((d) => {
+            const locked = isEntryLocked(entryFor(req.staffId, d))
+            const past = d < today
+            return (
+              <span
+                key={d}
+                className={`inline-flex items-center gap-1 border px-1.5 py-0.5 font-mono text-2xs uppercase ${
+                  locked ? 'border-danger text-danger' : past ? 'border-grey-mid text-grey-light' : 'border-grey-mid text-white'
+                }`}
+              >
+                {formatDateDMY(d)}
+                {locked && <span className="text-danger">LOCKED</span>}
+                {past && <span className="text-grey-light">PAST</span>}
+              </span>
+            )
+          })}
+        </div>
+        {lockedTargets.length > 0 && (
+          <p className="font-mono text-2xs uppercase text-danger border border-danger/50 bg-danger/10 px-2 py-1.5">
+            LOCKED — UNLOCK FIRST BEFORE APPLYING
+          </p>
+        )}
 
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
           <div className="border border-grey-mid p-2 space-y-1">
@@ -1190,6 +1236,9 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
           <div className="space-y-4">
             {error && (
               <p className="border border-danger/50 bg-danger/10 px-3 py-2 font-mono text-xs text-danger">{error}</p>
+            )}
+            {notice && (
+              <p className="border border-success/50 bg-success/10 px-3 py-2 font-mono text-xs text-success">{notice}</p>
             )}
             {openPerson.declarations.length > 0 && (
               <div className="space-y-2">

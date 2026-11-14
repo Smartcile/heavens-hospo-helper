@@ -218,6 +218,7 @@ enum AvailabilityRequestStatus {
   PENDING
   APPLIED
   DISCARDED
+  SUPERSEDED
 }
 
 // Who wrote an availability comment. Stamped automatically — workers write from

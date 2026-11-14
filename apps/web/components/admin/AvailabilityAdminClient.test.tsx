@@ -5,7 +5,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
 import { AvailabilityAdminClient } from '@/components/admin/AvailabilityAdminClient'
 import { DEFAULT_AVAILABILITY_PRESETS } from '@/lib/availability'
-import { formatDateDayDMY, localDayKey, mondayOf, shiftDay } from '@/lib/date-nav'
+import { formatDateDayDMY, formatDateDMY, localDayKey, mondayOf, shiftDay } from '@/lib/date-nav'
 
 const monday = mondayOf(localDayKey())
 
@@ -86,8 +86,82 @@ describe('AvailabilityAdminClient', () => {
     })
   })
 
-  it('only lists people who have pending items', async () => {
-    const withIdleStaff = {
+  it('surfaces the LOCKED 409 and does not pretend the apply succeeded', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('/requests/req1') && init?.method === 'POST') {
+        return {
+          ok: false,
+          status: 409,
+          json: async () => ({ error: 'LOCKED — UNLOCK FIRST', locked: [monday], skipped: [monday] }),
+        } as Response
+      }
+      return { ok: true, status: 200, json: async () => data } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(await screen.findByText('APPLY'))
+
+    expect((await screen.findAllByText('LOCKED — UNLOCK FIRST')).length).toBeGreaterThan(0)
+    expect(screen.getByText('EDIT REQUEST')).toBeDefined()
+  })
+
+  it('reports the skipped days after a partial apply', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('/requests/req1') && init?.method === 'POST') {
+        return { ok: true, status: 200, json: async () => ({ success: true, skipped: [monday], wrote: 1 }) } as Response
+      }
+      return { ok: true, status: 200, json: async () => data } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(await screen.findByText('APPLY'))
+
+    expect((await screen.findAllByText(/1 DAY\(S\) SKIPPED/)).length).toBeGreaterThan(0)
+  })
+
+  it('lists every target day and flags a locked one before applying', async () => {
+    const lockedDay = monday
+    const otherDay = shiftDay(monday, 7)
+    const multiDay = {
+      ...data,
+      entries: [
+        {
+          id: 'e1', staffId: 'st1', date: lockedDay, type: 'UNAVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+          seriesId: 's1', seriesEndDate: null, lockedAt: '2026-10-20T01:00:00.000Z', lockedById: 'm1', lockedReason: null,
+        },
+      ],
+      queue: {
+        pending: [],
+        requests: [{
+          ...data.queue.requests[0],
+          scope: 'FROM',
+          seriesId: 's1',
+          payload: {
+            availability: { isAllDay: true, type: 'AVAILABLE', windows: [], timeOff: false, notes: null },
+            writeDates: [lockedDay, otherDay],
+            removeDates: [],
+          },
+        }],
+      },
+    }
+    mockFetch(multiDay)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+
+    expect(await screen.findByText('TARGET DAYS:')).toBeDefined()
+    expect(screen.getByText(formatDateDMY(otherDay))).toBeDefined()
+    expect(screen.getAllByText('LOCKED').length).toBeGreaterThan(0)
+    expect(screen.getByText('LOCKED — UNLOCK FIRST BEFORE APPLYING')).toBeDefined()
+  })
+
+  it('only lists people who have pending items', async () => {    const withIdleStaff = {
       ...data,
       staff: [
         { id: 'st1', firstName: 'TAYLOR', lastName: 'REED', employmentType: 'CASUAL' },

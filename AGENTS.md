@@ -680,13 +680,17 @@ the worker `/clear` and `/[id]` DELETE both return 403 — clearing is a manager
 action — plus `/requests/[id]`). Guards:
 `team.availability.view|edit|approve`.
 
-**Day-level lock (#12/#14)** — `StaffAvailability.lockedAt` / `lockedById` /
-`lockedReason` (all nullable). Set manually from the admin day editor (`LOCK` /
-`UNLOCK`, optional reason) and **automatically** when a manager CONFIRMs a
-declaration (`/review` APPROVE) or APPLYs an edit request — every written day is
-locked, and applying an admin override opened from a declaration/request sends
-`lock: true`. A plain grid override does not change the lock; auto-approved
-pure-AVAILABLE worker saves never lock. A locked day:
+**Day-level lock (#12/#14, narrowed #159)** — `StaffAvailability.lockedAt` /
+`lockedById` / `lockedReason` (all nullable). Set manually from the admin day
+editor (`LOCK` / `UNLOCK`, optional reason) and **automatically only for a
+single day**: a `/review` APPROVE locks when it targets exactly one day (no
+series), and applying a single-day `THIS` edit request locks that day. A series
+or multi-day approval/apply never locks — series/future days are protected by the
+weekly cut-off gate and the approved-UNAVAILABLE edit-request path instead, and
+individual locks stay manual, single-day, detached rows. Applying an admin
+override opened from a single-day declaration/request sends `lock: true` (a
+series write never honours it). A plain grid override does not change the lock;
+auto-approved pure-AVAILABLE worker saves never lock. A locked day:
 
 - files a worker save as an `AvailabilityEditRequest` (same path as an
   approved block-out) — see `rowsTouchedByPlan` in `lib/availability.server.ts`;
@@ -775,9 +779,15 @@ posts to `POST /api/worker/availability/series-request`: it validates the
 series belongs to the session's staff member, files a `CLEAR`/`FROM`
 `AvailabilityEditRequest` for future occurrences only, skips manager-locked days
 into `skipped`, and **never deletes anything** (a duplicate pending removal for
-the same series returns 409). `applyEditRequest` re-checks at APPLY time and
-leaves out dates that are now past or manager-locked, reporting them in
-`skipped`. **Workers edit a day, they never clear it**: the worker UI has no
+the same series returns 409). `applyEditRequest` re-checks at APPLY time: a
+target that is now past or manager-locked is left alone and reported in
+`skipped`. If **every** target is skipped it writes nothing, keeps the request
+`PENDING` and reports `LOCKED — UNLOCK FIRST` (or `ALL DAYS ARE IN THE PAST`)
+instead of silently retiring it; a partial apply writes the remaining days and
+reports `skipped` + `wrote`. A newer pending request for the same day+action (or
+series+action) marks the older ones `SUPERSEDED` (`SUPERSEDED` was added to
+`AvailabilityRequestStatus`), and confirming a declaration supersedes any pending
+request whose whole target set it covers. **Workers edit a day, they never clear it**: the worker UI has no
 per-day `CLEAR` and no `SELECT DAYS` bulk clear, and
 `/api/worker/availability/clear` plus `DELETE /api/worker/availability/[id]`
 stay 403. Only the admin grid supports

@@ -5,7 +5,8 @@ import { prisma } from '@hospo-ops/db'
 import { getManagerVenueId } from '@/lib/venue-scope'
 import { guardAccess } from '@/lib/permissions'
 import { approvalLockFields } from '@/lib/availability'
-import { cancelPendingAvailability } from '@/lib/availability.server'
+import { formatDateKey } from '@/lib/scheduling'
+import { cancelPendingAvailability, supersedeRequestsCoveredBy } from '@/lib/availability.server'
 
 // Confirm, decline or cancel declared availability. `ids` reviews individual
 // days; `seriesId` (+ staffId) reviews every still-pending occurrence of a
@@ -64,9 +65,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ updated: result.count })
   }
 
-  // Confirming a declaration locks every approved day (a series is locked
-  // occurrence-by-occurrence). Declining never locks.
+  // Only a single-day declaration locks its row. A series (or a multi-day
+  // selection) is protected by the cut-off gate and the edit-request path, so
+  // approving one must not lock every occurrence. Declining never locks.
   const approve = action === 'APPROVE'
+  const lockSingleDay = approve && ids.length === 1 && !body?.seriesId
   const result = await prisma.staffAvailability.updateMany({
     where: { ...where, venueId, deletedAt: null, status: 'PENDING' },
     data: {
@@ -74,9 +77,28 @@ export async function POST(req: NextRequest) {
       reviewedById: session.user.id,
       reviewedAt: new Date(),
       reviewNote: typeof body?.reviewNote === 'string' && body.reviewNote.trim() ? body.reviewNote.trim() : null,
-      ...approvalLockFields(approve, session.user.id),
+      ...approvalLockFields(lockSingleDay, session.user.id),
     },
   })
+
+  // Confirming a declaration covers any pending request whose whole target set
+  // now sits inside the confirmed dates — otherwise confirming would silently
+  // orphan the request in the queue. Partial overlaps stay PENDING.
+  if (approve) {
+    const confirmed = await prisma.staffAvailability.findMany({
+      where: { ...where, venueId, deletedAt: null },
+      select: { staffId: true, date: true },
+    })
+    const byStaff = new Map<string, string[]>()
+    for (const row of confirmed) {
+      const dates = byStaff.get(row.staffId) ?? []
+      dates.push(formatDateKey(row.date))
+      byStaff.set(row.staffId, dates)
+    }
+    for (const [staffId, dates] of byStaff) {
+      await supersedeRequestsCoveredBy({ staffId, venueId, dates, actorId: session.user.id })
+    }
+  }
 
   return NextResponse.json({ updated: result.count })
 }

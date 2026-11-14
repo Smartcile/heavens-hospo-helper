@@ -41,6 +41,8 @@ import {
   quarterHourOptions,
   removeWindow,
   repeatWeekly,
+  requestSupersedeKey,
+  requestTargetDates,
   resolveAvailabilityPresets,
   seriesEndDateKey,
   SERIES_HORIZON_WEEKS,
@@ -89,6 +91,25 @@ describe('approvalLockFields', () => {
       lockedAt: at, lockedById: 'admin1', lockedReason: null,
     })
     expect(approvalLockFields(false, 'admin1', at)).toEqual({})
+  })
+})
+
+describe('requestTargetDates', () => {
+  it('merges, dedupes and sorts write and remove dates', () => {
+    expect(requestTargetDates({ writeDates: ['2026-10-15', '2026-10-01'], removeDates: ['2026-10-15'] }))
+      .toEqual(['2026-10-01', '2026-10-15'])
+    expect(requestTargetDates({ writeDates: null, removeDates: ['2026-10-02'] })).toEqual(['2026-10-02'])
+    expect(requestTargetDates(null)).toEqual([])
+    expect(requestTargetDates(undefined)).toEqual([])
+  })
+})
+
+describe('requestSupersedeKey', () => {
+  it('keys a series request by series + action and a day by date + action', () => {
+    expect(requestSupersedeKey({ staffId: 'st1', seriesId: 's1', date: '2026-10-15', action: 'SET' }))
+      .toBe('st1:series:s1:SET')
+    expect(requestSupersedeKey({ staffId: 'st1', seriesId: null, date: '2026-10-15', action: 'CLEAR' }))
+      .toBe('st1:day:2026-10-15:CLEAR')
   })
 })
 

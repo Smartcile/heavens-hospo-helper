@@ -21,6 +21,8 @@ import {
   normaliseWindows,
   occurrencesForRepeat,
   repeatWeekly,
+  requestSupersedeKey,
+  requestTargetDates,
   seriesEndDateKey,
   SERIES_HORIZON_WEEKS,
   type AvailabilityCutoff,
@@ -626,17 +628,51 @@ async function storeRequest(
     })
     reason = workerComment?.body.trim() || null
   }
-  const request = await prisma.availabilityEditRequest.create({
-    data: {
-      staffId: input.staffId,
-      venueId: input.venueId,
-      scope: plan.scope,
-      date: utcDay(input.dateKey),
-      seriesId: plan.seriesId,
-      action: plan.action,
-      payload: plan as unknown as Prisma.InputJsonValue,
-      reason,
-    },
+  const key = requestSupersedeKey({
+    staffId: input.staffId,
+    seriesId: plan.seriesId,
+    date: input.dateKey,
+    action: plan.action,
+  })
+
+  const request = await prisma.$transaction(async (tx) => {
+    // Collapse stacked snapshots of the same fix: a newer request for the same
+    // day+action (or series+action) retires the older PENDING ones instead of
+    // letting the queue accumulate four versions of one change.
+    const older = await tx.availabilityEditRequest.findMany({
+      where: { staffId: input.staffId, venueId: input.venueId, status: 'PENDING', deletedAt: null },
+      select: { id: true, seriesId: true, date: true, action: true },
+    })
+    const supersededIds = older
+      .filter((r) => requestSupersedeKey({
+        staffId: input.staffId,
+        seriesId: r.seriesId,
+        date: formatDateKey(r.date),
+        action: r.action,
+      }) === key)
+      .map((r) => r.id)
+    if (supersededIds.length > 0) {
+      await tx.availabilityEditRequest.updateMany({
+        where: { id: { in: supersededIds } },
+        data: {
+          status: 'SUPERSEDED',
+          reviewedAt: new Date(),
+          reviewNote: 'SUPERSEDED BY A NEWER REQUEST',
+        },
+      })
+    }
+    return tx.availabilityEditRequest.create({
+      data: {
+        staffId: input.staffId,
+        venueId: input.venueId,
+        scope: plan.scope,
+        date: utcDay(input.dateKey),
+        seriesId: plan.seriesId,
+        action: plan.action,
+        payload: plan as unknown as Prisma.InputJsonValue,
+        reason,
+      },
+    })
   })
   return request.id
 }
@@ -675,7 +711,11 @@ export async function saveAvailability(input: SaveInput, gate: AvailabilityGate)
     }
   }
 
-  const lock = gate.bypass && input.lockById
+  // A single-day admin override may stamp a day-level lock. A series write
+  // must never lock — series/future days are protected by the cut-off gate and
+  // the approved-UNAVAILABLE edit-request path, and individual locks are
+  // manual, single-day, detached rows.
+  const lock = gate.bypass && input.lockById && planned.plan.writeDates.length === 1
     ? { byId: input.lockById, reason: input.lockReason ?? null }
     : undefined
   await executeSet(
@@ -837,8 +877,11 @@ export function mapEditRequest(row: EditRequestRow) {
 
 export interface ApplyEditResult {
   applied: boolean
+  reason?: 'RESOLVED' | 'LOCKED' | 'PAST'
   /** Dates left alone because they are now in the past or manager-locked. */
   skipped: string[]
+  /** Number of dates actually written/removed. */
+  wrote: number
 }
 
 /**
@@ -846,6 +889,10 @@ export interface ApplyEditResult {
  * apply-time guard: a request filed today and applied next week must not
  * delete days that are now past, and manager-locked days stay protected even
  * if they were editable when the request was filed.
+ *
+ * If every target is now past or locked nothing is written, the request is
+ * left PENDING and the caller reports the block — never a silent no-op that
+ * retires the request as if it had landed.
  */
 export async function applyEditRequest(
   id: string,
@@ -855,11 +902,11 @@ export async function applyEditRequest(
 ): Promise<ApplyEditResult> {
   const request = await prisma.availabilityEditRequest.findUnique({ where: { id } })
   if (!request || request.deletedAt || request.status !== 'PENDING') {
-    return { applied: false, skipped: [] }
+    return { applied: false, reason: 'RESOLVED', skipped: [], wrote: 0 }
   }
 
   const storedPlan = request.payload as unknown as AvailabilityPlan | null
-  if (!storedPlan) return { applied: false, skipped: [] }
+  if (!storedPlan) return { applied: false, reason: 'RESOLVED', skipped: [], wrote: 0 }
 
   let todayKey = options?.todayKey
   if (!todayKey) {
@@ -870,23 +917,33 @@ export async function applyEditRequest(
     todayKey = formatDateKey(getTodayDate(venue?.timezone ?? undefined))
   }
 
-  const locked = await lockedDatesAmong(request.staffId, [
-    ...storedPlan.writeDates,
-    ...storedPlan.removeDates,
-  ])
+  const writeDates = storedPlan.writeDates ?? []
+  const removeDates = storedPlan.removeDates ?? []
+  const locked = await lockedDatesAmong(request.staffId, [...writeDates, ...removeDates])
   const lockedSet = new Set(locked)
-  const past = [...storedPlan.writeDates, ...storedPlan.removeDates].filter((d) => d < todayKey)
+  const past = [...writeDates, ...removeDates].filter((d) => d < todayKey)
   const skipped = [...new Set([...past, ...locked])].sort()
 
   const plan: AvailabilityPlan = {
     ...storedPlan,
-    writeDates: storedPlan.writeDates.filter((d) => d >= todayKey && !lockedSet.has(d)),
-    removeDates: storedPlan.removeDates.filter((d) => d >= todayKey && !lockedSet.has(d)),
+    writeDates: writeDates.filter((d) => d >= todayKey && !lockedSet.has(d)),
+    removeDates: removeDates.filter((d) => d >= todayKey && !lockedSet.has(d)),
+  }
+
+  // Nothing executable: do not run the plan (this also stops a CLEAR from
+  // re-pinning the series end) and do not change the request status.
+  const wrote = plan.writeDates.length + plan.removeDates.length
+  if (wrote === 0) {
+    return { applied: false, reason: locked.length ? 'LOCKED' : 'PAST', skipped, wrote: 0 }
   }
 
   if (request.action === 'SET') {
-    // An approved request is a manager confirmation: every written day locks.
-    await executeSet(request.staffId, request.venueId, plan, 'APPROVED', { byId: actorId })
+    // Only a single-day THIS request locks. A series SET must not lock its
+    // written days — those are protected by the cut-off gate instead.
+    const lock = request.scope === 'THIS' && plan.writeDates.length === 1
+      ? { byId: actorId }
+      : undefined
+    await executeSet(request.staffId, request.venueId, plan, 'APPROVED', lock)
   } else {
     await executeClear(request.staffId, plan)
   }
@@ -900,7 +957,44 @@ export async function applyEditRequest(
       reviewNote: reviewNote?.trim() || null,
     },
   })
-  return { applied: true, skipped }
+  return { applied: true, skipped, wrote }
+}
+
+/**
+ * Supersede the staff member's PENDING edit requests whose entire target date
+ * set now sits inside `dates` (a declaration that has just been confirmed).
+ * A partially-overlapping request stays PENDING so a manager must resolve it
+ * explicitly. Returns the number of requests retired.
+ */
+export async function supersedeRequestsCoveredBy(input: {
+  staffId: string
+  venueId: string
+  dates: string[]
+  actorId: string
+}): Promise<number> {
+  const covered = new Set(input.dates)
+  if (covered.size === 0) return 0
+  const pending = await prisma.availabilityEditRequest.findMany({
+    where: { staffId: input.staffId, venueId: input.venueId, status: 'PENDING', deletedAt: null },
+    select: { id: true, payload: true },
+  })
+  const ids = pending
+    .filter((r) => {
+      const targets = requestTargetDates(r.payload as { writeDates?: string[]; removeDates?: string[] } | null)
+      return targets.length > 0 && targets.every((d) => covered.has(d))
+    })
+    .map((r) => r.id)
+  if (ids.length === 0) return 0
+  const result = await prisma.availabilityEditRequest.updateMany({
+    where: { id: { in: ids } },
+    data: {
+      status: 'SUPERSEDED',
+      reviewedById: input.actorId,
+      reviewedAt: new Date(),
+      reviewNote: 'CONFIRMED DECLARATION COVERS THIS REQUEST',
+    },
+  })
+  return result.count
 }
 
 /** Worker withdraws (cancels) their own pending edit request. The approved

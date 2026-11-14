@@ -205,9 +205,9 @@ export function isEntryLocked(entry: { lockedAt?: string | null } | null | undef
 }
 
 /**
- * The lock columns stamped by a manager review. APPROVE locks the day;
- * DECLINE never does. Keep the rule here so the review route and its tests
- * cannot drift.
+ * The lock columns stamped by a manager review. A **single-day** APPROVE locks
+ * the day; DECLINE and a series/multi-day approval never do. Keep the rule here
+ * so the review route and its tests cannot drift.
  */
 export function approvalLockFields(
   approve: boolean,
@@ -215,6 +215,36 @@ export function approvalLockFields(
   at: Date = new Date(),
 ): { lockedAt: Date; lockedById: string; lockedReason: null } | Record<string, never> {
   return approve ? { lockedAt: at, lockedById: actorId, lockedReason: null } : {}
+}
+
+/**
+ * Every day an edit request targets (its write and remove dates), sorted and
+ * deduped. An empty array means the payload carried no plan dates — callers
+ * fall back to the request's anchor day.
+ */
+export function requestTargetDates(
+  payload: { writeDates?: string[] | null; removeDates?: string[] | null } | null | undefined,
+): string[] {
+  const dates = [...(payload?.writeDates ?? []), ...(payload?.removeDates ?? [])].filter(Boolean)
+  return [...new Set(dates)].sort()
+}
+
+/**
+ * The identity of the change a request makes: two requests with the same key
+ * are snapshots of the same fix. A series request is keyed by series + action,
+ * a standalone day (including a THIS detach) by its date + action, so a newer
+ * snapshot can supersede the older ones without collapsing different targets
+ * or actions.
+ */
+export function requestSupersedeKey(req: {
+  staffId: string
+  seriesId?: string | null
+  date: string
+  action: string
+}): string {
+  return req.seriesId
+    ? `${req.staffId}:series:${req.seriesId}:${req.action}`
+    : `${req.staffId}:day:${req.date}:${req.action}`
 }
 
 export interface AvailabilityMeta {
