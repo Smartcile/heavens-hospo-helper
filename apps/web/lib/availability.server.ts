@@ -755,6 +755,42 @@ export async function clearAvailability(
   return { mode: 'SAVED', plan: planned.plan, skipped: planned.skipped }
 }
 
+/**
+ * Unlock every locked occurrence of one weekly series (or a subset of its
+ * dates). Only rows carrying the exact `seriesId` are touched — a day detached
+ * with a THIS edit has `seriesId: null` and keeps its own manual lock.
+ */
+export async function unlockSeriesAvailability(input: {
+  staffId: string
+  venueId: string
+  seriesId: string
+  /** Optional subset; omit/empty = the whole series. */
+  dates?: string[]
+  actorId: string
+}): Promise<{ unlocked: string[]; count: number }> {
+  const subset = (input.dates ?? []).filter(Boolean)
+  const where = {
+    staffId: input.staffId,
+    venueId: input.venueId,
+    seriesId: input.seriesId,
+    deletedAt: null,
+    lockedAt: { not: null },
+    ...(subset.length > 0 ? { date: { in: subset.map(utcDay) } } : {}),
+  }
+  const rows = await prisma.staffAvailability.findMany({
+    where,
+    select: { date: true },
+    orderBy: { date: 'asc' },
+  })
+  const unlocked = rows.map((r) => formatDateKey(r.date)).sort()
+  if (unlocked.length === 0) return { unlocked: [], count: 0 }
+  await prisma.staffAvailability.updateMany({
+    where: { ...where, date: { in: unlocked.map(utcDay) } },
+    data: { lockedAt: null, lockedById: null, lockedReason: null },
+  })
+  return { unlocked, count: unlocked.length }
+}
+
 export type SeriesRemovalOutcome =
   | { mode: 'REQUEST'; requestId: string; skipped: string[] }
   | { error: string; locked?: string[]; status: number }

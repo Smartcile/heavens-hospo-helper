@@ -33,6 +33,7 @@ import {
   isEntryLocked,
   isFreeAt,
   proposalToEntry,
+  requestCutoffState,
   requestTargetDates,
   seriesEndDateKey,
   statusMeta,
@@ -81,6 +82,10 @@ interface AdminData {
   venueId: string
   /** Venue-local today (YYYY-MM-DD); falls back to the device day when absent. */
   today?: string
+  /** Weekly request cut-off, when the venue has one. */
+  cutoff?: { day: number; time: string } | null
+  /** Venue-local minutes since midnight, for the cut-off warning. */
+  nowMinutes?: number
   staff: AdminStaff[]
   positions?: AdminPosition[]
   entries: AvailabilityEntry[]
@@ -151,7 +156,11 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
   const [clearSelectionOpen, setClearSelectionOpen] = useState(false)
   const [lockSelectionOpen, setLockSelectionOpen] = useState(false)
   const [unlockSelectionOpen, setUnlockSelectionOpen] = useState(false)
-  const [deleteSeriesOpen, setDeleteSeriesOpen] = useState(false)
+  const [seriesModalMode, setSeriesModalMode] = useState<'UNLOCK' | 'DELETE' | null>(null)
+  const [seriesReview, setSeriesReview] = useState<{ date: string; locked: boolean; lockedAt: string | null; lockedReason: string | null }[] | null>(null)
+  const [seriesSelected, setSeriesSelected] = useState<Set<string>>(new Set())
+  const [seriesLoading, setSeriesLoading] = useState(false)
+  const [unlockApply, setUnlockApply] = useState<{ req: AdminEditRequest; dates: string[] } | null>(null)
   const [lockReason, setLockReason] = useState('')
   const [notice, setNotice] = useState('')
   const { capture: captureScroll, restore: restoreScroll } = useScrollRestore()
@@ -592,6 +601,44 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
 
   const openPerson = approvals.find((p) => p.staffId === openPersonId) ?? null
 
+  // #157 — warning-only flag: does a pending declaration / request touch the
+  // current roster week or a week already past its cut-off?
+  const cutoffValue = data?.cutoff ?? null
+  const cutoffMinutes = data?.nowMinutes ?? 0
+  const flaggedApprovals = useMemo(() => {
+    if (!cutoffValue) return 0
+    let count = 0
+    for (const person of approvals) {
+      for (const decl of person.declarations) {
+        if (requestCutoffState(decl.rows.map((r) => r.date), cutoffValue, today, cutoffMinutes) !== 'NONE') count++
+      }
+      for (const req of person.requests) {
+        const targets = requestTargetDates(req.payload)
+        const dates = targets.length > 0 ? targets : [req.date]
+        if (requestCutoffState(dates, cutoffValue, today, cutoffMinutes) !== 'NONE') count++
+      }
+    }
+    return count
+  }, [approvals, cutoffValue, cutoffMinutes, today])
+
+  function cutoffBadge(dates: string[]) {
+    const state = requestCutoffState(dates, cutoffValue, today, cutoffMinutes)
+    if (state === 'NONE') return null
+    const past = state === 'PAST_CUTOFF'
+    return (
+      <span
+        title={past
+          ? 'THE ROSTER FOR THIS WEEK MAY ALREADY BE BUILT — CHECK BEFORE APPLYING.'
+          : 'THIS IS THE CURRENT ROSTER WEEK.'}
+        className={`font-mono text-2xs uppercase border px-1.5 py-0.5 ${
+          past ? 'border-danger text-danger' : 'border-warning text-warning'
+        }`}
+      >
+        {past ? 'PAST CUT-OFF' : 'CURRENT WEEK'}
+      </span>
+    )
+  }
+
   const selectedStaffCount = visibleStaffIds
     ? (data?.staff ?? []).filter((s) => visibleStaffIds.has(s.id)).length
     : (data?.staff.length ?? 0)
@@ -814,11 +861,86 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
     load(true)
   }
 
-  // Admin-only: delete a weekly series (this day / from this day / whole series).
-  // Locked days are skipped server-side and reported back.
+  // Open the series-actions modal and load every occurrence with its lock
+  // state. Locked dates are selected by default so an accepted action really
+  // happens; the manager can untick a stray day.
+  async function openSeriesModal(mode: 'UNLOCK' | 'DELETE') {
+    if (!editor) return
+    const entry = editor.entry ?? entryFor(editor.staffId, editor.date)
+    if (!entry?.seriesId) { setError('THIS DAY IS NOT PART OF A SERIES'); return }
+    setError(''); setNotice('')
+    setSeriesModalMode(mode)
+    setSeriesReview(null)
+    setSeriesSelected(new Set())
+    setSeriesLoading(true)
+    const qs = new URLSearchParams({ venueId, staffId: editor.staffId, seriesId: entry.seriesId })
+    const r = await fetch(`/api/admin/availability/unlock-series?${qs.toString()}`)
+    setSeriesLoading(false)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setError((d.error ?? 'COULD NOT LOAD THE SERIES').toUpperCase())
+      setSeriesModalMode(null)
+      return
+    }
+    const d = await r.json().catch(() => ({})) as {
+      dates?: { date: string; locked: boolean; lockedAt: string | null; lockedReason: string | null }[]
+    }
+    const dates = d.dates ?? []
+    setSeriesReview(dates)
+    setSeriesSelected(new Set(dates.filter((x) => x.locked).map((x) => x.date)))
+  }
+
+  function toggleSeriesDate(date: string) {
+    setSeriesSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(date)) next.delete(date)
+      else next.add(date)
+      return next
+    })
+  }
+
+  function seriesDatesInScope(scope: AvailabilityScope): string[] {
+    const all = (seriesReview ?? []).map((d) => d.date).sort()
+    const anchor = editor?.date ?? ''
+    if (scope === 'THIS') return [anchor]
+    if (scope === 'FROM') return all.filter((d) => d >= anchor)
+    return all
+  }
+
+  // Unlock the selected occurrences of a series (never a detached day).
+  async function unlockSelectedSeries() {
+    if (!editor) return
+    const entry = editor.entry ?? entryFor(editor.staffId, editor.date)
+    if (!entry?.seriesId) { setError('THIS DAY IS NOT PART OF A SERIES'); return }
+    const dates = [...seriesSelected]
+    if (dates.length === 0) { setError('SELECT AT LEAST ONE LOCKED DAY'); return }
+    setBusy(true); setError(''); setNotice('')
+    const r = await fetch('/api/admin/availability/unlock-series', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ venueId, staffId: editor.staffId, seriesId: entry.seriesId, dates }),
+    })
+    setBusy(false)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setError((d.error ?? 'COULD NOT UNLOCK THE SERIES').toUpperCase())
+      return
+    }
+    const d = await r.json().catch(() => ({})) as { count?: number }
+    setNotice(`${d.count ?? dates.length} DAY${(d.count ?? dates.length) === 1 ? '' : 'S'} UNLOCKED`)
+    setSeriesModalMode(null)
+    setSeriesReview(null)
+    load(true)
+  }
+
+  // Delete a weekly series (this day / from this day / whole series). Locked
+  // days the manager selected are unlocked first so the delete really happens;
+  // any they left unselected are skipped and reported.
   async function deleteSeries(target: EditorTarget, scope: AvailabilityScope) {
     const entry = target.entry ?? entryFor(target.staffId, target.date)
     if (!entry?.seriesId) { setError('THIS DAY IS NOT PART OF A SERIES'); return }
+    const inScope = new Set(seriesDatesInScope(scope))
+    const unlockDates = [...seriesSelected].filter((d) => inScope.has(d))
     setBusy(true); setError(''); setNotice('')
     const r = await fetch('/api/admin/availability/delete-series', {
       method: 'POST',
@@ -829,6 +951,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
         date: target.date,
         scope,
         seriesId: entry.seriesId,
+        ...(unlockDates.length > 0 ? { unlockDates } : {}),
       }),
     })
     if (!r.ok) {
@@ -840,13 +963,53 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
       setError(((d.error ?? 'DELETE FAILED') + locked).toUpperCase())
       return
     }
-    const out = await r.json().catch(() => ({}))
+    const out = await r.json().catch(() => ({})) as { skipped?: string[]; unlockedCount?: number }
     const skipped = Array.isArray(out.skipped) ? out.skipped.length : 0
+    const unlockedCount = typeof out.unlockedCount === 'number' ? out.unlockedCount : 0
     setBusy(false)
-    setDeleteSeriesOpen(false)
+    setSeriesModalMode(null)
+    setSeriesReview(null)
     setEditor(null)
     if (skipped > 0) setNotice(`${skipped} LOCKED DAY${skipped === 1 ? '' : 'S'} SKIPPED — UNLOCK FIRST.`)
+    else if (unlockedCount > 0) setNotice(`${unlockedCount} LOCKED DAY${unlockedCount === 1 ? '' : 'S'} UNLOCKED AND DELETED`)
     load(true)
+  }
+
+  // Owner rule: pressing accept must actually apply. Unlock the request's
+  // locked target days first (series via the bulk route, a detached day via
+  // the per-row PATCH), then APPLY. A remaining 409 is surfaced and the
+  // request stays pending.
+  async function unlockAndApply(target: { req: AdminEditRequest; dates: string[] }) {
+    setBusy(true); setError(''); setNotice('')
+    let ok = true
+    if (target.req.seriesId) {
+      const r = await fetch('/api/admin/availability/unlock-series', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          venueId,
+          staffId: target.req.staffId,
+          seriesId: target.req.seriesId,
+          dates: target.dates,
+        }),
+      })
+      ok = r.ok
+    } else {
+      for (const date of target.dates) {
+        const id = entryFor(target.req.staffId, date)?.id
+        if (!id) continue
+        const r = await fetch(`/api/admin/availability/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ locked: false, lockedReason: null }),
+        })
+        if (!r.ok) { ok = false; break }
+      }
+    }
+    setBusy(false)
+    if (!ok) { setError('COULD NOT UNLOCK THE REQUESTED DAYS'); return }
+    setUnlockApply(null)
+    await resolveRequest(target.req.id, 'APPLY')
   }
 
   // Lock/unlock one day. The modal stays open so the manager sees the result.
@@ -913,6 +1076,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
             <span className="font-mono text-xs text-grey-light ml-2">{rangeLabel}{rows.length > 1 ? ` · ${rows.length} DAYS` : ''}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {cutoffBadge(dates)}
             {first.timeOff && <span className="font-mono text-2xs uppercase px-1.5 py-0.5 border border-warning text-warning">TIME OFF — CHECK LEAVE PAY</span>}
             {first.seriesId && <span className="font-mono text-2xs uppercase px-1.5 py-0.5 border border-accent text-accent">{describeSeriesEnd(first.seriesEndDate)}</span>}
           </div>
@@ -979,7 +1143,10 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
             <span className="font-mono text-sm text-white uppercase">EDIT REQUEST</span>
             <span className="font-mono text-xs text-grey-light ml-2">{formatDateDayDMY(req.date)} · {req.scope === 'THIS' ? 'JUST THIS DAY' : req.scope === 'FROM' ? 'FROM THIS DAY' : 'ALL IN SERIES'}</span>
           </div>
-          <span className="font-mono text-2xs uppercase text-accent">{req.action} · {payloadSummary(req)}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            {cutoffBadge(targetDates)}
+            <span className="font-mono text-2xs uppercase text-accent">{req.action} · {payloadSummary(req)}</span>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-1">
@@ -1049,8 +1216,16 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
           onMutated={() => load(true)}
         />
         <div className="flex flex-wrap items-center gap-2">
-          <button disabled={busy} onClick={() => resolveRequest(req.id, 'APPLY')}
-            className="h-9 px-3 bg-white text-black font-mono text-xs uppercase font-bold hover:bg-accent disabled:opacity-40">APPLY</button>
+          {lockedTargets.length > 0 ? (
+            <button disabled={busy} onClick={() => setUnlockApply({ req, dates: lockedTargets })}
+              title="UNLOCK THE LOCKED TARGET DAYS AND THEN APPLY THIS REQUEST"
+              className="h-9 px-3 bg-white text-black font-mono text-xs uppercase font-bold hover:bg-accent disabled:opacity-40">
+              UNLOCK &amp; APPLY
+            </button>
+          ) : (
+            <button disabled={busy} onClick={() => resolveRequest(req.id, 'APPLY')}
+              className="h-9 px-3 bg-white text-black font-mono text-xs uppercase font-bold hover:bg-accent disabled:opacity-40">APPLY</button>
+          )}
           <button disabled={busy} onClick={() => resolveRequest(req.id, 'DISCARD')}
             className="h-9 px-3 border border-grey-mid text-grey-light font-mono text-xs uppercase hover:border-white hover:text-white disabled:opacity-40">DISCARD</button>
           {req.action === 'CLEAR' ? (
@@ -1185,6 +1360,12 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
       {/* Approvals — one row per person with pending work */}
       <div className="border border-grey-mid p-4 space-y-4">
         <h2 className="font-mono text-xs uppercase tracking-wider text-grey-light">WAITING FOR CONFIRMATION</h2>
+
+        {flaggedApprovals > 0 && (
+          <p className="font-mono text-2xs uppercase text-warning border border-warning/50 bg-warning/10 px-2 py-1.5">
+            PAST CUT-OFF / CURRENT WEEK REQUESTS — CHECK THE ROSTER BEFORE APPLYING.
+          </p>
+        )}
 
         {approvals.length === 0 && (
           <p className="font-mono text-xs uppercase text-grey-light">NOTHING WAITING.</p>
@@ -1501,38 +1682,144 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
             onSave={(draft, options) => save(editor, draft, options)}
             onCommentsMutated={() => load(true)}
             onToggleLock={(locked, reason) => toggleLock(editor, locked, reason)}
-            canDeleteSeries={role === 'ADMIN'}
-            onRequestDeleteSeries={() => setDeleteSeriesOpen(true)}
-            onClose={() => { if (!busy) { setEditor(null); setDeleteSeriesOpen(false) } }}
+            canUnlockSeries={role === 'ADMIN' || canEdit}
+            onRequestUnlockSeries={() => void openSeriesModal('UNLOCK')}
+            canDeleteSeries={role === 'ADMIN' || canEdit}
+            onRequestDeleteSeries={() => void openSeriesModal('DELETE')}
+            onClose={() => { if (!busy) { setEditor(null); setSeriesModalMode(null) } }}
           />
         )}
       </Modal>
 
-      {/* Delete-series confirmation (ADMIN only) */}
+      {/* Series actions — per-date lock review, then UNLOCK or DELETE */}
       <Modal
-        isOpen={deleteSeriesOpen}
-        onClose={() => { if (!busy) setDeleteSeriesOpen(false) }}
-        title="DELETE AVAILABILITY SERIES"
+        isOpen={!!seriesModalMode}
+        onClose={() => { if (!busy) { setSeriesModalMode(null); setSeriesReview(null) } }}
+        title={seriesModalMode === 'DELETE' ? 'DELETE AVAILABILITY SERIES' : 'UNLOCK AVAILABILITY SERIES'}
         size="sm"
       >
-        {editor && (
+        {editor && seriesModalMode && (
           <div className="space-y-4">
             <p className="font-mono text-sm text-white uppercase">
               {staffName(editor.staffId)} — {formatDateLong(editor.date)}
             </p>
-            <p className="font-mono text-2xs uppercase text-danger border border-danger/60 bg-danger/10 px-2 py-1.5">
-              WARNING: THIS DELETES THE AVAILABILITY PERMANENTLY. LOCKED DAYS ARE SKIPPED — UNLOCK THEM FIRST.
+
+            {seriesLoading ? (
+              <p className="font-mono text-xs uppercase text-grey-light loading-cursor">LOADING</p>
+            ) : (
+              <>
+                <p className="font-mono text-2xs uppercase text-grey-light">
+                  {(seriesReview ?? []).filter((d) => d.locked).length} OF {(seriesReview ?? []).length} DAYS LOCKED
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSeriesSelected(new Set((seriesReview ?? []).filter((d) => d.locked).map((d) => d.date)))}
+                    className="h-8 px-2 border border-grey-mid text-grey-light font-mono text-2xs uppercase hover:border-white hover:text-white"
+                  >SELECT ALL</button>
+                  <button
+                    type="button"
+                    onClick={() => setSeriesSelected(new Set())}
+                    className="h-8 px-2 border border-grey-mid text-grey-light font-mono text-2xs uppercase hover:border-white hover:text-white"
+                  >CLEAR</button>
+                </div>
+                <div className="max-h-56 overflow-y-auto border border-grey-mid divide-y divide-grey-mid">
+                  {(seriesReview ?? []).map((d) => (
+                    <label
+                      key={d.date}
+                      className={`flex items-center gap-2 px-2 py-1.5 ${d.locked ? 'cursor-pointer hover:bg-black/20' : 'opacity-60'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={seriesSelected.has(d.date)}
+                        disabled={!d.locked}
+                        onChange={() => toggleSeriesDate(d.date)}
+                        aria-label={`Unlock ${d.date}`}
+                        className="accent-white"
+                      />
+                      <span className="font-mono text-2xs uppercase text-white">{formatDateDayDMY(d.date)}</span>
+                      {d.locked
+                        ? <span className="font-mono text-2xs uppercase text-warning ml-auto">LOCKED</span>
+                        : <span className="font-mono text-2xs uppercase text-grey-light ml-auto">OPEN</span>}
+                    </label>
+                  ))}
+                  {(seriesReview ?? []).length === 0 && (
+                    <p className="px-2 py-2 font-mono text-2xs uppercase text-grey-light">NO DAYS IN THIS SERIES.</p>
+                  )}
+                </div>
+
+                {seriesModalMode === 'UNLOCK' ? (
+                  <>
+                    <p className="font-mono text-2xs uppercase text-grey-light">
+                      UNLOCKING FREES THE SELECTED DAYS WITHOUT CHANGING THEIR AVAILABILITY. UNLOCKED DAYS ARE NOT TOUCHED.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        disabled={busy || seriesSelected.size === 0}
+                        onClick={() => void unlockSelectedSeries()}
+                      >
+                        UNLOCK SELECTED ({seriesSelected.size})
+                      </Button>
+                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setSeriesModalMode(null); setSeriesReview(null) }}>CANCEL</Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-mono text-2xs uppercase text-danger border border-danger/60 bg-danger/10 px-2 py-1.5">
+                      WARNING: THIS DELETES THE AVAILABILITY PERMANENTLY. LOCKED DAYS ARE ONLY REMOVED WHEN YOU SELECT THEM.
+                    </p>
+                    <p className="font-mono text-2xs uppercase text-grey-light">
+                      {seriesSelected.size > 0
+                        ? `UNLOCK & DELETE — ${seriesSelected.size} SELECTED LOCKED DAY${seriesSelected.size === 1 ? '' : 'S'} WILL BE UNLOCKED FIRST.`
+                        : 'LOCKED DAYS YOU DO NOT SELECT ARE SKIPPED AND REPORTED.'}
+                      {' '}CHOOSE HOW MUCH OF THE SERIES TO REMOVE:
+                    </p>
+                    <div className="grid grid-cols-1 gap-2">
+                      <Button size="sm" variant="danger" disabled={busy} onClick={() => void deleteSeries(editor, 'THIS')}>
+                        {seriesSelected.has(editor.date) ? 'UNLOCK & DELETE THIS DAY' : 'JUST THIS DAY'}
+                      </Button>
+                      <Button size="sm" variant="danger" disabled={busy} onClick={() => void deleteSeries(editor, 'FROM')}>FROM THIS DAY ONWARDS</Button>
+                      <Button size="sm" variant="danger" disabled={busy} onClick={() => void deleteSeries(editor, 'ALL')}>WHOLE SERIES</Button>
+                    </div>
+                    <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setSeriesModalMode(null); setSeriesReview(null) }}>CANCEL</Button>
+                  </>
+                )}
+              </>
+            )}
+            {error && <p className="font-mono text-xs text-danger">{error}</p>}
+          </div>
+        )}
+      </Modal>
+
+      {/* Unlock-and-apply confirmation for a locked edit request */}
+      <Modal
+        isOpen={!!unlockApply}
+        onClose={() => { if (!busy) setUnlockApply(null) }}
+        title="UNLOCK & APPLY REQUEST"
+        size="sm"
+      >
+        {unlockApply && (
+          <div className="space-y-4">
+            <p className="font-mono text-sm text-white uppercase">
+              {staffName(unlockApply.req.staffId)} — {formatDateLong(unlockApply.req.date)}
             </p>
             <p className="font-mono text-2xs uppercase text-grey-light">
-              CHOOSE HOW MUCH OF THE SERIES TO REMOVE:
+              THIS REQUEST TARGETS {unlockApply.dates.length} LOCKED DAY{unlockApply.dates.length === 1 ? '' : 'S'}:
             </p>
-            <div className="grid grid-cols-1 gap-2">
-              <Button size="sm" variant="danger" disabled={busy} onClick={() => void deleteSeries(editor, 'THIS')}>JUST THIS DAY</Button>
-              <Button size="sm" variant="danger" disabled={busy} onClick={() => void deleteSeries(editor, 'FROM')}>FROM THIS DAY ONWARDS</Button>
-              <Button size="sm" variant="danger" disabled={busy} onClick={() => void deleteSeries(editor, 'ALL')}>WHOLE SERIES</Button>
+            <div className="flex flex-wrap gap-1">
+              {unlockApply.dates.map((d) => (
+                <span key={d} className="border border-danger text-danger px-1.5 py-0.5 font-mono text-2xs uppercase">{formatDateDMY(d)}</span>
+              ))}
             </div>
-            {error && <p className="font-mono text-xs text-danger">{error}</p>}
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDeleteSeriesOpen(false)}>CANCEL</Button>
+            <p className="font-mono text-2xs uppercase text-warning border border-warning/50 bg-warning/10 px-2 py-1.5">
+              CONTINUING UNLOCKS THESE DAYS AND THEN APPLIES THE REQUEST. IF THE APPLY STILL FAILS, THE REQUEST STAYS PENDING.
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" variant="primary" loading={busy} onClick={() => void unlockAndApply(unlockApply)}>UNLOCK &amp; CONTINUE</Button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setUnlockApply(null)}>CANCEL</Button>
+            </div>
           </div>
         )}
       </Modal>

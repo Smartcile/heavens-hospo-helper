@@ -41,6 +41,7 @@ import {
   quarterHourOptions,
   removeWindow,
   repeatWeekly,
+  requestCutoffState,
   requestSupersedeKey,
   requestTargetDates,
   resolveAvailabilityPresets,
@@ -691,6 +692,30 @@ describe('weekly request cut-off', () => {
   it('describes the cut-off for settings and hints', () => {
     expect(describeAvailabilityCutoff({ day: 4, time: '17:00' })).toBe('THURSDAY 17:00')
     expect(AVAILABILITY_WEEKDAYS[0]).toBe('SUNDAY')
+  })
+})
+
+describe('requestCutoffState', () => {
+  const cutoff = { day: 4, time: '17:00' } // THURSDAY 17:00
+  const target = '2026-10-19' // Monday of the upcoming roster week
+
+  it('returns NONE without a cut-off or without dates', () => {
+    expect(requestCutoffState([target], null, '2026-10-14', 0)).toBe('NONE')
+    expect(requestCutoffState([], cutoff, '2026-10-14', 0)).toBe('NONE')
+  })
+
+  it('flags a week whose deadline has passed as PAST_CUTOFF', () => {
+    expect(requestCutoffState([target], cutoff, '2026-10-16', 0)).toBe('PAST_CUTOFF')
+    expect(requestCutoffState([target], cutoff, '2026-10-15', 18 * 60)).toBe('PAST_CUTOFF')
+  })
+
+  it('flags the upcoming roster week as CURRENT_WEEK before its deadline', () => {
+    expect(requestCutoffState([target], cutoff, '2026-10-14', 0)).toBe('CURRENT_WEEK')
+    expect(requestCutoffState([target], cutoff, '2026-10-15', 16 * 60)).toBe('CURRENT_WEEK')
+  })
+
+  it('returns NONE for a week far beyond the current roster week', () => {
+    expect(requestCutoffState(['2026-11-30'], cutoff, '2026-10-14', 0)).toBe('NONE')
   })
 })
 

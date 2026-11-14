@@ -42,6 +42,7 @@ import {
   requestSeriesRemoval,
   saveAvailability,
   supersedeRequestsCoveredBy,
+  unlockSeriesAvailability,
   withdrawEditRequest,
   type AvailabilityPayload,
 } from '@/lib/availability.server'
@@ -1007,5 +1008,69 @@ describe('saveAvailability lock rule', () => {
     const data = db.staffAvailability.updateMany.mock.calls[0][0].data
     expect(data.lockedAt).toBeNull()
     expect(data.lockedById).toBeNull()
+  })
+})
+
+describe('unlockSeriesAvailability', () => {
+  it('unlocks only the selected series dates and returns sorted date keys', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([
+      { date: day('2026-10-22') },
+      { date: day('2026-10-15') },
+    ])
+
+    const out = await unlockSeriesAvailability({
+      staffId: 'st1',
+      venueId: 'v1',
+      seriesId: 's1',
+      dates: ['2026-10-22', '2026-10-15'],
+      actorId: 'admin1',
+    })
+
+    expect(out).toEqual({ unlocked: ['2026-10-15', '2026-10-22'], count: 2 })
+    const find = db.staffAvailability.findMany.mock.calls[0][0]
+    expect(find.where).toMatchObject({
+      staffId: 'st1',
+      venueId: 'v1',
+      seriesId: 's1',
+      deletedAt: null,
+      lockedAt: { not: null },
+    })
+    expect(find.where.date.in).toEqual([day('2026-10-22'), day('2026-10-15')])
+
+    const update = db.staffAvailability.updateMany.mock.calls[0][0]
+    expect(update.data).toEqual({ lockedAt: null, lockedById: null, lockedReason: null })
+    expect(update.where.date.in).toEqual([day('2026-10-15'), day('2026-10-22')])
+  })
+
+  it('unlocks the whole series when dates are omitted', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([{ date: day('2026-10-15') }])
+
+    const out = await unlockSeriesAvailability({
+      staffId: 'st1',
+      venueId: 'v1',
+      seriesId: 's1',
+      actorId: 'admin1',
+    })
+
+    expect(out).toEqual({ unlocked: ['2026-10-15'], count: 1 })
+    const find = db.staffAvailability.findMany.mock.calls[0][0]
+    expect(find.where.seriesId).toBe('s1')
+    expect(find.where.date).toBeUndefined()
+  })
+
+  it('only matches rows carrying the series id, so a detached day is untouched', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([])
+
+    const out = await unlockSeriesAvailability({
+      staffId: 'st1',
+      venueId: 'v1',
+      seriesId: 's1',
+      actorId: 'admin1',
+    })
+
+    expect(out).toEqual({ unlocked: [], count: 0 })
+    const find = db.staffAvailability.findMany.mock.calls[0][0]
+    expect(find.where.seriesId).toBe('s1')
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
   })
 })
