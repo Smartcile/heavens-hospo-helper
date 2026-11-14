@@ -5,7 +5,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
 import { AvailabilityAdminClient } from '@/components/admin/AvailabilityAdminClient'
 import { DEFAULT_AVAILABILITY_PRESETS } from '@/lib/availability'
-import { formatDateDayDMY, localDayKey, mondayOf, shiftDay } from '@/lib/date-nav'
+import { formatDateDayDMY, formatDateDMY, localDayKey, mondayOf, shiftDay } from '@/lib/date-nav'
 
 const monday = mondayOf(localDayKey())
 
@@ -84,6 +84,81 @@ describe('AvailabilityAdminClient', () => {
       const body = JSON.parse((post![1] as RequestInit).body as string)
       expect(body.action).toBe('APPLY')
     })
+  })
+
+  it('surfaces the LOCKED 409 and does not pretend the apply succeeded', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('/requests/req1') && init?.method === 'POST') {
+        return {
+          ok: false,
+          status: 409,
+          json: async () => ({ error: 'LOCKED — UNLOCK FIRST', locked: [monday], skipped: [monday] }),
+        } as Response
+      }
+      return { ok: true, status: 200, json: async () => data } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(await screen.findByText('APPLY'))
+
+    expect((await screen.findAllByText('LOCKED — UNLOCK FIRST')).length).toBeGreaterThan(0)
+    expect(screen.getByText('EDIT REQUEST')).toBeDefined()
+  })
+
+  it('reports the skipped days after a partial apply', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('/requests/req1') && init?.method === 'POST') {
+        return { ok: true, status: 200, json: async () => ({ success: true, skipped: [monday], wrote: 1 }) } as Response
+      }
+      return { ok: true, status: 200, json: async () => data } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(await screen.findByText('APPLY'))
+
+    expect((await screen.findAllByText(/1 DAY\(S\) SKIPPED/)).length).toBeGreaterThan(0)
+  })
+
+  it('lists every target day and flags a locked one before applying', async () => {
+    const lockedDay = monday
+    const otherDay = shiftDay(monday, 7)
+    const multiDay = {
+      ...data,
+      entries: [
+        {
+          id: 'e1', staffId: 'st1', date: lockedDay, type: 'UNAVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+          seriesId: 's1', seriesEndDate: null, lockedAt: '2026-10-20T01:00:00.000Z', lockedById: 'm1', lockedReason: null,
+        },
+      ],
+      queue: {
+        pending: [],
+        requests: [{
+          ...data.queue.requests[0],
+          scope: 'FROM',
+          seriesId: 's1',
+          payload: {
+            availability: { isAllDay: true, type: 'AVAILABLE', windows: [], timeOff: false, notes: null },
+            writeDates: [lockedDay, otherDay],
+            removeDates: [],
+          },
+        }],
+      },
+    }
+    mockFetch(multiDay)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+
+    expect(await screen.findByText('TARGET DAYS:')).toBeDefined()
+    expect(screen.getByText(formatDateDMY(otherDay))).toBeDefined()
+    expect(screen.getAllByText('LOCKED').length).toBeGreaterThan(0)
+    expect(screen.getByText('LOCKED — UNLOCK FIRST BEFORE APPLYING')).toBeDefined()
   })
 
   it('only lists people who have pending items', async () => {
@@ -197,6 +272,51 @@ describe('AvailabilityAdminClient', () => {
       const body = JSON.parse((mark![1] as RequestInit).body as string)
       expect(body.action).toBe('MARK_APPLIED')
     })
+  })
+
+  it('does not retire the request when a save skips locked days', async () => {
+    const requestOnly = {
+      ...data,
+      queue: {
+        pending: [],
+        requests: [{
+          ...data.queue.requests[0],
+          payload: { availability: { isAllDay: true, type: 'AVAILABLE', windows: [], timeOff: false, notes: 'NEW NOTE' } },
+        }],
+      },
+    }
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).endsWith('/api/admin/availability') && init?.method === 'POST') {
+        return { ok: true, status: 200, json: async () => ({ mode: 'SAVED', saved: [], skipped: ['2026-10-22'] }) } as Response
+      }
+      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({ success: true }) } as Response
+      return { ok: true, status: 200, json: async () => requestOnly } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(screen.getByText('OPEN / EDIT PROPOSED'))
+    fireEvent.click(await screen.findByText('SAVE'))
+
+    expect(await screen.findByText('1 LOCKED DAY(S) SKIPPED — UNLOCK SERIES FIRST')).toBeDefined()
+    expect(spy.mock.calls.some((c) => String(c[0]).includes('/requests/req1'))).toBe(false)
+  })
+
+  it('shows a notice when confirming supersedes pending requests', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('/api/admin/availability/review') && init?.method === 'POST') {
+        return { ok: true, status: 200, json: async () => ({ updated: 1, superseded: 2 }) } as Response
+      }
+      return { ok: true, status: 200, json: async () => data } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(screen.getByText('CONFIRM'))
+
+    expect((await screen.findAllByText('2 PENDING REQUESTS SUPERSEDED')).length).toBeGreaterThan(0)
   })
 
   it('applies an old CLEAR request from the queue', async () => {
@@ -430,7 +550,7 @@ describe('AvailabilityAdminClient', () => {
     })
   })
 
-  it('does not offer DELETE SERIES to a manager', async () => {
+  it('does not offer series actions to a manager without the edit grant', async () => {
     const withSeries = {
       ...data,
       entries: [
@@ -444,12 +564,36 @@ describe('AvailabilityAdminClient', () => {
       queue: { pending: [], requests: [] },
     }
     mockFetch(withSeries)
-    render(<AvailabilityAdminClient role="MANAGER" sessionVenueId="v1" defaultVenueId="v1" />)
+    render(<AvailabilityAdminClient role="MANAGER" sessionVenueId="v1" defaultVenueId="v1" canEdit={false} />)
 
     await screen.findAllByText('TAYLOR REED')
     fireEvent.click(screen.getByText('00:00–24:00'))
 
     expect(screen.queryByText('DELETE SERIES')).toBeNull()
+    expect(screen.queryByText('UNLOCK SERIES')).toBeNull()
+  })
+
+  it('offers series actions to a restricted manager with the edit grant', async () => {
+    const withSeries = {
+      ...data,
+      entries: [
+        {
+          id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+          seriesId: 's1', seriesEndDate: shiftDay(monday, 21), lockedAt: null, lockedById: null, lockedReason: null,
+        },
+      ],
+      series: [{ id: 's1', startDate: monday, endDate: shiftDay(monday, 21), dates: [monday] }],
+      queue: { pending: [], requests: [] },
+    }
+    mockFetch(withSeries)
+    render(<AvailabilityAdminClient role="MANAGER" sessionVenueId="v1" defaultVenueId="v1" canEdit />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('00:00–24:00'))
+
+    expect(await screen.findByText('DELETE SERIES')).toBeDefined()
+    expect(screen.getByText('UNLOCK SERIES')).toBeDefined()
   })
 
   it('shows a stored note on an approved grid day', async () => {
@@ -1209,6 +1353,172 @@ describe('AvailabilityAdminClient', () => {
         (c[1] as RequestInit | undefined)?.method === 'DELETE')
       expect(del).toBeDefined()
       expect(JSON.parse((del![1] as RequestInit).body as string)).toEqual({ id: 'c1', venueId: 'v1' })
+    })
+  })
+
+  const seriesWithLocks = () => {
+    const week2 = shiftDay(monday, 7)
+    const week3 = shiftDay(monday, 14)
+    return {
+      week2,
+      week3,
+      data: {
+        ...data,
+        entries: [{
+          id: 'e1', staffId: 'st1', date: monday, type: 'AVAILABLE', isAllDay: true, startTime: null, endTime: null,
+          windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+          seriesId: 's1', seriesEndDate: shiftDay(monday, 21), lockedAt: null, lockedById: null, lockedReason: null,
+        }],
+        series: [{ id: 's1', staffId: 'st1', startDate: monday, endDate: shiftDay(monday, 21), dates: [monday] }],
+        queue: { pending: [], requests: [] },
+      },
+      seriesDates: [
+        { date: monday, locked: true, lockedAt: '2026-10-20T01:00:00.000Z', lockedReason: null },
+        { date: week2, locked: true, lockedAt: '2026-10-20T01:00:00.000Z', lockedReason: null },
+        { date: week3, locked: false, lockedAt: null, lockedReason: null },
+      ],
+    }
+  }
+
+  it('loads the series dates and unlocks the selected locked days', async () => {
+    const { week2, data: withSeries, seriesDates } = seriesWithLocks()
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      const u = String(url)
+      if (u.includes('/unlock-series') && init?.method === 'POST') {
+        return { ok: true, status: 200, json: async () => ({ success: true, unlocked: [monday, week2], count: 2 }) } as Response
+      }
+      if (u.includes('/unlock-series')) {
+        return { ok: true, status: 200, json: async () => ({ staffId: 'st1', seriesId: 's1', total: 3, lockedCount: 2, dates: seriesDates }) } as Response
+      }
+      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({ success: true }) } as Response
+      return { ok: true, status: 200, json: async () => withSeries } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('00:00–24:00'))
+    fireEvent.click(await screen.findByText('UNLOCK SERIES'))
+
+    expect(await screen.findByText('2 OF 3 DAYS LOCKED')).toBeDefined()
+    expect(screen.getByText(formatDateDayDMY(week2))).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'UNLOCK SELECTED (2)' }))
+
+    await waitFor(() => {
+      const post = spy.mock.calls.find((c) =>
+        String(c[0]).includes('/unlock-series') && (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(post).toBeDefined()
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body).toMatchObject({ staffId: 'st1', seriesId: 's1' })
+      expect([...body.dates].sort()).toEqual([monday, week2].sort())
+    })
+  })
+
+  it('passes the selected locked days as unlockDates when deleting a series', async () => {
+    const { week2, data: withSeries, seriesDates } = seriesWithLocks()
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      const u = String(url)
+      if (u.includes('/delete-series') && init?.method === 'POST') {
+        return { ok: true, status: 200, json: async () => ({ mode: 'SAVED', skipped: [], unlocked: [monday, week2], unlockedCount: 2 }) } as Response
+      }
+      if (u.includes('/unlock-series')) {
+        return { ok: true, status: 200, json: async () => ({ staffId: 'st1', seriesId: 's1', total: 3, lockedCount: 2, dates: seriesDates }) } as Response
+      }
+      return { ok: true, status: 200, json: async () => withSeries } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('00:00–24:00'))
+    fireEvent.click(await screen.findByText('DELETE SERIES'))
+    expect(await screen.findByText('2 OF 3 DAYS LOCKED')).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'WHOLE SERIES' }))
+
+    await waitFor(() => {
+      const post = spy.mock.calls.find((c) =>
+        String(c[0]).endsWith('/api/admin/availability/delete-series') && (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(post).toBeDefined()
+      const body = JSON.parse((post![1] as RequestInit).body as string)
+      expect(body.scope).toBe('ALL')
+      expect([...body.unlockDates].sort()).toEqual([monday, week2].sort())
+    })
+  })
+
+  it('unlocks a locked series request and then applies it', async () => {
+    const otherDay = shiftDay(monday, 7)
+    const requestOnly = {
+      ...data,
+      entries: [{
+        id: 'e1', staffId: 'st1', date: monday, type: 'UNAVAILABLE', isAllDay: true, startTime: null, endTime: null,
+        windows: [], status: 'APPROVED', timeOff: false, notes: null, reason: null, reviewNote: null,
+        seriesId: 's1', seriesEndDate: null, lockedAt: '2026-10-20T01:00:00.000Z', lockedById: 'm1', lockedReason: null,
+      }],
+      queue: {
+        pending: [],
+        requests: [{
+          ...data.queue.requests[0],
+          scope: 'FROM',
+          seriesId: 's1',
+          payload: {
+            availability: { isAllDay: true, type: 'AVAILABLE', windows: [], timeOff: false, notes: null },
+            writeDates: [monday, otherDay],
+            removeDates: [],
+          },
+        }],
+      },
+    }
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('/unlock-series') && init?.method === 'POST') {
+        return { ok: true, status: 200, json: async () => ({ success: true, unlocked: [monday], count: 1 }) } as Response
+      }
+      if (String(url).includes('/requests/req1') && init?.method === 'POST') {
+        return { ok: true, status: 200, json: async () => ({ success: true, skipped: [], wrote: 2 }) } as Response
+      }
+      return { ok: true, status: 200, json: async () => requestOnly } as Response
+    })
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    fireEvent.click(screen.getByText('OPEN →'))
+    fireEvent.click(await screen.findByText('UNLOCK & APPLY'))
+
+    expect(await screen.findByText('UNLOCK & APPLY REQUEST')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'UNLOCK & CONTINUE' }))
+
+    await waitFor(() => {
+      const unlock = spy.mock.calls.find((c) =>
+        String(c[0]).includes('/unlock-series') && (c[1] as RequestInit | undefined)?.method === 'POST')
+      expect(unlock).toBeDefined()
+      expect(JSON.parse((unlock![1] as RequestInit).body as string)).toMatchObject({
+        staffId: 'st1', seriesId: 's1', dates: [monday],
+      })
+      const apply = spy.mock.calls.find((c) => String(c[0]).includes('/requests/req1'))
+      expect(apply).toBeDefined()
+      expect(JSON.parse((apply![1] as RequestInit).body as string).action).toBe('APPLY')
+    })
+  })
+
+  it('flags current-week / past-cut-off requests as a warning without blocking APPLY', async () => {
+    const withCutoff = {
+      ...data,
+      today: monday,
+      cutoff: { day: 4, time: '17:00' },
+      nowMinutes: 10 * 60,
+    }
+    const spy = mockFetch(withCutoff)
+    render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await screen.findAllByText('TAYLOR REED')
+    expect(screen.getByText(/PAST CUT-OFF \/ CURRENT WEEK REQUESTS/)).toBeDefined()
+
+    fireEvent.click(screen.getByText('OPEN →'))
+    expect((await screen.findAllByText('PAST CUT-OFF')).length).toBeGreaterThan(0)
+    fireEvent.click(await screen.findByText('APPLY'))
+
+    await waitFor(() => {
+      const post = spy.mock.calls.find((c) => String(c[0]).includes('/requests/req1'))
+      expect(post).toBeDefined()
+      expect(JSON.parse((post![1] as RequestInit).body as string).action).toBe('APPLY')
     })
   })
 })

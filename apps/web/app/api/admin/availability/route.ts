@@ -6,7 +6,7 @@ import { getManagerVenueId } from '@/lib/venue-scope'
 import { guardAccess } from '@/lib/permissions'
 import { formatDateKey } from '@/lib/scheduling'
 import { getTodayDate } from '@/lib/utils'
-import { resolveAvailabilityPresets } from '@/lib/availability'
+import { parseAvailabilityCutoff, resolveAvailabilityPresets, venueNow } from '@/lib/availability'
 import {
   loadSeriesSummaries,
   mapAvailabilityEntry,
@@ -46,7 +46,10 @@ export async function GET(req: NextRequest) {
   const end = new Date(`${endKey}T23:59:59Z`)
 
   const [venue, staff, positions, rows, pendingRows, requests] = await Promise.all([
-    prisma.venue.findUnique({ where: { id: venueId }, select: { availabilityPresets: true, timezone: true } }),
+    prisma.venue.findUnique({
+      where: { id: venueId },
+      select: { availabilityPresets: true, availabilityCutoff: true, timezone: true },
+    }),
     prisma.staff.findMany({
       where: { venueId, deletedAt: null, isActive: true },
       select: {
@@ -103,12 +106,18 @@ export async function GET(req: NextRequest) {
     .map((r) => r.seriesId)
     .filter((x): x is string => !!x)
   const series = await loadSeriesSummaries(staff.map((s) => s.id), seriesIds)
+  // The venue-local clock for the cut-off warning chips. Spec is to reuse the
+  // exact computation the worker save gate uses (`venueNow`), so the admin view
+  // and the phone agree on whether a week is past its deadline.
+  const now = venueNow(venue?.timezone || 'Pacific/Auckland')
 
   return NextResponse.json({
     venueId,
     // Venue-local today (not UTC) — the grid must mark the correct day even when
     // the venue timezone is ahead of the server/viewer.
     today: formatDateKey(getTodayDate(venue?.timezone || 'Pacific/Auckland')),
+    cutoff: parseAvailabilityCutoff(venue?.availabilityCutoff),
+    nowMinutes: now.minutes,
     staff: staff.map((s) => ({
       id: s.id,
       firstName: s.firstName,

@@ -205,9 +205,9 @@ export function isEntryLocked(entry: { lockedAt?: string | null } | null | undef
 }
 
 /**
- * The lock columns stamped by a manager review. APPROVE locks the day;
- * DECLINE never does. Keep the rule here so the review route and its tests
- * cannot drift.
+ * The lock columns stamped by a manager review. A **single-day** APPROVE locks
+ * the day; DECLINE and a series/multi-day approval never do. Keep the rule here
+ * so the review route and its tests cannot drift.
  */
 export function approvalLockFields(
   approve: boolean,
@@ -215,6 +215,36 @@ export function approvalLockFields(
   at: Date = new Date(),
 ): { lockedAt: Date; lockedById: string; lockedReason: null } | Record<string, never> {
   return approve ? { lockedAt: at, lockedById: actorId, lockedReason: null } : {}
+}
+
+/**
+ * Every day an edit request targets (its write and remove dates), sorted and
+ * deduped. An empty array means the payload carried no plan dates — callers
+ * fall back to the request's anchor day.
+ */
+export function requestTargetDates(
+  payload: { writeDates?: string[] | null; removeDates?: string[] | null } | null | undefined,
+): string[] {
+  const dates = [...(payload?.writeDates ?? []), ...(payload?.removeDates ?? [])].filter(Boolean)
+  return [...new Set(dates)].sort()
+}
+
+/**
+ * The identity of the change a request makes: two requests with the same key
+ * are snapshots of the same fix. A series request is keyed by series + action,
+ * a standalone day (including a THIS detach) by its date + action, so a newer
+ * snapshot can supersede the older ones without collapsing different targets
+ * or actions.
+ */
+export function requestSupersedeKey(req: {
+  staffId: string
+  seriesId?: string | null
+  date: string
+  action: string
+}): string {
+  return req.seriesId
+    ? `${req.staffId}:series:${req.seriesId}:${req.action}`
+    : `${req.staffId}:day:${req.date}:${req.action}`
 }
 
 export interface AvailabilityMeta {
@@ -744,6 +774,56 @@ export function isPastCutoff(
   const deadline = cutoffDeadlineKey(dateKey, cutoff)
   if (nowKey !== deadline) return nowKey > deadline
   return nowMinutes >= minutesOfTime(cutoff.time)
+}
+
+/**
+ * Venue-local "now": the wall-clock date key and minutes since local midnight.
+ * The one place a route reads the clock for the cut-off gate, so the worker
+ * save gate and the admin warning chips cannot disagree.
+ */
+export function venueNow(timezone?: string | null): { key: string; minutes: number } {
+  const now = new Date()
+  const tz = timezone || 'Pacific/Auckland'
+  const dateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
+  const timeFmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false })
+  const p = dateFmt.formatToParts(now)
+  const t = timeFmt.formatToParts(now)
+  const y = p.find((x) => x.type === 'year')?.value
+  const m = p.find((x) => x.type === 'month')?.value
+  const d = p.find((x) => x.type === 'day')?.value
+  const hh = Number(t.find((x) => x.type === 'hour')?.value ?? '0') % 24
+  const mm = Number(t.find((x) => x.type === 'minute')?.value ?? '0')
+  return { key: `${y}-${m}-${d}`, minutes: hh * 60 + mm }
+}
+
+export type RequestCutoffState = 'NONE' | 'CURRENT_WEEK' | 'PAST_CUTOFF'
+
+/**
+ * How a pending request's target dates sit against the weekly roster cut-off.
+ * PAST_CUTOFF means the roster for at least one target week may already be
+ * built; CURRENT_WEEK means a target lands in the roster week currently being
+ * built. Warning only — it never blocks a manager.
+ *
+ * Note on the week window: `cutoffDeadlineKey` puts a week's deadline in the
+ * week *before* it, so a target in the calendar week containing `nowKey` is
+ * always past its own deadline and PAST_CUTOFF reports it first. The week a
+ * manager is actually rostering is therefore the upcoming Monday–Sunday, and
+ * that is what CURRENT_WEEK flags.
+ */
+export function requestCutoffState(
+  targetDates: string[],
+  cutoff: AvailabilityCutoff | null,
+  nowKey: string,
+  nowMinutes: number,
+): RequestCutoffState {
+  const dates = targetDates.filter(Boolean)
+  if (!cutoff || dates.length === 0) return 'NONE'
+  if (dates.some((d) => isPastCutoff(d, cutoff, nowKey, nowMinutes))) return 'PAST_CUTOFF'
+  const weekStart = mondayOf(nowKey)
+  const upcomingStart = shiftDay(weekStart, 7)
+  const upcomingEnd = shiftDay(weekStart, 13)
+  if (dates.some((d) => d >= upcomingStart && d <= upcomingEnd)) return 'CURRENT_WEEK'
+  return 'NONE'
 }
 
 /** "THURSDAY 17:00" — the settings + worker hint label. */

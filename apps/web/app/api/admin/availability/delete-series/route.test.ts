@@ -1,25 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
-const { db, getServerSession, clearAvailability, parseScope } = vi.hoisted(() => ({
+const { db, getServerSession, clearAvailability, parseScope, unlockSeriesAvailability } = vi.hoisted(() => ({
   db: {
-    staff: { findFirst: vi.fn() },
+    staff: { findFirst: vi.fn(), findUnique: vi.fn() },
+    staffPermission: { findUnique: vi.fn() },
+    staffAvailability: { findMany: vi.fn() },
     availabilityEditRequest: { updateMany: vi.fn() },
   },
   getServerSession: vi.fn(),
   clearAvailability: vi.fn(),
   parseScope: vi.fn((raw: unknown) => raw ?? null),
+  unlockSeriesAvailability: vi.fn(),
 }))
 
 vi.mock('next-auth', () => ({ getServerSession }))
 vi.mock('@/lib/auth', () => ({ authOptions: {} }))
 vi.mock('@hospo-ops/db', () => ({ prisma: db }))
-vi.mock('@/lib/availability.server', () => ({ clearAvailability, parseScope }))
+vi.mock('@/lib/availability.server', () => ({ clearAvailability, parseScope, unlockSeriesAvailability }))
 
 import { POST } from './route'
 
 function req(body: unknown): NextRequest {
-  return { json: async () => body } as unknown as NextRequest
+  return {
+    json: async () => body,
+    cookies: { get: () => undefined },
+  } as unknown as NextRequest
 }
 
 const body = { staffId: 'st1', venueId: 'v1', date: '2026-10-08', scope: 'ALL', seriesId: 's1' }
@@ -30,15 +36,36 @@ beforeEach(() => {
     user: { id: 'u1', role: 'ADMIN', venueId: 'v1', availableVenueIds: ['v1'] },
   })
   db.staff.findFirst.mockResolvedValue({ id: 'st1' })
+  db.staff.findUnique.mockResolvedValue({ restricted: false })
+  db.staffPermission.findUnique.mockResolvedValue(null)
+  db.staffAvailability.findMany.mockResolvedValue([
+    { date: new Date('2026-10-01T00:00:00.000Z') },
+    { date: new Date('2026-10-08T00:00:00.000Z') },
+    { date: new Date('2026-10-15T00:00:00.000Z') },
+  ])
   db.availabilityEditRequest.updateMany.mockResolvedValue({ count: 0 })
   clearAvailability.mockResolvedValue({ mode: 'SAVED', skipped: [], plan: { removeDates: [] } })
+  unlockSeriesAvailability.mockResolvedValue({ unlocked: [], count: 0 })
 })
 
 describe('POST /api/admin/availability/delete-series', () => {
-  it('is ADMIN only', async () => {
+  it('allows a restricted manager holding team.availability.edit', async () => {
     getServerSession.mockResolvedValue({
       user: { id: 'u1', role: 'MANAGER', venueId: 'v1', availableVenueIds: ['v1'] },
     })
+    db.staff.findUnique.mockResolvedValue({ restricted: true })
+    db.staffPermission.findUnique.mockResolvedValue({ id: 'g1' })
+
+    const res = await POST(req(body))
+    expect(res.status).toBe(200)
+    expect(clearAvailability).toHaveBeenCalled()
+  })
+
+  it('refuses a restricted manager without the edit grant', async () => {
+    getServerSession.mockResolvedValue({
+      user: { id: 'u1', role: 'MANAGER', venueId: 'v1', availableVenueIds: ['v1'] },
+    })
+    db.staff.findUnique.mockResolvedValue({ restricted: true })
 
     const res = await POST(req(body))
     expect(res.status).toBe(403)
@@ -59,6 +86,46 @@ describe('POST /api/admin/availability/delete-series', () => {
     expect(clearAvailability).not.toHaveBeenCalled()
   })
 
+  it('does not unlock anything without unlockDates', async () => {
+    await POST(req(body))
+    expect(unlockSeriesAvailability).not.toHaveBeenCalled()
+  })
+
+  it('unlocks the selected dates before clearing', async () => {
+    unlockSeriesAvailability.mockResolvedValueOnce({ unlocked: ['2026-10-08'], count: 1 })
+
+    const res = await POST(req({ ...body, unlockDates: ['2026-10-08'] }))
+    const json = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(unlockSeriesAvailability).toHaveBeenCalledWith({
+      staffId: 'st1',
+      venueId: 'v1',
+      seriesId: 's1',
+      dates: ['2026-10-08'],
+      actorId: 'u1',
+    })
+    expect(unlockSeriesAvailability.mock.invocationCallOrder[0])
+      .toBeLessThan(clearAvailability.mock.invocationCallOrder[0])
+    expect(json).toMatchObject({ unlocked: ['2026-10-08'], unlockedCount: 1 })
+  })
+
+  it('ignores an unlock date outside the requested scope', async () => {
+    await POST(req({ ...body, scope: 'THIS', unlockDates: ['2026-10-08', '2026-10-15'] }))
+
+    expect(unlockSeriesAvailability).toHaveBeenCalledWith(
+      expect.objectContaining({ dates: ['2026-10-08'] }),
+    )
+  })
+
+  it('forbids an ADMIN acting on a venue they cannot access', async () => {
+    const res = await POST(req({ ...body, venueId: 'v2' }))
+
+    expect(res.status).toBe(403)
+    expect(clearAvailability).not.toHaveBeenCalled()
+    expect(unlockSeriesAvailability).not.toHaveBeenCalled()
+  })
+
   it('forwards the scope and discards pending requests for the removed days', async () => {
     clearAvailability.mockResolvedValueOnce({
       mode: 'SAVED',
@@ -70,7 +137,7 @@ describe('POST /api/admin/availability/delete-series', () => {
     const json = await res.json()
 
     expect(res.status).toBe(200)
-    expect(json).toEqual({ mode: 'SAVED', skipped: ['2026-10-15'] })
+    expect(json).toMatchObject({ mode: 'SAVED', skipped: ['2026-10-15'] })
     expect(clearAvailability).toHaveBeenCalledWith(
       expect.objectContaining({ staffId: 'st1', venueId: 'v1', dateKey: '2026-10-08', scope: 'FROM', seriesId: 's1' }),
       expect.objectContaining({ bypass: true }),
