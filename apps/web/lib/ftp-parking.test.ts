@@ -124,7 +124,7 @@ describe('normaliseTestMemberInput', () => {
   })
 
   it('rejects bad membership numbers and names', () => {
-    expect(normaliseTestMemberInput({ ...base, membershipNumber: '12' }).ok).toBe(false)
+    expect(normaliseTestMemberInput({ ...base, membershipNumber: '1' }).ok).toBe(false)
     expect(normaliseTestMemberInput({ ...base, firstName: '' }).ok).toBe(false)
     expect(normaliseTestMemberInput({ ...base, lastName: '' }).ok).toBe(false)
   })

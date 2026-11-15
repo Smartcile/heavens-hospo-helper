@@ -9,8 +9,8 @@
 export const VPERMIT_HOSTS = ['vpermit.com.au', 'www.vpermit.com.au'] as const
 export const VPERMIT_BASE_URL = 'https://vpermit.com.au'
 export const VPERMIT_CLAIM_PATH = /^\/tld\/ClaimableEvents\/Claim\/?$/i
-export const MEMBERSHIP_MIN_LENGTH = 4
-export const MEMBERSHIP_MAX_LENGTH = 12
+export const MEMBERSHIP_MIN_LENGTH = 2
+export const MEMBERSHIP_MAX_LENGTH = 5
 export const ADMIN_PIN_MIN_LENGTH = 4
 export const ADMIN_PIN_MAX_LENGTH = 8
 

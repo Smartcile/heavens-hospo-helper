@@ -49,6 +49,7 @@ export async function resolveFtpCredential(args: {
   venueId: string
   typeId: string
   credential: string
+  mode?: 'MEMBER' | 'ADMIN'
 }): Promise<ResolveFtpCredentialResult> {
   const type = await prisma.ftpParkingType.findFirst({
     where: {
@@ -61,6 +62,17 @@ export async function resolveFtpCredential(args: {
   if (!type || !type.claimUrl) return { ok: false, reason: 'TYPE_UNAVAILABLE' }
 
   const value = args.credential.trim()
+  const mode = args.mode ?? 'MEMBER'
+
+  // The admin PIN is only accepted after the hidden five-tap gesture. Member
+  // mode never falls back to it, so a customer cannot discover it by trying.
+  if (mode === 'ADMIN') {
+    if (type.adminPinEnabled && type.adminPinHash && isValidAdminPin(value)) {
+      const matches = await bcrypt.compare(value, type.adminPinHash)
+      if (matches) return { ok: true, credential: { kind: 'ADMIN_PIN', type, member: null } }
+    }
+    return { ok: false, reason: 'NOT_FOUND' }
+  }
 
   if (isValidMembershipNumber(value)) {
     const member = await prisma.member.findFirst({
@@ -74,11 +86,6 @@ export async function resolveFtpCredential(args: {
       include: memberInclude,
     })
     if (member) return { ok: true, credential: { kind: 'MEMBER', type, member } }
-  }
-
-  if (type.adminPinEnabled && type.adminPinHash && isValidAdminPin(value)) {
-    const matches = await bcrypt.compare(value, type.adminPinHash)
-    if (matches) return { ok: true, credential: { kind: 'ADMIN_PIN', type, member: null } }
   }
 
   return { ok: false, reason: 'NOT_FOUND' }

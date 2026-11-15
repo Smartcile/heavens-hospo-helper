@@ -11,6 +11,30 @@ export const PLATE_MAX_LENGTH = 6
 export const KIOSK_EXIT_HOLD_MS = 5000
 export const KIOSK_EXIT_LOCKOUT_MS = 60_000
 export const KIOSK_EXIT_MAX_ATTEMPTS = 5
+export const ADMIN_TAP_COUNT = 5
+export const ADMIN_TAP_WINDOW_MS = 3000
+
+export interface AdminTapState {
+  count: number
+  firstAt: number | null
+}
+
+export const EMPTY_ADMIN_TAP_STATE: AdminTapState = { count: 0, firstAt: null }
+
+/** Count quick taps on the staff-help button; five inside the window opens admin mode. */
+export function registerAdminTap(
+  state: AdminTapState,
+  now: number,
+): { state: AdminTapState; triggered: boolean } {
+  if (state.firstAt !== null && now - state.firstAt > ADMIN_TAP_WINDOW_MS) {
+    return { state: { count: 1, firstAt: now }, triggered: false }
+  }
+  const count = state.count + 1
+  if (count >= ADMIN_TAP_COUNT) {
+    return { state: EMPTY_ADMIN_TAP_STATE, triggered: true }
+  }
+  return { state: { count, firstAt: state.firstAt ?? now }, triggered: false }
+}
 
 export function normaliseKioskCode(raw: string): string {
   return (raw ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '')

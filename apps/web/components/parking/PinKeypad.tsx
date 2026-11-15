@@ -5,6 +5,8 @@ interface PinKeypadProps {
   onBackspace: () => void
   onClear: () => void
   disabled?: boolean
+  variant?: 'default' | 'kiosk'
+  tone?: 'default' | 'danger'
 }
 
 const ROWS = [
@@ -14,15 +16,56 @@ const ROWS = [
 ]
 
 // Numeric keypad for membership numbers / PINs. Same styling as the plate
-// keypad so the two screens feel like one device.
-export function PinKeypad({ onKey, onBackspace, onClear, disabled }: PinKeypadProps) {
-  const keyClass =
-    'h-12 md:h-14 select-none border border-grey-mid bg-grey-dark/40 font-mono text-xl md:text-2xl font-semibold text-white transition-colors active:bg-white active:text-black disabled:opacity-40'
+// keypad so the two screens feel like one device. `kiosk` fills the screen for
+// older users; `danger` is the hidden admin-PIN mode.
+export function PinKeypad({
+  onKey,
+  onBackspace,
+  onClear,
+  disabled,
+  variant = 'default',
+  tone = 'default',
+}: PinKeypadProps) {
+  const kiosk = variant === 'kiosk'
+  const danger = tone === 'danger'
+  const keyClass = kiosk
+    ? `h-full min-h-14 w-full select-none border font-mono text-3xl md:text-4xl font-semibold transition-colors disabled:opacity-40 ${
+        danger
+          ? 'border-danger/60 bg-danger/15 text-white active:bg-white active:text-black'
+          : 'border-grey-mid bg-grey-dark/40 text-white active:bg-white active:text-black'
+      }`
+    : 'h-12 md:h-14 select-none border border-grey-mid bg-grey-dark/40 font-mono text-xl md:text-2xl font-semibold text-white transition-colors active:bg-white active:text-black disabled:opacity-40'
+  const editClass = kiosk
+    ? `h-full min-h-14 w-full select-none border font-mono text-base md:text-xl font-semibold uppercase tracking-wider transition-colors disabled:opacity-40 ${
+        danger
+          ? 'border-danger/60 text-danger active:bg-white active:text-black'
+          : 'border-grey-mid text-grey-light active:bg-white active:text-black'
+      }`
+    : 'h-12 md:h-14 select-none border border-grey-mid font-mono text-sm font-semibold uppercase tracking-wider text-grey-light active:bg-white active:text-black disabled:opacity-40'
+  const backClass = kiosk
+    ? `h-full min-h-14 w-full select-none border font-mono text-xl md:text-2xl font-semibold uppercase tracking-wider transition-colors disabled:opacity-40 ${
+        danger
+          ? 'border-danger/60 text-white active:bg-white active:text-black'
+          : 'border-grey-mid text-white active:bg-white active:text-black'
+      }`
+    : 'h-12 md:h-14 select-none border border-grey-mid font-mono text-lg font-semibold uppercase tracking-wider text-white active:bg-white active:text-black disabled:opacity-40'
 
   return (
-    <div className="mx-auto w-full max-w-md space-y-1.5" aria-label="Number keypad">
+    <div
+      className={
+        kiosk
+          ? 'mx-auto flex h-full min-h-0 w-full flex-col gap-1'
+          : 'mx-auto w-full max-w-md space-y-1.5'
+      }
+      aria-label="Number keypad"
+    >
       {ROWS.map((row) => (
-        <div key={row[0]} className="grid grid-cols-3 gap-1.5">
+        <div
+          key={row[0]}
+          className={
+            kiosk ? 'grid min-h-0 flex-1 grid-cols-3 gap-1' : 'grid grid-cols-3 gap-1.5'
+          }
+        >
           {row.map((key) => (
             <button
               key={key}
@@ -37,12 +80,16 @@ export function PinKeypad({ onKey, onBackspace, onClear, disabled }: PinKeypadPr
           ))}
         </div>
       ))}
-      <div className="grid grid-cols-3 gap-1.5">
+      <div
+        className={
+          kiosk ? 'grid min-h-0 flex-1 grid-cols-3 gap-1' : 'grid grid-cols-3 gap-1.5'
+        }
+      >
         <button
           type="button"
           onClick={onClear}
           disabled={disabled}
-          className="h-12 md:h-14 select-none border border-grey-mid font-mono text-sm font-semibold uppercase tracking-wider text-grey-light active:bg-white active:text-black disabled:opacity-40"
+          className={editClass}
         >
           CLEAR
         </button>
@@ -59,7 +106,7 @@ export function PinKeypad({ onKey, onBackspace, onClear, disabled }: PinKeypadPr
           type="button"
           onClick={onBackspace}
           disabled={disabled}
-          className="h-12 md:h-14 select-none border border-grey-mid font-mono text-lg font-semibold uppercase tracking-wider text-white active:bg-white active:text-black disabled:opacity-40"
+          className={backClass}
           aria-label="Delete last digit"
         >
           DEL

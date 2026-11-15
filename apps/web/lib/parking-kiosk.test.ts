@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ADMIN_TAP_COUNT,
+  ADMIN_TAP_WINDOW_MS,
+  EMPTY_ADMIN_TAP_STATE,
   appendPlateKey,
   describeKioskResult,
   formatKioskClock,
@@ -8,6 +11,7 @@ import {
   kioskCodeError,
   kioskCountdownProgress,
   normaliseKioskCode,
+  registerAdminTap,
   removeLastPlateKey,
 } from './parking-kiosk'
 
@@ -69,5 +73,29 @@ describe('labels', () => {
     expect(describeKioskResult('CONFIRMED')).toBe('REGISTERED')
     expect(describeKioskResult('ALREADY_ACTIVE')).toBe('ALREADY REGISTERED')
     expect(describeKioskResult('FAILED')).toBe('COULD NOT REGISTER')
+  })
+})
+
+describe('admin tap gesture', () => {
+  it('triggers on the fifth tap inside the window', () => {
+    let state = EMPTY_ADMIN_TAP_STATE
+    let triggered = false
+    for (let i = 0; i < ADMIN_TAP_COUNT; i += 1) {
+      const result = registerAdminTap(state, 1_000 + i * 100)
+      state = result.state
+      triggered = result.triggered
+    }
+    expect(triggered).toBe(true)
+    expect(state.count).toBe(0)
+  })
+
+  it('does not trigger when the taps are too slow', () => {
+    let state = EMPTY_ADMIN_TAP_STATE
+    for (let i = 0; i < ADMIN_TAP_COUNT - 1; i += 1) {
+      state = registerAdminTap(state, 1_000 + i * 100).state
+    }
+    const result = registerAdminTap(state, 1_000 + ADMIN_TAP_WINDOW_MS + 1)
+    expect(result.triggered).toBe(false)
+    expect(result.state.count).toBe(1)
   })
 })

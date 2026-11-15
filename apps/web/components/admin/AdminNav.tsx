@@ -34,6 +34,7 @@ const NAV_ITEM_AREAS: Record<string, string> = {
   '/admin/notices': 'notices',
   '/admin/compliance': 'compliance',
   '/admin/reports': 'performance',
+  '/admin/parking': 'performance',
   '/admin/budget': 'performance',
   '/admin/gift-cards': 'performance',
   '/admin/tips': 'performance',
@@ -73,6 +74,7 @@ const NAV_GROUPS: NavGroup[] = [
   ] },
   { label: 'Performance', href: '/admin/reports', items: [
     { href: '/admin/reports', label: 'Reports' },
+    { href: '/admin/parking', label: 'Parking' },
     { href: '/admin/budget', label: 'Budget' },
     { href: '/admin/tips', label: 'Tips' },
     { href: '/admin/gift-cards', label: 'Gift Cards' },

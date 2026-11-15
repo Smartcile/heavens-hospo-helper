@@ -19,24 +19,42 @@ interface PlateKeypadProps {
   onBackspace: () => void
   onClear: () => void
   disabled?: boolean
+  variant?: 'default' | 'kiosk'
 }
 
 // On-screen keypad: QWERTY letters on the left, a numpad on the right. Not an
 // <input>, so the iPad never raises the native keyboard or autocorrect.
-export function PlateKeypad({ onKey, onBackspace, onClear, disabled }: PlateKeypadProps) {
-  const keyClass =
-    'h-11 md:h-14 select-none border border-grey-mid bg-grey-dark/40 font-mono text-base md:text-xl font-semibold text-white transition-colors active:bg-white active:text-black disabled:opacity-40'
+// `kiosk` stretches the keys to fill the screen for older users.
+export function PlateKeypad({
+  onKey,
+  onBackspace,
+  onClear,
+  disabled,
+  variant = 'default',
+}: PlateKeypadProps) {
+  const kiosk = variant === 'kiosk'
+  const keyClass = kiosk
+    ? 'h-full min-h-14 w-full select-none border border-grey-mid bg-grey-dark/40 font-mono text-2xl md:text-3xl font-semibold text-white transition-colors active:bg-white active:text-black disabled:opacity-40'
+    : 'h-11 md:h-14 select-none border border-grey-mid bg-grey-dark/40 font-mono text-base md:text-xl font-semibold text-white transition-colors active:bg-white active:text-black disabled:opacity-40'
+  const editClass = kiosk
+    ? 'h-full min-h-14 w-full select-none border border-grey-mid font-mono text-base md:text-xl font-semibold uppercase tracking-wider text-grey-light active:bg-white active:text-black disabled:opacity-40'
+    : 'h-11 md:h-14 select-none border border-grey-mid font-mono text-sm font-semibold uppercase tracking-wider text-grey-light active:bg-white active:text-black disabled:opacity-40'
+  const backClass = kiosk
+    ? 'h-full min-h-14 w-full select-none border border-grey-mid font-mono text-xl md:text-2xl font-semibold uppercase tracking-wider text-white active:bg-white active:text-black disabled:opacity-40'
+    : 'h-11 md:h-14 select-none border border-grey-mid font-mono text-lg font-semibold uppercase tracking-wider text-white active:bg-white active:text-black disabled:opacity-40'
 
   return (
     <div
-      className="grid w-full grid-cols-1 gap-2 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]"
+      className={`grid w-full grid-cols-1 ${
+        kiosk ? 'h-full min-h-0 gap-1' : 'gap-2'
+      } md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]`}
       aria-label="Number plate keypad"
     >
-      <div className="space-y-1.5">
+      <div className={kiosk ? 'flex min-h-0 flex-col gap-1' : 'space-y-1.5'}>
         {LETTER_ROWS.map((row, rowIndex) => (
           <div
             key={rowIndex}
-            className="grid gap-1.5"
+            className={`grid min-h-0 gap-1.5 ${kiosk ? 'flex-1 gap-1' : ''}`}
             style={{ gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))` }}
           >
             {row.map((key) => (
@@ -53,12 +71,12 @@ export function PlateKeypad({ onKey, onBackspace, onClear, disabled }: PlateKeyp
             ))}
           </div>
         ))}
-        <div className="grid grid-cols-2 gap-1.5">
+        <div className={`grid grid-cols-2 gap-1.5 ${kiosk ? 'flex-1 gap-1' : ''}`}>
           <button
             type="button"
             onClick={onClear}
             disabled={disabled}
-            className="h-11 md:h-14 select-none border border-grey-mid font-mono text-sm font-semibold uppercase tracking-wider text-grey-light active:bg-white active:text-black disabled:opacity-40"
+            className={editClass}
           >
             CLEAR
           </button>
@@ -66,7 +84,7 @@ export function PlateKeypad({ onKey, onBackspace, onClear, disabled }: PlateKeyp
             type="button"
             onClick={onBackspace}
             disabled={disabled}
-            className="h-11 md:h-14 select-none border border-grey-mid font-mono text-lg font-semibold uppercase tracking-wider text-white active:bg-white active:text-black disabled:opacity-40"
+            className={backClass}
             aria-label="Delete last character"
           >
             DEL
@@ -74,7 +92,13 @@ export function PlateKeypad({ onKey, onBackspace, onClear, disabled }: PlateKeyp
         </div>
       </div>
 
-      <div className="grid grid-cols-3 content-start gap-1.5">
+      <div
+        className={
+          kiosk
+            ? 'grid min-h-0 grid-cols-3 grid-rows-4 gap-1'
+            : 'grid grid-cols-3 content-start gap-1.5'
+        }
+      >
         {NUM_ROWS.flat().map((key) => (
           <button
             key={key}

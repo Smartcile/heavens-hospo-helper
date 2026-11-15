@@ -202,6 +202,12 @@ export function FtpSettingsClient({
         <p className="font-mono text-xs text-grey-light">
           THE CUSTOMER KIOSK, THE CUSTOM EMAIL, THE 4 HOUR CARPARK AND STAFF NUMBER PLATES.
         </p>
+        <a
+          href="/admin/parking"
+          className="mt-2 inline-block border border-grey-mid px-3 py-1.5 font-mono text-xs uppercase tracking-wider text-white hover:border-white"
+        >
+          VIEW PARKING METRICS →
+        </a>
       </div>
 
       {venues.length > 1 && role === 'ADMIN' && (

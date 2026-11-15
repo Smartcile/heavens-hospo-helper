@@ -924,7 +924,7 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
               </h3>
               <div className="grid gap-3 md:grid-cols-2">
                 <Input
-                  label="Membership number (4–12 digits)"
+                  label="Membership number (2–5 digits)"
                   value={memberForm.membershipNumber}
                   onChange={(e) => setMemberForm({ ...memberForm, membershipNumber: e.target.value })}
                 />

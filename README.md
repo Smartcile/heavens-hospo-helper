@@ -511,15 +511,22 @@ The customer-facing parking layer. Everything lives in **Settings → FTP**.
   after a silent 5-second hold. No popup, no prompt.
 - **4 hour carpark** — add one or more **PARKING TYPES** (e.g. RAYC, TRUST) in
   Settings → FTP → 4 HOUR. Each has its own vPermit claim URL, contact
-  name/email/phone and optional admin PIN. Staff/guests enter a **membership
-  number** (or the admin PIN) on the kiosk, pick a saved plate or add one, and
-  the app drives the vPermit form in a headless browser. If the browser or
-  reCAPTCHA fails, the kiosk offers **OPEN PARKING PAGE** so the guest can
-  finish it in Safari and come back.
+  name/email/phone and optional admin PIN. Staff/guests enter a **2–5 digit
+  membership number** on the kiosk, pick a saved plate or add one, and the app
+  drives the vPermit form in a headless browser. The number is never shown on
+  screen. If the browser or reCAPTCHA fails, the kiosk offers **OPEN PARKING
+  PAGE** so the guest can finish it in Safari and come back.
+- **Admin PIN** — tap **SPEAK WITH STAFF IF YOU NEED HELP** five times. The
+  screen turns red, the PIN stays hidden, and only the type’s admin PIN is
+  accepted.
 - **Plate log + evidence** — every 4-hour claim is listed under **PLATE LOG**
   with its validity window and a private evidence PDF/screenshot. Filter by
   type/status/date/plate, download CSV or a merged evidence pack, and add a
   follow-up note.
+- **Parking metrics** — **Performance → Parking** shows successful plate
+  entries, already-registered and failed attempts, success rate, 90-minute
+  kiosk vs worker counts, 4-hour counts by type, staff plates entered, member
+  plates and health checks.
 - **Test members** — until the full Members area is built, add test members in
   **Settings → FTP → 4 HOUR → TEST MEMBERS**. Plates are added by the kiosk on
   the first confirmed claim, then shown as an easy select.

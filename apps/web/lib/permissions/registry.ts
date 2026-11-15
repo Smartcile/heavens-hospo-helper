@@ -371,6 +371,14 @@ export const PERMISSION_TREE: PermissionArea[] = [
         ],
       },
       {
+        key: 'parking',
+        label: 'PARKING',
+        functions: [
+          { key: 'view', label: 'VIEW' },
+          { key: 'export', label: 'EXPORT' },
+        ],
+      },
+      {
         key: 'giftcards',
         label: 'GIFT CARDS',
         functions: [

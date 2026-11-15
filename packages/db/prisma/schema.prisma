@@ -422,6 +422,7 @@ model Venue {
   supplierPriceMovements SupplierPriceMovement[]
   parkingConfig       ParkingConfig?
   parkingRegistrations ParkingRegistration[]
+  parkingKioskEvents  ParkingKioskEvent[]
   parkingHealthChecks ParkingHealthCheck[]
   ftpSettings         FtpSettings?
   ftpParkingTypes     FtpParkingType[]
@@ -4625,6 +4626,28 @@ model ParkingRegistration {
 
   @@index([venueId, createdAt])
   @@index([venueId, licensePlate, createdAt])
+}
+
+// Anonymous 90-minute kiosk attempt. Deliberately stores NO plate or plate
+// hash: it exists only to count attempts and successes at the kiosk.
+model ParkingKioskEvent {
+  id          String    @id @default(uuid())
+  venueId     String
+  system      String    @default("SCAN2PAY_90")
+  status      String // CONFIRMED | ALREADY_ACTIVE | FAILED
+  reason      String?
+  httpStatus  Int?
+  durationMs  Int?
+  carparkId   Int?
+  carparkName String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@index([venueId, createdAt])
+  @@index([venueId, status, createdAt])
 }
 
 // Daily readiness/full health-check history for the parking integration.

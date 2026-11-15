@@ -100,7 +100,7 @@ describe('/api/admin/parking/ftp/test-members', () => {
   })
 
   it('rejects an invalid membership number', async () => {
-    const res = await POST(req({ ...VALID, membershipNumber: '12' }))
+    const res = await POST(req({ ...VALID, membershipNumber: '1' }))
     expect(res.status).toBe(422)
   })
 

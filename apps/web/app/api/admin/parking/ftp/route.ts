@@ -9,7 +9,14 @@ import { ftpSettingsView, kioskUrlFor, normaliseFtpInput } from '@/lib/ftp-setti
 // the customer kiosk, the custom email, the 4-hour carpark and staff plates.
 
 function appUrl() {
-  return process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? ''
+  // The standalone customer site can live on its own domain without changing
+  // APP_URL (which is still used for QR codes and other HOSPO OPS links).
+  return (
+    process.env.PARKING_PUBLIC_URL ??
+    process.env.APP_URL ??
+    process.env.NEXTAUTH_URL ??
+    ''
+  )
 }
 
 export async function GET(req: NextRequest) {
