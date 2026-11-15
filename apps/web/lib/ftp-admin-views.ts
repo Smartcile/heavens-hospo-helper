@@ -18,6 +18,8 @@ export function ftpTypeAdminView(
     contactName: row.contactName,
     contactEmail: row.contactEmail,
     contactPhone: row.contactPhone,
+    useContactEmail: row.useContactEmail,
+    useContactPhone: row.useContactPhone,
     logPlates: row.logPlates,
     adminPinEnabled: row.adminPinEnabled,
     adminPinSet: Boolean(row.adminPinHash),

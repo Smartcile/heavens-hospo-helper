@@ -6,6 +6,7 @@ import {
   memberDisplayName,
   normaliseFtpTypeInput,
   normaliseTestMemberInput,
+  resolveFtpContact,
   sortMemberPlates,
 } from './ftp-parking'
 
@@ -97,6 +98,66 @@ describe('normaliseFtpTypeInput', () => {
     if (result.ok) expect(result.value.healthCheckMode).toBe('BROWSER')
     const full = normaliseFtpTypeInput(typeBody({ healthCheckMode: 'FULL' }))
     if (full.ok) expect(full.value.healthCheckMode).toBe('FULL')
+  })
+
+  it('defaults the contact email/phone switches on and accepts off', () => {
+    const on = normaliseFtpTypeInput(typeBody())
+    if (on.ok) {
+      expect(on.value.useContactEmail).toBe(true)
+      expect(on.value.useContactPhone).toBe(true)
+    }
+    const off = normaliseFtpTypeInput(
+      typeBody({ useContactEmail: false, useContactPhone: false }),
+    )
+    if (off.ok) {
+      expect(off.value.useContactEmail).toBe(false)
+      expect(off.value.useContactPhone).toBe(false)
+    }
+  })
+})
+
+describe('resolveFtpContact', () => {
+  const type = {
+    contactName: 'VENUE OFFICE',
+    contactEmail: 'parking@venue.nz',
+    contactPhone: '09 123 4567',
+    useContactEmail: true,
+    useContactPhone: true,
+  }
+  const member = {
+    firstName: 'TEST',
+    lastName: 'MEMBER',
+    email: 'member@example.com',
+    phone: '021 999 8888',
+  }
+
+  it('uses the type contact details and ignores the member when enabled', () => {
+    expect(resolveFtpContact({ member, type })).toEqual({
+      name: 'TEST MEMBER',
+      email: 'parking@venue.nz',
+      phone: '09 123 4567',
+    })
+  })
+
+  it('uses the member details when the switches are off', () => {
+    expect(
+      resolveFtpContact({
+        member,
+        type: { ...type, useContactEmail: false, useContactPhone: false },
+      }),
+    ).toEqual({
+      name: 'TEST MEMBER',
+      email: 'member@example.com',
+      phone: '021 999 8888',
+    })
+  })
+
+  it('falls back to the type contact details when there is no member', () => {
+    expect(resolveFtpContact({ member: null, type })).toEqual({
+      name: 'VENUE OFFICE',
+      email: 'parking@venue.nz',
+      phone: '09 123 4567',
+    })
   })
 })
 

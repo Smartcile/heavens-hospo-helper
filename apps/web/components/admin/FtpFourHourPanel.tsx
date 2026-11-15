@@ -17,6 +17,8 @@ interface FtpType {
   contactName: string | null
   contactEmail: string | null
   contactPhone: string | null
+  useContactEmail: boolean
+  useContactPhone: boolean
   logPlates: boolean
   adminPinEnabled: boolean
   adminPinSet: boolean
@@ -91,6 +93,8 @@ interface TypeForm {
   contactName: string
   contactEmail: string
   contactPhone: string
+  useContactEmail: boolean
+  useContactPhone: boolean
   logPlates: boolean
   adminPinEnabled: boolean
   adminPin: string
@@ -120,6 +124,8 @@ const EMPTY_TYPE: TypeForm = {
   contactName: '',
   contactEmail: '',
   contactPhone: '',
+  useContactEmail: true,
+  useContactPhone: true,
   logPlates: true,
   adminPinEnabled: false,
   adminPin: '',
@@ -164,6 +170,8 @@ function typeFormFrom(type: FtpType): TypeForm {
     contactName: type.contactName ?? '',
     contactEmail: type.contactEmail ?? '',
     contactPhone: type.contactPhone ?? '',
+    useContactEmail: type.useContactEmail,
+    useContactPhone: type.useContactPhone,
     logPlates: type.logPlates,
     adminPinEnabled: type.adminPinEnabled,
     adminPin: '',
@@ -353,6 +361,8 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
         contactName: typeForm.contactName || null,
         contactEmail: typeForm.contactEmail || null,
         contactPhone: typeForm.contactPhone || null,
+        useContactEmail: typeForm.useContactEmail,
+        useContactPhone: typeForm.useContactPhone,
         logPlates: typeForm.logPlates,
         adminPinEnabled: typeForm.adminPinEnabled,
         healthCheckMode: typeForm.healthCheckMode,
@@ -783,6 +793,50 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
                   />
                   <span className="font-mono text-xs uppercase text-white">ACTIVE</span>
                 </label>
+              </div>
+              <div className="space-y-2 border border-grey-mid/60 p-3">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={typeForm.useContactEmail}
+                    onChange={(e) =>
+                      setTypeForm({ ...typeForm, useContactEmail: e.target.checked })
+                    }
+                    className="h-4 w-4 accent-white"
+                  />
+                  <span className="font-mono text-xs uppercase text-white">
+                    USE THE CONTACT EMAIL FOR EVERY CLAIM
+                  </span>
+                </label>
+                <p className="font-mono text-2xs uppercase text-grey-light">
+                  THE MEMBER EMAIL IS IGNORED. LEAVE THE CONTACT EMAIL BLANK TO SEND NO EMAIL.
+                </p>
+                {typeForm.useContactEmail && !typeForm.contactEmail.trim() && (
+                  <p className="font-mono text-2xs uppercase text-warning">
+                    NO CONTACT EMAIL IS SET — CLAIMS WILL HAVE NO EMAIL.
+                  </p>
+                )}
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={typeForm.useContactPhone}
+                    onChange={(e) =>
+                      setTypeForm({ ...typeForm, useContactPhone: e.target.checked })
+                    }
+                    className="h-4 w-4 accent-white"
+                  />
+                  <span className="font-mono text-xs uppercase text-white">
+                    USE THE CONTACT PHONE FOR EVERY CLAIM
+                  </span>
+                </label>
+                <p className="font-mono text-2xs uppercase text-grey-light">
+                  THE MEMBER PHONE IS IGNORED. LEAVE THE CONTACT PHONE BLANK TO SEND NO PHONE.
+                </p>
+                {typeForm.useContactPhone && !typeForm.contactPhone.trim() && (
+                  <p className="font-mono text-2xs uppercase text-warning">
+                    NO CONTACT PHONE IS SET — CLAIMS WILL HAVE NO PHONE.
+                  </p>
+                )}
               </div>
               {typeForm.adminPinEnabled && !typeForm.adminPin && !editingType && (
                 <p className="font-mono text-2xs uppercase text-warning">

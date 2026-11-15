@@ -270,7 +270,7 @@ describe('KioskParkingClient — 4 hour', () => {
     expect(screen.getByRole('button', { name: 'TRY AGAIN' })).toBeInTheDocument()
   })
 
-  it('never renders the membership number', async () => {
+  it('shows the membership number in member mode', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(CREDENTIAL))
     render(<KioskParkingClient config={FOUR_CONFIG} />)
 
@@ -279,8 +279,7 @@ describe('KioskParkingClient — 4 hour', () => {
       fireEvent.click(screen.getByRole('button', { name: digit }))
     }
 
-    expect(screen.getByTestId('credential-hidden')).toHaveTextContent('NUMBER HIDDEN')
-    expect(screen.queryByText('1234')).toBeNull()
+    expect(screen.getByTestId('credential-display')).toHaveTextContent('1234')
   })
 
   it('hides the admin PIN behind five staff-button taps', async () => {
@@ -298,7 +297,7 @@ describe('KioskParkingClient — 4 hour', () => {
 
     expect(await screen.findByText(/ADMIN MODE/)).toBeInTheDocument()
     expect(screen.getByText('ENTER ADMIN PIN')).toBeInTheDocument()
-    expect(screen.getByTestId('credential-hidden')).toHaveTextContent('PIN HIDDEN')
+    expect(screen.getByTestId('credential-display')).toHaveTextContent('PIN HIDDEN')
 
     for (const digit of ['9', '8', '7', '6']) {
       fireEvent.click(screen.getByRole('button', { name: digit }))

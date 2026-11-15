@@ -31,6 +31,21 @@ describe('PlateKeypad', () => {
     expect(onClear).toHaveBeenCalledTimes(1)
   })
 
+  it('narrows the numpad and adds a gap when compactNumpad is set', () => {
+    render(
+      <PlateKeypad
+        variant="kiosk"
+        compactNumpad
+        onKey={vi.fn()}
+        onBackspace={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    )
+    const keypad = screen.getByLabelText('Number plate keypad')
+    expect(keypad.className).toContain('md:grid-cols-[minmax(0,5fr)_minmax(0,2fr)]')
+    expect(keypad.className).toContain('md:gap-3')
+  })
+
   it('disables every key when asked', () => {
     render(
       <PlateKeypad onKey={vi.fn()} onBackspace={vi.fn()} onClear={vi.fn()} disabled />,

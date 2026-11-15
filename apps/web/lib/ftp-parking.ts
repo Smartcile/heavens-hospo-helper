@@ -34,6 +34,8 @@ export interface FtpTypeInput {
   contactName: string | null
   contactEmail: string | null
   contactPhone: string | null
+  useContactEmail: boolean
+  useContactPhone: boolean
   logPlates: boolean
   adminPinEnabled: boolean
   adminPin: string | null
@@ -168,6 +170,8 @@ export function normaliseFtpTypeInput(body: Record<string, unknown>): NormaliseF
       contactName: contactName ?? null,
       contactEmail: normaliseEmail(body.contactEmail),
       contactPhone,
+      useContactEmail: body.useContactEmail !== false,
+      useContactPhone: body.useContactPhone !== false,
       logPlates: body.logPlates !== false,
       adminPinEnabled,
       adminPin,
@@ -221,6 +225,46 @@ export function normaliseTestMemberInput(
       isActive: body.isActive !== false,
       notes,
     },
+  }
+}
+
+export interface FtpContactInput {
+  member: {
+    firstName: string
+    lastName: string
+    email: string | null
+    phone: string | null
+  } | null
+  type: {
+    contactName: string | null
+    contactEmail: string | null
+    contactPhone: string | null
+    useContactEmail: boolean
+    useContactPhone: boolean
+  }
+}
+
+/**
+ * Decide which contact details go to the vendor. When the type's "use contact"
+ * switch is on, the member's own email/phone is deliberately ignored.
+ */
+export function resolveFtpContact(input: FtpContactInput): {
+  name: string | null
+  email: string | null
+  phone: string | null
+} {
+  const memberName = input.member
+    ? `${input.member.firstName} ${input.member.lastName}`.trim()
+    : null
+
+  return {
+    name: memberName || input.type.contactName || null,
+    email: input.type.useContactEmail
+      ? input.type.contactEmail
+      : input.member?.email ?? input.type.contactEmail ?? null,
+    phone: input.type.useContactPhone
+      ? input.type.contactPhone
+      : input.member?.phone ?? input.type.contactPhone ?? null,
   }
 }
 

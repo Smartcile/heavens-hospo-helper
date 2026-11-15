@@ -19,6 +19,15 @@ describe('PinKeypad', () => {
     expect(screen.getByRole('button', { name: 'Delete last digit' })).toBeDefined()
   })
 
+  it('uses a standard numpad order with 7-8-9 on top', () => {
+    setup()
+    const digits = screen
+      .getAllByRole('button')
+      .filter((button) => /^[0-9]$/.test(button.textContent ?? ''))
+      .map((button) => button.textContent)
+    expect(digits).toEqual(['7', '8', '9', '4', '5', '6', '1', '2', '3', '0'])
+  })
+
   it('reports key, backspace and clear presses', () => {
     const { onKey, onBackspace, onClear } = setup()
     fireEvent.click(screen.getByRole('button', { name: '4' }))

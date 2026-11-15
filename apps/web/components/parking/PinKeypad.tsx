@@ -10,9 +10,9 @@ interface PinKeypadProps {
 }
 
 const ROWS = [
-  ['1', '2', '3'],
-  ['4', '5', '6'],
   ['7', '8', '9'],
+  ['4', '5', '6'],
+  ['1', '2', '3'],
 ]
 
 // Numeric keypad for membership numbers / PINs. Same styling as the plate
@@ -29,21 +29,21 @@ export function PinKeypad({
   const kiosk = variant === 'kiosk'
   const danger = tone === 'danger'
   const keyClass = kiosk
-    ? `h-full min-h-14 w-full select-none border font-mono text-3xl md:text-4xl font-semibold transition-colors disabled:opacity-40 ${
+    ? `h-14 min-h-14 w-full select-none border font-mono text-3xl md:h-full md:text-4xl font-semibold transition-colors disabled:opacity-40 ${
         danger
           ? 'border-danger/60 bg-danger/15 text-white active:bg-white active:text-black'
           : 'border-grey-mid bg-grey-dark/40 text-white active:bg-white active:text-black'
       }`
     : 'h-12 md:h-14 select-none border border-grey-mid bg-grey-dark/40 font-mono text-xl md:text-2xl font-semibold text-white transition-colors active:bg-white active:text-black disabled:opacity-40'
   const editClass = kiosk
-    ? `h-full min-h-14 w-full select-none border font-mono text-base md:text-xl font-semibold uppercase tracking-wider transition-colors disabled:opacity-40 ${
+    ? `h-14 min-h-14 w-full select-none border font-mono text-base md:h-full md:text-xl font-semibold uppercase tracking-wider transition-colors disabled:opacity-40 ${
         danger
           ? 'border-danger/60 text-danger active:bg-white active:text-black'
           : 'border-grey-mid text-grey-light active:bg-white active:text-black'
       }`
     : 'h-12 md:h-14 select-none border border-grey-mid font-mono text-sm font-semibold uppercase tracking-wider text-grey-light active:bg-white active:text-black disabled:opacity-40'
   const backClass = kiosk
-    ? `h-full min-h-14 w-full select-none border font-mono text-xl md:text-2xl font-semibold uppercase tracking-wider transition-colors disabled:opacity-40 ${
+    ? `h-14 min-h-14 w-full select-none border font-mono text-xl md:h-full md:text-2xl font-semibold uppercase tracking-wider transition-colors disabled:opacity-40 ${
         danger
           ? 'border-danger/60 text-white active:bg-white active:text-black'
           : 'border-grey-mid text-white active:bg-white active:text-black'
@@ -54,7 +54,7 @@ export function PinKeypad({
     <div
       className={
         kiosk
-          ? 'mx-auto flex h-full min-h-0 w-full flex-col gap-1'
+          ? 'mx-auto flex h-auto min-h-0 w-full flex-col gap-1 md:h-full'
           : 'mx-auto w-full max-w-md space-y-1.5'
       }
       aria-label="Number keypad"
