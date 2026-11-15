@@ -4772,6 +4772,11 @@ model FtpParkingType {
   contactName      String?
   contactEmail     String?
   contactPhone     String?
+  // When true, every claim uses this type's contact email/phone and ignores the
+  // member's own email/phone. Both default on so the venue's contact details
+  // are used consistently.
+  useContactEmail  Boolean   @default(true)
+  useContactPhone  Boolean   @default(true)
   // Per-type switch: when false, claims are still logged but the plate is not stored.
   logPlates        Boolean   @default(true)
   // Optional shared fallback credential for staff/testing. The membership

@@ -786,6 +786,7 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
               <div className="min-h-0 flex-1">
                 <PlateKeypad
                   variant="kiosk"
+                  compactNumpad
                   onKey={guestPress}
                   onBackspace={() => {
                     setGuestError('')
@@ -866,10 +867,12 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
             </div>
             <div className="flex shrink-0 justify-center" aria-live="polite">
               <div
-                data-testid="credential-hidden"
-                className="flex min-h-20 w-full max-w-2xl items-center justify-center border-2 border-grey-mid px-4 py-4 font-mono text-xl uppercase tracking-[0.2em] text-grey-light"
+                data-testid="credential-display"
+                className={`flex min-h-20 w-full max-w-2xl items-center justify-center border-2 border-grey-mid px-4 py-4 font-mono text-3xl uppercase tracking-[0.3em] ${
+                  adminMode || !credentialInput ? 'text-grey-light' : 'text-white'
+                }`}
               >
-                {adminMode ? 'PIN HIDDEN' : 'NUMBER HIDDEN'}
+                {adminMode ? 'PIN HIDDEN' : credentialInput || 'ENTER NUMBER'}
               </div>
             </div>
             <div className="min-h-0 flex-1">

@@ -7,6 +7,7 @@
 import { Prisma, prisma } from '@hospo-ops/db'
 import { createManualToken } from './ftp-credentials.server'
 import { writeFtpEvidence } from './ftp-evidence.server'
+import { resolveFtpContact } from './ftp-parking'
 import { isValidPlate, normalisePlate, wallClockParts } from './parking'
 import { type FtpClaimStatus } from './vpermit'
 import { claimWithVpermit } from './vpermit.server'
@@ -153,9 +154,10 @@ export async function submitFtpClaim(
 
   const storedPlate = type.logPlates ? plate : null
   const memberName = member ? `${member.firstName} ${member.lastName}`.trim() : null
-  const contactName = memberName ?? type.contactName ?? null
-  const contactEmail = member?.email ?? type.contactEmail ?? null
-  const contactPhone = member?.phone ?? type.contactPhone ?? null
+  const contact = resolveFtpContact({ member, type })
+  const contactName = contact.name
+  const contactEmail = contact.email
+  const contactPhone = contact.phone
 
   if (storedPlate) {
     const since = new Date(Date.now() - DUPLICATE_LOOKBACK_HOURS * 60 * 60 * 1000)

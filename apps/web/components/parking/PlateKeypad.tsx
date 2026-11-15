@@ -20,6 +20,7 @@ interface PlateKeypadProps {
   onClear: () => void
   disabled?: boolean
   variant?: 'default' | 'kiosk'
+  compactNumpad?: boolean
 }
 
 // On-screen keypad: QWERTY letters on the left, a numpad on the right. Not an
@@ -31,8 +32,17 @@ export function PlateKeypad({
   onClear,
   disabled,
   variant = 'default',
+  compactNumpad = false,
 }: PlateKeypadProps) {
   const kiosk = variant === 'kiosk'
+  const columnsClass = compactNumpad
+    ? 'md:grid-cols-[minmax(0,5fr)_minmax(0,2fr)]'
+    : 'md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]'
+  const gapClass = kiosk
+    ? compactNumpad
+      ? 'h-full min-h-0 gap-1 md:gap-3'
+      : 'h-full min-h-0 gap-1'
+    : 'gap-2'
   const keyClass = kiosk
     ? 'h-full min-h-14 w-full select-none border border-grey-mid bg-grey-dark/40 font-mono text-2xl md:text-3xl font-semibold text-white transition-colors active:bg-white active:text-black disabled:opacity-40'
     : 'h-11 md:h-14 select-none border border-grey-mid bg-grey-dark/40 font-mono text-base md:text-xl font-semibold text-white transition-colors active:bg-white active:text-black disabled:opacity-40'
@@ -45,9 +55,7 @@ export function PlateKeypad({
 
   return (
     <div
-      className={`grid w-full grid-cols-1 ${
-        kiosk ? 'h-full min-h-0 gap-1' : 'gap-2'
-      } md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]`}
+      className={`grid w-full grid-cols-1 ${gapClass} ${columnsClass}`}
       aria-label="Number plate keypad"
     >
       <div className={kiosk ? 'flex min-h-0 flex-col gap-1' : 'space-y-1.5'}>
