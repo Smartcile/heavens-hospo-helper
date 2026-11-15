@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  EMPTY_ADMIN_TAP_STATE,
   appendPlateKey,
   formatKioskCountdown,
   kioskCountdownProgress,
+  registerAdminTap,
   removeLastPlateKey,
+  type AdminTapState,
 } from '@/lib/parking-kiosk'
 import { PlateKeypad } from './PlateKeypad'
 import { PinKeypad } from './PinKeypad'
@@ -80,10 +83,11 @@ const FALLBACK_IDLE_RESET_MS = 5 * 60_000
 
 const HOLD_LABEL = 'SPEAK WITH STAFF IF YOU NEED HELP'
 
-function appendDigit(value: string, key: string): string {
+function appendDigit(value: string, key: string, max = 8): string {
   const digits = String(key).replace(/\D/g, '')
   if (!digits) return value
-  return `${value}${digits}`.slice(0, 12)
+  // Membership numbers are 2-5 digits; admin PINs are 4-8.
+  return `${value}${digits}`.slice(0, max)
 }
 
 function removeLastDigit(value: string): string {
@@ -144,9 +148,13 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
   const [fourSeconds, setFourSeconds] = useState(config.resetSeconds)
   const [manualBusy, setManualBusy] = useState(false)
   const [manualNote, setManualNote] = useState('')
+  const [adminMode, setAdminMode] = useState(false)
   const fourAbort = useRef<AbortController | null>(null)
 
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const footerDownAt = useRef<number | null>(null)
+  const footerHeld = useRef(false)
+  const footerTaps = useRef<AdminTapState>(EMPTY_ADMIN_TAP_STATE)
 
   // A customer must not be able to browse away from the kiosk.
   useEffect(() => {
@@ -165,7 +173,7 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
     setGuestStage('entry')
   }, [config.resetSeconds])
 
-  const resetFour = useCallback(() => {
+  const resetFourState = useCallback(() => {
     fourAbort.current?.abort()
     setFourStage('type')
     setSelectedType(null)
@@ -180,6 +188,18 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
     setManualBusy(false)
     setManualNote('')
   }, [config.resetSeconds])
+
+  const resetFour = useCallback(() => {
+    resetFourState()
+    setAdminMode(false)
+  }, [resetFourState])
+
+  // The 4-hour START AGAIN returns to the 90-minute screen when it exists.
+  const startAgainFromFour = useCallback(() => {
+    resetFour()
+    resetGuest()
+    setTab(config.guestEnabled ? 'guest' : 'four')
+  }, [config.guestEnabled, resetFour, resetGuest])
 
   const switchTab = useCallback(
     (next: Tab) => {
@@ -231,16 +251,16 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
       fourResult &&
       (fourResult.status === 'CONFIRMED' || fourResult.status === 'ALREADY_CLAIMED')
     ) {
-      resetFour()
+      startAgainFromFour()
     }
-  }, [fourStage, fourSeconds, fourResult, resetFour])
+  }, [fourStage, fourSeconds, fourResult, startAgainFromFour])
 
   // Abandoned fallback question: return to the start after five minutes.
   useEffect(() => {
     if (fourStage !== 'ask') return
-    const timer = setTimeout(() => resetFour(), FALLBACK_IDLE_RESET_MS)
+    const timer = setTimeout(() => startAgainFromFour(), FALLBACK_IDLE_RESET_MS)
     return () => clearTimeout(timer)
-  }, [fourStage, resetFour])
+  }, [fourStage, startAgainFromFour])
 
   useEffect(() => {
     return () => {
@@ -323,7 +343,8 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
   }
 
   async function submitCredential() {
-    if (!selectedType || credentialInput.length < 4) return
+    const minimum = adminMode ? 4 : 2
+    if (!selectedType || credentialInput.length < minimum) return
     setFourError('')
     try {
       const res = await fetch('/api/public/parking/kiosk/credential', {
@@ -333,6 +354,7 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
           venueId: config.venueId,
           typeId: selectedType.id,
           credential: credentialInput,
+          mode: adminMode ? 'ADMIN' : 'MEMBER',
         }),
         cache: 'no-store',
       })
@@ -514,12 +536,39 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
     }
   }
 
-  // ----- silent hold-to-exit -----
+  // ----- silent hold-to-exit + hidden admin tap gesture -----
+
+  function enterAdminMode() {
+    if (config.fourHourTypes.length === 0) return
+    footerTaps.current = EMPTY_ADMIN_TAP_STATE
+    resetGuest()
+    resetFourState()
+    setAdminMode(true)
+    setTab('four')
+    if (config.fourHourTypes.length === 1) {
+      setSelectedType(config.fourHourTypes[0])
+      setFourStage('credential')
+    }
+  }
+
+  function exitAdminMode() {
+    resetFour()
+    setTab(config.guestEnabled ? 'guest' : 'four')
+  }
+
+  function handleFooterTap() {
+    const result = registerAdminTap(footerTaps.current, Date.now())
+    footerTaps.current = result.state
+    if (result.triggered && !adminMode) enterAdminMode()
+  }
 
   function startHold() {
+    footerDownAt.current = Date.now()
+    footerHeld.current = false
     if (holdTimer.current) clearTimeout(holdTimer.current)
     holdTimer.current = setTimeout(() => {
       holdTimer.current = null
+      footerHeld.current = true
       window.location.href = '/'
     }, HOLD_EXIT_MS)
   }
@@ -527,6 +576,20 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
   function stopHold() {
     if (holdTimer.current) clearTimeout(holdTimer.current)
     holdTimer.current = null
+    const downAt = footerDownAt.current
+    footerDownAt.current = null
+    if (footerHeld.current) {
+      footerHeld.current = false
+      return
+    }
+    if (downAt !== null && Date.now() - downAt < 500) handleFooterTap()
+  }
+
+  function cancelHold() {
+    if (holdTimer.current) clearTimeout(holdTimer.current)
+    holdTimer.current = null
+    footerDownAt.current = null
+    footerHeld.current = false
   }
 
   const guestSlots = Array.from({ length: 6 }, (_, index) => guestPlate[index] ?? '')
@@ -539,9 +602,22 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
         ? 'ALREADY REGISTERED'
         : 'COULD NOT REGISTER'
 
+  const keypadScreen =
+    (tab === 'guest' && guestStage !== 'result') ||
+    (tab === 'four' && (fourStage === 'credential' || fourStage === 'plate'))
+
   return (
-    <div className="flex h-full w-full select-none flex-col overflow-hidden bg-black text-white">
-      <header className="shrink-0 border-b border-grey-mid px-5 py-3">
+    <div
+      data-admin={adminMode ? 'true' : 'false'}
+      className={`flex h-full w-full select-none flex-col overflow-hidden text-white ${
+        adminMode ? 'bg-admin-red' : 'bg-black'
+      }`}
+    >
+      <header
+        className={`shrink-0 border-b px-5 py-3 ${
+          adminMode ? 'border-danger/60' : 'border-grey-mid'
+        }`}
+      >
         <div className="flex items-baseline justify-between gap-4">
           <div className="min-w-0">
             <p className="truncate font-mono text-sm uppercase tracking-widest text-grey-light">
@@ -560,7 +636,11 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
       </header>
 
       {(config.guestEnabled || config.fourHourTypes.length > 0) && (
-        <div className="shrink-0 border-b border-grey-mid">
+        <div
+          className={`shrink-0 border-b ${
+            adminMode ? 'border-danger/60' : 'border-grey-mid'
+          }`}
+        >
           <div className="flex">
             {config.guestEnabled && (
               <button
@@ -588,7 +668,28 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
         </div>
       )}
 
-      <main className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-3">
+      {adminMode && (
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-danger/60 bg-danger/15 px-3 py-2">
+          <p className="font-mono text-sm font-bold uppercase tracking-widest text-danger">
+            ADMIN MODE — PIN HIDDEN
+          </p>
+          <button
+            type="button"
+            onClick={exitAdminMode}
+            className="border border-danger/60 px-3 py-1.5 font-mono text-xs font-bold uppercase tracking-wider text-danger"
+          >
+            EXIT ADMIN
+          </button>
+        </div>
+      )}
+
+      <main
+        className={`flex min-h-0 flex-1 flex-col overflow-y-auto ${
+          keypadScreen
+            ? 'items-stretch px-1 py-1'
+            : 'items-center justify-center px-4 py-3'
+        }`}
+      >
         {tab === 'guest' ? (
           guestStage === 'result' ? (
             guestResult && (
@@ -664,39 +765,45 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
               </div>
             )
           ) : (
-            <div className="flex w-full max-w-3xl flex-col gap-3">
-              <p className="text-center font-mono text-base uppercase tracking-widest text-grey-light">
+            <div className="flex min-h-0 w-full flex-1 flex-col gap-2">
+              <p className="shrink-0 text-center font-mono text-lg uppercase tracking-widest text-grey-light md:text-xl">
                 ENTER YOUR NUMBER PLATE
               </p>
 
-              <div className="flex justify-center gap-2" aria-live="polite">
+              <div className="flex shrink-0 justify-center gap-2" aria-live="polite">
                 {guestSlots.map((char, index) => (
                   <div
                     key={index}
-                    className={`flex h-16 w-12 items-center justify-center border-2 font-mono text-4xl font-bold tracking-wider md:h-20 md:w-16 ${
+                    className={`flex h-20 w-14 items-center justify-center border-2 font-mono text-4xl font-bold tracking-wider md:h-24 md:w-20 md:text-5xl ${
                       char ? 'border-white text-white' : 'border-grey-mid text-grey-light/30'
                     }`}
                   >
-                    {char || '·'}
+                    {char || '_'}
                   </div>
                 ))}
               </div>
 
-              <PlateKeypad
-                onKey={guestPress}
-                onBackspace={() => {
-                  setGuestError('')
-                  setGuestPlate((current) => removeLastPlateKey(current))
-                }}
-                onClear={() => {
-                  setGuestError('')
-                  setGuestPlate('')
-                }}
-                disabled={guestStage === 'submitting'}
-              />
+              <div className="min-h-0 flex-1">
+                <PlateKeypad
+                  variant="kiosk"
+                  onKey={guestPress}
+                  onBackspace={() => {
+                    setGuestError('')
+                    setGuestPlate((current) => removeLastPlateKey(current))
+                  }}
+                  onClear={() => {
+                    setGuestError('')
+                    setGuestPlate('')
+                  }}
+                  disabled={guestStage === 'submitting'}
+                />
+              </div>
 
               {guestError && (
-                <p className="text-center font-mono text-sm text-danger" role="alert">
+                <p
+                  className="shrink-0 text-center font-mono text-base text-danger"
+                  role="alert"
+                >
                   {guestError}
                 </p>
               )}
@@ -705,7 +812,7 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
                 type="button"
                 onClick={() => void submitGuest()}
                 disabled={!guestPlate || guestStage === 'submitting'}
-                className="mt-1 w-full border border-white bg-white py-5 font-mono text-xl font-bold uppercase tracking-widest text-black disabled:opacity-30"
+                className="shrink-0 border border-white bg-white py-6 font-mono text-2xl font-bold uppercase tracking-widest text-black disabled:opacity-30"
               >
                 {guestStage === 'submitting'
                   ? 'REGISTERING…'
@@ -748,44 +855,54 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
             )}
           </div>
         ) : fourStage === 'credential' ? (
-          <div className="flex w-full max-w-md flex-col gap-3">
-            <div className="text-center">
-              <p className="font-mono text-base uppercase tracking-widest text-grey-light">
+          <div className="flex min-h-0 w-full flex-1 flex-col gap-2">
+            <div className="shrink-0 text-center">
+              <p className="font-mono text-base uppercase tracking-widest text-grey-light md:text-lg">
                 {selectedType?.name}
               </p>
-              <p className="mt-1 font-mono text-sm uppercase tracking-wider text-grey-light">
-                ENTER YOUR MEMBERSHIP NUMBER
+              <p className="mt-1 font-mono text-lg font-bold uppercase tracking-wider text-white md:text-xl">
+                {adminMode ? 'ENTER ADMIN PIN' : 'ENTER YOUR MEMBERSHIP NUMBER'}
               </p>
             </div>
-            <div className="flex justify-center" aria-live="polite">
-              <div className="flex min-h-16 min-w-[12rem] items-center justify-center border-2 border-grey-mid px-4 py-3 font-mono text-3xl tracking-[0.2em] text-white">
-                {credentialInput || '····'}
+            <div className="flex shrink-0 justify-center" aria-live="polite">
+              <div
+                data-testid="credential-hidden"
+                className="flex min-h-20 w-full max-w-2xl items-center justify-center border-2 border-grey-mid px-4 py-4 font-mono text-xl uppercase tracking-[0.2em] text-grey-light"
+              >
+                {adminMode ? 'PIN HIDDEN' : 'NUMBER HIDDEN'}
               </div>
             </div>
-            <PinKeypad
-              onKey={(key) => {
-                setFourError('')
-                setCredentialInput((current) => appendDigit(current, key))
-              }}
-              onBackspace={() => {
-                setFourError('')
-                setCredentialInput(removeLastDigit)
-              }}
-              onClear={() => {
-                setFourError('')
-                setCredentialInput('')
-              }}
-            />
+            <div className="min-h-0 flex-1">
+              <PinKeypad
+                variant="kiosk"
+                tone={adminMode ? 'danger' : 'default'}
+                onKey={(key) => {
+                  setFourError('')
+                  setCredentialInput((current) => appendDigit(current, key, adminMode ? 8 : 5))
+                }}
+                onBackspace={() => {
+                  setFourError('')
+                  setCredentialInput(removeLastDigit)
+                }}
+                onClear={() => {
+                  setFourError('')
+                  setCredentialInput('')
+                }}
+              />
+            </div>
             {fourError && (
-              <p className="text-center font-mono text-sm text-danger" role="alert">
+              <p
+                className="shrink-0 text-center font-mono text-base text-danger"
+                role="alert"
+              >
                 {fourError}
               </p>
             )}
             <button
               type="button"
               onClick={() => void submitCredential()}
-              disabled={credentialInput.length < 4}
-              className="w-full border border-white bg-white py-4 font-mono text-lg font-bold uppercase tracking-widest text-black disabled:opacity-30"
+              disabled={credentialInput.length < (adminMode ? 4 : 2)}
+              className="shrink-0 border border-white bg-white py-5 font-mono text-xl font-bold uppercase tracking-widest text-black disabled:opacity-30"
             >
               CONTINUE
             </button>
@@ -795,21 +912,21 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
                 setFourError('')
                 setFourStage('type')
               }}
-              className="w-full border border-grey-mid py-3 font-mono text-xs uppercase tracking-wider text-grey-light"
+              className="shrink-0 border border-grey-mid py-3 font-mono text-sm uppercase tracking-wider text-grey-light"
             >
               BACK
             </button>
           </div>
         ) : fourStage === 'member' && credential?.member ? (
-          <div className="flex w-full max-w-md flex-col gap-3">
+          <div className="flex w-full max-w-2xl flex-col gap-3">
             <div className="text-center">
-              <p className="font-mono text-sm uppercase tracking-widest text-grey-light">
+              <p className="font-mono text-base uppercase tracking-widest text-grey-light">
                 {selectedType?.name}
               </p>
-              <p className="mt-1 font-mono text-xl font-bold uppercase tracking-widest text-white">
+              <p className="mt-1 font-mono text-2xl font-bold uppercase tracking-widest text-white">
                 HELLO {credential.member.firstName}
               </p>
-              <p className="mt-1 font-mono text-xs uppercase tracking-wider text-grey-light">
+              <p className="mt-1 font-mono text-sm uppercase tracking-wider text-grey-light">
                 WHICH PLATE ARE YOU PARKING?
               </p>
             </div>
@@ -819,26 +936,26 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
                   key={plate.id}
                   type="button"
                   onClick={() => memberUsesSaved(plate.plate)}
-                  className={`flex w-full items-center justify-between border px-4 py-3 font-mono text-lg tracking-[0.2em] ${
+                  className={`flex w-full items-center justify-between border px-5 py-5 font-mono text-2xl tracking-[0.2em] ${
                     fourSelectedPlate === plate.plate
                       ? 'border-white bg-white text-black'
                       : 'border-grey-mid text-white'
                   }`}
                 >
                   <span>{plate.plate}</span>
-                  {plate.isDefault && <span className="text-2xs uppercase">DEFAULT</span>}
+                  {plate.isDefault && <span className="text-xs uppercase">DEFAULT</span>}
                 </button>
               ))}
             </div>
             <button
               type="button"
               onClick={memberAddsNew}
-              className="w-full border border-grey-mid py-3 font-mono text-xs uppercase tracking-wider text-grey-light"
+              className="w-full border border-grey-mid py-4 font-mono text-sm uppercase tracking-wider text-grey-light"
             >
               + ADD A NEW PLATE
             </button>
             {fourError && (
-              <p className="text-center font-mono text-sm text-danger" role="alert">
+              <p className="text-center font-mono text-base text-danger" role="alert">
                 {fourError}
               </p>
             )}
@@ -846,14 +963,14 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
               type="button"
               onClick={() => void submitFourClaim(fourSelectedPlate)}
               disabled={!fourSelectedPlate}
-              className="w-full border border-white bg-white py-4 font-mono text-lg font-bold uppercase tracking-widest text-black disabled:opacity-30"
+              className="w-full border border-white bg-white py-5 font-mono text-xl font-bold uppercase tracking-widest text-black disabled:opacity-30"
             >
               CONFIRM PARKING
             </button>
             <button
               type="button"
-              onClick={resetFour}
-              className="w-full border border-grey-mid py-3 font-mono text-xs uppercase tracking-wider text-grey-light"
+              onClick={startAgainFromFour}
+              className="w-full border border-grey-mid py-4 font-mono text-sm uppercase tracking-wider text-grey-light"
             >
               START AGAIN
             </button>
@@ -1017,19 +1134,19 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
 
             <button
               type="button"
-              onClick={resetFour}
-              className="w-full max-w-md border border-white bg-white py-4 font-mono text-lg font-bold uppercase tracking-widest text-black"
+              onClick={startAgainFromFour}
+              className="w-full max-w-2xl border border-white bg-white py-5 font-mono text-xl font-bold uppercase tracking-widest text-black"
             >
               START AGAIN
             </button>
           </div>
         ) : (
-          <div className="flex w-full max-w-md flex-col gap-3">
-            <div className="text-center">
-              <p className="font-mono text-sm uppercase tracking-widest text-grey-light">
+          <div className="flex min-h-0 w-full flex-1 flex-col gap-2">
+            <div className="shrink-0 text-center">
+              <p className="font-mono text-base uppercase tracking-widest text-grey-light md:text-lg">
                 {selectedType?.name}
               </p>
-              <p className="mt-1 font-mono text-lg font-bold uppercase tracking-widest text-white">
+              <p className="mt-1 font-mono text-lg font-bold uppercase tracking-widest text-white md:text-xl">
                 {credential?.member
                   ? credential.member.plates.length === 0
                     ? 'FIRST TIME — ADD YOUR PLATE'
@@ -1037,34 +1154,40 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
                   : 'ENTER YOUR NUMBER PLATE'}
               </p>
             </div>
-            <div className="flex justify-center gap-2" aria-live="polite">
+            <div className="flex shrink-0 justify-center gap-2" aria-live="polite">
               {fourSlots.map((char, index) => (
                 <div
                   key={index}
-                  className={`flex h-16 w-12 items-center justify-center border-2 font-mono text-4xl font-bold tracking-wider ${
+                  className={`flex h-20 w-14 items-center justify-center border-2 font-mono text-4xl font-bold tracking-wider md:h-24 md:w-20 md:text-5xl ${
                     char ? 'border-white text-white' : 'border-grey-mid text-grey-light/30'
                   }`}
                 >
-                  {char || '·'}
+                  {char || '_'}
                 </div>
               ))}
             </div>
-            <PlateKeypad
-              onKey={(key) => {
-                setFourError('')
-                setFourPlate((current) => appendPlateKey(current, key))
-              }}
-              onBackspace={() => {
-                setFourError('')
-                setFourPlate((current) => removeLastPlateKey(current))
-              }}
-              onClear={() => {
-                setFourError('')
-                setFourPlate('')
-              }}
-            />
+            <div className="min-h-0 flex-1">
+              <PlateKeypad
+                variant="kiosk"
+                onKey={(key) => {
+                  setFourError('')
+                  setFourPlate((current) => appendPlateKey(current, key))
+                }}
+                onBackspace={() => {
+                  setFourError('')
+                  setFourPlate((current) => removeLastPlateKey(current))
+                }}
+                onClear={() => {
+                  setFourError('')
+                  setFourPlate('')
+                }}
+              />
+            </div>
             {fourError && (
-              <p className="text-center font-mono text-sm text-danger" role="alert">
+              <p
+                className="shrink-0 text-center font-mono text-base text-danger"
+                role="alert"
+              >
                 {fourError}
               </p>
             )}
@@ -1072,14 +1195,14 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
               type="button"
               onClick={() => void submitFourClaim(fourPlate)}
               disabled={!fourPlate}
-              className="w-full border border-white bg-white py-4 font-mono text-lg font-bold uppercase tracking-widest text-black disabled:opacity-30"
+              className="shrink-0 border border-white bg-white py-6 font-mono text-2xl font-bold uppercase tracking-widest text-black disabled:opacity-30"
             >
               CONFIRM PARKING
             </button>
             <button
               type="button"
               onClick={backFromPlate}
-              className="w-full border border-grey-mid py-3 font-mono text-xs uppercase tracking-wider text-grey-light"
+              className="shrink-0 border border-grey-mid py-4 font-mono text-sm uppercase tracking-wider text-grey-light"
             >
               BACK
             </button>
@@ -1087,14 +1210,20 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
         )}
       </main>
 
-      <footer className="shrink-0 border-t border-grey-mid p-3">
+      <footer
+        className={`shrink-0 border-t p-3 ${
+          adminMode ? 'border-danger/60' : 'border-grey-mid'
+        }`}
+      >
         <button
           type="button"
           onPointerDown={startHold}
           onPointerUp={stopHold}
-          onPointerLeave={stopHold}
-          onPointerCancel={stopHold}
-          className="w-full select-none border border-grey-mid py-4 font-mono text-base font-semibold uppercase tracking-widest text-white"
+          onPointerLeave={cancelHold}
+          onPointerCancel={cancelHold}
+          className={`w-full select-none border py-4 font-mono text-base font-semibold uppercase tracking-widest ${
+            adminMode ? 'border-danger/60 text-danger' : 'border-grey-mid text-white'
+          }`}
           aria-label={HOLD_LABEL}
         >
           {HOLD_LABEL}

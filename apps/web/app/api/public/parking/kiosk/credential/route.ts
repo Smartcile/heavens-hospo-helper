@@ -30,9 +30,15 @@ export async function POST(req: NextRequest) {
 
   const typeId = typeof body.typeId === 'string' ? body.typeId : ''
   const credential = typeof body.credential === 'string' ? body.credential.trim() : ''
+  const mode = body.mode === 'ADMIN' ? 'ADMIN' : 'MEMBER'
   if (!typeId) return noStore({ error: 'CHOOSE A PARKING TYPE' }, 422)
-  if (!credential) return noStore({ error: 'ENTER YOUR MEMBERSHIP NUMBER' }, 422)
-  if (!isValidMembershipNumber(credential) && !isValidAdminPin(credential)) {
+  if (!credential) {
+    return noStore(
+      { error: mode === 'ADMIN' ? 'ENTER THE ADMIN PIN' : 'ENTER YOUR MEMBERSHIP NUMBER' },
+      422,
+    )
+  }
+  if (mode === 'ADMIN' ? !isValidAdminPin(credential) : !isValidMembershipNumber(credential)) {
     return noStore({ error: 'NOT RECOGNISED — SPEAK WITH STAFF' }, 401)
   }
 
@@ -40,6 +46,7 @@ export async function POST(req: NextRequest) {
     venueId: access.venueId,
     typeId,
     credential,
+    mode,
   })
   if (!result.ok) {
     if (result.reason === 'TYPE_UNAVAILABLE') {

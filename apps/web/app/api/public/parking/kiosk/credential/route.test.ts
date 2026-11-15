@@ -22,10 +22,16 @@ vi.mock('@/lib/ftp-credentials.server', () => ({
 
 import { POST } from './route'
 
+let requestIp = 0
+
 function req(body: Record<string, unknown>) {
+  requestIp += 1
   return new NextRequest('http://localhost/api/public/parking/kiosk/credential', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      'x-forwarded-for': `10.0.0.${requestIp}`,
+    },
     body: JSON.stringify(body),
   })
 }
@@ -69,8 +75,41 @@ describe('POST /api/public/parking/kiosk/credential', () => {
       venueId: 'v1',
       typeId: 't1',
       credential: '1234',
+      mode: 'MEMBER',
     })
     expect(ftpCredentialPublicView).toHaveBeenCalled()
+  })
+
+  it('accepts a 2 digit membership number', async () => {
+    const res = await POST(req({ typeId: 't1', credential: '12' }))
+    expect(res.status).toBe(200)
+    expect(resolveFtpCredential).toHaveBeenCalledWith({
+      venueId: 'v1',
+      typeId: 't1',
+      credential: '12',
+      mode: 'MEMBER',
+    })
+  })
+
+  it('uses admin mode for the hidden admin PIN flow', async () => {
+    resolveFtpCredential.mockResolvedValue({
+      ok: true,
+      credential: { kind: 'ADMIN_PIN', type: { id: 't1' }, member: null },
+    })
+    const res = await POST(req({ typeId: 't1', credential: '1234', mode: 'ADMIN' }))
+    expect(res.status).toBe(200)
+    expect(resolveFtpCredential).toHaveBeenCalledWith({
+      venueId: 'v1',
+      typeId: 't1',
+      credential: '1234',
+      mode: 'ADMIN',
+    })
+  })
+
+  it('rejects a short admin PIN before resolving', async () => {
+    const res = await POST(req({ typeId: 't1', credential: '12', mode: 'ADMIN' }))
+    expect(res.status).toBe(401)
+    expect(resolveFtpCredential).not.toHaveBeenCalled()
   })
 
   it('returns a generic not-recognised error', async () => {

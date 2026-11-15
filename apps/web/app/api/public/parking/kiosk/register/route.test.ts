@@ -9,6 +9,7 @@ const { getKioskSession, registerParking, prisma } = vi.hoisted(() => ({
     parkingConfig: { findUnique: vi.fn() },
     venue: { findUnique: vi.fn() },
     parkingRegistration: { create: vi.fn() },
+    parkingKioskEvent: { create: vi.fn() },
   },
 }))
 
@@ -66,6 +67,7 @@ beforeEach(() => {
   prisma.ftpSettings.findUnique.mockResolvedValue(SETTINGS)
   prisma.parkingConfig.findUnique.mockResolvedValue(CONFIG)
   prisma.venue.findUnique.mockResolvedValue({ timezone: 'Pacific/Auckland' })
+  prisma.parkingKioskEvent.create.mockResolvedValue({})
   registerParking.mockResolvedValue({
     status: 'CONFIRMED',
     ok: true,
@@ -116,6 +118,7 @@ describe('POST /api/public/parking/kiosk/register', () => {
     const res = await POST(req({ licensePlate: 'TOOLONG' }))
     expect(res.status).toBe(422)
     expect(registerParking).not.toHaveBeenCalled()
+    expect(prisma.parkingKioskEvent.create).not.toHaveBeenCalled()
   })
 
   it('registers and returns the end time + QR without storing the plate', async () => {
@@ -134,6 +137,18 @@ describe('POST /api/public/parking/kiosk/register', () => {
       }),
     )
     expect(prisma.parkingRegistration.create).not.toHaveBeenCalled()
+
+    expect(prisma.parkingKioskEvent.create).toHaveBeenCalledTimes(1)
+    const event = prisma.parkingKioskEvent.create.mock.calls[0][0].data
+    expect(event).toMatchObject({
+      venueId: 'v1',
+      status: 'CONFIRMED',
+      reason: 'PARKING REGISTERED',
+      httpStatus: 200,
+      carparkId: 19,
+    })
+    expect(event).not.toHaveProperty('licensePlate')
+    expect(event).not.toHaveProperty('plateHash')
   })
 
   it('returns ALREADY_ACTIVE for an existing session', async () => {

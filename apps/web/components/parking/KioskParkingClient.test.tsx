@@ -38,6 +38,11 @@ const FOUR_CONFIG: KioskParkingConfig = {
   ],
 }
 
+const BOTH_CONFIG: KioskParkingConfig = {
+  ...FOUR_CONFIG,
+  guestEnabled: true,
+}
+
 const SUCCESS = {
   status: 'CONFIRMED',
   ok: true,
@@ -225,6 +230,7 @@ describe('KioskParkingClient — 4 hour', () => {
       venueId: 'v1',
       typeId: 'type-1',
       credential: '1234',
+      mode: 'MEMBER',
     })
     const claimBody = JSON.parse(String(fetchMock.mock.calls[1][1].body))
     expect(claimBody).toEqual({ token: 'credential-token', plate: 'ABC123' })
@@ -262,5 +268,65 @@ describe('KioskParkingClient — 4 hour', () => {
     expect(await screen.findByText('COULD NOT START')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'OPEN PARKING PAGE' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'TRY AGAIN' })).toBeInTheDocument()
+  })
+
+  it('never renders the membership number', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(CREDENTIAL))
+    render(<KioskParkingClient config={FOUR_CONFIG} />)
+
+    await screen.findByText('ENTER YOUR MEMBERSHIP NUMBER')
+    for (const digit of ['1', '2', '3', '4']) {
+      fireEvent.click(screen.getByRole('button', { name: digit }))
+    }
+
+    expect(screen.getByTestId('credential-hidden')).toHaveTextContent('NUMBER HIDDEN')
+    expect(screen.queryByText('1234')).toBeNull()
+  })
+
+  it('hides the admin PIN behind five staff-button taps', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(CREDENTIAL))
+    render(<KioskParkingClient config={FOUR_CONFIG} />)
+
+    await screen.findByText('ENTER YOUR MEMBERSHIP NUMBER')
+    const staffButton = screen.getByRole('button', {
+      name: 'SPEAK WITH STAFF IF YOU NEED HELP',
+    })
+    for (let index = 0; index < 5; index += 1) {
+      fireEvent.pointerDown(staffButton)
+      fireEvent.pointerUp(staffButton)
+    }
+
+    expect(await screen.findByText(/ADMIN MODE/)).toBeInTheDocument()
+    expect(screen.getByText('ENTER ADMIN PIN')).toBeInTheDocument()
+    expect(screen.getByTestId('credential-hidden')).toHaveTextContent('PIN HIDDEN')
+
+    for (const digit of ['9', '8', '7', '6']) {
+      fireEvent.click(screen.getByRole('button', { name: digit }))
+    }
+    expect(screen.queryByText('9876')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'CONTINUE' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body))
+    expect(body.mode).toBe('ADMIN')
+  })
+
+  it('returns to the 90 minute page from START AGAIN', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(CREDENTIAL))
+    render(<KioskParkingClient config={BOTH_CONFIG} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '4 HOUR' }))
+    await screen.findByText('ENTER YOUR MEMBERSHIP NUMBER')
+    for (const digit of ['1', '2', '3', '4']) {
+      fireEvent.click(screen.getByRole('button', { name: digit }))
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'CONTINUE' }))
+    await screen.findByText(/HELLO TEST/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'START AGAIN' }))
+    expect(
+      await screen.findByRole('button', { name: /REGISTER 90 MINUTES/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('ENTER YOUR NUMBER PLATE')).toBeInTheDocument()
   })
 })

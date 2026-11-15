@@ -65,18 +65,19 @@ describe('parseVpermitClaimUrl', () => {
 
 describe('membership numbers', () => {
   it('normalises spaces and hyphens', () => {
-    expect(normaliseMembershipNumber(' 123 456-7 ')).toBe('1234567')
+    expect(normaliseMembershipNumber(' 12 345 ')).toBe('12345')
+    expect(normaliseMembershipNumber(' 1-2345 ')).toBe('12345')
   })
 
-  it('accepts 4–12 digits', () => {
-    expect(isValidMembershipNumber('1234')).toBe(true)
-    expect(isValidMembershipNumber('123456789012')).toBe(true)
+  it('accepts 2–5 digits', () => {
+    expect(isValidMembershipNumber('12')).toBe(true)
+    expect(isValidMembershipNumber('12345')).toBe(true)
   })
 
   it('rejects short, long and letter input', () => {
-    expect(membershipNumberError('123')).toMatch(/4–12 DIGITS/)
-    expect(membershipNumberError('1234567890123')).toMatch(/4–12 DIGITS/)
-    expect(membershipNumberError('ABCD12')).toMatch(/4–12 DIGITS/)
+    expect(membershipNumberError('1')).toMatch(/2–5 DIGITS/)
+    expect(membershipNumberError('123456')).toMatch(/2–5 DIGITS/)
+    expect(membershipNumberError('ABCD12')).toMatch(/2–5 DIGITS/)
     expect(membershipNumberError('')).toBe('ENTER YOUR MEMBERSHIP NUMBER')
   })
 })

@@ -65,6 +65,7 @@ export async function POST(req: NextRequest) {
   })
   const timezone = venue?.timezone || 'Pacific/Auckland'
 
+  const startedAt = Date.now()
   const result = await registerParking({
     target: {
       baseUrl: SCAN2PAY_BASE_URL,
@@ -77,6 +78,22 @@ export async function POST(req: NextRequest) {
     timezone,
     customerEmail: settings.contactEmail,
   })
+
+  // Anonymous metric only: no plate, no hash, no staff identity. Never block
+  // the kiosk on a metrics write.
+  prisma.parkingKioskEvent
+    .create({
+      data: {
+        venueId,
+        status: result.status,
+        reason: result.message?.slice(0, 500) ?? null,
+        httpStatus: result.httpStatus,
+        durationMs: Date.now() - startedAt,
+        carparkId: config.carparkId,
+        carparkName: config.carparkName,
+      },
+    })
+    .catch(() => {})
 
   const linkUrl = buildSelectTimeUrl({
     baseUrl: SCAN2PAY_BASE_URL,

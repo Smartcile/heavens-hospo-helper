@@ -61,6 +61,16 @@ describe('GET /api/admin/parking/ftp', () => {
     expect(body.kioskUrl).toContain('/park')
   })
 
+  it('prefers PARKING_PUBLIC_URL for the kiosk link', async () => {
+    vi.stubEnv('PARKING_PUBLIC_URL', 'https://park.example.com')
+    try {
+      const body = await (await GET(get())).json()
+      expect(body.kioskUrl).toBe('https://park.example.com/park?venue=v1')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('reads an existing row', async () => {
     prisma.ftpSettings.findUnique.mockResolvedValue({
       id: 'f1',
