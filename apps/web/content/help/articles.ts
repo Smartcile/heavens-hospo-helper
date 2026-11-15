@@ -425,6 +425,7 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
       '<p>Daily work lives in <strong>Team &amp; execution → Daily Tasks</strong>. Guides — your how-tos and SOPs — live in <strong>Training → Playbook</strong>. Floor staff see both from their phone.</p>',
       '<h3>How tasks work</h3>',
       '<p>Today’s tasks are grouped into lists by department and section. Floor staff see the whole department’s due list, and a job is shared: once anyone ticks it, it is done for the team and the card shows who did it.</p>',
+      '<p>The worker task list keeps itself up to date: a tick or edit made by someone else appears within a few seconds, with no need to refresh the page. If the live connection drops, the page still checks for updates every 30 seconds.</p>',
       '<h3>Task outcomes</h3>',
       '<p>Opening a task asks what actually happened, not just "done":</p>',
       '<ul>',

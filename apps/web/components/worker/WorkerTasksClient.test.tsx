@@ -757,6 +757,51 @@ describe('WorkerTasksClient', () => {
     expect(screen.queryByText('DONE JOB')).toBeNull()
   })
 
+  it('labels a task in no visible list and its no-section bucket', async () => {
+    // No checklists at all: the task is genuinely unlisted.
+    mockTasks([BASE_TASK])
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    expect(screen.getByText('NOT IN A LIST')).toBeDefined()
+    expect(screen.getByText('NO SECTION')).toBeDefined()
+  })
+
+  it('collapses a fully-finished section behind ALL FINISHED and reveals it on tap', async () => {
+    const doneTask = {
+      ...BASE_TASK, id: 'd1', title: 'DONE JOB', isCompleted: true, isSettled: true,
+      isDone: true, outcome: 'DONE', canUndo: true,
+      completion: { id: 'cd', note: null, photoUrl: null, completedAt: new Date(), outcome: 'DONE' },
+    }
+    mockTasks([doneTask])
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('ALL FINISHED · TAP TO VIEW')).toBeDefined())
+    expect(screen.queryByText('DONE JOB')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'SHOW FINISHED TASKS IN NO SECTION' }))
+    await waitFor(() => expect(screen.getByText('DONE JOB')).toBeDefined())
+  })
+
+  it('warns how many tasks a deleted list has', async () => {
+    mockEditApi()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" access={FULL_ACCESS} />)
+
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    fireEvent.click(screen.getByText('EDIT MODE'))
+    await waitFor(() => expect(screen.getByLabelText('EDIT CHECKLIST OPENING')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('EDIT CHECKLIST OPENING'))
+    await waitFor(() => expect(screen.getByText('EDIT CHECKLIST')).toBeDefined())
+
+    fireEvent.click(screen.getAllByText('DEL').at(-1)!)
+
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(String(confirmSpy.mock.calls.at(-1)![0])).toContain(
+      'THIS LIST HAS 1 TASK; THE TASKS STAY, THE LIST IS REMOVED',
+    )
+  })
+
   it('saves the multi-day flag from the worker list editor', async () => {
     const fetchMock = mockEditApi()
     render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" access={FULL_ACCESS} />)
@@ -894,5 +939,74 @@ describe('WorkerTasksClient', () => {
 
     await waitFor(() => expect(screen.getByText('A REASON IS REQUIRED')).toBeDefined())
     expect(calls.some((c) => c.url === '/api/worker/checklists/c1/not-required')).toBe(false)
+  })
+
+  it('opens the task live stream and refreshes on a change without a manual reload', async () => {
+    class FakeEventSource {
+      static instances: FakeEventSource[] = []
+      url: string
+      closed = false
+      onopen: (() => void) | null = null
+      onerror: (() => void) | null = null
+      listeners = new Map<string, Set<(event: MessageEvent) => void>>()
+      constructor(url: string) {
+        this.url = url
+        FakeEventSource.instances.push(this)
+      }
+      addEventListener(type: string, listener: (event: MessageEvent) => void) {
+        let set = this.listeners.get(type)
+        if (!set) {
+          set = new Set()
+          this.listeners.set(type, set)
+        }
+        set.add(listener)
+      }
+      removeEventListener(type: string, listener: (event: MessageEvent) => void) {
+        this.listeners.get(type)?.delete(listener)
+      }
+      emitChange(data = 'revision') {
+        const event = new MessageEvent('change', { data })
+        for (const listener of this.listeners.get('change') ?? []) listener(event)
+      }
+      close() {
+        this.closed = true
+      }
+    }
+    ;(globalThis as unknown as { EventSource: unknown }).EventSource =
+      FakeEventSource as unknown as typeof EventSource
+
+    let call = 0
+    const doneTask = {
+      ...BASE_TASK, isCompleted: true, isSettled: true, isDone: true, outcome: 'DONE', canUndo: true,
+      completion: { id: 'c1', note: null, photoUrl: null, completedAt: new Date(), outcome: 'DONE' },
+    }
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') {
+        call++
+        return json({
+          tasks: call === 1 ? [BASE_TASK] : [doneTask],
+          checklists: [CHECKLIST_SUMMARY],
+          firstName: 'BAR',
+        })
+      }
+      return json({})
+    })
+
+    const { unmount } = render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    try {
+      await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+      const source = FakeEventSource.instances[0]
+      expect(source?.url).toBe('/api/worker/tasks/live')
+
+      const before = call
+      act(() => source.emitChange('revision'))
+
+      await waitFor(() => expect(screen.getByText('SHOW FINISHED (1)')).toBeDefined())
+      expect(call).toBeGreaterThan(before)
+    } finally {
+      unmount()
+      delete (globalThis as unknown as { EventSource?: unknown }).EventSource
+    }
   })
 })

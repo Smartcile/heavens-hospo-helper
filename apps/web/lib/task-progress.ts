@@ -53,15 +53,20 @@ export function isStaleProgress(
 }
 
 /**
- * Should a task stay on the floor today? Due today, or carrying a live PARTIAL.
+ * Should a task stay on the floor today? Due today, carrying a live PARTIAL, or
+ * already completed today (a live completion keeps the task settled even if a
+ * later schedule/list edit means it is no longer due). `completedToday` defaults
+ * to false so existing callers are unchanged.
  */
 export function carryTaskToday(args: {
   isDueToday: boolean
   progress: ProgressLike | null | undefined
   todayKey: string
   multiDay: boolean
+  completedToday?: boolean
 }): boolean {
   if (args.isDueToday) return true
+  if (args.completedToday) return true
   if (!args.progress) return false
   return isProgressLive(args.progress.progressDate, args.todayKey, { multiDay: args.multiDay })
 }

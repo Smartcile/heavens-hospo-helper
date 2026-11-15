@@ -262,11 +262,11 @@ export function WorkerTasksClient({
 
   useEffect(() => { load() }, [])
 
-  // Live-refresh the shared floor list so another person's tick appears within
-  // ~30 s (and immediately on focus/visibility). Paused while any editor or
-  // in-flight form is open so a poll can never clobber a save.
+  // Live-refresh the shared floor list. An SSE change arrives within ~3 s; the
+  // 30 s interval remains as the fallback, and both are paused while any editor
+  // or in-flight form is open so an update can never clobber a save.
   const editorOpen = !!activeTask || taskModalOpen || clModalOpen || isEditMode || quickOpen
-  useLiveRefresh(load, { enabled: !editorOpen })
+  useLiveRefresh(load, { enabled: !editorOpen, streamUrl: '/api/worker/tasks/live' })
 
   async function loadEditData() {
     if (!canAuthor) return null
@@ -700,7 +700,10 @@ export function WorkerTasksClient({
 
   async function deleteChecklist() {
     if (!clEditing || clEditing === 'new') return
-    if (!confirm(`DELETE CHECKLIST "${clEditing.name}"?`)) return
+    const taskCount = clEditing.tasks.length
+    if (!confirm(
+      `DELETE CHECKLIST "${clEditing.name}"? THIS LIST HAS ${taskCount} TASK${taskCount === 1 ? '' : 'S'}; THE TASKS STAY, THE LIST IS REMOVED.`,
+    )) return
     await fetch(`/api/worker/checklists/${clEditing.id}`, { method: 'DELETE' })
     setClModalOpen(false)
     await load()
@@ -890,6 +893,11 @@ export function WorkerTasksClient({
     const indentClass = depth > 0 ? 'ml-4 border-l-2 border-l-info pl-3' : ''
     const subtaskLabels = (
       <>
+        {(listsByTask.get(t.id) ?? []).length === 0 && (
+          <span className="font-mono text-xs uppercase text-grey-light border border-grey-mid px-1.5 py-0.5">
+            NOT IN A LIST
+          </span>
+        )}
         {showPartOf && (
           <span className="font-mono text-xs uppercase text-grey-light">PART OF {t.parentTitle ?? 'PARENT'}</span>
         )}
@@ -1415,11 +1423,27 @@ export function WorkerTasksClient({
               const show = isEditMode || showFinished.has(key)
               const ordered = visibleOrdered(sg.tasks, show)
               const settledCount = sg.tasks.filter((t) => t.isSettled).length
+              const sectionAllFinished = sg.tasks.length > 0 && settledCount === sg.tasks.length
+              const headerToggleable = sectionAllFinished && !isEditMode
+              const canToggleFinished = settledCount > 0 && !isEditMode
+              const headerName = sg.name ?? 'NO SECTION'
               return (
                 <div key={sg.key} className="space-y-2">
-                  {sg.name && <div className="font-mono text-xs uppercase tracking-wider text-accent pt-1">{sg.name}</div>}
+                  <div
+                    className={`pt-1 ${headerToggleable ? 'cursor-pointer hover:bg-grey-dark/40' : ''}`}
+                    onClick={headerToggleable ? () => toggleShowFinished(key) : undefined}
+                    role={headerToggleable ? 'button' : undefined}
+                    tabIndex={headerToggleable ? 0 : undefined}
+                    aria-label={headerToggleable ? `${showFinished.has(key) ? 'HIDE' : 'SHOW'} FINISHED TASKS IN ${headerName}` : undefined}
+                    onKeyDown={headerToggleable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleShowFinished(key) } } : undefined}
+                  >
+                    <div className="font-mono text-xs uppercase tracking-wider text-accent">{headerName}</div>
+                    {sectionAllFinished && !showFinished.has(key) && (
+                      <div className="font-mono text-xs uppercase text-success mt-0.5">ALL FINISHED · TAP TO VIEW</div>
+                    )}
+                  </div>
                   {ordered.map(({ task, depth }) => renderTask(task, { depth }))}
-                  {settledCount > 0 && !isEditMode && (
+                  {canToggleFinished && (
                     <button
                       onClick={() => toggleShowFinished(key)}
                       className="w-full p-2 text-center hover:bg-grey-dark/50 transition-colors border border-grey-mid"

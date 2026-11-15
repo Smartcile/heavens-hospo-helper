@@ -101,6 +101,30 @@ describe('carryTaskToday', () => {
     ).toBe(false)
   })
 
+  it('keeps a not-due task that was completed today', () => {
+    expect(
+      carryTaskToday({
+        isDueToday: false,
+        progress: null,
+        todayKey: TODAY,
+        multiDay: false,
+        completedToday: true,
+      }),
+    ).toBe(true)
+  })
+
+  it('still drops a not-due task with no completion and no live partial', () => {
+    expect(
+      carryTaskToday({
+        isDueToday: false,
+        progress: null,
+        todayKey: TODAY,
+        multiDay: false,
+        completedToday: false,
+      }),
+    ).toBe(false)
+  })
+
   it('keeps an old partial on a multi-day list', () => {
     expect(
       carryTaskToday({
