@@ -1,5 +1,6 @@
 import { prisma } from '@hospo-ops/db'
 import { ftpSettingsView } from '@/lib/ftp-settings'
+import { ftpHealthForVenue } from '@/lib/ftp-health-state.server'
 import { getKioskSession } from '@/lib/parking-kiosk.server'
 import { KioskUnlock } from '@/components/parking/KioskUnlock'
 import { KioskParkingClient } from '@/components/parking/KioskParkingClient'
@@ -47,27 +48,45 @@ export default async function ParkPage({
 
   const codeOk = Boolean(session && settings.kioskCodeHash === session.codeHash)
   const open = settings.kioskRequireCode !== true
-  const settingsValid =
-    !settings.deletedAt && settings.kioskEnabled && (open || codeOk)
-
-  if (!settingsValid) {
+  if (!settings.kioskEnabled) {
+    return <KioskUnlock message="THE KIOSK IS NOT ENABLED FOR THIS VENUE" />
+  }
+  if (!open && !codeOk) {
     return <KioskUnlock message="KIOSK CODE HAS CHANGED — ENTER THE NEW CODE" />
   }
 
-  const [config, venue] = await Promise.all([
+  const [config, venue, types, health] = await Promise.all([
     prisma.parkingConfig.findUnique({ where: { venueId: settings.venueId } }),
     prisma.venue.findUnique({
       where: { id: settings.venueId },
       select: { name: true, timezone: true },
     }),
+    prisma.ftpParkingType.findMany({
+      where: {
+        venueId: settings.venueId,
+        isActive: true,
+        deletedAt: null,
+        claimUrl: { not: null },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        windowLabel: true,
+        durationMinutes: true,
+      },
+    }),
+    ftpHealthForVenue(settings.venueId),
   ])
 
-  const parkingEnabled =
-    Boolean(config) && config?.enabled === true && !config?.deletedAt && Boolean(config?.carparkId)
-  if (!parkingEnabled) {
-    return <KioskUnlock message="GUEST PARKING IS NOT ENABLED FOR THIS VENUE" />
+  const guestEnabled = Boolean(
+    config?.enabled === true && !config?.deletedAt && config?.carparkId,
+  )
+  if (!guestEnabled && types.length === 0) {
+    return <KioskUnlock message="PARKING IS NOT ENABLED FOR THIS VENUE" />
   }
 
+  const healthById = new Map(health.map((state) => [state.typeId, state]))
   const view = ftpSettingsView(settings)
 
   return (
@@ -76,12 +95,23 @@ export default async function ParkPage({
         venueId: settings.venueId,
         requireCode: !open,
         venueName: venue?.name ?? '',
+        guestEnabled,
         carparkName: config?.carparkName ?? 'CARPARK',
         durationMinutes: config?.durationMinutes ?? 90,
         timezone: venue?.timezone || 'Pacific/Auckland',
         resetSeconds: view.kioskAutoResetSeconds,
-        fourHourName: view.fourHourName,
-        fourHourEnabled: view.fourHourEnabled && Boolean(view.fourHourEntryUrl),
+        fourHourTypes: types.map((type) => {
+          const state = healthById.get(type.id)
+          return {
+            id: type.id,
+            name: type.name,
+            windowLabel: type.windowLabel,
+            durationMinutes: type.durationMinutes,
+            health: state
+              ? { ok: state.ok, stale: state.stale, message: state.message }
+              : null,
+          }
+        }),
       }}
     />
   )

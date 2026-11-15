@@ -1924,7 +1924,7 @@ data migration. The demo seed does not enable it. **Risk:** HTML automation and
 one free claim per plate/day; treat the URL as private.
 
 
-### Free the Carpark (FTP) — customer kiosk + staff plates (built 2026-11)
+### Free the Parking (FTP) — customer kiosk + staff plates (built 2026-11)
 
 The public-facing layer on top of the guest-parking automation. Everything is
 configured in **Settings → FTP** (a new `SETTINGS_TABS` entry, between SWIFT POS
@@ -1953,13 +1953,14 @@ ADMIN-only. `FtpSettings` is one row per venue (`@@unique([venueId])`).
   (“SCAN ME WITH YOUR PHONE CAMERA TO VIEW OR EXTEND”), and a **visible
   countdown** (`kioskAutoResetSeconds`, 15–300) with **START AGAIN**. At zero the
   plate/QR/result are wiped and the entry screen returns.
-- Always-present **SPEAK WITH STAFF** opens `KioskStaffSheet`: the plate, end
-  time, QR/open link, and the only exit. **EXIT KIOSK** requires a **5-second
-  hold**; with the code on it then asks for the code (5 wrong codes lock for 60
-  seconds), with the code off the hold reveals an EXIT KIOSK button. Settings
-  recommends iPad **Guided Access** as the outer lock.
-- The kiosk shows `90 MINUTE` and `4 HOUR` tabs; 4 HOUR is visibly disabled
-  (“SOON”) until `fourHourEnabled` + a URL are saved.
+- The footer is a bordered instruction box: **SPEAK WITH STAFF IF YOU NEED
+  HELP**. It is not a popup. A **silent 5-second hold** exits to `/` — no
+  animation, no progress bar, no prompt, no kiosk code. A short tap does
+  nothing. It works on both tabs. Settings recommends iPad **Guided Access** as
+  the outer lock.
+- The kiosk shows `90 MINUTE` and `4 HOUR` tabs. The 4 HOUR tab lists the venue's
+  active parking types and uses membership numbers / an optional per-type admin
+  PIN — see the next section.
 - `/park/layout.tsx` is `force-dynamic`, `noindex`, fixed full-screen, and the
   page/API responses set `Cache-Control: no-store`.
 
@@ -1984,9 +1985,10 @@ ADMIN-only. `FtpSettings` is one row per venue (`@@unique([venueId])`).
 **Custom email.** `FtpSettings.contactEmail` is passed to
 `registerParking({ customerEmail })` → `completePayment` as `CustomerEmail`, so
 a form that asks for an email gets the venue's address without the guest typing
-it. The 4-hour carpark settings (`fourHourName`, `fourHourEnabled`,
-`fourHourEntryUrl`, `fourHourDurationMinutes`) are stored now; the flow arrives
-with the real URL. `staffCarparkName` / `staffCarparkNotes` label the staff area.
+it. The flat 4-hour settings columns (`fourHourName`, `fourHourEnabled`,
+`fourHourEntryUrl`, `fourHourDurationMinutes`) are legacy; the live 4-hour
+configuration lives on `FtpParkingType`. `staffCarparkName` /
+`staffCarparkNotes` label the staff area.
 
 **Pure libs.** `lib/parking-kiosk.ts` (cookie name, code formatting, plate
 keypad, countdown; client-safe), `lib/parking-kiosk.server.ts` (sha256, random
@@ -2017,6 +2019,81 @@ staff plates and privacy. It ships with five screenshots:
 `StaffParkingPlate` and `StaffParkingPlateRequest`; no data migration. The demo
 seed does not enable the kiosk or staff plates.
 
+
+### FTP 4-hour parking types, members + plate log (built 2026-11)
+
+The 4 HOUR kiosk tab is driven by `FtpParkingType` rows. Each type has a name,
+window label, duration, vPermit claim URL/code, contact name/email/phone, a
+`logPlates` switch, an optional bcrypt admin PIN, health settings and a sort
+order. The kiosk shows the active types first; selecting one asks for a
+membership number (or the type’s admin PIN).
+
+- **Members** — `Member` (unique membership number per venue, name/email/phone,
+  one `parkingTypeId`, `isActive`, `isTest`) + `MemberPlate` (plate, default,
+  `ACTIVE|RETIRED`). The membership number is the credential; the member must
+  match the selected type. Plates are added by the kiosk on the first confirmed
+  claim and saved plates render as an easy select. The temporary **Settings →
+  FTP → 4 HOUR → TEST MEMBERS** panel creates these rows until the full Members
+  hub exists; the same tables are the future store.
+- **Admin PIN** — per type, optional, enabled with `adminPinEnabled`; bcrypt
+  hash + last-two hint. `POST /api/admin/parking/ftp/types/[id]/admin-pin`
+  rotates it and returns the raw value once. It is a staff/testing fallback, not
+  the primary credential.
+- **Claim flow** — `POST /api/public/parking/kiosk/credential` resolves the
+  number/PIN into a 2-minute signed token. `POST
+  /api/public/parking/kiosk/claim` re-resolves the type/member, applies a
+  per-plate/type/venue-day duplicate guard, writes a `FtpClaim` audit row and
+  drives the real **headless Chromium** vPermit form. The stealth setup is
+  load-bearing: hidden `navigator.webdriver`, `window.chrome`,
+  `navigator.languages`, a real Chrome UA,
+  `--disable-blink-features=AutomationControlled` and human-paced typing. The
+  same flow is rejected by reCAPTCHA without it (`lib/vpermit.server.ts`).
+- **Evidence** — a confirmed claim stores the vendor confirmation screenshot +
+  HTML and a generated PDF (`lib/ftp-evidence.server.ts`) under
+  `UPLOAD_PATH/evidence/ftp/<claimId>/`. The admin PLATE LOG filters by type,
+  status, date and plate, exports CSV, downloads a merged evidence pack, serves
+  one claim’s PDF/PNG privately, and supports an admin note. The claim row keeps
+  the vendor validity window/locations and the submitted contact snapshot.
+- **Fallback** — if the browser/captcha fails, the kiosk offers **OPEN PARKING
+  PAGE** in a new tab (vPermit blocks iframes). On return it asks **DID THE
+  PARKING START?** and records `MANUAL_CONFIRMED` / `MANUAL_UNCONFIRMED`; no
+  vendor evidence exists on that path. `POST
+  /api/public/parking/kiosk/claim/manual` uses a 30-minute token.
+- **Health** — `lib/ftp-health.server.ts` runs daily 05:00 and on demand:
+  `BROWSER` loads the form/reCAPTCHA with no slot, `FULL` submits the health
+  plate and uses a real slot (opt-in), `OFF` disables. State is cached on the
+  type and in `ParkingHealthCheck` (`source: FTP_CLAIM`), and feeds the
+  dashboard ATTENTION widget. `/api/cron/parking-health` runs both Scan2Pay and
+  FTP checks.
+- **Deploy** — additive `prisma db push`: `FtpParkingType`, `Member`,
+  `MemberPlate`, `FtpClaim`, `ParkingHealthCheck.source/typeId`. The runner
+  image installs Alpine `chromium`; `playwright-core` is an `apps/web` runtime
+  dependency. If no browser is installed, the kiosk falls back to the vendor
+  page. Set `FTP_BROWSER_PATH` / `CHROMIUM_PATH` to override the executable.
+
+| Route | Methods | Purpose |
+|---|---|---|
+| `/api/public/parking/kiosk/credential` | POST | Membership number/admin PIN → public type/member view + 2-minute token |
+| `/api/public/parking/kiosk/claim` | POST | Re-resolve, guard duplicates, claim via Chromium, write audit/evidence |
+| `/api/public/parking/kiosk/claim/manual` | POST | Record OPENED / CONFIRMED / NOT_CONFIRMED for the fallback |
+| `/api/admin/parking/ftp/types` | GET, POST | List/create parking types (with member/claim counts) |
+| `/api/admin/parking/ftp/types/[id]` | PUT, DELETE | Edit/soft-delete a type |
+| `/api/admin/parking/ftp/types/[id]/admin-pin` | POST | Set/rotate the per-type admin PIN (ADMIN only) |
+| `/api/admin/parking/ftp/test-members` | GET, POST | Test member list/types / create (revives a deleted number) |
+| `/api/admin/parking/ftp/test-members/[id]` | PUT, DELETE | Edit/soft-delete a test member |
+| `/api/admin/parking/ftp/test-members/[id]/plates/[plateId]` | DELETE | Remove a remembered plate (test cleanup) |
+| `/api/admin/parking/ftp/claims` | GET | Plate log with type/status/date/plate filters |
+| `/api/admin/parking/ftp/claims/[id]` | PATCH | Admin note |
+| `/api/admin/parking/ftp/claims/[id]/evidence` | GET | Private PDF/PNG/raw-text evidence |
+| `/api/admin/parking/ftp/claims/export` | GET | CSV of the filtered log |
+| `/api/admin/parking/ftp/claims/evidence-pack` | GET | Merge selected evidence PDFs |
+| `/api/admin/parking/ftp/health` | POST | Browser or FULL health check (FULL needs `confirm`) |
+
+The **silent hold** replaced `KioskStaffSheet`: the bottom instruction box exits
+to `/` after five seconds with no visual feedback, no popup and no code.
+`lib/parking-kiosk-access.server.ts` is the shared kiosk-session/venue resolver
+for the public 4-hour routes. The kiosk page now opens when either the 90-minute
+integration or at least one active 4-hour type is configured.
 
 ### Unified staff identity
 A single `Staff` profile carries external-system link IDs — `swiftPosId`,

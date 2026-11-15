@@ -34,6 +34,9 @@ RUN npm prune --omit=dev --legacy-peer-deps \
 
 # ── runtime ──────────────────────────────────────────────────────────────────
 FROM base AS runner
+# Headless Chromium drives the vPermit 4-hour claim form (reCAPTCHA v3 needs a
+# real browser). Playwright Core uses this system binary.
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000

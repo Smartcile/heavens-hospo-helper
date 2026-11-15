@@ -89,6 +89,17 @@ async function tick(state: CronState) {
     } catch (e) {
       console.error('[internal-cron] parking health failed:', e)
     }
+
+    try {
+      const { runFtpHealthChecks } = await import('@/lib/ftp-health.server')
+      const results = await runFtpHealthChecks({ now })
+      const failed = results.filter((r) => !r.ok && !r.skipped)
+      console.log(
+        `[internal-cron] FTP claim health: ${results.length} checked, ${failed.length} failed`,
+      )
+    } catch (e) {
+      console.error('[internal-cron] FTP claim health failed:', e)
+    }
   }
 }
 

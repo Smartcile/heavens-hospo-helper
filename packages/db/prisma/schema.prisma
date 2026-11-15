@@ -423,6 +423,10 @@ model Venue {
   parkingRegistrations ParkingRegistration[]
   parkingHealthChecks ParkingHealthCheck[]
   ftpSettings         FtpSettings?
+  ftpParkingTypes     FtpParkingType[]
+  members             Member[]
+  memberPlates        MemberPlate[]
+  ftpClaims           FtpClaim[]
   staffParkingPlates  StaffParkingPlate[]
   staffParkingPlateRequests StaffParkingPlateRequest[]
 }
@@ -4624,7 +4628,9 @@ model ParkingRegistration {
 model ParkingHealthCheck {
   id         String    @id @default(uuid())
   venueId    String
-  mode       String // READINESS | FULL
+  source     String    @default("SCAN2PAY") // SCAN2PAY | FTP_CLAIM
+  typeId     String? // FtpParkingType id for FTP_CLAIM rows
+  mode       String // READINESS | BROWSER | FULL
   ok         Boolean
   httpStatus Int?
   message    String
@@ -4637,12 +4643,13 @@ model ParkingHealthCheck {
   venue Venue @relation(fields: [venueId], references: [id])
 
   @@index([venueId, checkedAt])
+  @@index([venueId, typeId, checkedAt])
 }
 
-// --- FREE THE CARPARK (FTP) ---
+// --- FREE THE PARKING (FTP) ---
 // Venue-level settings for the customer kiosk, the custom email inserted when a
 // carpark flow requires one, the (not-yet-connected) 4-hour carpark and the
-// staff carpark. See AGENTS.md → "Free the Carpark (FTP)".
+// staff carpark. See AGENTS.md → "Free the Parking (FTP)".
 model FtpSettings {
   id                        String    @id @default(uuid())
   venueId                   String    @unique
@@ -4721,4 +4728,140 @@ model StaffParkingPlateRequest {
 
   @@index([venueId, status])
   @@index([venueId, staffId])
+}
+
+// --- FTP 4 HOUR PARKING TYPES + MEMBERS ---
+
+// One row per 4-hour parking offering (RAYC, TRUST, an event, ...). The
+// membership number (or the optional per-type admin PIN) selects the type on
+// the kiosk. The claim URL is the vendor's claimable-event page.
+model FtpParkingType {
+  id               String    @id @default(uuid())
+  venueId          String
+  name             String
+  windowLabel      String?
+  durationMinutes  Int       @default(240)
+  claimUrl         String?
+  claimCode        String?
+  contactName      String?
+  contactEmail     String?
+  contactPhone     String?
+  // Per-type switch: when false, claims are still logged but the plate is not stored.
+  logPlates        Boolean   @default(true)
+  // Optional shared fallback credential for staff/testing. The membership
+  // number is the primary credential; this is disabled by default.
+  adminPinEnabled  Boolean   @default(false)
+  adminPinHash     String?
+  adminPinHint     String?
+  healthCheckMode  String    @default("BROWSER") // BROWSER | FULL | OFF
+  healthPlate      String    @default("STELLA")
+  lastCheckAt      DateTime?
+  lastCheckOk      Boolean?
+  lastCheckMessage String?
+  sortOrder        Int       @default(0)
+  isActive         Boolean   @default(true)
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  venue   Venue     @relation(fields: [venueId], references: [id])
+  members Member[]
+  claims  FtpClaim[]
+
+  @@index([venueId, isActive])
+  @@index([venueId, sortOrder])
+}
+
+// A member profile. The membership number is the kiosk credential; plates are
+// added by the kiosk on the first confirmed claim and can be selected later.
+// `isTest` marks rows created from the temporary Settings -> FTP test panel.
+model Member {
+  id               String    @id @default(uuid())
+  venueId          String
+  membershipNumber String
+  firstName        String
+  lastName         String
+  email            String?
+  phone            String?
+  parkingTypeId    String?
+  isActive         Boolean   @default(true)
+  isTest           Boolean   @default(true)
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  venue       Venue           @relation(fields: [venueId], references: [id])
+  parkingType FtpParkingType? @relation(fields: [parkingTypeId], references: [id])
+  plates      MemberPlate[]
+  claims      FtpClaim[]
+
+  @@unique([venueId, membershipNumber])
+  @@index([venueId, isActive])
+  @@index([venueId, parkingTypeId])
+}
+
+// A plate remembered for a member. The unique key spans soft-deleted rows, so
+// a re-added plate is revived in place rather than duplicated.
+model MemberPlate {
+  id        String    @id @default(uuid())
+  venueId   String
+  memberId  String
+  plate     String
+  isDefault Boolean   @default(false)
+  status    String    @default("ACTIVE") // ACTIVE | RETIRED
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  venue  Venue  @relation(fields: [venueId], references: [id])
+  member Member @relation(fields: [memberId], references: [id])
+
+  @@unique([memberId, plate])
+  @@index([venueId, plate])
+  @@index([venueId, memberId])
+}
+
+// Audit row for every 4-hour claim attempt. A CONFIRMED row carries the vendor's
+// validity window, locations and a private evidence PDF/screenshot. The plate
+// is null when the type's logPlates switch is off.
+model FtpClaim {
+  id                String    @id @default(uuid())
+  venueId           String
+  typeId            String?
+  typeName          String
+  memberId          String?
+  membershipNumber  String?
+  credentialKind    String    @default("MEMBER") // MEMBER | ADMIN_PIN
+  licensePlate      String?
+  contactName       String?
+  contactEmail      String?
+  contactPhone      String?
+  claimCode         String?
+  status            String    @default("PENDING") // PENDING | CONFIRMED | FAILED | ALREADY_CLAIMED | EXHAUSTED | CAPTCHA_BLOCKED | MANUAL_OPENED | MANUAL_CONFIRMED | MANUAL_UNCONFIRMED
+  message           String?
+  httpStatus        Int?
+  validFrom         String?
+  validUntil        String?
+  locations         Json?
+  confirmationText  String?
+  evidencePdfPath   String?
+  evidenceImagePath String?
+  evidenceHtmlPath  String?
+  durationMs        Int?
+  note              String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  venue  Venue           @relation(fields: [venueId], references: [id])
+  type   FtpParkingType? @relation(fields: [typeId], references: [id])
+  member Member?         @relation(fields: [memberId], references: [id])
+
+  @@index([venueId, createdAt])
+  @@index([venueId, typeId, createdAt])
+  @@index([venueId, licensePlate, createdAt])
+  @@index([venueId, memberId])
+  @@index([venueId, status])
 }

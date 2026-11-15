@@ -38,6 +38,15 @@ function install() {
     if (u.startsWith('/api/admin/parking/ftp/kiosk-code')) {
       return jsonResponse({ code: 'ABCD2345', hint: '45' })
     }
+    if (u.startsWith('/api/admin/parking/ftp/types')) {
+      return jsonResponse({ types: [], timezone: 'Pacific/Auckland' })
+    }
+    if (u.startsWith('/api/admin/parking/ftp/test-members')) {
+      return jsonResponse({ members: [], types: [], timezone: 'Pacific/Auckland' })
+    }
+    if (u.startsWith('/api/admin/parking/ftp/claims')) {
+      return jsonResponse({ claims: [], total: 0, timezone: 'Pacific/Auckland' })
+    }
     if (u.startsWith('/api/admin/parking/ftp')) {
       if (init?.method === 'PUT') return jsonResponse({ settings: FTP.settings, kioskUrl: FTP.kioskUrl })
       return jsonResponse(FTP)
@@ -88,7 +97,7 @@ describe('FtpSettingsClient', () => {
     install()
     render(<FtpSettingsClient role="ADMIN" sessionVenueId="v1" />)
 
-    expect(await screen.findByText('FREE THE CARPARK (FTP)')).toBeInTheDocument()
+    expect(await screen.findByText('FREE THE PARKING (FTP)')).toBeInTheDocument()
     expect(screen.getByText('CUSTOMER KIOSK')).toBeInTheDocument()
     expect(screen.getByText('90 MINUTE CAR PARK')).toBeInTheDocument()
     expect(screen.getByText('4 HOUR CAR PARK')).toBeInTheDocument()
@@ -99,7 +108,7 @@ describe('FtpSettingsClient', () => {
   it('saves the FTP fields', async () => {
     install()
     render(<FtpSettingsClient role="ADMIN" sessionVenueId="v1" />)
-    await screen.findByText('FREE THE CARPARK (FTP)')
+    await screen.findByText('FREE THE PARKING (FTP)')
 
     fireEvent.click(screen.getByRole('button', { name: 'SAVE FTP SETTINGS' }))
     await waitFor(() =>
@@ -122,19 +131,18 @@ describe('FtpSettingsClient', () => {
   it('shows a new kiosk code once', async () => {
     install()
     render(<FtpSettingsClient role="ADMIN" sessionVenueId="v1" />)
-    await screen.findByText('FREE THE CARPARK (FTP)')
+    await screen.findByText('FREE THE PARKING (FTP)')
 
     fireEvent.click(screen.getByRole('button', { name: 'ROTATE CODE' }))
     expect(await screen.findByText('ABCD2345')).toBeInTheDocument()
     expect(screen.getByText(/SHOWN ONCE/)).toBeInTheDocument()
   })
 
-  it('keeps the 4 hour tab disabled until a URL exists', async () => {
+  it('renders the 4 hour parking types panel', async () => {
     install()
     render(<FtpSettingsClient role="ADMIN" sessionVenueId="v1" />)
-    await screen.findByText('FREE THE CARPARK (FTP)')
-    expect(
-      screen.getByRole('checkbox', { name: /ENABLE THE 4 HOUR TAB/i }),
-    ).toBeDisabled()
+    await screen.findByText('FREE THE PARKING (FTP)')
+    expect(await screen.findByText('PARKING TYPES (0)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '+ ADD PARKING TYPE' })).toBeInTheDocument()
   })
 })

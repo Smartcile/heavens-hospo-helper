@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi, afterEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
-const { runParkingHealthChecks } = vi.hoisted(() => ({
+const { runParkingHealthChecks, runFtpHealthChecks } = vi.hoisted(() => ({
   runParkingHealthChecks: vi.fn(),
+  runFtpHealthChecks: vi.fn(),
 }))
 
 vi.mock('@/lib/parking-health.server', () => ({ runParkingHealthChecks }))
+vi.mock('@/lib/ftp-health.server', () => ({ runFtpHealthChecks }))
 
 import { GET } from './route'
 
@@ -25,6 +27,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   process.env.CRON_SECRET = 'test-secret'
   runParkingHealthChecks.mockResolvedValue(RESULTS)
+  runFtpHealthChecks.mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -44,7 +47,9 @@ describe('GET /api/cron/parking-health', () => {
 
     expect(res.status).toBe(200)
     expect(runParkingHealthChecks).toHaveBeenCalledWith({ force: false })
+    expect(runFtpHealthChecks).toHaveBeenCalledWith({ force: false })
     expect(body).toMatchObject({ checked: 3, failed: 1, skipped: 1 })
+    expect(body.ftp).toMatchObject({ checked: 0, failed: 0, skipped: 0 })
   })
 
   it('passes force=1 through to the runner', async () => {

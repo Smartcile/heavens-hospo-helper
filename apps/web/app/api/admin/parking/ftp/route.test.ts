@@ -6,6 +6,7 @@ const { getServerSession, prisma } = vi.hoisted(() => ({
   prisma: {
     ftpSettings: { findUnique: vi.fn(), upsert: vi.fn() },
     parkingConfig: { findUnique: vi.fn() },
+    ftpParkingType: { count: vi.fn() },
   },
 }))
 
@@ -35,6 +36,7 @@ beforeEach(() => {
   getServerSession.mockResolvedValue(ADMIN)
   prisma.ftpSettings.findUnique.mockResolvedValue(null)
   prisma.parkingConfig.findUnique.mockResolvedValue(null)
+  prisma.ftpParkingType.count.mockResolvedValue(0)
   prisma.ftpSettings.upsert.mockImplementation(async ({ create }: { create: Record<string, unknown> }) => ({
     id: 'f1',
     ...create,
