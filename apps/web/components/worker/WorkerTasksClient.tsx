@@ -262,11 +262,11 @@ export function WorkerTasksClient({
 
   useEffect(() => { load() }, [])
 
-  // Live-refresh the shared floor list so another person's tick appears within
-  // ~30 s (and immediately on focus/visibility). Paused while any editor or
-  // in-flight form is open so a poll can never clobber a save.
+  // Live-refresh the shared floor list. An SSE change arrives within ~3 s; the
+  // 30 s interval remains as the fallback, and both are paused while any editor
+  // or in-flight form is open so an update can never clobber a save.
   const editorOpen = !!activeTask || taskModalOpen || clModalOpen || isEditMode || quickOpen
-  useLiveRefresh(load, { enabled: !editorOpen })
+  useLiveRefresh(load, { enabled: !editorOpen, streamUrl: '/api/worker/tasks/live' })
 
   async function loadEditData() {
     if (!canAuthor) return null

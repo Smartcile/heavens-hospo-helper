@@ -940,4 +940,58 @@ describe('WorkerTasksClient', () => {
     await waitFor(() => expect(screen.getByText('A REASON IS REQUIRED')).toBeDefined())
     expect(calls.some((c) => c.url === '/api/worker/checklists/c1/not-required')).toBe(false)
   })
+
+  it('opens the task live stream and refreshes on a change without a manual reload', async () => {
+    class FakeEventSource {
+      static instances: FakeEventSource[] = []
+      url: string
+      closed = false
+      onopen: (() => void) | null = null
+      onmessage: ((event: MessageEvent) => void) | null = null
+      onerror: (() => void) | null = null
+      constructor(url: string) {
+        this.url = url
+        FakeEventSource.instances.push(this)
+      }
+      close() {
+        this.closed = true
+      }
+    }
+    ;(globalThis as unknown as { EventSource: unknown }).EventSource =
+      FakeEventSource as unknown as typeof EventSource
+
+    let call = 0
+    const doneTask = {
+      ...BASE_TASK, isCompleted: true, isSettled: true, isDone: true, outcome: 'DONE', canUndo: true,
+      completion: { id: 'c1', note: null, photoUrl: null, completedAt: new Date(), outcome: 'DONE' },
+    }
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') {
+        call++
+        return json({
+          tasks: call === 1 ? [BASE_TASK] : [doneTask],
+          checklists: [CHECKLIST_SUMMARY],
+          firstName: 'BAR',
+        })
+      }
+      return json({})
+    })
+
+    const { unmount } = render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+    try {
+      await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+      const source = FakeEventSource.instances[0]
+      expect(source?.url).toBe('/api/worker/tasks/live')
+
+      const before = call
+      act(() => source.onmessage?.(new MessageEvent('message', { data: 'revision' })))
+
+      await waitFor(() => expect(screen.getByText('SHOW FINISHED (1)')).toBeDefined())
+      expect(call).toBeGreaterThan(before)
+    } finally {
+      unmount()
+      delete (globalThis as unknown as { EventSource?: unknown }).EventSource
+    }
+  })
 })

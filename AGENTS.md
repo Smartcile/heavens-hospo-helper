@@ -2448,14 +2448,31 @@ staffId). So once anyone ticks a job it's done for the team (the list shows "BY
 <name>"), preventing double-ups. Personally-assigned tasks still show, tagged
 `FOR <name>`, but anyone can complete them.
 
-**Live refresh (#96, built 2026-11).** The dashboard TASKS tile and the open
-`/w/tasks` list poll `GET /api/worker/tasks` every 30 s **while the tab is
-visible**, refresh immediately on `visibilitychange` → visible / window `focus`
-and (dashboard) on returning from an iframe tile or browser back, and update in
-place without a LOADING flash. Polling **pauses** while a task/checklist editor,
-a task completion modal or edit mode is open so an in-flight form is never
-clobbered. The shared hook is `lib/use-live-refresh.ts` (`shouldPoll` +
-`useLiveRefresh`); it is the one place the timer/visibility/focus logic lives.
+**Live refresh (#96 / #146, built 2026-11).** The dashboard TASKS tile and the
+open `/w/tasks` list update from **server-sent events** (`GET
+/api/worker/tasks/live`), so another person's change lands within ~3 s instead
+of waiting for a poll. One in-memory hub per process polls a cheap venue
+revision (~3 s) over `Task`, `TaskCompletion`, `TaskProgress`, `Checklist`,
+`ChecklistTask`, `Department`, `Section`, `ChecklistAudience` and
+`DepartmentLink`, and fans out **only** when the revision changes. Queries run
+only while the venue has a subscriber; the timer stops and the venue entry is
+removed when the last phone disconnects. The revision is order-independent
+(the `ChecklistTask` rows are hashed because they have no timestamp). The
+route is worker-session gated, Node runtime, `no-cache`, `X-Accel-Buffering:
+no`, with a 15 s `: ping` heartbeat; the subscription is torn down on
+`req.signal` abort and stream cancel. DB-poll based, so it works across
+multiple app instances sharing one database.
+
+The 30 s poll remains the **unconditional fallback** and still refreshes
+immediately on `visibilitychange` → visible / window `focus` and (dashboard) on
+returning from an iframe tile or browser back, updating in place without a
+LOADING flash. Both mechanisms **pause** while a task/checklist editor, a task
+completion modal or edit mode is open so an in-flight form is never clobbered.
+The `EventSource` closes after three consecutive errors without an `open` and
+the interval carries on. The shared hook is `lib/use-live-refresh.ts`
+(`shouldPoll` + `useLiveRefresh` + optional `streamUrl`); the pure revision/hub
+brain is `lib/task-live.ts` (Prisma-free) and the Prisma binding is
+`lib/task-live.server.ts`.
 
 ### Task outcomes, PARTIAL carry-over & admin hierarchy (built 2026-10)
 
@@ -3842,7 +3859,8 @@ pre-flight.
 | `lib/availability-comments.ts` / `availability-comments.server.ts` - source/limit + real calendar-date validation; mirror the newest live body onto notes | ✅ (2 + 2 tests) |
 | `packages/db/prisma/availability-comment-backfill.ts` - legacy column conversion, deterministic refs, tombstone/legacyRef boot planner | ✅ (11 tests) |
 | `lib/use-scroll-restore.ts` — `captureScroll`, `restoreScroll`, `useScrollRestore` (in-place refresh) | ✅ (4 tests) |
-| `lib/use-live-refresh.ts` — `shouldPoll` + `useLiveRefresh` (visibility-gated interval, focus/visibility refresh, cleanup) | ✅ (7 tests) |
+| `lib/use-live-refresh.ts` — `shouldPoll` + `useLiveRefresh` (visibility-gated interval, focus/visibility refresh, SSE `streamUrl` open/message debounce/error fallback, cleanup) | ✅ (13 tests) |
+| `lib/task-live.ts` — revision part/format, order-independent `ChecklistTask` hash, per-venue hub (fan-out only on change, timer stop on last unsubscribe, injectable compute/timers) | ✅ (14 tests) |
 | `lib/booth-trace.ts` — `traceBoothPerimeter` | ✅ |
 | `lib/breaks.ts` — `nzBreakEntitlement`, `shiftHours`, `formatBreaks` | ✅ |
 | `lib/budget-math.ts` — `generateDailyBudgetsNormalized`, `computeBreakdowns` | ✅ |
@@ -3961,12 +3979,12 @@ pre-flight.
 | `BudgetImportModal.tsx` — parse preview, include toggles, commit | ✅ (4 tests) |
 | `CalendarClient.tsx` — 22 useState | ✅ |
 | `DateNav.tsx` — mode-aware quick nav (day/week/month), whole-period ranges, popover opens in the displayed mode | ✅ (21 tests) |
-| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, finished collapse + SHOW FINISHED, coloured status boxes, finished-list sort, multi-day editor, settled UNTICK/REOPEN, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, subtask grouping/ADD SUBTASK, dual early-return paths, live-refresh on focus + pause while an editor is open, task groups + bulk NOT_REQUIRED confirmation | ✅ (33 tests) |
+| `WorkerTasksClient.tsx` — outcomes, PARTIAL/in-progress, finished collapse + SHOW FINISHED, coloured status boxes, finished-list sort, multi-day editor, settled UNTICK/REOPEN, grant-gated authoring, direct add-to-list, TaskGuide picker, ON/OFF, list activation, subtask grouping/ADD SUBTASK, dual early-return paths, live-refresh on focus + SSE stream message refresh + pause while an editor is open, task groups + bulk NOT_REQUIRED confirmation | ✅ (39 tests) |
 | `TasksClient.test.tsx` — #19 live available filter (existing + new list), usage reset, stale PARTIAL clear, multi-day list flag, subtask indent/add/parent picker, scroll restore after load, linked item + rich description | ✅ (15 tests) |
 | `MenuItemsClient.test.tsx` — recipe-less product listed and saved with `recipeId: null` | ✅ (1 test) |
 | `RecipesClient.test.tsx` — volume/weight display + header opens the shared recipe importer | ✅ (5 tests) |
 | `components/import/ImportModal.test.tsx` — generic rows + custom summary, per-row value patch (`REPLACE LINES`) posted to the given endpoint, default menu-item summary, inline field edit posted with the row, parse error | ✅ (4 tests) |
-| `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard + live TASKS tile refresh (tile return + window focus) + new worker tiles (Kitchen, Deliveries, Gift Cards gating, Parking gating/warning + staff-plate-only tile, Training Status manager-only) | ✅ (12 tests) |
+| `WorkerDashboardClient.test.tsx` — iframe bottom-bar hiding + browser-back history guard + live TASKS tile refresh (tile return + window focus + SSE stream message) + new worker tiles (Kitchen, Deliveries, Gift Cards gating, Parking gating/warning + staff-plate-only tile, Training Status manager-only) | ✅ (13 tests) |
 | `WorkerParkingClient.tsx` — plate input, arrival quick-adjust, success/duplicate/error cards, service warning, today's list | ✅ (6 tests) |
 | `GuestParkingSettings.tsx` — config load/save, toggle, RUN CHECK NOW, health warning, save error | ✅ (5 tests) |
 | `KioskParkingClient.tsx` — plate entry, success/already/failed, QR + countdown reset, START AGAIN, staff sheet, 4 hour disabled | ✅ (6 tests) |
@@ -4034,6 +4052,7 @@ pre-flight.
 | `app/api/worker/checklists/[id]/not-required/route.test.ts` — auth, body mapping (group/taskIds/note), error status passthrough | ✅ (3 tests) |
 | `app/api/worker/tasks/[id]/complete/route.test.ts` — completion responds without waiting for the best-effort follow-ups; PARTIAL stamps `progressDate`; retracted rows are ignored; DELETE soft-deletes, records the undo and resolves UNTRAINED; venue rejection | ✅ (6 tests) |
 | `app/api/worker/tasks/route.test.ts` — stale today-only PARTIAL dropped + swept, multi-day partial carried and never swept, today partial carried | ✅ (3 tests) |
+| `app/api/worker/tasks/live/route.test.ts` — 401 without a session, SSE headers (`text/event-stream`, `no-cache`, `X-Accel-Buffering: no`), subscribe by venue, unsubscribe on cancel and `req.signal` abort, heartbeat cleared | ✅ (4 tests) |
 | `app/api/admin/tasks/[id]/route.test.ts` — GET parent/children + linked item, parent validation 400s, linked-item validation/sanitisation, DELETE unparents children | ✅ (8 tests) |
 | `app/api/admin/tasks/item-options/route.test.ts` — auth, grant, manager venue scope, active/non-deleted items | ✅ (4 tests) |
 | `app/api/admin/menu-items/route.test.ts` — null recipe, cross-venue recipe, recipe-derived allergens | ✅ (3 tests) |

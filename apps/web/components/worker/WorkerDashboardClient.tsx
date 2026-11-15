@@ -171,10 +171,13 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
 
   useEffect(() => { load() }, [])
 
-  // Keep the TASKS tile live while the dashboard is on screen (30 s), and
-  // refresh immediately when the tab becomes visible or the window regains
-  // focus. Paused automatically while a tile view is open.
-  useLiveRefresh(loadTaskSummary, { enabled: view === 'dashboard' })
+  // Keep the TASKS tile live while the dashboard is on screen (SSE, with the
+  // 30 s interval as fallback), and refresh immediately when the tab becomes
+  // visible or the window regains focus. Paused while a tile view is open.
+  useLiveRefresh(loadTaskSummary, {
+    enabled: view === 'dashboard',
+    streamUrl: '/api/worker/tasks/live',
+  })
 
   async function handleSignOut() {
     // Explicit sign-out ends BOTH sessions (admin too). The inactivity timeout

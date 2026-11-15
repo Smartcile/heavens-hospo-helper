@@ -88,3 +88,144 @@ describe('useLiveRefresh', () => {
     expect(refresh).not.toHaveBeenCalled()
   })
 })
+
+class FakeEventSource {
+  static instances: FakeEventSource[] = []
+  static reset() {
+    FakeEventSource.instances = []
+  }
+
+  url: string
+  closed = false
+  onopen: (() => void) | null = null
+  onmessage: ((event: MessageEvent) => void) | null = null
+  onerror: (() => void) | null = null
+
+  constructor(url: string) {
+    this.url = url
+    FakeEventSource.instances.push(this)
+  }
+
+  close() {
+    this.closed = true
+  }
+
+  emitOpen() {
+    this.onopen?.()
+  }
+
+  emitMessage(data = 'revision') {
+    this.onmessage?.(new MessageEvent('message', { data }))
+  }
+
+  emitError() {
+    this.onerror?.()
+  }
+}
+
+function installFakeEventSource() {
+  ;(globalThis as unknown as { EventSource: unknown }).EventSource =
+    FakeEventSource as unknown as typeof EventSource
+}
+
+function removeFakeEventSource() {
+  delete (globalThis as unknown as { EventSource?: unknown }).EventSource
+}
+
+describe('useLiveRefresh stream', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    setVisibility('visible')
+    FakeEventSource.reset()
+    installFakeEventSource()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    removeFakeEventSource()
+  })
+
+  it('opens the stream while enabled and closes it on unmount', () => {
+    const { unmount } = renderHook(() =>
+      useLiveRefresh(vi.fn(), { streamUrl: '/api/worker/tasks/live' }),
+    )
+
+    expect(FakeEventSource.instances).toHaveLength(1)
+    expect(FakeEventSource.instances[0].url).toBe('/api/worker/tasks/live')
+
+    unmount()
+    expect(FakeEventSource.instances[0].closed).toBe(true)
+  })
+
+  it('does not open the stream when disabled', () => {
+    renderHook(() => useLiveRefresh(vi.fn(), { enabled: false, streamUrl: '/api/live' }))
+
+    expect(FakeEventSource.instances).toHaveLength(0)
+  })
+
+  it('closes the stream when enabled turns false', () => {
+    const { rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) =>
+        useLiveRefresh(vi.fn(), { enabled, streamUrl: '/api/live' }),
+      { initialProps: { enabled: true } },
+    )
+    const source = FakeEventSource.instances[0]
+
+    rerender({ enabled: false })
+
+    expect(source.closed).toBe(true)
+  })
+
+  it('debounces a burst of messages into one refresh', () => {
+    const refresh = vi.fn()
+    renderHook(() => useLiveRefresh(refresh, { streamUrl: '/api/live', debounceMs: 300 }))
+    const source = FakeEventSource.instances[0]
+
+    act(() => {
+      source.emitMessage()
+      source.emitMessage()
+      source.emitMessage()
+    })
+    expect(refresh).not.toHaveBeenCalled()
+
+    act(() => {
+      vi.advanceTimersByTime(300)
+    })
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('resets the error count on open', () => {
+    renderHook(() => useLiveRefresh(vi.fn(), { streamUrl: '/api/live' }))
+    const source = FakeEventSource.instances[0]
+
+    act(() => {
+      source.emitError()
+      source.emitError()
+      source.emitOpen()
+      source.emitError()
+      source.emitError()
+    })
+
+    expect(source.closed).toBe(false)
+  })
+
+  it('closes after repeated errors and falls back to the interval', () => {
+    const refresh = vi.fn()
+    renderHook(() =>
+      useLiveRefresh(refresh, { intervalMs: 1000, streamUrl: '/api/live' }),
+    )
+    const source = FakeEventSource.instances[0]
+
+    act(() => {
+      source.emitError()
+      source.emitError()
+      source.emitError()
+    })
+    expect(source.closed).toBe(true)
+
+    act(() => {
+      vi.advanceTimersByTime(3000)
+    })
+    expect(refresh).toHaveBeenCalledTimes(3)
+  })
+})

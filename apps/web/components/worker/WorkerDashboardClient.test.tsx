@@ -226,4 +226,40 @@ describe('WorkerDashboardClient chrome', () => {
     await waitFor(() => expect(screen.getByText('TASKS')).toBeDefined())
     expect(screen.queryByText('PARKING')).toBeNull()
   })
+
+  it('opens the task live stream and refreshes the TASKS tile on a change', async () => {
+    class FakeEventSource {
+      static instances: FakeEventSource[] = []
+      url: string
+      closed = false
+      onopen: (() => void) | null = null
+      onmessage: ((event: MessageEvent) => void) | null = null
+      onerror: (() => void) | null = null
+      constructor(url: string) {
+        this.url = url
+        FakeEventSource.instances.push(this)
+      }
+      close() {
+        this.closed = true
+      }
+    }
+    ;(globalThis as unknown as { EventSource: unknown }).EventSource =
+      FakeEventSource as unknown as typeof EventSource
+
+    const taskCalls = mockChangingTasks()
+    const { unmount } = render(<WorkerDashboardClient role="STAFF" />)
+    try {
+      await waitFor(() => expect(screen.getByText(/2 PENDING/)).toBeDefined())
+      const source = FakeEventSource.instances[0]
+      expect(source?.url).toBe('/api/worker/tasks/live')
+
+      act(() => source.onmessage?.(new MessageEvent('message', { data: 'revision' })))
+
+      await waitFor(() => expect(screen.getByText(/0 PENDING · 100% DONE/)).toBeDefined())
+      expect(taskCalls()).toBeGreaterThanOrEqual(2)
+    } finally {
+      unmount()
+      delete (globalThis as unknown as { EventSource?: unknown }).EventSource
+    }
+  })
 })
