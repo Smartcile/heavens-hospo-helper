@@ -40,17 +40,17 @@ export function PlateKeypad({
     : 'md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]'
   const gapClass = kiosk
     ? compactNumpad
-      ? 'h-full min-h-0 gap-1 md:gap-3'
-      : 'h-full min-h-0 gap-1'
+      ? 'h-auto min-h-0 gap-1 md:h-full md:gap-3'
+      : 'h-auto min-h-0 gap-1 md:h-full'
     : 'gap-2'
   const keyClass = kiosk
-    ? 'h-full min-h-14 w-full select-none border border-grey-mid bg-grey-dark/40 font-mono text-2xl md:text-3xl font-semibold text-white transition-colors active:bg-white active:text-black disabled:opacity-40'
+    ? 'h-14 min-h-14 w-full select-none border border-grey-mid bg-grey-dark/40 font-mono text-2xl md:h-full md:text-3xl font-semibold text-white transition-colors active:bg-white active:text-black disabled:opacity-40'
     : 'h-11 md:h-14 select-none border border-grey-mid bg-grey-dark/40 font-mono text-base md:text-xl font-semibold text-white transition-colors active:bg-white active:text-black disabled:opacity-40'
   const editClass = kiosk
-    ? 'h-full min-h-14 w-full select-none border border-grey-mid font-mono text-base md:text-xl font-semibold uppercase tracking-wider text-grey-light active:bg-white active:text-black disabled:opacity-40'
+    ? 'h-14 min-h-14 w-full select-none border border-grey-mid font-mono text-base md:h-full md:text-xl font-semibold uppercase tracking-wider text-grey-light active:bg-white active:text-black disabled:opacity-40'
     : 'h-11 md:h-14 select-none border border-grey-mid font-mono text-sm font-semibold uppercase tracking-wider text-grey-light active:bg-white active:text-black disabled:opacity-40'
   const backClass = kiosk
-    ? 'h-full min-h-14 w-full select-none border border-grey-mid font-mono text-xl md:text-2xl font-semibold uppercase tracking-wider text-white active:bg-white active:text-black disabled:opacity-40'
+    ? 'h-14 min-h-14 w-full select-none border border-grey-mid font-mono text-xl md:h-full md:text-2xl font-semibold uppercase tracking-wider text-white active:bg-white active:text-black disabled:opacity-40'
     : 'h-11 md:h-14 select-none border border-grey-mid font-mono text-lg font-semibold uppercase tracking-wider text-white active:bg-white active:text-black disabled:opacity-40'
 
   return (

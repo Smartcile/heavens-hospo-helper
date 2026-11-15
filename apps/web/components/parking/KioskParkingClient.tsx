@@ -765,7 +765,7 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
               </div>
             )
           ) : (
-            <div className="flex min-h-0 w-full flex-1 flex-col gap-2">
+            <div className="flex w-full flex-col gap-2 md:min-h-0 md:flex-1">
               <p className="shrink-0 text-center font-mono text-lg uppercase tracking-widest text-grey-light md:text-xl">
                 ENTER YOUR NUMBER PLATE
               </p>
@@ -783,7 +783,7 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
                 ))}
               </div>
 
-              <div className="min-h-0 flex-1">
+              <div className="shrink-0 md:min-h-0 md:flex-1">
                 <PlateKeypad
                   variant="kiosk"
                   compactNumpad
@@ -856,7 +856,7 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
             )}
           </div>
         ) : fourStage === 'credential' ? (
-          <div className="flex min-h-0 w-full flex-1 flex-col gap-2">
+          <div className="flex w-full flex-col gap-2 md:min-h-0 md:flex-1">
             <div className="shrink-0 text-center">
               <p className="font-mono text-base uppercase tracking-widest text-grey-light md:text-lg">
                 {selectedType?.name}
@@ -875,7 +875,7 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
                 {adminMode ? 'PIN HIDDEN' : credentialInput || 'ENTER NUMBER'}
               </div>
             </div>
-            <div className="min-h-0 flex-1">
+            <div className="shrink-0 md:min-h-0 md:flex-1">
               <PinKeypad
                 variant="kiosk"
                 tone={adminMode ? 'danger' : 'default'}
@@ -1144,7 +1144,7 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
             </button>
           </div>
         ) : (
-          <div className="flex min-h-0 w-full flex-1 flex-col gap-2">
+          <div className="flex w-full flex-col gap-2 md:min-h-0 md:flex-1">
             <div className="shrink-0 text-center">
               <p className="font-mono text-base uppercase tracking-widest text-grey-light md:text-lg">
                 {selectedType?.name}
@@ -1169,7 +1169,7 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
                 </div>
               ))}
             </div>
-            <div className="min-h-0 flex-1">
+            <div className="shrink-0 md:min-h-0 md:flex-1">
               <PlateKeypad
                 variant="kiosk"
                 onKey={(key) => {
