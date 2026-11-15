@@ -5,7 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { resolveScopedVenueId } from '@/lib/venue-scope'
 import { ftpSettingsView, kioskUrlFor, normaliseFtpInput } from '@/lib/ftp-settings'
 
-// Settings → FTP ("Free the Carpark"). One venue-scoped settings row covering
+// Settings → FTP ("Free the Parking"). One venue-scoped settings row covering
 // the customer kiosk, the custom email, the 4-hour carpark and staff plates.
 
 function appUrl() {
@@ -19,9 +19,17 @@ export async function GET(req: NextRequest) {
   const scoped = resolveScopedVenueId(session, req)
   if ('error' in scoped) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const [row, parking] = await Promise.all([
+  const [row, parking, fourHourTypes] = await Promise.all([
     prisma.ftpSettings.findUnique({ where: { venueId: scoped.venueId } }),
     prisma.parkingConfig.findUnique({ where: { venueId: scoped.venueId } }),
+    prisma.ftpParkingType.count({
+      where: {
+        venueId: scoped.venueId,
+        isActive: true,
+        deletedAt: null,
+        claimUrl: { not: null },
+      },
+    }),
   ])
 
   return NextResponse.json({
@@ -31,6 +39,7 @@ export async function GET(req: NextRequest) {
       carparkName: parking?.carparkName ?? null,
       durationMinutes: parking?.durationMinutes ?? 90,
     },
+    fourHourReady: fourHourTypes > 0,
     kioskUrl: kioskUrlFor(appUrl(), scoped.venueId),
   })
 }
@@ -51,13 +60,29 @@ export async function PUT(req: NextRequest) {
   if (!input.ok) return NextResponse.json({ error: input.error }, { status: 422 })
 
   if (input.value.kioskEnabled) {
-    const parking = await prisma.parkingConfig.findUnique({
-      where: { venueId: scoped.venueId },
-      select: { enabled: true, carparkId: true, deletedAt: true },
-    })
-    if (!parking?.enabled || !parking.carparkId || parking.deletedAt) {
+    const [parking, fourHourTypes] = await Promise.all([
+      prisma.parkingConfig.findUnique({
+        where: { venueId: scoped.venueId },
+        select: { enabled: true, carparkId: true, deletedAt: true },
+      }),
+      prisma.ftpParkingType.count({
+        where: {
+          venueId: scoped.venueId,
+          isActive: true,
+          deletedAt: null,
+          claimUrl: { not: null },
+        },
+      }),
+    ])
+    const guestEnabled = Boolean(
+      parking?.enabled && parking.carparkId && !parking.deletedAt,
+    )
+    if (!guestEnabled && fourHourTypes === 0) {
       return NextResponse.json(
-        { error: 'ENABLE 90 MINUTE PARKING BEFORE TURNING THE KIOSK ON' },
+        {
+          error:
+            'ENABLE 90 MINUTE PARKING OR ADD AN ACTIVE 4 HOUR PARKING TYPE BEFORE TURNING THE KIOSK ON',
+        },
         { status: 422 },
       )
     }

@@ -592,15 +592,16 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
   },
   {
     slug: 'free-the-carpark',
-    title: 'FREE THE CARPARK',
-    summary: 'The customer kiosk, the custom email, the 4 hour carpark and staff number plates.',
+    title: 'FREE THE PARKING',
+    summary:
+      'The customer kiosk, 90-minute and 4-hour parking, membership numbers, the plate log and staff number plates.',
     category: 'ADMIN',
     audience: 'EVERYONE',
     sortOrder: 640,
     bodyHtml: [
-      '<h2>Free the Carpark (FTP)</h2>',
-      '<p>FTP is the parking part of the app. It has two jobs:</p>',
-      '<ul><li><strong>A customer kiosk</strong> on an iPad. A guest types their number plate and gets the free parking window without installing anything or making an account.</li><li><strong>Staff number plates</strong> for the staff carpark. Staff add or change their plate in the worker app, and a manager approves it and ticks it off once it has been entered into the parking system.</li></ul>',
+      '<h2>Free the Parking (FTP)</h2>',
+      '<p>FTP is the parking part of the app. It has three jobs:</p>',
+      '<ul><li><strong>A customer kiosk</strong> on an iPad. A guest types their number plate and gets the free 90-minute window without installing anything or making an account.</li><li><strong>4-hour parking types</strong> for areas such as RAYC and Trust. A membership number (or an admin PIN) selects the type; the app starts the vPermit session and logs the plate with evidence.</li><li><strong>Staff number plates</strong> for the staff carpark. Staff add or change their plate in the worker app, and a manager approves it and ticks it off once it has been entered into the parking system.</li></ul>',
       '<p>Everything is set up in <strong>Setup &amp; config → Settings → FTP</strong>.</p>',
 
       '<h3>Set up the customer kiosk</h3>',
@@ -624,7 +625,7 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
       '<li>The screen shows the plate, <strong>FREE PARKING UNTIL</strong> the end time, and a <strong>big QR code</strong> with the instruction <strong>SCAN ME WITH YOUR PHONE CAMERA TO VIEW OR EXTEND</strong>.</li>',
       '<li>If the plate was already registered that day, the screen says <strong>ALREADY REGISTERED</strong> and still shows the QR code so the guest can extend.</li>',
       '<li>A visible timer counts down. When it reaches zero the plate, the QR code and the result disappear, ready for the next guest. <strong>START AGAIN</strong> clears it immediately.</li>',
-      '<li><strong>SPEAK WITH STAFF</strong> is always at the bottom. It opens a staff panel with the plate, the end time and the parking link, so a staff member can help finish a payment.</li>',
+      '<li>The bottom box says <strong>SPEAK WITH STAFF IF YOU NEED HELP</strong>. It is not a popup; staff hold it silently for five seconds to leave kiosk mode.</li>',
       '</ol>',
       '<img src="/help/ftp-kiosk.png" alt="The customer kiosk plate entry screen with large plate boxes and a large on-screen keypad">',
       '<p>The customer screen. Large plate boxes, a large keypad and no phone keyboard.</p>',
@@ -632,7 +633,7 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
       '<p>After registering: the end time, a large QR code and a countdown that clears the screen.</p>',
 
       '<h3>Leaving kiosk mode (staff)</h3>',
-      '<p>The customer screen has no visible exit. Tap <strong>SPEAK WITH STAFF</strong>, then <strong>HOLD 5 SECONDS TO EXIT</strong>. If the kiosk code is on, enter it; if it is off, the hold shows an <strong>EXIT KIOSK</strong> button. Five wrong codes wait a minute.</p>',
+      '<p>The customer screen has no visible exit. Press and <strong>hold the bottom instruction box for five seconds</strong>. There is no animation and no prompt; it simply returns to the landing page. A short tap does nothing. The kiosk code is only used when opening the kiosk on the iPad.</p>',
 
       '<h3>Staff number plates</h3>',
       '<ol>',
@@ -651,13 +652,16 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
       '<p>A staff member adds or changes their plate in the worker app. A note is required for a change.</p>',
 
       '<h3>The 4 hour carpark</h3>',
-      '<p>Settings for the 4 hour carpark are already on the FTP page (name, URL and duration). Until you have the carpark URL the kiosk shows the 4 HOUR tab as <strong>SOON</strong>. Paste the URL, set the duration and tick <strong>ENABLE THE 4 HOUR TAB</strong> when you are ready.</p>',
+      '<p>Open <strong>Settings → FTP → 4 HOUR CAR PARK</strong>. Add one or more <strong>PARKING TYPES</strong> (for example RAYC and TRUST). Each type has its own vPermit claim URL, contact name/email/phone, an optional <strong>ADMIN PIN</strong> and a <strong>LOG PLATES</strong> switch.</p>',
+      '<ol><li>Paste the vPermit claim URL and tick <strong>ACTIVE</strong>. The 4 HOUR tab appears on the kiosk when at least one active type has a URL.</li><li>Add a <strong>TEST MEMBER</strong> with a membership number, name, email, phone and parking type. The full Members area will use the same records later.</li><li>On the kiosk, tap <strong>4 HOUR</strong>, choose the type, enter the membership number (or the type admin PIN) and confirm the plate. The app starts the vPermit session in a headless browser.</li><li>If the automatic start is blocked, the kiosk shows <strong>OPEN PARKING PAGE</strong>. Finish the form in Safari and close the tab; the kiosk asks whether it started.</li><li>The first confirmed claim saves the plate to the member, so the next visit has an easy plate select.</li></ol>',
+      '<p><strong>PLATE LOG</strong> lists every claim with the plate, type, member, validity window and evidence. Use the filters, <strong>CSV</strong>, <strong>EVIDENCE PACK (PDF)</strong> or a single row\'s PDF/IMG when you need to send evidence for an infringement. Add a note to a row for follow-up.</p>',
+      '<p><strong>HEALTH</strong> checks the claim page. <strong>BROWSER CHECK</strong> uses no parking slot; <strong>FULL CHECK</strong> submits a real test claim and uses one slot.</p>',
 
       '<h3>Privacy</h3>',
-      '<p>The customer kiosk deliberately <strong>does not store guest number plates</strong>. The plate lives only on the screen and in the parking provider&rsquo;s session, and the app wipes it when the timer ends. Staff plates are stored because they are a record you manage.</p>',
+      '<p>The <strong>90-minute</strong> kiosk deliberately <strong>does not store guest number plates</strong>; the plate lives only on the screen and in the parking provider&rsquo;s session, and the app wipes it when the timer ends. The <strong>4-hour</strong> flow stores the plate, type, member, time and vendor confirmation so you have evidence for infringements. Turn <strong>LOG PLATES</strong> off on a type if you do not want the plate stored. Staff plates are stored because they are a record you manage.</p>',
 
       '<h3>If something goes wrong</h3>',
-      '<ul><li><strong>The kiosk says guest parking is not enabled.</strong> Turn on the 90 minute parking integration first, then enable the kiosk.</li><li><strong>The kiosk code is lost.</strong> A manager with admin access can rotate it. Rotating locks every iPad until the new code is entered.</li><li><strong>A guest cannot register.</strong> The kiosk shows a failure message and the staff panel still has the parking link so a staff member can finish the job on the parking site.</li><li><strong>A staff plate is wrong.</strong> Reject the request with a note and ask the staff member to send a change.</li></ul>',
+      '<ul><li><strong>The kiosk says parking is not enabled.</strong> Enable the 90 minute integration OR add an active 4 hour parking type with a vPermit URL, then enable the kiosk.</li><li><strong>The kiosk code is lost.</strong> A manager with admin access can rotate it. Rotating locks every iPad until the new code is entered.</li><li><strong>A guest cannot register (90 minutes).</strong> The kiosk shows a failure message; try again or use the Scan2Pay link.</li><li><strong>The 4 hour automatic start fails.</strong> Use <strong>OPEN PARKING PAGE</strong> to finish in Safari, then answer <strong>DID THE PARKING START?</strong> Check <strong>Settings → FTP → 4 HOUR → HEALTH</strong> and run a <strong>BROWSER CHECK</strong>.</li><li><strong>A staff plate is wrong.</strong> Reject the request with a note and ask the staff member to send a change.</li></ul>',
     ].join(''),
   },
   {
@@ -670,7 +674,7 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
     bodyHtml: [
       '<h2>Settings</h2>',
       '<p><strong>Setup &amp; config → Settings</strong> holds the venue-wide configuration.</p>',
-      '<ul><li><strong>GENERAL</strong> — venue details, WooCommerce, demo venue, backups, sharing, availability cut-off, worker session timeout and your password/PIN.</li><li><strong>VENUE SETUP</strong> — venues, positions (roles) and departments.</li><li><strong>STRUCTURE</strong> — the organisation tree and workflow map.</li><li><strong>UNITS, SUPPLIERS, QR CODES</strong> — inventory units, suppliers and worker login codes.</li><li><strong>SYNC</strong> — pull/products and orders, push products, and the sync log.</li><li><strong>SWIFT POS</strong> — sales, staff sync and menu links.</li><li><strong>FTP</strong> — Free the Carpark: the customer kiosk, custom email, 4 hour carpark and staff number plates.</li><li><strong>FILES</strong> — the media browser (admin only).</li></ul>',
+      '<ul><li><strong>GENERAL</strong> — venue details, WooCommerce, demo venue, backups, sharing, availability cut-off, worker session timeout and your password/PIN.</li><li><strong>VENUE SETUP</strong> — venues, positions (roles) and departments.</li><li><strong>STRUCTURE</strong> — the organisation tree and workflow map.</li><li><strong>UNITS, SUPPLIERS, QR CODES</strong> — inventory units, suppliers and worker login codes.</li><li><strong>SYNC</strong> — pull/products and orders, push products, and the sync log.</li><li><strong>SWIFT POS</strong> — sales, staff sync and menu links.</li><li><strong>FTP</strong> — Free the Parking: the customer kiosk, custom email, 4 hour carpark and staff number plates.</li><li><strong>FILES</strong> — the media browser (admin only).</li></ul>',
     ].join(''),
   },
   {

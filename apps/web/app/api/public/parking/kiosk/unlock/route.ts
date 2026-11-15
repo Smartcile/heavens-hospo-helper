@@ -39,13 +39,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'WRONG KIOSK CODE' }, { status: 401 })
   }
 
-  const parking = await prisma.parkingConfig.findUnique({
-    where: { venueId: settings.venueId },
-    select: { enabled: true, deletedAt: true },
-  })
-  if (!parking || !parking.enabled || parking.deletedAt) {
+  const [parking, fourHourTypes] = await Promise.all([
+    prisma.parkingConfig.findUnique({
+      where: { venueId: settings.venueId },
+      select: { enabled: true, carparkId: true, deletedAt: true },
+    }),
+    prisma.ftpParkingType.count({
+      where: {
+        venueId: settings.venueId,
+        isActive: true,
+        deletedAt: null,
+        claimUrl: { not: null },
+      },
+    }),
+  ])
+  const guestEnabled = Boolean(parking?.enabled && parking.carparkId && !parking.deletedAt)
+  if (!guestEnabled && fourHourTypes === 0) {
     return NextResponse.json(
-      { error: 'GUEST PARKING IS NOT ENABLED FOR THIS VENUE' },
+      { error: 'PARKING IS NOT ENABLED FOR THIS VENUE' },
       { status: 400 },
     )
   }

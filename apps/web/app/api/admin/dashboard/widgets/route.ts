@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { getTodayDate } from '@/lib/utils'
 import { trainingStatusForVenue } from '@/lib/training-status.server'
 import { parkingHealthForVenue } from '@/lib/parking-health.server'
+import { ftpHealthForVenue, worstFtpHealth } from '@/lib/ftp-health-state.server'
 
 // Data for the draggable dashboard modules that the core /api/admin/dashboard
 // payload doesn't carry: today's bookings/orders, upcoming events, open
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
   if (!venue) return NextResponse.json({ error: 'Venue not found' }, { status: 404 })
   const today = getTodayDate(venue.timezone ?? 'Pacific/Auckland')
 
-  const [bookings, bookingCount, orders, orderAgg, events, hsAlerts, clockedIn, training, parkingHealthRaw] = await Promise.all([
+  const [bookings, bookingCount, orders, orderAgg, events, hsAlerts, clockedIn, training, parkingHealthRaw, ftpHealth] = await Promise.all([
     prisma.booking.findMany({
       where: { venueId, deletedAt: null, date: today, status: { notIn: ['CANCELLED', 'NO_SHOW'] } },
       orderBy: { startTime: 'asc' },
@@ -61,10 +62,17 @@ export async function GET(req: NextRequest) {
     prisma.timeClock.count({ where: { venueId, deletedAt: null, clockOut: null } }),
     trainingStatusForVenue(venueId),
     parkingHealthForVenue(venueId),
+    ftpHealthForVenue(venueId),
   ])
 
-  const parkingHealth =
+  const scan2PayHealth =
     parkingHealthRaw.message === 'NOT CONFIGURED' ? null : parkingHealthRaw
+  const ftpWorst = worstFtpHealth(ftpHealth)
+  const parkingHealth =
+    ftpWorst && !ftpWorst.ok
+      ? { ...ftpWorst, message: `FTP: ${ftpWorst.message}` }
+      : scan2PayHealth ??
+        (ftpWorst ? { ok: ftpWorst.ok, stale: ftpWorst.stale, message: `FTP: ${ftpWorst.message}` } : null)
 
   return NextResponse.json({
     date: today.toISOString().slice(0, 10),

@@ -1,4 +1,4 @@
-// Pure validation/normalisation for Settings → FTP ("Free the Carpark").
+// Pure validation/normalisation for Settings → FTP ("Free the Parking").
 
 export const DEFAULT_KIOSK_RESET_SECONDS = 60
 export const MIN_KIOSK_RESET_SECONDS = 15

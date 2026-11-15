@@ -492,7 +492,7 @@ service that mirrors the POS. It never talks to SwiftPOS directly.
 - **Kitchen dockets** — **Ops → Orders → DOCKETS** shows live open sales,
   refreshing every 30 seconds while visible (30/60/120 min / ALL LINES windows).
 
-### FREE THE CARPARK (FTP)
+### FREE THE PARKING (FTP)
 
 The customer-facing parking layer. Everything lives in **Settings → FTP**.
 
@@ -501,12 +501,28 @@ The customer-facing parking layer. Everything lives in **Settings → FTP**.
   and for the hardest lock turn on iPad **Guided Access**. A guest taps their
   plate on the big keypad, sees the end time and a large QR code to view or
   extend, and the screen clears itself on a visible timer.
-- **Privacy** — the kiosk does **not** store guest plates. Nothing is written to
-  the database; the plate disappears when the timer ends.
+- **Privacy** — the **90-minute** kiosk does **not** store guest plates; the
+  plate disappears when the timer ends. The **4-hour** flow deliberately logs
+  the plate, type, time and vendor confirmation so you have evidence for
+  infringements (per-type **LOG PLATES** switch; see below).
 - **Custom email** — set one in the 90 MINUTE CAR PARK area. It is inserted
-  automatically whenever the parking form asks for an email.
-- **4 hour carpark** — the settings (name, URL, duration) are ready; the kiosk
-  tab stays disabled until you paste the URL and enable it.
+  automatically whenever the Scan2Pay form asks for an email.
+- **Leaving the kiosk** — the bottom instruction box exits to the landing page
+  after a silent 5-second hold. No popup, no prompt.
+- **4 hour carpark** — add one or more **PARKING TYPES** (e.g. RAYC, TRUST) in
+  Settings → FTP → 4 HOUR. Each has its own vPermit claim URL, contact
+  name/email/phone and optional admin PIN. Staff/guests enter a **membership
+  number** (or the admin PIN) on the kiosk, pick a saved plate or add one, and
+  the app drives the vPermit form in a headless browser. If the browser or
+  reCAPTCHA fails, the kiosk offers **OPEN PARKING PAGE** so the guest can
+  finish it in Safari and come back.
+- **Plate log + evidence** — every 4-hour claim is listed under **PLATE LOG**
+  with its validity window and a private evidence PDF/screenshot. Filter by
+  type/status/date/plate, download CSV or a merged evidence pack, and add a
+  follow-up note.
+- **Test members** — until the full Members area is built, add test members in
+  **Settings → FTP → 4 HOUR → TEST MEMBERS**. Plates are added by the kiosk on
+  the first confirmed claim, then shown as an easy select.
 - **Staff number plates** — staff add or change their plate in the worker app
   (**Parking → MY NUMBER PLATE**). A change needs a note and a manager approval.
   Approve/reject and tick **ENTERED IN SYSTEM** in Settings → FTP → STAFF CAR

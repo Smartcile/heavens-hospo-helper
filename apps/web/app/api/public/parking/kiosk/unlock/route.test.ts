@@ -5,6 +5,7 @@ const { prisma, createKioskSession, setKioskCookie, hashKioskCode } = vi.hoisted
   prisma: {
     ftpSettings: { findFirst: vi.fn() },
     parkingConfig: { findUnique: vi.fn() },
+    ftpParkingType: { count: vi.fn() },
   },
   createKioskSession: vi.fn(),
   setKioskCookie: vi.fn(),
@@ -40,7 +41,12 @@ beforeEach(() => {
     venueId: 'v1',
     kioskCodeHash: 'hash:ABC123',
   })
-  prisma.parkingConfig.findUnique.mockResolvedValue({ enabled: true, deletedAt: null })
+  prisma.parkingConfig.findUnique.mockResolvedValue({
+    enabled: true,
+    carparkId: 19,
+    deletedAt: null,
+  })
+  prisma.ftpParkingType.count.mockResolvedValue(0)
   createKioskSession.mockResolvedValue('token')
 })
 

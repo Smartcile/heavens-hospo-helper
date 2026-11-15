@@ -7,6 +7,8 @@ const nextConfig = {
     },
     // Enables instrumentation.ts — starts the internal cron scheduler on boot.
     instrumentationHook: true,
+    // Playwright is a server-only native dependency; keep it out of the bundle.
+    serverComponentsExternalPackages: ['playwright-core'],
     // Compile only the deep modules a route actually imports instead of the
     // whole barrel — cuts dev compile time for the heavy ones (floor planner
     // uses pixi.js, the pathways board uses @xyflow/react, PDF routes use jspdf).

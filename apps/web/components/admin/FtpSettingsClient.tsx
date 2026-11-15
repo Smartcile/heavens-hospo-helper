@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { GuestParkingSettings } from '@/components/admin/GuestParkingSettings'
 import { StaffPlatesPanel } from '@/components/admin/StaffPlatesPanel'
+import { FtpFourHourPanel } from '@/components/admin/FtpFourHourPanel'
 import {
   DEFAULT_FOUR_HOUR_MINUTES,
   DEFAULT_FOUR_HOUR_NAME,
@@ -38,6 +39,7 @@ interface FtpSettings {
 interface FtpData {
   settings: FtpSettings
   parking: { enabled: boolean; carparkName: string | null; durationMinutes: number }
+  fourHourReady: boolean
   kioskUrl: string
 }
 
@@ -188,12 +190,14 @@ export function FtpSettingsClient({
   }
 
   const parkingEnabled = data?.parking.enabled ?? false
+  const fourHourReady = data?.fourHourReady ?? false
+  const kioskHasSomething = parkingEnabled || fourHourReady
 
   return (
     <div className="max-w-3xl space-y-5" id="ftp-settings">
       <div>
         <h1 className="font-mono text-xl font-bold uppercase tracking-widest text-white">
-          FREE THE CARPARK (FTP)
+          FREE THE PARKING (FTP)
         </h1>
         <p className="font-mono text-xs text-grey-light">
           THE CUSTOMER KIOSK, THE CUSTOM EMAIL, THE 4 HOUR CARPARK AND STAFF NUMBER PLATES.
@@ -228,14 +232,13 @@ export function FtpSettingsClient({
                 type="checkbox"
                 checked={form.kioskEnabled}
                 onChange={(e) => patch('kioskEnabled', e.target.checked)}
-                disabled={!parkingEnabled}
                 className="h-4 w-4 accent-white"
               />
               <span className="font-mono text-xs uppercase text-white">ENABLE THE KIOSK</span>
             </label>
-            {!parkingEnabled && (
+            {!kioskHasSomething && (
               <p className="font-mono text-2xs uppercase text-warning">
-                ENABLE 90 MINUTE PARKING FIRST.
+                ENABLE 90 MINUTE PARKING OR ADD AN ACTIVE 4 HOUR PARKING TYPE FIRST.
               </p>
             )}
 
@@ -336,45 +339,10 @@ export function FtpSettingsClient({
               4 HOUR CAR PARK
             </h2>
             <p className="font-mono text-xs text-grey-light">
-              SETTINGS ONLY FOR NOW. THE FLOW OPENS ONCE YOU HAVE THE CARPARK URL.
+              MEMBERSHIP NUMBER / OPTIONAL ADMIN PIN, VPERMIT CLAIM LINKS, PLATE LOG AND EVIDENCE.
+              THE 4 HOUR TAB SHOWS WHEN AT LEAST ONE ACTIVE TYPE HAS A CLAIM URL.
             </p>
-            <Input
-              label="Name"
-              value={form.fourHourName}
-              onChange={(e) => patch('fourHourName', e.target.value)}
-              placeholder={DEFAULT_FOUR_HOUR_NAME}
-            />
-            <Input
-              label="Carpark URL"
-              value={form.fourHourEntryUrl ?? ''}
-              onChange={(e) => patch('fourHourEntryUrl', e.target.value || null)}
-              placeholder="https://…"
-            />
-            <div className="grid gap-3 md:grid-cols-2">
-              <Input
-                label="Duration (minutes)"
-                type="number"
-                min="15"
-                max="1440"
-                value={String(form.fourHourDurationMinutes)}
-                onChange={(e) => patch('fourHourDurationMinutes', Number(e.target.value))}
-              />
-              <label className="flex items-end gap-2 pb-2">
-                <input
-                  type="checkbox"
-                  checked={form.fourHourEnabled}
-                  onChange={(e) => patch('fourHourEnabled', e.target.checked)}
-                  disabled={!form.fourHourEntryUrl}
-                  className="h-4 w-4 accent-white"
-                />
-                <span className="font-mono text-xs uppercase text-white">ENABLE THE 4 HOUR TAB</span>
-              </label>
-            </div>
-            {!form.fourHourEntryUrl && (
-              <p className="font-mono text-2xs uppercase text-warning">
-                PASTE THE URL BEFORE ENABLING. THE KIOSK SHOWS THE TAB AS “SOON” UNTIL THEN.
-              </p>
-            )}
+            <FtpFourHourPanel venueId={venueId} role={role} />
           </section>
 
           {/* STAFF */}
