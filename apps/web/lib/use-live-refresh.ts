@@ -110,13 +110,16 @@ export function useLiveRefresh(
       errors = 0
     }
 
-    source.onmessage = () => {
+    // The server sends a NAMED event (`event: change`). `onmessage` only fires
+    // for unnamed/default `message` events, so a named listener is required.
+    const onChange = () => {
       clearDebounce()
       debounceTimer = setTimeout(() => {
         debounceTimer = null
         void refreshRef.current()
       }, debounceMs)
     }
+    source.addEventListener('change', onChange)
 
     source.onerror = () => {
       errors += 1
@@ -128,6 +131,7 @@ export function useLiveRefresh(
 
     return () => {
       clearDebounce()
+      source.removeEventListener('change', onChange)
       source.close()
     }
   }, [enabled, streamUrl, debounceMs, maxStreamErrors])

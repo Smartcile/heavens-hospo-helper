@@ -233,11 +233,26 @@ describe('WorkerDashboardClient chrome', () => {
       url: string
       closed = false
       onopen: (() => void) | null = null
-      onmessage: ((event: MessageEvent) => void) | null = null
       onerror: (() => void) | null = null
+      listeners = new Map<string, Set<(event: MessageEvent) => void>>()
       constructor(url: string) {
         this.url = url
         FakeEventSource.instances.push(this)
+      }
+      addEventListener(type: string, listener: (event: MessageEvent) => void) {
+        let set = this.listeners.get(type)
+        if (!set) {
+          set = new Set()
+          this.listeners.set(type, set)
+        }
+        set.add(listener)
+      }
+      removeEventListener(type: string, listener: (event: MessageEvent) => void) {
+        this.listeners.get(type)?.delete(listener)
+      }
+      emitChange(data = 'revision') {
+        const event = new MessageEvent('change', { data })
+        for (const listener of this.listeners.get('change') ?? []) listener(event)
       }
       close() {
         this.closed = true
@@ -253,7 +268,7 @@ describe('WorkerDashboardClient chrome', () => {
       const source = FakeEventSource.instances[0]
       expect(source?.url).toBe('/api/worker/tasks/live')
 
-      act(() => source.onmessage?.(new MessageEvent('message', { data: 'revision' })))
+      act(() => source.emitChange('revision'))
 
       await waitFor(() => expect(screen.getByText(/0 PENDING · 100% DONE/)).toBeDefined())
       expect(taskCalls()).toBeGreaterThanOrEqual(2)

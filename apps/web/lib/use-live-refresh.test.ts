@@ -100,10 +100,26 @@ class FakeEventSource {
   onopen: (() => void) | null = null
   onmessage: ((event: MessageEvent) => void) | null = null
   onerror: (() => void) | null = null
+  // Named-event listener registry — mirrors the browser EventSource API that
+  // the hook must use for `event: change`.
+  listeners = new Map<string, Set<(event: MessageEvent) => void>>()
 
   constructor(url: string) {
     this.url = url
     FakeEventSource.instances.push(this)
+  }
+
+  addEventListener(type: string, listener: (event: MessageEvent) => void) {
+    let set = this.listeners.get(type)
+    if (!set) {
+      set = new Set()
+      this.listeners.set(type, set)
+    }
+    set.add(listener)
+  }
+
+  removeEventListener(type: string, listener: (event: MessageEvent) => void) {
+    this.listeners.get(type)?.delete(listener)
   }
 
   close() {
@@ -116,6 +132,11 @@ class FakeEventSource {
 
   emitMessage(data = 'revision') {
     this.onmessage?.(new MessageEvent('message', { data }))
+  }
+
+  emitChange(data = 'revision') {
+    const event = new MessageEvent('change', { data })
+    for (const listener of this.listeners.get('change') ?? []) listener(event)
   }
 
   emitError() {
@@ -176,15 +197,22 @@ describe('useLiveRefresh stream', () => {
     expect(source.closed).toBe(true)
   })
 
-  it('debounces a burst of messages into one refresh', () => {
+  it('registers a named `change` listener (not onmessage)', () => {
+    renderHook(() => useLiveRefresh(vi.fn(), { streamUrl: '/api/live' }))
+    const source = FakeEventSource.instances[0]
+
+    expect(source.listeners.get('change')?.size ?? 0).toBe(1)
+  })
+
+  it('debounces a burst of named change events into one refresh', () => {
     const refresh = vi.fn()
     renderHook(() => useLiveRefresh(refresh, { streamUrl: '/api/live', debounceMs: 300 }))
     const source = FakeEventSource.instances[0]
 
     act(() => {
-      source.emitMessage()
-      source.emitMessage()
-      source.emitMessage()
+      source.emitChange()
+      source.emitChange()
+      source.emitChange()
     })
     expect(refresh).not.toHaveBeenCalled()
 
@@ -192,6 +220,28 @@ describe('useLiveRefresh stream', () => {
       vi.advanceTimersByTime(300)
     })
     expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not refresh on an unnamed `message` event (server sends `change`)', () => {
+    const refresh = vi.fn()
+    renderHook(() => useLiveRefresh(refresh, { streamUrl: '/api/live', debounceMs: 300 }))
+    const source = FakeEventSource.instances[0]
+
+    act(() => {
+      source.emitMessage()
+      vi.advanceTimersByTime(300)
+    })
+
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('removes the change listener on unmount', () => {
+    const { unmount } = renderHook(() => useLiveRefresh(vi.fn(), { streamUrl: '/api/live' }))
+    const source = FakeEventSource.instances[0]
+
+    unmount()
+
+    expect(source.listeners.get('change')?.size ?? 0).toBe(0)
   })
 
   it('resets the error count on open', () => {

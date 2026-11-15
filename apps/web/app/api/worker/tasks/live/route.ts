@@ -58,10 +58,17 @@ export async function GET(req: NextRequest) {
 
       // Flush headers immediately so a proxy sees an open event stream.
       send(': connected\n\n')
+      // Rare early-cancel race: the send above may have failed and cleaned up.
+      if (closed) return
 
       unsubscribe = hub.subscribe(session.venueId, (revision) => {
         send(`event: change\ndata: ${revision}\n\n`)
       })
+
+      // One baseline change so a change landing between the client's initial
+      // load() and the first hub poll is still caught.
+      send('event: change\ndata: baseline\n\n')
+      if (closed) return
 
       heartbeat = setInterval(() => send(': ping\n\n'), HEARTBEAT_MS)
       ;(heartbeat as { unref?: () => void }).unref?.()

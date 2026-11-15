@@ -56,6 +56,33 @@ describe('GET /api/worker/tasks/live', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1)
   })
 
+  it('emits the connected prelude, a baseline change, then named change events', async () => {
+    getWorkerSession.mockResolvedValue(SESSION)
+
+    const res = await GET(request())
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+
+    const prelude = decoder.decode((await reader.read()).value)
+    expect(prelude).toContain(': connected')
+
+    const baseline = decoder.decode((await reader.read()).value)
+    expect(baseline).toContain('event: change')
+    expect(baseline).toContain('data: baseline')
+
+    const onRevision = (subscribe.mock.calls[0] as unknown as [
+      string,
+      (revision: string) => void,
+    ])[1]
+    onRevision('42')
+    const change = decoder.decode((await reader.read()).value)
+    expect(change).toContain('event: change')
+    expect(change).toContain('data: 42')
+
+    await reader.cancel()
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
   it('cleans up the subscription when the request aborts', async () => {
     getWorkerSession.mockResolvedValue(SESSION)
     const controller = new AbortController()
