@@ -4,7 +4,7 @@ import { getWorkerSession } from '@/lib/worker-session'
 import { formatDateKey } from '@/lib/scheduling'
 import { getTodayDate } from '@/lib/utils'
 import { keyOfDay } from '@/lib/date-nav'
-import { resolveAvailabilityPresets, parseAvailabilityCutoff, WORKER_EDIT_SCOPES } from '@/lib/availability'
+import { resolveAvailabilityPresets, parseAvailabilityCutoff, venueNow, WORKER_EDIT_SCOPES } from '@/lib/availability'
 import {
   loadPendingRequests,
   loadSeriesSummaries,
@@ -18,21 +18,6 @@ const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/
 
 function venueTodayKey(timezone?: string | null): string {
   return formatDateKey(getTodayDate(timezone ?? undefined))
-}
-
-function venueNow(timezone?: string | null): { key: string; minutes: number } {
-  const now = new Date()
-  const tz = timezone || 'Pacific/Auckland'
-  const dateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
-  const timeFmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false })
-  const p = dateFmt.formatToParts(now)
-  const t = timeFmt.formatToParts(now)
-  const y = p.find((x) => x.type === 'year')?.value
-  const m = p.find((x) => x.type === 'month')?.value
-  const d = p.find((x) => x.type === 'day')?.value
-  const hh = Number(t.find((x) => x.type === 'hour')?.value ?? '0') % 24
-  const mm = Number(t.find((x) => x.type === 'minute')?.value ?? '0')
-  return { key: `${y}-${m}-${d}`, minutes: hh * 60 + mm }
 }
 
 // The worker's own availability: employment type (drives the casual UNSET

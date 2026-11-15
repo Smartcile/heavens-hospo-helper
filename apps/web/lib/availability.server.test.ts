@@ -13,8 +13,10 @@ const { db } = vi.hoisted(() => {
     availabilityEditRequest: {
       create: vi.fn(),
       findFirst: vi.fn(),
+      findMany: vi.fn(),
       findUnique: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
     availabilityComment: {
       findFirst: vi.fn(),
@@ -39,6 +41,8 @@ import {
   planSet,
   requestSeriesRemoval,
   saveAvailability,
+  supersedeRequestsCoveredBy,
+  unlockSeriesAvailability,
   withdrawEditRequest,
   type AvailabilityPayload,
 } from '@/lib/availability.server'
@@ -66,6 +70,8 @@ beforeEach(() => {
   db.staffAvailability.createMany.mockResolvedValue({ count: 0 })
   db.availabilityEditRequest.create.mockResolvedValue({ id: 'req1' })
   db.availabilityEditRequest.findFirst.mockResolvedValue(null)
+  db.availabilityEditRequest.findMany.mockResolvedValue([])
+  db.availabilityEditRequest.updateMany.mockResolvedValue({ count: 0 })
   db.availabilityComment.findFirst.mockResolvedValue(null)
   db.venue.findUnique.mockResolvedValue({ timezone: 'Pacific/Auckland' })
   db.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(db))
@@ -566,6 +572,29 @@ describe('requestSeriesRemoval', () => {
 })
 
 describe('apply-time guard', () => {
+  const pendingSet = (over: Record<string, unknown> = {}) => ({
+    id: 'r1',
+    staffId: 'st1',
+    venueId: 'v1',
+    status: 'PENDING',
+    deletedAt: null,
+    scope: 'THIS',
+    action: 'SET',
+    payload: {
+      action: 'SET',
+      anchor: '2026-10-15',
+      scope: 'THIS',
+      availability: payload,
+      writeDates: ['2026-10-15'],
+      removeDates: [],
+      seriesId: null,
+      syncSeriesId: null,
+      seriesEndDate: null,
+      syncSeriesEnd: false,
+    },
+    ...over,
+  })
+
   it('skips dates that are now past or manager-locked when applying', async () => {
     db.availabilityEditRequest.findUnique.mockResolvedValueOnce({
       id: 'r1',
@@ -591,9 +620,115 @@ describe('apply-time guard', () => {
 
     const out = await applyEditRequest('r1', 'admin1', null, { todayKey: '2026-10-08' })
 
-    expect(out).toEqual({ applied: true, skipped: ['2026-10-01', '2026-10-15'] })
+    expect(out).toEqual({ applied: true, skipped: ['2026-10-01', '2026-10-15'], wrote: 1 })
     expect(db.staffAvailability.updateMany.mock.calls[0][0].where.date.in).toEqual([day('2026-10-22')])
     expect(db.availabilityEditRequest.update).toHaveBeenCalled()
+  })
+
+  it('does not apply an all-locked SET and leaves the request PENDING', async () => {
+    db.availabilityEditRequest.findUnique.mockResolvedValueOnce(pendingSet())
+    db.staffAvailability.findMany.mockResolvedValueOnce([{ date: day('2026-10-15') }])
+
+    const out = await applyEditRequest('r1', 'admin1', null, { todayKey: '2026-10-08' })
+
+    expect(out).toEqual({ applied: false, reason: 'LOCKED', skipped: ['2026-10-15'], wrote: 0 })
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
+    expect(db.staffAvailability.createMany).not.toHaveBeenCalled()
+    expect(db.availabilityEditRequest.update).not.toHaveBeenCalled()
+  })
+
+  it('does not re-pin a series end when every clear target is locked', async () => {
+    db.availabilityEditRequest.findUnique.mockResolvedValueOnce({
+      id: 'r1',
+      staffId: 'st1',
+      venueId: 'v1',
+      status: 'PENDING',
+      deletedAt: null,
+      action: 'CLEAR',
+      payload: {
+        action: 'CLEAR',
+        anchor: '2026-10-15',
+        scope: 'FROM',
+        availability: null,
+        writeDates: [],
+        removeDates: ['2026-10-15', '2026-10-22'],
+        seriesId: 's1',
+        syncSeriesId: null,
+        seriesEndDate: null,
+        syncSeriesEnd: true,
+      },
+    })
+    db.staffAvailability.findMany.mockResolvedValueOnce([{ date: day('2026-10-15') }, { date: day('2026-10-22') }])
+
+    const out = await applyEditRequest('r1', 'admin1', null, { todayKey: '2026-10-08' })
+
+    expect(out).toEqual({ applied: false, reason: 'LOCKED', skipped: ['2026-10-15', '2026-10-22'], wrote: 0 })
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
+    expect(db.availabilityEditRequest.update).not.toHaveBeenCalled()
+  })
+
+  it('reports PAST when every target is before today', async () => {
+    db.availabilityEditRequest.findUnique.mockResolvedValueOnce(pendingSet({
+      payload: {
+        action: 'SET', anchor: '2026-10-01', scope: 'THIS', availability: payload,
+        writeDates: ['2026-10-01'], removeDates: [], seriesId: null,
+        syncSeriesId: null, seriesEndDate: null, syncSeriesEnd: false,
+      },
+    }))
+    db.staffAvailability.findMany.mockResolvedValueOnce([])
+
+    const out = await applyEditRequest('r1', 'admin1', null, { todayKey: '2026-10-08' })
+
+    expect(out).toEqual({ applied: false, reason: 'PAST', skipped: ['2026-10-01'], wrote: 0 })
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
+    expect(db.availabilityEditRequest.update).not.toHaveBeenCalled()
+  })
+
+  it('reports RESOLVED (not PAST) when the plan targets no dates at all', async () => {
+    db.availabilityEditRequest.findUnique.mockResolvedValueOnce(pendingSet({
+      payload: {
+        action: 'SET', anchor: '2026-10-15', scope: 'THIS', availability: payload,
+        writeDates: [], removeDates: [], seriesId: null,
+        syncSeriesId: null, seriesEndDate: null, syncSeriesEnd: false,
+      },
+    }))
+
+    const out = await applyEditRequest('r1', 'admin1', null, { todayKey: '2026-10-08' })
+
+    expect(out).toEqual({ applied: false, reason: 'RESOLVED', skipped: [], wrote: 0 })
+    expect(db.staffAvailability.findMany).not.toHaveBeenCalled()
+    expect(db.availabilityEditRequest.update).not.toHaveBeenCalled()
+  })
+
+  it('locks a single-day THIS apply', async () => {
+    db.availabilityEditRequest.findUnique.mockResolvedValueOnce(pendingSet())
+    db.staffAvailability.findMany.mockResolvedValueOnce([])
+
+    const out = await applyEditRequest('r1', 'admin1', null, { todayKey: '2026-10-08' })
+
+    expect(out).toEqual({ applied: true, skipped: [], wrote: 1 })
+    const data = db.staffAvailability.updateMany.mock.calls[0][0].data
+    expect(data.lockedAt).toBeInstanceOf(Date)
+    expect(data.lockedById).toBe('admin1')
+  })
+
+  it('does not lock a FROM/series apply', async () => {
+    db.availabilityEditRequest.findUnique.mockResolvedValueOnce(pendingSet({
+      scope: 'FROM',
+      payload: {
+        action: 'SET', anchor: '2026-10-15', scope: 'FROM', availability: payload,
+        writeDates: ['2026-10-15', '2026-10-22'], removeDates: [], seriesId: 's1',
+        syncSeriesId: null, seriesEndDate: null, syncSeriesEnd: false,
+      },
+    }))
+    db.staffAvailability.findMany.mockResolvedValueOnce([])
+
+    const out = await applyEditRequest('r1', 'admin1', null, { todayKey: '2026-10-08' })
+
+    expect(out).toEqual({ applied: true, skipped: [], wrote: 2 })
+    const data = db.staffAvailability.updateMany.mock.calls[0][0].data
+    expect(data.lockedAt).toBeNull()
+    expect(data.lockedById).toBeNull()
   })
 })
 
@@ -710,6 +845,7 @@ describe('availability notes', () => {
       venueId: 'v1',
       status: 'PENDING',
       deletedAt: null,
+      scope: 'THIS',
       action: 'SET',
       payload: {
         action: 'SET',
@@ -725,10 +861,10 @@ describe('availability notes', () => {
       },
     })
 
-    expect(await applyEditRequest('r1', 'admin1', null, { todayKey: '2026-10-08' })).toEqual({ applied: true, skipped: [] })
+    expect(await applyEditRequest('r1', 'admin1', null, { todayKey: '2026-10-08' })).toEqual({ applied: true, skipped: [], wrote: 1 })
     const data = db.staffAvailability.updateMany.mock.calls[0][0].data
     expect(data.notes).toBe('NEED SUNDAY OFF')
-    // Applying a request is a manager confirmation: the day locks.
+    // A single-day THIS apply is a manager confirmation: the day locks.
     expect(data.lockedAt).toBeInstanceOf(Date)
     expect(data.lockedById).toBe('admin1')
   })
@@ -795,5 +931,183 @@ describe('cancelPendingAvailability / withdrawEditRequest', () => {
     db.availabilityEditRequest.findUnique.mockResolvedValueOnce({ id: 'r1', staffId: 'st1', status: 'APPLIED', deletedAt: null })
     expect(await withdrawEditRequest('r1', 'st1')).toBe(false)
     expect(db.availabilityEditRequest.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('request superseding', () => {
+  it('supersedes an older PENDING request for the same day and action', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+    db.availabilityEditRequest.findMany.mockResolvedValueOnce([
+      { id: 'old-set', seriesId: null, date: day('2026-10-15'), action: 'SET' },
+      { id: 'other-day', seriesId: null, date: day('2026-10-16'), action: 'SET' },
+      { id: 'other-action', seriesId: null, date: day('2026-10-15'), action: 'CLEAR' },
+    ])
+
+    const out = await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: payload, repeat: null, scope: null, seriesId: null, reason: null },
+      gate,
+    )
+
+    expect(out).toMatchObject({ mode: 'REQUEST', requestId: 'req1' })
+    const call = db.availabilityEditRequest.updateMany.mock.calls[0][0]
+    expect(call.where.id.in).toEqual(['old-set'])
+    expect(call.data).toMatchObject({ status: 'SUPERSEDED', reviewNote: 'SUPERSEDED BY A NEWER REQUEST' })
+  })
+
+  it('supersedes an older PENDING series request of the same action', async () => {
+    db.staffAvailability.findMany
+      .mockResolvedValueOnce([
+        { date: day('2026-10-15'), seriesEndDate: null },
+        { date: day('2026-10-22'), seriesEndDate: null },
+      ])
+      .mockResolvedValueOnce([{ id: 'row1', status: 'APPROVED' }])
+    db.availabilityEditRequest.findMany.mockResolvedValueOnce([
+      { id: 'old-clear', seriesId: 's1', date: day('2026-10-15'), action: 'CLEAR' },
+      { id: 'old-set', seriesId: 's1', date: day('2026-10-15'), action: 'SET' },
+      { id: 'other-series', seriesId: 's2', date: day('2026-10-15'), action: 'CLEAR' },
+    ])
+
+    const out = await clearAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', scope: 'FROM', seriesId: 's1', reason: null },
+      workerGate,
+    )
+
+    expect(out).toMatchObject({ mode: 'REQUEST', requestId: 'req1' })
+    const call = db.availabilityEditRequest.updateMany.mock.calls[0][0]
+    expect(call.where.id.in).toEqual(['old-clear'])
+  })
+})
+
+describe('supersedeRequestsCoveredBy', () => {
+  it('supersedes only requests whose whole target set is covered', async () => {
+    db.availabilityEditRequest.findMany.mockResolvedValueOnce([
+      { id: 'full', payload: { writeDates: ['2026-10-15', '2026-10-22'], removeDates: [] } },
+      { id: 'partial', payload: { writeDates: ['2026-10-15', '2026-11-01'], removeDates: [] } },
+      { id: 'empty', payload: { writeDates: [], removeDates: [] } },
+    ])
+    db.availabilityEditRequest.updateMany.mockResolvedValueOnce({ count: 1 })
+
+    const count = await supersedeRequestsCoveredBy({
+      staffId: 'st1',
+      venueId: 'v1',
+      dates: ['2026-10-15', '2026-10-22', '2026-10-29'],
+      actorId: 'admin1',
+    })
+
+    expect(count).toBe(1)
+    const call = db.availabilityEditRequest.updateMany.mock.calls[0][0]
+    expect(call.where.id.in).toEqual(['full'])
+    expect(call.data).toMatchObject({
+      status: 'SUPERSEDED',
+      reviewedById: 'admin1',
+      reviewNote: 'CONFIRMED DECLARATION COVERS THIS REQUEST',
+    })
+  })
+})
+
+describe('saveAvailability lock rule', () => {
+  it('locks a single-day admin override', async () => {
+    await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: payload, repeat: null, scope: null, seriesId: null, reason: null, lockById: 'admin1', lockReason: null },
+      adminGate,
+    )
+    const data = db.staffAvailability.updateMany.mock.calls[0][0].data
+    expect(data.lockedAt).toBeInstanceOf(Date)
+    expect(data.lockedById).toBe('admin1')
+  })
+
+  it('does not lock a series admin override', async () => {
+    await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-15', raw: payload, repeat: { weeks: 3 }, scope: null, seriesId: null, reason: null, lockById: 'admin1', lockReason: null },
+      adminGate,
+    )
+    const data = db.staffAvailability.updateMany.mock.calls[0][0].data
+    expect(data.lockedAt).toBeNull()
+    expect(data.lockedById).toBeNull()
+  })
+
+  it('does not lock a FROM override even when it has one remaining occurrence', async () => {
+    const fixture = [
+      { date: day('2026-10-15'), seriesEndDate: day('2026-10-29') },
+      { date: day('2026-10-22'), seriesEndDate: day('2026-10-29') },
+      { date: day('2026-10-29'), seriesEndDate: day('2026-10-29') },
+    ]
+    db.staffAvailability.findMany.mockResolvedValueOnce(fixture)
+
+    await saveAvailability(
+      { staffId: 'st1', venueId: 'v1', dateKey: '2026-10-29', raw: payload, repeat: null, scope: 'FROM', seriesId: 's1', reason: null, lockById: 'admin1', lockReason: null },
+      adminGate,
+    )
+
+    // Exactly one date is written, but the scope is FROM — a series edit must
+    // never stamp a lock.
+    const writeCall = db.staffAvailability.updateMany.mock.calls[0][0]
+    expect(writeCall.where.date.in).toEqual([day('2026-10-29')])
+    expect(writeCall.data.lockedAt).toBeNull()
+    expect(writeCall.data.lockedById).toBeNull()
+  })
+})
+
+describe('unlockSeriesAvailability', () => {
+  it('unlocks only the selected series dates and returns sorted date keys', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([
+      { date: day('2026-10-22') },
+      { date: day('2026-10-15') },
+    ])
+
+    const out = await unlockSeriesAvailability({
+      staffId: 'st1',
+      venueId: 'v1',
+      seriesId: 's1',
+      dates: ['2026-10-22', '2026-10-15'],
+      actorId: 'admin1',
+    })
+
+    expect(out).toEqual({ unlocked: ['2026-10-15', '2026-10-22'], count: 2 })
+    const find = db.staffAvailability.findMany.mock.calls[0][0]
+    expect(find.where).toMatchObject({
+      staffId: 'st1',
+      venueId: 'v1',
+      seriesId: 's1',
+      deletedAt: null,
+      lockedAt: { not: null },
+    })
+    expect(find.where.date.in).toEqual([day('2026-10-22'), day('2026-10-15')])
+
+    const update = db.staffAvailability.updateMany.mock.calls[0][0]
+    expect(update.data).toEqual({ lockedAt: null, lockedById: null, lockedReason: null })
+    expect(update.where.date.in).toEqual([day('2026-10-15'), day('2026-10-22')])
+  })
+
+  it('unlocks the whole series when dates are omitted', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([{ date: day('2026-10-15') }])
+
+    const out = await unlockSeriesAvailability({
+      staffId: 'st1',
+      venueId: 'v1',
+      seriesId: 's1',
+      actorId: 'admin1',
+    })
+
+    expect(out).toEqual({ unlocked: ['2026-10-15'], count: 1 })
+    const find = db.staffAvailability.findMany.mock.calls[0][0]
+    expect(find.where.seriesId).toBe('s1')
+    expect(find.where.date).toBeUndefined()
+  })
+
+  it('only matches rows carrying the series id, so a detached day is untouched', async () => {
+    db.staffAvailability.findMany.mockResolvedValueOnce([])
+
+    const out = await unlockSeriesAvailability({
+      staffId: 'st1',
+      venueId: 'v1',
+      seriesId: 's1',
+      actorId: 'admin1',
+    })
+
+    expect(out).toEqual({ unlocked: [], count: 0 })
+    const find = db.staffAvailability.findMany.mock.calls[0][0]
+    expect(find.where.seriesId).toBe('s1')
+    expect(db.staffAvailability.updateMany).not.toHaveBeenCalled()
   })
 })

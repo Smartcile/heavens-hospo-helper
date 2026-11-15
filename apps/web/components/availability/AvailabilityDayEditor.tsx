@@ -107,6 +107,8 @@ export function AvailabilityDayEditor({
   onClose,
   canDeleteSeries = false,
   onRequestDeleteSeries,
+  canUnlockSeries = false,
+  onRequestUnlockSeries,
   canRequestRemoval = false,
   onRequestSeriesRemoval,
   staffId = null,
@@ -134,9 +136,12 @@ export function AvailabilityDayEditor({
   onCommentsMutated?: () => void
   /** Admin only: set/clear the day-level lock (optional reason). */
   onToggleLock?: (locked: boolean, reason: string | null) => void
-  /** Admin only: open the delete-series warning (scope is chosen there). */
+  /** Admin / availability editor: open the delete-series warning (scope is chosen there). */
   canDeleteSeries?: boolean
   onRequestDeleteSeries?: () => void
+  /** Admin / availability editor: unlock the whole series with a per-date review. */
+  canUnlockSeries?: boolean
+  onRequestUnlockSeries?: () => void
   /** Worker: open the series-removal request confirmation. */
   canRequestRemoval?: boolean
   onRequestSeriesRemoval?: () => void
@@ -555,6 +560,16 @@ export function AvailabilityDayEditor({
             className="flex-1 h-12 bg-white text-black font-mono font-bold text-sm uppercase tracking-widest hover:bg-accent transition-colors disabled:opacity-40"
           >
             {busy ? 'SAVING_' : managerLocked ? 'SEND CHANGE REQUEST' : locked ? 'SAVE (ASKS A MANAGER)' : 'SAVE'}
+          </button>
+        )}
+        {canUnlockSeries && onRequestUnlockSeries && (series || entry?.seriesId) && (
+          <button
+            type="button"
+            onClick={onRequestUnlockSeries}
+            disabled={busy}
+            className="h-12 px-4 border border-success text-success font-mono font-bold text-sm uppercase hover:bg-success hover:text-black transition-colors disabled:opacity-40"
+          >
+            UNLOCK SERIES
           </button>
         )}
         {canDeleteSeries && onRequestDeleteSeries && (series || entry?.seriesId) && (
