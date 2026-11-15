@@ -378,7 +378,7 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
       '<p>Managers can delete any comment. By default workers cannot delete comments; a venue can allow staff to delete their own in Settings. Request dates are shown day-first as <strong>DD-MM-YYYY</strong> with the weekday for edit requests (for example MON 12-11-2026).</p>',
       '<h3>Request deadline</h3>',
       '<p>Your venue can set a weekly cut-off for availability changes. After the deadline, a worker’s save becomes an edit request even when it would normally auto-approve. The phone shows the deadline.</p>',
-      '<p>The review queue flags requests that fall in the current roster week or in a week already past its cut-off, so you can check the roster before applying. The flag is a warning only — it never blocks APPLY or CONFIRM.</p>',
+      '<p>The review queue flags requests that fall in the next roster week (the one being planned) or in a week already past its cut-off, so you can check the roster before applying. The flag is a warning only — it never blocks APPLY or CONFIRM.</p>',
       '<h3>Hour targets</h3>',
       '<p>Each person can carry up to three weekly hour targets, set in the Staff editor under ROSTER HOURS PER WEEK:</p>',
       '<ul>',

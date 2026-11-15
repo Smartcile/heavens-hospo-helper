@@ -796,19 +796,19 @@ export function venueNow(timezone?: string | null): { key: string; minutes: numb
   return { key: `${y}-${m}-${d}`, minutes: hh * 60 + mm }
 }
 
-export type RequestCutoffState = 'NONE' | 'CURRENT_WEEK' | 'PAST_CUTOFF'
+export type RequestCutoffState = 'NONE' | 'NEXT_ROSTER_WEEK' | 'PAST_CUTOFF'
 
 /**
  * How a pending request's target dates sit against the weekly roster cut-off.
  * PAST_CUTOFF means the roster for at least one target week may already be
- * built; CURRENT_WEEK means a target lands in the roster week currently being
- * built. Warning only — it never blocks a manager.
+ * built; NEXT_ROSTER_WEEK means a target lands in the upcoming roster week
+ * currently being built. Warning only — it never blocks a manager.
  *
  * Note on the week window: `cutoffDeadlineKey` puts a week's deadline in the
  * week *before* it, so a target in the calendar week containing `nowKey` is
  * always past its own deadline and PAST_CUTOFF reports it first. The week a
  * manager is actually rostering is therefore the upcoming Monday–Sunday, and
- * that is what CURRENT_WEEK flags.
+ * that is what NEXT_ROSTER_WEEK flags.
  */
 export function requestCutoffState(
   targetDates: string[],
@@ -822,7 +822,7 @@ export function requestCutoffState(
   const weekStart = mondayOf(nowKey)
   const upcomingStart = shiftDay(weekStart, 7)
   const upcomingEnd = shiftDay(weekStart, 13)
-  if (dates.some((d) => d >= upcomingStart && d <= upcomingEnd)) return 'CURRENT_WEEK'
+  if (dates.some((d) => d >= upcomingStart && d <= upcomingEnd)) return 'NEXT_ROSTER_WEEK'
   return 'NONE'
 }
 

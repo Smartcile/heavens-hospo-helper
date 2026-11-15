@@ -709,9 +709,9 @@ describe('requestCutoffState', () => {
     expect(requestCutoffState([target], cutoff, '2026-10-15', 18 * 60)).toBe('PAST_CUTOFF')
   })
 
-  it('flags the upcoming roster week as CURRENT_WEEK before its deadline', () => {
-    expect(requestCutoffState([target], cutoff, '2026-10-14', 0)).toBe('CURRENT_WEEK')
-    expect(requestCutoffState([target], cutoff, '2026-10-15', 16 * 60)).toBe('CURRENT_WEEK')
+  it('flags the upcoming roster week as NEXT_ROSTER_WEEK before its deadline', () => {
+    expect(requestCutoffState([target], cutoff, '2026-10-14', 0)).toBe('NEXT_ROSTER_WEEK')
+    expect(requestCutoffState([target], cutoff, '2026-10-15', 16 * 60)).toBe('NEXT_ROSTER_WEEK')
   })
 
   it('returns NONE for a week far beyond the current roster week', () => {

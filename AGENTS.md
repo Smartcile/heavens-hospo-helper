@@ -861,11 +861,11 @@ writes bypass it.
 **Cut-off warning chips (#157, warning only).** The admin GET also returns
 `cutoff` and `nowMinutes` (venue-local, from the shared `venueNow` clock). For
 every pending declaration and edit request `requestCutoffState(...)` marks
-`PAST_CUTOFF` or `CURRENT_WEEK` and the queue shows a compact chip plus a
+`PAST_CUTOFF` or `NEXT_ROSTER_WEEK` and the queue shows a compact chip plus a
 "CHECK THE ROSTER BEFORE APPLYING" strip. It is advisory only — APPLY / CONFIRM
 are never blocked and server behaviour is unchanged. (`cutoffDeadlineKey` puts a
 week's deadline in the previous week, so the calendar week containing today is
-always past its own deadline; `CURRENT_WEEK` therefore flags the upcoming
+always past its own deadline; `NEXT_ROSTER_WEEK` therefore flags the upcoming
 Monday–Sunday week that is actually being rostered.)
 
 **Worker session timeout** — `Venue.workerSessionTimeoutMinutes Int? @default(15)`

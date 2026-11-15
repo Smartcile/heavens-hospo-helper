@@ -1498,7 +1498,7 @@ describe('AvailabilityAdminClient', () => {
     })
   })
 
-  it('flags current-week / past-cut-off requests as a warning without blocking APPLY', async () => {
+  it('flags next-roster-week / past-cut-off requests as a warning without blocking APPLY', async () => {
     const withCutoff = {
       ...data,
       today: monday,
@@ -1509,7 +1509,7 @@ describe('AvailabilityAdminClient', () => {
     render(<AvailabilityAdminClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
 
     await screen.findAllByText('TAYLOR REED')
-    expect(screen.getByText(/PAST CUT-OFF \/ CURRENT WEEK REQUESTS/)).toBeDefined()
+    expect(screen.getByText(/PAST CUT-OFF \/ NEXT ROSTER WEEK REQUESTS/)).toBeDefined()
 
     fireEvent.click(screen.getByText('OPEN →'))
     expect((await screen.findAllByText('PAST CUT-OFF')).length).toBeGreaterThan(0)

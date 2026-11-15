@@ -602,7 +602,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
   const openPerson = approvals.find((p) => p.staffId === openPersonId) ?? null
 
   // #157 — warning-only flag: does a pending declaration / request touch the
-  // current roster week or a week already past its cut-off?
+  // upcoming roster week or a week already past its cut-off?
   const cutoffValue = data?.cutoff ?? null
   const cutoffMinutes = data?.nowMinutes ?? 0
   const flaggedApprovals = useMemo(() => {
@@ -629,12 +629,12 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
       <span
         title={past
           ? 'THE ROSTER FOR THIS WEEK MAY ALREADY BE BUILT — CHECK BEFORE APPLYING.'
-          : 'THIS IS THE CURRENT ROSTER WEEK.'}
+          : 'THIS IS THE NEXT ROSTER WEEK.'}
         className={`font-mono text-2xs uppercase border px-1.5 py-0.5 ${
           past ? 'border-danger text-danger' : 'border-warning text-warning'
         }`}
       >
-        {past ? 'PAST CUT-OFF' : 'CURRENT WEEK'}
+        {past ? 'PAST CUT-OFF' : 'NEXT ROSTER WEEK'}
       </span>
     )
   }
@@ -1381,7 +1381,7 @@ export function AvailabilityAdminClient({ role, sessionVenueId, defaultVenueId, 
 
         {flaggedApprovals > 0 && (
           <p className="font-mono text-2xs uppercase text-warning border border-warning/50 bg-warning/10 px-2 py-1.5">
-            PAST CUT-OFF / CURRENT WEEK REQUESTS — CHECK THE ROSTER BEFORE APPLYING.
+            PAST CUT-OFF / NEXT ROSTER WEEK REQUESTS — CHECK THE ROSTER BEFORE APPLYING.
           </p>
         )}
 
