@@ -757,6 +757,51 @@ describe('WorkerTasksClient', () => {
     expect(screen.queryByText('DONE JOB')).toBeNull()
   })
 
+  it('labels a task in no visible list and its no-section bucket', async () => {
+    // No checklists at all: the task is genuinely unlisted.
+    mockTasks([BASE_TASK])
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    expect(screen.getByText('NOT IN A LIST')).toBeDefined()
+    expect(screen.getByText('NO SECTION')).toBeDefined()
+  })
+
+  it('collapses a fully-finished section behind ALL FINISHED and reveals it on tap', async () => {
+    const doneTask = {
+      ...BASE_TASK, id: 'd1', title: 'DONE JOB', isCompleted: true, isSettled: true,
+      isDone: true, outcome: 'DONE', canUndo: true,
+      completion: { id: 'cd', note: null, photoUrl: null, completedAt: new Date(), outcome: 'DONE' },
+    }
+    mockTasks([doneTask])
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('ALL FINISHED · TAP TO VIEW')).toBeDefined())
+    expect(screen.queryByText('DONE JOB')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'SHOW FINISHED TASKS IN NO SECTION' }))
+    await waitFor(() => expect(screen.getByText('DONE JOB')).toBeDefined())
+  })
+
+  it('warns how many tasks a deleted list has', async () => {
+    mockEditApi()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" access={FULL_ACCESS} />)
+
+    await waitFor(() => expect(screen.getByText('WIPE BENCHES')).toBeDefined())
+    fireEvent.click(screen.getByText('EDIT MODE'))
+    await waitFor(() => expect(screen.getByLabelText('EDIT CHECKLIST OPENING')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('EDIT CHECKLIST OPENING'))
+    await waitFor(() => expect(screen.getByText('EDIT CHECKLIST')).toBeDefined())
+
+    fireEvent.click(screen.getAllByText('DEL').at(-1)!)
+
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(String(confirmSpy.mock.calls.at(-1)![0])).toContain(
+      'THIS LIST HAS 1 TASK; THE TASKS STAY, THE LIST IS REMOVED',
+    )
+  })
+
   it('saves the multi-day flag from the worker list editor', async () => {
     const fetchMock = mockEditApi()
     render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" access={FULL_ACCESS} />)

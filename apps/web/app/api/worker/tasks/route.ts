@@ -199,14 +199,18 @@ export async function GET(req: NextRequest) {
   }
   const todayKey = formatDateKey(today)
 
-  // Keep a task that is due today, OR carries a live PARTIAL. Yesterday's partial
-  // on a today-only list no longer carries (the day-aware rule in task-progress).
+  // Keep a task that is due today, carries a live PARTIAL, or is already
+  // completed today. Yesterday's partial on a today-only list no longer carries
+  // (the day-aware rule in task-progress), and a live completion keeps the task
+  // settled even after an edit makes it no longer due. The completion query is
+  // already scoped to the venue-local day + `deletedAt: null`.
   const todayTasks = tasks.filter((t) =>
     carryTaskToday({
       isDueToday: isTaskDueOnDate(t, today),
       progress: t.progress,
       todayKey,
       multiDay: multiDayTaskIds.has(t.id),
+      completedToday: t.taskCompletions.length > 0,
     }),
   )
 

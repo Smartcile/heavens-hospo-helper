@@ -7,7 +7,14 @@ const { prisma, getWorkerSession, applicableChecklistsForStaff, workerTaskAccess
     task: { findMany: vi.fn() },
     staff: { findMany: vi.fn() },
     taskProgress: { deleteMany: vi.fn() },
-    taskCompletion: { findMany: vi.fn() },
+    taskCompletion: {
+      findMany: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn(),
+      delete: vi.fn(),
+      deleteMany: vi.fn(),
+    },
   },
   getWorkerSession: vi.fn(),
   applicableChecklistsForStaff: vi.fn(),
@@ -141,5 +148,69 @@ describe('GET /api/worker/tasks — day-aware partials', () => {
     expect(body.tasks[0].inProgress).not.toBeNull()
     expect(body.tasks[0].inProgress.byName).toBe('ANN B')
     expect(prisma.taskProgress.deleteMany).not.toHaveBeenCalled()
+  })
+
+  // #146 Part A — a task completed today stays settled even after an edit
+  // (schedule/list change) makes it no longer due.
+  it("returns a no-longer-due task that has today's live completion", async () => {
+    prisma.task.findMany.mockResolvedValue([
+      floorTask({
+        taskCompletions: [{
+          id: 'tc1',
+          outcome: 'DONE',
+          note: null,
+          photoUrl: null,
+          completedAt: new Date('2026-11-08T09:00:00.000Z'),
+          staff: { firstName: 'ANN', lastName: 'B' },
+        }],
+      }),
+    ])
+
+    const res = await GET(req())
+    const body = await res.json()
+
+    expect(body.tasks).toHaveLength(1)
+    expect(body.tasks[0].isSettled).toBe(true)
+    expect(body.tasks[0].isDone).toBe(true)
+    expect(body.tasks[0].completedByName).toBe('ANN B')
+
+    // The completion query only loads today's live rows.
+    const args = prisma.task.findMany.mock.calls[0][0]
+    expect(args.include.taskCompletions.where).toEqual({ scheduledDate: TODAY, deletedAt: null })
+  })
+
+  it('does not treat a soft-deleted completion as today\'s', async () => {
+    // Prisma filters `deletedAt: null`, so a soft-deleted row is not returned.
+    prisma.task.findMany.mockResolvedValue([floorTask({ taskCompletions: [] })])
+
+    const res = await GET(req())
+    const body = await res.json()
+
+    expect(body.tasks).toHaveLength(0)
+    const args = prisma.task.findMany.mock.calls[0][0]
+    expect(args.include.taskCompletions.where.deletedAt).toBeNull()
+  })
+
+  it('never writes a TaskCompletion on the read path', async () => {
+    prisma.task.findMany.mockResolvedValue([
+      floorTask({
+        taskCompletions: [{
+          id: 'tc1',
+          outcome: 'DONE',
+          note: null,
+          photoUrl: null,
+          completedAt: new Date('2026-11-08T09:00:00.000Z'),
+          staff: { firstName: 'ANN', lastName: 'B' },
+        }],
+      }),
+    ])
+
+    await GET(req())
+
+    expect(prisma.taskCompletion.create).not.toHaveBeenCalled()
+    expect(prisma.taskCompletion.update).not.toHaveBeenCalled()
+    expect(prisma.taskCompletion.updateMany).not.toHaveBeenCalled()
+    expect(prisma.taskCompletion.delete).not.toHaveBeenCalled()
+    expect(prisma.taskCompletion.deleteMany).not.toHaveBeenCalled()
   })
 })

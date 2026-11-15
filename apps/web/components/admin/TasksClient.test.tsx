@@ -412,4 +412,21 @@ describe('TasksClient', () => {
       expect(body.taskGroups).toEqual({ t1: 'OUTSIDE' })
     })
   })
+
+  it('warns how many tasks a deleted list has', async () => {
+    mockApi()
+    vi.mocked(window.confirm).mockReturnValue(false)
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByLabelText('EDIT CHECKLIST OPENING')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('EDIT CHECKLIST OPENING'))
+    await waitFor(() => expect(screen.getByText('EDIT CHECKLIST')).toBeDefined())
+
+    fireEvent.click(screen.getByText('DELETE'))
+
+    expect(window.confirm).toHaveBeenCalled()
+    expect(String(vi.mocked(window.confirm).mock.calls.at(-1)![0])).toContain(
+      'THIS LIST HAS 1 TASK; THE TASKS STAY, THE LIST IS REMOVED',
+    )
+  })
 })

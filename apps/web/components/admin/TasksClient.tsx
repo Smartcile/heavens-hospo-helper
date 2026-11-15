@@ -504,7 +504,10 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   }
   async function deleteChecklist() {
     if (!clEditing || clEditing === 'new') return
-    if (!confirm(`DELETE CHECKLIST "${clEditing.name}"? (the tasks themselves are kept)`)) return
+    const taskCount = clEditing.tasks.length
+    if (!confirm(
+      `DELETE CHECKLIST "${clEditing.name}"? THIS LIST HAS ${taskCount} TASK${taskCount === 1 ? '' : 'S'}; THE TASKS STAY, THE LIST IS REMOVED.`,
+    )) return
     await fetch(`/api/admin/checklists/${clEditing.id}`, { method: 'DELETE' })
     closeChecklist(); load()
   }
