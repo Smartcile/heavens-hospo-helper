@@ -45,8 +45,8 @@ Work:
 - Make the smallest change that satisfies the issue.
 - Match existing patterns. Do not refactor unrelated code.
 - Add or update tests for the changed logic.
-- GitHub Actions runs lint, type-check, tests and the Next.js build on the PR — that is the gate. Run `npm run lint` and the relevant tests locally only for fast feedback, not as a substitute for CI.
-- If the issue changes a model, route, or convention, update the docs.
+- Local checks are the gate: run `scripts/agent/check.ps1` (add `-Build` for the Next.js build) before shipping. GitHub does not run CI on pull requests.
+- If the issue changes a model, route, or convention, record it in the issue comment. Do NOT edit `AGENTS.md` - the orchestrator appends it after merge (single writer). Update `README.md` / `NAVIGATION.md` / `MENUS.md` only when the change affects what they describe.
 - If a schema change is genuinely needed, stop and ask before touching the database.
 
 Do not:
