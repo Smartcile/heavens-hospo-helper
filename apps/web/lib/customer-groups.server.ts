@@ -8,6 +8,7 @@ import {
 
 export const customerGroupInclude = {
   areas: true,
+  parkingType: { select: { id: true, name: true } },
   _count: { select: { memberships: true } },
 } satisfies Prisma.CustomerGroupInclude
 
@@ -27,6 +28,8 @@ export function customerGroupView(group: CustomerGroupWithAreas) {
     isActive: group.isActive,
     sortOrder: group.sortOrder,
     areas: group.areas.map((a) => a.area),
+    parkingTypeId: group.parkingTypeId,
+    parkingTypeName: group.parkingType?.name ?? null,
     mapping: {
       typeActive: group.swiftPosTypeActive,
       statusActive: group.swiftPosStatusActive,
@@ -45,6 +48,43 @@ export async function getCustomerGroupForVenue(venueId: string, groupId: string)
     where: { id: groupId, venueId, deletedAt: null },
     include: { areas: true },
   })
+}
+
+export type ParkingLinkValidation =
+  | { ok: true }
+  | { ok: false; status: number; error: string }
+
+/** One parking type can feed exactly one customer database. */
+export async function validateParkingTypeLink(
+  venueId: string,
+  parkingTypeId: string | null,
+  groupId?: string,
+): Promise<ParkingLinkValidation> {
+  if (!parkingTypeId) return { ok: true }
+
+  const type = await prisma.ftpParkingType.findFirst({
+    where: { id: parkingTypeId, venueId, deletedAt: null },
+    select: { id: true },
+  })
+  if (!type) return { ok: false, status: 422, error: 'CHOOSE A VALID PARKING TYPE' }
+
+  const linked = await prisma.customerGroup.findFirst({
+    where: {
+      venueId,
+      parkingTypeId,
+      deletedAt: null,
+      ...(groupId ? { id: { not: groupId } } : {}),
+    },
+    select: { name: true },
+  })
+  if (linked) {
+    return {
+      ok: false,
+      status: 409,
+      error: `THAT PARKING TYPE IS ALREADY LINKED TO ${linked.name}`,
+    }
+  }
+  return { ok: true }
 }
 
 /**

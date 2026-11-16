@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest, NextResponse } from 'next/server'
 
-const { prisma, getServerSession, guardAccess, resolveScopedVenueId, customerGroupView } = vi.hoisted(() => ({
+const {
+  prisma,
+  getServerSession,
+  guardAccess,
+  resolveScopedVenueId,
+  customerGroupView,
+  validateParkingTypeLink,
+  syncCustomerGroupToParking,
+} = vi.hoisted(() => ({
   prisma: {
     customerGroup: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   },
@@ -15,6 +23,8 @@ const { prisma, getServerSession, guardAccess, resolveScopedVenueId, customerGro
       ? (group.areas as { area: string }[]).map((a) => a.area)
       : [],
   })),
+  validateParkingTypeLink: vi.fn(),
+  syncCustomerGroupToParking: vi.fn(),
 }))
 
 vi.mock('next-auth', () => ({ getServerSession }))
@@ -22,7 +32,12 @@ vi.mock('@/lib/auth', () => ({ authOptions: {} }))
 vi.mock('@hospo-ops/db', () => ({ prisma }))
 vi.mock('@/lib/permissions', () => ({ guardAccess }))
 vi.mock('@/lib/venue-scope', () => ({ resolveScopedVenueId }))
-vi.mock('@/lib/customer-groups.server', () => ({ customerGroupInclude: {}, customerGroupView }))
+vi.mock('@/lib/customer-groups.server', () => ({
+  customerGroupInclude: {},
+  customerGroupView,
+  validateParkingTypeLink,
+}))
+vi.mock('@/lib/customer-group-parking.server', () => ({ syncCustomerGroupToParking }))
 
 import { GET, POST } from './route'
 
@@ -49,6 +64,14 @@ beforeEach(() => {
   prisma.customerGroup.findMany.mockResolvedValue([group])
   prisma.customerGroup.findFirst.mockResolvedValue(null)
   prisma.customerGroup.create.mockResolvedValue(group)
+  validateParkingTypeLink.mockResolvedValue({ ok: true })
+  syncCustomerGroupToParking.mockResolvedValue({
+    linked: false,
+    parkingTypeId: null,
+    synced: 0,
+    deactivated: 0,
+    skipped: 0,
+  })
 })
 
 describe('GET /api/admin/customer-groups', () => {
@@ -85,6 +108,18 @@ describe('POST /api/admin/customer-groups', () => {
         }),
       }),
     )
+  })
+
+  it('links a parking type and syncs the group into it', async () => {
+    const res = await POST(postReq({ name: 'Yacht Club', parkingTypeId: 'p1' }))
+    expect(res.status).toBe(201)
+    expect(validateParkingTypeLink).toHaveBeenCalledWith('v1', 'p1')
+    expect(prisma.customerGroup.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ parkingTypeId: 'p1' }),
+      }),
+    )
+    expect(syncCustomerGroupToParking).toHaveBeenCalledWith('v1', 'g1')
   })
 
   it('rejects a blank name', async () => {

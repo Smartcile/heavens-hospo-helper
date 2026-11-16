@@ -5,7 +5,12 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { resolveScopedVenueId } from '@/lib/venue-scope'
 import { normaliseGroupInput } from '@/lib/customer-groups'
-import { customerGroupInclude, customerGroupView } from '@/lib/customer-groups.server'
+import {
+  customerGroupInclude,
+  customerGroupView,
+  validateParkingTypeLink,
+} from '@/lib/customer-groups.server'
+import { syncCustomerGroupToParking } from '@/lib/customer-group-parking.server'
 
 async function findGroup(venueId: string, id: string) {
   return prisma.customerGroup.findFirst({
@@ -44,6 +49,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 422 })
   const value = parsed.value
 
+  if (body.parkingTypeId !== undefined) {
+    const link = await validateParkingTypeLink(scoped.venueId, value.parkingTypeId, params.id)
+    if (!link.ok) return NextResponse.json({ error: link.error }, { status: link.status })
+  }
+
   const clash = await prisma.customerGroup.findFirst({
     where: { venueId: scoped.venueId, slug: value.slug, id: { not: params.id } },
     select: { id: true, deletedAt: true },
@@ -62,6 +72,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       colour: value.colour,
       isActive: value.isActive,
       sortOrder: value.sortOrder,
+      ...(body.parkingTypeId !== undefined ? { parkingTypeId: value.parkingTypeId } : {}),
       swiftPosTypeActive: value.mapping.typeActive,
       swiftPosStatusActive: value.mapping.statusActive,
       swiftPosTypeRemoved: value.mapping.typeRemoved,
@@ -75,7 +86,14 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     include: customerGroupInclude,
   })
 
-  return NextResponse.json({ group: customerGroupView(group) })
+  let parkingSync = null
+  try {
+    parkingSync = await syncCustomerGroupToParking(scoped.venueId, group.id)
+  } catch (error) {
+    console.error('customer database parking sync failed (non-blocking):', error)
+  }
+
+  return NextResponse.json({ group: customerGroupView(group), parkingSync })
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {

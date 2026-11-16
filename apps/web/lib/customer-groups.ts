@@ -52,6 +52,7 @@ export interface CustomerGroupInput {
   isActive?: unknown
   sortOrder?: unknown
   areas?: unknown
+  parkingTypeId?: unknown
   swiftPosTypeActive?: unknown
   swiftPosStatusActive?: unknown
   swiftPosTypeRemoved?: unknown
@@ -68,6 +69,7 @@ export interface NormalisedCustomerGroup {
   isActive: boolean
   sortOrder: number
   areas: CustomerGroupArea[]
+  parkingTypeId: string | null
   mapping: SwiftPosMemberMapping
 }
 
@@ -128,9 +130,13 @@ export function normaliseGroupInput(input: CustomerGroupInput): NormaliseGroupRe
   if (!slug) return { ok: false, error: 'SLUG IS REQUIRED' }
 
   const fallbackAreas = kind === 'GIFT_CARD' ? GIFT_CARD_GROUP_AREAS : DEFAULT_GROUP_AREAS
-  const areas = normaliseAreas(input.areas, fallbackAreas)
-  if (kind === 'GIFT_CARD' && !areas.includes('GIFT_CARDS')) areas.push('GIFT_CARDS')
-  if (!areas.includes('CUSTOMERS')) areas.unshift('CUSTOMERS')
+  const areaSet = new Set(normaliseAreas(input.areas, fallbackAreas))
+  if (kind === 'GIFT_CARD') areaSet.add('GIFT_CARDS')
+  areaSet.add('CUSTOMERS')
+  const parkingTypeId = String(input.parkingTypeId ?? '').trim() || null
+  // A linked parking type implies the group is available in the parking area.
+  if (parkingTypeId) areaSet.add('PARKING')
+  const areas = ALL_CUSTOMER_GROUP_AREAS.filter((area) => areaSet.has(area))
 
   return {
     ok: true,
@@ -143,6 +149,7 @@ export function normaliseGroupInput(input: CustomerGroupInput): NormaliseGroupRe
       isActive: input.isActive === undefined ? true : Boolean(input.isActive),
       sortOrder: Number.isFinite(Number(input.sortOrder)) ? Math.trunc(Number(input.sortOrder)) : 0,
       areas,
+      parkingTypeId,
       mapping: normaliseSwiftPosMapping(input),
     },
   }

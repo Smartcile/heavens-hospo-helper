@@ -41,6 +41,7 @@ export interface FtpTypeInput {
   useContactEmail: boolean
   useContactPhone: boolean
   logPlates: boolean
+  showOnKiosk: boolean
   adminPinEnabled: boolean
   adminPin: string | null
   guestEntryEnabled: boolean
@@ -192,6 +193,7 @@ export function normaliseFtpTypeInput(body: Record<string, unknown>): NormaliseF
       useContactEmail: body.useContactEmail !== false,
       useContactPhone: body.useContactPhone !== false,
       logPlates: body.logPlates !== false,
+      showOnKiosk: body.showOnKiosk !== false,
       adminPinEnabled,
       adminPin,
       guestEntryEnabled: body.guestEntryEnabled === true,

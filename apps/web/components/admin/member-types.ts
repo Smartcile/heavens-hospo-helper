@@ -9,6 +9,8 @@ export interface CustomerGroupRow {
   isActive: boolean
   sortOrder: number
   areas: string[]
+  parkingTypeId: string | null
+  parkingTypeName: string | null
   mapping: {
     typeActive: number
     statusActive: number

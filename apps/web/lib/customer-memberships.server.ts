@@ -15,6 +15,11 @@ import {
 } from './member-name'
 import { giftCardMemberIdentity, giftCardMemberIsActiveForCard } from './gift-card-members'
 import { ensureGiftCardGroup, getCustomerGroupForVenue } from './customer-groups.server'
+import {
+  syncCustomerGroupToParking,
+  syncCustomerGroupsForMembershipIds,
+  type ParkingSyncResult,
+} from './customer-group-parking.server'
 import type { SwiftPosMemberMappingValues } from './member-import'
 
 export const membershipInclude = {
@@ -98,6 +103,7 @@ export interface CommitMemberImportResult {
   updated: number
   total: number
   issues: { code: string; severity: string; rowId?: string; message: string }[]
+  parkingSync?: ParkingSyncResult | null
 }
 
 export async function commitMemberImport(
@@ -165,10 +171,18 @@ export async function commitMemberImport(
     { timeout: 300_000 },
   )
 
+  let parkingSync: ParkingSyncResult | null = null
+  try {
+    parkingSync = await syncCustomerGroupToParking(input.venueId, input.groupId)
+  } catch (error) {
+    console.error('customer database parking sync failed (non-blocking):', error)
+  }
+
   return {
     ...result,
     total: prepared.rows.length,
     issues: prepared.issues,
+    parkingSync,
   }
 }
 
@@ -285,6 +299,12 @@ export async function createMembership(
     ? (await prisma.customerMembership.update({ where: { id: existing.id }, data })).id
     : (await prisma.customerMembership.create({ data })).id
 
+  try {
+    await syncCustomerGroupToParking(venueId, input.groupId)
+  } catch (error) {
+    console.error('customer database parking sync failed (non-blocking):', error)
+  }
+
   return prisma.customerMembership.findUniqueOrThrow({ where: { id }, include: membershipInclude })
 }
 
@@ -328,6 +348,11 @@ export async function updateMembership(
   if (patch.externalId !== undefined) data.externalId = cleanOptional(patch.externalId)
 
   const updated = await prisma.customerMembership.update({ where: { id }, data })
+  try {
+    await syncCustomerGroupToParking(venueId, existing.groupId)
+  } catch (error) {
+    console.error('customer database parking sync failed (non-blocking):', error)
+  }
   return prisma.customerMembership.findUniqueOrThrow({
     where: { id: updated.id },
     include: membershipInclude,
@@ -335,10 +360,21 @@ export async function updateMembership(
 }
 
 export async function archiveMembership(venueId: string, id: string): Promise<number> {
+  const row = await prisma.customerMembership.findFirst({
+    where: { id, venueId, deletedAt: null },
+    select: { groupId: true },
+  })
   const result = await prisma.customerMembership.updateMany({
     where: { id, venueId, deletedAt: null },
     data: { deletedAt: new Date() },
   })
+  if (row && result.count === 1) {
+    try {
+      await syncCustomerGroupToParking(venueId, row.groupId)
+    } catch (error) {
+      console.error('customer database parking sync failed (non-blocking):', error)
+    }
+  }
   return result.count
 }
 
@@ -351,14 +387,21 @@ export async function bulkMemberships(
 ): Promise<number> {
   const cleanIds = ids.filter((id) => typeof id === 'string' && id.trim())
   if (cleanIds.length === 0) return 0
-  if (action === 'ARCHIVE') {
-    return archiveMany(venueId, cleanIds)
+  const count =
+    action === 'ARCHIVE'
+      ? await archiveMany(venueId, cleanIds)
+      : (
+          await prisma.customerMembership.updateMany({
+            where: { id: { in: cleanIds }, venueId, deletedAt: null },
+            data: { isActive: action === 'ACTIVATE' },
+          })
+        ).count
+  try {
+    await syncCustomerGroupsForMembershipIds(venueId, cleanIds)
+  } catch (error) {
+    console.error('customer database parking sync failed (non-blocking):', error)
   }
-  const result = await prisma.customerMembership.updateMany({
-    where: { id: { in: cleanIds }, venueId, deletedAt: null },
-    data: { isActive: action === 'ACTIVATE' },
-  })
-  return result.count
+  return count
 }
 
 async function archiveMany(venueId: string, ids: string[]): Promise<number> {
