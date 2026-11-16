@@ -1455,7 +1455,9 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
                       <td className="p-2 font-mono text-2xs uppercase text-grey-light">
                         {claim.credentialKind === 'ADMIN_PIN'
                           ? 'ADMIN PIN'
-                          : claim.membershipNumber ?? 'MEMBER'}
+                          : claim.credentialKind === 'GUEST'
+                            ? 'CUSTOMER ENTRY'
+                            : claim.membershipNumber ?? 'MEMBER'}
                         {claim.contactName ? ` · ${claim.contactName}` : ''}
                       </td>
                       <td className="p-2">
