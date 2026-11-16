@@ -431,6 +431,8 @@ model Venue {
   ftpClaims           FtpClaim[]
   staffParkingPlates  StaffParkingPlate[]
   staffParkingPlateRequests StaffParkingPlateRequest[]
+  customerGroups      CustomerGroup[]
+  customerMemberships CustomerMembership[]
 }
 
 model Department {
@@ -3902,17 +3904,124 @@ model Customer {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  venue  Venue      @relation(fields: [venueId], references: [id])
-  orders WooOrder[]
-  events Event[]
-  venues CustomerVenue[]
+  venue       Venue                @relation(fields: [venueId], references: [id])
+  orders      WooOrder[]
+  events      Event[]
+  venues      CustomerVenue[]
+  memberships CustomerMembership[]
 
-  // Email is a strong identity — enforced at the DB so a duplicate is impossible.
+  // Email is a strong identity - enforced at the DB so a duplicate is impossible.
   // Phone is only indexed, not unique: households legitimately share a landline,
   // so it is a matching heuristic rather than a constraint.
   @@unique([venueId, emailKey])
   @@index([venueId])
   @@index([venueId, phoneKey])
+}
+
+// --- CUSTOMER DATABASES / MEMBERSHIPS ---
+
+enum CustomerGroupKind {
+  MEMBER_DATABASE
+  GIFT_CARD
+}
+
+enum CustomerGroupAreaKind {
+  CUSTOMERS
+  BOOKINGS
+  ORDERS
+  EVENTS
+  PARKING
+  GIFT_CARDS
+}
+
+enum CustomerMembershipSource {
+  HUBSPOT
+  GIFT_CARD
+  MANUAL
+}
+
+// A named customer database: RAYC members, Yacht Club, Trust, Gift Cards.
+// Groups share ONE venue-wide membership number space because they all live in
+// the same SwiftPOS MemberTable.
+model CustomerGroup {
+  id         String            @id @default(uuid())
+  venueId    String
+  name       String
+  slug       String
+  kind       CustomerGroupKind @default(MEMBER_DATABASE)
+  description String?
+  colour     String?
+  isActive   Boolean           @default(true)
+  sortOrder  Int               @default(0)
+  // SwiftPOS MemberTable export mapping. Active and inactive (removed) rows use
+  // different Membership_Type / Membership_Status values; editable in Settings.
+  swiftPosTypeActive    Int    @default(3)
+  swiftPosStatusActive  Int    @default(1)
+  swiftPosTypeRemoved   Int    @default(9)
+  swiftPosStatusRemoved Int    @default(0)
+  exportEncoding        String @default("UTF8_BOM")
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  deletedAt  DateTime?
+
+  venue       Venue                @relation(fields: [venueId], references: [id])
+  memberships CustomerMembership[]
+  areas       CustomerGroupArea[]
+
+  @@unique([venueId, slug])
+  @@index([venueId])
+}
+
+// Which parts of the app may search/link a group. Per-area, not per-staff.
+model CustomerGroupArea {
+  id        String                 @id @default(uuid())
+  groupId   String
+  area      CustomerGroupAreaKind
+  createdAt DateTime               @default(now())
+
+  group CustomerGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, area])
+  @@index([area])
+}
+
+// One membership record inside a group. `membershipNumber` is the SwiftPOS
+// number (base number for a family). `isActive` is the only status the app
+// stores - HubSpot's richer taxonomy never reaches this table.
+model CustomerMembership {
+  id               String                   @id @default(uuid())
+  venueId          String
+  groupId          String
+  customerId       String?
+  membershipNumber String
+  externalId       String?
+  firstName        String
+  lastName         String
+  memberType       String?
+  isActive         Boolean                  @default(true)
+  isFamily         Boolean                  @default(false)
+  isPrimary        Boolean                  @default(true)
+  familySurnames   String?
+  email            String?
+  phone            String?
+  memberInterests  String?
+  company          String?
+  source           CustomerMembershipSource @default(HUBSPOT)
+  giftCardId       String?                  @unique
+  lastImportedAt   DateTime?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  deletedAt        DateTime?
+
+  venue    Venue        @relation(fields: [venueId], references: [id])
+  group    CustomerGroup @relation(fields: [groupId], references: [id])
+  customer Customer?    @relation(fields: [customerId], references: [id])
+  giftCard GiftCard?    @relation(fields: [giftCardId], references: [id])
+
+  @@unique([venueId, membershipNumber])
+  @@index([venueId, isActive])
+  @@index([groupId])
+  @@index([customerId])
 }
 
 // --- ORDERS & AUTO-SEATING ---
@@ -4043,8 +4152,9 @@ model GiftCard {
   updatedAt     DateTime       @updatedAt
   deletedAt     DateTime?
 
-  venue    Venue     @relation(fields: [venueId], references: [id])
-  wooOrder WooOrder? @relation(fields: [wooOrderId], references: [id])
+  venue              Venue               @relation(fields: [venueId], references: [id])
+  wooOrder           WooOrder?           @relation(fields: [wooOrderId], references: [id])
+  customerMembership CustomerMembership?
   // A replacement points at the card it replaced; the replaced card's
   // `replacedBy` holds any cards issued in its place.
   replaces   GiftCard?  @relation("GiftCardReplacement", fields: [replacesId], references: [id])

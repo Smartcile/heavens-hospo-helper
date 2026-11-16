@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Input } from '@/components/ui/Input'
 import { CustomerDrawer } from '@/components/admin/CustomerDrawer'
 import { ParkingMembersPanel } from '@/components/admin/ParkingMembersPanel'
+import { MembersPanel } from '@/components/admin/MembersPanel'
 import { getActiveVenueId } from '@/lib/active-venue'
 
 interface CustomerData {
@@ -41,6 +42,16 @@ export function CustomersClient({
   }, [search, venueId])
 
   useEffect(() => { load() }, [load])
+
+  if (sub === 'members') {
+    return (
+      <MembersPanel
+        role={role}
+        sessionVenueId={sessionVenueId}
+        defaultVenueId={defaultVenueId}
+      />
+    )
+  }
 
   if (sub === 'parking') {
     return (

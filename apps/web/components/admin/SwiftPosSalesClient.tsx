@@ -15,6 +15,7 @@ import { pushToast } from '@/components/ui/Toast'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { SwiftPosStaffSync } from '@/components/admin/SwiftPosStaffSync'
 import { SwiftPosMenuLinks } from '@/components/admin/SwiftPosMenuLinks'
+import { SwiftPosMembersPanel } from '@/components/admin/SwiftPosMembersPanel'
 
 interface VenueRow { id: string; name: string; swiftPosBaseUrl: string | null }
 
@@ -77,7 +78,7 @@ export function SwiftPosSalesClient({
   const [running, setRunning] = useState(false)
   const [report, setReport] = useState<Report | null>(null)
   const [error, setError] = useState('')
-  const [section, setSection] = useState<'sales' | 'staff' | 'menu'>('sales')
+  const [section, setSection] = useState<'sales' | 'staff' | 'menu' | 'members'>('sales')
 
   useEffect(() => {
     fetch('/api/admin/venues')
@@ -162,6 +163,7 @@ export function SwiftPosSalesClient({
         <Button size="sm" variant={section === 'sales' ? 'primary' : 'ghost'} onClick={() => setSection('sales')}>SALES</Button>
         <Button size="sm" variant={section === 'staff' ? 'primary' : 'ghost'} onClick={() => setSection('staff')}>STAFF SYNC</Button>
         <Button size="sm" variant={section === 'menu' ? 'primary' : 'ghost'} onClick={() => setSection('menu')}>MENU LINKS</Button>
+        <Button size="sm" variant={section === 'members' ? 'primary' : 'ghost'} onClick={() => setSection('members')}>MEMBERS</Button>
       </div>
 
       {section === 'sales' && (
@@ -260,6 +262,7 @@ export function SwiftPosSalesClient({
 
       {section === 'staff' && <SwiftPosStaffSync venueId={venueId} />}
       {section === 'menu' && <SwiftPosMenuLinks venueId={venueId} />}
+      {section === 'members' && <SwiftPosMembersPanel venueId={venueId} />}
     </div>
   )
 }

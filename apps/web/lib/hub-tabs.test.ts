@@ -19,7 +19,7 @@ describe('hub-tabs', () => {
     expect(OPS_SUB_TABS.orders.map((s) => s.id)).toEqual(['all', 'service', 'kitchen', 'foh', 'production', 'dockets'])
     expect(OPS_SUB_TABS.orders.find((s) => s.id === 'all')?.title).toContain('EVERY SYNCED ORDER')
     expect(OPS_SUB_TABS.inventory.map((s) => s.id)).toEqual(['inventory', 'recipes', 'menu-items', 'pantry', 'stocktake', 'purchasing', 'invoices'])
-    expect(OPS_SUB_TABS.customers.map((s) => s.id)).toEqual(['bookings', 'parking'])
+    expect(OPS_SUB_TABS.customers.map((s) => s.id)).toEqual(['bookings', 'members', 'parking'])
   })
 
   it('the three team hubs have their tab sets', () => {
@@ -62,6 +62,7 @@ describe('hub-tabs', () => {
     expect(resolveOps('bookings', null)).toEqual({ area: 'bookings', sub: 'table' })
     expect(resolveOps('bookings', 'diary')).toEqual({ area: 'bookings', sub: 'diary' })
     expect(resolveOps('customers', null)).toEqual({ area: 'customers', sub: 'bookings' })
+    expect(resolveOps('customers', 'members')).toEqual({ area: 'customers', sub: 'members' })
     expect(resolveOps('customers', 'parking')).toEqual({ area: 'customers', sub: 'parking' })
   })
 

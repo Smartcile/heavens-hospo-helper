@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { appendHistoryEvent, type GiftCardHistoryEvent } from '@/lib/gift-card-history'
+import { syncGiftCardMembership } from '@/lib/customer-memberships.server'
 
 const STATUSES = ['DRAFT', 'ISSUED', 'SENT', 'REDEEMED', 'VOIDED', 'EXPIRED']
 
@@ -85,6 +86,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   const updated = await prisma.giftCard.update({ where: { id: params.id }, data })
 
+  try {
+    await syncGiftCardMembership(params.id)
+  } catch (error) {
+    console.error('gift card membership sync failed (non-blocking):', error)
+  }
+
   return NextResponse.json(updated)
 }
 
@@ -110,6 +117,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   }
 
   await prisma.giftCard.update({ where: { id: params.id }, data: { deletedAt: new Date() } })
+  await prisma.customerMembership.updateMany({
+    where: { venueId: session.user.venueId, giftCardId: params.id },
+    data: { isActive: false },
+  })
 
   return NextResponse.json({ success: true })
 }

@@ -79,6 +79,10 @@ resources/divi_*.zip
 # Client-supplied PDF templates (never publish)
 resources/*.pdf
 
+# Client-supplied membership exports (contain real customer data - never publish)
+resources/*.csv
+resources/*.xlsx
+
 # Database backups (never publish — full data dumps)
 *.dump
 

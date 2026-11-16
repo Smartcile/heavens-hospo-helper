@@ -1,6 +1,7 @@
 import { prisma } from '@hospo-ops/db'
 import { appendHistoryEvent, type GiftCardHistoryEvent } from './gift-card-history'
 import { GIFT_CARD_PHONE_SELECT } from './gift-card-select'
+import { syncGiftCardMembership } from './customer-memberships.server'
 import {
   isCardExpired,
   nextRedemptionState,
@@ -113,6 +114,12 @@ export async function redeemGiftCard(
       status: 409,
       body: { error: `CARD #${card.number} CHANGED WHILE REDEEMING — REFRESH AND TRY AGAIN` },
     }
+  }
+
+  try {
+    await syncGiftCardMembership(card.id)
+  } catch (error) {
+    console.error('gift card membership sync failed (non-blocking):', error)
   }
 
   return { status: 200, body: { card: updated, balance } }
