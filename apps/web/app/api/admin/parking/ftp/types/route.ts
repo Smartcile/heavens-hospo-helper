@@ -6,7 +6,21 @@ import { resolveScopedVenueId } from '@/lib/venue-scope'
 import { normaliseFtpTypeInput } from '@/lib/ftp-parking'
 import { hashAdminPin } from '@/lib/ftp-credentials.server'
 import { ftpTypeAdminView } from '@/lib/ftp-admin-views'
+import {
+  guestEntryLinkView,
+  guestSlotStateForType,
+} from '@/lib/ftp-guest-entry.server'
+import { guestEntryUrlFor } from '@/lib/ftp-settings'
 import { pinHint } from '@/lib/vpermit'
+
+function appUrl() {
+  return (
+    process.env.PARKING_PUBLIC_URL ??
+    process.env.APP_URL ??
+    process.env.NEXTAUTH_URL ??
+    ''
+  )
+}
 
 // Settings -> FTP -> 4 HOUR parking types. The membership number selects the
 // type; each type owns its vPermit claim URL, contact details and optional
@@ -27,10 +41,27 @@ export async function GET(req: NextRequest) {
     prisma.venue.findUnique({ where: { id: scoped.venueId }, select: { timezone: true } }),
   ])
 
+  const now = new Date()
+  const views = await Promise.all(
+    types.map(async (type) => {
+      const state = await guestSlotStateForType(type, now)
+      const guest = guestEntryLinkView(type, state, now)
+      return ftpTypeAdminView(
+        type,
+        { members: type._count.members, claims: type._count.claims },
+        {
+          used: guest.used,
+          remaining: guest.remaining,
+          full: guest.full,
+          nextFreeAt: guest.nextFreeAt,
+          entryUrl: guestEntryUrlFor(appUrl(), type.venueId, type.id),
+        },
+      )
+    }),
+  )
+
   return NextResponse.json({
-    types: types.map((type) =>
-      ftpTypeAdminView(type, { members: type._count.members, claims: type._count.claims }),
-    ),
+    types: views,
     timezone: venue?.timezone || 'Pacific/Auckland',
   })
 }
@@ -51,6 +82,15 @@ export async function POST(req: NextRequest) {
   if (input.value.adminPinEnabled && !input.value.adminPin) {
     return NextResponse.json(
       { error: 'SET AN ADMIN PIN BEFORE ENABLING IT' },
+      { status: 422 },
+    )
+  }
+  if (input.value.guestEntryEnabled) {
+    return NextResponse.json(
+      {
+        error:
+          'SAVE THE TYPE FIRST, THEN SET THE CUSTOMER PIN AND TURN THE CUSTOMER ENTRY LINK ON',
+      },
       { status: 422 },
     )
   }
@@ -81,6 +121,10 @@ export async function POST(req: NextRequest) {
       adminPinEnabled: input.value.adminPinEnabled,
       adminPinHash,
       adminPinHint: input.value.adminPin ? pinHint(input.value.adminPin) : null,
+      guestEntryEnabled: input.value.guestEntryEnabled,
+      guestEntryLabel: input.value.guestEntryLabel,
+      guestPlateLimitEnabled: input.value.guestPlateLimitEnabled,
+      guestPlateLimit: input.value.guestPlateLimit,
       healthCheckMode: input.value.healthCheckMode,
       healthPlate: input.value.healthPlate,
       sortOrder: input.value.sortOrder,

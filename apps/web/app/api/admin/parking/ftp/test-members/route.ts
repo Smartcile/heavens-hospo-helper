@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     phone: input.value.phone,
     parkingTypeId: input.value.parkingTypeId,
     isActive: input.value.isActive,
-    isTest: true,
+    isTest: input.value.isTest,
     notes: input.value.notes,
     deletedAt: null,
   }

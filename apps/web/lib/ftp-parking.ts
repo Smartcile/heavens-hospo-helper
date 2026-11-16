@@ -20,7 +20,11 @@ export const FTP_CONTACT_NAME_MAX = 80
 export const FTP_PHONE_MAX = 30
 export const FTP_NOTES_MAX = 500
 export const FTP_MEMBER_NAME_MAX = 60
+export const FTP_GUEST_LABEL_MAX = 60
 export const DEFAULT_FTP_DURATION_MINUTES = 240
+export const GUEST_PLATE_LIMIT_DEFAULT = 50
+export const GUEST_PLATE_LIMIT_MIN = 1
+export const GUEST_PLATE_LIMIT_MAX = 9999
 export const FTP_HEALTH_PLATE = DEFAULT_HEALTH_PLATE
 
 export type FtpHealthCheckMode = 'BROWSER' | 'FULL' | 'OFF'
@@ -39,6 +43,10 @@ export interface FtpTypeInput {
   logPlates: boolean
   adminPinEnabled: boolean
   adminPin: string | null
+  guestEntryEnabled: boolean
+  guestEntryLabel: string | null
+  guestPlateLimitEnabled: boolean
+  guestPlateLimit: number | null
   healthCheckMode: FtpHealthCheckMode
   healthPlate: string
   sortOrder: number
@@ -54,6 +62,7 @@ export interface FtpTestMemberInput {
   phone: string | null
   parkingTypeId: string
   isActive: boolean
+  isTest: boolean
   notes: string | null
 }
 
@@ -144,9 +153,19 @@ export function normaliseFtpTypeInput(body: Record<string, unknown>): NormaliseF
     return { ok: false, error: 'ADMIN PIN MUST BE 4–8 DIGITS' }
   }
 
+  const guestEntryLabel = nullableUpper(body.guestEntryLabel, FTP_GUEST_LABEL_MAX)
+  if (guestEntryLabel === undefined) {
+    return { ok: false, error: `GUEST ENTRY LABEL MUST BE ${FTP_GUEST_LABEL_MAX} CHARACTERS OR FEWER` }
+  }
+
+  const guestPlateLimitEnabled = body.guestPlateLimitEnabled === true
+  const guestPlateLimit = guestPlateLimitEnabled
+    ? clampInt(body.guestPlateLimit, GUEST_PLATE_LIMIT_DEFAULT, GUEST_PLATE_LIMIT_MIN, GUEST_PLATE_LIMIT_MAX)
+    : null
+
   const healthPlate = normalisePlate(text(body.healthPlate) || FTP_HEALTH_PLATE)
   if (!isValidPlate(healthPlate)) {
-    return { ok: false, error: 'HEALTH CHECK PLATE MUST BE 1–6 LETTERS OR DIGITS' }
+    return { ok: false, error: 'HEALTH CHECK PLATE MUST BE 1�?"6 LETTERS OR DIGITS' }
   }
 
   const notes = text(body.notes) || null
@@ -175,6 +194,10 @@ export function normaliseFtpTypeInput(body: Record<string, unknown>): NormaliseF
       logPlates: body.logPlates !== false,
       adminPinEnabled,
       adminPin,
+      guestEntryEnabled: body.guestEntryEnabled === true,
+      guestEntryLabel: guestEntryLabel ?? null,
+      guestPlateLimitEnabled,
+      guestPlateLimit,
       healthCheckMode: normaliseHealthCheckMode(body.healthCheckMode),
       healthPlate,
       sortOrder: clampInt(body.sortOrder, 0, 0, 999),
@@ -223,6 +246,7 @@ export function normaliseTestMemberInput(
       phone,
       parkingTypeId,
       isActive: body.isActive !== false,
+      isTest: body.isTest === true,
       notes,
     },
   }

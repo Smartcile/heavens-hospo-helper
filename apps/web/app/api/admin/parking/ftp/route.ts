@@ -3,7 +3,12 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { resolveScopedVenueId } from '@/lib/venue-scope'
-import { ftpSettingsView, kioskUrlFor, normaliseFtpInput } from '@/lib/ftp-settings'
+import {
+  ftpSettingsView,
+  guestEntryUrlFor,
+  kioskUrlFor,
+  normaliseFtpInput,
+} from '@/lib/ftp-settings'
 
 // Settings → FTP ("Free the Parking"). One venue-scoped settings row covering
 // the customer kiosk, the custom email, the 4-hour carpark and staff plates.
@@ -26,12 +31,22 @@ export async function GET(req: NextRequest) {
   const scoped = resolveScopedVenueId(session, req)
   if ('error' in scoped) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const [row, parking, fourHourTypes] = await Promise.all([
+  const [row, parking, fourHourTypes, guestEntryTypes] = await Promise.all([
     prisma.ftpSettings.findUnique({ where: { venueId: scoped.venueId } }),
     prisma.parkingConfig.findUnique({ where: { venueId: scoped.venueId } }),
     prisma.ftpParkingType.count({
       where: {
         venueId: scoped.venueId,
+        isActive: true,
+        deletedAt: null,
+        claimUrl: { not: null },
+      },
+    }),
+    prisma.ftpParkingType.count({
+      where: {
+        venueId: scoped.venueId,
+        guestEntryEnabled: true,
+        guestEntryPinHash: { not: null },
         isActive: true,
         deletedAt: null,
         claimUrl: { not: null },
@@ -47,7 +62,9 @@ export async function GET(req: NextRequest) {
       durationMinutes: parking?.durationMinutes ?? 90,
     },
     fourHourReady: fourHourTypes > 0,
+    guestEntryReady: guestEntryTypes > 0,
     kioskUrl: kioskUrlFor(appUrl(), scoped.venueId),
+    guestEntryUrl: guestEntryUrlFor(appUrl(), scoped.venueId),
   })
 }
 
@@ -95,6 +112,28 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  if (input.value.customerEntryEnabled) {
+    const ready = await prisma.ftpParkingType.count({
+      where: {
+        venueId: scoped.venueId,
+        guestEntryEnabled: true,
+        guestEntryPinHash: { not: null },
+        isActive: true,
+        deletedAt: null,
+        claimUrl: { not: null },
+      },
+    })
+    if (ready === 0) {
+      return NextResponse.json(
+        {
+          error:
+            'TURN ON A CUSTOMER ENTRY LINK AND SET ITS PIN BEFORE ENABLING CUSTOMER ENTRY',
+        },
+        { status: 422 },
+      )
+    }
+  }
+
   if (input.value.kioskRequireCode) {
     const existing = await prisma.ftpSettings.findUnique({
       where: { venueId: scoped.venueId },
@@ -118,5 +157,6 @@ export async function PUT(req: NextRequest) {
   return NextResponse.json({
     settings: ftpSettingsView(row),
     kioskUrl: kioskUrlFor(appUrl(), scoped.venueId),
+    guestEntryUrl: guestEntryUrlFor(appUrl(), scoped.venueId),
   })
 }

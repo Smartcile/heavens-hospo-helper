@@ -37,6 +37,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     )
   }
 
+  if (input.value.guestEntryEnabled && !loaded.row.guestEntryPinHash) {
+    return NextResponse.json(
+      { error: 'SET THE CUSTOMER ENTRY PIN BEFORE TURNING THIS LINK ON' },
+      { status: 422 },
+    )
+  }
+
   const duplicate = await prisma.ftpParkingType.findFirst({
     where: {
       venueId: loaded.venueId,
@@ -68,6 +75,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       ...(newPin
         ? { adminPinHash: await hashAdminPin(newPin), adminPinHint: pinHint(newPin) }
         : {}),
+      guestEntryEnabled: input.value.guestEntryEnabled,
+      guestEntryLabel: input.value.guestEntryLabel,
+      guestPlateLimitEnabled: input.value.guestPlateLimitEnabled,
+      guestPlateLimit: input.value.guestPlateLimit,
       healthCheckMode: input.value.healthCheckMode,
       healthPlate: input.value.healthPlate,
       sortOrder: input.value.sortOrder,

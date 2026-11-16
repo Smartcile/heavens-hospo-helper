@@ -22,6 +22,7 @@ vi.mock('@hospo-ops/db', () => ({
       findFirst: typeFindFirst,
       create: typeCreate,
     },
+    ftpClaim: { findMany: vi.fn().mockResolvedValue([]) },
     venue: { findUnique: vi.fn().mockResolvedValue({ timezone: 'Pacific/Auckland' }) },
   },
 }))

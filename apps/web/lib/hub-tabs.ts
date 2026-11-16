@@ -30,6 +30,10 @@ export const OPS_SUB_TABS: Record<string, TabDef[]> = {
     { id: 'table', label: 'TABLE' },
     { id: 'deleted', label: 'DELETED' },
   ],
+  customers: [
+    { id: 'bookings', label: 'BOOKING CUSTOMERS' },
+    { id: 'parking', label: 'PARKING MEMBERS' },
+  ],
   orders: [
     { id: 'all', label: 'ALL', title: 'EVERY SYNCED ORDER — DEBUG' },
     { id: 'service', label: 'SERVICE', title: 'BY TIME SLOT' },
@@ -52,6 +56,7 @@ export const OPS_SUB_TABS: Record<string, TabDef[]> = {
 const OPS_SUB_DEFAULTS: Record<string, string> = {
   menu: 'menus',
   bookings: 'table',
+  customers: 'bookings',
   orders: 'service',
   inventory: 'inventory',
 }

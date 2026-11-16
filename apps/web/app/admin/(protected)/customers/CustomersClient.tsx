@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Input } from '@/components/ui/Input'
 import { CustomerDrawer } from '@/components/admin/CustomerDrawer'
+import { ParkingMembersPanel } from '@/components/admin/ParkingMembersPanel'
 import { getActiveVenueId } from '@/lib/active-venue'
 
 interface CustomerData {
@@ -10,7 +11,17 @@ interface CustomerData {
   lastBooking: string; totalBookings: number; totalPax: number
 }
 
-export function CustomersClient({ role, sessionVenueId, defaultVenueId }: { role: string; sessionVenueId: string; defaultVenueId?: string | null }) {
+export function CustomersClient({
+  role,
+  sessionVenueId,
+  defaultVenueId,
+  sub,
+}: {
+  role: string
+  sessionVenueId: string
+  defaultVenueId?: string | null
+  sub?: string
+}) {
   const [customers, setCustomers] = useState<CustomerData[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -30,6 +41,16 @@ export function CustomersClient({ role, sessionVenueId, defaultVenueId }: { role
   }, [search, venueId])
 
   useEffect(() => { load() }, [load])
+
+  if (sub === 'parking') {
+    return (
+      <ParkingMembersPanel
+        role={role}
+        sessionVenueId={sessionVenueId}
+        defaultVenueId={defaultVenueId}
+      />
+    )
+  }
 
   return (
     <div className="space-y-4 pb-12">

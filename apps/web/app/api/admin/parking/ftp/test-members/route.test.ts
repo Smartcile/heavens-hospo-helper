@@ -110,7 +110,7 @@ describe('/api/admin/parking/ftp/test-members', () => {
     expect(res.status).toBe(409)
   })
 
-  it('creates a test member', async () => {
+  it('creates a real member by default', async () => {
     const res = await POST(req(VALID))
     expect(res.status).toBe(201)
     const data = memberCreate.mock.calls[0][0].data
@@ -120,8 +120,14 @@ describe('/api/admin/parking/ftp/test-members', () => {
       firstName: 'TEST',
       lastName: 'MEMBER',
       parkingTypeId: 't1',
-      isTest: true,
+      isTest: false,
       isActive: true,
     })
+  })
+
+  it('keeps the explicit test flag', async () => {
+    const res = await POST(req({ ...VALID, isTest: true }))
+    expect(res.status).toBe(201)
+    expect(memberCreate.mock.calls[0][0].data).toMatchObject({ isTest: true })
   })
 })

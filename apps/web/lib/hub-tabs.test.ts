@@ -13,13 +13,13 @@ describe('hub-tabs', () => {
     ])
   })
 
-  it('each ops area has its own fine-tab set for the top bar (customers is a leaf)', () => {
+  it('each ops area has its own fine-tab set for the top bar', () => {
     expect(OPS_SUB_TABS.menu.map((s) => s.id)).toEqual(['menus', 'services'])
     expect(OPS_SUB_TABS.bookings.map((s) => s.id)).toEqual(['diary', 'table', 'deleted'])
     expect(OPS_SUB_TABS.orders.map((s) => s.id)).toEqual(['all', 'service', 'kitchen', 'foh', 'production', 'dockets'])
     expect(OPS_SUB_TABS.orders.find((s) => s.id === 'all')?.title).toContain('EVERY SYNCED ORDER')
     expect(OPS_SUB_TABS.inventory.map((s) => s.id)).toEqual(['inventory', 'recipes', 'menu-items', 'pantry', 'stocktake', 'purchasing', 'invoices'])
-    expect(OPS_SUB_TABS.customers).toBeUndefined()
+    expect(OPS_SUB_TABS.customers.map((s) => s.id)).toEqual(['bookings', 'parking'])
   })
 
   it('the three team hubs have their tab sets', () => {
@@ -61,8 +61,8 @@ describe('hub-tabs', () => {
     expect(resolveOps('menu', 'recipes')).toEqual({ area: 'inventory', sub: 'recipes' })
     expect(resolveOps('bookings', null)).toEqual({ area: 'bookings', sub: 'table' })
     expect(resolveOps('bookings', 'diary')).toEqual({ area: 'bookings', sub: 'diary' })
-    // Leaf areas have no sub.
-    expect(resolveOps('customers', null)).toEqual({ area: 'customers' })
+    expect(resolveOps('customers', null)).toEqual({ area: 'customers', sub: 'bookings' })
+    expect(resolveOps('customers', 'parking')).toEqual({ area: 'customers', sub: 'parking' })
   })
 
   it('forwardSearch keeps other params and drops tab/sub', () => {

@@ -23,6 +23,17 @@ interface FtpType {
   adminPinEnabled: boolean
   adminPinSet: boolean
   adminPinHint: string | null
+  guestEntryEnabled: boolean
+  guestEntryLabel: string | null
+  guestEntryPinSet: boolean
+  guestEntryPinHint: string | null
+  guestPlateLimitEnabled: boolean
+  guestPlateLimit: number | null
+  guestUsed: number
+  guestRemaining: number | null
+  guestFull: boolean
+  guestNextFreeAt: string | null
+  guestEntryUrl: string
   healthCheckMode: string
   healthPlate: string
   lastCheckAt: string | null
@@ -98,6 +109,10 @@ interface TypeForm {
   logPlates: boolean
   adminPinEnabled: boolean
   adminPin: string
+  guestEntryEnabled: boolean
+  guestEntryLabel: string
+  guestPlateLimitEnabled: boolean
+  guestPlateLimit: string
   healthCheckMode: string
   healthPlate: string
   sortOrder: string
@@ -113,6 +128,7 @@ interface MemberForm {
   phone: string
   parkingTypeId: string
   isActive: boolean
+  isTest: boolean
   notes: string
 }
 
@@ -129,6 +145,10 @@ const EMPTY_TYPE: TypeForm = {
   logPlates: true,
   adminPinEnabled: false,
   adminPin: '',
+  guestEntryEnabled: false,
+  guestEntryLabel: '',
+  guestPlateLimitEnabled: false,
+  guestPlateLimit: '50',
   healthCheckMode: 'BROWSER',
   healthPlate: 'STELLA',
   sortOrder: '0',
@@ -144,6 +164,7 @@ const EMPTY_MEMBER: MemberForm = {
   phone: '',
   parkingTypeId: '',
   isActive: true,
+  isTest: false,
   notes: '',
 }
 
@@ -175,6 +196,10 @@ function typeFormFrom(type: FtpType): TypeForm {
     logPlates: type.logPlates,
     adminPinEnabled: type.adminPinEnabled,
     adminPin: '',
+    guestEntryEnabled: type.guestEntryEnabled,
+    guestEntryLabel: type.guestEntryLabel ?? '',
+    guestPlateLimitEnabled: type.guestPlateLimitEnabled,
+    guestPlateLimit: type.guestPlateLimit == null ? '50' : String(type.guestPlateLimit),
     healthCheckMode: type.healthCheckMode,
     healthPlate: type.healthPlate,
     sortOrder: String(type.sortOrder),
@@ -192,6 +217,7 @@ function memberFormFrom(member: FtpMember): MemberForm {
     phone: member.phone ?? '',
     parkingTypeId: member.parkingTypeId ?? '',
     isActive: member.isActive,
+    isTest: member.isTest,
     notes: member.notes ?? '',
   }
 }
@@ -220,6 +246,9 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
   const [editingType, setEditingType] = useState<string | null>(null)
   const [typeOpen, setTypeOpen] = useState(false)
   const [newPin, setNewPin] = useState<{ typeId: string; pin: string } | null>(null)
+  const [newGuestPin, setNewGuestPin] = useState<{ typeId: string; pin: string } | null>(
+    null,
+  )
 
   const [memberForm, setMemberForm] = useState<MemberForm>(EMPTY_MEMBER)
   const [editingMember, setEditingMember] = useState<string | null>(null)
@@ -262,7 +291,7 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
         `/api/admin/parking/ftp/test-members?venueId=${encodeURIComponent(venueId)}`,
       )
       if (!res.ok) {
-        setError('COULD NOT LOAD TEST MEMBERS')
+        setError('COULD NOT LOAD MEMBERS')
         return
       }
       const body = await res.json()
@@ -271,7 +300,7 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
       setTimezone(body.timezone || 'Pacific/Auckland')
       setError('')
     } catch {
-      setError('COULD NOT LOAD TEST MEMBERS')
+      setError('COULD NOT LOAD MEMBERS')
     }
   }, [venueId])
 
@@ -365,6 +394,12 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
         useContactPhone: typeForm.useContactPhone,
         logPlates: typeForm.logPlates,
         adminPinEnabled: typeForm.adminPinEnabled,
+        guestEntryEnabled: typeForm.guestEntryEnabled,
+        guestEntryLabel: typeForm.guestEntryLabel || null,
+        guestPlateLimitEnabled: typeForm.guestPlateLimitEnabled,
+        guestPlateLimit: typeForm.guestPlateLimitEnabled
+          ? Number(typeForm.guestPlateLimit) || 50
+          : null,
         healthCheckMode: typeForm.healthCheckMode,
         healthPlate: typeForm.healthPlate,
         sortOrder: Number(typeForm.sortOrder) || 0,
@@ -444,6 +479,42 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
     }
   }
 
+  async function rotateGuestPin(type: FtpType) {
+    setBusy(`${type.id}-guest-pin`)
+    setError('')
+    setNewGuestPin(null)
+    try {
+      const res = await fetch(
+        `/api/admin/parking/ftp/types/${type.id}/guest-pin`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ venueId }),
+        },
+      )
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(payload.error || 'COULD NOT SET THE CUSTOMER ENTRY PIN')
+        return
+      }
+      setNewGuestPin({ typeId: type.id, pin: payload.pin })
+      await loadTypes()
+    } catch {
+      setError('COULD NOT SET THE CUSTOMER ENTRY PIN')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function copyGuestUrl(url: string) {
+    try {
+      await navigator.clipboard.writeText(url)
+      flash('CUSTOMER ENTRY LINK COPIED')
+    } catch {
+      setError('COPY FAILED — SELECT THE LINK MANUALLY')
+    }
+  }
+
   // ----- members -----
 
   function openNewMember() {
@@ -483,7 +554,7 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
         setError(payload.error || 'SAVE FAILED')
         return
       }
-      flash(editingMember ? 'TEST MEMBER SAVED' : 'TEST MEMBER CREATED')
+      flash(editingMember ? 'MEMBER SAVED' : 'MEMBER CREATED')
       setMemberOpen(false)
       await loadMembers()
     } catch {
@@ -494,7 +565,7 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
   }
 
   async function deleteMember(member: FtpMember) {
-    if (!window.confirm(`DELETE TEST MEMBER ${member.membershipNumber}?`)) return
+    if (!window.confirm(`DELETE MEMBER ${member.membershipNumber}?`)) return
     setBusy(member.id)
     try {
       const res = await fetch(
@@ -506,7 +577,7 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
         setError(payload.error || 'DELETE FAILED')
         return
       }
-      flash('TEST MEMBER DELETED')
+      flash('MEMBER DELETED')
       await loadMembers()
     } catch {
       setError('DELETE FAILED')
@@ -838,6 +909,119 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
                   </p>
                 )}
               </div>
+              <div className="space-y-3 border border-grey-mid/60 p-3">
+                <p className="font-mono text-xs font-bold uppercase tracking-wider text-white">
+                  CUSTOMER ENTRY LINK (EVENT GUESTS)
+                </p>
+                <p className="font-mono text-2xs uppercase text-grey-light">
+                  GUESTS SCAN THE LINK&apos;S QR CODE, ENTER THE SHARED PIN, THEN ENTER PLATES
+                  ONE AFTER ANOTHER. EACH PLATE IS SUBMITTED TO THIS LINK&apos;S VPERMIT URL.
+                </p>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={typeForm.guestEntryEnabled}
+                    onChange={(e) =>
+                      setTypeForm({ ...typeForm, guestEntryEnabled: e.target.checked })
+                    }
+                    className="h-4 w-4 accent-white"
+                  />
+                  <span className="font-mono text-xs uppercase text-white">
+                    SHOW THIS LINK ON CUSTOMER ENTRY
+                  </span>
+                </label>
+                <Input
+                  label="Link label (optional)"
+                  value={typeForm.guestEntryLabel}
+                  onChange={(e) => setTypeForm({ ...typeForm, guestEntryLabel: e.target.value })}
+                  placeholder={typeForm.name || 'CUSTOMER ENTRY'}
+                />
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={typeForm.guestPlateLimitEnabled}
+                      onChange={(e) =>
+                        setTypeForm({
+                          ...typeForm,
+                          guestPlateLimitEnabled: e.target.checked,
+                        })
+                      }
+                      className="h-4 w-4 accent-white"
+                    />
+                    <span className="font-mono text-xs uppercase text-white">
+                      LIMIT PLATES PER ROLLING SLOT
+                    </span>
+                  </label>
+                  {typeForm.guestPlateLimitEnabled && (
+                    <div className="w-32">
+                      <Input
+                        label="Max plates"
+                        type="number"
+                        min="1"
+                        max="9999"
+                        value={typeForm.guestPlateLimit}
+                        onChange={(e) =>
+                          setTypeForm({ ...typeForm, guestPlateLimit: e.target.value })
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
+                <p className="font-mono text-2xs uppercase text-grey-light">
+                  A SLOT FREES AFTER {typeForm.durationMinutes || DEFAULT_FTP_DURATION_MINUTES}{' '}
+                  MINUTES. THE KIOSK SHOWS THE NEXT FREE TIME WHEN FULL.
+                </p>
+                {editingType &&
+                  (() => {
+                    const current = types.find((type) => type.id === editingType)
+                    if (!current) return null
+                    return (
+                      <div className="space-y-2 border-t border-grey-mid/60 pt-3">
+                        <p className="font-mono text-2xs uppercase text-grey-light">
+                          PIN {current.guestEntryPinSet ? `••••${current.guestEntryPinHint ?? ''}` : 'NOT SET'}
+                          {' · '}
+                          {current.guestFull
+                            ? `FULL · ${current.guestUsed}/${current.guestPlateLimit ?? '—'}`
+                            : current.guestPlateLimitEnabled
+                              ? `${current.guestRemaining ?? 0} OF ${current.guestPlateLimit ?? 0} SLOTS LEFT`
+                              : `${current.guestUsed} PLATES IN THE WINDOW`}
+                          {current.guestFull && current.guestNextFreeAt
+                            ? ` · NEXT FREE ${formatDateTime(current.guestNextFreeAt, timezone)}`
+                            : ''}
+                        </p>
+                        {role === 'ADMIN' && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void rotateGuestPin(current)}
+                            loading={busy === `${current.id}-guest-pin`}
+                          >
+                            {current.guestEntryPinSet ? 'ROTATE CUSTOMER PIN' : 'SET CUSTOMER PIN'}
+                          </Button>
+                        )}
+                        <div className="space-y-1">
+                          <p className="break-all font-mono text-2xs text-white">
+                            {current.guestEntryUrl}
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void copyGuestUrl(current.guestEntryUrl)}
+                          >
+                            COPY CUSTOMER LINK
+                          </Button>
+                        </div>
+                        {typeForm.guestEntryEnabled && !current.guestEntryPinSet && (
+                          <p className="font-mono text-2xs uppercase text-warning">
+                            SET THE CUSTOMER PIN BEFORE THIS LINK CAN BE USED.
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })()}
+              </div>
+
               {typeForm.adminPinEnabled && !typeForm.adminPin && !editingType && (
                 <p className="font-mono text-2xs uppercase text-warning">
                   TYPE AN ADMIN PIN TO ENABLE IT.
@@ -876,6 +1060,20 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
             </div>
           )}
 
+          {newGuestPin && (
+            <div className="border border-success/50 bg-success/5 p-3 space-y-1">
+              <p className="font-mono text-xs font-bold uppercase text-success">
+                NEW CUSTOMER ENTRY PIN — SHOWN ONCE
+              </p>
+              <p className="font-mono text-2xl tracking-[0.3em] text-white">
+                {newGuestPin.pin}
+              </p>
+              <p className="font-mono text-2xs uppercase text-grey-light">
+                SHARE THIS PIN WITH THE EVENT GUESTS. WRITE IT DOWN.
+              </p>
+            </div>
+          )}
+
           <div className="space-y-2">
             {types.length === 0 ? (
               <p className="font-mono text-xs text-grey-light">
@@ -897,6 +1095,22 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
                       <p className="font-mono text-2xs uppercase text-grey-light">
                         {type.claimUrl ?? 'NO CLAIM URL'}
                       </p>
+                      <p className="font-mono text-2xs uppercase text-grey-light">
+                        {type.guestEntryEnabled
+                          ? `CUSTOMER ENTRY ON · ${type.guestUsed} PLATES${
+                              type.guestFull ? ` · FULL (NEXT ${type.guestNextFreeAt ? formatDateTime(type.guestNextFreeAt, timezone) : '—'})` : ''
+                            }`
+                          : 'CUSTOMER ENTRY OFF'}
+                      </p>
+                      {type.guestEntryEnabled && (
+                        <button
+                          type="button"
+                          onClick={() => void copyGuestUrl(type.guestEntryUrl)}
+                          className="mt-1 border border-grey-mid px-2 py-1 font-mono text-2xs uppercase tracking-wider text-white hover:border-white"
+                        >
+                          COPY CUSTOMER LINK
+                        </button>
+                      )}
                     </div>
                     <div className="shrink-0 text-right space-y-1">
                       <span
@@ -962,19 +1176,27 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
       ) : tab === 'members' ? (
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <p className="font-mono text-xs text-grey-light">
-              TEST DATA — THE FULL MEMBERS AREA WILL USE THESE SAME RECORDS. PLATES ARE ADDED BY THE
-              KIOSK ON THE FIRST CONFIRMED CLAIM.
-            </p>
+            <div className="space-y-1">
+              <p className="font-mono text-xs text-grey-light">
+                REAL MEMBERS — OPS → CUSTOMERS → PARKING MEMBERS IS THE CANONICAL LIST. PLATES
+                ARE ADDED BY THE KIOSK ON THE FIRST CONFIRMED CLAIM.
+              </p>
+              <a
+                href="/admin/ops?tab=customers&sub=parking"
+                className="inline-block border border-grey-mid px-2 py-1 font-mono text-2xs uppercase tracking-wider text-white hover:border-white"
+              >
+                OPEN PARKING MEMBERS →
+              </a>
+            </div>
             <Button size="sm" onClick={openNewMember} disabled={memberTypes.length === 0}>
-              + ADD TEST MEMBER
+              + ADD MEMBER
             </Button>
           </div>
 
           {memberOpen && (
             <div className="border border-grey-mid p-4 space-y-3">
               <h3 className="font-mono text-xs uppercase tracking-wider text-grey-light">
-                {editingMember ? 'EDIT TEST MEMBER' : 'NEW TEST MEMBER'}
+                {editingMember ? 'EDIT MEMBER' : 'NEW MEMBER'}
               </h3>
               <div className="grid gap-3 md:grid-cols-2">
                 <Input
@@ -1013,15 +1235,26 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
                   onChange={(e) => setMemberForm({ ...memberForm, phone: e.target.value })}
                 />
               </div>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={memberForm.isActive}
-                  onChange={(e) => setMemberForm({ ...memberForm, isActive: e.target.checked })}
-                  className="h-4 w-4 accent-white"
-                />
-                <span className="font-mono text-xs uppercase text-white">ACTIVE</span>
-              </label>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={memberForm.isActive}
+                    onChange={(e) => setMemberForm({ ...memberForm, isActive: e.target.checked })}
+                    className="h-4 w-4 accent-white"
+                  />
+                  <span className="font-mono text-xs uppercase text-white">ACTIVE</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={memberForm.isTest}
+                    onChange={(e) => setMemberForm({ ...memberForm, isTest: e.target.checked })}
+                    className="h-4 w-4 accent-white"
+                  />
+                  <span className="font-mono text-xs uppercase text-white">TEST MEMBER</span>
+                </label>
+              </div>
               <div className="flex flex-wrap gap-2 border-t border-grey-mid pt-3">
                 <Button size="sm" onClick={() => void saveMember()} loading={busy === 'member-save'}>
                   SAVE MEMBER
@@ -1036,7 +1269,7 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
           <div className="space-y-2">
             {members.length === 0 ? (
               <p className="font-mono text-xs text-grey-light">
-                NO TEST MEMBERS. ADD ONE TO TEST THE MEMBERSHIP-NUMBER KIOSK FLOW.
+                NO MEMBERS YET. ADD ONE TO USE THE MEMBERSHIP-NUMBER KIOSK FLOW.
               </p>
             ) : (
               members.map((member) => (
@@ -1060,6 +1293,11 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
                     >
                       {member.isActive ? 'ACTIVE' : 'INACTIVE'}
                     </span>
+                    {member.isTest && (
+                      <span className="shrink-0 border border-warning/40 px-2 py-0.5 font-mono text-2xs uppercase text-warning">
+                        TEST
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {member.plates.length === 0 ? (

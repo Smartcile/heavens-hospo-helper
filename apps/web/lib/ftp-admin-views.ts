@@ -7,6 +7,13 @@ import { sortMemberPlates } from './ftp-parking'
 export function ftpTypeAdminView(
   row: FtpParkingType,
   counts: { members: number; claims: number } = { members: 0, claims: 0 },
+  guest: {
+    used: number
+    remaining: number | null
+    full: boolean
+    nextFreeAt: string | null
+    entryUrl: string
+  } = { used: 0, remaining: null, full: false, nextFreeAt: null, entryUrl: '' },
 ) {
   return {
     id: row.id,
@@ -24,6 +31,17 @@ export function ftpTypeAdminView(
     adminPinEnabled: row.adminPinEnabled,
     adminPinSet: Boolean(row.adminPinHash),
     adminPinHint: row.adminPinHint,
+    guestEntryEnabled: row.guestEntryEnabled,
+    guestEntryLabel: row.guestEntryLabel,
+    guestEntryPinSet: Boolean(row.guestEntryPinHash),
+    guestEntryPinHint: row.guestEntryPinHint,
+    guestPlateLimitEnabled: row.guestPlateLimitEnabled,
+    guestPlateLimit: row.guestPlateLimit,
+    guestUsed: guest.used,
+    guestRemaining: guest.remaining,
+    guestFull: guest.full,
+    guestNextFreeAt: guest.nextFreeAt,
+    guestEntryUrl: guest.entryUrl,
     healthCheckMode: row.healthCheckMode,
     healthPlate: row.healthPlate,
     lastCheckAt: row.lastCheckAt,

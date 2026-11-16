@@ -48,7 +48,7 @@ export interface SubmitFtpClaimArgs {
   venueId: string
   typeId: string
   memberId: string | null
-  credentialKind: 'MEMBER' | 'ADMIN_PIN'
+  credentialKind: 'MEMBER' | 'ADMIN_PIN' | 'GUEST'
   plate: string
   timezone: string
 }

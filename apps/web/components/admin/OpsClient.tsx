@@ -49,7 +49,7 @@ export function OpsClient({ role, sessionVenueId, defaultVenueId }: OpsClientPro
         {area === 'bookings' && <BookingClient {...venueProps} sub={sub} />}
         {area === 'orders' && sub === 'dockets' && <KitchenDocketsClient {...venueProps} />}
         {area === 'orders' && sub !== 'dockets' && <OrdersClient {...venueProps} sub={sub} />}
-        {area === 'customers' && <CustomersClient {...venueProps} />}
+        {area === 'customers' && <CustomersClient {...venueProps} sub={sub} />}
         {area === 'inventory' && sub === 'inventory' && <InventoryClient {...venueProps} />}
         {area === 'inventory' && sub === 'recipes' && <RecipesClient {...venueProps} />}
         {area === 'inventory' && sub === 'menu-items' && <MenuItemsClient {...venueProps} />}

@@ -8,6 +8,7 @@ import { GuestParkingSettings } from '@/components/admin/GuestParkingSettings'
 import { StaffPlatesPanel } from '@/components/admin/StaffPlatesPanel'
 import { FtpFourHourPanel } from '@/components/admin/FtpFourHourPanel'
 import {
+  DEFAULT_CUSTOMER_ENTRY_LABEL,
   DEFAULT_FOUR_HOUR_MINUTES,
   DEFAULT_FOUR_HOUR_NAME,
   DEFAULT_KIOSK_RESET_SECONDS,
@@ -27,6 +28,8 @@ interface FtpSettings {
   kioskRequireCode: boolean
   kioskCodeHint: string | null
   kioskAutoResetSeconds: number
+  customerEntryEnabled: boolean
+  customerEntryLabel: string
   fourHourName: string
   fourHourEnabled: boolean
   fourHourEntryUrl: string | null
@@ -40,7 +43,9 @@ interface FtpData {
   settings: FtpSettings
   parking: { enabled: boolean; carparkName: string | null; durationMinutes: number }
   fourHourReady: boolean
+  guestEntryReady: boolean
   kioskUrl: string
+  guestEntryUrl: string
 }
 
 const EMPTY: FtpSettings = {
@@ -49,6 +54,8 @@ const EMPTY: FtpSettings = {
   kioskRequireCode: false,
   kioskCodeHint: null,
   kioskAutoResetSeconds: DEFAULT_KIOSK_RESET_SECONDS,
+  customerEntryEnabled: false,
+  customerEntryLabel: DEFAULT_CUSTOMER_ENTRY_LABEL,
   fourHourName: DEFAULT_FOUR_HOUR_NAME,
   fourHourEnabled: false,
   fourHourEntryUrl: null,
@@ -143,7 +150,14 @@ export function FtpSettingsClient({
         return
       }
       setData((current) =>
-        current ? { ...current, settings: body.settings, kioskUrl: body.kioskUrl } : current,
+        current
+          ? {
+              ...current,
+              settings: body.settings,
+              kioskUrl: body.kioskUrl,
+              guestEntryUrl: body.guestEntryUrl ?? current.guestEntryUrl,
+            }
+          : current,
       )
       setForm({ ...EMPTY, ...body.settings })
       setMessage('SAVED')
@@ -319,6 +333,59 @@ export function FtpSettingsClient({
             </div>
           </section>
 
+          {/* CUSTOMER ENTRY */}
+          <section className="border border-grey-mid p-4 space-y-3">
+            <h2 className="font-mono text-sm uppercase tracking-widest text-white">
+              CUSTOMER ENTRY (EVENT GUESTS)
+            </h2>
+            <p className="font-mono text-xs text-grey-light">
+              A SEPARATE PAGE FOR EVENT GUESTS. THEY SCAN A QR CODE, ENTER THE LINK&apos;S PIN,
+              THEN ENTER PLATES ONE AFTER ANOTHER. EVERY PLATE IS SUBMITTED TO THAT LINK&apos;S
+              VPERMIT URL. ENABLE AND CONFIGURE EACH LINK UNDER 4 HOUR CAR PARK.
+            </p>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.customerEntryEnabled}
+                onChange={(e) => patch('customerEntryEnabled', e.target.checked)}
+                className="h-4 w-4 accent-white"
+              />
+              <span className="font-mono text-xs uppercase text-white">
+                ENABLE CUSTOMER ENTRY
+              </span>
+            </label>
+            {!data?.guestEntryReady && (
+              <p className="font-mono text-2xs uppercase text-warning">
+                TURN ON A CUSTOMER ENTRY LINK AND SET ITS PIN UNDER 4 HOUR CAR PARK FIRST.
+              </p>
+            )}
+            <Input
+              label="Button + page label"
+              value={form.customerEntryLabel}
+              onChange={(e) => patch('customerEntryLabel', e.target.value)}
+              placeholder={DEFAULT_CUSTOMER_ENTRY_LABEL}
+            />
+            <p className="font-mono text-2xs uppercase text-grey-light">
+              THIS IS THE BUTTON UNDER START ON THE PARKING LANDING PAGE, AND THE PAGE TITLE.
+            </p>
+            <div className="space-y-1 border-t border-grey-mid pt-3">
+              <p className="font-mono text-xs uppercase text-grey-light">Customer entry URL</p>
+              <p className="break-all font-mono text-xs text-white">
+                {data?.guestEntryUrl}
+              </p>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void copy(data?.guestEntryUrl ?? '')}
+              >
+                COPY URL
+              </Button>
+              <p className="font-mono text-2xs uppercase text-grey-light">
+                THIS OPENS THE LINK CHOOSER. EACH 4 HOUR LINK HAS ITS OWN COPY LINK + QR TARGET.
+              </p>
+            </div>
+          </section>
+
           {/* 90 MINUTE */}
           <section className="border border-grey-mid p-4 space-y-3">
             <h2 className="font-mono text-sm uppercase tracking-widest text-white">
@@ -346,7 +413,8 @@ export function FtpSettingsClient({
             </h2>
             <p className="font-mono text-xs text-grey-light">
               MEMBERSHIP NUMBER / OPTIONAL ADMIN PIN, VPERMIT CLAIM LINKS, PLATE LOG AND EVIDENCE.
-              THE 4 HOUR TAB SHOWS WHEN AT LEAST ONE ACTIVE TYPE HAS A CLAIM URL.
+              EACH LINK ALSO HAS ITS OWN CUSTOMER ENTRY SWITCH, SHARED PIN AND ROLLING PLATE
+              LIMIT. THE 4 HOUR TAB SHOWS WHEN AT LEAST ONE ACTIVE TYPE HAS A CLAIM URL.
             </p>
             <FtpFourHourPanel venueId={venueId} role={role} />
           </section>

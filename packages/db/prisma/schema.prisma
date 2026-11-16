@@ -4690,6 +4690,10 @@ model FtpSettings {
   kioskCodeHash             String?
   kioskCodeHint             String?
   kioskAutoResetSeconds     Int       @default(60)
+  // Event guest entry (public /guest). Guests open a link with a shared PIN and
+  // enter plates for a 4-hour parking type one after another.
+  customerEntryEnabled      Boolean   @default(false)
+  customerEntryLabel        String?
   // 4-hour carpark — settings only until a flow/URL is available.
   fourHourName              String?
   fourHourEnabled           Boolean   @default(false)
@@ -4784,6 +4788,15 @@ model FtpParkingType {
   adminPinEnabled  Boolean   @default(false)
   adminPinHash     String?
   adminPinHint     String?
+  // Event guest entry for this link. A shared PIN opens the public page and
+  // every plate is submitted to this type's vPermit claim URL. The rolling
+  // limit counts confirmed guest claims inside the type's duration window.
+  guestEntryEnabled      Boolean @default(false)
+  guestEntryLabel        String?
+  guestEntryPinHash      String?
+  guestEntryPinHint      String?
+  guestPlateLimitEnabled Boolean @default(false)
+  guestPlateLimit        Int?
   healthCheckMode  String    @default("BROWSER") // BROWSER | FULL | OFF
   healthPlate      String    @default("STELLA")
   lastCheckAt      DateTime?
@@ -4802,11 +4815,13 @@ model FtpParkingType {
 
   @@index([venueId, isActive])
   @@index([venueId, sortOrder])
+  @@index([venueId, guestEntryEnabled])
 }
 
 // A member profile. The membership number is the kiosk credential; plates are
 // added by the kiosk on the first confirmed claim and can be selected later.
-// `isTest` marks rows created from the temporary Settings -> FTP test panel.
+// Members are managed in Ops -> Customers -> Parking members. `isTest` is kept
+// for historical rows created from the old Settings -> FTP test panel.
 model Member {
   id               String    @id @default(uuid())
   venueId          String
@@ -4817,7 +4832,7 @@ model Member {
   phone            String?
   parkingTypeId    String?
   isActive         Boolean   @default(true)
-  isTest           Boolean   @default(true)
+  isTest           Boolean   @default(false)
   notes            String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt

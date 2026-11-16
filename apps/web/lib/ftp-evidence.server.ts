@@ -103,9 +103,11 @@ function buildPdf(
     'Credential',
     input.credentialKind === 'ADMIN_PIN'
       ? 'ADMIN PIN'
-      : input.membershipNumber
-        ? `MEMBER ${input.membershipNumber}`
-        : 'MEMBER',
+      : input.credentialKind === 'GUEST'
+        ? 'CUSTOMER ENTRY'
+        : input.membershipNumber
+          ? `MEMBER ${input.membershipNumber}`
+          : 'MEMBER',
   )
   row('Name', input.contactName)
   row('Email', input.contactEmail)

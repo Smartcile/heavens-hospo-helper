@@ -6,12 +6,16 @@ export const MAX_KIOSK_RESET_SECONDS = 300
 export const DEFAULT_FOUR_HOUR_MINUTES = 240
 export const DEFAULT_FOUR_HOUR_NAME = '4 HOUR CAR PARK'
 export const DEFAULT_STAFF_CARPARK_NAME = 'STAFF CARPARK'
+export const DEFAULT_CUSTOMER_ENTRY_LABEL = 'CUSTOMER ENTRY'
+export const CUSTOMER_ENTRY_LABEL_MAX = 60
 
 export interface FtpSettingsInput {
   contactEmail: string | null
   kioskEnabled: boolean
   kioskRequireCode: boolean
   kioskAutoResetSeconds: number
+  customerEntryEnabled: boolean
+  customerEntryLabel: string
   fourHourName: string
   fourHourEnabled: boolean
   fourHourEntryUrl: string | null
@@ -78,6 +82,17 @@ export function normaliseFtpInput(body: Record<string, unknown>): NormaliseFtpRe
     return { ok: false, error: 'PASTE THE 4 HOUR CARPARK URL BEFORE ENABLING' }
   }
 
+  const customerEntryLabel =
+    typeof body.customerEntryLabel === 'string' && body.customerEntryLabel.trim()
+      ? body.customerEntryLabel.trim().toUpperCase()
+      : DEFAULT_CUSTOMER_ENTRY_LABEL
+  if (customerEntryLabel.length > CUSTOMER_ENTRY_LABEL_MAX) {
+    return {
+      ok: false,
+      error: `CUSTOMER ENTRY LABEL MUST BE ${CUSTOMER_ENTRY_LABEL_MAX} CHARACTERS OR FEWER`,
+    }
+  }
+
   const fourHourName =
     typeof body.fourHourName === 'string' && body.fourHourName.trim()
       ? body.fourHourName.trim().toUpperCase()
@@ -95,6 +110,8 @@ export function normaliseFtpInput(body: Record<string, unknown>): NormaliseFtpRe
       kioskEnabled: body.kioskEnabled === true,
       kioskRequireCode: body.kioskRequireCode === true,
       kioskAutoResetSeconds: clampKioskResetSeconds(body.kioskAutoResetSeconds),
+      customerEntryEnabled: body.customerEntryEnabled === true,
+      customerEntryLabel,
       fourHourName,
       fourHourEnabled,
       fourHourEntryUrl: fourHourUrl.value,
@@ -115,6 +132,8 @@ export function ftpSettingsView(row: {
   kioskRequireCode?: boolean | null
   kioskCodeHint?: string | null
   kioskAutoResetSeconds?: number | null
+  customerEntryEnabled?: boolean | null
+  customerEntryLabel?: string | null
   fourHourName?: string | null
   fourHourEnabled?: boolean | null
   fourHourEntryUrl?: string | null
@@ -129,6 +148,8 @@ export function ftpSettingsView(row: {
     kioskRequireCode: row?.kioskRequireCode === true,
     kioskCodeHint: row?.kioskCodeHint ?? null,
     kioskAutoResetSeconds: clampKioskResetSeconds(row?.kioskAutoResetSeconds),
+    customerEntryEnabled: Boolean(row?.customerEntryEnabled),
+    customerEntryLabel: row?.customerEntryLabel ?? DEFAULT_CUSTOMER_ENTRY_LABEL,
     fourHourName: row?.fourHourName ?? DEFAULT_FOUR_HOUR_NAME,
     fourHourEnabled: Boolean(row?.fourHourEnabled),
     fourHourEntryUrl: row?.fourHourEntryUrl ?? null,
@@ -148,4 +169,18 @@ export function kioskUrlFor(
 ): string {
   const base = (appUrl ?? '').trim().replace(/\/+$/, '') || 'http://localhost:3000'
   return venueId ? `${base}/park?venue=${encodeURIComponent(venueId)}` : `${base}/park`
+}
+
+/** Public event guest-entry page (the QR target), optionally for one link. */
+export function guestEntryUrlFor(
+  appUrl: string | undefined | null,
+  venueId?: string | null,
+  typeId?: string | null,
+): string {
+  const base = (appUrl ?? '').trim().replace(/\/+$/, '') || 'http://localhost:3000'
+  const params = new URLSearchParams()
+  if (venueId) params.set('venue', venueId)
+  if (typeId) params.set('type', typeId)
+  const query = params.toString()
+  return `${base}/guest${query ? `?${query}` : ''}`
 }

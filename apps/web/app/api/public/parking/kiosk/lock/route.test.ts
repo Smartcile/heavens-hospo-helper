@@ -53,4 +53,10 @@ describe('POST /api/public/parking/kiosk/lock', () => {
     expect(res.status).toBe(200)
     expect(clearKioskCookie).toHaveBeenCalled()
   })
+
+  it('exits without a code so the next START needs the kiosk code again', async () => {
+    const res = await POST(req({ exit: true }))
+    expect(res.status).toBe(200)
+    expect(clearKioskCookie).toHaveBeenCalled()
+  })
 })

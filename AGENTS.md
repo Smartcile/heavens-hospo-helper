@@ -2133,6 +2133,47 @@ to `/` after five seconds with no visual feedback, no popup and no code.
 for the public 4-hour routes. The kiosk page now opens when either the 90-minute
 integration or at least one active 4-hour type is configured.
 
+### Event guest entry links + real parking members (built 2026-11)
+
+A second public flow for event guests. `FtpParkingType` gains `guestEntryEnabled`,
+`guestEntryLabel`, `guestEntryPinHash`/`Hint`, `guestPlateLimitEnabled` and
+`guestPlateLimit`; `FtpSettings` gains `customerEntryEnabled` + `customerEntryLabel`.
+The link's shared PIN is bcrypt-hashed and set via
+`POST /api/admin/parking/ftp/types/[id]/guest-pin` (ADMIN only, raw PIN shown once).
+The landing page shows the configured label under START; the standalone site's
+`/guest` page lets a guest choose a link, enter the PIN, then add plates one after
+another. Every plate is submitted to that link's vPermit claim URL with
+`credentialKind: 'GUEST'`.
+
+**Rolling limit** — a confirmed guest claim occupies one slot for the type's
+`durationMinutes`. `lib/ftp-guest-entry.ts` computes used/remaining/full and the
+oldest expiry (`nextFreeAt`); the page shows `NEXT SLOT FREES AT HH:mm` when full.
+The limit is a pre-check, so a race can briefly overshoot; vPermit remains the
+authority on the actual slot count.
+
+**Public routes** (`lib/ftp-guest-entry.server.ts`):
+`GET /api/public/parking/kiosk/guest/bootstrap?venue=&type=`,
+`POST .../guest/unlock` (PIN → 2h signed token) and `POST .../guest/plate`.
+Exit (`{ exit: true }` on `.../kiosk/lock`) clears the kiosk cookie so the next
+START asks for the kiosk code again.
+
+**Members moved to Ops → Customers → PARKING MEMBERS** (`CustomersClient`;
+`OPS_SUB_TABS.customers = bookings | parking`). `ParkingMembersPanel` uses the
+existing member routes; new members default `isTest: false` (real records), with
+an explicit TEST toggle and badge. Settings → FTP still has a shortcut and the
+4-hour type editor, but Customers is the canonical member list.
+
+| Route | Methods | Purpose |
+|---|---|---|
+| `/api/public/parking/kiosk/guest/bootstrap` | GET | Public link config/slot state (no secrets) |
+| `/api/public/parking/kiosk/guest/unlock` | POST | Shared PIN → short-lived guest token |
+| `/api/public/parking/kiosk/guest/plate` | POST | Add one plate to the link's vPermit claim |
+| `/api/admin/parking/ftp/types/[id]/guest-pin` | POST | Set/rotate the shared guest PIN |
+
+**Deploy note:** additive only — `prisma db push` adds the eight columns/index;
+no backfill. Tests: `ftp-guest-entry.test.ts`, the three guest route tests,
+`guest-pin/route.test.ts` and `ParkingMembersPanel.test.tsx`.
+
 ### Unified staff identity
 A single `Staff` profile carries external-system link IDs — `swiftPosId`,
 `myHrId`, `loadedReportsId` — so one person maps across SwiftPOS, MyHR, and
