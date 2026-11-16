@@ -15,5 +15,5 @@ Summarize:
 - active worktrees and branches;
 - dirty worktrees;
 - ahead/behind `develop`;
-- open PRs and CI state;
+- open PRs and last check state;
 - file overlaps that affect merge order.

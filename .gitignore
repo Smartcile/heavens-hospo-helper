@@ -92,3 +92,9 @@ apps/web/public/pdf.worker.min.mjs
 # Agent worktrees + scratch files
 .worktrees/
 .agent/
+
+# Agent definitions (opencode) - local tooling, never shipped.
+# NOTE: .opencode/agents/ and .opencode/commands/ are ALREADY TRACKED in git.
+# .gitignore only affects new files, so run `git rm --cached` to untrack them.
+.opencode/agents/
+.opencode/commands/
