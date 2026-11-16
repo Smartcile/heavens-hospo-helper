@@ -31,6 +31,14 @@ describe('customer-groups', () => {
     expect(result.value.areas).toEqual(expect.arrayContaining(['CUSTOMERS', 'GIFT_CARDS']))
   })
 
+  it('adds the parking area when a parking type is linked', () => {
+    const result = normaliseGroupInput({ name: 'Yacht Club', parkingTypeId: 'parking-1' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.parkingTypeId).toBe('parking-1')
+    expect(result.value.areas).toContain('PARKING')
+  })
+
   it('rejects a blank name', () => {
     expect(normaliseGroupInput({ name: '   ' })).toEqual({ ok: false, error: 'NAME IS REQUIRED' })
   })

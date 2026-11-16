@@ -66,6 +66,7 @@ export async function loadKioskBootstrap(
       where: {
         venueId: settings.venueId,
         isActive: true,
+        showOnKiosk: true,
         deletedAt: null,
         claimUrl: { not: null },
       },

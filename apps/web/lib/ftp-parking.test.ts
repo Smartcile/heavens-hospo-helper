@@ -93,6 +93,13 @@ describe('normaliseFtpTypeInput', () => {
     if (off.ok) expect(off.value.logPlates).toBe(false)
   })
 
+  it('defaults showOnKiosk on and accepts a hidden type for guest links', () => {
+    const on = normaliseFtpTypeInput(typeBody())
+    const hidden = normaliseFtpTypeInput(typeBody({ showOnKiosk: false }))
+    if (on.ok) expect(on.value.showOnKiosk).toBe(true)
+    if (hidden.ok) expect(hidden.value.showOnKiosk).toBe(false)
+  })
+
   it('defaults the health check mode to BROWSER', () => {
     const result = normaliseFtpTypeInput(typeBody({ healthCheckMode: 'NOPE' }))
     if (result.ok) expect(result.value.healthCheckMode).toBe('BROWSER')

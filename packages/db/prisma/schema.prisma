@@ -3960,13 +3960,18 @@ model CustomerGroup {
   swiftPosTypeRemoved   Int    @default(9)
   swiftPosStatusRemoved Int    @default(0)
   exportEncoding        String @default("UTF8_BOM")
+  // Optional parking link. When set, this group feeds the parking type's
+  // member list; the kiosk still reads the existing Member table.
+  parkingTypeId String? @unique
   createdAt  DateTime          @default(now())
   updatedAt  DateTime          @updatedAt
   deletedAt  DateTime?
 
-  venue       Venue                @relation(fields: [venueId], references: [id])
-  memberships CustomerMembership[]
-  areas       CustomerGroupArea[]
+  venue          Venue                @relation(fields: [venueId], references: [id])
+  memberships    CustomerMembership[]
+  areas          CustomerGroupArea[]
+  parkingType    FtpParkingType?      @relation(fields: [parkingTypeId], references: [id])
+  parkingMembers Member[]
 
   @@unique([venueId, slug])
   @@index([venueId])
@@ -4893,6 +4898,9 @@ model FtpParkingType {
   useContactPhone  Boolean   @default(true)
   // Per-type switch: when false, claims are still logged but the plate is not stored.
   logPlates        Boolean   @default(true)
+  // When false the type is hidden from the public kiosk's 4 HOUR tab but still
+  // works for event guest-entry links and the admin/test flows.
+  showOnKiosk      Boolean   @default(true)
   // Optional shared fallback credential for staff/testing. The membership
   // number is the primary credential; this is disabled by default.
   adminPinEnabled  Boolean   @default(false)
@@ -4919,9 +4927,10 @@ model FtpParkingType {
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
 
-  venue   Venue     @relation(fields: [venueId], references: [id])
-  members Member[]
-  claims  FtpClaim[]
+  venue         Venue          @relation(fields: [venueId], references: [id])
+  members       Member[]
+  customerGroup CustomerGroup?
+  claims        FtpClaim[]
 
   @@index([venueId, isActive])
   @@index([venueId, sortOrder])
@@ -4941,6 +4950,8 @@ model Member {
   email            String?
   phone            String?
   parkingTypeId    String?
+  // Set when this parking member was last synced from a customer database.
+  customerGroupId  String?
   isActive         Boolean   @default(true)
   isTest           Boolean   @default(false)
   notes            String?
@@ -4948,14 +4959,16 @@ model Member {
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
 
-  venue       Venue           @relation(fields: [venueId], references: [id])
-  parkingType FtpParkingType? @relation(fields: [parkingTypeId], references: [id])
-  plates      MemberPlate[]
-  claims      FtpClaim[]
+  venue         Venue           @relation(fields: [venueId], references: [id])
+  parkingType   FtpParkingType? @relation(fields: [parkingTypeId], references: [id])
+  customerGroup CustomerGroup?  @relation(fields: [customerGroupId], references: [id])
+  plates        MemberPlate[]
+  claims        FtpClaim[]
 
   @@unique([venueId, membershipNumber])
   @@index([venueId, isActive])
   @@index([venueId, parkingTypeId])
+  @@index([venueId, customerGroupId])
 }
 
 // A plate remembered for a member. The unique key spans soft-deleted rows, so

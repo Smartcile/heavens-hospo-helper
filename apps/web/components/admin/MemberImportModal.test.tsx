@@ -72,6 +72,8 @@ const group = {
   isActive: true,
   sortOrder: 0,
   areas: ['CUSTOMERS'],
+  parkingTypeId: null,
+  parkingTypeName: null,
   mapping: { typeActive: 3, statusActive: 1, typeRemoved: 9, statusRemoved: 0, exportEncoding: 'UTF8_BOM' },
   memberCount: 1,
   createdAt: '',

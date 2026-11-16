@@ -25,6 +25,13 @@ interface FormState {
   isActive: boolean
   sortOrder: string
   areas: string[]
+  parkingTypeId: string
+}
+
+interface ParkingTypeOption {
+  id: string
+  name: string
+  isActive: boolean
 }
 
 const EMPTY: FormState = {
@@ -35,6 +42,7 @@ const EMPTY: FormState = {
   isActive: true,
   sortOrder: '0',
   areas: ['CUSTOMERS', 'BOOKINGS', 'ORDERS'],
+  parkingTypeId: '',
 }
 
 export function CustomerGroupsPanel({ isOpen, groups, venueId, onClose, onChanged }: Props) {
@@ -42,6 +50,24 @@ export function CustomerGroupsPanel({ isOpen, groups, venueId, onClose, onChange
   const [form, setForm] = useState<FormState>(EMPTY)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  const [parkingTypes, setParkingTypes] = useState<ParkingTypeOption[]>([])
+
+  useEffect(() => {
+    if (!isOpen || !venueId) return
+    let cancelled = false
+    const params = new URLSearchParams({ venueId })
+    fetch(`/api/admin/parking/ftp/types?${params.toString()}`)
+      .then((res) => (res.ok ? res.json() : { types: [] }))
+      .then((body) => {
+        if (!cancelled) setParkingTypes(Array.isArray(body.types) ? body.types : [])
+      })
+      .catch(() => {
+        if (!cancelled) setParkingTypes([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, venueId])
 
   useEffect(() => {
     if (!isOpen) return
@@ -64,6 +90,7 @@ export function CustomerGroupsPanel({ isOpen, groups, venueId, onClose, onChange
       isActive: group.isActive,
       sortOrder: String(group.sortOrder),
       areas: [...group.areas],
+      parkingTypeId: group.parkingTypeId ?? '',
     })
     setError('')
   }
@@ -75,12 +102,16 @@ export function CustomerGroupsPanel({ isOpen, groups, venueId, onClose, onChange
   }
 
   function toggleArea(area: string) {
-    setForm((current) => ({
-      ...current,
-      areas: current.areas.includes(area)
+    setForm((current) => {
+      const areas = current.areas.includes(area)
         ? current.areas.filter((a) => a !== area)
-        : ALL_CUSTOMER_GROUP_AREAS.filter((a) => [...current.areas, area].includes(a)),
-    }))
+        : ALL_CUSTOMER_GROUP_AREAS.filter((a) => [...current.areas, area].includes(a))
+      return {
+        ...current,
+        areas,
+        parkingTypeId: areas.includes('PARKING') ? current.parkingTypeId : '',
+      }
+    })
   }
 
   async function save() {
@@ -105,6 +136,7 @@ export function CustomerGroupsPanel({ isOpen, groups, venueId, onClose, onChange
             isActive: form.isActive,
             sortOrder: Number(form.sortOrder) || 0,
             areas: form.areas,
+            parkingTypeId: form.areas.includes('PARKING') ? form.parkingTypeId || null : null,
           }),
         },
       )
@@ -113,7 +145,11 @@ export function CustomerGroupsPanel({ isOpen, groups, venueId, onClose, onChange
         setError(body.error || 'SAVE FAILED')
         return
       }
-      pushToast(editingId ? 'DATABASE SAVED' : 'DATABASE CREATED', 'success')
+      if (body.parkingSync?.linked) {
+        pushToast(`DATABASE SAVED — ${body.parkingSync.synced ?? 0} PARKING MEMBERS`, 'success')
+      } else {
+        pushToast(editingId ? 'DATABASE SAVED' : 'DATABASE CREATED', 'success')
+      }
       onChanged()
       setEditingId(body.group?.id ?? null)
     } catch {
@@ -146,6 +182,37 @@ export function CustomerGroupsPanel({ isOpen, groups, venueId, onClose, onChange
       onChanged()
     } catch {
       setError('DELETE FAILED')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function syncParking() {
+    if (!editingId) return
+    setBusy('parking')
+    setError('')
+    try {
+      const res = await fetch(`/api/admin/customer-groups/${editingId}/sync-parking`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ venueId }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(body.error || 'PARKING SYNC FAILED')
+        return
+      }
+      if (!body.linked) {
+        pushToast('THIS DATABASE IS NOT LINKED TO A PARKING TYPE', 'error')
+        return
+      }
+      pushToast(
+        `PARKING SYNCED: ${body.synced ?? 0} MEMBERS${body.deactivated ? ` · ${body.deactivated} RETIRED` : ''}`,
+        'success',
+      )
+      onChanged()
+    } catch {
+      setError('PARKING SYNC FAILED')
     } finally {
       setBusy('')
     }
@@ -276,9 +343,44 @@ export function CustomerGroupsPanel({ isOpen, groups, venueId, onClose, onChange
               ))}
             </div>
             <p className="font-mono text-2xs uppercase text-grey-light">
-              AREA ACCESS ONLY — SWIFTPOS EXPORT MAPPING IS IN SETTINGS → SWIFT POS → MEMBERS.
+              AREA ACCESS ONLY - SWIFTPOS EXPORT MAPPING IS IN SETTINGS - SWIFT POS - MEMBERS.
             </p>
           </div>
+
+          {form.areas.includes('PARKING') && (
+            <div className="border border-grey-mid p-3 space-y-2">
+              <Select
+                label="PARKING TYPE"
+                value={form.parkingTypeId}
+                onChange={(e) => setForm({ ...form, parkingTypeId: e.target.value })}
+                options={[
+                  { value: '', label: 'NOT LINKED' },
+                  ...parkingTypes.map((type) => ({
+                    value: type.id,
+                    label: `${type.name}${type.isActive ? '' : ' (INACTIVE)'}`,
+                  })),
+                ]}
+              />
+              <p className="font-mono text-2xs uppercase text-grey-light">
+                LINKING SYNCS ACTIVE MEMBERS INTO THAT PARKING TYPE&apos;S LIST. EVENT GUEST LINKS STILL USE THE TYPE.
+              </p>
+              {parkingTypes.length === 0 && (
+                <p className="font-mono text-2xs uppercase text-grey-light">
+                  NO PARKING TYPES YET — ADD ONE IN SETTINGS → FTP → 4 HOUR.
+                </p>
+              )}
+              {editingId && form.parkingTypeId && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  loading={busy === 'parking'}
+                  onClick={syncParking}
+                >
+                  SYNC TO PARKING
+                </Button>
+              )}
+            </div>
+          )}
 
           <label className="flex items-center gap-2 font-mono text-xs uppercase text-grey-light">
             <input

@@ -20,6 +20,7 @@ interface FtpType {
   useContactEmail: boolean
   useContactPhone: boolean
   logPlates: boolean
+  showOnKiosk: boolean
   adminPinEnabled: boolean
   adminPinSet: boolean
   adminPinHint: string | null
@@ -107,6 +108,7 @@ interface TypeForm {
   useContactEmail: boolean
   useContactPhone: boolean
   logPlates: boolean
+  showOnKiosk: boolean
   adminPinEnabled: boolean
   adminPin: string
   guestEntryEnabled: boolean
@@ -143,6 +145,7 @@ const EMPTY_TYPE: TypeForm = {
   useContactEmail: true,
   useContactPhone: true,
   logPlates: true,
+  showOnKiosk: true,
   adminPinEnabled: false,
   adminPin: '',
   guestEntryEnabled: false,
@@ -194,6 +197,7 @@ function typeFormFrom(type: FtpType): TypeForm {
     useContactEmail: type.useContactEmail,
     useContactPhone: type.useContactPhone,
     logPlates: type.logPlates,
+    showOnKiosk: type.showOnKiosk,
     adminPinEnabled: type.adminPinEnabled,
     adminPin: '',
     guestEntryEnabled: type.guestEntryEnabled,
@@ -393,6 +397,7 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
         useContactEmail: typeForm.useContactEmail,
         useContactPhone: typeForm.useContactPhone,
         logPlates: typeForm.logPlates,
+        showOnKiosk: typeForm.showOnKiosk,
         adminPinEnabled: typeForm.adminPinEnabled,
         guestEntryEnabled: typeForm.guestEntryEnabled,
         guestEntryLabel: typeForm.guestEntryLabel || null,
@@ -844,6 +849,17 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
                 <label className="flex items-center gap-2">
                   <input
                     type="checkbox"
+                    checked={typeForm.showOnKiosk}
+                    onChange={(e) =>
+                      setTypeForm({ ...typeForm, showOnKiosk: e.target.checked })
+                    }
+                    className="h-4 w-4 accent-white"
+                  />
+                  <span className="font-mono text-xs uppercase text-white">SHOW ON KIOSK</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
                     checked={typeForm.adminPinEnabled}
                     onChange={(e) =>
                       setTypeForm({ ...typeForm, adminPinEnabled: e.target.checked })
@@ -864,6 +880,9 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
                   <span className="font-mono text-xs uppercase text-white">ACTIVE</span>
                 </label>
               </div>
+              <p className="font-mono text-2xs uppercase text-grey-light">
+                SHOW ON KIOSK OFF = HIDDEN FROM THE 4 HOUR TAB ON THE PUBLIC KIOSK. EVENT GUEST LINKS STILL WORK.
+              </p>
               <div className="space-y-2 border border-grey-mid/60 p-3">
                 <label className="flex items-center gap-2">
                   <input
@@ -1129,9 +1148,14 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
                               : 'HEALTH FAILED'
                             : 'NOT CHECKED'}
                       </span>
+                      {!type.showOnKiosk && (
+                        <span className="inline-block border border-grey-mid px-2 py-0.5 font-mono text-2xs uppercase text-grey-light">
+                          HIDDEN FROM KIOSK
+                        </span>
+                      )}
                       <p className="font-mono text-2xs uppercase text-grey-light">
                         {type.adminPinSet
-                          ? `ADMIN PIN ${type.adminPinHint ? `••${type.adminPinHint}` : 'SET'}`
+                          ? `ADMIN PIN ${type.adminPinHint ? `�?��?�${type.adminPinHint}` : 'SET'}`
                           : 'NO ADMIN PIN'}
                       </p>
                     </div>

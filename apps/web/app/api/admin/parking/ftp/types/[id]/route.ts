@@ -71,6 +71,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       useContactEmail: input.value.useContactEmail,
       useContactPhone: input.value.useContactPhone,
       logPlates: input.value.logPlates,
+      showOnKiosk: input.value.showOnKiosk,
       adminPinEnabled: input.value.adminPinEnabled,
       ...(newPin
         ? { adminPinHash: await hashAdminPin(newPin), adminPinHint: pinHint(newPin) }

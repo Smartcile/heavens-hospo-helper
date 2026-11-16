@@ -5,7 +5,12 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { resolveScopedVenueId } from '@/lib/venue-scope'
 import { normaliseGroupInput } from '@/lib/customer-groups'
-import { customerGroupInclude, customerGroupView } from '@/lib/customer-groups.server'
+import {
+  customerGroupInclude,
+  customerGroupView,
+  validateParkingTypeLink,
+} from '@/lib/customer-groups.server'
+import { syncCustomerGroupToParking } from '@/lib/customer-group-parking.server'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -38,6 +43,9 @@ export async function POST(req: NextRequest) {
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 422 })
   const value = parsed.value
 
+  const link = await validateParkingTypeLink(scoped.venueId, value.parkingTypeId)
+  if (!link.ok) return NextResponse.json({ error: link.error }, { status: link.status })
+
   const existing = await prisma.customerGroup.findFirst({
     where: { venueId: scoped.venueId, slug: value.slug },
   })
@@ -54,6 +62,7 @@ export async function POST(req: NextRequest) {
     colour: value.colour,
     isActive: value.isActive,
     sortOrder: value.sortOrder,
+    parkingTypeId: value.parkingTypeId,
     swiftPosTypeActive: value.mapping.typeActive,
     swiftPosStatusActive: value.mapping.statusActive,
     swiftPosTypeRemoved: value.mapping.typeRemoved,
@@ -82,5 +91,15 @@ export async function POST(req: NextRequest) {
         include: customerGroupInclude,
       })
 
-  return NextResponse.json({ group: customerGroupView(group) }, { status: existing ? 200 : 201 })
+  let parkingSync = null
+  try {
+    parkingSync = await syncCustomerGroupToParking(scoped.venueId, group.id)
+  } catch (error) {
+    console.error('customer database parking sync failed (non-blocking):', error)
+  }
+
+  return NextResponse.json(
+    { group: customerGroupView(group), parkingSync },
+    { status: existing ? 200 : 201 },
+  )
 }
