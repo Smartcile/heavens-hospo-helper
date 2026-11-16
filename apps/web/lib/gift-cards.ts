@@ -8,6 +8,15 @@ import {
   type GiftCardHistoryEvent,
 } from './gift-card-history'
 import { getTodayDate } from '@/lib/utils'
+import { syncGiftCardMembership } from './customer-memberships.server'
+
+async function syncGiftCardMemberBestEffort(cardId: string): Promise<void> {
+  try {
+    await syncGiftCardMembership(cardId)
+  } catch (error) {
+    console.error('gift card membership sync failed (non-blocking):', error)
+  }
+}
 
 // ── Gift card numbers: PREMADE year-series drafts ───────────────────────
 // Cards are pre-created (CREATE GIFT CARDS) as numbered DRAFT rows —
@@ -173,7 +182,10 @@ export async function issuePremade(venueId: string, details: IssueDetails): Prom
     if (!draft) throw new Error('NO GIFT CARDS COULD BE PREMADE — TRY AGAIN')
 
     const issued = await claimDraft(venueId, draft, details)
-    if (issued) return issued
+    if (issued) {
+      await syncGiftCardMemberBestEffort(issued.id)
+      return issued
+    }
   }
   throw new Error('A premade card could not be claimed — try again')
 }
@@ -200,6 +212,7 @@ export async function issueSpecificPremade(
   if (!issued) {
     throw new Error('CARD NO LONGER AVAILABLE — IT WAS ISSUED ELSEWHERE. REFRESH THE LIST.')
   }
+  await syncGiftCardMemberBestEffort(issued.id)
   return issued
 }
 
@@ -291,6 +304,7 @@ export async function resetGiftCardToDraft(
   }
 
   const updated = await prisma.giftCard.findUnique({ where: { id: card.id } })
+  await syncGiftCardMemberBestEffort(card.id)
   return { ok: true, card: updated }
 }
 
@@ -394,9 +408,11 @@ export async function replaceGiftCard(
         await logOrderEvent(
           card.wooOrderId,
           'CARD_REPLACED',
-          `GIFT CARD #${card.number} VOIDED — REPLACED BY #${claimed.number} — ${reason}`,
+          `GIFT CARD #${card.number} VOIDED �?" REPLACED BY #${claimed.number} �?" ${reason}`,
         )
       }
+      await syncGiftCardMemberBestEffort(card.id)
+      await syncGiftCardMemberBestEffort(claimed.id)
       return {
         oldCard: { id: card.id, number: card.number },
         newCard: { id: claimed.id, number: claimed.number, amount, status: 'ISSUED' },

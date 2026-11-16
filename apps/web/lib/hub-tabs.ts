@@ -32,6 +32,7 @@ export const OPS_SUB_TABS: Record<string, TabDef[]> = {
   ],
   customers: [
     { id: 'bookings', label: 'BOOKING CUSTOMERS' },
+    { id: 'members', label: 'CUSTOMER DATABASES' },
     { id: 'parking', label: 'PARKING MEMBERS' },
   ],
   orders: [

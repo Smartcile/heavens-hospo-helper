@@ -98,6 +98,7 @@ export const HELP_REQUIRED_SLUGS = [
   'dashboard',
   'ops-menu',
   'ops-orders-bookings',
+  'customer-databases',
   'inventory',
   'purchasing',
   'imports',

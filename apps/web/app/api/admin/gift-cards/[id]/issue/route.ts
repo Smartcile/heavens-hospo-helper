@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { issueGiftCardPdf } from '@/lib/gift-card-issue'
 import { logGiftCardEvent } from '@/lib/gift-card-history'
 import { guardAccess } from '@/lib/permissions'
+import { syncGiftCardMembership } from '@/lib/customer-memberships.server'
 
 /**
  * POST /api/admin/gift-cards/:id/issue
@@ -55,6 +56,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   await logGiftCardEvent(params.id, 'ISSUED', `AMOUNT $${Number(amount).toFixed(2)} — PDF GENERATED`)
+
+  try {
+    await syncGiftCardMembership(params.id)
+  } catch (error) {
+    console.error('gift card membership sync failed (non-blocking):', error)
+  }
 
   const updated = await prisma.giftCard.findUnique({ where: { id: params.id } })
   return NextResponse.json(updated)

@@ -71,7 +71,7 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 | **Menu & Services** | `/admin/ops?tab=menu` | MENUS & CATEGORIES · SERVICES (see section 2) |
 | **Bookings** | `/admin/ops?tab=bookings` | DIARY · TABLE · DELETED (see section 2) |
 | **Orders** | `/admin/ops?tab=orders` | ALL · SERVICE · KITCHEN · FOH · PRODUCTION · DOCKETS (see section 2) |
-| **Customers** | `/admin/ops?tab=customers` | BOOKING CUSTOMERS (phone/name search) · PARKING MEMBERS (real 4-hour membership list) |
+| **Customers** | `/admin/ops?tab=customers` | BOOKING CUSTOMERS (phone/name search) · CUSTOMER DATABASES (imported member groups, HubSpot CSV import, SwiftPOS export, gift-card members) · PARKING MEMBERS (real 4-hour membership list) |
 | **Inventory & Stocktake** | `/admin/ops?tab=inventory` | INVENTORY · RECIPES · MENU ITEMS · PANTRY BIBLE · STOCKTAKE (see section 2) |
 
 ### EVENTS group
@@ -115,7 +115,7 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 
 | Item | URL | What it does |
 |---|---|---|
-| **Settings** | `/admin/settings` | 10 tabs — GENERAL · VENUE SETUP · STRUCTURE · UNITS OF MEASURE · SUPPLIERS · QR CODES · SWIFT POS (SALES / STAFF SYNC / MENU LINKS) · FTP (customer kiosk, custom email, 4 hour carpark, staff plates) · FILES (admin) · UPDATES (admin) (section 3). Floor plans / rooms now live under Events → Rooms & Plans |
+| **Settings** | `/admin/settings` | 10 tabs — GENERAL · VENUE SETUP · STRUCTURE · UNITS OF MEASURE · SUPPLIERS · QR CODES · SWIFT POS (SALES / STAFF SYNC / MENU LINKS / MEMBERS) · FTP (customer kiosk, custom email, 4 hour carpark, staff plates) · FILES (admin) · UPDATES (admin) (section 3). Floor plans / rooms now live under Events → Rooms & Plans |
 
 **Bottom utility links:** `✕ HEAVENLY HELP` → `/admin/help` (global in-app help catalogue, seeded from the repo and searchable) and `WORKER VIEW →`.
 
@@ -144,7 +144,7 @@ Flow order: **Sell → Seat → Serve → Stock**.
 | **MENU & SERVICES** | `/admin/ops?tab=menu` | MENUS & CATEGORIES: pax-range menus (opt-in toggle), Woo category linking, unlinked-category rescue, and a drag-reorder **group → item** builder where each product row shows its list prices and **COGS vs price ex-GST** (EDIT opens a focused popup). SERVICES: dated ordering services (weekly slots, date exceptions, table plan, booking interval, BOOKING REQUIRED) |
 | **BOOKINGS** | `/admin/ops?tab=bookings` | Table reservations. DIARY (timeline), TABLE (tables × time grid with service windows, click-to-create, drag-resize), DELETED (recover with reseat + clash guard). Booking cards have a CUSTOMER button → slide-out customer drawer. Creates calendar events |
 | **ORDERS** | `/admin/ops?tab=orders` | Date-driven orders. Views: ALL / SERVICE / KITCHEN / FOH / PRODUCTION. Filters, saved views, + NEW ORDER. Detail popout: contact (VIEW CUSTOMER → drawer), booking controls, progress buttons, payment, items, Woo status push. DOCKETS: live SwiftPOS open-sale kitchen dockets at the pass (30 s refresh while visible, 30/60/120 min/ALL LINES windows, not-connected/error states) |
-| **CUSTOMERS** | `/admin/ops?tab=customers` | BOOKING CUSTOMERS: search by phone/name; detail opens the slide-out customer drawer (contact + booking history). PARKING MEMBERS: the real membership-number database for the 4-hour kiosk (add/edit/delete, plates, type, ACTIVE/TEST badges) |
+| **CUSTOMERS** | `/admin/ops?tab=customers` | BOOKING CUSTOMERS: search by phone/name; detail opens the slide-out customer drawer (contact + booking history). CUSTOMER DATABASES: imported groups (RAYC, Yacht Club, Trust, Gift Cards) with area access, HubSpot CSV import + preview/clean/family editor, active/inactive, SwiftPOS export and the gift-card member sync. PARKING MEMBERS: the real membership-number database for the 4-hour kiosk (add/edit/delete, plates, type, ACTIVE/TEST badges) |
 | **INVENTORY & STOCKTAKE** | `/admin/ops?tab=inventory` | INVENTORY: master-detail stock system (FOOD/BEVERAGE/OTHER categories, AVAIL = total − placed, deep fields, equipment tracking, furniture form, SHOW DELETED; regular items tagged `CUSTOM`). RECIPES: prep/BOM editor only (ingredients, PANTRY BIBLE references, sub-recipes, yield, instructions); no price/POS/image. MENU ITEMS: the sold products — optional recipe attach, price, descriptions/image, allergens (AllergenPicker), SWIFT POS code, ITEM LINKS (serves/drawdown) and EQUIPMENT. PANTRY BIBLE: searchable known-ingredient density library with BUILT-IN / CUSTOM badges and delete for venue-owned rows. STOCKTAKE: create/count/variance/sign-off. PURCHASING: purchase orders (create → send → receive, partial receipts, receipts update costs and raise PRICE MOVEMENTS). INVOICES: deterministic template-driven PDF/text import → editable preview → commit, with 3-way match badges (MATCHED/UNMATCHED/VARIANCE) and unapproved price movements |
 
 All areas follow the sidebar's active venue; old standalone URLs redirect here
