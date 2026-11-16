@@ -416,6 +416,12 @@ export function FtpSettingsClient({
               EACH LINK ALSO HAS ITS OWN CUSTOMER ENTRY SWITCH, SHARED PIN AND ROLLING PLATE
               LIMIT. THE 4 HOUR TAB SHOWS WHEN AT LEAST ONE ACTIVE TYPE HAS A CLAIM URL.
             </p>
+            <a
+              href="/admin/ops?tab=customers&sub=parking"
+              className="inline-block border border-grey-mid px-3 py-1.5 font-mono text-xs uppercase tracking-wider text-white hover:border-white"
+            >
+              MANAGE PARKING MEMBERS IN CUSTOMERS →
+            </a>
             <FtpFourHourPanel venueId={venueId} role={role} />
           </section>
 

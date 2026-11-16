@@ -718,7 +718,6 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
         {(
           [
             ['types', `PARKING TYPES (${types.length})`],
-            ['members', `TEST MEMBERS (${members.length})`],
             ['log', `PLATE LOG (${claimTotal})`],
             ['health', 'HEALTH'],
           ] as [PanelTab, string][]
