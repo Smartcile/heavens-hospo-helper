@@ -129,7 +129,7 @@ export function guestEntryLinkView(
   return {
     id: type.id,
     name: type.name,
-    label: guestEntryLabel(type.guestEntryLabel),
+    label: (type.guestEntryLabel ?? '').trim().toUpperCase() || type.name,
     windowLabel: type.windowLabel,
     durationMinutes: type.durationMinutes,
     limitEnabled: type.guestPlateLimitEnabled,

@@ -71,7 +71,7 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 | **Menu & Services** | `/admin/ops?tab=menu` | MENUS & CATEGORIES · SERVICES (see section 2) |
 | **Bookings** | `/admin/ops?tab=bookings` | DIARY · TABLE · DELETED (see section 2) |
 | **Orders** | `/admin/ops?tab=orders` | ALL · SERVICE · KITCHEN · FOH · PRODUCTION · DOCKETS (see section 2) |
-| **Customers** | `/admin/ops?tab=customers` | Customer search by phone/name (a leaf — no top bar) |
+| **Customers** | `/admin/ops?tab=customers` | BOOKING CUSTOMERS (phone/name search) · PARKING MEMBERS (real 4-hour membership list) |
 | **Inventory & Stocktake** | `/admin/ops?tab=inventory` | INVENTORY · RECIPES · MENU ITEMS · PANTRY BIBLE · STOCKTAKE (see section 2) |
 
 ### EVENTS group
@@ -124,7 +124,7 @@ that area's fine tabs** (section 2). Old standalone pages redirect here.
 ## 2. OPS HUB — one sticky top bar per area (`/admin/ops`)
 
 The **areas** are chosen in the sidebar; the page's sticky top bar shows that
-area's **fine tabs** only (CUSTOMERS is a leaf — no bar). Sub-tab = URL
+area's **fine tabs** only. Sub-tab = URL
 (`/admin/ops?tab=bookings&sub=deleted`) so refresh/back/bookmark work.
 
 ```
@@ -133,7 +133,7 @@ area's **fine tabs** only (CUSTOMERS is a leaf — no bar). Sub-tab = URL
 │ BOOKINGS →        DIARY | TABLE | DELETED                             │
 │ ORDERS →          ALL | SERVICE | KITCHEN | FOH | PRODUCTION | DOCKETS  │
 │ INVENTORY & STOCKTAKE →  INVENTORY | RECIPES | MENU ITEMS | PANTRY BIBLE | STOCKTAKE | PURCHASING | INVOICES │
-│ CUSTOMERS →       (no top bar)                                        │
+│ CUSTOMERS →       BOOKING CUSTOMERS | PARKING MEMBERS                 │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -144,7 +144,7 @@ Flow order: **Sell → Seat → Serve → Stock**.
 | **MENU & SERVICES** | `/admin/ops?tab=menu` | MENUS & CATEGORIES: pax-range menus (opt-in toggle), Woo category linking, unlinked-category rescue, and a drag-reorder **group → item** builder where each product row shows its list prices and **COGS vs price ex-GST** (EDIT opens a focused popup). SERVICES: dated ordering services (weekly slots, date exceptions, table plan, booking interval, BOOKING REQUIRED) |
 | **BOOKINGS** | `/admin/ops?tab=bookings` | Table reservations. DIARY (timeline), TABLE (tables × time grid with service windows, click-to-create, drag-resize), DELETED (recover with reseat + clash guard). Booking cards have a CUSTOMER button → slide-out customer drawer. Creates calendar events |
 | **ORDERS** | `/admin/ops?tab=orders` | Date-driven orders. Views: ALL / SERVICE / KITCHEN / FOH / PRODUCTION. Filters, saved views, + NEW ORDER. Detail popout: contact (VIEW CUSTOMER → drawer), booking controls, progress buttons, payment, items, Woo status push. DOCKETS: live SwiftPOS open-sale kitchen dockets at the pass (30 s refresh while visible, 30/60/120 min/ALL LINES windows, not-connected/error states) |
-| **CUSTOMERS** | `/admin/ops?tab=customers` | Customer search by phone/name; detail opens the slide-out customer drawer (contact + booking history) |
+| **CUSTOMERS** | `/admin/ops?tab=customers` | BOOKING CUSTOMERS: search by phone/name; detail opens the slide-out customer drawer (contact + booking history). PARKING MEMBERS: the real membership-number database for the 4-hour kiosk (add/edit/delete, plates, type, ACTIVE/TEST badges) |
 | **INVENTORY & STOCKTAKE** | `/admin/ops?tab=inventory` | INVENTORY: master-detail stock system (FOOD/BEVERAGE/OTHER categories, AVAIL = total − placed, deep fields, equipment tracking, furniture form, SHOW DELETED; regular items tagged `CUSTOM`). RECIPES: prep/BOM editor only (ingredients, PANTRY BIBLE references, sub-recipes, yield, instructions); no price/POS/image. MENU ITEMS: the sold products — optional recipe attach, price, descriptions/image, allergens (AllergenPicker), SWIFT POS code, ITEM LINKS (serves/drawdown) and EQUIPMENT. PANTRY BIBLE: searchable known-ingredient density library with BUILT-IN / CUSTOM badges and delete for venue-owned rows. STOCKTAKE: create/count/variance/sign-off. PURCHASING: purchase orders (create → send → receive, partial receipts, receipts update costs and raise PRICE MOVEMENTS). INVOICES: deterministic template-driven PDF/text import → editable preview → commit, with 3-way match badges (MATCHED/UNMATCHED/VARIANCE) and unapproved price movements |
 
 All areas follow the sidebar's active venue; old standalone URLs redirect here
