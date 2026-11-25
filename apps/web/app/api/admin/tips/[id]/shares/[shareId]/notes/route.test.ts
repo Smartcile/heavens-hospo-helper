@@ -104,6 +104,12 @@ describe('GET /api/admin/tips/[id]/shares/[shareId]/notes', () => {
     expect((await GET(req(), params)).status).toBe(403)
   })
 
+  it('403s an ADMIN who cannot access the period venue', async () => {
+    getAccessibleVenueIds.mockReturnValue(['v2'])
+    expect((await GET(req(), params)).status).toBe(403)
+    expect(db.tipsShareNote.findMany).not.toHaveBeenCalled()
+  })
+
   it('404s a share that is not on the period', async () => {
     db.tipsShare.findFirst.mockResolvedValueOnce(null)
     expect((await GET(req(), params)).status).toBe(404)

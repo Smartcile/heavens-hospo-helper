@@ -839,6 +839,10 @@ export function TipsClient({ venueId }: { venueId: string }) {
             toDate,
           })}
           existing={staffOptions.map((s) => ({ id: s.id, name: s.name }))}
+          renderSummary={(v) => ({
+            title: v.name,
+            meta: `${v.hours} HRS${v.weight != null ? ` · W ${v.weight}` : ''}`,
+          })}
           parse={(text, existing) => {
             const result = parseTipsImportAnswer(text)
             if ('error' in result) return result

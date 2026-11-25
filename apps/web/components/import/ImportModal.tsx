@@ -3,7 +3,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
-import { patchRowValues, setRowAction, setRowInclude, summariseRows, includedRows, rowsToPayload } from '@/lib/import/framework'
+import { patchRowValues, setRowAction, setRowInclude, summariseRows, rowsToPayload } from '@/lib/import/framework'
 import type { ImportExisting, ImportField, ImportParseResult, ImportRow, ImportRowAction, ImportSummary } from '@/lib/import/types'
 
 export function ImportModal<T>({
@@ -27,8 +27,10 @@ export function ImportModal<T>({
   /** POST target for the reviewed rows, e.g. `/api/admin/import/menu-items`. */
   endpoint?: string
   /**
-   * Client-side apply (#180): when present, IMPORT SELECTED calls this with the
-   * included rows instead of POSTing to `endpoint`. Returns the summary to show.
+   * Client-side apply (#180): when present, IMPORT SELECTED calls this with
+   * every reviewed row instead of POSTing to `endpoint`, letting the adapter
+   * apply the included rows and report a real skipped count. Returns the
+   * summary to show.
    */
   onApply?: (rows: ImportRow<T>[]) => ImportSummary
   /** Active venue for an ADMIN (a MANAGER is always locked to their own). */
@@ -105,7 +107,7 @@ export function ImportModal<T>({
     setBusy(true); setError('')
     try {
       if (onApply) {
-        setSummary(onApply(includedRows(rows)))
+        setSummary(onApply(rows))
         onImported()
         return
       }

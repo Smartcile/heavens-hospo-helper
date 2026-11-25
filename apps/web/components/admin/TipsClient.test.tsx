@@ -358,4 +358,51 @@ describe('TipsClient layout, columns, bulk, notes and import', () => {
     fireEvent.click(screen.getByLabelText('Include notes in PDF'))
     await waitFor(() => expect(link()?.getAttribute('href')).toBe('/api/admin/tips/t1/pdf?notes=1'))
   })
+
+  async function openImport(answer: string) {
+    fireEvent.click(screen.getByText(/IMPORT HOURS/))
+    fireEvent.click(await screen.findByText('NEXT'))
+    fireEvent.change(screen.getByPlaceholderText('PASTE THE JSON ANSWER HERE...'), {
+      target: { value: answer },
+    })
+    fireEvent.click(screen.getByText('PREVIEW'))
+  }
+
+  it('shows parsed hours in the import preview instead of NO PRICE', async () => {
+    render(<TipsClient venueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+
+    await openImport(
+      JSON.stringify({
+        staff: [
+          { name: 'LIAM SMITH', hours: 705 },
+          { name: 'SHAYLA JONES', hours: 634, weight: 0.75 },
+        ],
+      }),
+    )
+
+    expect(await screen.findByText('705 HRS')).toBeTruthy()
+    expect(screen.getByText('634 HRS · W 0.75')).toBeTruthy()
+    expect(screen.queryByText('NO PRICE')).toBeNull()
+  })
+
+  it('applies imported hours into the draft (matched row updated, unknown name manual)', async () => {
+    render(<TipsClient venueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+
+    await openImport(
+      JSON.stringify({
+        staff: [
+          { name: 'LIAM SMITH', hours: 999 },
+          { name: 'WALK IN WONDER', hours: 5 },
+        ],
+      }),
+    )
+    await screen.findByText('999 HRS')
+    fireEvent.click(screen.getByText('IMPORT SELECTED'))
+
+    await screen.findByText('IMPORT COMPLETE')
+    expect((screen.getByLabelText('Staff 1 hours') as HTMLInputElement).value).toBe('999')
+    expect((screen.getByLabelText('Staff 3 name') as HTMLInputElement).value).toBe('WALK IN WONDER')
+  })
 })
