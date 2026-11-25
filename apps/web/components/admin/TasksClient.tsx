@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Modal } from '@/components/ui/Modal'
+import { DateInput } from '@/components/ui/DateInput'
 import { Badge } from '@/components/ui/Badge'
 import { Combobox } from '@/components/ui/Combobox'
 import { SearchSelect } from '@/components/ui/SearchSelect'
@@ -20,6 +21,7 @@ import { describeSchedule, MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { availableParentTasks, orderTasksWithChildren } from '@/lib/task-subtasks'
 import { normaliseGroupLabel } from '@/lib/task-groups'
+import { isCustomTask } from '@/lib/custom-tasks'
 import { groupTasksBySection, taskSectionPrefix, taskSectionTitle } from '@/lib/task-section-label'
 import { buildSubtaskSeed } from '@/lib/task-subtask-seed'
 import { getActiveVenueId } from '@/lib/active-venue'
@@ -63,6 +65,9 @@ interface Task {
   checklistIds?: string[]
   assignedToStaffId?: string | null
   assigneeName?: string | null
+  isOneOff?: boolean
+  dueDate?: string | null
+  rolloverEnabled?: boolean
   subtaskOrder?: number
   subtasks?: { id: string; title: string; isActive: boolean; subtaskOrder: number }[]
   allowedOutcomes?: string[]
@@ -216,6 +221,17 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [requireRetrain, setRequireRetrain] = useState(false)
   const [changeSummary, setChangeSummary] = useState('')
 
+  // Compact "+ CUSTOM TASK" modal (#145) — the same POST as the full editor,
+  // reduced to the ad-hoc fields: title, description, assignee, scope, due date,
+  // rollover. No new page.
+  const [customOpen, setCustomOpen] = useState(false)
+  const [customForm, setCustomForm] = useState({
+    title: '', description: '', venueId: '', departmentId: '', sectionId: '',
+    assignedToStaffId: '', dueDate: '', rolloverEnabled: false,
+  })
+  const [customSaving, setCustomSaving] = useState(false)
+  const [customError, setCustomError] = useState('')
+
   // Inline checklist editor (right panel)
   const [clEditing, setClEditing] = useState<Checklist | 'new' | null>(null)
   const [clName, setClName] = useState('')
@@ -302,6 +318,55 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     void loadItems(venueId)
     setRequireRetrain(false); setChangeSummary('')
     setError(''); setModalOpen(true)
+  }
+  function openCustom() {
+    const venueId = filterVenue || getActiveVenueId(role, sessionVenueId, defaultVenueId) || venues[0]?.id || ''
+    setCustomForm({
+      title: '', description: '', venueId,
+      departmentId: filterDept || '', sectionId: '',
+      assignedToStaffId: '', dueDate: '', rolloverEnabled: false,
+    })
+    void loadAssignees(venueId)
+    setCustomError('')
+    setCustomOpen(true)
+  }
+  async function saveCustom() {
+    if (!customForm.title.trim() || !customForm.venueId) {
+      setCustomError('TITLE AND VENUE ARE REQUIRED')
+      return
+    }
+    setCustomSaving(true)
+    setCustomError('')
+    try {
+      const r = await fetch('/api/admin/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: customForm.title,
+          description: customForm.description || null,
+          venueId: customForm.venueId,
+          departmentId: customForm.departmentId || null,
+          sectionId: customForm.sectionId || null,
+          assignedToStaffId: customForm.assignedToStaffId || null,
+          isOneOff: true,
+          dueDate: customForm.dueDate || null,
+          rolloverEnabled: customForm.rolloverEnabled,
+          scheduleType: 'DAILY',
+          completionType: 'TICK',
+        }),
+      })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        setCustomError(d.error ?? 'SAVE FAILED')
+        return
+      }
+      setCustomOpen(false)
+      load()
+    } catch {
+      setCustomError('COULD NOT CONNECT')
+    } finally {
+      setCustomSaving(false)
+    }
   }
   function openEdit(t: Task) {
     setEditing(t)
@@ -559,6 +624,8 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const filterDeptOptions = [{ value: '', label: 'ALL DEPARTMENTS' }, ...departments.filter((d) => !filterVenue || d.venueId === filterVenue).map((d) => ({ value: d.id, label: d.name }))]
   const formDeptOptions = [{ value: '', label: 'NO DEPARTMENT' }, ...departments.filter((d) => d.venueId === form.venueId).map((d) => ({ value: d.id, label: d.name }))]
   const formSectionOptions = [{ value: '', label: 'NO SECTION' }, ...sections.filter((s) => s.departmentId === form.departmentId).map((s) => ({ value: s.id, label: s.name }))]
+  const customDeptOptions = [{ value: '', label: 'NO DEPARTMENT' }, ...departments.filter((d) => d.venueId === customForm.venueId).map((d) => ({ value: d.id, label: d.name }))]
+  const customSectionOptions = [{ value: '', label: 'NO SECTION' }, ...sections.filter((s) => s.departmentId === customForm.departmentId).map((s) => ({ value: s.id, label: s.name }))]
   const guideOptions = guides.filter((g) => g.venueId === form.venueId)
 
   const taskById = new Map(tasks.map((t) => [t.id, t]))
@@ -598,15 +665,20 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     { value: '', label: 'ANY USAGE' },
     { value: 'list', label: 'IN A CHECKLIST' },
     { value: 'nolist', label: 'NOT IN A LIST' },
+    { value: 'custom', label: 'CUSTOM TASKS' },
     { value: 'training', label: 'HAS TRAINING/SOP' },
     ...(clEditing ? [{ value: 'notinthis', label: 'NOT IN THIS LIST' }] : []),
   ]
+  const checklistTaskSet = new Set(
+    tasks.filter((t) => (t._count?.checklistLinks ?? 0) > 0 || (t.checklistIds?.length ?? 0) > 0).map((t) => t.id),
+  )
   const hasTrainingUse = (t: Task) => (t.trainingModules?.length ?? 0) > 0 || (t.requiredTraining?.length ?? 0) > 0 || (t.taskGuides?.length ?? 0) > 0
   const visibleTasks = tasks.filter((t) => {
     if (filterSection && t.sectionId !== filterSection) return false
     if (search.trim() && !t.title.toLowerCase().includes(search.trim().toLowerCase())) return false
     if (filterUsage === 'list' && !(t._count?.checklistLinks)) return false
     if (filterUsage === 'nolist' && (t._count?.checklistLinks ?? 0) > 0) return false
+    if (filterUsage === 'custom' && !isCustomTask(t, { anyAssignee: true, checklistTaskIds: checklistTaskSet })) return false
     // #19: filter against the LIVE selection, not the snapshot taken when the
     // editor opened. A task dropped this session must leave the left list too;
     // this also covers a brand-new list (`clEditing === 'new'`).
@@ -619,6 +691,8 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     const out: { text: string; cls: string }[] = []
     const n = t._count?.checklistLinks ?? 0
     if (n > 0) out.push({ text: n > 1 ? `${n} LISTS` : 'LIST', cls: 'text-success' })
+    if (t.isOneOff) out.push({ text: 'ONE-OFF', cls: 'text-warning' })
+    else if (t.assignedToStaffId) out.push({ text: 'ASSIGNED', cls: 'text-accent' })
     const kinds = new Set<string>()
     ;(t.trainingModules ?? []).forEach((m) => kinds.add(m.kind))
     ;(t.requiredTraining ?? []).forEach((r) => { if (r.module) kinds.add(r.module.kind) })
@@ -745,7 +819,10 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
         <div className="space-y-4 pr-2">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <h2 className="font-mono text-sm uppercase tracking-widest text-grey-light">TASKS</h2>
-            <Button onClick={openCreate} size="sm">+ NEW TASK</Button>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={openCustom}>+ CUSTOM TASK</Button>
+              <Button onClick={openCreate} size="sm">+ NEW TASK</Button>
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -1302,6 +1379,83 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           <div className="flex gap-2 pt-2">
             <Button onClick={handleSave} loading={saving}>SAVE</Button>
             <Button variant="ghost" onClick={() => setModalOpen(false)}>CANCEL</Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={customOpen} onClose={() => setCustomOpen(false)} title="CUSTOM TASK" size="md">
+        <div className="space-y-3">
+          <Input
+            label="Task title"
+            value={customForm.title}
+            onChange={(e) => setCustomForm({ ...customForm, title: e.target.value })}
+            placeholder="E.G. RESEARCH HIGH CHAIRS"
+          />
+          <Textarea
+            label="Description (optional)"
+            value={customForm.description}
+            onChange={(e) => setCustomForm({ ...customForm, description: e.target.value })}
+            placeholder="WHAT NEEDS DOING?"
+          />
+          {role === 'ADMIN' && (
+            <Select
+              label="Venue"
+              value={customForm.venueId}
+              onChange={(e) => {
+                const venueId = e.target.value
+                setCustomForm({ ...customForm, venueId, departmentId: '', sectionId: '', assignedToStaffId: '' })
+                void loadAssignees(venueId)
+              }}
+              options={venueOptions}
+              placeholder="SELECT VENUE"
+            />
+          )}
+          <Select
+            label="Assign to (optional)"
+            value={customForm.assignedToStaffId}
+            onChange={(e) => setCustomForm({ ...customForm, assignedToStaffId: e.target.value })}
+            options={[{ value: '', label: 'NO ONE (SHARED)' }, ...assignees.map((a) => ({ value: a.id, label: a.name }))]}
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <Select
+              label="Department"
+              value={customForm.departmentId}
+              onChange={(e) => setCustomForm({ ...customForm, departmentId: e.target.value, sectionId: '' })}
+              options={customDeptOptions}
+            />
+            <Select
+              label="Section (optional)"
+              value={customForm.sectionId}
+              onChange={(e) => setCustomForm({ ...customForm, sectionId: e.target.value })}
+              options={customSectionOptions}
+            />
+          </div>
+          <div className="flex items-end gap-4 flex-wrap">
+            <label className="flex flex-col gap-1">
+              <span className="font-mono text-xs uppercase text-grey-light tracking-wider">Due date (optional)</span>
+              <DateInput
+                value={customForm.dueDate}
+                onChange={(e) => setCustomForm({ ...customForm, dueDate: e.target.value })}
+                className="w-40"
+              />
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer font-mono text-xs uppercase text-white">
+              <input
+                type="checkbox"
+                checked={customForm.rolloverEnabled}
+                onChange={(e) => setCustomForm({ ...customForm, rolloverEnabled: e.target.checked })}
+                className="w-4 h-4 accent-white"
+              />
+              Roll over if not done
+            </label>
+          </div>
+          <p className="font-mono text-xs text-grey-light">
+            ONE-OFF TASKS APPEAR IN THE ASSIGNEE&rsquo;S CUSTOM TASKS ON THE FLOOR. THEY ARE NEVER DUPLICATED INTO A CHECKLIST.
+          </p>
+          {customError && <p className="font-mono text-xs text-danger">{customError}</p>}
+          <div className="flex gap-2 pt-1">
+            <Button onClick={saveCustom} loading={customSaving}>SAVE</Button>
+            <Button variant="ghost" onClick={() => setCustomOpen(false)}>CANCEL</Button>
           </div>
         </div>
       </Modal>

@@ -69,12 +69,12 @@ function json(data: unknown): Response {
   return { ok: true, status: 200, json: async () => data } as unknown as Response
 }
 
-function mockTasks(tasks: unknown[], checklists: unknown[] = []) {
+function mockTasks(tasks: unknown[], checklists: unknown[] = [], staffId = '') {
   const fetchMock = vi.mocked(global.fetch)
   fetchMock.mockImplementation(async (url: string | URL | Request) => {
     const u = String(url)
     if (u === '/api/worker/tasks') {
-      return json({ tasks, checklists, firstName: 'BAR' })
+      return json({ tasks, checklists, firstName: 'BAR', staffId })
     }
     return json({})
   })
@@ -1008,5 +1008,58 @@ describe('WorkerTasksClient', () => {
       unmount()
       delete (globalThis as unknown as { EventSource?: unknown }).EventSource
     }
+  })
+
+  it('renders a CUSTOM TASKS pseudo-list with FOR name and never duplicates a list task (#145)', async () => {
+    const customTask = {
+      ...BASE_TASK,
+      id: 't20',
+      title: 'RESEARCH HIGH CHAIRS',
+      departmentName: 'MANAGER',
+      assigneeName: 'SAM LEE',
+      isOneOff: true,
+    }
+    const listTask = {
+      ...BASE_TASK,
+      id: 't21',
+      title: 'WIPE TABLES',
+      isOneOff: true,
+    }
+    mockTasks(
+      [customTask, listTask],
+      [{ id: 'c1', name: 'OPENING', appearFromTime: null, activatedToday: false, taskIds: ['t21'] }],
+    )
+
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('CUSTOM TASKS')).toBeDefined())
+    expect(screen.getByText('RESEARCH HIGH CHAIRS')).toBeDefined()
+    expect(screen.getByText('FOR SAM LEE')).toBeDefined()
+    // The custom card carries the ONE-OFF tag.
+    expect(screen.getAllByText('ONE-OFF')).toHaveLength(1)
+    // The checklist task stays in OPENING and is never duplicated in CUSTOM.
+    expect(screen.getByText('OPENING')).toBeDefined()
+    expect(screen.getAllByText('WIPE TABLES')).toHaveLength(1)
+  })
+
+  it('puts an assigned-but-not-one-off cross-department task in CUSTOM TASKS (#145)', async () => {
+    const assigned = {
+      ...BASE_TASK,
+      id: 't30',
+      title: 'ORDER MORE GLASSES',
+      departmentName: 'OTHER DEPT',
+      assignedToStaffId: 's1',
+      assigneeName: 'SAM LEE',
+      isOneOff: false,
+    }
+    mockTasks([assigned], [], 's1')
+
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('CUSTOM TASKS')).toBeDefined())
+    // Rendered in the custom bucket exactly once, not also under its department.
+    expect(screen.getAllByText('ORDER MORE GLASSES')).toHaveLength(1)
+    expect(screen.getByText('FOR SAM LEE')).toBeDefined()
+    expect(screen.getByText('CUSTOM')).toBeDefined()
   })
 })

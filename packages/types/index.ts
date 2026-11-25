@@ -162,6 +162,8 @@ export interface WorkerTaskView {
   completionType: string
   departmentName: string | null
   sectionName: string | null
+  /** Who the task is assigned to (visibility + custom-bucket membership). */
+  assignedToStaffId?: string | null
   assigneeName: string | null
   guide: { id: string; title: string } | null
   isCompleted: boolean
@@ -194,6 +196,8 @@ export interface WorkerTaskView {
   dueDate: string | null
   rolloverEnabled: boolean
   rolledOverFrom: string | null
+  /** #145 — belongs in the combined CUSTOM TASKS bucket. */
+  custom?: boolean
   // Food Health & Safety READING tasks — capture fields for the worker modal
   readingUnit: string | null
   readingMin: number | null

@@ -103,6 +103,7 @@ beforeEach(() => {
   workerTaskAccess.mockResolvedValue({ canAuthor: false })
   applicableChecklistsForStaff.mockResolvedValue({ checklists: [], departmentIds: null })
   prisma.venue.findUnique.mockResolvedValue({ timezone: 'Pacific/Auckland' })
+  prisma.departmentLink.findMany.mockResolvedValue([])
   prisma.staff.findMany.mockResolvedValue([])
   prisma.taskProgress.deleteMany.mockResolvedValue({ count: 1 })
   prisma.taskCompletion.findMany.mockResolvedValue([])
@@ -212,5 +213,59 @@ describe('GET /api/worker/tasks — day-aware partials', () => {
     expect(prisma.taskCompletion.updateMany).not.toHaveBeenCalled()
     expect(prisma.taskCompletion.delete).not.toHaveBeenCalled()
     expect(prisma.taskCompletion.deleteMany).not.toHaveBeenCalled()
+  })
+
+  // #145 — assignment is visibility: a task assigned to the worker is returned
+  // even when it belongs to another department.
+  it('returns a cross-department task assigned to the worker and flags it custom', async () => {
+    getWorkerSession.mockResolvedValue({
+      staffId: 's1', venueId: 'v1', departmentId: 'd1', firstName: 'ANN',
+    })
+    prisma.task.findMany.mockResolvedValue([
+      floorTask({
+        id: 't9',
+        title: 'RESEARCH HIGH CHAIRS',
+        departmentId: 'other-dept',
+        assignedToStaffId: 's1',
+        scheduleType: 'DAILY',
+      }),
+    ])
+
+    const res = await GET(req())
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.tasks).toHaveLength(1)
+    expect(body.tasks[0].custom).toBe(true)
+
+    const args = prisma.task.findMany.mock.calls[0][0]
+    expect(args.where).toMatchObject({
+      venueId: 'v1',
+      isActive: true,
+      status: 'ACTIVE',
+      deletedAt: null,
+    })
+    expect(args.where.OR).toEqual([
+      { departmentId: { in: ['d1'] } },
+      { assignedToStaffId: 's1' },
+    ])
+  })
+
+  it('never duplicates a checklist task into the custom bucket', async () => {
+    getWorkerSession.mockResolvedValue({
+      staffId: 's1', venueId: 'v1', departmentId: 'd1', firstName: 'ANN',
+    })
+    prisma.task.findMany.mockResolvedValue([
+      floorTask({ id: 't1', isOneOff: true, assignedToStaffId: 's1', scheduleType: 'DAILY' }),
+    ])
+    applicableChecklistsForStaff.mockResolvedValue({
+      checklists: [multiDayChecklist()], departmentIds: null,
+    })
+
+    const res = await GET(req())
+    const body = await res.json()
+
+    expect(body.tasks).toHaveLength(1)
+    expect(body.tasks[0].custom).toBe(false)
   })
 })
