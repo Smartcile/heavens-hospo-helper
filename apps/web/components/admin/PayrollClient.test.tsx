@@ -200,6 +200,8 @@ describe('PayrollClient', () => {
 
     expect(await screen.findByText(/30M BRK/)).toBeDefined()
     expect(screen.getByText('PAID BREAKS')).toBeDefined()
-    expect(screen.getAllByText('0.00H').length).toBe(2) // no split data → both zero
+    // No split in a legacy breakdown → dashes, not a misleading "0.00H".
+    expect(screen.queryByText('0.00H')).toBeNull()
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2)
   })
 })

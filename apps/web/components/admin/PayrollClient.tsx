@@ -395,6 +395,11 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
   }
 
   const payslipBreaks = sumBreakSplit(payslip?.breakdown)
+  // A breakdown written before the split existed has total breaks only — show
+  // `—` rather than a misleading 0.00H next to a visible "X M BRK" line.
+  const payslipHasSplit = (payslip?.breakdown ?? []).some(
+    (b) => b.paidBreakMinutes != null || b.unpaidBreakMinutes != null,
+  )
 
   return (
     <div className="p-4 md:p-6 space-y-4">
@@ -666,8 +671,8 @@ export function PayrollClient({ role, sessionVenueId, defaultVenueId }: { role: 
                 ['OVERTIME HOURS', `${(payslip.overtimeHours ?? 0).toFixed(2)}`],
                 ['PUBLIC HOLIDAY HOURS', `${(payslip.publicHolidayHours ?? 0).toFixed(2)}`],
                 ['TOTAL HOURS', `${payslip.totalHours.toFixed(2)}`],
-                ['PAID BREAKS', `${(payslipBreaks.paidMinutes / 60).toFixed(2)}H`],
-                ['UNPAID BREAKS', `${(payslipBreaks.unpaidMinutes / 60).toFixed(2)}H`],
+                ['PAID BREAKS', payslipHasSplit ? `${(payslipBreaks.paidMinutes / 60).toFixed(2)}H` : '—'],
+                ['UNPAID BREAKS', payslipHasSplit ? `${(payslipBreaks.unpaidMinutes / 60).toFixed(2)}H` : '—'],
                 ['RATE', money(payslip.hourlyRate)],
                 ['GROSS PAY', money(payslip.grossPay ?? payslip.totalPay)],
                 ['HOLIDAY PAY (8% CASUAL)', money(payslip.holidayPay)],
