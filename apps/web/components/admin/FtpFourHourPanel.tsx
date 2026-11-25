@@ -20,6 +20,7 @@ interface FtpType {
   useContactEmail: boolean
   useContactPhone: boolean
   logPlates: boolean
+  plateRemovalRequiresPin: boolean
   showOnKiosk: boolean
   adminPinEnabled: boolean
   adminPinSet: boolean
@@ -108,6 +109,7 @@ interface TypeForm {
   useContactEmail: boolean
   useContactPhone: boolean
   logPlates: boolean
+  plateRemovalRequiresPin: boolean
   showOnKiosk: boolean
   adminPinEnabled: boolean
   adminPin: string
@@ -145,6 +147,7 @@ const EMPTY_TYPE: TypeForm = {
   useContactEmail: true,
   useContactPhone: true,
   logPlates: true,
+  plateRemovalRequiresPin: false,
   showOnKiosk: true,
   adminPinEnabled: false,
   adminPin: '',
@@ -197,6 +200,7 @@ function typeFormFrom(type: FtpType): TypeForm {
     useContactEmail: type.useContactEmail,
     useContactPhone: type.useContactPhone,
     logPlates: type.logPlates,
+    plateRemovalRequiresPin: type.plateRemovalRequiresPin,
     showOnKiosk: type.showOnKiosk,
     adminPinEnabled: type.adminPinEnabled,
     adminPin: '',
@@ -397,6 +401,7 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
         useContactEmail: typeForm.useContactEmail,
         useContactPhone: typeForm.useContactPhone,
         logPlates: typeForm.logPlates,
+        plateRemovalRequiresPin: typeForm.plateRemovalRequiresPin,
         showOnKiosk: typeForm.showOnKiosk,
         adminPinEnabled: typeForm.adminPinEnabled,
         guestEntryEnabled: typeForm.guestEntryEnabled,
@@ -849,6 +854,19 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
                 <label className="flex items-center gap-2">
                   <input
                     type="checkbox"
+                    checked={typeForm.plateRemovalRequiresPin}
+                    onChange={(e) =>
+                      setTypeForm({ ...typeForm, plateRemovalRequiresPin: e.target.checked })
+                    }
+                    className="h-4 w-4 accent-white"
+                  />
+                  <span className="font-mono text-xs uppercase text-white">
+                    ADMIN PIN TO REMOVE PLATES
+                  </span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
                     checked={typeForm.showOnKiosk}
                     onChange={(e) =>
                       setTypeForm({ ...typeForm, showOnKiosk: e.target.checked })
@@ -1109,6 +1127,7 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
                       <p className="font-mono text-2xs uppercase text-grey-light">
                         {type.memberCount} MEMBERS · {type.claimCount} CLAIMS ·{' '}
                         {type.logPlates ? 'PLATES LOGGED' : 'PLATES NOT LOGGED'}
+                        {type.plateRemovalRequiresPin ? ' · PIN TO REMOVE' : ''}
                       </p>
                       <p className="font-mono text-2xs uppercase text-grey-light">
                         {type.claimUrl ?? 'NO CLAIM URL'}

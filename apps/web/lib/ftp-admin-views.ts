@@ -28,6 +28,7 @@ export function ftpTypeAdminView(
     useContactEmail: row.useContactEmail,
     useContactPhone: row.useContactPhone,
     logPlates: row.logPlates,
+    plateRemovalRequiresPin: row.plateRemovalRequiresPin,
     showOnKiosk: row.showOnKiosk,
     adminPinEnabled: row.adminPinEnabled,
     adminPinSet: Boolean(row.adminPinHash),
@@ -73,6 +74,7 @@ export function ftpMemberAdminView(
     parkingTypeName: row.parkingType?.name ?? null,
     isActive: row.isActive,
     isTest: row.isTest,
+    savePlates: row.savePlates,
     notes: row.notes,
     createdAt: row.createdAt,
     plates: sortMemberPlates(

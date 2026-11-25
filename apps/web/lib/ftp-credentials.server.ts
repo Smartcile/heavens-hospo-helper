@@ -12,7 +12,9 @@ import { isValidAdminPin, isValidMembershipNumber, normaliseMembershipNumber } f
 const secret = new TextEncoder().encode(
   process.env.NEXTAUTH_SECRET ?? 'fallback-dev-secret-change-in-prod',
 )
-const CREDENTIAL_TTL = '2m'
+// Ten minutes so a member can manage their saved plates after the credential
+// step. Every public write still re-checks kiosk access and venue scope.
+export const CREDENTIAL_TTL = '10m'
 const MANUAL_TTL = '30m'
 
 const memberInclude = {
@@ -98,15 +100,20 @@ export interface FtpCredentialPublicView {
     name: string
     windowLabel: string | null
     durationMinutes: number
+    plateRemovalRequiresPin: boolean
   }
   member: {
     id: string
     firstName: string
     lastName: string
+    plateSavingEnabled: boolean
     plates: { id: string; plate: string; isDefault: boolean }[]
   } | null
 }
 
+// When the member has turned plate saving off, the kiosk never sees their
+// stored plates: it must ask for a plate and must not reveal old ones. The
+// plates stay on the record for the admin to manage.
 export function ftpCredentialPublicView(credential: FtpCredential): FtpCredentialPublicView {
   return {
     kind: credential.kind,
@@ -115,17 +122,21 @@ export function ftpCredentialPublicView(credential: FtpCredential): FtpCredentia
       name: credential.type.name,
       windowLabel: credential.type.windowLabel,
       durationMinutes: credential.type.durationMinutes,
+      plateRemovalRequiresPin: credential.type.plateRemovalRequiresPin,
     },
     member: credential.member
       ? {
           id: credential.member.id,
           firstName: credential.member.firstName,
           lastName: credential.member.lastName,
-          plates: sortMemberPlates(credential.member.plates).map((plate) => ({
-            id: plate.id,
-            plate: plate.plate,
-            isDefault: plate.isDefault,
-          })),
+          plateSavingEnabled: credential.member.savePlates,
+          plates: credential.member.savePlates
+            ? sortMemberPlates(credential.member.plates).map((plate) => ({
+                id: plate.id,
+                plate: plate.plate,
+                isDefault: plate.isDefault,
+              }))
+            : [],
         }
       : null,
   }

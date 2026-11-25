@@ -14,7 +14,12 @@ vi.mock('@hospo-ops/db', () => ({
 }))
 vi.mock('bcryptjs', () => ({ default: { compare }, compare }))
 
-import { resolveFtpCredential } from './ftp-credentials.server'
+import {
+  CREDENTIAL_TTL,
+  ftpCredentialPublicView,
+  resolveFtpCredential,
+  type FtpCredential,
+} from './ftp-credentials.server'
 
 const TYPE = {
   id: 't1',
@@ -97,5 +102,84 @@ describe('resolveFtpCredential', () => {
     })
 
     expect(result).toEqual({ ok: false, reason: 'NOT_FOUND' })
+  })
+})
+
+describe('credential token lifetime', () => {
+  it('lasts ten minutes so a member can manage saved plates', () => {
+    expect(CREDENTIAL_TTL).toBe('10m')
+  })
+})
+
+describe('ftpCredentialPublicView', () => {
+  const type = {
+    id: 't1',
+    venueId: 'v1',
+    name: 'RAYC',
+    windowLabel: '4 HOURS',
+    durationMinutes: 240,
+    plateRemovalRequiresPin: true,
+  } as unknown as FtpCredential['type']
+
+  const plate = {
+    id: 'p1',
+    venueId: 'v1',
+    memberId: 'm1',
+    plate: 'ABC123',
+    isDefault: true,
+    status: 'ACTIVE',
+    createdAt: new Date('2026-01-01'),
+    updatedAt: new Date('2026-01-01'),
+    deletedAt: null,
+  }
+
+  function member(savePlates: boolean): FtpCredential['member'] {
+    return {
+      id: 'm1',
+      venueId: 'v1',
+      membershipNumber: '1234',
+      firstName: 'TEST',
+      lastName: 'MEMBER',
+      email: null,
+      phone: null,
+      parkingTypeId: 't1',
+      customerGroupId: null,
+      isActive: true,
+      isTest: false,
+      savePlates,
+      notes: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+      plates: [plate],
+    } as unknown as FtpCredential['member']
+  }
+
+  it('exposes the saved plates and saving state when saving is on', () => {
+    const view = ftpCredentialPublicView({
+      kind: 'MEMBER',
+      type,
+      member: member(true),
+    } as unknown as FtpCredential)
+    expect(view.type.plateRemovalRequiresPin).toBe(true)
+    expect(view.member).toMatchObject({
+      plateSavingEnabled: true,
+      plates: [{ id: 'p1', plate: 'ABC123', isDefault: true }],
+    })
+  })
+
+  it('hides existing plates when the member has turned saving off', () => {
+    const view = ftpCredentialPublicView({
+      kind: 'MEMBER',
+      type,
+      member: member(false),
+    } as unknown as FtpCredential)
+    expect(view.member).toMatchObject({ plateSavingEnabled: false, plates: [] })
+  })
+
+  it('has no member for the admin PIN flow', () => {
+    const view = ftpCredentialPublicView({ kind: 'ADMIN_PIN', type, member: null })
+    expect(view.member).toBeNull()
+    expect(view.type.plateRemovalRequiresPin).toBe(true)
   })
 })

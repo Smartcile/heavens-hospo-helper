@@ -41,6 +41,7 @@ export interface FtpTypeInput {
   useContactEmail: boolean
   useContactPhone: boolean
   logPlates: boolean
+  plateRemovalRequiresPin: boolean
   showOnKiosk: boolean
   adminPinEnabled: boolean
   adminPin: string | null
@@ -64,6 +65,7 @@ export interface FtpTestMemberInput {
   parkingTypeId: string
   isActive: boolean
   isTest: boolean
+  savePlates: boolean
   notes: string | null
 }
 
@@ -193,6 +195,7 @@ export function normaliseFtpTypeInput(body: Record<string, unknown>): NormaliseF
       useContactEmail: body.useContactEmail !== false,
       useContactPhone: body.useContactPhone !== false,
       logPlates: body.logPlates !== false,
+      plateRemovalRequiresPin: body.plateRemovalRequiresPin === true,
       showOnKiosk: body.showOnKiosk !== false,
       adminPinEnabled,
       adminPin,
@@ -249,6 +252,7 @@ export function normaliseTestMemberInput(
       parkingTypeId,
       isActive: body.isActive !== false,
       isTest: body.isTest === true,
+      savePlates: body.savePlates !== false,
       notes,
     },
   }
@@ -312,6 +316,18 @@ export function sortMemberPlates<T extends { isDefault: boolean; createdAt: Date
 
 export function defaultMemberPlate<T extends { isDefault: boolean }>(plates: T[]): T | null {
   return plates.find((plate) => plate.isDefault) ?? plates[0] ?? null
+}
+
+/**
+ * A plate is only remembered when both the type logs plates and the member has
+ * not turned saving off. Claim logging and the duplicate guard stay on
+ * `type.logPlates`; this only controls the remembered plate list.
+ */
+export function shouldRememberMemberPlate(input: {
+  savePlates: boolean
+  logPlates: boolean
+}): boolean {
+  return input.savePlates && input.logPlates
 }
 
 export function credentialLabel(kind: string): string {

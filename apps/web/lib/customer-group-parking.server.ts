@@ -70,6 +70,8 @@ export async function syncCustomerGroupToParking(
           customerGroupId: group.id,
           isActive: member.isActive,
           isTest: false,
+          // savePlates is deliberately not synced: a member's own plate-saving
+          // preference must survive a customer-group sync.
           deletedAt: null,
         },
         create: {

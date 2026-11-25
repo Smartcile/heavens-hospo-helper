@@ -3,52 +3,63 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { resolveScopedVenueId } from '@/lib/venue-scope'
+import {
+  applyMemberPlateAction,
+  removeMemberPlate,
+  type MemberPlateAction,
+} from '@/lib/ftp-member-plates.server'
 
-// Remove a remembered plate from a test member. Plates are added by the kiosk;
-// this is only the cleanup path for testing a first-time / add-plate flow.
+// Plate management for a parking member. Plates are added by the kiosk; the
+// admin can remove one or choose the default. Removal is a soft-delete and
+// promotes the oldest remaining plate, never a hard delete.
+
+async function load(req: NextRequest, id: string, plateId: string) {
+  const session = await getServerSession(authOptions)
+  if (!session) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
+  const scoped = resolveScopedVenueId(session, req)
+  if ('error' in scoped) return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
+
+  const member = await prisma.member.findFirst({
+    where: { id, venueId: scoped.venueId, deletedAt: null },
+    select: { id: true },
+  })
+  if (!member) return { error: NextResponse.json({ error: 'NOT FOUND' }, { status: 404 }) }
+
+  return { venueId: scoped.venueId, memberId: member.id, plateId }
+}
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string; plateId: string } },
+) {
+  const loaded = await load(req, params.id, params.plateId)
+  if ('error' in loaded) return loaded.error
+
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+  const action: MemberPlateAction = body.action === 'REMOVE' ? 'REMOVE' : 'SET_DEFAULT'
+
+  const result = await applyMemberPlateAction({
+    venueId: loaded.venueId,
+    memberId: loaded.memberId,
+    plateId: loaded.plateId,
+    action,
+  })
+  if (!result.ok) return NextResponse.json({ error: 'NOT FOUND' }, { status: 404 })
+  return NextResponse.json({ ok: true, plates: result.plates })
+}
 
 export async function DELETE(
   req: NextRequest,
   { params }: { params: { id: string; plateId: string } },
 ) {
-  const session = await getServerSession(authOptions)
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const scoped = resolveScopedVenueId(session, req)
-  if ('error' in scoped) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const loaded = await load(req, params.id, params.plateId)
+  if ('error' in loaded) return loaded.error
 
-  const member = await prisma.member.findFirst({
-    where: { id: params.id, venueId: scoped.venueId, deletedAt: null },
-    select: { id: true },
+  const result = await removeMemberPlate({
+    venueId: loaded.venueId,
+    memberId: loaded.memberId,
+    plateId: loaded.plateId,
   })
-  if (!member) return NextResponse.json({ error: 'NOT FOUND' }, { status: 404 })
-
-  const plate = await prisma.memberPlate.findFirst({
-    where: {
-      id: params.plateId,
-      memberId: member.id,
-      venueId: scoped.venueId,
-      deletedAt: null,
-    },
-    select: { id: true, isDefault: true },
-  })
-  if (!plate) return NextResponse.json({ error: 'NOT FOUND' }, { status: 404 })
-
-  await prisma.$transaction(async (tx) => {
-    await tx.memberPlate.update({
-      where: { id: plate.id },
-      data: { deletedAt: new Date(), status: 'RETIRED' },
-    })
-    if (plate.isDefault) {
-      const next = await tx.memberPlate.findFirst({
-        where: { memberId: member.id, status: 'ACTIVE', deletedAt: null },
-        orderBy: { createdAt: 'asc' },
-        select: { id: true },
-      })
-      if (next) {
-        await tx.memberPlate.update({ where: { id: next.id }, data: { isDefault: true } })
-      }
-    }
-  })
-
+  if (!result.ok) return NextResponse.json({ error: 'NOT FOUND' }, { status: 404 })
   return NextResponse.json({ ok: true })
 }

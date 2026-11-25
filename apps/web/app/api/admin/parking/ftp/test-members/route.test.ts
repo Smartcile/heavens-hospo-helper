@@ -51,6 +51,7 @@ function member(overrides: Record<string, unknown> = {}) {
     parkingTypeId: 't1',
     isActive: true,
     isTest: true,
+    savePlates: true,
     notes: null,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -129,5 +130,20 @@ describe('/api/admin/parking/ftp/test-members', () => {
     const res = await POST(req({ ...VALID, isTest: true }))
     expect(res.status).toBe(201)
     expect(memberCreate.mock.calls[0][0].data).toMatchObject({ isTest: true })
+  })
+
+  it('defaults plate saving on and accepts an explicit off', async () => {
+    await POST(req(VALID))
+    expect(memberCreate.mock.calls[0][0].data).toMatchObject({ savePlates: true })
+
+    memberCreate.mockClear()
+    await POST(req({ ...VALID, savePlates: false }))
+    expect(memberCreate.mock.calls[0][0].data).toMatchObject({ savePlates: false })
+  })
+
+  it('returns savePlates in the member view', async () => {
+    const res = await GET(req())
+    const body = await res.json()
+    expect(body.members[0]).toMatchObject({ savePlates: true })
   })
 })

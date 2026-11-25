@@ -7,7 +7,7 @@
 import { Prisma, prisma } from '@hospo-ops/db'
 import { createManualToken } from './ftp-credentials.server'
 import { writeFtpEvidence } from './ftp-evidence.server'
-import { resolveFtpContact } from './ftp-parking'
+import { resolveFtpContact, shouldRememberMemberPlate } from './ftp-parking'
 import { isValidPlate, normalisePlate, wallClockParts } from './parking'
 import { type FtpClaimStatus } from './vpermit'
 import { claimWithVpermit } from './vpermit.server'
@@ -276,7 +276,11 @@ export async function submitFtpClaim(
       // Keep the confirmed claim even without the evidence files.
     }
 
-    if (member && storedPlate) {
+    if (
+      member &&
+      storedPlate &&
+      shouldRememberMemberPlate({ savePlates: member.savePlates, logPlates: type.logPlates })
+    ) {
       try {
         await rememberMemberPlate({
           venueId: args.venueId,

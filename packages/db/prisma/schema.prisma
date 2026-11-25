@@ -4940,6 +4940,9 @@ model FtpParkingType {
   useContactPhone  Boolean   @default(true)
   // Per-type switch: when false, claims are still logged but the plate is not stored.
   logPlates        Boolean   @default(true)
+  // Optional: when true, removing a remembered member plate at the kiosk
+  // requires this type's admin PIN. Setting a default plate is unaffected.
+  plateRemovalRequiresPin Boolean @default(false)
   // When false the type is hidden from the public kiosk's 4 HOUR tab but still
   // works for event guest-entry links and the admin/test flows.
   showOnKiosk      Boolean   @default(true)
@@ -4996,6 +4999,9 @@ model Member {
   customerGroupId  String?
   isActive         Boolean   @default(true)
   isTest           Boolean   @default(false)
+  // When false, the kiosk stops saving new plates for this member and hides
+  // existing saved plates. Existing plates are kept for the admin to manage.
+  savePlates       Boolean   @default(true)
   notes            String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt

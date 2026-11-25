@@ -118,6 +118,7 @@ export async function POST(req: NextRequest) {
       useContactEmail: input.value.useContactEmail,
       useContactPhone: input.value.useContactPhone,
       logPlates: input.value.logPlates,
+      plateRemovalRequiresPin: input.value.plateRemovalRequiresPin,
       showOnKiosk: input.value.showOnKiosk,
       adminPinEnabled: input.value.adminPinEnabled,
       adminPinHash,

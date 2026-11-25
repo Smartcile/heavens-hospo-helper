@@ -91,6 +91,7 @@ export async function POST(req: NextRequest) {
     parkingTypeId: input.value.parkingTypeId,
     isActive: input.value.isActive,
     isTest: input.value.isTest,
+    savePlates: input.value.savePlates,
     notes: input.value.notes,
     deletedAt: null,
   }
