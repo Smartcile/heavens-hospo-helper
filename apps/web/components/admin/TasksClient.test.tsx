@@ -7,6 +7,14 @@ function json(data: unknown): Response {
   return { ok: true, status: 200, json: async () => data } as unknown as Response
 }
 
+/** The LAST <select> offering `optionText` — the task modal renders after the page filters. */
+function selectWithOption(optionText: string): HTMLSelectElement {
+  const selects = Array.from(document.querySelectorAll('select')) as HTMLSelectElement[]
+  const matches = selects.filter((s) => Array.from(s.options).some((o) => o.textContent === optionText))
+  if (matches.length === 0) throw new Error(`no select with option ${optionText}`)
+  return matches[matches.length - 1]
+}
+
 const TASK_ONE = {
   id: 't1', title: 'TASK ONE', description: null, venueId: 'v1',
   departmentId: 'd1', sectionId: null, completionType: 'TICK', scheduleType: 'DAILY',
@@ -23,19 +31,39 @@ const TASK_TWO = {
 
 const PARENT_TASK = {
   ...TASK_ONE, id: 'p1', title: 'NEWSPAPERS', _count: { checklistLinks: 0 },
+  sectionId: 'sec1', section: { id: 'sec1', name: 'BAR' },
   parentTaskId: null, subtasks: [{ id: 'c1', title: 'THROW OUT PAPERS', isActive: true, subtaskOrder: 0 }],
 }
 
 const CHILD_TASK = {
   ...TASK_ONE, id: 'c1', title: 'THROW OUT PAPERS', sortOrder: 1, _count: { checklistLinks: 0 },
   parentTaskId: 'p1', parentTitle: 'NEWSPAPERS',
+  sectionId: 'sec1', section: { id: 'sec1', name: 'BAR' },
 }
+
+const TASK_BAR = {
+  ...TASK_ONE, id: 'tb', title: 'TURN ON DISHWASHER', sectionId: 'sec1',
+  section: { id: 'sec1', name: 'BAR' }, _count: { checklistLinks: 0 },
+}
+
+const TASK_KITCHEN = {
+  ...TASK_ONE, id: 'tk', title: 'TURN ON DISHWASHER', sectionId: 'sec2',
+  section: { id: 'sec2', name: 'KITCHEN' }, _count: { checklistLinks: 0 },
+}
+
+const TASK_EDIT = {
+  ...TASK_ONE, id: 'te', title: 'EDIT ME', _count: { checklistLinks: 0 },
+}
+
+const SECTION_BAR = { id: 'sec1', name: 'BAR', departmentId: 'd1', venueId: 'v1' }
+
+const GUIDE_ONE = { id: 'g1', title: 'BAR SOP', venueId: 'v1', isTracked: true, description: null }
 
 const CHECKLIST = {
   id: 'c1', name: 'OPENING', description: null, venueId: 'v1',
   departmentId: null, sectionId: null, appearFromTime: null, activatedOn: null,
   allowedOutcomes: [], requireOutcomeReason: false, department: null, section: null,
-  events: [], tasks: [{ id: 't1', title: 'TASK ONE', isActive: true, version: 1 }],
+  events: [], tasks: [{ id: 't1', title: 'TASK ONE', isActive: true, version: 1, sectionName: 'BAR', sectionCount: 2 }],
 }
 
 const EVENT_ONE = {
@@ -63,11 +91,16 @@ function mockApi(tasks: unknown[] = [TASK_ONE, TASK_TWO], gate?: Promise<void>) 
         },
       ])
     }
+    // #166: the create route returns the created row (with its id).
+    if (u === '/api/admin/tasks' && init?.method === 'POST') {
+      const body = init.body ? JSON.parse(String(init.body)) : {}
+      return json({ id: 'created-1', ...body })
+    }
     if (u.startsWith('/api/admin/tasks')) return json(tasks)
     if (u === '/api/admin/venues') return json([{ id: 'v1', name: 'VENUE' }])
     if (u === '/api/admin/departments') return json([{ id: 'd1', name: 'KITCHEN', venueId: 'v1', colour: null }])
-    if (u === '/api/admin/sections') return json([])
-    if (u.startsWith('/api/admin/guides')) return json([])
+    if (u === '/api/admin/sections') return json([SECTION_BAR])
+    if (u.startsWith('/api/admin/guides')) return json([GUIDE_ONE])
     if (u.startsWith('/api/admin/calendar-events')) return json([EVENT_ONE])
     if (u.startsWith('/api/admin/checklists')) return json([CHECKLIST, CHECKLIST_WITH_EVENT])
     void init
@@ -299,6 +332,15 @@ describe('TasksClient', () => {
     fireEvent.click(within(screen.getByTestId('available-task-p1')).getByText('EDIT'))
     await waitFor(() => expect(screen.getByText('EDIT TASK')).toBeDefined())
 
+    // A task with subtasks can never become a subtask itself.
+    const parentInput = within(screen.getByTestId('task-parent-select'))
+      .getByPlaceholderText('NONE (TOP-LEVEL TASK)') as HTMLInputElement
+    expect(parentInput.disabled).toBe(true)
+
+    // The subtask list labels each child with its section.
+    const subtaskPanel = screen.getByText(/Subtasks \(1\)/).closest('div.border') as HTMLElement
+    expect(subtaskPanel.textContent).toContain('[BAR] THROW OUT PAPERS')
+
     fireEvent.click(screen.getByText('+ ADD SUBTASK'))
     await waitFor(() => expect(screen.getByText('NEW SUBTASK')).toBeDefined())
 
@@ -318,9 +360,11 @@ describe('TasksClient', () => {
       expect(body.scheduleType).toBe('DAILY')
       expect(body.completionType).toBe('TICK')
     })
+    // Saving a subtask never offers another subtask.
+    expect(screen.queryByText('ADD A SUBTASK?')).toBeNull()
   })
 
-  it('saves the selected parent task from the picker', async () => {
+  it('saves the selected parent task from the grouped picker', async () => {
     const fetchMock = mockApi([TASK_ONE, TASK_TWO])
     render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
 
@@ -328,7 +372,9 @@ describe('TasksClient', () => {
     fireEvent.click(within(screen.getByTestId('available-task-t2')).getByText('EDIT'))
     await waitFor(() => expect(screen.getByText('EDIT TASK')).toBeDefined())
 
-    fireEvent.change(screen.getByTestId('task-parent-select'), { target: { value: 't1' } })
+    const picker = screen.getByTestId('task-parent-select')
+    fireEvent.focus(within(picker).getByPlaceholderText('NONE (TOP-LEVEL TASK)'))
+    fireEvent.click(within(picker).getByText('TASK ONE'))
     fireEvent.click(screen.getByText('SAVE'))
 
     await waitFor(() => {
@@ -428,5 +474,205 @@ describe('TasksClient', () => {
     expect(String(vi.mocked(window.confirm).mock.calls.at(-1)![0])).toContain(
       'THIS LIST HAS 1 TASK; THE TASKS STAY, THE LIST IS REMOVED',
     )
+  })
+
+  // --- #165 section labels + grouped search ---
+
+  it('labels every admin task row with its section (#165)', async () => {
+    mockApi([TASK_BAR, TASK_KITCHEN])
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByTestId('available-task-tb')).toBeDefined())
+    expect(screen.getByTestId('available-task-tb').textContent).toContain('[BAR] TURN ON DISHWASHER')
+    expect(screen.getByTestId('available-task-tk').textContent).toContain('[KITCHEN] TURN ON DISHWASHER')
+  })
+
+  it('shows the section on the checklist card task preview (#165)', async () => {
+    mockApi()
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getAllByText('[BAR +1]').length).toBeGreaterThan(0))
+  })
+
+  it('groups the parent picker by section and saves the chosen parent (#165)', async () => {
+    const fetchMock = mockApi([TASK_BAR, TASK_KITCHEN, TASK_EDIT])
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByTestId('available-task-te')).toBeDefined())
+    fireEvent.click(within(screen.getByTestId('available-task-te')).getByText('EDIT'))
+    await waitFor(() => expect(screen.getByText('EDIT TASK')).toBeDefined())
+
+    const picker = screen.getByTestId('task-parent-select')
+    const pickerInput = within(picker).getByPlaceholderText('NONE (TOP-LEVEL TASK)')
+    // The label still points at the focusable input after the native Select swap.
+    expect(screen.getByLabelText('Parent task (optional)')).toBe(pickerInput)
+    fireEvent.focus(pickerInput)
+    expect(within(picker).getByText('BAR')).toBeDefined()
+    expect(within(picker).getByText('KITCHEN')).toBeDefined()
+    fireEvent.click(within(picker).getAllByText('TURN ON DISHWASHER')[0])
+
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([url, init]) => String(url) === '/api/admin/tasks/te' && init?.method === 'PUT',
+      )
+      expect(put).toBeDefined()
+      const body = JSON.parse(String((put![1] as RequestInit).body))
+      expect(body.parentTaskId).toBe('tb')
+    })
+  })
+
+  it('groups the checklist + ADD A TASK picker by section and adds one task (#165)', async () => {
+    mockApi([TASK_BAR, TASK_KITCHEN])
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByTestId('available-task-tb')).toBeDefined())
+    fireEvent.click(screen.getByText('+ NEW CHECKLIST'))
+    await waitFor(() => expect(screen.getByText('NEW CHECKLIST')).toBeDefined())
+
+    const add = screen.getByTestId('cl-add-task')
+    fireEvent.focus(within(add).getByPlaceholderText('+ ADD A TASK...'))
+    expect(within(add).getByText('BAR')).toBeDefined()
+    expect(within(add).getByText('KITCHEN')).toBeDefined()
+    fireEvent.click(within(add).getAllByText('TURN ON DISHWASHER')[0])
+
+    const groupInput = await screen.findByLabelText('GROUP FOR TURN ON DISHWASHER')
+    expect(groupInput.closest('div.border')?.textContent).toContain('[BAR] TURN ON DISHWASHER')
+  })
+
+  // --- #166 offer a linked subtask after saving a new task ---
+
+  it('offers a linked subtask after saving a new top-level task (#166)', async () => {
+    mockApi()
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('+ NEW TASK')).toBeDefined())
+    fireEvent.click(screen.getByText('+ NEW TASK'))
+    await waitFor(() => expect(screen.getByText('NEW TASK')).toBeDefined())
+
+    fireEvent.change(screen.getByPlaceholderText('WIPE DOWN ALL BAR SURFACES'), {
+      target: { value: 'NEWSPAPERS' },
+    })
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => expect(screen.getByText('ADD A SUBTASK?')).toBeDefined())
+    expect(screen.getByText("CREATE A SUBTASK UNDER 'NEWSPAPERS'?")).toBeDefined()
+    expect(screen.getByText('ADD SUBTASK')).toBeDefined()
+    expect(screen.getByText('NO THANKS')).toBeDefined()
+  })
+
+  it('creates nothing when the subtask offer is dismissed (#166)', async () => {
+    const fetchMock = mockApi()
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('+ NEW TASK')).toBeDefined())
+    fireEvent.click(screen.getByText('+ NEW TASK'))
+    await waitFor(() => expect(screen.getByText('NEW TASK')).toBeDefined())
+
+    fireEvent.change(screen.getByPlaceholderText('WIPE DOWN ALL BAR SURFACES'), {
+      target: { value: 'NEWSPAPERS' },
+    })
+    fireEvent.click(screen.getByText('SAVE'))
+    await waitFor(() => expect(screen.getByText('ADD A SUBTASK?')).toBeDefined())
+
+    fireEvent.click(screen.getByText('NO THANKS'))
+
+    await waitFor(() => expect(screen.queryByText('ADD A SUBTASK?')).toBeNull())
+    expect(screen.queryByText('NEW SUBTASK')).toBeNull()
+    const posts = fetchMock.mock.calls.filter(
+      ([url, init]) => String(url) === '/api/admin/tasks' && init?.method === 'POST',
+    )
+    expect(posts).toHaveLength(1)
+  })
+
+  it('opens a prefilled child and copies the saved fields when confirmed (#166)', async () => {
+    const fetchMock = mockApi([TASK_ONE, TASK_TWO])
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('+ NEW TASK')).toBeDefined())
+    fireEvent.click(screen.getByText('+ NEW TASK'))
+    await waitFor(() => expect(screen.getByText('NEW TASK')).toBeDefined())
+
+    fireEvent.change(screen.getByPlaceholderText('WIPE DOWN ALL BAR SURFACES'), {
+      target: { value: 'NEWSPAPERS' },
+    })
+    const desc = document.querySelector('[contenteditable="true"]') as HTMLDivElement
+    desc.innerHTML = '<p>USE THE GOOD PAPER</p>'
+    fireEvent.input(desc)
+
+    fireEvent.change(selectWithOption('KITCHEN'), { target: { value: 'd1' } })
+    await waitFor(() => expect(() => selectWithOption('BAR')).not.toThrow())
+    fireEvent.change(selectWithOption('BAR'), { target: { value: 'sec1' } })
+
+    fireEvent.change(selectWithOption('TICK (CHECK OFF)'), { target: { value: 'TICK_NOTE' } })
+    fireEvent.change(selectWithOption('DAILY'), { target: { value: 'WEEKLY' } })
+    fireEvent.click(screen.getByText('MON'))
+    fireEvent.click(screen.getByText('TUE'))
+
+    // Outcome policy: opt into a task override and change it from the default.
+    fireEvent.click(screen.getByRole('checkbox', { name: /Custom for this task/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'PARTIAL' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Require a reason/ }))
+
+    fireEvent.focus(screen.getByPlaceholderText('Search lists...'))
+    fireEvent.click(screen.getAllByText('OPENING').at(-1)!)
+
+    fireEvent.focus(screen.getByPlaceholderText('Search guides...'))
+    fireEvent.click(await screen.findByText('BAR SOP'))
+
+    fireEvent.focus(screen.getByPlaceholderText('SEARCH ITEMS...'))
+    fireEvent.click(await screen.findByText(/SPRAY BOTTLE/))
+
+    fireEvent.click(screen.getByText('SAVE'))
+    await waitFor(() => expect(screen.getByText('ADD A SUBTASK?')).toBeDefined())
+    fireEvent.click(screen.getByText('ADD SUBTASK'))
+
+    await waitFor(() => expect(screen.getByText('NEW SUBTASK')).toBeDefined())
+    expect(
+      (screen.getByPlaceholderText('WIPE DOWN ALL BAR SURFACES') as HTMLInputElement).value,
+    ).toBe('NEWSPAPERS SUBTASK')
+
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      const posts = fetchMock.mock.calls.filter(
+        ([url, init]) => String(url) === '/api/admin/tasks' && init?.method === 'POST',
+      )
+      expect(posts).toHaveLength(2)
+      const body = JSON.parse(String((posts[1][1] as RequestInit).body))
+      expect(body.parentTaskId).toBe('created-1')
+      expect(body.title).toBe('NEWSPAPERS SUBTASK')
+      expect(body.departmentId).toBe('d1')
+      expect(body.sectionId).toBe('sec1')
+      expect(body.completionType).toBe('TICK_NOTE')
+      expect(body.scheduleType).toBe('WEEKLY')
+      expect(body.scheduleDays).toEqual([1, 2])
+      expect(body.checklistIds).toEqual(['c1'])
+      expect(body.linkedItemId).toBe('i1')
+      expect(String(body.description)).toContain('USE THE GOOD PAPER')
+      expect(body.competencyGuideIds).toEqual(['g1'])
+      expect(body.overrideOutcomes).toBe(true)
+      expect(body.requireOutcomeReason).toBe(true)
+      expect(body.allowedOutcomes).toEqual(['DONE', 'NOT_REQUIRED', 'DID_NOT_COMPLETE'])
+      expect(body.requiredTrainingIds).toEqual([])
+    })
+  })
+
+  it('never offers a subtask when editing an existing task (#166)', async () => {
+    mockApi([TASK_ONE, TASK_TWO])
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByTestId('available-task-t2')).toBeDefined())
+    fireEvent.click(within(screen.getByTestId('available-task-t2')).getByText('EDIT'))
+    await waitFor(() => expect(screen.getByText('EDIT TASK')).toBeDefined())
+
+    fireEvent.change(screen.getByPlaceholderText('WIPE DOWN ALL BAR SURFACES'), {
+      target: { value: 'TASK TWO EDITED' },
+    })
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => expect(screen.queryByText('EDIT TASK')).toBeNull())
+    expect(screen.queryByText('ADD A SUBTASK?')).toBeNull()
   })
 })

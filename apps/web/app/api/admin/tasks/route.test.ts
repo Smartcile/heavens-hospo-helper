@@ -81,5 +81,7 @@ describe('/api/admin/tasks POST', () => {
         }),
       }),
     )
+    // #166 depends on the created row coming back with its id.
+    expect((await res.json()).id).toBe('t1')
   })
 })

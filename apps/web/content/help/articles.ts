@@ -464,6 +464,7 @@ export const HELP_ARTICLES: HelpArticleSeed[] = [
       '<h3>How tasks work</h3>',
       '<p>Today’s tasks are grouped into lists by department and section. Floor staff see the whole department’s due list, and a job is shared: once anyone ticks it, it is done for the team and the card shows who did it.</p>',
       '<p>The worker task list keeps itself up to date: a tick or edit made by someone else appears within a few seconds, with no need to refresh the page. If the live connection drops, the page still checks for updates every 30 seconds.</p>',
+      '<p>Saving a new top-level task asks whether to add a linked subtask; confirm and a child opens prefilled with the same department, section, schedule, lists and links, ready to edit before you save it.</p>',
       '<h3>Task outcomes</h3>',
       '<p>Opening a task asks what actually happened, not just "done":</p>',
       '<ul>',

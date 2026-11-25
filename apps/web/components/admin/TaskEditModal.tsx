@@ -13,6 +13,7 @@ import { useDirty } from '@/lib/use-dirty'
 import { MONTHLY_OPTIONS } from '@/lib/scheduling'
 import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { availableParentTasks } from '@/lib/task-subtasks'
+import { groupTasksBySection, taskSectionPrefix, taskSectionTitle } from '@/lib/task-section-label'
 import { describeLinkedItem, type LinkedItemView } from '@/lib/item-location'
 
 interface Venue { id: string; name: string }
@@ -172,10 +173,11 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
   }
 
   const venueOptions = venues.map((v) => ({ value: v.id, label: v.name }))
-  const parentSelectOptions = task
+  const parentSelectGroups = task
     ? [
-        { value: '', label: 'NONE (TOP-LEVEL TASK)' },
-        ...availableParentTasks(allTasks, { venueId: task.venueId, taskId: task.id }).map((t) => ({ value: t.id, label: t.title })),
+        { label: 'TOP LEVEL', options: [{ value: '', label: 'NONE (TOP-LEVEL TASK)' }] },
+        ...groupTasksBySection(availableParentTasks(allTasks, { venueId: task.venueId, taskId: task.id }))
+          .map((g) => ({ label: g.label, options: g.tasks.map((t) => ({ value: t.id, label: t.title })) })),
       ]
     : []
   const deptOptions = task
@@ -221,14 +223,18 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
           <Select label="Section (optional)" value={task.sectionId ?? ''} onChange={(e) => patch({ sectionId: e.target.value })} options={sectionOptions} />
 
           <div className="space-y-2">
-            <Select
-              data-testid="task-parent-select"
-              label="Parent task (optional)"
-              value={task.parentTaskId ?? ''}
-              onChange={(e) => patch({ parentTaskId: e.target.value })}
-              options={parentSelectOptions}
-              disabled={(task.subtasks?.length ?? 0) > 0}
-            />
+            <div className="space-y-1" data-testid="task-parent-select">
+              <label htmlFor="task-edit-parent-task-input" className="font-mono text-xs uppercase text-grey-light tracking-wider">Parent task (optional)</label>
+              <SearchSelect
+                id="task-edit-parent-task-input"
+                groups={parentSelectGroups}
+                value={task.parentTaskId ?? ''}
+                onChange={(v) => patch({ parentTaskId: v })}
+                placeholder="NONE (TOP-LEVEL TASK)"
+                disabled={(task.subtasks?.length ?? 0) > 0}
+                emptyLabel="NO OTHER TASKS IN THIS VENUE"
+              />
+            </div>
             <p className="font-mono text-xs uppercase text-grey-light">
               LINK THIS TASK UNDER A PARENT. SUBTASKS CANNOT HAVE THEIR OWN SUBTASKS.
             </p>
@@ -251,18 +257,24 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
                   <p className="font-mono text-xs uppercase text-grey-light">NO SUBTASKS YET.</p>
                 ) : (
                   <div className="space-y-1">
-                    {task.subtasks!.map((s) => (
-                      <div key={s.id} className="flex items-center justify-between gap-2 border border-grey-mid px-2 py-1.5">
-                        <span className="font-mono text-xs uppercase text-white truncate">{s.title}</span>
-                        <button
-                          type="button"
-                          onClick={() => setActiveId(s.id)}
-                          className="font-mono text-xs uppercase text-grey-light hover:text-white flex-shrink-0"
-                        >
-                          EDIT
-                        </button>
-                      </div>
-                    ))}
+                    {task.subtasks!.map((s) => {
+                      const sub = allTasks.find((t) => t.id === s.id)
+                      return (
+                        <div key={s.id} className="flex items-center justify-between gap-2 border border-grey-mid px-2 py-1.5">
+                          <span className="font-mono text-xs uppercase text-white truncate">
+                            {sub && <span className="whitespace-nowrap text-grey-light" title={taskSectionTitle(sub)}>{taskSectionPrefix(sub)} </span>}
+                            {s.title}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setActiveId(s.id)}
+                            className="font-mono text-xs uppercase text-grey-light hover:text-white flex-shrink-0"
+                          >
+                            EDIT
+                          </button>
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
               </div>

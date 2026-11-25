@@ -49,6 +49,54 @@ describe('SearchSelect', () => {
     expect(getByText('FLOUR')).toBeTruthy()
   })
 
+  it('keeps a group header when only a later option in the group matches', () => {
+    const multi = [
+      {
+        label: 'BAR',
+        options: [
+          { value: 'b1', label: 'GLASSES' },
+          { value: 'b2', label: 'DISHWASHER' },
+        ],
+      },
+      { label: 'KITCHEN', options: [{ value: 'k1', label: 'OVEN' }] },
+    ]
+    const { getByPlaceholderText, getByText, queryByText } = render(
+      <SearchSelect groups={multi} value="" onChange={() => {}} placeholder="SEARCH" />,
+    )
+    const input = getByPlaceholderText('SEARCH')
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'dish' } })
+    expect(getByText('DISHWASHER')).toBeTruthy()
+    expect(getByText('BAR')).toBeTruthy()
+    expect(queryByText('GLASSES')).toBeNull()
+    expect(queryByText('KITCHEN')).toBeNull()
+  })
+
+  it('renders each group header once', () => {
+    const multi = [
+      {
+        label: 'BAR',
+        options: [
+          { value: 'b1', label: 'GLASSES' },
+          { value: 'b2', label: 'DISHWASHER' },
+        ],
+      },
+    ]
+    const { getByPlaceholderText, getAllByText } = render(
+      <SearchSelect groups={multi} value="" onChange={() => {}} placeholder="SEARCH" />,
+    )
+    fireEvent.focus(getByPlaceholderText('SEARCH'))
+    expect(getAllByText('BAR')).toHaveLength(1)
+  })
+
+  it('does not open when disabled', () => {
+    const { getByPlaceholderText, queryByText } = render(
+      <SearchSelect options={options} value="" onChange={() => {}} placeholder="SEARCH" disabled />,
+    )
+    fireEvent.focus(getByPlaceholderText('SEARCH'))
+    expect(queryByText('ALPHA')).toBeNull()
+  })
+
   it('clears the value via the × button', () => {
     const onChange = vi.fn()
     const { getByText } = render(<SearchSelect options={options} value="a" onChange={onChange} />)
