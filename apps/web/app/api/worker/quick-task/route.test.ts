@@ -79,13 +79,31 @@ describe('POST /api/worker/quick-task', () => {
     expect(data).toMatchObject({
       title: 'RESEARCH HIGH CHAIRS',
       venueId: 'v1',
-      departmentId: 'd2',
+      // A section always implies its department, overriding the posted one.
+      departmentId: 'sec-dept',
       sectionId: 'sec2',
       assignedToStaffId: 's2',
       isOneOff: true,
       rolloverEnabled: true,
     })
     expect((data.dueDate as Date).toISOString()).toBe('2026-11-25T00:00:00.000Z')
+  })
+
+  it('derives the department from the section when both are supplied', async () => {
+    prisma.section.findUnique.mockResolvedValue({ departmentId: 'section-dept' })
+
+    const res = await POST(req({
+      title: 'MOP',
+      departmentId: 'wrong-dept',
+      sectionId: 'sec2',
+    }))
+
+    expect(res.status).toBe(201)
+    expect(prisma.section.findUnique).toHaveBeenCalledWith({
+      where: { id: 'sec2' },
+      select: { departmentId: true },
+    })
+    expect(prisma.task.create.mock.calls[0][0].data.departmentId).toBe('section-dept')
   })
 
   it('auto-adds an UNASSIGNED quick task to SIDE WORK', async () => {

@@ -13,6 +13,7 @@ const {
 } = vi.hoisted(() => ({
   prisma: {
     task: { findUnique: vi.fn(), update: vi.fn() },
+    staff: { count: vi.fn() },
   },
   getServerSession: vi.fn(),
   guardAccess: vi.fn(),
@@ -56,6 +57,7 @@ describe('/api/admin/tasks/[id]', () => {
     guardAccess.mockResolvedValue(null)
     prisma.task.findUnique.mockResolvedValue({ id: 't1', venueId: 'v1', parentTaskId: null })
     prisma.task.update.mockResolvedValue({ id: 't1' })
+    prisma.staff.count.mockResolvedValue(1)
     parentLinkError.mockResolvedValue(null)
     nextSubtaskOrder.mockResolvedValue(2)
     hasLiveSubtasks.mockResolvedValue(false)
@@ -182,6 +184,19 @@ describe('/api/admin/tasks/[id]', () => {
 
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'INVALID DUE DATE' })
+    expect(prisma.task.update).not.toHaveBeenCalled()
+  })
+
+  it('PUT rejects an assignee from another venue (#145)', async () => {
+    prisma.staff.count.mockResolvedValue(0)
+
+    const res = await PUT(req({ assignedToStaffId: 'other-venue-staff' }), { params: { id: 't1' } })
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'ASSIGNEE IS NOT IN THIS VENUE' })
+    expect(prisma.staff.count).toHaveBeenCalledWith({
+      where: { id: 'other-venue-staff', venueId: 'v1', deletedAt: null },
+    })
     expect(prisma.task.update).not.toHaveBeenCalled()
   })
 

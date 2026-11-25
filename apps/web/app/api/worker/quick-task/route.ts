@@ -39,9 +39,11 @@ export async function POST(req: Request) {
     }
   }
 
+  // A section always implies its department (same rule as the admin POST), so a
+  // mismatched department/section pair can never persist.
   let resolvedDeptId: string | null = departmentId || session.departmentId
   const resolvedSectionId: string | null = sectionId || null
-  if (sectionId && !departmentId) {
+  if (sectionId) {
     const s = await prisma.section.findUnique({ where: { id: sectionId }, select: { departmentId: true } })
     if (s) resolvedDeptId = s.departmentId
   }

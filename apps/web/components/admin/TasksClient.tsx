@@ -337,31 +337,36 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     }
     setCustomSaving(true)
     setCustomError('')
-    const r = await fetch('/api/admin/tasks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: customForm.title,
-        description: customForm.description || null,
-        venueId: customForm.venueId,
-        departmentId: customForm.departmentId || null,
-        sectionId: customForm.sectionId || null,
-        assignedToStaffId: customForm.assignedToStaffId || null,
-        isOneOff: true,
-        dueDate: customForm.dueDate || null,
-        rolloverEnabled: customForm.rolloverEnabled,
-        scheduleType: 'DAILY',
-        completionType: 'TICK',
-      }),
-    })
-    setCustomSaving(false)
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}))
-      setCustomError(d.error ?? 'SAVE FAILED')
-      return
+    try {
+      const r = await fetch('/api/admin/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: customForm.title,
+          description: customForm.description || null,
+          venueId: customForm.venueId,
+          departmentId: customForm.departmentId || null,
+          sectionId: customForm.sectionId || null,
+          assignedToStaffId: customForm.assignedToStaffId || null,
+          isOneOff: true,
+          dueDate: customForm.dueDate || null,
+          rolloverEnabled: customForm.rolloverEnabled,
+          scheduleType: 'DAILY',
+          completionType: 'TICK',
+        }),
+      })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        setCustomError(d.error ?? 'SAVE FAILED')
+        return
+      }
+      setCustomOpen(false)
+      load()
+    } catch {
+      setCustomError('COULD NOT CONNECT')
+    } finally {
+      setCustomSaving(false)
     }
-    setCustomOpen(false)
-    load()
   }
   function openEdit(t: Task) {
     setEditing(t)

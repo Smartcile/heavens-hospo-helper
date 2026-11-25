@@ -316,6 +316,7 @@ export async function GET(req: NextRequest) {
       completionType: t.completionType,
       departmentName: t.department?.name ?? null,
       sectionName: t.section?.name ?? null,
+      assignedToStaffId: t.assignedToStaffId,
       assigneeName: t.assignedToStaffId ? assigneeName.get(t.assignedToStaffId) ?? null : null,
       guide: (t.taskGuides?.[0]?.guide) ?? (t.trainingModules[0] ?? null),
       isCompleted: !!c,
