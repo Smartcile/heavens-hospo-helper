@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
+import { sumBreakSplit } from '@/lib/nz-payroll'
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -22,9 +23,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   })
 
   if (format === 'csv') {
-    const header = 'Name,Employment Type,Ordinary Hours,Overtime Hours,Public Holiday Hours,Total Hours,Rate,Gross Pay,Holiday Pay,PAYE,ACC,KiwiSaver Employee,KiwiSaver Employer,Student Loan,Net Pay,Employer Cost,Alt Days Owed'
-    const rows = entries.map((e) =>
-      [
+    const header =
+      'Name,Employment Type,Ordinary Hours,Overtime Hours,Public Holiday Hours,Total Hours,Rate,Gross Pay,Holiday Pay,PAYE,ACC,KiwiSaver Employee,KiwiSaver Employer,Student Loan,Net Pay,Employer Cost,Alt Days Owed,Paid Break Hours,Unpaid Break Hours'
+    const rows = entries.map((e) => {
+      const breaks = sumBreakSplit(e.breakdown)
+      return [
         `"${e.staff.firstName} ${e.staff.lastName}"`,
         e.staff.employmentType ?? '',
         (e.ordinaryHours ?? 0).toFixed(2),
@@ -42,8 +45,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         (e.netPay ?? 0).toFixed(2),
         (e.employerCost ?? 0).toFixed(2),
         e.alternativeDaysOwed ?? 0,
+        (breaks.paidMinutes / 60).toFixed(2),
+        (breaks.unpaidMinutes / 60).toFixed(2),
       ].join(',')
-    )
+    })
     const csv = [header, ...rows].join('\n')
 
     return new NextResponse(csv, {
