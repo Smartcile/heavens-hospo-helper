@@ -132,4 +132,76 @@ describe('PayrollClient', () => {
     expect(screen.getByText('BARISTA')).toBeDefined()
     expect(screen.getByText('GROUP')).toBeDefined()
   })
+
+  it('shows the paid/unpaid break split on the payslip', async () => {
+    const withSplit = {
+      ...entry,
+      breakdown: [
+        {
+          dateKey: '2026-08-10',
+          clockIn: '2026-08-10T09:00:00Z',
+          clockOut: '2026-08-10T17:00:00Z',
+          hours: 7.5,
+          breaksMinutes: 40,
+          paidBreakMinutes: 10,
+          unpaidBreakMinutes: 30,
+          type: 'ORDINARY',
+        },
+      ],
+    }
+    mockFetch({
+      '/api/admin/payroll/periods?venueId=': [period],
+      '/api/admin/payroll/periods/pp1': { period, entries: [withSplit] },
+      '/api/admin/payroll/settings': settings,
+      '/api/admin/public-holidays': [],
+      '/api/admin/payroll/alt-days': [],
+      '/api/admin/positions': [{ id: 'p1', name: 'BARISTA', colour: '#60A5FA' }],
+    })
+
+    render(<PayrollClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    fireEvent.click(await screen.findByText('ENTRIES'))
+    fireEvent.click(await screen.findByText('PAYSLIP'))
+
+    expect(await screen.findByText('PAID BREAKS')).toBeDefined()
+    expect(screen.getByText('UNPAID BREAKS')).toBeDefined()
+    expect(screen.getByText('0.17H')).toBeDefined() // 10m paid rest
+    expect(screen.getByText('0.50H')).toBeDefined() // 30m unpaid meal
+    expect(screen.getByText(/BRK 10M PAID \/ 30M UNPAID/)).toBeDefined()
+  })
+
+  it('falls back to the legacy BRK label when the split is absent', async () => {
+    const legacy = {
+      ...entry,
+      breakdown: [
+        {
+          dateKey: '2026-08-10',
+          clockIn: '2026-08-10T09:00:00Z',
+          clockOut: '2026-08-10T17:00:00Z',
+          hours: 7.5,
+          breaksMinutes: 30,
+          type: 'ORDINARY',
+        },
+      ],
+    }
+    mockFetch({
+      '/api/admin/payroll/periods?venueId=': [period],
+      '/api/admin/payroll/periods/pp1': { period, entries: [legacy] },
+      '/api/admin/payroll/settings': settings,
+      '/api/admin/public-holidays': [],
+      '/api/admin/payroll/alt-days': [],
+      '/api/admin/positions': [{ id: 'p1', name: 'BARISTA', colour: '#60A5FA' }],
+    })
+
+    render(<PayrollClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    fireEvent.click(await screen.findByText('ENTRIES'))
+    fireEvent.click(await screen.findByText('PAYSLIP'))
+
+    expect(await screen.findByText(/30M BRK/)).toBeDefined()
+    expect(screen.getByText('PAID BREAKS')).toBeDefined()
+    // No split in a legacy breakdown → dashes, not a misleading "0.00H".
+    expect(screen.queryByText('0.00H')).toBeNull()
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2)
+  })
 })

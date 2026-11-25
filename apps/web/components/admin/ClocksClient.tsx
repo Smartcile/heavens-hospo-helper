@@ -9,6 +9,7 @@ import { DateNav } from '@/components/admin/DateNav'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { moveItem } from '@/lib/array'
 import { keyOfDay, shiftDay, type DateRange } from '@/lib/date-nav'
+import { classifyBreakMinutes } from '@/lib/nz-payroll'
 import { nearestIndex, type Rect } from '@/lib/reorder'
 import { collectPositions, groupByPosition as groupItemsByPosition, insertSubset } from '@/lib/staff-groups'
 
@@ -219,7 +220,11 @@ export function ClocksClient({ role, sessionVenueId, defaultVenueId }: { role: s
   function workedMinutes(s: ClockRow): number {
     if (!s.clockOut) return 0
     const total = (new Date(s.clockOut).getTime() - new Date(s.clockIn).getTime()) / 60000
-    return Math.round(Math.max(0, total - (s.breaksMinutes ?? 0)))
+    // Same NZ rule as the payrun: rest breaks are paid, meal (and surplus)
+    // minutes come off worked time, so this column matches the payslip.
+    const breaks = Math.min(s.breaksMinutes ?? 0, total)
+    const { unpaidMinutes } = classifyBreakMinutes(breaks, total)
+    return Math.round(Math.max(0, total - unpaidMinutes))
   }
 
   function money(n: number | null): string {
