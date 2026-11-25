@@ -15,8 +15,8 @@ Type `/workflow` at any time to show these steps again.
 - Grouped worktree: `.worktrees/wave-<slug>`
 - Single branch: `issue/<number>-<slug>`
 - Grouped branch: `wave/<slug>`
-- Worker mode: manual (open the worktree in OpenCode Desktop, select the `implementer` agent)
-- Merge: one PR per issue or wave, merged one at a time
+- Worker mode: **conductor** — the `orchestrator` primary agent runs the pipeline and delegates triage / implement / review / ship / merge to subagents; you approve plans and merges
+- Merge: one PR per issue or wave, merged one at a time, only after your explicit approval
 - Screenshots: only when requested, using the `needs:screenshot` label
 
 ## Parallel lanes (default)
@@ -35,24 +35,31 @@ Rules:
 - Merge one PR at a time. When the lead issue merges, rebase the next issue in that lane onto `origin/develop` before spawning it.
 - Group issues only within a lane, never across lanes.
 
-## GitHub Actions (checks and image builds)
+## Checks, CI and image builds
 
-The gate runs in GitHub Actions — not on the developer machine.
+Local checks are the gate. GitHub does not block merges: `develop` has no branch
+protection, and pull requests do not run CI.
 
 | Event | Workflow | What runs |
 |---|---|---|
-| Pull request to `develop` / `main` | `CI` | Prisma generate, lint, type-check, full test suite, Next.js build |
+| Pull request to `develop` / `main` | - | Nothing. Verify locally with `scripts/agent/check.ps1`. |
+| Manual (`Actions` tab, or `gh workflow run ci.yml --ref <branch>`) | `CI` | Prisma generate, lint, type-check, full test suite, Next.js build |
 | Push to `develop` | `Build and publish image` | Lint, type-check, tests, then build + push `:develop` to GHCR |
 | Push to `main` | `Build and publish image` | The same checks, then `:latest` (+ `:main`) |
 | Push a `v*` tag | `Build and publish image` | The same checks, then the semver image |
 
-Do not run a local build before shipping. Push the branch, open the PR, let `CI` run, and fix any red check by pushing again. Watch it with:
+Run the local gate in the worktree before shipping:
 
 ```powershell
-gh pr checks --watch
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent/check.ps1
 ```
 
-`scripts/agent/check.ps1` (local pre-flight) and `scripts/agent/publish.ps1` (local image build) remain optional fallbacks only. They are no longer part of the normal flow.
+Add `-Build` when the change could affect the Next.js build.
+
+`scripts/agent/publish.ps1` (local image build) remains an optional fallback
+only. The image workflow re-runs lint, type-check and tests on every push to
+`develop`/`main` before it publishes, so it is the backstop for a skipped local
+check.
 
 ## Issue titles
 
@@ -83,12 +90,12 @@ Keep it under 72 characters, sentence case, no full stop. For a group, every iss
 1. `/triage <number>` - read-only investigation, title cleanup, and a fix-plan comment.
 2. You review the comment and add `agent:approved`.
 3. `/spawn <number>` - creates the worktree, branch, `.agent/TASK.md`, dependencies.
-4. Open the worktree in OpenCode Desktop, select `implementer`, and say: `Read .agent/TASK.md and implement it.`
-5. `@reviewer review the diff for the issues in .agent/ISSUES` - read-only review.
+4. The orchestrator delegates implementation to the `implementer` subagent with the absolute worktree path and `.agent/TASK.md`.
+5. The orchestrator delegates a read-only review to the `reviewer` subagent (diff against `origin/develop`).
 6. If you want a visual check, run `/screenshot <number>` before approving the merge.
-7. You review the diff and run the relevant checks.
-8. `/ship <number>` - push, open the PR, wait for the GitHub Actions `CI` check, then update the issue and add `agent:review`. Capture a screenshot only if requested.
-9. Merge one PR at a time in GitHub. Then run `/merged <pr>` to close the issue(s), because this repo's default branch is `main`, not `develop`.
+7. You review the diff yourself; the recorded `scripts/agent/check.ps1` result is the gate.
+8. `/ship <number>` - runs the local check, pushes, opens the PR to `develop`, comments the check result, then adds `agent:review`. Capture a screenshot only if requested.
+9. Merge one PR at a time, only after you approve. The orchestrator delegates the merge to the `merger` subagent (or you merge in GitHub), then run `/merged <pr>` to close the issue(s), because this repo's default branch is `main`, not `develop`.
 
 ## Grouped pipeline
 
@@ -97,11 +104,11 @@ Use this for 2-4 related issues that share files or a user flow. Do not group un
 1. `/triage-group 12 13 14` - one combined plan, every title cleaned up, each issue labelled `agent:planned`.
 2. You review the plan and add `agent:approved` to every issue.
 3. `/spawn-group 12 13 14 availability approvals` - one worktree and branch for the group. Pass the issue numbers as a comma-separated list to the script (`-Issues "12,13,14"`).
-4. Open the worktree in OpenCode Desktop, select `implementer`, and say: `Read .agent/TASK.md and implement it.`
-5. `@reviewer review the diff for the issues in .agent/ISSUES`.
+4. The orchestrator delegates implementation to the `implementer` subagent with the absolute worktree path and `.agent/TASK.md`.
+5. The orchestrator delegates review to the `reviewer` subagent for the whole wave diff.
 6. Run `/screenshot <lead-issue>` if you want a visual check.
-7. `/ship-group` - push and open one PR (`Fixes #12`, `Fixes #13`, `Fixes #14`), then wait for the GitHub Actions `CI` check. Do not build locally.
-8. Merge the wave PR once, then run `/merged <pr>` to close every issue in the PR.
+7. `/ship-group` - runs the local check, pushes and opens one PR (`Fixes #12`, `Fixes #13`, `Fixes #14`). Do not wait on CI.
+8. Merge the wave PR once (after you approve, via the `merger` or GitHub), then run `/merged <pr>` to close every issue in the PR.
 
 ## Screenshots on request
 
@@ -139,26 +146,27 @@ If a slash command does not appear, paste these into the OpenCode Desktop chat.
 | Group spawn | `/spawn-group 12 13 14` | `Spawn issues 12,13,14 as one wave using scripts/agent/spawn-issue.ps1 -Issues 12,13,14 -Name "availability approvals". Report the branch and folder.` |
 | Review | `/review` | `Review the current worktree diff using the reviewer role. Read .agent/ISSUES. Read-only. Report blocking, non-blocking, and a verdict.` |
 | Screenshot | `/screenshot 11` | `Capture a screenshot for issue 11 and post it to the issue. Use the screenshot plan from the triage comment.` |
-| Ship | `/ship 21` | `Ship issue 21. Read .agent/ISSUES, push, open a PR to develop, wait for GitHub Actions CI, comment on the issue with the run URL, add agent:review. Capture a screenshot only if needs:screenshot is set. Do not build locally.` |
-| Group ship | `/ship-group` | `Ship the grouped worktree. Read .agent/ISSUES, push, open one PR with Fixes lines, wait for GitHub Actions CI, and comment on every issue with the run URL. Capture screenshots only for issues with needs:screenshot. Do not build locally.` |
+| Ship | `/ship 21` | `Ship issue 21. Read .agent/ISSUES, run scripts/agent/check.ps1, push, open a PR to develop, comment on the issue with the PR URL and the local check result, add agent:review. Capture a screenshot only if needs:screenshot is set. Do not build locally.` |
+| Group ship | `/ship-group` | `Ship the grouped worktree. Read .agent/ISSUES, run scripts/agent/check.ps1, push, open one PR with Fixes lines, and comment on every issue with the PR URL and the local check result. Capture screenshots only for issues with needs:screenshot. Do not build locally.` |
 | Status | `/status` | `Run scripts/agent/status.ps1 and scripts/agent/merge-check.ps1 and summarize the active work.` |
 | Merged | `/merged 22` | `Mark PR 22 as merged: close its issues and add agent:merged.` |
 | Commit setup | none | `Commit and push the workflow setup files to develop.` |
-| Merge | none | Use GitHub in the browser or GitHub Desktop. Do not ask an agent to merge. |
+| Merge | `/merge 22` | `Merge PR 22 using the merger role. Verify the local check result, my approval, and every merger precondition first.` |
 
-## Using OpenCode Desktop
+## Using the conductor
 
 1. Restart OpenCode after adding agents, commands, or config. If a slash command does not appear, use the plain-text prompt instead.
-2. Run `/triage 21` in the main project chat, or paste the plain-text version.
-3. Read the triage comment on GitHub and add `agent:approved`.
-4. Run `/spawn 21`. The agent runs the script; the script creates the worktree, branch, task brief, copies `apps/web/.env.local`, and installs dependencies.
-5. In OpenCode Desktop, open the new worktree as a project. Select the `implementer` agent and say: `Read .agent/TASK.md and implement it.`
-6. In that worktree chat, run `@reviewer review the diff for the issues in .agent/ISSUES`.
-7. Review the diff yourself. If you need the app running, use a unique port such as `3001`.
-8. Run `/screenshot <issue>` if you want a visual update before merging.
-9. Run `/ship <issue>` (or `/ship-group`) in the worktree chat.
-10. Merge the PR in GitHub web or GitHub Desktop. Merge one PR at a time.
-11. Run `/merged <pr>` after the merge. This closes the issue(s) and adds `agent:merged`; GitHub does not auto-close them when the PR targets `develop` because the repo's default branch is `main`.
+2. Select the `orchestrator` primary agent in the main project chat. It runs the pipeline and delegates every stage; you stay on the pipeline.
+3. Run `/triage 21` (or paste the plain-text version). The orchestrator delegates to the `triager`.
+4. Read the triage comment on GitHub and add `agent:approved`.
+5. Run `/spawn 21`. The orchestrator runs the script; the script creates the worktree, branch, task brief, copies `apps/web/.env.local`, and installs dependencies.
+6. Tell the orchestrator to implement. It launches the `implementer` subagent with the absolute worktree path; you do not switch agents or open the worktree yourself.
+7. Ask for a review; the orchestrator launches the `reviewer` subagent (read-only).
+8. Review the diff yourself. If you need the app running, use a unique port such as `3001`.
+9. Run `/screenshot <issue>` if you want a visual update before merging.
+10. Run `/ship <issue>` (or `/ship-group`). It runs `scripts/agent/check.ps1`, pushes, opens the PR and adds `agent:review`.
+11. Approve the merge, then run `/merge <pr>` (or merge in GitHub). The orchestrator delegates to the `merger`; merge one PR at a time.
+12. Run `/merged <pr>` after the merge. This closes the issue(s) and adds `agent:merged`; GitHub does not auto-close them when the PR targets `develop` because the repo's default branch is `main`.
 
 ## Rules
 
@@ -169,11 +177,12 @@ If a slash command does not appear, paste these into the OpenCode Desktop chat.
 - Use the two-lane default: two implementers maximum, one issue per lane, `merge-check.ps1` before the second lane.
 - Do not run two issues that touch the same files in parallel.
 - Group only 2-4 related issues within a lane. Do not group unrelated areas just to reduce branches.
-- Push and let GitHub Actions run the checks and build. Do not build locally unless the user asks for the fallback.
-- Never auto-merge AI PRs. Human review is the gate.
+- Run `scripts/agent/check.ps1` before shipping; that is the gate. Do not wait on a GitHub check - pull requests do not run CI. Do not build locally unless the user asks for the fallback.
+- Do NOT edit `AGENTS.md` in a feature PR. Note the change in the issue comment (the handoff); the orchestrator appends it to `AGENTS.md` on `develop` after the merge, so concurrent PRs never conflict on the shared doc. `README.md`, `NAVIGATION.md` and `MENUS.md` are still updated in the PR that changes them.
+- Never merge an AI PR without your explicit approval for that PR. The `merger` only runs under the documented preconditions (no draft, correct base, mergeable/clean, a green local check recorded, `agent:review`, and human go-ahead).
 - Remove the worktree only after the PR is merged.
 - To commit or push without a terminal, ask OpenCode in plain text.
-- To merge without a terminal, use GitHub in the browser or GitHub Desktop.
+- To merge without a terminal, ask the orchestrator to run `/merge <pr>` after you approve.
 
 ## Scripts
 
@@ -181,9 +190,9 @@ If a slash command does not appear, paste these into the OpenCode Desktop chat.
 |---|---|
 | `scripts/agent/spawn-issue.ps1 -Issue 21` | Create a single-issue worktree |
 | `scripts/agent/spawn-issue.ps1 -Issues 12,13,14 -Name "availability approvals"` | Create a grouped wave worktree |
-| `scripts/agent/check.ps1` | Optional local pre-flight (Actions runs the gate) |
+| `scripts/agent/check.ps1` | The local gate - lint, type-check, tests (`-Build` adds the Next build) |
 | `scripts/agent/publish.ps1 -Tag develop` | Optional local image build/push (Actions builds on develop/main) |
-| `scripts/agent/status.ps1` | Active worktrees, dirty state, ahead/behind, PRs, CI |
+| `scripts/agent/status.ps1` | Active worktrees, dirty state, ahead/behind, PRs, last check state |
 | `scripts/agent/merge-check.ps1` | File overlap and merge-order warnings |
 | `scripts/agent/mark-merged.ps1 -Pr 22` | Close the issues linked from a merged PR |
 | `scripts/agent/capture-screenshot.ps1` | Capture and publish a screenshot on request |

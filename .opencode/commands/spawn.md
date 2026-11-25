@@ -18,5 +18,5 @@ Before running, confirm:
 - the workflow files are committed and pushed to `origin/develop`.
 
 After the script:
-- report the branch, worktree path, and next command;
-- tell the user to open the new folder in OpenCode Desktop as a project and select the `implementer` agent.
+- report the branch and worktree path;
+- if I asked you to continue, delegate implementation to the `implementer` subagent with the absolute worktree path and `.agent/TASK.md`; otherwise stop and report the next step.
