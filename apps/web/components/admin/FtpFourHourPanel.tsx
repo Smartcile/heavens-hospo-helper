@@ -384,7 +384,19 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
     setError('')
   }
 
+  const editingTypeRow = editingType
+    ? types.find((type) => type.id === editingType) ?? null
+    : null
+  const plateRemovalPinReady =
+    typeForm.adminPinEnabled &&
+    (typeForm.adminPin.trim().length > 0 || Boolean(editingTypeRow?.adminPinSet))
+
   async function saveType() {
+    if (typeForm.plateRemovalRequiresPin && !plateRemovalPinReady) {
+      setMessage('')
+      setError('SET AN ADMIN PIN BEFORE REQUIRING IT FOR PLATE REMOVAL')
+      return
+    }
     setBusy('type-save')
     setMessage('')
     setError('')
@@ -898,6 +910,11 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
                   <span className="font-mono text-xs uppercase text-white">ACTIVE</span>
                 </label>
               </div>
+              {typeForm.plateRemovalRequiresPin && !plateRemovalPinReady && (
+                <p className="font-mono text-2xs uppercase text-warning">
+                  SET AN ADMIN PIN AND ALLOW ADMIN PIN BEFORE REQUIRING IT FOR PLATE REMOVAL.
+                </p>
+              )}
               <p className="font-mono text-2xs uppercase text-grey-light">
                 SHOW ON KIOSK OFF = HIDDEN FROM THE 4 HOUR TAB ON THE PUBLIC KIOSK. EVENT GUEST LINKS STILL WORK.
               </p>

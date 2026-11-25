@@ -147,6 +147,21 @@ describe('POST /api/public/parking/kiosk/member/plates', () => {
     expect(compare).toHaveBeenCalledWith('1234', 'hash')
   })
 
+  it('rejects removal when a PIN is required but none is configured', async () => {
+    typeFindFirst.mockResolvedValue({
+      id: 't1',
+      plateRemovalRequiresPin: true,
+      adminPinHash: null,
+    })
+    const res = await POST(req({ token: 'x', action: 'REMOVE', plateId: 'p1' }))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({
+      error: 'PLATE REMOVAL IS NOT CONFIGURED — SPEAK WITH STAFF',
+    })
+    expect(compare).not.toHaveBeenCalled()
+    expect(applyMemberPlateAction).not.toHaveBeenCalled()
+  })
+
   it('does not need a PIN to set a default', async () => {
     typeFindFirst.mockResolvedValue({
       id: 't1',

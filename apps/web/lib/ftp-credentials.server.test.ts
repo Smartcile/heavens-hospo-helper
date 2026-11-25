@@ -118,6 +118,7 @@ describe('ftpCredentialPublicView', () => {
     name: 'RAYC',
     windowLabel: '4 HOURS',
     durationMinutes: 240,
+    logPlates: true,
     plateRemovalRequiresPin: true,
   } as unknown as FtpCredential['type']
 
@@ -173,6 +174,15 @@ describe('ftpCredentialPublicView', () => {
       kind: 'MEMBER',
       type,
       member: member(false),
+    } as unknown as FtpCredential)
+    expect(view.member).toMatchObject({ plateSavingEnabled: false, plates: [] })
+  })
+
+  it('hides plates when the type stops logging plates', () => {
+    const view = ftpCredentialPublicView({
+      kind: 'MEMBER',
+      type: { ...type, logPlates: false },
+      member: member(true),
     } as unknown as FtpCredential)
     expect(view.member).toMatchObject({ plateSavingEnabled: false, plates: [] })
   })

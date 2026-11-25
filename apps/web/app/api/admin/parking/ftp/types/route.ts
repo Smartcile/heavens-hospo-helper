@@ -79,6 +79,15 @@ export async function POST(req: NextRequest) {
 
   const input = normaliseFtpTypeInput(body)
   if (!input.ok) return NextResponse.json({ error: input.error }, { status: 422 })
+  if (
+    input.value.plateRemovalRequiresPin &&
+    (!input.value.adminPinEnabled || !input.value.adminPin)
+  ) {
+    return NextResponse.json(
+      { error: 'SET AN ADMIN PIN BEFORE REQUIRING IT FOR PLATE REMOVAL' },
+      { status: 422 },
+    )
+  }
   if (input.value.adminPinEnabled && !input.value.adminPin) {
     return NextResponse.json(
       { error: 'SET AN ADMIN PIN BEFORE ENABLING IT' },

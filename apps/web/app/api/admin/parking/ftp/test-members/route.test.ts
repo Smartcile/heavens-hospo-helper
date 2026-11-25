@@ -89,6 +89,9 @@ beforeEach(() => {
   memberCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) =>
     member({ ...data, id: 'created' }),
   )
+  memberUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) =>
+    member({ ...data, id: 'revived' }),
+  )
 })
 
 describe('/api/admin/parking/ftp/test-members', () => {
@@ -132,13 +135,32 @@ describe('/api/admin/parking/ftp/test-members', () => {
     expect(memberCreate.mock.calls[0][0].data).toMatchObject({ isTest: true })
   })
 
-  it('defaults plate saving on and accepts an explicit off', async () => {
+  it('leaves plate saving to the DB default unless supplied', async () => {
     await POST(req(VALID))
-    expect(memberCreate.mock.calls[0][0].data).toMatchObject({ savePlates: true })
+    expect(memberCreate.mock.calls[0][0].data).not.toHaveProperty('savePlates')
 
     memberCreate.mockClear()
     await POST(req({ ...VALID, savePlates: false }))
     expect(memberCreate.mock.calls[0][0].data).toMatchObject({ savePlates: false })
+  })
+
+  it('does not re-enable plate saving when reviving a member without the field', async () => {
+    memberFindFirst.mockResolvedValue(
+      member({ id: 'revived', deletedAt: new Date(), savePlates: false }),
+    )
+    const res = await POST(req(VALID))
+    expect(res.status).toBe(201)
+    expect(memberUpdate).toHaveBeenCalled()
+    expect(memberUpdate.mock.calls[0][0].data).not.toHaveProperty('savePlates')
+  })
+
+  it('applies an explicit savePlates when reviving', async () => {
+    memberFindFirst.mockResolvedValue(
+      member({ id: 'revived', deletedAt: new Date(), savePlates: false }),
+    )
+    const res = await POST(req({ ...VALID, savePlates: true }))
+    expect(res.status).toBe(201)
+    expect(memberUpdate.mock.calls[0][0].data).toMatchObject({ savePlates: true })
   })
 
   it('returns savePlates in the member view', async () => {

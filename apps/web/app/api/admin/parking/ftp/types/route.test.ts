@@ -42,6 +42,7 @@ function row(overrides: Record<string, unknown> = {}) {
     contactEmail: 'test@example.com',
     contactPhone: null,
     logPlates: true,
+    plateRemovalRequiresPin: false,
     adminPinEnabled: false,
     adminPinHash: null,
     adminPinHint: null,
@@ -118,6 +119,42 @@ describe('/api/admin/parking/ftp/types', () => {
       adminPinEnabled: true,
       adminPinHash: 'hashed-pin',
       adminPinHint: '34',
+    })
+  })
+
+  it('rejects plate-removal PIN when no admin PIN is supplied', async () => {
+    const res = await POST(
+      req({ ...VALID, plateRemovalRequiresPin: true, adminPinEnabled: true }),
+    )
+    expect(res.status).toBe(422)
+    expect(await res.json()).toEqual({
+      error: 'SET AN ADMIN PIN BEFORE REQUIRING IT FOR PLATE REMOVAL',
+    })
+    expect(typeCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects plate-removal PIN when the admin PIN switch is off', async () => {
+    const res = await POST(req({ ...VALID, plateRemovalRequiresPin: true }))
+    expect(res.status).toBe(422)
+    expect(await res.json()).toEqual({
+      error: 'SET AN ADMIN PIN BEFORE REQUIRING IT FOR PLATE REMOVAL',
+    })
+  })
+
+  it('accepts plate-removal PIN with an admin PIN', async () => {
+    const res = await POST(
+      req({
+        ...VALID,
+        plateRemovalRequiresPin: true,
+        adminPinEnabled: true,
+        adminPin: '1234',
+      }),
+    )
+    expect(res.status).toBe(201)
+    expect(typeCreate.mock.calls[0][0].data).toMatchObject({
+      plateRemovalRequiresPin: true,
+      adminPinEnabled: true,
+      adminPinHash: 'hashed-pin',
     })
   })
 })

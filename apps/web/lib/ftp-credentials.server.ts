@@ -115,6 +115,14 @@ export interface FtpCredentialPublicView {
 // stored plates: it must ask for a plate and must not reveal old ones. The
 // plates stay on the record for the admin to manage.
 export function ftpCredentialPublicView(credential: FtpCredential): FtpCredentialPublicView {
+  // Saving is off when either the member opted out or the type stops logging
+  // plates. In both cases the kiosk must ask for a plate and must not reveal
+  // stored ones (they stay on the record for the admin).
+  const plateSavingEnabled =
+    credential.member != null &&
+    credential.member.savePlates &&
+    credential.type.logPlates !== false
+
   return {
     kind: credential.kind,
     type: {
@@ -129,8 +137,8 @@ export function ftpCredentialPublicView(credential: FtpCredential): FtpCredentia
           id: credential.member.id,
           firstName: credential.member.firstName,
           lastName: credential.member.lastName,
-          plateSavingEnabled: credential.member.savePlates,
-          plates: credential.member.savePlates
+          plateSavingEnabled,
+          plates: plateSavingEnabled
             ? sortMemberPlates(credential.member.plates).map((plate) => ({
                 id: plate.id,
                 plate: plate.plate,
