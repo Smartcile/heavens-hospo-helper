@@ -203,6 +203,7 @@ export function WorkerTipsClient() {
                           <div>
                             <span className="font-mono text-sm font-bold uppercase text-white">{share.name}</span>
                             <span className="ml-2 font-mono text-xs text-grey-light">
+                              {share.departmentName ? `${share.departmentName} · ` : ''}
                               {share.hours} HRS · WEIGHT {share.shareWeight}
                             </span>
                           </div>

@@ -82,6 +82,7 @@ const COLUMN_BY_KEY = Object.fromEntries(TIPS_COLUMNS.map((c) => [c.key, c])) as
 
 const SORT_KEY_BY_COLUMN: Partial<Record<TipsColumnKey, TipsSortKey>> = {
   NAME: 'name',
+  DEPARTMENT: 'department',
   HOURS: 'hours',
   WEIGHT: 'weight',
 }
@@ -93,6 +94,7 @@ type DisplayRow = {
   name: string
   hours: number
   shareWeight: number
+  departmentName: string | null
 }
 
 export function TipsClient({ venueId }: { venueId: string }) {
@@ -139,6 +141,7 @@ export function TipsClient({ venueId }: { venueId: string }) {
             status: s.status,
             approvalNote: s.approvalNote ?? null,
             issueNote: s.issueNote ?? null,
+            departmentName: s.departmentName ?? null,
             noteCount: Number(s.noteCount) || 0,
           }))
         : [],
@@ -231,6 +234,7 @@ export function TipsClient({ venueId }: { venueId: string }) {
       name: share.name,
       hours: share.hours,
       shareWeight: share.shareWeight,
+      departmentName: share.departmentName ?? null,
     }))
     return sortTipsShares(enriched, sort)
   }, [shares, values, sort])
@@ -243,6 +247,18 @@ export function TipsClient({ venueId }: { venueId: string }) {
       if (prev.dir === 'asc') return { key, dir: 'desc' }
       return null
     })
+  }
+
+  /** The distribution PDF follows the on-screen order — forward the active sort. */
+  function pdfHref(): string {
+    const params = new URLSearchParams()
+    if (includeNotes) params.set('notes', '1')
+    if (sort) {
+      params.set('sort', sort.key)
+      params.set('dir', sort.dir)
+    }
+    const query = params.toString()
+    return `/api/admin/tips/${selectedId}/pdf${query ? `?${query}` : ''}`
   }
 
   function setDenomination(denom: number, raw: string) {
@@ -269,6 +285,7 @@ export function TipsClient({ venueId }: { venueId: string }) {
         shareWeight: 1,
         sortOrder: prev.length,
         status: 'PLANNED',
+        departmentName: null,
       },
     ])
   }
@@ -435,6 +452,14 @@ export function TipsClient({ venueId }: { venueId: string }) {
             </button>
           </div>
         )
+      case 'DEPARTMENT': {
+        const department = s.departmentName?.trim()
+        return (
+          <span className="font-mono text-xs uppercase text-grey-light">
+            {department ? department : '—'}
+          </span>
+        )
+      }
       case 'HOURS':
         return (
           <Input
@@ -677,7 +702,7 @@ export function TipsClient({ venueId }: { venueId: string }) {
               {selectedId && (
                 <div className="flex flex-wrap items-center gap-3 border-t border-grey-mid pt-3">
                   <a
-                    href={`/api/admin/tips/${selectedId}/pdf${includeNotes ? '?notes=1' : ''}`}
+                    href={pdfHref()}
                     className="inline-block border border-grey-mid px-3 py-1.5 font-mono text-xs uppercase text-white transition-colors hover:border-white"
                   >
                     ⬇ DOWNLOAD DISTRIBUTION PDF

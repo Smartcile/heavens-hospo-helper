@@ -56,6 +56,8 @@ export interface TipsShareRow extends TipsShareDraft {
   issueNote?: string | null
   approvedAt?: string | Date | null
   issuedAt?: string | Date | null
+  /** The linked staff member's department name (blank for a manual person). */
+  departmentName?: string | null
   /** Number of live notes on this person's period thread (0 when not loaded). */
   noteCount?: number
 }
@@ -388,6 +390,7 @@ export function cleanShares(raw: unknown): TipsShareInput[] {
 
 export type TipsColumnKey =
   | 'NAME'
+  | 'DEPARTMENT'
   | 'HOURS'
   | 'WEIGHT'
   | 'HOURS_PCT'
@@ -407,6 +410,7 @@ export interface TipsColumnDef {
 
 export const TIPS_COLUMNS: TipsColumnDef[] = [
   { key: 'NAME', label: 'NAME', numeric: false, sortable: true },
+  { key: 'DEPARTMENT', label: 'DEPARTMENT', numeric: false, sortable: true },
   { key: 'HOURS', label: 'HOURS', numeric: true, sortable: true },
   { key: 'WEIGHT', label: 'WEIGHT', numeric: true, sortable: true },
   { key: 'HOURS_PCT', label: 'HOURS %', numeric: true, sortable: false },
@@ -472,7 +476,7 @@ export function moveTipsColumn(
   return next
 }
 
-export type TipsSortKey = 'name' | 'hours' | 'weight'
+export type TipsSortKey = 'name' | 'hours' | 'weight' | 'department'
 export type TipsSortDirection = 'asc' | 'desc'
 
 export interface TipsSort {
@@ -485,7 +489,7 @@ export interface TipsSort {
  * order, and a null sort preserves the saved (manual) order. Sorting never
  * reorders the underlying draft — the component sorts a view copy.
  */
-export function sortTipsShares<T extends { name: string; hours: number; shareWeight: number }>(
+export function sortTipsShares<T extends { name: string; hours: number; shareWeight: number; departmentName?: string | null }>(
   rows: readonly T[],
   sort: TipsSort | null,
 ): T[] {
@@ -500,6 +504,16 @@ export function sortTipsShares<T extends { name: string; hours: number; shareWei
   return copy
     .map((row, index) => ({ row, index }))
     .sort((a, b) => {
+      if (sort.key === 'department') {
+        const left = (a.row.departmentName ?? '').trim().toUpperCase()
+        const right = (b.row.departmentName ?? '').trim().toUpperCase()
+        // A missing department always sorts last, whichever direction.
+        if (!left && !right) return a.index - b.index
+        if (!left) return 1
+        if (!right) return -1
+        const deptDelta = left.localeCompare(right)
+        return deptDelta !== 0 ? deptDelta * direction : a.index - b.index
+      }
       const left = value(a.row)
       const right = value(b.row)
       const delta =
@@ -533,6 +547,7 @@ export function mergeTipsStaff(
       shareWeight: 1,
       sortOrder: merged.length,
       status: 'PLANNED',
+      departmentName: person.departmentName ?? null,
       noteCount: 0,
     })
     added++

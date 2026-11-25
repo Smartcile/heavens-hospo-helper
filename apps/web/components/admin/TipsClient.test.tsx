@@ -23,6 +23,7 @@ const PERIOD = {
       status: 'PLANNED',
       approvalNote: null,
       issueNote: null,
+      departmentName: 'FOH',
     },
     {
       id: 'r2',
@@ -34,6 +35,7 @@ const PERIOD = {
       status: 'APPROVED',
       approvalNote: 'CHECKED',
       issueNote: null,
+      departmentName: 'KITCHEN',
     },
   ],
 }
@@ -235,6 +237,7 @@ describe('TipsClient layout, columns, bulk, notes and import', () => {
     expect(screen.getByRole('table')).toBeTruthy()
     expect(headerLabels()).toEqual([
       'NAME',
+      'DEPARTMENT',
       'HOURS',
       'WEIGHT',
       'HOURS %',
@@ -245,11 +248,22 @@ describe('TipsClient layout, columns, bulk, notes and import', () => {
     ])
   })
 
+  it('shows each person\u2019s department and a dash for a manual person', async () => {
+    render(<TipsClient venueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+
+    expect(screen.getByText('FOH')).toBeTruthy()
+    expect(screen.getByText('KITCHEN')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('+ ADD PERSON'))
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0)
+  })
+
   it('restores a saved column order and persists a drag', async () => {
     localStorage.setItem('hospo-tips-columns:v1', JSON.stringify(['AMOUNT', 'NAME']))
     render(<TipsClient venueId="v1" />)
     await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
-    expect(headerLabels().slice(0, 3)).toEqual(['AMOUNT', 'NAME', 'HOURS'])
+    expect(headerLabels().slice(0, 3)).toEqual(['AMOUNT', 'NAME', 'DEPARTMENT'])
 
     const nameHeader = screen.getByRole('columnheader', { name: /NAME/ })
     const actionsHeader = screen.getByRole('columnheader', { name: /ACTIONS/ })
@@ -357,6 +371,28 @@ describe('TipsClient layout, columns, bulk, notes and import', () => {
 
     fireEvent.click(screen.getByLabelText('Include notes in PDF'))
     await waitFor(() => expect(link()?.getAttribute('href')).toBe('/api/admin/tips/t1/pdf?notes=1'))
+  })
+
+  it('forwards the active sort to the PDF link and omits it when unsorted', async () => {
+    render(<TipsClient venueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+
+    const link = () => screen.getByText(/DOWNLOAD DISTRIBUTION PDF/).closest('a')
+    const href = () => link()?.getAttribute('href')
+    expect(href()).toBe('/api/admin/tips/t1/pdf')
+    expect(href()).not.toContain('sort=')
+
+    const nameHeader = screen.getByRole('columnheader', { name: /NAME/ })
+    const sortButton = nameHeader.querySelector('button') as HTMLButtonElement
+
+    fireEvent.click(sortButton) // asc
+    await waitFor(() => expect(href()).toBe('/api/admin/tips/t1/pdf?sort=name&dir=asc'))
+
+    fireEvent.click(sortButton) // desc
+    await waitFor(() => expect(href()).toBe('/api/admin/tips/t1/pdf?sort=name&dir=desc'))
+
+    fireEvent.click(sortButton) // back to the saved order
+    await waitFor(() => expect(href()).toBe('/api/admin/tips/t1/pdf'))
   })
 
   async function openImport(answer: string) {

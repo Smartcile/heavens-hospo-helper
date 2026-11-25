@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { getManagerVenueId } from '@/lib/venue-scope'
 import { buildTipsPeriodPayload } from '@/lib/tips.server'
+import { sortTipsShares, type TipsSort, type TipsSortKey } from '@/lib/tips'
 import { generateTipsPdf, tipsPdfToBuffer } from '@/lib/tips-pdf'
 import { sanitisePdfFilename } from '@/lib/pdf-actions'
 
@@ -13,6 +14,15 @@ interface Params {
 }
 
 const day = (d: Date) => d.toISOString().slice(0, 10)
+
+const SORT_KEYS: readonly TipsSortKey[] = ['name', 'hours', 'weight', 'department']
+
+/** Read a validated sort from the query so the PDF matches the on-screen order. */
+function sortFromRequest(req: NextRequest): TipsSort | null {
+  const key = req.nextUrl.searchParams.get('sort')
+  if (!key || !SORT_KEYS.includes(key as TipsSortKey)) return null
+  return { key: key as TipsSortKey, dir: req.nextUrl.searchParams.get('dir') === 'desc' ? 'desc' : 'asc' }
+}
 
 /** GET /api/admin/tips/[id]/pdf — admin-only distribution sheet. */
 export async function GET(req: NextRequest, { params }: Params) {
@@ -34,6 +44,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       shares: {
         where: { deletedAt: null },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        include: { staff: { select: { department: { select: { name: true } } } } },
       },
     },
   })
@@ -59,6 +70,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     }
   }
   const payload = buildTipsPeriodPayload(period)
+  const orderedShares = sortTipsShares(payload.shares, sortFromRequest(req))
   const label = period.label || `${day(period.fromDate)} - ${day(period.toDate)}`
   const doc = generateTipsPdf({
     venueName: period.venue.name,
@@ -67,8 +79,9 @@ export async function GET(req: NextRequest, { params }: Params) {
     toDate: day(period.toDate),
     poolTotal: payload.poolTotal,
     includeNotes,
-    shares: payload.shares.map((s) => ({
+    shares: orderedShares.map((s) => ({
       name: s.name,
+      department: s.departmentName,
       hours: s.hours,
       shareWeight: s.shareWeight,
       amount: s.amount,

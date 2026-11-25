@@ -35,6 +35,7 @@ const PERIOD = {
       hoursShare: 1,
       suggestedWeight: 1,
       suggestedAmount: 100,
+      departmentName: 'FOH',
     },
     {
       id: 'r2',
@@ -48,6 +49,7 @@ const PERIOD = {
       hoursShare: 1,
       suggestedWeight: 1,
       suggestedAmount: 100,
+      departmentName: 'KITCHEN',
     },
   ],
 }
@@ -106,6 +108,15 @@ describe('WorkerTipsClient', () => {
     render(<WorkerTipsClient />)
     await waitFor(() => expect(screen.getAllByText(/FULLY ISSUED/).length).toBeGreaterThan(0))
     expect(screen.queryByText('MARK ISSUED')).toBeNull()
+  })
+
+  it('shows each person\u2019s department on the issuance desk', async () => {
+    globalThis.fetch = vi.fn(() => json({ periods: [PERIOD] })) as unknown as typeof fetch
+
+    render(<WorkerTipsClient />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+    expect(screen.getByText(/FOH/)).toBeTruthy()
+    expect(screen.getByText(/KITCHEN/)).toBeTruthy()
   })
 
   it('shows access denied when the route refuses floor staff', async () => {
