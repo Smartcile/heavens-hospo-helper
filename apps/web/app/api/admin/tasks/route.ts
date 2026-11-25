@@ -123,6 +123,7 @@ export async function POST(req: NextRequest) {
     isOneOff,
     dueDate,
     rolloverEnabled,
+    isThread,
   } = body
 
   if (!title?.trim() || !venueId) {
@@ -204,6 +205,7 @@ export async function POST(req: NextRequest) {
       isOneOff: !!isOneOff,
       dueDate: due.value,
       rolloverEnabled: !!rolloverEnabled,
+      isThread: !!isThread,
       status: status ?? 'ACTIVE',
       hsCategory: hsCategory ?? null,
       linkedItemId: linkedItemId || null,

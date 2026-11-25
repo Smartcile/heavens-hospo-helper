@@ -15,6 +15,7 @@ import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { availableParentTasks } from '@/lib/task-subtasks'
 import { groupTasksBySection, taskSectionPrefix, taskSectionTitle } from '@/lib/task-section-label'
 import { describeLinkedItem, type LinkedItemView } from '@/lib/item-location'
+import { TaskThread } from '@/components/tasks/TaskThread'
 
 interface Venue { id: string; name: string }
 interface Department { id: string; name: string; venueId: string }
@@ -31,6 +32,9 @@ interface TaskData {
   parentTaskId?: string | null; parentTitle?: string | null
   subtasks?: { id: string; title: string; isActive: boolean; subtaskOrder: number }[]
   linkedItemId?: string | null; linkedItem?: LinkedItemView | null
+  isThread?: boolean
+  threadClosedAt?: string | null
+  threadClosedById?: string | null
   requiredTraining: { moduleId: string }[]
   taskGuides?: { guideId: string; isRequiredForCompetency: boolean }[]
 }
@@ -135,6 +139,7 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
         allowedOutcomes: task.allowedOutcomes,
         overrideOutcomes: !!task.overrideOutcomes,
         requireOutcomeReason: !!task.requireOutcomeReason,
+        isThread: !!task.isThread,
         requireRetrain, changeSummary,
       }),
     })
@@ -305,6 +310,25 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
             override={!!task.overrideOutcomes}
             onOverrideChange={(v) => patch({ overrideOutcomes: v })}
           />
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!task.isThread}
+              onChange={(e) => patch({ isThread: e.target.checked })}
+              className="w-4 h-4 accent-white"
+            />
+            <span className="font-mono text-xs uppercase text-white">Thread — comments + sign-off</span>
+          </label>
+
+          {task.isThread && (
+            <TaskThread
+              taskId={task.id}
+              basePath="/api/admin/tasks"
+              uploadEndpoint="/api/admin/upload"
+              initialClosed={!!task.threadClosedAt}
+            />
+          )}
 
           {task.scheduleType === 'MONTHLY' && (
             <div className="space-y-3">

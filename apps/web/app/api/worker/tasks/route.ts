@@ -343,6 +343,10 @@ export async function GET(req: NextRequest) {
       dueDate: t.dueDate,
       rolloverEnabled: t.rolloverEnabled,
       rolledOverFrom: t.rolledOverFrom,
+      // #145 Wave B — thread state for the worker task modal.
+      isThread: t.isThread,
+      threadClosedAt: t.threadClosedAt,
+      threadClosedById: t.threadClosedById,
       // #145 — belongs in the combined CUSTOM TASKS bucket (one-off or assigned
       // to me, and not already in a checklist).
       custom: isCustomTask(t, { staffId: session.staffId, checklistTaskIds }),
@@ -403,6 +407,7 @@ export async function POST(req: NextRequest) {
     monthlyOption, monthlyDay, requiredTrainingIds, competencyGuideIds,
     allowedOutcomes, overrideOutcomes, requireOutcomeReason,
     checklistIds, assignedToStaffId, linkedItemId,
+    isThread,
   } = body
 
   if (!title?.trim()) return NextResponse.json({ error: 'TITLE IS REQUIRED' }, { status: 400 })
@@ -486,6 +491,7 @@ export async function POST(req: NextRequest) {
       parentTaskId: parentId,
       subtaskOrder,
       assignedToStaffId: assignedToStaffId || null,
+      isThread: !!isThread,
       allowedOutcomes: normaliseOutcomes(allowedOutcomes),
       overrideOutcomes: !!overrideOutcomes,
       requireOutcomeReason: !!requireOutcomeReason,
