@@ -19,6 +19,8 @@ interface Props {
   onChange: (value: string) => void
   placeholder?: string
   className?: string
+  /** Id on the focusable input, for a sibling `<label htmlFor>`. */
+  id?: string
   footerAction?: { label: string; onClick: () => void }
   /** Shown inside the open list when there is nothing to pick. */
   emptyLabel?: string
@@ -30,7 +32,7 @@ interface Entry {
   group: string | null
 }
 
-export function SearchSelect({ options, groups, value, onChange, placeholder, className, footerAction, emptyLabel, disabled }: Props) {
+export function SearchSelect({ options, groups, value, onChange, placeholder, className, id, footerAction, emptyLabel, disabled }: Props) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [highlightIdx, setHighlightIdx] = useState(0)
@@ -116,6 +118,7 @@ export function SearchSelect({ options, groups, value, onChange, placeholder, cl
       <div className="relative">
         <input
           ref={inputRef}
+          id={id}
           type="text"
           value={open ? query : selectedLabel}
           onChange={(e) => { if (disabled) return; setQuery(e.target.value); setOpen(true) }}

@@ -20,6 +20,16 @@ describe('taskSectionPrefix', () => {
     ).toBe('[BAR +2]')
   })
 
+  it('counts extras from the checklist card sectionCount', () => {
+    expect(taskSectionPrefix({ sectionName: 'BAR', sectionCount: 3 })).toBe('[BAR +2]')
+  })
+
+  it('prefers sectionIds over sectionCount', () => {
+    expect(
+      taskSectionPrefix({ sectionName: 'BAR', sectionIds: ['s1', 's2'], sectionCount: 5 }),
+    ).toBe('[BAR +1]')
+  })
+
   it('says NO SECTION when the task has none', () => {
     expect(taskSectionPrefix({ sectionId: null, section: null })).toBe('[NO SECTION]')
   })
@@ -29,7 +39,7 @@ describe('taskSectionPrefix', () => {
   })
 
   it('accepts the checklist card view model (sectionName only)', () => {
-    expect(taskSectionPrefix({ title: 'TASK', sectionName: 'KITCHEN' })).toBe('[KITCHEN]')
+    expect(taskSectionPrefix({ sectionName: 'KITCHEN' })).toBe('[KITCHEN]')
   })
 
   it('titles the tooltip', () => {
@@ -63,12 +73,14 @@ describe('groupTasksBySection', () => {
     expect(groups[0].tasks.map((t) => t.id)).toEqual(['1', '2'])
   })
 
-  it('groups a task whose relation is missing under SECTION rather than dropping it', () => {
+  it('merges every unresolvable section id into one SECTION group', () => {
     const groups = groupTasksBySection([
-      { id: '1', sectionId: 'gone', section: null, department: { name: 'FOH' } },
+      { id: '1', sectionId: 'gone-a', section: null, department: { name: 'FOH' } },
+      { id: '2', sectionId: 'gone-b', section: null, department: { name: 'BOH' } },
     ])
 
     expect(groups).toHaveLength(1)
     expect(groups[0].label).toBe('SECTION')
+    expect(groups[0].tasks.map((t) => t.id)).toEqual(['1', '2'])
   })
 })

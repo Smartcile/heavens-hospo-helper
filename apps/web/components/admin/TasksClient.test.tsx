@@ -31,12 +31,14 @@ const TASK_TWO = {
 
 const PARENT_TASK = {
   ...TASK_ONE, id: 'p1', title: 'NEWSPAPERS', _count: { checklistLinks: 0 },
+  sectionId: 'sec1', section: { id: 'sec1', name: 'BAR' },
   parentTaskId: null, subtasks: [{ id: 'c1', title: 'THROW OUT PAPERS', isActive: true, subtaskOrder: 0 }],
 }
 
 const CHILD_TASK = {
   ...TASK_ONE, id: 'c1', title: 'THROW OUT PAPERS', sortOrder: 1, _count: { checklistLinks: 0 },
   parentTaskId: 'p1', parentTitle: 'NEWSPAPERS',
+  sectionId: 'sec1', section: { id: 'sec1', name: 'BAR' },
 }
 
 const TASK_BAR = {
@@ -55,11 +57,13 @@ const TASK_EDIT = {
 
 const SECTION_BAR = { id: 'sec1', name: 'BAR', departmentId: 'd1', venueId: 'v1' }
 
+const GUIDE_ONE = { id: 'g1', title: 'BAR SOP', venueId: 'v1', isTracked: true, description: null }
+
 const CHECKLIST = {
   id: 'c1', name: 'OPENING', description: null, venueId: 'v1',
   departmentId: null, sectionId: null, appearFromTime: null, activatedOn: null,
   allowedOutcomes: [], requireOutcomeReason: false, department: null, section: null,
-  events: [], tasks: [{ id: 't1', title: 'TASK ONE', isActive: true, version: 1, sectionName: 'BAR' }],
+  events: [], tasks: [{ id: 't1', title: 'TASK ONE', isActive: true, version: 1, sectionName: 'BAR', sectionCount: 2 }],
 }
 
 const EVENT_ONE = {
@@ -96,7 +100,7 @@ function mockApi(tasks: unknown[] = [TASK_ONE, TASK_TWO], gate?: Promise<void>) 
     if (u === '/api/admin/venues') return json([{ id: 'v1', name: 'VENUE' }])
     if (u === '/api/admin/departments') return json([{ id: 'd1', name: 'KITCHEN', venueId: 'v1', colour: null }])
     if (u === '/api/admin/sections') return json([SECTION_BAR])
-    if (u.startsWith('/api/admin/guides')) return json([])
+    if (u.startsWith('/api/admin/guides')) return json([GUIDE_ONE])
     if (u.startsWith('/api/admin/calendar-events')) return json([EVENT_ONE])
     if (u.startsWith('/api/admin/checklists')) return json([CHECKLIST, CHECKLIST_WITH_EVENT])
     void init
@@ -328,6 +332,15 @@ describe('TasksClient', () => {
     fireEvent.click(within(screen.getByTestId('available-task-p1')).getByText('EDIT'))
     await waitFor(() => expect(screen.getByText('EDIT TASK')).toBeDefined())
 
+    // A task with subtasks can never become a subtask itself.
+    const parentInput = within(screen.getByTestId('task-parent-select'))
+      .getByPlaceholderText('NONE (TOP-LEVEL TASK)') as HTMLInputElement
+    expect(parentInput.disabled).toBe(true)
+
+    // The subtask list labels each child with its section.
+    const subtaskPanel = screen.getByText(/Subtasks \(1\)/).closest('div.border') as HTMLElement
+    expect(subtaskPanel.textContent).toContain('[BAR] THROW OUT PAPERS')
+
     fireEvent.click(screen.getByText('+ ADD SUBTASK'))
     await waitFor(() => expect(screen.getByText('NEW SUBTASK')).toBeDefined())
 
@@ -478,7 +491,7 @@ describe('TasksClient', () => {
     mockApi()
     render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
 
-    await waitFor(() => expect(screen.getAllByText('[BAR]').length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByText('[BAR +1]').length).toBeGreaterThan(0))
   })
 
   it('groups the parent picker by section and saves the chosen parent (#165)', async () => {
@@ -490,7 +503,10 @@ describe('TasksClient', () => {
     await waitFor(() => expect(screen.getByText('EDIT TASK')).toBeDefined())
 
     const picker = screen.getByTestId('task-parent-select')
-    fireEvent.focus(within(picker).getByPlaceholderText('NONE (TOP-LEVEL TASK)'))
+    const pickerInput = within(picker).getByPlaceholderText('NONE (TOP-LEVEL TASK)')
+    // The label still points at the focusable input after the native Select swap.
+    expect(screen.getByLabelText('Parent task (optional)')).toBe(pickerInput)
+    fireEvent.focus(pickerInput)
     expect(within(picker).getByText('BAR')).toBeDefined()
     expect(within(picker).getByText('KITCHEN')).toBeDefined()
     fireEvent.click(within(picker).getAllByText('TURN ON DISHWASHER')[0])
@@ -594,8 +610,16 @@ describe('TasksClient', () => {
     fireEvent.click(screen.getByText('MON'))
     fireEvent.click(screen.getByText('TUE'))
 
+    // Outcome policy: opt into a task override and change it from the default.
+    fireEvent.click(screen.getByRole('checkbox', { name: /Custom for this task/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'PARTIAL' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Require a reason/ }))
+
     fireEvent.focus(screen.getByPlaceholderText('Search lists...'))
     fireEvent.click(screen.getAllByText('OPENING').at(-1)!)
+
+    fireEvent.focus(screen.getByPlaceholderText('Search guides...'))
+    fireEvent.click(await screen.findByText('BAR SOP'))
 
     fireEvent.focus(screen.getByPlaceholderText('SEARCH ITEMS...'))
     fireEvent.click(await screen.findByText(/SPRAY BOTTLE/))
@@ -627,6 +651,10 @@ describe('TasksClient', () => {
       expect(body.checklistIds).toEqual(['c1'])
       expect(body.linkedItemId).toBe('i1')
       expect(String(body.description)).toContain('USE THE GOOD PAPER')
+      expect(body.competencyGuideIds).toEqual(['g1'])
+      expect(body.overrideOutcomes).toBe(true)
+      expect(body.requireOutcomeReason).toBe(true)
+      expect(body.allowedOutcomes).toEqual(['DONE', 'NOT_REQUIRED', 'DID_NOT_COMPLETE'])
       expect(body.requiredTrainingIds).toEqual([])
     })
   })

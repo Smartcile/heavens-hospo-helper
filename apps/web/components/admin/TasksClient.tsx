@@ -21,6 +21,7 @@ import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { availableParentTasks, orderTasksWithChildren } from '@/lib/task-subtasks'
 import { normaliseGroupLabel } from '@/lib/task-groups'
 import { groupTasksBySection, taskSectionPrefix, taskSectionTitle } from '@/lib/task-section-label'
+import { buildSubtaskSeed } from '@/lib/task-subtask-seed'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { ImportModal } from '@/components/import/ImportModal'
 import {
@@ -86,7 +87,7 @@ interface Department { id: string; name: string; venueId: string; colour: string
 interface Section { id: string; name: string; departmentId: string; venueId: string }
 interface GuideLite { id: string; title: string; venueId: string; isTracked: boolean; description: string | null }
 
-interface ChecklistCardTask { id: string; title: string; isActive: boolean; version: number; groupLabel?: string | null; sectionName?: string | null }
+interface ChecklistCardTask { id: string; title: string; isActive: boolean; version: number; groupLabel?: string | null; sectionName?: string | null; sectionCount?: number }
 interface ChecklistScheduleRow { dayOfWeek: number; fromTime: string; toTime: string | null }
 interface Checklist {
   id: string
@@ -365,30 +366,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   // parent's legacy training link to the new task.
   function openSubtaskCreateFromSeed(parent: { id: string; title: string }, seed: FormState) {
     setEditing(null)
-    setForm({
-      ...EMPTY_FORM,
-      title: `${parent.title} SUBTASK`,
-      venueId: seed.venueId,
-      departmentId: seed.departmentId,
-      sectionId: seed.sectionId,
-      completionType: seed.completionType,
-      scheduleType: seed.scheduleType,
-      scheduleDays: [...seed.scheduleDays],
-      customCron: seed.customCron,
-      intervalMonths: seed.intervalMonths,
-      monthlyOption: seed.monthlyOption,
-      monthlyDay: seed.monthlyDay,
-      description: seed.description,
-      allowedOutcomes: [...seed.allowedOutcomes],
-      overrideOutcomes: seed.overrideOutcomes,
-      requireOutcomeReason: seed.requireOutcomeReason,
-      competencyGuideIds: [...seed.competencyGuideIds],
-      linkedItemId: seed.linkedItemId,
-      checklistIds: [...seed.checklistIds],
-      parentTaskId: parent.id,
-      assignedToStaffId: '',
-      requiredTrainingIds: [],
-    })
+    setForm({ ...EMPTY_FORM, ...buildSubtaskSeed(parent, seed) })
     void loadAssignees(seed.venueId)
     void loadItems(seed.venueId)
     setRequireRetrain(false); setChangeSummary('')
@@ -1172,8 +1150,9 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
 
           <div className="space-y-2">
             <div className="space-y-1" data-testid="task-parent-select">
-              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Parent task (optional)</label>
+              <label htmlFor="tasks-parent-task-input" className="font-mono text-xs uppercase text-grey-light tracking-wider">Parent task (optional)</label>
               <SearchSelect
+                id="tasks-parent-task-input"
                 groups={parentSelectGroups}
                 value={form.parentTaskId}
                 onChange={(v) => setForm({ ...form, parentTaskId: v })}

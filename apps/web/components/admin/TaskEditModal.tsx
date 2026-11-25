@@ -224,8 +224,9 @@ export function TaskEditModal({ taskId, role, onClose, onSaved }: { taskId: stri
 
           <div className="space-y-2">
             <div className="space-y-1" data-testid="task-parent-select">
-              <label className="font-mono text-xs uppercase text-grey-light tracking-wider">Parent task (optional)</label>
+              <label htmlFor="task-edit-parent-task-input" className="font-mono text-xs uppercase text-grey-light tracking-wider">Parent task (optional)</label>
               <SearchSelect
+                id="task-edit-parent-task-input"
                 groups={parentSelectGroups}
                 value={task.parentTaskId ?? ''}
                 onChange={(v) => patch({ parentTaskId: v })}

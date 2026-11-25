@@ -62,6 +62,7 @@ export async function GET(req: NextRequest) {
               isActive: true, version: true, deletedAt: true,
               department: { select: { name: true } },
               section: { select: { name: true } },
+              sections: { select: { sectionId: true } },
             },
           },
         },
@@ -99,6 +100,7 @@ export async function GET(req: NextRequest) {
           version: ct.task.version,
           departmentName: ct.task.department?.name ?? null,
           sectionName: ct.task.section?.name ?? null,
+          sectionCount: ct.task.sections.length,
           groupLabel: ct.groupLabel,
         })),
     }))

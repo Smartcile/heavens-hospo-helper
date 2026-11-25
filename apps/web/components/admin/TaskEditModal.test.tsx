@@ -55,10 +55,14 @@ describe('TaskEditModal', () => {
 
   it('labels a subtask row with its section (#165)', async () => {
     mockFetch({ task: PARENT_TASK, allTasks: [PARENT_TASK, CHILD_TASK] })
-    const { getByText, getByDisplayValue } = render(
+    const { getByText, getByDisplayValue, getByLabelText } = render(
       <TaskEditModal taskId="t1" role="ADMIN" onClose={() => {}} onSaved={() => {}} />
     )
     await waitFor(() => expect(getByDisplayValue('NEWSPAPERS')).toBeTruthy())
     expect(getByText('[BAR]')).toBeTruthy()
+    // The label still targets the focusable input, and a parent with subtasks
+    // cannot itself be re-parented.
+    const parentInput = getByLabelText('Parent task (optional)') as HTMLInputElement
+    expect(parentInput.disabled).toBe(true)
   })
 })
