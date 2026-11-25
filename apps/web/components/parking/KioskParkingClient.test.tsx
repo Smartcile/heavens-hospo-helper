@@ -61,14 +61,60 @@ const SUCCESS = {
 
 const CREDENTIAL = {
   kind: 'MEMBER',
-  type: { id: 'type-1', name: 'RAYC', windowLabel: '4 HOURS', durationMinutes: 240 },
+  type: {
+    id: 'type-1',
+    name: 'RAYC',
+    windowLabel: '4 HOURS',
+    durationMinutes: 240,
+    plateRemovalRequiresPin: false,
+  },
   member: {
     id: 'member-1',
     firstName: 'TEST',
     lastName: 'MEMBER',
+    plateSavingEnabled: true,
     plates: [{ id: 'plate-1', plate: 'ABC123', isDefault: true }],
   },
   token: 'credential-token',
+}
+
+const CREDENTIAL_TWO = {
+  ...CREDENTIAL,
+  member: {
+    ...CREDENTIAL.member,
+    plates: [
+      { id: 'plate-1', plate: 'ABC123', isDefault: true },
+      { id: 'plate-2', plate: 'XYZ789', isDefault: false },
+    ],
+  },
+}
+
+const CREDENTIAL_NO_SAVE = {
+  ...CREDENTIAL,
+  member: {
+    ...CREDENTIAL.member,
+    plateSavingEnabled: false,
+    plates: [],
+  },
+}
+
+async function openMemberScreen(
+  credential: typeof CREDENTIAL = CREDENTIAL,
+  expectMemberScreen = true,
+) {
+  fetchMock.mockResolvedValueOnce(jsonResponse(credential))
+  render(<KioskParkingClient config={FOUR_CONFIG} />)
+
+  await screen.findByText('ENTER YOUR MEMBERSHIP NUMBER')
+  for (const digit of ['1', '2', '3', '4']) {
+    fireEvent.click(screen.getByRole('button', { name: digit }))
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'CONTINUE' }))
+  if (expectMemberScreen) {
+    await screen.findByText(/HELLO TEST/)
+  } else {
+    await screen.findByText('FIRST TIME — ADD YOUR PLATE')
+  }
 }
 
 const FOUR_SUCCESS = {
@@ -308,6 +354,87 @@ describe('KioskParkingClient — 4 hour', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled())
     const body = JSON.parse(String(fetchMock.mock.calls[0][1].body))
     expect(body.mode).toBe('ADMIN')
+  })
+
+  it('removes a saved plate after an inline confirmation and updates the list', async () => {
+    await openMemberScreen(CREDENTIAL_TWO)
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        ok: true,
+        plates: [{ id: 'plate-2', plate: 'XYZ789', isDefault: true }],
+      }),
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'REMOVE' })[0])
+    expect(screen.getByText('REMOVE ABC123?')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'YES, REMOVE' }))
+
+    await waitFor(() => expect(screen.queryByText('ABC123')).toBeNull())
+    expect(screen.getByText('XYZ789')).toBeInTheDocument()
+
+    const body = JSON.parse(String(fetchMock.mock.calls[1][1].body))
+    expect(body).toEqual({
+      token: 'credential-token',
+      action: 'REMOVE',
+      plateId: 'plate-1',
+    })
+  })
+
+  it('sets a saved plate as the default through the kiosk route', async () => {
+    await openMemberScreen(CREDENTIAL_TWO)
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        ok: true,
+        plates: [
+          { id: 'plate-2', plate: 'XYZ789', isDefault: true },
+          { id: 'plate-1', plate: 'ABC123', isDefault: false },
+        ],
+      }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'SET DEFAULT' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    const body = JSON.parse(String(fetchMock.mock.calls[1][1].body))
+    expect(body).toEqual({
+      token: 'credential-token',
+      action: 'SET_DEFAULT',
+      plateId: 'plate-2',
+    })
+  })
+
+  it('asks for the type admin PIN before removing a plate when required', async () => {
+    await openMemberScreen({
+      ...CREDENTIAL_TWO,
+      type: { ...CREDENTIAL_TWO.type, plateRemovalRequiresPin: true },
+    })
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'REMOVE' })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'YES, REMOVE' }))
+
+    expect(screen.getByText(/ADMIN PIN REQUIRED TO REMOVE ABC123/)).toBeInTheDocument()
+    for (const digit of ['9', '8', '7', '6']) {
+      fireEvent.click(screen.getByRole('button', { name: digit }))
+    }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true, plates: [] }))
+    fireEvent.click(screen.getByRole('button', { name: 'REMOVE PLATE' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    const body = JSON.parse(String(fetchMock.mock.calls[1][1].body))
+    expect(body).toEqual({
+      token: 'credential-token',
+      action: 'REMOVE',
+      plateId: 'plate-1',
+      adminPin: '9876',
+    })
+  })
+
+  it('skips the member screen and warns when plate saving is off', async () => {
+    await openMemberScreen(CREDENTIAL_NO_SAVE, false)
+
+    expect(screen.queryByText(/HELLO TEST/)).toBeNull()
+    expect(screen.getByText('FIRST TIME — ADD YOUR PLATE')).toBeInTheDocument()
+    expect(screen.getByText(/PLATES ARE NOT SAVED/)).toBeInTheDocument()
   })
 
   it('returns to the 90 minute page from START AGAIN', async () => {

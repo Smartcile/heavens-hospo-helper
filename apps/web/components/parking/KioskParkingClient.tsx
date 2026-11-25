@@ -62,11 +62,18 @@ interface KioskResult {
 
 interface CredentialView {
   kind: 'MEMBER' | 'ADMIN_PIN'
-  type: { id: string; name: string; windowLabel: string | null; durationMinutes: number }
+  type: {
+    id: string
+    name: string
+    windowLabel: string | null
+    durationMinutes: number
+    plateRemovalRequiresPin: boolean
+  }
   member: {
     id: string
     firstName: string
     lastName: string
+    plateSavingEnabled: boolean
     plates: { id: string; plate: string; isDefault: boolean }[]
   } | null
   token: string
@@ -149,6 +156,13 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
   const [manualBusy, setManualBusy] = useState(false)
   const [manualNote, setManualNote] = useState('')
   const [adminMode, setAdminMode] = useState(false)
+  const [plateBusy, setPlateBusy] = useState('')
+  const [plateError, setPlateError] = useState('')
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null)
+  const [removePinFor, setRemovePinFor] = useState<{ id: string; plate: string } | null>(
+    null,
+  )
+  const [removePin, setRemovePin] = useState('')
   const fourAbort = useRef<AbortController | null>(null)
 
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -187,6 +201,11 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
     setFourSeconds(config.resetSeconds)
     setManualBusy(false)
     setManualNote('')
+    setPlateBusy('')
+    setPlateError('')
+    setConfirmRemoveId(null)
+    setRemovePinFor(null)
+    setRemovePin('')
   }, [config.resetSeconds])
 
   const resetFour = useCallback(() => {
@@ -406,6 +425,93 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
     setAddingPlate(true)
     setFourPlate('')
     setFourStage('plate')
+  }
+
+  function startPlateRemoval(plate: { id: string; plate: string }) {
+    setPlateError('')
+    setConfirmRemoveId(plate.id)
+  }
+
+  function confirmPlateRemoval(plate: { id: string; plate: string }) {
+    setPlateError('')
+    if (credential?.type.plateRemovalRequiresPin) {
+      setConfirmRemoveId(null)
+      setRemovePinFor({ id: plate.id, plate: plate.plate })
+      setRemovePin('')
+      return
+    }
+    void managePlate('REMOVE', plate.id)
+  }
+
+  function cancelPlateAction() {
+    setPlateError('')
+    setConfirmRemoveId(null)
+    setRemovePinFor(null)
+    setRemovePin('')
+  }
+
+  async function managePlate(
+    action: 'SET_DEFAULT' | 'REMOVE',
+    plateId: string,
+    adminPin?: string,
+  ) {
+    if (!credential?.member) return
+    const current = credential
+    const target = current.member?.plates.find((plate) => plate.id === plateId) ?? null
+    setPlateBusy(plateId)
+    setPlateError('')
+    try {
+      const res = await fetch('/api/public/parking/kiosk/member/plates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: current.token,
+          action,
+          plateId,
+          ...(adminPin ? { adminPin } : {}),
+        }),
+        cache: 'no-store',
+      })
+      const body = await res.json().catch(() => ({}))
+      if (res.status === 401) {
+        setPlateError('THE KIOSK SESSION EXPIRED — START AGAIN')
+        return
+      }
+      if (!res.ok) {
+        setPlateError(body.error || 'COULD NOT UPDATE YOUR PLATES')
+        return
+      }
+
+      const plates = Array.isArray(body.plates)
+        ? (body.plates as { id: string; plate: string; isDefault: boolean }[])
+        : []
+      setCredential((previous) =>
+        previous && previous.member
+          ? { ...previous, member: { ...previous.member, plates } }
+          : previous,
+      )
+      cancelPlateAction()
+
+      if (action === 'SET_DEFAULT') {
+        const next = plates.find((plate) => plate.isDefault) ?? plates[0]
+        if (next) {
+          setFourSelectedPlate(next.plate)
+          setAddingPlate(false)
+        }
+      } else if (plates.length === 0) {
+        setFourSelectedPlate('')
+        setAddingPlate(true)
+        setFourPlate('')
+        setFourStage('plate')
+      } else if (target && fourSelectedPlate === target.plate) {
+        const next = plates.find((plate) => plate.isDefault) ?? plates[0]
+        setFourSelectedPlate(next?.plate ?? '')
+      }
+    } catch {
+      setPlateError('COULD NOT CONNECT — TRY AGAIN')
+    } finally {
+      setPlateBusy('')
+    }
   }
 
   async function submitFourClaim(rawPlate: string) {
@@ -933,30 +1039,136 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
                 WHICH PLATE ARE YOU PARKING?
               </p>
             </div>
-            <div className="space-y-2">
-              {credential.member.plates.map((plate) => (
+            {removePinFor ? (
+              <div className="border border-danger/60 p-3">
+                <p className="text-center font-mono text-sm uppercase tracking-wider text-danger">
+                  ADMIN PIN REQUIRED TO REMOVE {removePinFor.plate}
+                </p>
+                <div className="mt-2 flex justify-center">
+                  <PinKeypad
+                    tone="danger"
+                    onKey={(key) => {
+                      setPlateError('')
+                      setRemovePin((current) => appendDigit(current, key, 8))
+                    }}
+                    onBackspace={() => {
+                      setPlateError('')
+                      setRemovePin((current) => removeLastDigit(current))
+                    }}
+                    onClear={() => {
+                      setPlateError('')
+                      setRemovePin('')
+                    }}
+                    disabled={plateBusy === removePinFor.id}
+                  />
+                </div>
+                {plateError && (
+                  <p className="mt-2 text-center font-mono text-sm text-danger" role="alert">
+                    {plateError}
+                  </p>
+                )}
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void managePlate('REMOVE', removePinFor.id, removePin)}
+                    disabled={removePin.length < 4 || plateBusy === removePinFor.id}
+                    className="border border-danger px-3 py-3 font-mono text-sm font-bold uppercase tracking-wider text-danger disabled:opacity-40"
+                  >
+                    REMOVE PLATE
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelPlateAction}
+                    className="border border-grey-mid px-3 py-3 font-mono text-sm uppercase tracking-wider text-grey-light"
+                  >
+                    CANCEL
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  {credential.member.plates.map((plate) => (
+                    <div
+                      key={plate.id}
+                      className={`border ${
+                        fourSelectedPlate === plate.plate ? 'border-white' : 'border-grey-mid'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => memberUsesSaved(plate.plate)}
+                        className={`flex w-full items-center justify-between px-5 py-4 font-mono text-2xl tracking-[0.2em] ${
+                          fourSelectedPlate === plate.plate
+                            ? 'bg-white text-black'
+                            : 'text-white'
+                        }`}
+                      >
+                        <span>{plate.plate}</span>
+                        {plate.isDefault && (
+                          <span className="text-xs uppercase">DEFAULT</span>
+                        )}
+                      </button>
+                      {confirmRemoveId === plate.id ? (
+                        <div className="flex flex-wrap items-center gap-2 border-t border-grey-mid px-3 py-2">
+                          <span className="font-mono text-xs uppercase text-white">
+                            REMOVE {plate.plate}?
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => confirmPlateRemoval(plate)}
+                            disabled={plateBusy === plate.id}
+                            className="border border-danger px-3 py-2 font-mono text-xs uppercase tracking-wider text-danger disabled:opacity-40"
+                          >
+                            YES, REMOVE
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelPlateAction}
+                            className="border border-grey-mid px-3 py-2 font-mono text-xs uppercase tracking-wider text-grey-light"
+                          >
+                            CANCEL
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-2 border-t border-grey-mid px-3 py-2">
+                          {!plate.isDefault && (
+                            <button
+                              type="button"
+                              onClick={() => void managePlate('SET_DEFAULT', plate.id)}
+                              disabled={plateBusy === plate.id}
+                              className="border border-grey-mid px-3 py-2 font-mono text-xs uppercase tracking-wider text-white disabled:opacity-40"
+                            >
+                              SET DEFAULT
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => startPlateRemoval(plate)}
+                            disabled={plateBusy === plate.id}
+                            className="border border-grey-mid px-3 py-2 font-mono text-xs uppercase tracking-wider text-danger disabled:opacity-40"
+                          >
+                            REMOVE
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {plateError && (
+                  <p className="text-center font-mono text-base text-danger" role="alert">
+                    {plateError}
+                  </p>
+                )}
                 <button
-                  key={plate.id}
                   type="button"
-                  onClick={() => memberUsesSaved(plate.plate)}
-                  className={`flex w-full items-center justify-between border px-5 py-5 font-mono text-2xl tracking-[0.2em] ${
-                    fourSelectedPlate === plate.plate
-                      ? 'border-white bg-white text-black'
-                      : 'border-grey-mid text-white'
-                  }`}
+                  onClick={memberAddsNew}
+                  className="w-full border border-grey-mid py-4 font-mono text-sm uppercase tracking-wider text-grey-light"
                 >
-                  <span>{plate.plate}</span>
-                  {plate.isDefault && <span className="text-xs uppercase">DEFAULT</span>}
+                  + ADD A NEW PLATE
                 </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={memberAddsNew}
-              className="w-full border border-grey-mid py-4 font-mono text-sm uppercase tracking-wider text-grey-light"
-            >
-              + ADD A NEW PLATE
-            </button>
+              </>
+            )}
             {fourError && (
               <p className="text-center font-mono text-base text-danger" role="alert">
                 {fourError}
@@ -1156,6 +1368,11 @@ export function KioskParkingClient({ config }: { config: KioskParkingConfig }) {
                     : 'ADD A NEW PLATE'
                   : 'ENTER YOUR NUMBER PLATE'}
               </p>
+              {credential?.member && credential.member.plateSavingEnabled === false && (
+                <p className="mt-1 font-mono text-xs uppercase tracking-wider text-warning">
+                  PLATES ARE NOT SAVED — THIS PLATE IS NOT REMEMBERED
+                </p>
+              )}
             </div>
             <div className="flex shrink-0 justify-center gap-2" aria-live="polite">
               {fourSlots.map((char, index) => (

@@ -17,6 +17,7 @@ interface ParkingMember {
   parkingTypeName: string | null
   isActive: boolean
   isTest: boolean
+  savePlates: boolean
   notes: string | null
   createdAt: string
   plates: { id: string; plate: string; isDefault: boolean; createdAt: string }[]
@@ -37,6 +38,7 @@ const EMPTY = {
   parkingTypeId: '',
   isActive: true,
   isTest: false,
+  savePlates: true,
   notes: '',
 }
 
@@ -125,6 +127,7 @@ export function ParkingMembersPanel({
       parkingTypeId: member.parkingTypeId ?? '',
       isActive: member.isActive,
       isTest: member.isTest,
+      savePlates: member.savePlates !== false,
       notes: member.notes ?? '',
     })
     setOpen(true)
@@ -180,6 +183,33 @@ export function ParkingMembersPanel({
       await load()
     } catch {
       setError('DELETE FAILED')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function setDefaultPlate(member: ParkingMember, plateId: string) {
+    setBusy(plateId)
+    setError('')
+    setMessage('')
+    try {
+      const res = await fetch(
+        `/api/admin/parking/ftp/test-members/${member.id}/plates/${plateId}?venueId=${encodeURIComponent(venueId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'SET_DEFAULT' }),
+        },
+      )
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setError(body.error || 'COULD NOT SET THE DEFAULT PLATE')
+        return
+      }
+      setMessage('DEFAULT PLATE UPDATED')
+      await load()
+    } catch {
+      setError('COULD NOT SET THE DEFAULT PLATE')
     } finally {
       setBusy('')
     }
@@ -299,7 +329,23 @@ export function ParkingMembersPanel({
               />
               <span className="font-mono text-xs uppercase text-white">TEST MEMBER</span>
             </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.savePlates}
+                onChange={(e) => setForm({ ...form, savePlates: e.target.checked })}
+                className="h-4 w-4 accent-white"
+              />
+              <span className="font-mono text-xs uppercase text-white">
+                SAVE NUMBER PLATES
+              </span>
+            </label>
           </div>
+          {!form.savePlates && (
+            <p className="font-mono text-2xs uppercase text-grey-light">
+              NEW PLATES ARE NOT SAVED. EXISTING PLATES ARE HIDDEN FROM THE KIOSK BUT KEPT HERE.
+            </p>
+          )}
           <div className="flex flex-wrap gap-2 border-t border-grey-mid pt-3">
             <Button size="sm" onClick={() => void save()} loading={busy === 'save'}>
               SAVE MEMBER
@@ -348,6 +394,11 @@ export function ParkingMembersPanel({
                       TEST
                     </span>
                   )}
+                  {member.savePlates === false && (
+                    <span className="border border-grey-mid px-2 py-0.5 font-mono text-2xs uppercase text-grey-light">
+                      NOT SAVED
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -363,6 +414,17 @@ export function ParkingMembersPanel({
                     >
                       {plate.plate}
                       {plate.isDefault ? ' · DEFAULT' : ''}
+                      {!plate.isDefault && (
+                        <button
+                          type="button"
+                          onClick={() => void setDefaultPlate(member, plate.id)}
+                          disabled={busy === plate.id}
+                          className="text-grey-light hover:text-white"
+                          aria-label={`Set plate ${plate.plate} as default`}
+                        >
+                          SET DEFAULT
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => void removePlate(member, plate.id, plate.plate)}

@@ -62,6 +62,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       phone: input.value.phone,
       parkingTypeId: input.value.parkingTypeId,
       isActive: input.value.isActive,
+      // Only write the preference when it is supplied: the Settings -> FTP
+      // member editor predates this field and must not reset it on save.
+      ...(typeof body.savePlates === 'boolean' ? { savePlates: input.value.savePlates } : {}),
       notes: input.value.notes,
     },
     include: memberInclude,

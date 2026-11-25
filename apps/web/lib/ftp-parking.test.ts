@@ -7,6 +7,7 @@ import {
   normaliseFtpTypeInput,
   normaliseTestMemberInput,
   resolveFtpContact,
+  shouldRememberMemberPlate,
   sortMemberPlates,
 } from './ftp-parking'
 
@@ -91,6 +92,13 @@ describe('normaliseFtpTypeInput', () => {
     const off = normaliseFtpTypeInput(typeBody({ logPlates: false }))
     if (on.ok) expect(on.value.logPlates).toBe(true)
     if (off.ok) expect(off.value.logPlates).toBe(false)
+  })
+
+  it('defaults plate removal PIN off and accepts on', () => {
+    const off = normaliseFtpTypeInput(typeBody())
+    const on = normaliseFtpTypeInput(typeBody({ plateRemovalRequiresPin: true }))
+    if (off.ok) expect(off.value.plateRemovalRequiresPin).toBe(false)
+    if (on.ok) expect(on.value.plateRemovalRequiresPin).toBe(true)
   })
 
   it('defaults showOnKiosk on and accepts a hidden type for guest links', () => {
@@ -188,7 +196,15 @@ describe('normaliseTestMemberInput', () => {
       lastName: 'MEMBER',
       parkingTypeId: 'type-1',
       isActive: true,
+      savePlates: true,
     })
+  })
+
+  it('defaults plate saving on and accepts off', () => {
+    const on = normaliseTestMemberInput(base)
+    const off = normaliseTestMemberInput({ ...base, savePlates: false })
+    if (on.ok) expect(on.value.savePlates).toBe(true)
+    if (off.ok) expect(off.value.savePlates).toBe(false)
   })
 
   it('rejects bad membership numbers and names', () => {
@@ -202,6 +218,15 @@ describe('normaliseTestMemberInput', () => {
       ok: false,
       error: 'CHOOSE A PARKING TYPE',
     })
+  })
+})
+
+describe('shouldRememberMemberPlate', () => {
+  it('only remembers a plate when both the type and member allow it', () => {
+    expect(shouldRememberMemberPlate({ savePlates: true, logPlates: true })).toBe(true)
+    expect(shouldRememberMemberPlate({ savePlates: false, logPlates: true })).toBe(false)
+    expect(shouldRememberMemberPlate({ savePlates: true, logPlates: false })).toBe(false)
+    expect(shouldRememberMemberPlate({ savePlates: false, logPlates: false })).toBe(false)
   })
 })
 

@@ -30,6 +30,15 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   const enabling = input.value.adminPinEnabled
   const newPin = input.value.adminPin
+  if (
+    input.value.plateRemovalRequiresPin &&
+    (!enabling || (!newPin && !loaded.row.adminPinHash))
+  ) {
+    return NextResponse.json(
+      { error: 'SET AN ADMIN PIN BEFORE REQUIRING IT FOR PLATE REMOVAL' },
+      { status: 422 },
+    )
+  }
   if (enabling && !newPin && !loaded.row.adminPinHash) {
     return NextResponse.json(
       { error: 'SET AN ADMIN PIN BEFORE ENABLING IT' },
@@ -71,6 +80,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       useContactEmail: input.value.useContactEmail,
       useContactPhone: input.value.useContactPhone,
       logPlates: input.value.logPlates,
+      plateRemovalRequiresPin: input.value.plateRemovalRequiresPin,
       showOnKiosk: input.value.showOnKiosk,
       adminPinEnabled: input.value.adminPinEnabled,
       ...(newPin
