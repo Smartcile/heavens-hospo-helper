@@ -3,6 +3,8 @@ import { pdfSafe } from '@/lib/pdf-safe'
 
 export interface TipsPdfShare {
   name: string
+  /** The person's department (blank for a manual, non-system person). */
+  department?: string | null
   hours: number
   shareWeight: number
   amount: number
@@ -66,8 +68,15 @@ export function generateTipsPdf(data: TipsPdfData): jsPDF {
   doc.text(`POOL: ${money(data.poolTotal)}`, margin, y)
   y += 9
 
-  // Column layout (mm)
-  const cols = { name: margin, hours: margin + 74, weight: margin + 92, amount: margin + 108, status: margin + 136 }
+  // Column layout (mm). A4 portrait: page 210mm, 15mm margins → 180mm inner.
+  const cols = {
+    name: margin,
+    department: margin + 55,
+    hours: margin + 103,
+    weight: margin + 117,
+    amount: margin + 135,
+    status: margin + 147,
+  }
   const rowH = 6
 
   function header() {
@@ -79,6 +88,7 @@ export function generateTipsPdf(data: TipsPdfData): jsPDF {
     doc.setFontSize(8)
     doc.setTextColor(0)
     doc.text('NAME', cols.name, y)
+    doc.text('DEPARTMENT', cols.department, y)
     doc.text('HOURS', cols.hours, y, { align: 'right' })
     doc.text('WEIGHT', cols.weight, y, { align: 'right' })
     doc.text('AMOUNT', cols.amount, y, { align: 'right' })
@@ -113,8 +123,10 @@ export function generateTipsPdf(data: TipsPdfData): jsPDF {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
     doc.setTextColor(0)
-    const name = doc.splitTextToSize(pdfSafe(share.name).toUpperCase(), 68) as string[]
+    const name = doc.splitTextToSize(pdfSafe(share.name).toUpperCase(), 48) as string[]
     doc.text(name, cols.name, y)
+    const department = share.department ? (doc.splitTextToSize(pdfSafe(share.department).toUpperCase(), 40) as string[]) : []
+    if (department.length > 0) doc.text(department, cols.department, y)
     doc.text(String(share.hours), cols.hours, y, { align: 'right' })
     doc.text(String(share.shareWeight), cols.weight, y, { align: 'right' })
     doc.text(money(share.amount), cols.amount, y, { align: 'right' })

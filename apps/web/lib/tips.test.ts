@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   DEFAULT_TIPS_COLUMN_ORDER,
+  TIPS_COLUMNS,
   canTransitionTipsShare,
   cashRound,
   cashTotalOf,
@@ -300,6 +301,7 @@ describe('tips breakdown columns + bulk staff', () => {
   it('moves a dragged column into the target position', () => {
     expect(moveTipsColumn(DEFAULT_TIPS_COLUMN_ORDER, 'AMOUNT', 'HOURS')).toEqual([
       'NAME',
+      'DEPARTMENT',
       'AMOUNT',
       'HOURS',
       'WEIGHT',
@@ -313,6 +315,59 @@ describe('tips breakdown columns + bulk staff', () => {
 
   it('keys the saved order per venue', () => {
     expect(tipsColumnOrderStorageKey('v1')).toBe('hospo-tips-columns:v1')
+  })
+
+  it('includes a sortable DEPARTMENT column right after NAME', () => {
+    const department = TIPS_COLUMNS.find((c) => c.key === 'DEPARTMENT')
+    expect(department).toBeDefined()
+    expect(department?.sortable).toBe(true)
+    expect(DEFAULT_TIPS_COLUMN_ORDER).toEqual([
+      'NAME',
+      'DEPARTMENT',
+      'HOURS',
+      'WEIGHT',
+      'HOURS_PCT',
+      'SUGGESTED',
+      'AMOUNT',
+      'STATUS',
+      'ACTIONS',
+    ])
+  })
+
+  it('keeps a saved column order and appends the DEPARTMENT column when missing', () => {
+    expect(parseTipsColumnOrder(JSON.stringify(['AMOUNT', 'NAME']))).toEqual([
+      'AMOUNT',
+      'NAME',
+      'DEPARTMENT',
+      'HOURS',
+      'WEIGHT',
+      'HOURS_PCT',
+      'SUGGESTED',
+      'STATUS',
+      'ACTIONS',
+    ])
+  })
+
+  it('sorts by department with people who have no department last', () => {
+    const rows = [
+      row({ name: 'A', departmentName: null }),
+      row({ name: 'B', departmentName: 'KITCHEN' }),
+      row({ name: 'C', departmentName: 'FOH' }),
+      row({ name: 'D', departmentName: 'FOH' }),
+    ]
+    expect(sortTipsShares(rows, { key: 'department', dir: 'asc' }).map((r) => r.name)).toEqual([
+      'C',
+      'D',
+      'B',
+      'A',
+    ])
+    // A missing department stays last even in descending order.
+    expect(sortTipsShares(rows, { key: 'department', dir: 'desc' }).map((r) => r.name)).toEqual([
+      'B',
+      'C',
+      'D',
+      'A',
+    ])
   })
 
   it('sorts by name / hours / weight, directionally and stably', () => {

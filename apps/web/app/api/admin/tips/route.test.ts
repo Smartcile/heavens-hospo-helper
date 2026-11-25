@@ -52,6 +52,22 @@ const created = () => ({
       approvedAt: null,
       issuedAt: null,
       deletedAt: null,
+      staff: { department: { name: 'KITCHEN' } },
+    },
+    {
+      id: 'r2',
+      staffId: null,
+      name: 'WALK IN WONDER',
+      hours: 0,
+      shareWeight: 1,
+      sortOrder: 1,
+      status: 'PLANNED',
+      approvalNote: null,
+      issueNote: null,
+      approvedAt: null,
+      issuedAt: null,
+      deletedAt: null,
+      staff: null,
     },
   ],
 })
@@ -111,5 +127,17 @@ describe('GET /api/admin/tips', () => {
     getAccessibleVenueIds.mockReturnValue(['v1'])
     const res = await GET(jsonReq(undefined, 'http://localhost/api/admin/tips?venueId=v9'))
     expect(res.status).toBe(403)
+  })
+
+  it('joins the staff department and returns each person\u2019s departmentName', async () => {
+    const res = await GET(jsonReq(undefined, 'http://localhost/api/admin/tips?venueId=v1'))
+    const data = await res.json()
+
+    const include = prisma.tipsPeriod.findMany.mock.calls[0][0].include
+    expect(include.shares.include.staff).toEqual({ select: { department: { select: { name: true } } } })
+
+    expect(data[0].shares[0].departmentName).toBe('KITCHEN')
+    // A manual person has no staff link → null (the UI renders a dash).
+    expect(data[0].shares[1].departmentName).toBeNull()
   })
 })

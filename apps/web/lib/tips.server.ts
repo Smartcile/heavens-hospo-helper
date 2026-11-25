@@ -25,6 +25,8 @@ interface StoredTipsShare {
   deletedAt: Date | null
   /** Present only when the caller asked for the live note count. */
   _count?: { notes: number }
+  /** Present only when the caller joined the staff member's department. */
+  staff?: { department: { name: string } | null } | null
 }
 
 interface StoredTipsPeriod {
@@ -62,6 +64,7 @@ function rowFromStored(share: StoredTipsShare): TipsShareRow {
     issueNote: share.issueNote,
     approvedAt: share.approvedAt,
     issuedAt: share.issuedAt,
+    departmentName: share.staff?.department?.name ?? null,
   }
   // The payload only carries a live note count when the read included
   // `_count.notes`; a caller that did not ask for it sees no change.

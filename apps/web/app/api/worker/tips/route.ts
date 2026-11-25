@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
       shares: {
         where: { deletedAt: null },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        include: { staff: { select: { department: { select: { name: true } } } } },
       },
     },
   })
