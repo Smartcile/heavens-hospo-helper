@@ -22,6 +22,7 @@ const cardDetail = {
     pdfPath: '/uploads/gift-cards/Gift Card - 0005.pdf',
     notes: null,
     createdAt: '2026-09-08T00:00:00.000Z',
+    updatedAt: '2026-09-08T01:00:00.000Z',
     history: [{ at: '2026-09-08T00:00:00.000Z', type: 'ISSUED', note: 'PDF GENERATED' }],
   },
   order: {
@@ -186,7 +187,9 @@ describe('GiftCardModal replacement', () => {
     render(<GiftCardModal cardId="card-1" onClose={() => {}} onChanged={() => {}} />)
 
     const frame = await screen.findByTitle('GIFT CARD PREVIEW')
-    expect(frame.getAttribute('data-pdf-src')).toBe('/api/admin/gift-cards/card-1/pdf?inline=1')
+    expect(frame.getAttribute('data-pdf-src')).toBe(
+      '/api/admin/gift-cards/card-1/pdf?inline=1&v=2026-09-08T01%3A00%3A00.000Z',
+    )
     expect(screen.getByText('ISSUED PDF')).toBeTruthy()
 
     // History sits in the right-hand column below the preview.
@@ -214,5 +217,64 @@ describe('GiftCardModal replacement', () => {
     expect(chips.length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText('PAYMENT CONFIRMED IN THE APP — GIFT CARD #20260004 ISSUED')).toBeTruthy()
     expect(screen.getByText('PAYMENT CONFIRMED')).toBeTruthy()
+  })
+})
+
+describe('GiftCardModal UPDATE PDF', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(window, 'confirm').mockImplementation(() => true)
+    vi.spyOn(global, 'fetch').mockImplementation(mocks.fetch)
+    mocks.fetch.mockClear()
+    mocks.fetch.mockImplementation(async (input: RequestInfo | URL) => {
+      const data = routeMap[String(input)]
+      return { ok: true, json: async () => data } as Response
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('offers UPDATE PDF for an issued card, POSTs, and versions the viewer URL', async () => {
+    render(<GiftCardModal cardId="card-1" onClose={() => {}} onChanged={() => {}} />)
+
+    const btn = await screen.findByRole('button', { name: 'UPDATE PDF' })
+    const frame = await screen.findByTitle('GIFT CARD PREVIEW')
+    expect(frame.getAttribute('data-pdf-src')).toBe(
+      '/api/admin/gift-cards/card-1/pdf?inline=1&v=2026-09-08T01%3A00%3A00.000Z',
+    )
+
+    fireEvent.click(btn)
+
+    await waitFor(() => {
+      const call = mocks.fetch.mock.calls.find(
+        (c: unknown[]) => String(c[0]) === '/api/admin/gift-cards/card-1/pdf',
+      )
+      expect(call).toBeTruthy()
+      expect(((call as unknown[])[1] as RequestInit).method).toBe('POST')
+    })
+    expect(await screen.findByText('PDF UPDATED — SHOWS THE CURRENT AMOUNT')).toBeTruthy()
+  })
+
+  it('hides UPDATE PDF for a DRAFT card and a redeemed card', async () => {
+    const draft = { ...cardDetail, card: { ...cardDetail.card, status: 'DRAFT', pdfPath: null } }
+    mocks.fetch.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith('/detail')) return { ok: true, json: async () => draft } as Response
+      return { ok: true, json: async () => ({}) } as Response
+    })
+    const { unmount } = render(<GiftCardModal cardId="card-1" onClose={() => {}} onChanged={() => {}} />)
+    await screen.findByRole('button', { name: 'SAVE DETAILS' })
+    expect(screen.queryByRole('button', { name: 'UPDATE PDF' })).toBeNull()
+    unmount()
+
+    const redeemed = { ...cardDetail, card: { ...cardDetail.card, status: 'REDEEMED' } }
+    mocks.fetch.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith('/detail')) return { ok: true, json: async () => redeemed } as Response
+      return { ok: true, json: async () => ({}) } as Response
+    })
+    render(<GiftCardModal cardId="card-1" onClose={() => {}} onChanged={() => {}} />)
+    await screen.findByRole('button', { name: 'SAVE DETAILS' })
+    expect(screen.queryByRole('button', { name: 'UPDATE PDF' })).toBeNull()
   })
 })

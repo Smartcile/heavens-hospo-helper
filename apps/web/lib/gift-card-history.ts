@@ -21,6 +21,7 @@ export type GiftCardEventType =
   | 'NOTE'
   | 'AUTO_ISSUED'
   | 'REDEEMED'
+  | 'PDF_UPDATED'
   | 'REPLACED'
   | 'RESET'
 
@@ -92,6 +93,7 @@ export const EVENT_LABELS: Record<string, string> = {
   NOTE: 'PRIVATE NOTE',
   AUTO_ISSUED: 'AUTO-ISSUED (WOOCOMMERCE)',
   REDEEMED: 'REDEEMED',
+  PDF_UPDATED: 'PDF UPDATED',
   REPLACED: 'REPLACED (VOIDED)',
   RESET: 'RESET TO DRAFT',
 }
