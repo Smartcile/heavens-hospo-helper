@@ -19,6 +19,8 @@ export async function GET(req: NextRequest) {
   }
 
   const statusOnly = req.nextUrl.searchParams.get('status') === '1'
+  // Notes are opt-in so the default payload is unchanged (#180).
+  const includeNotes = !statusOnly && req.nextUrl.searchParams.get('notes') === '1'
   const periods = await prisma.tipsPeriod.findMany({
     where: { venueId: session!.venueId, deletedAt: null },
     orderBy: [{ fromDate: 'desc' }, { createdAt: 'desc' }],
@@ -31,7 +33,43 @@ export async function GET(req: NextRequest) {
   })
 
   const payload = periods.map(buildTipsPeriodPayload)
-  if (!statusOnly) return NextResponse.json({ periods: payload })
+  if (!statusOnly) {
+    if (!includeNotes) return NextResponse.json({ periods: payload })
+    // One extra query only when asked; no nested include and no cast.
+    const shareIds = payload.flatMap((period) =>
+      period.shares.map((share) => share.id).filter((id): id is string => !!id),
+    )
+    const notes = shareIds.length
+      ? await prisma.tipsShareNote.findMany({
+          where: { tipsShareId: { in: shareIds }, deletedAt: null },
+          orderBy: [{ createdAt: 'asc' }],
+          select: { id: true, body: true, source: true, createdAt: true, tipsShareId: true },
+        })
+      : []
+    const notesByShare = new Map<
+      string,
+      Array<{ id: string; body: string; source: string; createdAt: string }>
+    >()
+    for (const note of notes) {
+      const list = notesByShare.get(note.tipsShareId) ?? []
+      list.push({
+        id: note.id,
+        body: note.body,
+        source: note.source,
+        createdAt: note.createdAt.toISOString(),
+      })
+      notesByShare.set(note.tipsShareId, list)
+    }
+    return NextResponse.json({
+      periods: payload.map((period) => ({
+        ...period,
+        shares: period.shares.map((share) => ({
+          ...share,
+          notes: notesByShare.get(share.id ?? '') ?? [],
+        })),
+      })),
+    })
+  }
 
   return NextResponse.json({
     periods: payload.map((p) => ({

@@ -19,3 +19,30 @@ describe('tips PDF', () => {
     expect(buffer.byteLength).toBeGreaterThan(500)
   })
 })
+
+describe('tips PDF notes option', () => {
+  const crowded = Array.from({ length: 12 }, (_, index) => ({
+    name: `PERSON ${index + 1}`,
+    hours: 1,
+    shareWeight: 1,
+    amount: 8.33,
+    status: 'APPROVED',
+    notes: Array.from({ length: 4 }, () => 'A'.repeat(280)),
+  }))
+  const base = {
+    venueName: 'Demo Venue',
+    label: 'FEBRUARY 2026',
+    fromDate: '2026-02-01',
+    toDate: '2026-02-28',
+    poolTotal: 100,
+    shares: crowded,
+  }
+
+  it('prints the note thread only when includeNotes is true (default OFF)', () => {
+    const off = generateTipsPdf({ ...base, includeNotes: false })
+    const on = generateTipsPdf({ ...base, includeNotes: true })
+    expect(off.getNumberOfPages()).toBe(1)
+    expect(on.getNumberOfPages()).toBeGreaterThan(1)
+    expect(tipsPdfToBuffer(on).byteLength).toBeGreaterThan(tipsPdfToBuffer(off).byteLength)
+  })
+})

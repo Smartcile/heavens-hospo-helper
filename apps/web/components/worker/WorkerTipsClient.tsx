@@ -7,6 +7,14 @@ import { Panel } from '@/components/ui/Panel'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import type { TipsProgress, TipsShareValue } from '@/lib/tips'
 
+interface WorkerNote {
+  id: string
+  body: string
+  createdAt: string
+}
+
+type TipsShareWithNotes = TipsShareValue & { notes?: WorkerNote[] }
+
 interface TipsPeriodView {
   id: string
   label: string | null
@@ -16,7 +24,7 @@ interface TipsPeriodView {
   fullyIssuedAt: string | null
   poolTotal: number
   progress: TipsProgress
-  shares: TipsShareValue[]
+  shares: TipsShareWithNotes[]
 }
 
 function money(n: number): string {
@@ -37,12 +45,13 @@ export function WorkerTipsClient() {
   const [periods, setPeriods] = useState<TipsPeriodView[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [notes, setNotes] = useState<Record<string, string>>({})
+  const [showNotes, setShowNotes] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
 
-  const load = useCallback(async () => {
-    const r = await fetch('/api/worker/tips').catch(() => null)
+  const load = useCallback(async (withNotes: boolean) => {
+    const r = await fetch(`/api/worker/tips${withNotes ? '?notes=1' : ''}`).catch(() => null)
     if (!r) {
       setError('COULD NOT CONNECT')
       setLoading(false)
@@ -70,8 +79,8 @@ export function WorkerTipsClient() {
   }, [])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void load(showNotes)
+  }, [load, showNotes])
 
   async function issue(share: TipsShareValue) {
     setBusyId(share.id ?? null)
@@ -92,7 +101,7 @@ export function WorkerTipsClient() {
       delete next[share.id ?? '']
       return next
     })
-    await load()
+    await load(showNotes)
   }
 
   const selected = periods.find((p) => p.id === selectedId) ?? periods[0] ?? null
@@ -100,11 +109,21 @@ export function WorkerTipsClient() {
   return (
     <div className="min-h-screen bg-black p-4 pb-24">
       <div className="mx-auto max-w-3xl space-y-4">
-        <div>
-          <h1 className="font-mono text-xl font-bold uppercase tracking-widest text-white">TIPS</h1>
-          <p className="font-mono text-xs uppercase tracking-wider text-grey-light">
-            MANAGER ISSUANCE DESK — MARK EACH PERSON AS PAID
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h1 className="font-mono text-xl font-bold uppercase tracking-widest text-white">TIPS</h1>
+            <p className="font-mono text-xs uppercase tracking-wider text-grey-light">
+              MANAGER ISSUANCE DESK — MARK EACH PERSON AS PAID
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowNotes((prev) => !prev)}
+            aria-pressed={showNotes}
+            className="h-9 border border-grey-mid px-3 font-mono text-xs uppercase text-grey-light transition-colors hover:border-white hover:text-white"
+          >
+            {showNotes ? 'HIDE NOTES' : 'SHOW NOTES'}
+          </button>
         </div>
 
         {loading ? (
@@ -204,6 +223,20 @@ export function WorkerTipsClient() {
                         )}
                         {share.issueNote && (
                           <p className="mt-1 font-mono text-xs text-grey-light">ISSUE: {share.issueNote}</p>
+                        )}
+
+                        {showNotes && (
+                          share.notes && share.notes.length > 0 ? (
+                            <div className="mt-1 space-y-0.5 border-l border-grey-mid pl-2">
+                              {share.notes.map((note) => (
+                                <p key={note.id} className="font-mono text-xs text-grey-light">
+                                  {note.body}
+                                </p>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="mt-1 font-mono text-xs text-grey-light">NO NOTES.</p>
+                          )
                         )}
 
                         {share.status === 'APPROVED' && (

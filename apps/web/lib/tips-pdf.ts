@@ -9,6 +9,8 @@ export interface TipsPdfShare {
   status: string
   approvalNote?: string | null
   issueNote?: string | null
+  /** Per-person period thread bodies — printed only when `includeNotes`. */
+  notes?: string[]
 }
 
 export interface TipsPdfData {
@@ -18,6 +20,8 @@ export interface TipsPdfData {
   toDate: string
   poolTotal: number
   shares: TipsPdfShare[]
+  /** Opt-in (#180), default OFF: print each person's note thread. */
+  includeNotes?: boolean
 }
 
 function money(n: number): string {
@@ -125,6 +129,25 @@ export function generateTipsPdf(data: TipsPdfData): jsPDF {
       const lines = doc.splitTextToSize(pdfSafe(notes.join(' · ')), innerW - 4) as string[]
       doc.text(lines, cols.name + 3, y - 1)
       y += lines.length * 4 + 1
+    }
+
+    // Optional per-person note thread (#180) — only when explicitly asked for.
+    if (data.includeNotes) {
+      for (const note of share.notes ?? []) {
+        const text = typeof note === 'string' ? note.trim() : ''
+        if (!text) continue
+        if (y > pageH - 24) {
+          doc.addPage()
+          y = 18
+          header()
+        }
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+        doc.setTextColor(90)
+        const lines = doc.splitTextToSize(pdfSafe(`NOTE: ${text}`), innerW - 8) as string[]
+        doc.text(lines, cols.name + 3, y - 1)
+        y += lines.length * 3.8 + 1
+      }
     }
   }
 

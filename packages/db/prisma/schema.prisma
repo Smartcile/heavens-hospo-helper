@@ -4474,12 +4474,36 @@ model TipsShare {
   updatedAt      DateTime        @updatedAt
   deletedAt      DateTime?
 
-  tipsPeriod TipsPeriod @relation(fields: [tipsPeriodId], references: [id])
-  staff      Staff?     @relation(fields: [staffId], references: [id])
+  tipsPeriod TipsPeriod       @relation(fields: [tipsPeriodId], references: [id])
+  staff      Staff?           @relation(fields: [staffId], references: [id])
+  notes      TipsShareNote[]
 
   @@unique([tipsPeriodId, staffId])
   @@index([tipsPeriodId, status])
   @@index([staffId])
+}
+
+// One history thread per share (person x period). Anchored to the SHARE rather
+// than the staff link so a manual (staffId: null) person keeps their notes, and
+// so a re-added staff member revives the row and keeps its history. Additive
+// (#180) - `venueId` is denormalised for scoping, the same shape and source
+// labels as AvailabilityComment so both threads render identically.
+model TipsShareNote {
+  id           String                    @id @default(uuid())
+  venueId      String
+  tipsPeriodId String
+  tipsShareId  String
+  body         String
+  source       AvailabilityCommentSource @default(MANAGER)
+  authorId     String?
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  deletedAt    DateTime?
+
+  share TipsShare @relation(fields: [tipsShareId], references: [id])
+
+  @@index([tipsShareId, createdAt])
+  @@index([venueId, tipsPeriodId])
 }
 
 // -- HEAVENLY HELP (#50) -------------------------------------------------

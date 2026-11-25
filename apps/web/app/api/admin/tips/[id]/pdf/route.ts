@@ -39,6 +39,25 @@ export async function GET(req: NextRequest, { params }: Params) {
   })
   if (!period) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  const includeNotes = req.nextUrl.searchParams.get('notes') === '1'
+  // Notes are ONLY loaded when explicitly requested; the default PDF download
+  // never joins the thread table.
+  const notesById = new Map<string, string[]>()
+  if (includeNotes) {
+    const shareIds = period.shares.map((s) => s.id)
+    const notes = shareIds.length
+      ? await prisma.tipsShareNote.findMany({
+          where: { tipsShareId: { in: shareIds }, deletedAt: null },
+          orderBy: [{ createdAt: 'asc' }, { updatedAt: 'asc' }],
+          select: { tipsShareId: true, body: true },
+        })
+      : []
+    for (const note of notes) {
+      const list = notesById.get(note.tipsShareId) ?? []
+      list.push(note.body)
+      notesById.set(note.tipsShareId, list)
+    }
+  }
   const payload = buildTipsPeriodPayload(period)
   const label = period.label || `${day(period.fromDate)} - ${day(period.toDate)}`
   const doc = generateTipsPdf({
@@ -47,6 +66,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     fromDate: day(period.fromDate),
     toDate: day(period.toDate),
     poolTotal: payload.poolTotal,
+    includeNotes,
     shares: payload.shares.map((s) => ({
       name: s.name,
       hours: s.hours,
@@ -55,6 +75,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       status: s.status,
       approvalNote: s.approvalNote,
       issueNote: s.issueNote,
+      notes: includeNotes ? notesById.get(s.id ?? '') ?? [] : undefined,
     })),
   })
 

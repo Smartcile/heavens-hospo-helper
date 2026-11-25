@@ -191,4 +191,44 @@ describe('ImportModal (shared shell)', () => {
     await screen.findByText('NO JSON FOUND IN THE ANSWER')
     expect(screen.queryByText('IMPORT SELECTED')).toBeNull()
   })
+
+  it('applies rows client-side without any fetch when onApply is set', async () => {
+    const onApply = vi.fn(() => ({
+      created: 1,
+      updated: 0,
+      revived: 0,
+      skipped: 0,
+      warnings: [],
+    }))
+    const parse = vi.fn(() => ({
+      rows: [{
+        id: 'i0',
+        values: { name: 'FISH', price: 16.5 },
+        include: true,
+        action: 'CREATE' as const,
+        issues: [],
+      }],
+      issues: [],
+    }))
+
+    render(
+      <ImportModal<MenuValues>
+        title="IMPORT TIPS"
+        prompt="PROMPT"
+        existing={[]}
+        parse={parse}
+        onApply={onApply}
+        onClose={() => {}}
+        onImported={() => {}}
+      />,
+    )
+
+    goToPreview()
+    await screen.findByText('FISH')
+    fireEvent.click(screen.getByText('IMPORT SELECTED'))
+
+    await waitFor(() => expect(onApply).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(global.fetch)).not.toHaveBeenCalled()
+    expect(await screen.findByText('IMPORT COMPLETE')).toBeTruthy()
+  })
 })

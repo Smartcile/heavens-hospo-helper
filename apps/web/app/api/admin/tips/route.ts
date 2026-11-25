@@ -18,6 +18,7 @@ const SHARES_INCLUDE = {
   shares: {
     where: { deletedAt: null },
     orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
+    include: { _count: { select: { notes: { where: { deletedAt: null } } } } },
   },
 }
 
