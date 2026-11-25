@@ -103,3 +103,11 @@ describe('resolveAccess', () => {
     expect(resolveAccess({ role: 'MANAGER', restricted: true, grants: [] }, 'ops.inventory.view')).toBe(false)
   })
 })
+
+describe('tips approvals', () => {
+  it('has a tips approve key and grants it in the FOH preset', () => {
+    expect(allPermissionKeys()).toContain('performance.tips.approve')
+    const foh = PERMISSION_PRESETS.find((p) => p.key === 'foh')
+    expect(foh?.keys).toContain('performance.tips.approve')
+  })
+})

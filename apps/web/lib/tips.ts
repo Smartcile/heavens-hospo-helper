@@ -35,6 +35,232 @@ export interface TipsShareResult extends TipsShareInput {
   value: number
 }
 
+// --- Relational shares (TipsShare) -----------------------------------------
+// The old JSON snapshot is kept only for the one-off backfill. New rows carry a
+// staff link (null = a manual, non-system person) and a per-person status.
+
+export type TipsShareStatusValue = 'PLANNED' | 'APPROVED' | 'ISSUED' | 'FULLY_ISSUED'
+
+export interface TipsShareDraft {
+  id?: string
+  staffId: string | null
+  name: string
+  hours: number
+  shareWeight: number
+  sortOrder: number
+}
+
+export interface TipsShareRow extends TipsShareDraft {
+  status: TipsShareStatusValue
+  approvalNote?: string | null
+  issueNote?: string | null
+  approvedAt?: string | Date | null
+  issuedAt?: string | Date | null
+}
+
+export interface TipsShareValue extends TipsShareRow {
+  /** This person's share of the total hours (0–1). Advisory only. */
+  hoursShare: number
+  /** Hours-proportional weight suggestion (the suggestions sum to headcount). */
+  suggestedWeight: number
+  /** Hours-proportional payout suggestion (not cash-rounded). */
+  suggestedAmount: number
+  /** Final cash-rounded payout for this row. Rows always sum to the pool. */
+  amount: number
+}
+
+export interface TipsProgress {
+  total: number
+  planned: number
+  approved: number
+  issued: number
+  fullyIssued: number
+  /** ISSUED + FULLY_ISSUED. */
+  issuedCount: number
+  /** 0–100, issuedCount / total. */
+  percent: number
+  /** 0–100, (approved + issued + fullyIssued) / total. */
+  approvedPercent: number
+  /** The overall stage of the period. */
+  stage: TipsShareStatusValue
+  complete: boolean
+}
+
+export const TIPS_CASH_STEP = 0.1
+
+/** This person's fraction of the total hours (0 when there are no hours). */
+export function hoursShare(hours: number, totalHours: number): number {
+  const h = Number.isFinite(hours) && hours > 0 ? hours : 0
+  const total = Number.isFinite(totalHours) && totalHours > 0 ? totalHours : 0
+  return total > 0 ? h / total : 0
+}
+
+/** Hours-proportional weight suggestion, scaled so the suggestions sum to count. */
+export function suggestedWeight(hours: number, totalHours: number, count: number): number {
+  const n = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0
+  return round2(hoursShare(hours, totalHours) * n)
+}
+
+/** Hours-proportional payout suggestion (advisory, not cash-rounded). */
+export function suggestedAmount(pool: number, hours: number, totalHours: number): number {
+  const amount = Number.isFinite(pool) ? pool : 0
+  return round2(amount * hoursShare(hours, totalHours))
+}
+
+/** Round a dollar value to the nearest 10c (NZ cash). */
+export function cashRound(value: number, step = TIPS_CASH_STEP): number {
+  const amount = Number.isFinite(value) ? value : 0
+  return round2(Math.round((amount + Number.EPSILON) / step) * step)
+}
+
+/**
+ * Split `total` by weight and cash-round every payout to the nearest 10c. The
+ * 10c units are reconciled with the largest-remainder method, so the returned
+ * amounts add up exactly to the nearest-10c value of the pool (never a cent
+ * lost or invented). A zero/negative weight total pays nobody.
+ */
+export function distributeCashRounded(total: number, shares: readonly { shareWeight: number }[]): number[] {
+  if (shares.length === 0) return []
+  const amount = Number.isFinite(total) && total > 0 ? total : 0
+  const weightTotal = shares.reduce((sum, s) => sum + (Number(s.shareWeight) || 0), 0)
+  const targetUnits = Math.max(0, Math.round(amount / TIPS_CASH_STEP))
+  if (weightTotal <= 0 || targetUnits === 0) return shares.map(() => 0)
+
+  const rawUnits = shares.map((s) => (targetUnits * (Number(s.shareWeight) || 0)) / weightTotal)
+  const units = rawUnits.map((u) => Math.floor(u + 1e-9))
+  const allocated = units.reduce((sum, u) => sum + u, 0)
+  let remaining = targetUnits - allocated
+
+  const order = shares
+    .map((_, index) => ({ index, remainder: rawUnits[index] - Math.floor(rawUnits[index] + 1e-9) }))
+    .sort((a, b) => b.remainder - a.remainder || a.index - b.index)
+
+  if (remaining > 0 && order.length > 0) {
+    for (let i = 0; i < remaining; i++) units[order[i % order.length].index] += 1
+  } else if (remaining < 0 && order.length > 0) {
+    for (let i = 0; i < -remaining; i++) units[order[order.length - 1 - (i % order.length)].index] -= 1
+  }
+
+  return units.map((u) => round2(Math.max(0, u) * TIPS_CASH_STEP))
+}
+
+/** Attach hours share, suggestions and the reconciled payout to every row. */
+export function valueTipsShares(total: number, shares: readonly TipsShareRow[]): TipsShareValue[] {
+  const totalHours = shares.reduce((sum, s) => sum + (Number(s.hours) || 0), 0)
+  const amounts = distributeCashRounded(total, shares)
+  const count = shares.length
+  return shares.map((s, i) => ({
+    ...s,
+    hoursShare: hoursShare(s.hours, totalHours),
+    suggestedWeight: suggestedWeight(s.hours, totalHours, count),
+    suggestedAmount: suggestedAmount(total, s.hours, totalHours),
+    amount: amounts[i] ?? 0,
+  }))
+}
+
+/** Status counts + percentages for the dashboard widget and the progress bar. */
+export function tipsProgress(shares: readonly { status: TipsShareStatusValue }[]): TipsProgress {
+  const total = shares.length
+  let planned = 0
+  let approved = 0
+  let issued = 0
+  let fullyIssued = 0
+  for (const s of shares) {
+    if (s.status === 'PLANNED') planned++
+    else if (s.status === 'APPROVED') approved++
+    else if (s.status === 'ISSUED') issued++
+    else if (s.status === 'FULLY_ISSUED') fullyIssued++
+  }
+  const issuedCount = issued + fullyIssued
+  const percent = total > 0 ? Math.round((issuedCount / total) * 100) : 0
+  const approvedPercent = total > 0 ? Math.round(((approved + issuedCount) / total) * 100) : 0
+  let stage: TipsShareStatusValue = 'PLANNED'
+  if (total > 0 && fullyIssued === total) stage = 'FULLY_ISSUED'
+  else if (issuedCount > 0) stage = 'ISSUED'
+  else if (total > 0 && approved === total) stage = 'APPROVED'
+  return {
+    total,
+    planned,
+    approved,
+    issued,
+    fullyIssued,
+    issuedCount,
+    percent,
+    approvedPercent,
+    stage,
+    complete: total > 0 && fullyIssued === total,
+  }
+}
+
+/** The single allowed-transition rule, enforced again on the server. */
+export function canTransitionTipsShare(from: TipsShareStatusValue, to: TipsShareStatusValue): boolean {
+  if (from === 'PLANNED') return to === 'APPROVED'
+  if (from === 'APPROVED') return to === 'ISSUED'
+  if (from === 'ISSUED') return to === 'FULLY_ISSUED'
+  return false
+}
+
+/** Hours/weight/name edits are only allowed before any payout is issued. */
+export function isTipsShareEditable(status: TipsShareStatusValue): boolean {
+  return status === 'PLANNED' || status === 'APPROVED'
+}
+
+/** True when a period contains a payout that has already been issued. */
+export function isTipsPeriodLocked(shares: readonly { status: TipsShareStatusValue }[]): boolean {
+  return shares.some((s) => !isTipsShareEditable(s.status))
+}
+
+/**
+ * Sanitise incoming share rows for an admin save: trim/uppercase manual names,
+ * coerce hours/weight, drop blank manual rows, and keep one row per staff link.
+ */
+export function cleanTipsShareRows(raw: unknown): TipsShareDraft[] {
+  if (!Array.isArray(raw)) return []
+  const out: TipsShareDraft[] = []
+  const seenStaff = new Set<string>()
+  raw.forEach((item, index) => {
+    if (!item || typeof item !== 'object') return
+    const row = item as Record<string, unknown>
+    const staffId = typeof row.staffId === 'string' && row.staffId.trim() ? row.staffId.trim() : null
+    const name = typeof row.name === 'string' ? row.name.trim().toUpperCase() : ''
+    if (!staffId && !name) return
+    if (staffId) {
+      if (seenStaff.has(staffId)) return
+      seenStaff.add(staffId)
+    }
+    const hoursRaw = Number(row.hours)
+    const weightRaw = Number(row.shareWeight)
+    const sortRaw = Number(row.sortOrder)
+    out.push({
+      id: typeof row.id === 'string' && row.id.trim() ? row.id.trim() : undefined,
+      staffId,
+      name,
+      hours: Number.isFinite(hoursRaw) && hoursRaw > 0 ? hoursRaw : 0,
+      shareWeight: Number.isFinite(weightRaw) && weightRaw >= 0 ? weightRaw : 1,
+      sortOrder: Number.isFinite(sortRaw) && sortRaw >= 0 ? Math.floor(sortRaw) : index,
+    })
+  })
+  return out
+}
+
+/**
+ * Match a legacy share name (from the old JSON snapshot) to a venue staff
+ * member, but only when exactly one person has that full name. Ambiguous names
+ * stay manual (null) rather than guessing the wrong person's payout.
+ */
+export function matchLegacyTipStaff(
+  name: string,
+  staff: readonly { id: string; firstName: string; lastName: string }[],
+): string | null {
+  const target = name.trim().replace(/\s+/g, ' ').toUpperCase()
+  if (!target) return null
+  const matches = staff.filter((s) => {
+    const full = `${s.firstName ?? ''} ${s.lastName ?? ''}`.trim().replace(/\s+/g, ' ').toUpperCase()
+    return full === target
+  })
+  return matches.length === 1 ? matches[0].id : null
+}
+
 export interface TipsSummary {
   /** Accrued tips = cash + POS. */
   totalTips: number

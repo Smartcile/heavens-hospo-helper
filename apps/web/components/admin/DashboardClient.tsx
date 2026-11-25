@@ -50,6 +50,16 @@ interface WidgetExtra {
   clockedIn: number
   training: { summary: { green: number; yellow: number; red: number }; onShiftActionNeeded: number } | null
   parkingHealth: { ok: boolean; stale: boolean; message: string } | null
+  tips: {
+    label: string
+    total: number
+    planned: number
+    approved: number
+    issued: number
+    fullyIssued: number
+    percent: number
+    stage: string
+  } | null
 }
 
 export function DashboardClient({ role }: { role: string }) {
@@ -284,6 +294,33 @@ export function DashboardClient({ role }: { role: string }) {
                     {extra.training.onShiftActionNeeded > 0
                       ? `${extra.training.onShiftActionNeeded} ON SHIFT TODAY NEED FOLLOW-UP.`
                       : 'NOBODY ON SHIFT TODAY NEEDS FOLLOW-UP.'}
+                  </p>
+                </>
+              )}
+            </Panel>
+          </Link>
+        )
+
+      case 'TIPS':
+        return (
+          <Link href="/admin/tips" className="block h-full">
+            <Panel padding="lg" className="h-full hover:border-white transition-colors">
+              <span className="font-mono text-xs uppercase tracking-wider text-grey-light">TIPS — STATUS</span>
+              {!extra?.tips ? (
+                <p className="font-mono text-xs text-grey-light mt-2">NO TIP PERIOD OR NO ACCESS.</p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="font-mono text-xs text-grey-light truncate">{extra.tips.label}</span>
+                    <span className="font-mono text-lg font-bold text-white">
+                      {extra.tips.issued}/{extra.tips.total}
+                    </span>
+                  </div>
+                  <div className="mt-2">
+                    <ProgressBar value={extra.tips.issued} max={Math.max(1, extra.tips.total)} showLabel />
+                  </div>
+                  <p className="font-mono text-xs text-grey-light mt-2">
+                    {extra.tips.planned} PLANNED · {extra.tips.approved} APPROVED · {extra.tips.issued} ISSUED
                   </p>
                 </>
               )}

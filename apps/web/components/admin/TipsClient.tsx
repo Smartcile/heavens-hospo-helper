@@ -4,19 +4,20 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Panel } from '@/components/ui/Panel'
+import { ProgressBar } from '@/components/ui/ProgressBar'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import {
   CASH_DENOMINATIONS,
-  SHARE_PRESETS,
   cashTotalOf,
-  cleanShares,
   denominationLabel,
-  distributeTips,
-  summariseTips,
+  isTipsPeriodLocked,
+  tipsProgress,
   totalTips,
+  valueTipsShares,
   type CashCounts,
-  type TipsShareInput,
+  type TipsShareRow,
+  type TipsShareStatusValue,
 } from '@/lib/tips'
 
 interface TipsPeriod {
@@ -27,8 +28,15 @@ interface TipsPeriod {
   toDate: string
   cashCounts: CashCounts
   posTotal: number
-  shares: TipsShareInput[]
   notes: string | null
+  poolTotal: number
+  shares: TipsShareRow[]
+}
+
+interface StaffOption {
+  id: string
+  name: string
+  departmentName: string | null
 }
 
 function money(n: number): string {
@@ -42,18 +50,25 @@ function dayKey(iso: string | null | undefined): string {
 
 const todayKey = () => new Date().toISOString().slice(0, 10)
 
-const SHARE_OPTIONS = SHARE_PRESETS.map((p) => ({ value: String(p.value), label: p.label }))
+const STATUS_TONE: Record<TipsShareStatusValue, string> = {
+  PLANNED: 'border-grey-mid text-grey-light',
+  APPROVED: 'border-warning text-warning',
+  ISSUED: 'border-success text-success',
+  FULLY_ISSUED: 'border-success text-success',
+}
 
 export function TipsClient({ venueId }: { venueId: string }) {
   const [periods, setPeriods] = useState<TipsPeriod[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [staffOptions, setStaffOptions] = useState<StaffOption[]>([])
+  const [pickerStaffId, setPickerStaffId] = useState('')
 
   const [label, setLabel] = useState('')
   const [fromDate, setFromDate] = useState(todayKey())
   const [toDate, setToDate] = useState(todayKey())
   const [cashCounts, setCashCounts] = useState<CashCounts>({})
   const [posTotal, setPosTotal] = useState('')
-  const [shares, setShares] = useState<TipsShareInput[]>([])
+  const [shares, setShares] = useState<TipsShareRow[]>([])
   const [notes, setNotes] = useState('')
 
   const [loading, setLoading] = useState(true)
@@ -67,7 +82,21 @@ export function TipsClient({ venueId }: { venueId: string }) {
     setToDate(p ? dayKey(p.toDate) : todayKey())
     setCashCounts(p && p.cashCounts && typeof p.cashCounts === 'object' ? p.cashCounts : {})
     setPosTotal(p ? String(p.posTotal ?? '') : '')
-    setShares(p && Array.isArray(p.shares) ? p.shares : [])
+    setShares(
+      p && Array.isArray(p.shares)
+        ? p.shares.map((s, i) => ({
+            id: s.id,
+            staffId: s.staffId ?? null,
+            name: s.name,
+            hours: Number(s.hours) || 0,
+            shareWeight: Number(s.shareWeight) || 0,
+            sortOrder: Number(s.sortOrder) || i,
+            status: s.status,
+            approvalNote: s.approvalNote ?? null,
+            issueNote: s.issueNote ?? null,
+          }))
+        : [],
+    )
     setNotes(p?.notes ?? '')
     setError('')
   }, [])
@@ -87,28 +116,28 @@ export function TipsClient({ venueId }: { venueId: string }) {
   useEffect(() => {
     let active = true
     setLoading(true)
-    loadList(true).finally(() => {
-      if (active) setLoading(false)
-    })
+    Promise.all([
+      loadList(true),
+      fetch(`/api/admin/tips/staff-options?venueId=${encodeURIComponent(venueId)}`)
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => []),
+    ])
+      .then(([, staff]) => {
+        if (active) setStaffOptions(Array.isArray(staff) ? staff : [])
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
     return () => {
       active = false
     }
-  }, [loadList])
+  }, [loadList, venueId])
 
+  const locked = isTipsPeriodLocked(shares)
   const cashTotal = cashTotalOf(cashCounts)
   const grandTotal = totalTips(cashTotal, Number(posTotal) || 0)
-  const results = distributeTips(grandTotal, shares)
-  const summary = summariseTips(grandTotal, shares)
-
-  // Tier rollup — the Calculator sheet's per-share readout.
-  const tiers = new Map<number, { count: number; value: number }>()
-  for (const r of results) {
-    const t = tiers.get(r.shareWeight) ?? { count: 0, value: 0 }
-    t.count += 1
-    t.value = r.value
-    tiers.set(r.shareWeight, t)
-  }
-  const tierRows = [...tiers.entries()].sort((a, b) => b[0] - a[0])
+  const values = valueTipsShares(grandTotal, shares)
+  const progress = tipsProgress(shares)
 
   function setDenomination(denom: number, raw: string) {
     const qty = Math.max(0, Math.floor(Number(raw) || 0))
@@ -120,16 +149,87 @@ export function TipsClient({ venueId }: { venueId: string }) {
     })
   }
 
-  function addShare() {
-    setShares((prev) => [...prev, { name: '', hours: 0, shareWeight: 1 }])
-  }
-
-  function updateShare(index: number, patch: Partial<TipsShareInput>) {
+  function updateShare(index: number, patch: Partial<TipsShareRow>) {
     setShares((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)))
   }
 
+  function addManualPerson() {
+    setShares((prev) => [
+      ...prev,
+      {
+        staffId: null,
+        name: '',
+        hours: 0,
+        shareWeight: 1,
+        sortOrder: prev.length,
+        status: 'PLANNED',
+      },
+    ])
+  }
+
+  function addStaffMember() {
+    if (!pickerStaffId) return
+    const staff = staffOptions.find((s) => s.id === pickerStaffId)
+    if (!staff) return
+    if (shares.some((s) => s.staffId === staff.id)) {
+      setError('THAT PERSON IS ALREADY ON THIS PERIOD')
+      return
+    }
+    setShares((prev) => [
+      ...prev,
+      {
+        staffId: staff.id,
+        name: staff.name,
+        hours: 0,
+        shareWeight: 1,
+        sortOrder: prev.length,
+        status: 'PLANNED',
+      },
+    ])
+    setPickerStaffId('')
+    setError('')
+  }
+
   function removeShare(index: number) {
-    setShares((prev) => prev.filter((_, i) => i !== index))
+    setShares((prev) =>
+      prev
+        .filter((_, i) => i !== index)
+        .map((s, i) => ({ ...s, sortOrder: i })),
+    )
+  }
+
+  async function refreshSelected(id: string) {
+    const list = await loadList(false)
+    applyPeriod(list.find((p) => p.id === id) ?? null)
+  }
+
+  async function approve(index: number) {
+    const share = shares[index]
+    if (!selectedId || !share.id) {
+      setError('SAVE THE PERIOD BEFORE APPROVING SHARES')
+      return
+    }
+    const note = typeof window !== 'undefined'
+      ? window.prompt('APPROVAL NOTE (OPTIONAL)', '')
+      : ''
+    if (note === null) return
+    const r = await fetch(`/api/admin/tips/${selectedId}/shares/${share.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'APPROVE', note }),
+    }).catch(() => null)
+    if (!r || !r.ok) {
+      const body = r ? await r.json().catch(() => ({})) : {}
+      setError(body.error || 'APPROVE FAILED')
+      return
+    }
+    setShares((prev) =>
+      prev.map((s, i) =>
+        i === index ? { ...s, status: 'APPROVED', approvalNote: note.trim() || null } : s,
+      ),
+    )
+    setError('')
+    await refreshSelected(selectedId)
   }
 
   async function save() {
@@ -142,17 +242,24 @@ export function TipsClient({ venueId }: { venueId: string }) {
       toDate,
       cashCounts,
       posTotal: Number(posTotal) || 0,
-      shares: cleanShares(shares),
       notes,
+      shares: shares.map((s, i) => ({
+        id: s.id,
+        staffId: s.staffId,
+        name: s.name,
+        hours: s.hours,
+        shareWeight: s.shareWeight,
+        sortOrder: i,
+      })),
     }
     const r = await fetch(selectedId ? `/api/admin/tips/${selectedId}` : '/api/admin/tips', {
       method: selectedId ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    })
+    }).catch(() => null)
     setSaving(false)
-    if (!r.ok) {
-      const body = await r.json().catch(() => ({}))
+    if (!r || !r.ok) {
+      const body = r ? await r.json().catch(() => ({})) : {}
       setError(body.error || 'SAVE FAILED')
       return
     }
@@ -181,7 +288,7 @@ export function TipsClient({ venueId }: { venueId: string }) {
         <div>
           <h1 className="font-mono text-xl font-bold uppercase tracking-widest text-white">Tips</h1>
           <p className="font-mono text-xs uppercase tracking-wider text-grey-light">
-            Cash + EFTPOS pooled · split by hours · kitchen share fixed
+            Pool split by share weight · cash-rounded to 10c · approve per person
           </p>
         </div>
         <Button onClick={() => applyPeriod(null)}>+ NEW PERIOD</Button>
@@ -241,6 +348,11 @@ export function TipsClient({ venueId }: { venueId: string }) {
             <p className="font-mono text-xs uppercase tracking-wider text-grey-light">
               Dates are for the books — they don&apos;t change the split.
             </p>
+            {locked && (
+              <p className="border border-danger px-2 py-1 font-mono text-xs uppercase text-danger">
+                LOCKED — SOME SHARES HAVE BEEN ISSUED. NO MORE EDITS.
+              </p>
+            )}
           </Panel>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -262,6 +374,7 @@ export function TipsClient({ venueId }: { venueId: string }) {
                         value={qty || ''}
                         onChange={(e) => setDenomination(denom, e.target.value)}
                         placeholder="0"
+                        disabled={locked}
                         aria-label={`${denominationLabel(denom)} quantity`}
                       />
                       <span className="w-24 text-right font-mono text-sm text-grey-light">
@@ -283,6 +396,7 @@ export function TipsClient({ venueId }: { venueId: string }) {
                 value={posTotal}
                 onChange={(e) => setPosTotal(e.target.value)}
                 placeholder="0.00"
+                disabled={locked}
               />
               <div className="flex items-center justify-between border-t border-grey-mid pt-3">
                 <span className="font-mono text-xs uppercase text-grey-light">Total accrued tips</span>
@@ -295,96 +409,169 @@ export function TipsClient({ venueId }: { venueId: string }) {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <div className="font-mono text-xs uppercase text-grey-light">Tips amount</div>
-                  <div className="font-mono text-sm text-white">{money(summary.totalTips)}</div>
+                  <div className="font-mono text-sm text-white">{money(grandTotal)}</div>
                 </div>
                 <div>
                   <div className="font-mono text-xs uppercase text-grey-light">Share units</div>
-                  <div className="font-mono text-sm text-white">{summary.weightTotal.toFixed(2)}</div>
+                  <div className="font-mono text-sm text-white">
+                    {shares.reduce((sum, s) => sum + (Number(s.shareWeight) || 0), 0).toFixed(2)}
+                  </div>
                 </div>
                 <div>
-                  <div className="font-mono text-xs uppercase text-grey-light">Full share value</div>
-                  <div className="font-mono text-sm text-white">{money(summary.perUnit)}</div>
+                  <div className="font-mono text-xs uppercase text-grey-light">Cash-rounded payouts</div>
+                  <div className="font-mono text-sm text-white">
+                    {money(values.reduce((sum, s) => sum + s.amount, 0))}
+                  </div>
                 </div>
                 <div>
-                  <div className="font-mono text-xs uppercase text-grey-light">Difference</div>
-                  <div className={`font-mono text-sm ${summary.difference === 0 ? 'text-success' : 'text-danger'}`}>
-                    {money(summary.difference)}
+                  <div className="font-mono text-xs uppercase text-grey-light">Rounding difference</div>
+                  <div className="font-mono text-sm text-success">
+                    {money(grandTotal - values.reduce((sum, s) => sum + s.amount, 0))}
                   </div>
                 </div>
               </div>
               <div className="border-t border-grey-mid pt-3">
-                <div className="mb-1 font-mono text-xs uppercase text-grey-light">Per-share readout</div>
-                <div className="space-y-1">
-                  {tierRows.length === 0 ? (
-                    <p className="font-mono text-xs text-grey-light">NO SHARES YET</p>
-                  ) : (
-                    tierRows.map(([weight, t]) => (
-                      <div key={weight} className="flex items-center justify-between font-mono text-xs text-white">
-                        <span>
-                          {t.count} × {weight} SHARE
-                        </span>
-                        <span>{money(t.value)} EACH</span>
-                      </div>
-                    ))
-                  )}
+                <div className="mb-1 flex items-center justify-between font-mono text-xs uppercase text-grey-light">
+                  <span>Issued {progress.issuedCount} / {progress.total}</span>
+                  <span>{progress.percent}%</span>
+                </div>
+                <ProgressBar value={progress.issuedCount} max={Math.max(1, progress.total)} />
+                <div className="mt-2 flex flex-wrap gap-2 font-mono text-xs uppercase">
+                  <span className="border border-grey-mid px-1.5 py-0.5 text-grey-light">
+                    {progress.planned} PLANNED
+                  </span>
+                  <span className="border border-warning px-1.5 py-0.5 text-warning">
+                    {progress.approved} APPROVED
+                  </span>
+                  <span className="border border-success px-1.5 py-0.5 text-success">
+                    {progress.issued} ISSUED
+                  </span>
                 </div>
               </div>
+              {selectedId && (
+                <a
+                  href={`/api/admin/tips/${selectedId}/pdf`}
+                  className="inline-block border border-grey-mid px-3 py-1.5 font-mono text-xs uppercase text-white transition-colors hover:border-white"
+                >
+                  ⬇ DOWNLOAD DISTRIBUTION PDF
+                </a>
+              )}
             </Panel>
           </div>
 
           <Panel className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-end justify-between gap-2">
               <h2 className="font-mono text-xs uppercase tracking-wider text-grey-light">Tips Breakdown</h2>
-              <Button size="sm" variant="ghost" onClick={addShare}>
-                + ADD STAFF
-              </Button>
+              <div className="flex flex-wrap items-end gap-2">
+                <Select
+                  value={pickerStaffId}
+                  onChange={(e) => setPickerStaffId(e.target.value)}
+                  disabled={locked}
+                  options={[
+                    { value: '', label: 'SELECT STAFF…' },
+                    ...staffOptions
+                      .filter((s) => !shares.some((row) => row.staffId === s.id))
+                      .map((s) => ({ value: s.id, label: s.name })),
+                  ]}
+                  aria-label="Add staff member"
+                />
+                <Button size="sm" variant="ghost" onClick={addStaffMember} disabled={locked || !pickerStaffId}>
+                  + ADD STAFF
+                </Button>
+                <Button size="sm" variant="ghost" onClick={addManualPerson} disabled={locked}>
+                  + ADD PERSON
+                </Button>
+              </div>
             </div>
             {shares.length === 0 ? (
               <p className="font-mono text-sm text-grey-light">
-                NO STAFF YET — ADD PEOPLE AND THEIR HOURS FOR THIS PERIOD.
+                NOBODY ON THIS PERIOD YET — A NEW PERIOD AUTO-ADDS EVERY ACTIVE STAFF MEMBER.
               </p>
             ) : (
-              <div className="space-y-1.5">
-                <div className="grid grid-cols-[1fr_6rem_9rem_7rem_2rem] items-center gap-2 font-mono text-xs uppercase text-grey-light">
+              <div className="space-y-1.5 overflow-x-auto">
+                <div className="grid min-w-[54rem] grid-cols-[1fr_5rem_5rem_5rem_5rem_6rem_8rem_4rem] items-center gap-2 font-mono text-xs uppercase text-grey-light">
                   <span>Name</span>
                   <span>Hours</span>
-                  <span>Share</span>
-                  <span className="text-right">Value</span>
+                  <span>Weight</span>
+                  <span>Hours %</span>
+                  <span>Suggested</span>
+                  <span className="text-right">Amount</span>
+                  <span>Status</span>
                   <span />
                 </div>
-                {shares.map((s, i) => (
-                  <div key={i} className="grid grid-cols-[1fr_6rem_9rem_7rem_2rem] items-center gap-2">
-                    <Input
-                      value={s.name}
-                      onChange={(e) => updateShare(i, { name: e.target.value })}
-                      placeholder="NAME"
-                      aria-label={`Staff ${i + 1} name`}
-                    />
-                    <Input
-                      type="number"
-                      min={0}
-                      value={s.hours || ''}
-                      onChange={(e) => updateShare(i, { hours: Number(e.target.value) || 0 })}
-                      placeholder="0"
-                      aria-label={`Staff ${i + 1} hours`}
-                    />
-                    <Select
-                      value={String(s.shareWeight)}
-                      onChange={(e) => updateShare(i, { shareWeight: Number(e.target.value) })}
-                      options={SHARE_OPTIONS}
-                      aria-label={`Staff ${i + 1} share`}
-                    />
-                    <span className="text-right font-mono text-sm text-white">{money(results[i]?.value ?? 0)}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeShare(i)}
-                      className="font-mono text-sm text-grey-light transition-colors hover:text-danger"
-                      aria-label={`Remove staff ${i + 1}`}
+                {shares.map((s, i) => {
+                  const value = values[i]
+                  return (
+                    <div
+                      key={s.id ?? `new-${i}`}
+                      className="grid min-w-[54rem] grid-cols-[1fr_5rem_5rem_5rem_5rem_6rem_8rem_4rem] items-center gap-2"
                     >
-                      ✕
-                    </button>
-                  </div>
-                ))}
+                      {s.staffId ? (
+                        <span className="truncate font-mono text-xs uppercase text-white" title={s.name}>
+                          {s.name}
+                        </span>
+                      ) : (
+                        <Input
+                          value={s.name}
+                          onChange={(e) => updateShare(i, { name: e.target.value })}
+                          placeholder="NAME"
+                          disabled={locked}
+                          aria-label={`Staff ${i + 1} name`}
+                        />
+                      )}
+                      <Input
+                        type="number"
+                        min={0}
+                        value={s.hours || ''}
+                        onChange={(e) => updateShare(i, { hours: Number(e.target.value) || 0 })}
+                        placeholder="0"
+                        disabled={locked}
+                        aria-label={`Staff ${i + 1} hours`}
+                      />
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.05"
+                        value={s.shareWeight || ''}
+                        onChange={(e) => updateShare(i, { shareWeight: Number(e.target.value) || 0 })}
+                        placeholder="0"
+                        disabled={locked}
+                        aria-label={`Staff ${i + 1} weight`}
+                      />
+                      <span className="font-mono text-xs text-grey-light">
+                        {((value?.hoursShare ?? 0) * 100).toFixed(1)}%
+                      </span>
+                      <span className="font-mono text-xs text-grey-light" title="Hours-proportional suggestion">
+                        {(value?.suggestedWeight ?? 0).toFixed(2)} / {money(value?.suggestedAmount ?? 0)}
+                      </span>
+                      <span className="text-right font-mono text-sm text-white">{money(value?.amount ?? 0)}</span>
+                      <span
+                        className={`border px-1.5 py-0.5 text-center font-mono text-xs uppercase ${
+                          STATUS_TONE[s.status]
+                        }`}
+                      >
+                        {s.status.replace('_', ' ')}
+                      </span>
+                      <div className="flex items-center justify-end gap-1">
+                        {s.status === 'PLANNED' && (
+                          <Button size="sm" variant="ghost" onClick={() => approve(i)} disabled={locked}>
+                            APPROVE
+                          </Button>
+                        )}
+                        {s.status === 'PLANNED' && (
+                          <button
+                            type="button"
+                            onClick={() => removeShare(i)}
+                            className="font-mono text-sm text-grey-light transition-colors hover:text-danger"
+                            aria-label={`Remove staff ${i + 1}`}
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </Panel>
@@ -393,7 +580,7 @@ export function TipsClient({ venueId }: { venueId: string }) {
             <Textarea label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
             {error && <p className="font-mono text-sm text-danger">{error}</p>}
             <div className="flex flex-wrap items-center gap-2 border-t border-grey-mid pt-3">
-              <Button onClick={save} loading={saving}>
+              <Button onClick={save} loading={saving} disabled={locked}>
                 SAVE PERIOD
               </Button>
               {selectedId && (

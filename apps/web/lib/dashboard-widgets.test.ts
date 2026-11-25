@@ -50,3 +50,12 @@ describe('visibleWidgets', () => {
     expect(visible.map((w) => w.id)).toEqual(layout.order.filter((id) => id !== 'SUMMARY'))
   })
 })
+
+describe('widget registry', () => {
+  it('includes the status-only TIPS widget', () => {
+    const tips = DASHBOARD_WIDGETS.find((w) => w.id === 'TIPS')
+    expect(tips).toBeDefined()
+    expect(tips?.label).toContain('TIPS')
+    expect(DEFAULT_WIDGET_ORDER).toContain('TIPS')
+  })
+})

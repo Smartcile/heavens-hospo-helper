@@ -89,6 +89,13 @@ echo "▸ Backfilling availability notes into comment threads (post-sync)..."
 npm run db:migrate-availability-comments || echo "⚠ Availability comment backfill failed (see error above) — continuing to start the app."
 
 echo ""
+echo "▸ Backfilling legacy tips JSON onto TipsShare rows (post-sync)..."
+# The old per-period JSON is kept as legacyShares; every period without any
+# TipsShare row gets its people rebuilt once. A period that already has rows
+# (live or soft-deleted) is skipped, so this is safe on every boot.
+npm run db:migrate-tips-shares || echo "⚠ Tips share backfill failed (see error above) — continuing to start the app."
+
+echo ""
 echo "▸ Seeding database (safe to re-run)..."
 cd /app/packages/db
 npm run db:seed || echo "⚠ Seed step failed (see error above) — continuing to start the app."

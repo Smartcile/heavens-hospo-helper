@@ -1,5 +1,5 @@
 import { prisma } from '../index'
-import { Role, CompletionType, ScheduleType, HsCategory, StorageType, Prisma } from '@prisma/client'
+import { Role, CompletionType, ScheduleType, HsCategory, StorageType, TipsShareStatus, Prisma } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
 // ── UUID helpers ──
@@ -1821,10 +1821,32 @@ async function main() {
       toDate: new Date('2026-02-28T00:00:00.000Z'),
       cashCounts: mockTipsCashCounts as Prisma.InputJsonValue,
       posTotal: 1000,
-      shares: mockTipsShares as unknown as Prisma.InputJsonValue,
-      notes: 'MOCK DATA — from the 28/02/2026 tips workbook.',
+      legacyShares: mockTipsShares as unknown as Prisma.InputJsonValue,
+      notes: 'MOCK DATA - from the 28/02/2026 tips workbook.',
     },
   })
+
+  // The per-person tips rows. The boot backfill runs BEFORE the seed, so a
+  // fresh install would otherwise leave this seeded period with no rows until
+  // the next boot. The mock names are not demo staff, so these are manual
+  // people (staffId: null). The count guard (including soft-deleted rows) keeps
+  // every re-seed idempotent.
+  const mockTipsPeriodId = d('00d900000001')
+  const existingTipShares = await prisma.tipsShare.count({ where: { tipsPeriodId: mockTipsPeriodId } })
+  if (existingTipShares === 0) {
+    await prisma.tipsShare.createMany({
+      data: mockTipsShares.map((s, i) => ({
+        id: `00000000-0000-0000-00d9-${String(1000 + i).padStart(12, '0')}`,
+        tipsPeriodId: mockTipsPeriodId,
+        staffId: null,
+        name: s.name,
+        hours: s.hours,
+        shareWeight: s.shareWeight,
+        sortOrder: i,
+        status: TipsShareStatus.PLANNED,
+      })),
+    })
+  }
 
   // ─── Phase 13: Demo product options (Fish & Chips side choice) ─────
   // Product-level options (MenuItemOptionGroup → MenuItemOptionChoice) shared
