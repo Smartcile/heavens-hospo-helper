@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appendHistoryEvent } from './gift-card-history'
+import { appendHistoryEvent, EVENT_LABELS } from './gift-card-history'
 
 describe('appendHistoryEvent', () => {
   it('appends events to a fresh or existing history', () => {
@@ -27,5 +27,11 @@ describe('appendHistoryEvent', () => {
     const history = appendHistoryEvent([{ bogus: true } as never], 'NOTE', 'fine')
     expect(history).toHaveLength(2)
     expect(history[1].type).toBe('NOTE')
+  })
+})
+
+describe('EVENT_LABELS', () => {
+  it('labels a PDF reprint', () => {
+    expect(EVENT_LABELS.PDF_UPDATED).toBe('PDF UPDATED')
   })
 })

@@ -80,6 +80,7 @@ interface CardDetail {
     pdfPath: string | null
     notes: string | null
     createdAt: string
+    updatedAt?: string | null
     history: HistoryEvent[]
   }
   order: CardOrder | null
@@ -104,6 +105,7 @@ const EVENT_LABELS: Record<string, string> = {
   NOTE: 'PRIVATE NOTE',
   AUTO_ISSUED: 'AUTO-ISSUED (WOOCOMMERCE)',
   REDEEMED: 'REDEEMED',
+  PDF_UPDATED: 'PDF UPDATED',
   REPLACED: 'REPLACED (VOIDED)',
   RESET: 'RESET TO DRAFT',
 }
@@ -312,6 +314,32 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
     setSaving(false)
   }
 
+  // Reprint the card from its CURRENT row. The stored PDF was written at issue
+  // time, so after a top-up (editing AMOUNT) it still shows the old value —
+  // this rebuilds it with the same design and the current amount.
+  async function updatePdf() {
+    if (!card) return
+    setSaving(true); setError(''); setMessage('')
+    try {
+      const r = await fetch(`/api/admin/gift-cards/${card.id}/pdf`, { method: 'POST' })
+      if (r.ok) {
+        // Apply the RETURNED row (its fresh updatedAt) so the versioned viewer
+        // URL changes and the regenerated PDF is actually reloaded.
+        const updated: CardDetail['card'] | null = await r.json().catch(() => null)
+        if (updated?.id) setDetail((prev) => (prev ? { ...prev, card: updated } : prev))
+        setMessage('PDF UPDATED — SHOWS THE CURRENT AMOUNT')
+        onChanged()
+      } else {
+        const e = await r.json().catch(() => null)
+        setError(e?.error ?? 'PDF UPDATE FAILED')
+      }
+    } catch {
+      setError('COULD NOT CONNECT')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   function openReplace() {
     if (!card) return
     setReplaceDraft({
@@ -382,11 +410,23 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
   ].sort((a, b) => (a.at < b.at ? 1 : -1))
 
   const usableTemplates = templates.filter((t) => t.filePath)
-  const previewUrl = card?.pdfPath
-    ? `/api/admin/gift-cards/${card.id}/pdf?inline=1`
-    : templateId
-      ? `/api/admin/gift-card-templates/${templateId}/preview`
-      : null
+  // A reprint uses the STORED amount. If the form has unsaved amount edits,
+  // the button is disabled so it can never print the old value while the UI
+  // shows a new one.
+  const typedAmount = parseFloat(draft.amount)
+  const amountDirty = card ? !Number.isFinite(typedAmount) || Math.abs(typedAmount - card.amount) > 0.0001 : false
+  // Version the PDF URLs so the in-app viewer reloads the regenerated file
+  // instead of showing the browser-cached original.
+  const pdfQuery = card?.updatedAt ? `v=${encodeURIComponent(card.updatedAt)}` : ''
+  const inlinePdfUrl = card?.pdfPath
+    ? `/api/admin/gift-cards/${card.id}/pdf?inline=1${pdfQuery ? `&${pdfQuery}` : ''}`
+    : null
+  const downloadPdfUrl = card?.pdfPath
+    ? `/api/admin/gift-cards/${card.id}/pdf${pdfQuery ? `?${pdfQuery}` : ''}`
+    : null
+  const previewUrl = inlinePdfUrl ?? (templateId
+    ? `/api/admin/gift-card-templates/${templateId}/preview`
+    : null)
 
   if (!detail && !loadError) {
     return (
@@ -494,6 +534,17 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                 {card?.pdfPath && (
                   <>
                     <Button size="sm" variant="ghost" onClick={() => setPdfOpen(true)}>VIEW / PRINT PDF</Button>
+                    {(card.status === 'ISSUED' || card.status === 'SENT') && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={updatePdf}
+                        disabled={saving || amountDirty}
+                        title={amountDirty ? 'SAVE DETAILS FIRST — THE TYPED AMOUNT IS NOT SAVED' : 'Rebuild the PDF from the saved amount'}
+                      >
+                        UPDATE PDF
+                      </Button>
+                    )}
                     <Button size="sm" variant="ghost" onClick={() => { setError(''); setSendOpen(true) }}>SEND EMAIL</Button>
                   </>
                 )}
@@ -515,6 +566,9 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                   <Button size="sm" variant="danger" onClick={deleteCard} disabled={saving}>DELETE</Button>
                 )}
               </div>
+              {amountDirty && card?.pdfPath && (card.status === 'ISSUED' || card.status === 'SENT') && (
+                <p className="font-mono text-xs text-warning">AMOUNT CHANGED — SAVE DETAILS BEFORE UPDATE PDF</p>
+              )}
               {message && <p className="font-mono text-xs text-success">{message}</p>}
               {error && <p className="font-mono text-xs text-danger">{error}</p>}
             </Panel>
@@ -752,8 +806,8 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
         {pdfOpen && card && (
           <div className="fixed inset-0 z-50 bg-black" onClick={(e) => e.stopPropagation()}>
             <PdfDocumentView
-              url={`/api/admin/gift-cards/${card.id}/pdf?inline=1`}
-              downloadUrl={`/api/admin/gift-cards/${card.id}/pdf`}
+              url={inlinePdfUrl ?? `/api/admin/gift-cards/${card.id}/pdf?inline=1`}
+              downloadUrl={downloadPdfUrl ?? `/api/admin/gift-cards/${card.id}/pdf`}
               filename={`Gift Card - ${card.number}.pdf`}
               title={`GIFT CARD ${card.number}`}
               onBack={() => setPdfOpen(false)}
