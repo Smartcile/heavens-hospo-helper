@@ -323,8 +323,12 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
     try {
       const r = await fetch(`/api/admin/gift-cards/${card.id}/pdf`, { method: 'POST' })
       if (r.ok) {
+        // Apply the RETURNED row (its fresh updatedAt) so the versioned viewer
+        // URL changes and the regenerated PDF is actually reloaded.
+        const updated: CardDetail['card'] | null = await r.json().catch(() => null)
+        if (updated?.id) setDetail((prev) => (prev ? { ...prev, card: updated } : prev))
         setMessage('PDF UPDATED — SHOWS THE CURRENT AMOUNT')
-        onChanged(); load()
+        onChanged()
       } else {
         const e = await r.json().catch(() => null)
         setError(e?.error ?? 'PDF UPDATE FAILED')
@@ -406,6 +410,11 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
   ].sort((a, b) => (a.at < b.at ? 1 : -1))
 
   const usableTemplates = templates.filter((t) => t.filePath)
+  // A reprint uses the STORED amount. If the form has unsaved amount edits,
+  // the button is disabled so it can never print the old value while the UI
+  // shows a new one.
+  const typedAmount = parseFloat(draft.amount)
+  const amountDirty = card ? !Number.isFinite(typedAmount) || Math.abs(typedAmount - card.amount) > 0.0001 : false
   // Version the PDF URLs so the in-app viewer reloads the regenerated file
   // instead of showing the browser-cached original.
   const pdfQuery = card?.updatedAt ? `v=${encodeURIComponent(card.updatedAt)}` : ''
@@ -530,8 +539,8 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                         size="sm"
                         variant="ghost"
                         onClick={updatePdf}
-                        disabled={saving}
-                        title="Rebuild the PDF from the current amount"
+                        disabled={saving || amountDirty}
+                        title={amountDirty ? 'SAVE DETAILS FIRST — THE TYPED AMOUNT IS NOT SAVED' : 'Rebuild the PDF from the saved amount'}
                       >
                         UPDATE PDF
                       </Button>
@@ -557,6 +566,9 @@ export function GiftCardModal({ cardId, onClose, onChanged }: { cardId: string; 
                   <Button size="sm" variant="danger" onClick={deleteCard} disabled={saving}>DELETE</Button>
                 )}
               </div>
+              {amountDirty && card?.pdfPath && (card.status === 'ISSUED' || card.status === 'SENT') && (
+                <p className="font-mono text-xs text-warning">AMOUNT CHANGED — SAVE DETAILS BEFORE UPDATE PDF</p>
+              )}
               {message && <p className="font-mono text-xs text-success">{message}</p>}
               {error && <p className="font-mono text-xs text-danger">{error}</p>}
             </Panel>

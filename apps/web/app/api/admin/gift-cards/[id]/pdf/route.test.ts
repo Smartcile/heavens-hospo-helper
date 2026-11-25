@@ -125,11 +125,11 @@ describe('POST /api/admin/gift-cards/[id]/pdf', () => {
     expect(res.status).toBe(404)
   })
 
-  it('refuses a DRAFT card (no issued PDF to update)', async () => {
-    mocks.prisma.giftCard.findFirst.mockResolvedValue(makeCard({ status: 'DRAFT', pdfPath: null }))
+  it.each(['DRAFT', 'REDEEMED', 'VOIDED', 'EXPIRED'])('refuses a %s card', async (status) => {
+    mocks.prisma.giftCard.findFirst.mockResolvedValue(makeCard({ status }))
     const res = await POST(request(), params)
     expect(res.status).toBe(409)
-    expect((await res.json()).error).toContain('NO ISSUED PDF')
+    expect((await res.json()).error).toContain('ONLY ISSUED / SENT CARDS')
     expect(mocks.issueGiftCardPdf).not.toHaveBeenCalled()
   })
 

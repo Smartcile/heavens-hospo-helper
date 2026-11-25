@@ -236,7 +236,16 @@ describe('GiftCardModal UPDATE PDF', () => {
     vi.restoreAllMocks()
   })
 
-  it('offers UPDATE PDF for an issued card, POSTs, and versions the viewer URL', async () => {
+  it('uses the updatedAt returned by the reprint to reload the viewer', async () => {
+    const updatedCard = { ...cardDetail.card, updatedAt: '2026-09-08T02:00:00.000Z' }
+    mocks.fetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (init?.method === 'POST' && url === '/api/admin/gift-cards/card-1/pdf') {
+        return { ok: true, json: async () => updatedCard } as Response
+      }
+      const data = routeMap[url]
+      return { ok: true, json: async () => data } as Response
+    })
     render(<GiftCardModal cardId="card-1" onClose={() => {}} onChanged={() => {}} />)
 
     const btn = await screen.findByRole('button', { name: 'UPDATE PDF' })
@@ -255,6 +264,27 @@ describe('GiftCardModal UPDATE PDF', () => {
       expect(((call as unknown[])[1] as RequestInit).method).toBe('POST')
     })
     expect(await screen.findByText('PDF UPDATED — SHOWS THE CURRENT AMOUNT')).toBeTruthy()
+    await waitFor(() => {
+      expect(frame.getAttribute('data-pdf-src')).toBe(
+        '/api/admin/gift-cards/card-1/pdf?inline=1&v=2026-09-08T02%3A00%3A00.000Z',
+      )
+    })
+  })
+
+  it('disables UPDATE PDF until the typed amount is saved', async () => {
+    render(<GiftCardModal cardId="card-1" onClose={() => {}} onChanged={() => {}} />)
+
+    const btn = await screen.findByRole('button', { name: 'UPDATE PDF' })
+    expect(btn).not.toBeDisabled()
+
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '90' } })
+    expect(btn).toBeDisabled()
+    expect(await screen.findByText('AMOUNT CHANGED — SAVE DETAILS BEFORE UPDATE PDF')).toBeTruthy()
+
+    fireEvent.click(btn)
+    expect(
+      mocks.fetch.mock.calls.some((c: unknown[]) => String(c[0]) === '/api/admin/gift-cards/card-1/pdf'),
+    ).toBe(false)
   })
 
   it('hides UPDATE PDF for a DRAFT card and a redeemed card', async () => {

@@ -34,6 +34,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   })
 }
 
+const REPRINTABLE_STATUSES = ['ISSUED', 'SENT']
+
 /**
  * POST /api/admin/gift-cards/:id/pdf — reprint the card from its CURRENT row.
  *
@@ -56,10 +58,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
   if (!card) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // A DRAFT has never been issued, so there is no printed card to update.
-  if (card.status === 'DRAFT' || !card.pdfPath) {
+  // Only a live issued card has a printed value to reprint. DRAFT has never
+  // been issued; REDEEMED / VOIDED / EXPIRED are retired (a reprint there would
+  // bring a stale card back into circulation).
+  if (!REPRINTABLE_STATUSES.includes(card.status) || !card.pdfPath) {
     return NextResponse.json(
-      { error: `CARD #${card.number} HAS NO ISSUED PDF — ISSUE IT FIRST` },
+      { error: `CARD #${card.number} IS ${card.status} — ONLY ISSUED / SENT CARDS WITH A PDF CAN BE REPRINTED` },
       { status: 409 },
     )
   }
