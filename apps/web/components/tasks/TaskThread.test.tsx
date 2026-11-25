@@ -93,4 +93,23 @@ describe('TaskThread', () => {
     await waitFor(() => expect(screen.getByText('CLOSE THREAD')).toBeDefined())
     expect(screen.getByText('OPEN')).toBeDefined()
   })
+
+  it('clears a half-typed comment and its photos when the task changes', async () => {
+    const { rerender } = render(
+      <TaskThread taskId="t1" basePath="/api/worker/tasks" uploadEndpoint="/api/worker/upload" />,
+    )
+    await waitFor(() => expect(screen.getByPlaceholderText('ADD A COMMENT…')).toBeDefined())
+
+    fireEvent.change(screen.getByPlaceholderText('ADD A COMMENT…'), { target: { value: 'HALF TYPED' } })
+    fireEvent.click(screen.getByText('ADD PHOTO'))
+    expect((screen.getByPlaceholderText('ADD A COMMENT…') as HTMLTextAreaElement).value).toBe('HALF TYPED')
+
+    rerender(
+      <TaskThread taskId="t2" basePath="/api/worker/tasks" uploadEndpoint="/api/worker/upload" />,
+    )
+
+    await waitFor(() =>
+      expect((screen.getByPlaceholderText('ADD A COMMENT…') as HTMLTextAreaElement).value).toBe(''),
+    )
+  })
 })

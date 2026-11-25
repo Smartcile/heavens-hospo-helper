@@ -100,6 +100,29 @@ describe('loadWorkerThreadTask', () => {
     await expect(loadWorkerThreadTask(workerSession, 't1')).resolves.toMatchObject({ id: 't1' })
   })
 
+  it('filters to live, active tasks so inactive/archived rows are never returned', async () => {
+    // Emulate the DB applying the loader's where clause to a candidate row.
+    const row = { ...task, isActive: true, status: 'ACTIVE', deletedAt: null }
+    prisma.task.findFirst.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
+      if (where.deletedAt === null && row.deletedAt !== null) return null
+      if (where.isActive === true && row.isActive !== true) return null
+      if (typeof where.status === 'string' && row.status !== where.status) return null
+      return row
+    })
+
+    await expect(loadWorkerThreadTask(workerSession, 't1')).resolves.toMatchObject({ id: 't1' })
+    expect(prisma.task.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 't1', deletedAt: null, isActive: true, status: 'ACTIVE' },
+    }))
+
+    row.isActive = false
+    await expect(loadWorkerThreadTask(workerSession, 't1')).resolves.toBeNull()
+
+    row.isActive = true
+    row.status = 'ARCHIVED'
+    await expect(loadWorkerThreadTask(workerSession, 't1')).resolves.toBeNull()
+  })
+
   it('returns a task in the worker department or a linked department', async () => {
     await expect(loadWorkerThreadTask(workerSession, 't1')).resolves.toMatchObject({ id: 't1' })
     prisma.task.findFirst.mockResolvedValue({ ...task, departmentId: 'd2' })
@@ -130,6 +153,14 @@ describe('loadAdminThreadTask', () => {
     await expect(loadAdminThreadTask(managerSession, 't1')).resolves.toMatchObject({ id: 't1' })
     prisma.task.findFirst.mockResolvedValue({ ...task, venueId: 'v9' })
     await expect(loadAdminThreadTask(managerSession, 't1')).resolves.toBeNull()
+  })
+
+  it('MANAGER cannot read a task in another assigned venue (session-venue scope)', async () => {
+    const multiVenueManager = {
+      user: { id: 'm2', role: 'MANAGER', venueId: 'v1', availableVenueIds: ['v1', 'v2'] },
+    } as unknown as Session
+    prisma.task.findFirst.mockResolvedValue({ ...task, venueId: 'v2' })
+    await expect(loadAdminThreadTask(multiVenueManager, 't1')).resolves.toBeNull()
   })
 
   it('returns null when the task is missing', async () => {

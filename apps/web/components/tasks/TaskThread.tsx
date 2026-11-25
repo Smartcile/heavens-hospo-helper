@@ -53,6 +53,10 @@ export function TaskThread({
   useEffect(() => {
     let active = true
     setLoading(true)
+    // Never carry a half-typed comment, photo or error across a task switch.
+    setBody('')
+    setImages([])
+    setError('')
     fetch(url)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {

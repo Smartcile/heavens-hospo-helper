@@ -1,7 +1,6 @@
 import type { Session } from 'next-auth'
 import type { WorkerSession } from '@hospo-ops/types'
 import { prisma } from '@hospo-ops/db'
-import { getAccessibleVenueIds } from '@/lib/venue-scope'
 
 /**
  * Task threads (#145 Wave B). One DB layer shared by the admin and worker
@@ -10,9 +9,12 @@ import { getAccessibleVenueIds } from '@/lib/venue-scope'
  *
  * Access:
  * - ADMIN: any non-deleted task in a venue they can access.
- * - MANAGER: only tasks in a venue they can access.
- * - WORKER: only tasks they can already see — assigned to them, or in their
- *   home/linked departments (the same visibility the worker task list uses).
+ * - MANAGER: only tasks in their session venue — the same scope
+ *   `/api/admin/tasks` applies (`session.user.venueId`), not every venue in the
+ *   active-venue switcher.
+ * - WORKER: only live tasks they can already see — assigned to them, or in
+ *   their home/linked departments (the same visibility and state filters the
+ *   worker task list uses: `isActive`, `status: ACTIVE`).
  */
 
 export const TASK_COMMENT_MAX_LENGTH = 500
@@ -89,7 +91,9 @@ export async function loadWorkerThreadTask(
   taskId: string,
 ): Promise<ThreadTask | null> {
   const task = await prisma.task.findFirst({
-    where: { id: taskId, deletedAt: null },
+    // Mirror the worker task list: never let an inactive/archived task be read,
+    // commented on or signed off by its id.
+    where: { id: taskId, deletedAt: null, isActive: true, status: 'ACTIVE' },
     select: THREAD_TASK_SELECT,
   })
   if (!task || task.venueId !== session.venueId) return null
@@ -106,7 +110,10 @@ export async function loadWorkerThreadTask(
   return null
 }
 
-/** Admin-side access: ADMIN any accessible venue, MANAGER only accessible venues. */
+/**
+ * Admin-side access: ADMIN any accessible venue, MANAGER only their session
+ * venue (the `/api/admin/tasks` scope, not every switcher venue).
+ */
 export async function loadAdminThreadTask(
   session: Session,
   taskId: string,
@@ -116,10 +123,7 @@ export async function loadAdminThreadTask(
     select: THREAD_TASK_SELECT,
   })
   if (!task) return null
-  if (session.user.role === 'MANAGER') {
-    const accessible = getAccessibleVenueIds(session)
-    if (!accessible.includes(task.venueId)) return null
-  }
+  if (session.user.role === 'MANAGER' && task.venueId !== session.user.venueId) return null
   return task
 }
 
@@ -213,7 +217,7 @@ export function workerCanSignOff(
   return canEditTask
 }
 
-/** Admin-side sign-off: ADMIN/MANAGER or the edit grant (assignee checked by caller). */
+/** Admin-side sign-off: ADMIN/MANAGER or the edit grant. */
 export function adminCanSignOff(session: Session, hasEditGrant: boolean): boolean {
   return session.user.role === 'ADMIN' || session.user.role === 'MANAGER' || hasEditGrant
 }
