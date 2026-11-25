@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { FileUsage } from '@/lib/file-usage'
+import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
 
 // File manager (Settings → FILES, admin-only). Tree over the server's
 // storage root (UPLOAD_PATH volume):
@@ -283,6 +284,7 @@ function FilePreviewModal({ file, onClose, onDeleted }: { file: PreviewFile; onC
   const [usages, setUsages] = useState<FileUsage[]>([])
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+  const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
 
   const ext = extOf(file.name)
   const previewable = PREVIEW_EXTS.has(ext)
@@ -370,10 +372,28 @@ function FilePreviewModal({ file, onClose, onDeleted }: { file: PreviewFile; onC
         {deleteError && <p className="font-mono text-xs text-danger">{deleteError}</p>}
 
         <div className="border-t border-grey-mid pt-3 flex items-center gap-2 flex-wrap">
-          {previewable && (
+          {previewable && ext === 'pdf' && (
+            <button
+              onClick={() =>
+                setPdfTarget({
+                  url: openHref,
+                  downloadUrl: downloadHref,
+                  filename: file.name,
+                  title: file.name,
+                })
+              }
+              className="font-mono font-semibold uppercase tracking-wider transition-colors inline-flex items-center gap-2 bg-white text-black border border-white hover:bg-accent hover:border-accent text-xs px-3 py-1.5"
+            >
+              OPEN
+            </button>
+          )}
+          {previewable && ext !== 'pdf' && (
             <a href={openHref} target="_blank" rel="noreferrer" className="font-mono font-semibold uppercase tracking-wider transition-colors inline-flex items-center gap-2 bg-white text-black border border-white hover:bg-accent hover:border-accent text-xs px-3 py-1.5">OPEN</a>
           )}
-          <a href={downloadHref} className="font-mono font-semibold uppercase tracking-wider transition-colors inline-flex items-center gap-2 bg-transparent text-white border border-grey-mid hover:border-white text-xs px-3 py-1.5">DOWNLOAD</a>
+          {
+            // pdf-download-ok: files browse download
+            <a href={downloadHref} className="font-mono font-semibold uppercase tracking-wider transition-colors inline-flex items-center gap-2 bg-transparent text-white border border-grey-mid hover:border-white text-xs px-3 py-1.5">DOWNLOAD</a>
+          }
           <button
             onClick={deleteFile}
             disabled={linked || deleting}
@@ -385,6 +405,8 @@ function FilePreviewModal({ file, onClose, onDeleted }: { file: PreviewFile; onC
           <button onClick={onClose} className="ml-auto font-mono text-xs uppercase text-grey-light hover:text-white px-2 py-1">CLOSE</button>
         </div>
       </div>
+
+      {pdfTarget && <PdfViewerModal target={pdfTarget} onClose={() => setPdfTarget(null)} />}
     </div>
   )
 }

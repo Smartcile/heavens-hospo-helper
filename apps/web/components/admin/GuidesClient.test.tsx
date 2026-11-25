@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { GuidesClient } from '@/components/admin/GuidesClient'
 
+const pdfMocks = vi.hoisted(() => ({ PdfViewerModal: vi.fn() }))
+
+vi.mock('@/components/ui/PdfViewerModal', () => ({
+  PdfViewerModal: (props: Record<string, unknown>) => {
+    pdfMocks.PdfViewerModal(props)
+    return null
+  },
+}))
+
 vi.mock('@/lib/active-venue', () => ({ getActiveVenueId: () => 'v1' }))
 
 const GUIDES = [
@@ -116,7 +125,7 @@ function selectWithOptionValue(value: string): HTMLSelectElement | undefined {
 }
 
 describe('GuidesClient', () => {
-  beforeEach(() => { globalThis.fetch = mockFetch() })
+  beforeEach(() => { globalThis.fetch = mockFetch(); pdfMocks.PdfViewerModal.mockReset() })
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
   it('lists guides with status badges', async () => {
@@ -153,14 +162,17 @@ describe('GuidesClient', () => {
     })
   })
 
-  it('downloads the single-guide PDF from a card', async () => {
-    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:fake'), revokeObjectURL: vi.fn() })
-    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  it('opens the single-guide PDF in the in-app viewer from a card', async () => {
     render(<GuidesClient role="ADMIN" sessionVenueId="v1" />)
     await waitFor(() => expect(screen.getByText('FOOD SAFETY BASICS')).toBeTruthy())
 
     fireEvent.click([...cardFor('FOOD SAFETY BASICS').querySelectorAll('button')].find((b) => b.textContent === '⬇ PDF')!)
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith('/api/admin/guides/g1/pdf'))
+    const target = (pdfMocks.PdfViewerModal.mock.calls.at(-1)?.[0] as { target?: { url: string; downloadUrl: string } }).target
+    expect(target).toMatchObject({
+      url: '/api/admin/guides/g1/pdf?inline=1',
+      downloadUrl: '/api/admin/guides/g1/pdf',
+    })
+    expect(globalThis.fetch).not.toHaveBeenCalledWith('/api/admin/guides/g1/pdf')
   })
 
   it('bulk downloads the selected guides as one PDF', async () => {

@@ -15,6 +15,8 @@ import { BeoBlockLibrary, BEO_BLOCK_DRAG_PREFIX } from '@/components/admin/BeoBl
 import { BeoBlockReferences } from '@/components/admin/BeoBlockReferences'
 import { BEO_BLOCKS, blockLabel, defaultConfigFor, moveBlock, summariseBlock, type BlockLibrary } from '@/lib/beo-blocks'
 import { computeEventTotals, type EventBlockLike } from '@/lib/event-pricing'
+import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
+import { inlinePdfUrl } from '@/lib/pdf-actions'
 
 export interface BeoBlockRow {
   id: string
@@ -128,6 +130,7 @@ export function EventBuilder({
   const [shareExpiry, setShareExpiry] = useState('')
   const [shareBusy, setShareBusy] = useState(false)
   const [shareMsg, setShareMsg] = useState('')
+  const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
 
   function patch(p: Partial<Draft>) {
     setDraft((d) => ({ ...d, ...p }))
@@ -451,17 +454,26 @@ export function EventBuilder({
             ['FULL', 'FULL BEO'],
             ['CLIENT', 'CLIENT COPY'],
             ['KITCHEN', 'KITCHEN COPY'],
-          ] as const).map(([variant, label]) => (
-            <a
-              key={variant}
-              href={`/api/admin/events/${event.id}/pdf?variant=${variant}`}
-              target="_blank"
-              rel="noreferrer"
-              className="font-mono text-xs uppercase tracking-wider border border-grey-mid text-white px-2 py-1 hover:border-white transition-colors"
-            >
-              {label}
-            </a>
-          ))}
+          ] as const).map(([variant, label]) => {
+            const downloadUrl = `/api/admin/events/${event.id}/pdf?variant=${variant}`
+            return (
+              <button
+                key={variant}
+                type="button"
+                onClick={() =>
+                  setPdfTarget({
+                    url: inlinePdfUrl(downloadUrl),
+                    downloadUrl,
+                    filename: `${event.name} - ${label}.pdf`,
+                    title: `${event.name} — ${label}`,
+                  })
+                }
+                className="font-mono text-xs uppercase tracking-wider border border-grey-mid text-white px-2 py-1 hover:border-white transition-colors"
+              >
+                {label}
+              </button>
+            )
+          })}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -603,6 +615,8 @@ export function EventBuilder({
           </div>
         </div>
       </Modal>
+
+      {pdfTarget && <PdfViewerModal target={pdfTarget} onClose={() => setPdfTarget(null)} />}
     </div>
   )
 }

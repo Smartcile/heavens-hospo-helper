@@ -2,6 +2,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { TipsClient } from '@/components/admin/TipsClient'
 
+const pdfMocks = vi.hoisted(() => ({ PdfViewerModal: vi.fn() }))
+
+vi.mock('@/components/ui/PdfViewerModal', () => ({
+  PdfViewerModal: (props: Record<string, unknown>) => {
+    pdfMocks.PdfViewerModal(props)
+    return null
+  },
+}))
+
+function lastPdfTarget() {
+  const call = pdfMocks.PdfViewerModal.mock.calls.at(-1)
+  return (call?.[0] as { target?: { url: string; downloadUrl: string } }).target
+}
+
 const PERIOD = {
   id: 't1',
   venueId: 'v1',
@@ -67,6 +81,7 @@ function methodCalls(method: string) {
 describe('TipsClient', () => {
   beforeEach(() => {
     globalThis.fetch = mockFetch()
+    pdfMocks.PdfViewerModal.mockReset()
   })
   afterEach(() => {
     vi.restoreAllMocks()
@@ -164,11 +179,14 @@ describe('TipsClient', () => {
     })
   })
 
-  it('links the admin-only distribution PDF once a period is saved', async () => {
+  it('opens the admin-only distribution PDF in the in-app viewer', async () => {
     render(<TipsClient venueId="v1" />)
     await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
-    const link = screen.getByText('⬇ DOWNLOAD DISTRIBUTION PDF').closest('a')
-    expect(link?.getAttribute('href')).toBe('/api/admin/tips/t1/pdf')
+    fireEvent.click(screen.getByText('⬇ DOWNLOAD DISTRIBUTION PDF'))
+    expect(lastPdfTarget()).toMatchObject({
+      url: '/api/admin/tips/t1/pdf?inline=1',
+      downloadUrl: '/api/admin/tips/t1/pdf',
+    })
   })
 
   it('soft-deletes a period after confirmation', async () => {
@@ -224,6 +242,7 @@ describe('TipsClient layout, columns, bulk, notes and import', () => {
   beforeEach(() => {
     localStorage.clear()
     globalThis.fetch = mockFull()
+    pdfMocks.PdfViewerModal.mockReset()
   })
   afterEach(() => {
     vi.restoreAllMocks()
@@ -362,37 +381,41 @@ describe('TipsClient layout, columns, bulk, notes and import', () => {
     expect(button.disabled).toBe(true)
   })
 
-  it('adds notes to the PDF link only when asked', async () => {
+  it('includes notes in the viewer URL only when asked', async () => {
     render(<TipsClient venueId="v1" />)
     await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
 
-    const link = () => screen.getByText(/DOWNLOAD DISTRIBUTION PDF/).closest('a')
-    expect(link()?.getAttribute('href')).toBe('/api/admin/tips/t1/pdf')
+    const open = () => fireEvent.click(screen.getByText(/DOWNLOAD DISTRIBUTION PDF/))
+    open()
+    expect(lastPdfTarget()?.url).toBe('/api/admin/tips/t1/pdf?inline=1')
 
     fireEvent.click(screen.getByLabelText('Include notes in PDF'))
-    await waitFor(() => expect(link()?.getAttribute('href')).toBe('/api/admin/tips/t1/pdf?notes=1'))
+    open()
+    await waitFor(() => expect(lastPdfTarget()?.url).toBe('/api/admin/tips/t1/pdf?notes=1&inline=1'))
   })
 
-  it('forwards the active sort to the PDF link and omits it when unsorted', async () => {
+  it('forwards the active sort to the viewer URL and omits it when unsorted', async () => {
     render(<TipsClient venueId="v1" />)
     await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
 
-    const link = () => screen.getByText(/DOWNLOAD DISTRIBUTION PDF/).closest('a')
-    const href = () => link()?.getAttribute('href')
-    expect(href()).toBe('/api/admin/tips/t1/pdf')
-    expect(href()).not.toContain('sort=')
+    const open = () => fireEvent.click(screen.getByText(/DOWNLOAD DISTRIBUTION PDF/))
+    open()
+    expect(lastPdfTarget()?.url).toBe('/api/admin/tips/t1/pdf?inline=1')
 
     const nameHeader = screen.getByRole('columnheader', { name: /NAME/ })
     const sortButton = nameHeader.querySelector('button') as HTMLButtonElement
 
     fireEvent.click(sortButton) // asc
-    await waitFor(() => expect(href()).toBe('/api/admin/tips/t1/pdf?sort=name&dir=asc'))
+    open()
+    await waitFor(() => expect(lastPdfTarget()?.url).toBe('/api/admin/tips/t1/pdf?sort=name&dir=asc&inline=1'))
 
     fireEvent.click(sortButton) // desc
-    await waitFor(() => expect(href()).toBe('/api/admin/tips/t1/pdf?sort=name&dir=desc'))
+    open()
+    await waitFor(() => expect(lastPdfTarget()?.url).toBe('/api/admin/tips/t1/pdf?sort=name&dir=desc&inline=1'))
 
     fireEvent.click(sortButton) // back to the saved order
-    await waitFor(() => expect(href()).toBe('/api/admin/tips/t1/pdf'))
+    open()
+    await waitFor(() => expect(lastPdfTarget()?.url).toBe('/api/admin/tips/t1/pdf?inline=1'))
   })
 
   async function openImport(answer: string) {

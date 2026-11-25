@@ -1,7 +1,20 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
+
+const pdfMocks = vi.hoisted(() => ({ PdfViewerModal: vi.fn(), generateRosterPdf: vi.fn() }))
+
+vi.mock('@/components/ui/PdfViewerModal', () => ({
+  PdfViewerModal: (props: Record<string, unknown>) => {
+    pdfMocks.PdfViewerModal(props)
+    return null
+  },
+}))
+
+vi.mock('@/lib/roster-pdf', () => ({
+  generateRosterPdf: pdfMocks.generateRosterPdf,
+}))
 
 import { RosterClient } from '@/components/admin/RosterClient'
 import { keyOfDay, mondayOf, shiftDay } from '@/lib/date-nav'
@@ -58,6 +71,11 @@ function mockFetch(responses: unknown[]) {
 }
 
 describe('RosterClient', () => {
+  beforeEach(() => {
+    pdfMocks.PdfViewerModal.mockReset()
+    pdfMocks.generateRosterPdf.mockReset()
+  })
+
   afterEach(() => {
     vi.restoreAllMocks()
     delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint
@@ -95,6 +113,21 @@ describe('RosterClient', () => {
     expect(screen.getByText(/PUBLISH/)).toBeDefined()
     // Venue switching lives in the sidebar switcher — no in-page venue select.
     expect(screen.queryByText('Venue')).toBeNull()
+  })
+
+  it('opens the generated roster PDF in the in-app viewer', async () => {
+    mockFetch([[], [], data])
+    pdfMocks.generateRosterPdf.mockReturnValue({ output: () => 'blob:roster' })
+
+    render(<RosterClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+    fireEvent.click(await screen.findByText('PRINT'))
+
+    const target = (pdfMocks.PdfViewerModal.mock.calls.at(-1)?.[0] as { target?: { url: string; downloadUrl: string; filename: string } }).target
+    expect(target).toMatchObject({
+      url: 'blob:roster',
+      downloadUrl: 'blob:roster',
+      filename: `ROSTER-${monday}.pdf`,
+    })
   })
 
   it('uses the shared date nav and toggles compact density', async () => {

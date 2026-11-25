@@ -3,6 +3,15 @@ import { render, fireEvent, waitFor, screen, within } from '@testing-library/rea
 
 import { TasksClient } from '@/components/admin/TasksClient'
 
+const pdfMocks = vi.hoisted(() => ({ PdfViewerModal: vi.fn() }))
+
+vi.mock('@/components/ui/PdfViewerModal', () => ({
+  PdfViewerModal: (props: Record<string, unknown>) => {
+    pdfMocks.PdfViewerModal(props)
+    return null
+  },
+}))
+
 function json(data: unknown): Response {
   return { ok: true, status: 200, json: async () => data } as unknown as Response
 }
@@ -116,6 +125,7 @@ describe('TasksClient', () => {
     vi.spyOn(global, 'fetch')
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     sessionStorage.clear()
+    pdfMocks.PdfViewerModal.mockReset()
   })
 
   afterEach(() => {
@@ -737,5 +747,21 @@ describe('TasksClient', () => {
     expect(
       fetchMock.mock.calls.some(([u]) => String(u) === '/api/admin/tasks/th1/comments'),
     ).toBe(true)
+  })
+
+  it('opens a checklist PDF in the in-app viewer instead of a new tab', async () => {
+    mockApi()
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" />)
+    await waitFor(() => expect(screen.getByText('OPENING')).toBeDefined())
+
+    fireEvent.click(screen.getByText('⬇ PDF'))
+    const downloads = await screen.findAllByText('DOWNLOAD')
+    fireEvent.click(downloads[0])
+
+    const target = (pdfMocks.PdfViewerModal.mock.calls.at(-1)?.[0] as { target?: { url: string; downloadUrl: string } }).target
+    expect(target).toMatchObject({
+      url: '/api/admin/checklists/c1/pdf?inline=1',
+      downloadUrl: '/api/admin/checklists/c1/pdf',
+    })
   })
 })

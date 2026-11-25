@@ -20,6 +20,7 @@ import { seatFillStatus } from '@/lib/open-shifts'
 import { useEventRoster } from '@/lib/use-event-roster'
 import { nearestIndex, type Rect } from '@/lib/reorder'
 import { useScrollRestore } from '@/lib/use-scroll-restore'
+import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
 import { buildStaffGroups, insertSubset, sortByPinnedAvailability, topPositionId } from '@/lib/staff-groups'
 import { colourForShift, rateForShift, rosterWeekSummary, staffWeekTotals, type RosterShift, type StaffRate } from '@/lib/roster-math'
 import { describeHourTargets, hourStatusTone, hourTargetStatus } from '@/lib/roster-hours'
@@ -153,6 +154,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [editEventId, setEditEventId] = useState<string | null>(null)
   const [createEventOpen, setCreateEventOpen] = useState(false)
   const [showQueue, setShowQueue] = useState(false)
+  const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
 
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -643,7 +645,15 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
       shifts: data.shifts,
       rates: ratesFor(data.staff),
     })
-    doc.save(`ROSTER-${weekStart}.pdf`)
+    // A blob URL keeps the roster in the in-app viewer; there is no route to
+    // hit, so this is the one PDF that does not need ?inline=1.
+    const url = doc.output('bloburl') as unknown as string
+    setPdfTarget({
+      url,
+      downloadUrl: url,
+      filename: `ROSTER-${weekStart}.pdf`,
+      title: 'WEEKLY ROSTER',
+    })
   }
 
   const positionTotals = useMemo(() => {
@@ -1222,6 +1232,16 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
           defaultDate={weekStart}
           onClose={() => setShowSlots(false)}
           onPlaced={() => load(true)}
+        />
+      )}
+
+      {pdfTarget && (
+        <PdfViewerModal
+          target={pdfTarget}
+          onClose={() => {
+            if (pdfTarget.url.startsWith('blob:')) URL.revokeObjectURL(pdfTarget.url)
+            setPdfTarget(null)
+          }}
         />
       )}
     </div>

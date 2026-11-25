@@ -11,6 +11,8 @@ import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { isOverCapacity } from '@/lib/manual-event'
 import { useDirty } from '@/lib/use-dirty'
+import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
+import { inlinePdfUrl } from '@/lib/pdf-actions'
 import {
   draftFromStaffingLine,
   newStaffingDraft,
@@ -80,6 +82,7 @@ export function CalendarEventFormModal({
   const [removePdf, setRemovePdf] = useState(false)
   const [draftLines, setDraftLines] = useState<StaffingDraftLine[]>([newStaffingDraft()])
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
   const { dirty, markClean } = useDirty(
     { title, description, areaId, date, allDay, startTime, endTime, pax, pdfUrl, pdfPath, pdfFile, removePdf, draftLines },
     { enabled: !loading },
@@ -280,9 +283,21 @@ export function CalendarEventFormModal({
               />
               {pdfPath && !pdfFile && (
                 <div className="flex items-center gap-2">
-                  <a href={pdfPath} target="_blank" rel="noreferrer" className="font-mono text-2xs uppercase text-accent hover:text-white">
-                    CURRENT PDF ↗
-                  </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const downloadUrl = pdfPath as string
+                      setPdfTarget({
+                        url: inlinePdfUrl(downloadUrl),
+                        downloadUrl,
+                        filename: `${title || 'Event'}.pdf`,
+                        title: title || 'EVENT PDF',
+                      })
+                    }}
+                    className="font-mono text-2xs uppercase text-accent hover:text-white"
+                  >
+                    CURRENT PDF
+                  </button>
                   {!removePdf ? (
                     <button type="button" onClick={() => setRemovePdf(true)} className="font-mono text-2xs uppercase text-grey-light hover:text-danger">
                       REMOVE
@@ -334,6 +349,8 @@ export function CalendarEventFormModal({
           </div>
         </div>
       )}
+
+      {pdfTarget && <PdfViewerModal target={pdfTarget} onClose={() => setPdfTarget(null)} />}
     </div>
   )
 }

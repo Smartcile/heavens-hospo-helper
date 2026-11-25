@@ -4,6 +4,21 @@
 
 const ILLEGAL_FILENAME_CHARS = /[<>:"/\\|?*\u0000-\u001f]/g
 
+/**
+ * Add `inline=1` so a PDF route serves it for the in-app viewer instead of a
+ * download. Keeps any existing query string and hash, and never duplicates the
+ * flag. Routes keep `attachment` as their default response.
+ */
+export function inlinePdfUrl(url: string): string {
+  if (!url) return url
+  const hashIndex = url.indexOf('#')
+  const base = hashIndex >= 0 ? url.slice(0, hashIndex) : url
+  const hash = hashIndex >= 0 ? url.slice(hashIndex) : ''
+  if (/([?&])inline=1(?:&|$)/.test(base)) return url
+  const separator = base.includes('?') ? '&' : '?'
+  return `${base}${separator}inline=1${hash}`
+}
+
 /** Strip path separators + characters that break a download, and ensure `.pdf`. */
 export function sanitisePdfFilename(name: string, fallback = 'document.pdf'): string {
   function clean(input: string): string {

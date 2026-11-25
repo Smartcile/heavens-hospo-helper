@@ -5,12 +5,42 @@ import {
   sharePdfFile,
   printPdfUrl,
   downloadPdfUrl,
+  inlinePdfUrl,
   isStandaloneApp,
 } from './pdf-actions'
 
 afterEach(() => {
   vi.restoreAllMocks()
   vi.useRealTimers()
+})
+
+describe('inlinePdfUrl', () => {
+  it('adds inline=1 when there is no query string', () => {
+    expect(inlinePdfUrl('/api/admin/tips/t1/pdf')).toBe('/api/admin/tips/t1/pdf?inline=1')
+  })
+
+  it('appends inline=1 to an existing query string', () => {
+    expect(inlinePdfUrl('/api/admin/events/e1/pdf?variant=FULL')).toBe(
+      '/api/admin/events/e1/pdf?variant=FULL&inline=1',
+    )
+  })
+
+  it('does not duplicate an existing inline flag', () => {
+    expect(inlinePdfUrl('/api/admin/tips/t1/pdf?inline=1')).toBe('/api/admin/tips/t1/pdf?inline=1')
+    expect(inlinePdfUrl('/api/admin/tips/t1/pdf?notes=1&inline=1')).toBe(
+      '/api/admin/tips/t1/pdf?notes=1&inline=1',
+    )
+  })
+
+  it('keeps a hash fragment', () => {
+    expect(inlinePdfUrl('/api/admin/tips/t1/pdf#page=2')).toBe(
+      '/api/admin/tips/t1/pdf?inline=1#page=2',
+    )
+  })
+
+  it('passes an empty URL through untouched', () => {
+    expect(inlinePdfUrl('')).toBe('')
+  })
 })
 
 describe('sanitisePdfFilename', () => {

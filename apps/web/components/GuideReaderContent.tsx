@@ -16,6 +16,8 @@ import { mergeStepImages } from '@/lib/guide-media'
 import type { ReferenceColumn } from '@/lib/reference-table'
 import { sanitiseRichText } from '@/lib/rich-text'
 import { guideTypeLabel } from '@/lib/guide-types'
+import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
+import { inlinePdfUrl } from '@/lib/pdf-actions'
 
 export interface GuideReaderStep {
   id: string
@@ -137,6 +139,7 @@ function StepGallery({ images, stepNumber, annotations, onOpen }: { images: stri
 
 export function GuideReaderContent({ guide, variant = 'admin' }: { guide: GuideReaderGuide; variant?: GuidePopupVariant }) {
   const [lightbox, setLightbox] = useState<string | null>(null)
+  const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
 
   return (
     <>
@@ -162,16 +165,24 @@ export function GuideReaderContent({ guide, variant = 'admin' }: { guide: GuideR
       {(guide.pdfPath || guide.pdfUrl) && (
         <div className="flex flex-wrap gap-2">
           {guide.pdfPath && (
-            <a
-              href={guide.pdfPath}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => {
+                const downloadUrl = guide.pdfPath as string
+                setPdfTarget({
+                  url: inlinePdfUrl(downloadUrl),
+                  downloadUrl,
+                  filename: `${guide.title}.pdf`,
+                  title: guide.title,
+                })
+              }}
               className="inline-block font-mono text-xs uppercase border border-grey-mid px-3 py-2 text-white hover:border-white transition-colors"
             >
               📄 OPEN GUIDE PDF
-            </a>
+            </button>
           )}
           {guide.pdfUrl && (
+            // pdf-download-ok: external PDF URL
             <a
               href={guide.pdfUrl}
               target="_blank"
@@ -242,6 +253,8 @@ export function GuideReaderContent({ guide, variant = 'admin' }: { guide: GuideR
           </button>
         </div>
       )}
+
+      {pdfTarget && <PdfViewerModal target={pdfTarget} onClose={() => setPdfTarget(null)} />}
     </>
   )
 }

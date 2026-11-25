@@ -43,7 +43,7 @@ export async function GET(req: NextRequest, { params }: Params) {
   return new NextResponse(buffer, {
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${beoPdfFilename(data.eventName, variant)}"`,
+      'Content-Disposition': `${req.nextUrl.searchParams.get('inline') === '1' ? 'inline' : 'attachment'}; filename="${beoPdfFilename(data.eventName, variant)}"`,
     },
   })
 }

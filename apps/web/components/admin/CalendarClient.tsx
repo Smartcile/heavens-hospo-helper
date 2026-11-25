@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { CalendarEventFormModal } from '@/components/admin/CalendarEventFormModal'
+import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
+import { inlinePdfUrl } from '@/lib/pdf-actions'
 import { formatBreaks } from '@/lib/breaks'
 import { getActiveVenueId } from '@/lib/active-venue'
 
@@ -93,6 +95,7 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
   const [error, setError] = useState('')
   const [editEventId, setEditEventId] = useState<string | null>(null)
   const [createEventOpen, setCreateEventOpen] = useState(false)
+  const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
 
   async function load() {
     setLoading(true)
@@ -475,7 +478,6 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
                 <div className="space-y-1">
                   {openDayData.events.map((ev) => {
                     const manual = ev.source === 'MANUAL'
-                    const pdf = ev.pdfPath || ev.pdfUrl
                     return (
                       <div key={ev.id} className="border border-grey-mid p-2 space-y-1">
                         <div className="flex items-center justify-between gap-2">
@@ -500,16 +502,38 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
                             {ev.location && ev.location !== ev.areaName ? ev.location : ''}
                           </div>
                         )}
-                        {(typeof ev.pax === 'number' || pdf) && (
+                        {(typeof ev.pax === 'number' || ev.pdfPath || ev.pdfUrl) && (
                           <div className="flex items-center gap-3">
                             {typeof ev.pax === 'number' && (
                               <span className="font-mono text-2xs uppercase text-grey-light">{ev.pax} PAX</span>
                             )}
-                            {pdf && (
-                              <a href={pdf} target="_blank" rel="noreferrer" className="font-mono text-2xs uppercase text-accent hover:text-white">
+                            {ev.pdfPath ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const downloadUrl = ev.pdfPath as string
+                                  setPdfTarget({
+                                    url: inlinePdfUrl(downloadUrl),
+                                    downloadUrl,
+                                    filename: `${ev.title}.pdf`,
+                                    title: ev.title,
+                                  })
+                                }}
+                                className="font-mono text-2xs uppercase text-accent hover:text-white"
+                              >
+                                📄 PDF
+                              </button>
+                            ) : ev.pdfUrl ? (
+                              // pdf-download-ok: external PDF URL
+                              <a
+                                href={ev.pdfUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="font-mono text-2xs uppercase text-accent hover:text-white"
+                              >
                                 📄 PDF ↗
                               </a>
-                            )}
+                            ) : null}
                           </div>
                         )}
                         {ev.description && <p className="font-mono text-2xs text-grey-light">{ev.description}</p>}
@@ -598,6 +622,8 @@ export function CalendarClient({ role, sessionVenueId, defaultVenueId }: { role:
           onSaved={() => { setCreateEventOpen(false); setEditEventId(null); load() }}
         />
       )}
+
+      {pdfTarget && <PdfViewerModal target={pdfTarget} onClose={() => setPdfTarget(null)} />}
     </div>
   )
 }

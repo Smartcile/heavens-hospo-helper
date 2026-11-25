@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { EventBuilder, type EventDetail } from '@/components/admin/EventBuilder'
 
+const pdfMocks = vi.hoisted(() => ({ PdfViewerModal: vi.fn() }))
+
+vi.mock('@/components/ui/PdfViewerModal', () => ({
+  PdfViewerModal: (props: Record<string, unknown>) => {
+    pdfMocks.PdfViewerModal(props)
+    return null
+  },
+}))
+
 const EVENT: EventDetail = {
   id: 'e1',
   name: 'SMITH WEDDING',
@@ -36,6 +45,7 @@ function renderBuilder() {
 
 describe('EventBuilder', () => {
   beforeEach(() => {
+    pdfMocks.PdfViewerModal.mockReset()
     // The builder saves the event, then its blocks, then re-reads the event to
     // pick up real block ids — so the mock answers all three.
     globalThis.fetch = vi.fn((url: string) =>
@@ -91,6 +101,17 @@ describe('EventBuilder', () => {
       expect((calls[0][1] as { method: string }).method).toBe('PUT')
       expect(calls[1][0]).toBe('/api/admin/events/e1/blocks')
       expect((calls[1][1] as { method: string }).method).toBe('PUT')
+    })
+  })
+
+  it('opens a BEO PDF variant in the in-app viewer', () => {
+    renderBuilder()
+    fireEvent.click(screen.getByText('FULL BEO'))
+
+    const target = (pdfMocks.PdfViewerModal.mock.calls.at(-1)?.[0] as { target?: { url: string; downloadUrl: string } }).target
+    expect(target).toMatchObject({
+      url: '/api/admin/events/e1/pdf?variant=FULL&inline=1',
+      downloadUrl: '/api/admin/events/e1/pdf?variant=FULL',
     })
   })
 })

@@ -14,6 +14,8 @@ import { AddSelect } from '@/components/ui/AddSelect'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { RichTextEditor } from '@/components/ui/RichTextEditor'
 import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
+import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
+import { inlinePdfUrl } from '@/lib/pdf-actions'
 import { moveItem } from '@/lib/array'
 import { richTextToPlainText } from '@/lib/rich-text'
 import { describeLinkedItem, type LinkedItemView } from '@/lib/item-location'
@@ -272,6 +274,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
 
   // PDF export popup
   const [pdfOpen, setPdfOpen] = useState(false)
+  const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
 
   async function load() {
     const params = new URLSearchParams()
@@ -1527,7 +1530,20 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                       {c.section ? c.section.name : c.department ? c.department.name : 'WHOLE VENUE'} · {c.tasks.length} TASK{c.tasks.length !== 1 ? 'S' : ''}
                     </div>
                   </div>
-                  <Button size="sm" onClick={() => window.open(`/api/admin/checklists/${c.id}/pdf`, '_blank')}>DOWNLOAD</Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      const downloadUrl = `/api/admin/checklists/${c.id}/pdf`
+                      setPdfTarget({
+                        url: inlinePdfUrl(downloadUrl),
+                        downloadUrl,
+                        filename: `Checklist - ${c.name}.pdf`,
+                        title: c.name,
+                      })
+                    }}
+                  >
+                    DOWNLOAD
+                  </Button>
                 </div>
               ))}
             </div>
@@ -1576,6 +1592,8 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       )}
 
       {guidePopupNodes}
+
+      {pdfTarget && <PdfViewerModal target={pdfTarget} onClose={() => setPdfTarget(null)} />}
     </div>
   )
 }

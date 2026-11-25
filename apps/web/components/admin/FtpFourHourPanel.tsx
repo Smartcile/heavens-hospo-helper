@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { claimStatusTone, DEFAULT_FTP_DURATION_MINUTES } from '@/lib/ftp-parking'
 import { describeClaimStatus } from '@/lib/vpermit'
+import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
+import { inlinePdfUrl } from '@/lib/pdf-actions'
 
 interface FtpType {
   id: string
@@ -274,6 +276,7 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({})
   const [claimTotal, setClaimTotal] = useState(0)
+  const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
 
   const loadTypes = useCallback(async () => {
     try {
@@ -687,6 +690,7 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
       setError('NO EVIDENCE PDFS IN THIS SELECTION')
       return
     }
+    // pdf-download-ok: ftp evidence pack
     window.open(
       `/api/admin/parking/ftp/claims/evidence-pack?ids=${encodeURIComponent(
         ids.slice(0, 100).join(','),
@@ -1449,6 +1453,7 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
               size="sm"
               variant="ghost"
               onClick={() =>
+                // pdf-download-ok: csv export
                 window.open(`/api/admin/parking/ftp/claims/export?${claimQuery}`, '_blank')
               }
             >
@@ -1537,14 +1542,21 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
                       <td className="p-2">
                         <div className="flex flex-wrap gap-2">
                           {claim.evidencePdfPath && (
-                            <a
-                              href={`/api/admin/parking/ftp/claims/${claim.id}/evidence?format=pdf&venueId=${encodeURIComponent(venueId)}`}
-                              target="_blank"
-                              rel="noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const downloadUrl = `/api/admin/parking/ftp/claims/${claim.id}/evidence?format=pdf&venueId=${encodeURIComponent(venueId)}`
+                                setPdfTarget({
+                                  url: inlinePdfUrl(downloadUrl),
+                                  downloadUrl,
+                                  filename: `Parking claim ${claim.licensePlate ?? claim.membershipNumber ?? claim.id}.pdf`,
+                                  title: `PARKING CLAIM ${claim.licensePlate ?? claim.membershipNumber ?? claim.id}`,
+                                })
+                              }}
                               className="font-mono text-2xs uppercase text-white underline"
                             >
                               PDF
-                            </a>
+                            </button>
                           )}
                           {claim.evidenceImagePath && (
                             <a
@@ -1670,6 +1682,8 @@ export function FtpFourHourPanel({ venueId, role }: { venueId: string; role: str
           {error && <p className="font-mono text-xs text-danger">{error}</p>}
         </div>
       )}
+
+      {pdfTarget && <PdfViewerModal target={pdfTarget} onClose={() => setPdfTarget(null)} />}
     </div>
   )
 }

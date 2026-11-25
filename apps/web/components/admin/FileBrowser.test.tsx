@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { FileBrowser } from '@/components/admin/FileBrowser'
 
+const pdfMocks = vi.hoisted(() => ({ PdfViewerModal: vi.fn() }))
+
+vi.mock('@/components/ui/PdfViewerModal', () => ({
+  PdfViewerModal: (props: Record<string, unknown>) => {
+    pdfMocks.PdfViewerModal(props)
+    return null
+  },
+}))
+
 const mockResponse = (data: unknown, ok = true) => ({ ok, json: async () => data } as Response)
 
 function mockFetch(handlers: Record<string, unknown>) {
@@ -19,6 +28,7 @@ describe('FileBrowser', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.spyOn(window, 'confirm').mockReturnValue(true)
+    pdfMocks.PdfViewerModal.mockReset()
   })
 
   afterEach(() => { vi.restoreAllMocks() })
@@ -115,5 +125,19 @@ describe('FileBrowser', () => {
 
     fireEvent.click(screen.getByText('BACKUPS'))
     expect(await screen.findByText(/NO STORED ARCHIVES/)).toBeTruthy()
+  })
+
+  it('opens a PDF file in the in-app viewer', async () => {
+    mockFetch({ 'root=media&path=': { entries: [pdf] } })
+
+    render(<FileBrowser />)
+    fireEvent.click(await screen.findByText('Gift Card - 20260001.pdf'))
+    fireEvent.click(await screen.findByText('OPEN'))
+
+    const target = (pdfMocks.PdfViewerModal.mock.calls.at(-1)?.[0] as { target?: { url: string; downloadUrl: string } }).target
+    expect(target).toMatchObject({
+      url: '/api/admin/files/download?root=media&path=Gift%20Card%20-%2020260001.pdf&inline=1',
+      downloadUrl: '/api/admin/files/download?root=media&path=Gift%20Card%20-%2020260001.pdf',
+    })
   })
 })

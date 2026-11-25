@@ -7,6 +7,8 @@ import { Select } from '@/components/ui/Select'
 import { getActiveVenueId } from '@/lib/active-venue'
 import { InvoiceImportModal } from '@/components/admin/InvoiceImportModal'
 import { PriceMovementsPanel } from '@/components/admin/PriceMovementsPanel'
+import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
+import { inlinePdfUrl } from '@/lib/pdf-actions'
 
 interface InvoiceRow {
   id: string
@@ -308,6 +310,7 @@ export function SupplierInvoicesClient({
 }
 
 function InvoiceDetailView({ detail }: { detail: InvoiceDetail }) {
+  const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
   return (
     <div className="space-y-3">
       <div>
@@ -344,9 +347,21 @@ function InvoiceDetailView({ detail }: { detail: InvoiceDetail }) {
         <div>
           FILE:{' '}
           {detail.fileUrl ? (
-            <a href={detail.fileUrl} target="_blank" rel="noreferrer" className="text-white underline">
-              OPEN PDF ↗
-            </a>
+            <button
+              type="button"
+              onClick={() => {
+                const downloadUrl = detail.fileUrl as string
+                setPdfTarget({
+                  url: inlinePdfUrl(downloadUrl),
+                  downloadUrl,
+                  filename: `${detail.number}.pdf`,
+                  title: `INVOICE ${detail.number}`,
+                })
+              }}
+              className="text-white underline"
+            >
+              OPEN PDF
+            </button>
           ) : (
             <span className="text-white">NONE</span>
           )}
@@ -382,6 +397,8 @@ function InvoiceDetailView({ detail }: { detail: InvoiceDetail }) {
           <p className="font-mono text-xs text-grey-light uppercase">NO LINES.</p>
         )}
       </div>
+
+      {pdfTarget && <PdfViewerModal target={pdfTarget} onClose={() => setPdfTarget(null)} />}
     </div>
   )
 }
