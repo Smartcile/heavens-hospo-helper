@@ -79,4 +79,22 @@ describe('GET /api/worker/tips', () => {
     expect(text).not.toContain('poolTotal')
     expect(text).not.toContain('posTotal')
   })
+
+  it('omits notes by default and attaches the thread only with ?notes=1', async () => {
+    const plain = await (await GET(req())).json()
+    expect(plain.periods[0].shares[0].notes).toBeUndefined()
+
+    const withNotes = period()
+    ;(withNotes.shares[0] as unknown as { notes: unknown[] }).notes = [
+      { id: 'n1', body: 'CHECKED IN CASH', source: 'MANAGER', createdAt: new Date('2026-11-12T03:00:00.000Z') },
+    ]
+    prisma.tipsPeriod.findMany.mockResolvedValue([withNotes])
+
+    const body = await (await GET(req('http://localhost/api/worker/tips?notes=1'))).json()
+    expect(body.periods[0].shares[0].notes[0]).toMatchObject({
+      id: 'n1',
+      body: 'CHECKED IN CASH',
+      createdAt: '2026-11-12T03:00:00.000Z',
+    })
+  })
 })

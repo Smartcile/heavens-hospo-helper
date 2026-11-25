@@ -1,40 +1,25 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { formatDateDMY, localDayKey } from '@/lib/date-nav'
-import {
-  AVAILABILITY_COMMENT_MAX_LENGTH,
-  type AvailabilityCommentSource,
-} from '@/lib/availability-comments'
+import { CommentThread } from '@/components/ui/CommentThread'
+import { AVAILABILITY_COMMENT_MAX_LENGTH } from '@/lib/availability-comments'
 
 export interface AvailabilityCommentItem {
   id: string
   body: string
-  source: AvailabilityCommentSource
+  source: string
   authorId: string | null
   authorName: string | null
   createdAt: string
   canDelete: boolean
 }
 
-const SOURCE_LABEL: Record<AvailabilityCommentSource, string> = {
-  WORKER_APP: 'VIA APP',
-  MANAGER: 'MANAGER',
-  SYSTEM: 'SYSTEM',
-}
-
-function formatWhen(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const time = d.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: true })
-  return `${formatDateDMY(localDayKey(d))} ${time}`
-}
-
 /**
  * One compact comment history per staff member + day, shared by the admin
- * availability panel and the worker day editor. Newest first; each row is a
- * single line until expanded. The server decides `canDelete` (managers always,
- * staff only when the venue toggle allows and it is their own comment).
+ * availability panel and the worker day editor. This half owns the availability
+ * fetch/mutation contract; the presentation is the shared `CommentThread`
+ * (#180). The server decides `canDelete` (managers always, staff only when the
+ * venue toggle allows and it is their own comment).
  */
 export function AvailabilityCommentThread({
   mode,
@@ -72,10 +57,7 @@ export function AvailabilityCommentThread({
   const canQuery = mode === 'worker' || !!staffId
   const [comments, setComments] = useState<AvailabilityCommentItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [body, setBody] = useState('')
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   // Admin capability is server-driven (restricted managers may be read-only);
   // a worker may always add to their own day.
   const [serverCanAdd, setServerCanAdd] = useState(mode === 'worker')
@@ -117,19 +99,7 @@ export function AvailabilityCommentThread({
     void load()
   }, [load])
 
-  function toggle(id: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  async function add() {
-    const text = body.trim()
-    if (!text || busy) return
-    setBusy(true)
+  const add = useCallback(async (text: string): Promise<boolean> => {
     setError('')
     // Multi-day declarations fan out one POST per day. There is deliberately no
     // rollback: a partial failure leaves the comment on the days that succeeded,
@@ -146,29 +116,25 @@ export function AvailabilityCommentThread({
         body: JSON.stringify(payload),
       })
     }))
-    setBusy(false)
     const failed = results.find((r) => !r.ok)
     if (failed) {
       const d = await failed.json().catch(() => ({}))
       setError((d.error ?? 'COULD NOT ADD THE COMMENT').toUpperCase())
       await load()
-      return
+      return false
     }
-    setBody('')
     await load()
     onMutatedRef.current?.()
-  }
+    return true
+  }, [endpoint, mode, staffId, venueId, seriesId, postDates, load])
 
-  async function remove(id: string) {
-    if (busy) return
-    setBusy(true)
+  const remove = useCallback(async (id: string) => {
     setError('')
     const r = await fetch(endpoint, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(mode === 'admin' && venueId ? { id, venueId } : { id }),
     })
-    setBusy(false)
     if (!r.ok) {
       const d = await r.json().catch(() => ({}))
       setError((d.error ?? 'COULD NOT DELETE THE COMMENT').toUpperCase())
@@ -176,91 +142,19 @@ export function AvailabilityCommentThread({
     }
     await load()
     onMutatedRef.current?.()
-  }
+  }, [endpoint, mode, venueId, load])
 
   return (
-    <div className="border border-grey-mid p-3 space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-2xs uppercase tracking-wider text-grey-light">COMMENTS</span>
-        <span className="font-mono text-2xs uppercase text-grey-light">{comments.length}</span>
-      </div>
-
-      {caption && (
-        <p className="font-mono text-2xs uppercase text-grey-mid">{caption}</p>
-      )}
-
-      {!loading && legacyReason?.trim() && !comments.some((c) => c.body.trim() === legacyReason.trim()) && (
-        <p className="font-mono text-2xs uppercase text-grey-light border-l border-grey-mid pl-2">
-          LEGACY REASON: {legacyReason.trim()}
-        </p>
-      )}
-
-      {loading ? (
-        <p className="font-mono text-2xs uppercase text-grey-light loading-cursor">LOADING</p>
-      ) : comments.length === 0 ? (
-        <p className="font-mono text-2xs uppercase text-grey-light">NO COMMENTS YET.</p>
-      ) : (
-        <div className="space-y-1">
-          {comments.map((c) => {
-            const open = expanded.has(c.id)
-            return (
-              <div key={c.id} className="border border-grey-mid/60 bg-black/20">
-                <div className="flex items-start gap-2 px-2 py-1">
-                  <button
-                    type="button"
-                    onClick={() => toggle(c.id)}
-                    aria-label={`Toggle comment ${c.id}`}
-                    className="min-w-0 flex-1 text-left"
-                  >
-                    <span className="block font-mono text-2xs uppercase text-grey-light">
-                      {(c.authorName ?? 'UNKNOWN').toUpperCase()} · {SOURCE_LABEL[c.source] ?? c.source} · {formatWhen(c.createdAt)}
-                    </span>
-                    <span className={`block font-mono text-2xs text-white ${open ? 'whitespace-pre-wrap' : 'truncate'}`}>
-                      {c.body}
-                    </span>
-                  </button>
-                  {c.canDelete && (
-                    <button
-                      type="button"
-                      onClick={() => void remove(c.id)}
-                      disabled={busy}
-                      aria-label={`Delete comment ${c.id}`}
-                      title="DELETE COMMENT"
-                      className="shrink-0 h-6 w-6 border border-grey-mid font-mono text-2xs text-grey-light hover:border-danger hover:text-danger disabled:opacity-40"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {canAdd && serverCanAdd && canQuery && (
-        <div className="flex items-center gap-2">
-          <input
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void add() } }}
-            maxLength={AVAILABILITY_COMMENT_MAX_LENGTH}
-            placeholder="ADD A COMMENT"
-            aria-label="Add comment"
-            className="field flex-1 min-w-0"
-          />
-          <button
-            type="button"
-            onClick={() => void add()}
-            disabled={busy || !body.trim()}
-            className="h-9 px-3 border border-accent text-accent font-mono text-xs uppercase hover:bg-accent hover:text-black transition-colors disabled:opacity-40"
-          >
-            ADD
-          </button>
-        </div>
-      )}
-
-      {error && <p className="font-mono text-2xs uppercase text-danger">{error}</p>}
-    </div>
+    <CommentThread
+      comments={comments}
+      loading={loading}
+      error={error}
+      canAdd={canAdd && serverCanAdd && canQuery}
+      maxLength={AVAILABILITY_COMMENT_MAX_LENGTH}
+      onAdd={add}
+      onDelete={remove}
+      caption={caption}
+      legacyReason={legacyReason}
+    />
   )
 }

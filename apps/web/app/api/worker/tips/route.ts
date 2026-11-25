@@ -19,19 +19,61 @@ export async function GET(req: NextRequest) {
   }
 
   const statusOnly = req.nextUrl.searchParams.get('status') === '1'
-  const periods = await prisma.tipsPeriod.findMany({
-    where: { venueId: session!.venueId, deletedAt: null },
-    orderBy: [{ fromDate: 'desc' }, { createdAt: 'desc' }],
-    include: {
-      shares: {
-        where: { deletedAt: null },
-        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      },
-    },
-  })
+  // Notes are opt-in so the default payload is unchanged (#180).
+  const includeNotes = !statusOnly && req.nextUrl.searchParams.get('notes') === '1'
+  const shareQuery = {
+    where: { deletedAt: null },
+    orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
+  }
+  const periods = includeNotes
+    ? await prisma.tipsPeriod.findMany({
+        where: { venueId: session!.venueId, deletedAt: null },
+        orderBy: [{ fromDate: 'desc' }, { createdAt: 'desc' }],
+        include: {
+          shares: {
+            ...shareQuery,
+            include: {
+              notes: {
+                where: { deletedAt: null },
+                orderBy: [{ createdAt: 'asc' as const }],
+                select: { id: true, body: true, source: true, createdAt: true },
+              },
+            },
+          },
+        },
+      })
+    : await prisma.tipsPeriod.findMany({
+        where: { venueId: session!.venueId, deletedAt: null },
+        orderBy: [{ fromDate: 'desc' }, { createdAt: 'desc' }],
+        include: { shares: shareQuery },
+      })
 
   const payload = periods.map(buildTipsPeriodPayload)
-  if (!statusOnly) return NextResponse.json({ periods: payload })
+  if (!statusOnly) {
+    if (!includeNotes) return NextResponse.json({ periods: payload })
+    // The query branch guarantees `notes` on each share; keep the projection
+    // explicit so the client renders a stable shape.
+    const raw = periods as unknown as Array<{
+      shares: Array<{
+        id: string
+        notes?: Array<{ id: string; body: string; source: string; createdAt: Date }>
+      }>
+    }>
+    const withNotes = payload.map((period, index) => {
+      const notesById = new Map(raw[index].shares.map((s) => [s.id, s.notes ?? []]))
+      return {
+        ...period,
+        shares: period.shares.map((share) => ({
+          ...share,
+          notes: (notesById.get(share.id ?? '') ?? []).map((note) => ({
+            ...note,
+            createdAt: note.createdAt.toISOString(),
+          })),
+        })),
+      }
+    })
+    return NextResponse.json({ periods: withNotes })
+  }
 
   return NextResponse.json({
     periods: payload.map((p) => ({

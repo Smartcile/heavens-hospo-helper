@@ -34,11 +34,20 @@ export async function GET(req: NextRequest, { params }: Params) {
       shares: {
         where: { deletedAt: null },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        include: {
+          notes: {
+            where: { deletedAt: null },
+            orderBy: [{ createdAt: 'asc' }, { updatedAt: 'asc' }],
+            select: { body: true },
+          },
+        },
       },
     },
   })
   if (!period) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  const includeNotes = req.nextUrl.searchParams.get('notes') === '1'
+  const notesById = new Map(period.shares.map((s) => [s.id, s.notes.map((n) => n.body)]))
   const payload = buildTipsPeriodPayload(period)
   const label = period.label || `${day(period.fromDate)} - ${day(period.toDate)}`
   const doc = generateTipsPdf({
@@ -47,6 +56,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     fromDate: day(period.fromDate),
     toDate: day(period.toDate),
     poolTotal: payload.poolTotal,
+    includeNotes,
     shares: payload.shares.map((s) => ({
       name: s.name,
       hours: s.hours,
@@ -55,6 +65,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       status: s.status,
       approvalNote: s.approvalNote,
       issueNote: s.issueNote,
+      notes: includeNotes ? notesById.get(s.id ?? '') ?? [] : undefined,
     })),
   })
 

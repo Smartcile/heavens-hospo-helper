@@ -3,7 +3,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
-import { patchRowValues, setRowAction, setRowInclude, summariseRows, rowsToPayload } from '@/lib/import/framework'
+import { patchRowValues, setRowAction, setRowInclude, summariseRows, includedRows, rowsToPayload } from '@/lib/import/framework'
 import type { ImportExisting, ImportField, ImportParseResult, ImportRow, ImportRowAction, ImportSummary } from '@/lib/import/types'
 
 export function ImportModal<T>({
@@ -18,13 +18,19 @@ export function ImportModal<T>({
   renderRowControls,
   onClose,
   onImported,
+  onApply,
 }: {
   title: string
   prompt: string
   existing: ImportExisting[]
   parse: (text: string, existing: ImportExisting[]) => ImportParseResult<T> | { error: string }
   /** POST target for the reviewed rows, e.g. `/api/admin/import/menu-items`. */
-  endpoint: string
+  endpoint?: string
+  /**
+   * Client-side apply (#180): when present, IMPORT SELECTED calls this with the
+   * included rows instead of POSTing to `endpoint`. Returns the summary to show.
+   */
+  onApply?: (rows: ImportRow<T>[]) => ImportSummary
   /** Active venue for an ADMIN (a MANAGER is always locked to their own). */
   venueId?: string
   /** Scalar fields the operator can correct inline before importing. */
@@ -98,6 +104,15 @@ export function ImportModal<T>({
   async function importRows() {
     setBusy(true); setError('')
     try {
+      if (onApply) {
+        setSummary(onApply(includedRows(rows)))
+        onImported()
+        return
+      }
+      if (!endpoint) {
+        setError('NO IMPORT TARGET CONFIGURED')
+        return
+      }
       const r = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

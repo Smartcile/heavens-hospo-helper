@@ -181,3 +181,181 @@ describe('TipsClient', () => {
     })
   })
 })
+
+const STAFF = [
+  { id: 's1', name: 'LIAM SMITH', departmentName: 'FOH' },
+  { id: 's2', name: 'SHAYLA JONES', departmentName: 'FOH' },
+  { id: 's3', name: 'RUI CHEN', departmentName: 'KITCHEN' },
+]
+
+function mockFull(notes: unknown[] = []) {
+  return vi.fn((url: string, init?: RequestInit) => {
+    const u = String(url)
+    if (u.startsWith('/api/admin/tips/staff-options')) return json(STAFF)
+    if (u.includes('/notes')) {
+      const method = init?.method ?? 'GET'
+      if (method === 'POST') {
+        return json({ note: { id: 'n2', body: 'OK', source: 'MANAGER', authorName: 'ADMIN', createdAt: '2026-11-12T04:00:00.000Z', canDelete: true } })
+      }
+      if (method === 'DELETE') return json({ success: true })
+      return json({ notes, canAdd: true, canDelete: true })
+    }
+    if (u.includes('/shares/')) return json({ ok: true })
+    if (u.startsWith('/api/admin/tips')) {
+      const method = init?.method ?? 'GET'
+      if (method === 'POST') return json({ ...PERIOD, id: 'new1' })
+      if (method === 'PUT') return json(PERIOD)
+      if (method === 'DELETE') return json({ success: true })
+      return json([PERIOD])
+    }
+    return json([])
+  }) as unknown as typeof fetch
+}
+
+function headerLabels(): string[] {
+  return screen
+    .getAllByRole('columnheader')
+    .map((th) => (th.textContent ?? '').replace(/[^A-Z0-9% ]/gi, '').trim())
+}
+
+describe('TipsClient layout, columns, bulk, notes and import', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    globalThis.fetch = mockFull()
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+  })
+
+  it('renders a full-width table with the default column order', async () => {
+    render(<TipsClient venueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+
+    expect(screen.getByRole('table')).toBeTruthy()
+    expect(headerLabels()).toEqual([
+      'NAME',
+      'HOURS',
+      'WEIGHT',
+      'HOURS %',
+      'SUGGESTED',
+      'AMOUNT',
+      'STATUS',
+      'ACTIONS',
+    ])
+  })
+
+  it('restores a saved column order and persists a drag', async () => {
+    localStorage.setItem('hospo-tips-columns:v1', JSON.stringify(['AMOUNT', 'NAME']))
+    render(<TipsClient venueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+    expect(headerLabels().slice(0, 3)).toEqual(['AMOUNT', 'NAME', 'HOURS'])
+
+    const nameHeader = screen.getByRole('columnheader', { name: /NAME/ })
+    const actionsHeader = screen.getByRole('columnheader', { name: /ACTIONS/ })
+    fireEvent.dragStart(nameHeader)
+    fireEvent.dragOver(actionsHeader)
+    fireEvent.drop(actionsHeader)
+
+    await waitFor(() => {
+      const saved = JSON.parse(localStorage.getItem('hospo-tips-columns:v1') ?? '[]') as string[]
+      expect(saved.indexOf('NAME')).toBe(saved.indexOf('ACTIONS') - 1)
+    })
+  })
+
+  it('resets a saved column order with RESET ORDER', async () => {
+    localStorage.setItem('hospo-tips-columns:v1', JSON.stringify(['AMOUNT', 'NAME']))
+    render(<TipsClient venueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+    expect(headerLabels()[0]).toBe('AMOUNT')
+
+    fireEvent.click(screen.getByText('RESET ORDER'))
+
+    await waitFor(() => expect(headerLabels()[0]).toBe('NAME'))
+    expect(localStorage.getItem('hospo-tips-columns:v1')).toBeNull()
+  })
+
+  it('sorts rows from a header click and resets with a third click', async () => {
+    render(<TipsClient venueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+
+    const nameHeader = screen.getByRole('columnheader', { name: /NAME/ })
+    const sortButton = nameHeader.querySelector('button') as HTMLButtonElement
+    const firstBodyRow = () => screen.getAllByRole('row')[1].textContent ?? ''
+
+    expect(firstBodyRow()).toContain('LIAM SMITH')
+    fireEvent.click(sortButton) // asc
+    expect(firstBodyRow()).toContain('LIAM SMITH')
+    fireEvent.click(sortButton) // desc
+    await waitFor(() => expect(firstBodyRow()).toContain('SHAYLA JONES'))
+    fireEvent.click(sortButton) // back to manual
+    await waitFor(() => expect(firstBodyRow()).toContain('LIAM SMITH'))
+  })
+
+  it('bulk-adds selected staff and saves them in the period payload', async () => {
+    render(<TipsClient venueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('+ ADD STAFF'))
+    await screen.findByText('ADD STAFF TO THIS PERIOD')
+    fireEvent.click(screen.getByLabelText('Select RUI CHEN'))
+    fireEvent.click(screen.getByText('ADD SELECTED (1)'))
+
+    await waitFor(() => expect(screen.getAllByText('RUI CHEN').length).toBeGreaterThan(0))
+
+    fireEvent.click(screen.getByText('SAVE PERIOD'))
+    await waitFor(() => {
+      const puts = methodCalls('PUT')
+      expect(puts.length).toBe(1)
+      const body = JSON.parse((puts[0][1] as RequestInit).body as string)
+      expect(body.shares.map((s: { staffId: string }) => s.staffId)).toContain('s3')
+    })
+  })
+
+  it('opens the notes thread, shows history and posts a note', async () => {
+    globalThis.fetch = mockFull([
+      {
+        id: 'n1',
+        body: 'CHECKED IN CASH',
+        source: 'MANAGER',
+        authorName: 'ADMIN',
+        createdAt: '2026-11-12T03:00:00.000Z',
+        canDelete: true,
+      },
+    ]) as unknown as typeof fetch
+    render(<TipsClient venueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+
+    fireEvent.click(screen.getByLabelText('Notes for LIAM SMITH'))
+    expect(await screen.findByText('CHECKED IN CASH')).toBeTruthy()
+
+    fireEvent.change(screen.getByPlaceholderText('ADD A COMMENT'), { target: { value: 'CONFIRMED' } })
+    fireEvent.click(screen.getByText('ADD'))
+
+    await waitFor(() => {
+      const post = methodCalls('POST').find((c) => String(c[0]).includes('/notes'))
+      expect(post).toBeDefined()
+      expect(JSON.parse((post![1] as RequestInit).body as string)).toEqual({ body: 'CONFIRMED' })
+    })
+  })
+
+  it('disables the notes icon before the row is saved', async () => {
+    render(<TipsClient venueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('+ ADD PERSON'))
+    const button = screen.getByLabelText('Notes for Staff 3') as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+  })
+
+  it('adds notes to the PDF link only when asked', async () => {
+    render(<TipsClient venueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+
+    const link = () => screen.getByText(/DOWNLOAD DISTRIBUTION PDF/).closest('a')
+    expect(link()?.getAttribute('href')).toBe('/api/admin/tips/t1/pdf')
+
+    fireEvent.click(screen.getByLabelText('Include notes in PDF'))
+    await waitFor(() => expect(link()?.getAttribute('href')).toBe('/api/admin/tips/t1/pdf?notes=1'))
+  })
+})
