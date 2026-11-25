@@ -164,6 +164,27 @@ describe('/api/admin/tasks/[id]', () => {
     })
   })
 
+  it('PUT saves the one-off fields (#145)', async () => {
+    const res = await PUT(
+      req({ isOneOff: true, dueDate: '2026-11-25', rolloverEnabled: true }),
+      { params: { id: 't1' } },
+    )
+
+    expect(res.status).toBe(200)
+    const data = prisma.task.update.mock.calls[0][0].data
+    expect(data.isOneOff).toBe(true)
+    expect(data.rolloverEnabled).toBe(true)
+    expect((data.dueDate as Date).toISOString()).toBe('2026-11-25T00:00:00.000Z')
+  })
+
+  it('PUT rejects an invalid one-off due date', async () => {
+    const res = await PUT(req({ dueDate: '2026-02-31' }), { params: { id: 't1' } })
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'INVALID DUE DATE' })
+    expect(prisma.task.update).not.toHaveBeenCalled()
+  })
+
   it('DELETE soft-deletes the parent and unparents its children', async () => {
     const res = await DELETE(req(), { params: { id: 'p1' } })
 

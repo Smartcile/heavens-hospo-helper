@@ -18,6 +18,7 @@ import { OUTCOME_LABELS, OUTCOME_DESCRIPTIONS, TASK_OUTCOMES, type TaskOutcome }
 import { moveItem } from '@/lib/array'
 import { availableParentTasks, orderTasksWithChildren, subtasksOutsideList } from '@/lib/task-subtasks'
 import { groupChecklistTasks, normaliseGroupLabel } from '@/lib/task-groups'
+import { groupCustomTasks } from '@/lib/custom-tasks'
 import { resolveWorkerTaskAccess, type WorkerTaskAccess } from '@/lib/worker-task-access'
 import { Panel } from '@/components/ui/Panel'
 import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
@@ -143,6 +144,7 @@ export function WorkerTasksClient({
   const [tasks, setTasks] = useState<TaskState[]>([])
   const [checklists, setChecklists] = useState<ChecklistSummary[]>([])
   const [firstName, setFirstName] = useState('')
+  const [staffId, setStaffId] = useState('')
   const [loading, setLoading] = useState(true)
   const [activeTask, setActiveTask] = useState<ModalTask>(null)
   const [note, setNote] = useState('')
@@ -225,6 +227,41 @@ export function WorkerTasksClient({
   const [quickDue, setQuickDue] = useState('')
   const [quickRollover, setQuickRollover] = useState(false)
   const [quickSaving, setQuickSaving] = useState(false)
+  // Optional assignment / scope for an assigned custom task. Options load
+  // lazily so a floor worker who just raises a title-only task pays nothing.
+  const [quickAssignee, setQuickAssignee] = useState('')
+  const [quickDept, setQuickDept] = useState('')
+  const [quickSection, setQuickSection] = useState('')
+  const [quickOptionsLoaded, setQuickOptionsLoaded] = useState(false)
+  const [quickOptions, setQuickOptions] = useState<{
+    departments: { id: string; name: string }[]
+    sections: { id: string; name: string; departmentId: string }[]
+    assignees: { id: string; name: string }[]
+  }>({ departments: [], sections: [], assignees: [] })
+
+  function resetQuickForm() {
+    setQuickTitle(''); setQuickDesc(''); setQuickDue(''); setQuickRollover(false)
+    setQuickAssignee(''); setQuickDept(''); setQuickSection('')
+  }
+
+  function toggleQuickForm() {
+    const next = !quickOpen
+    setQuickOpen(next)
+    resetQuickForm()
+    if (next && !quickOptionsLoaded) void loadQuickOptions()
+  }
+
+  async function loadQuickOptions() {
+    const r = await fetch('/api/worker/quick-task/options')
+    if (!r.ok) return
+    const data = await r.json().catch(() => null)
+    setQuickOptions({
+      departments: Array.isArray(data?.departments) ? data.departments : [],
+      sections: Array.isArray(data?.sections) ? data.sections : [],
+      assignees: Array.isArray(data?.assignees) ? data.assignees : [],
+    })
+    setQuickOptionsLoaded(true)
+  }
 
   async function handleQuickTask() {
     if (!quickTitle.trim()) return
@@ -237,12 +274,15 @@ export function WorkerTasksClient({
         description: quickDesc || null,
         dueDate: quickDue || null,
         rolloverEnabled: quickRollover,
+        assignedToStaffId: quickAssignee || null,
+        departmentId: quickDept || null,
+        sectionId: quickSection || null,
       }),
     })
     setQuickSaving(false)
     if (r.ok) {
       setQuickOpen(false)
-      setQuickTitle(''); setQuickDesc(''); setQuickDue(''); setQuickRollover(false)
+      resetQuickForm()
       load()
     }
   }
@@ -256,6 +296,7 @@ export function WorkerTasksClient({
     setTasks(data.tasks)
     setChecklists(data.checklists ?? [])
     setFirstName(data.firstName)
+    setStaffId(data.staffId ?? '')
     if (data.access) setAccess(data.access as WorkerTaskAccess)
     setLoading(false)
   }
@@ -791,12 +832,24 @@ export function WorkerTasksClient({
     }
   }
 
+  // #145 — combined CUSTOM TASKS bucket (one-off or assigned to me), never a
+  // task that already lives in a checklist. One pure helper, same rule as the
+  // API's `custom` flag.
+  const checklistTaskIds = new Set<string>()
+  for (const cl of checklists) for (const tid of cl.taskIds) checklistTaskIds.add(tid)
+  const customGroups = groupCustomTasks(tasks, { staffId, checklistTaskIds })
+  const customTaskIds = new Set(customGroups.flatMap((g) => g.tasks.map((t) => t.id)))
+
   const listGroupMap = new Map<string, { id: string; name: string; time: string | null; tasks: TaskState[] }>()
   const otherTasks: TaskState[] = []
   const upcomingMap = new Map<string, { id: string; name: string; label: string | null }>()
   for (const t of tasks) {
     const lists = listsByTask.get(t.id) ?? []
-    if (lists.length === 0) { otherTasks.push(t); continue }
+    if (lists.length === 0) {
+      // Custom tasks render in their own pseudo-list, never twice.
+      if (!customTaskIds.has(t.id)) otherTasks.push(t)
+      continue
+    }
     // Settled work stays inside its list, even if the list is time-closed.
     if (t.isSettled) {
       const first = lists.slice().sort((a, b) => (a.appearFromTime ?? '').localeCompare(b.appearFromTime ?? '') || a.name.localeCompare(b.name))[0]
@@ -925,6 +978,11 @@ export function WorkerTasksClient({
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <CompletionTypeIcon type={t.completionType} />
               {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
+              {customTaskIds.has(t.id) && (
+                <span className="font-mono text-xs uppercase text-warning border border-warning/40 px-1.5 py-0.5">
+                  {t.isOneOff ? 'ONE-OFF' : 'CUSTOM'}
+                </span>
+              )}
               {guideTitles.map((title) => (
                 <span key={title} className="font-mono text-xs uppercase text-info truncate max-w-[10rem]">
                   📖 {title}
@@ -992,6 +1050,11 @@ export function WorkerTasksClient({
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <CompletionTypeIcon type={t.completionType} />
               {t.assigneeName && <span className="font-mono text-xs text-accent">FOR {t.assigneeName}</span>}
+              {customTaskIds.has(t.id) && (
+                <span className="font-mono text-xs uppercase text-warning border border-warning/40 px-1.5 py-0.5">
+                  {t.isOneOff ? 'ONE-OFF' : 'CUSTOM'}
+                </span>
+              )}
               {t.guide && (
                 <button
                   type="button"
@@ -1081,7 +1144,7 @@ export function WorkerTasksClient({
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { setQuickOpen(!quickOpen); setQuickTitle(''); setQuickDesc(''); setQuickDue(''); setQuickRollover(false) }}
+              onClick={toggleQuickForm}
               className="font-mono text-xs uppercase font-bold tracking-wider px-3 py-2 border border-success text-success hover:bg-success hover:text-black transition-colors"
             >
               + QUICK TASK
@@ -1116,6 +1179,45 @@ export function WorkerTasksClient({
               rows={2}
               className="w-full bg-black border border-grey-mid text-white font-sans text-xs px-3 py-2 outline-none focus:border-white resize-none placeholder:text-grey-light"
             />
+            <div className="grid grid-cols-1 gap-2">
+              <select
+                aria-label="QUICK TASK ASSIGNEE"
+                value={quickAssignee}
+                onChange={(e) => setQuickAssignee(e.target.value)}
+                className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
+              >
+                <option value="">ASSIGN TO NOBODY (SHARED)</option>
+                {quickOptions.assignees.map((a) => (
+                  <option key={a.id} value={a.id}>FOR {a.name}</option>
+                ))}
+              </select>
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  aria-label="QUICK TASK DEPARTMENT"
+                  value={quickDept}
+                  onChange={(e) => { setQuickDept(e.target.value); setQuickSection('') }}
+                  className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
+                >
+                  <option value="">MY DEPARTMENT</option>
+                  {quickOptions.departments.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+                <select
+                  aria-label="QUICK TASK SECTION"
+                  value={quickSection}
+                  onChange={(e) => setQuickSection(e.target.value)}
+                  className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
+                >
+                  <option value="">NO SECTION</option>
+                  {quickOptions.sections
+                    .filter((s) => !quickDept || s.departmentId === quickDept)
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                </select>
+              </div>
+            </div>
             <div className="flex items-center gap-3 flex-wrap">
               <label className="flex items-center gap-2 font-mono text-xs text-grey-light">
                 <DateInput value={quickDue} onChange={(e) => setQuickDue(e.target.value)} className="w-40" />
@@ -1127,12 +1229,15 @@ export function WorkerTasksClient({
                 ROLL OVER IF NOT DONE
               </label>
             </div>
+            <p className="font-mono text-xs uppercase text-grey-light">
+              AN ASSIGNED TASK APPEARS IN YOUR CUSTOM TASKS, NOT THE SHARED SIDE-WORK LIST.
+            </p>
             <div className="flex gap-2">
               <button onClick={handleQuickTask} disabled={quickSaving}
                 className="font-mono text-xs uppercase font-bold tracking-wider px-4 py-2 bg-success text-black hover:opacity-90 disabled:opacity-40">
                 {quickSaving ? 'SAVING_' : 'CREATE'}
               </button>
-              <button onClick={() => setQuickOpen(false)}
+              <button onClick={() => { setQuickOpen(false); resetQuickForm() }}
                 className="font-mono text-xs uppercase px-4 py-2 border border-grey-mid text-grey-light hover:border-white hover:text-white">
                 CANCEL
               </button>
@@ -1270,6 +1375,29 @@ export function WorkerTasksClient({
         )}
         {bulkMessage && (
           <p className="font-mono text-xs uppercase text-success">{bulkMessage}</p>
+        )}
+        {customGroups.length > 0 && (
+          <Panel padding="none" className="border-warning/40">
+            <div className="p-3 border-b border-grey-mid flex items-center justify-between gap-2">
+              <div className="font-mono text-xs uppercase tracking-widest text-white">CUSTOM TASKS</div>
+              <span className="font-mono text-xs text-white">
+                {customGroups.reduce((n, g) => n + g.tasks.filter((t) => t.isDone).length, 0)}/
+                {customGroups.reduce((n, g) => n + g.tasks.length, 0)}
+              </span>
+            </div>
+            <div className="divide-y divide-grey-mid">
+              {customGroups.map((g) => (
+                <div key={g.key}>
+                  <div className="px-3 py-1.5 bg-grey-mid/20 border-b border-grey-mid font-mono text-xs uppercase tracking-wider text-accent">
+                    {g.name}
+                  </div>
+                  {orderTasksWithChildren(g.tasks).map(({ task, depth }) =>
+                    renderTask(task, { depth }),
+                  )}
+                </div>
+              ))}
+            </div>
+          </Panel>
         )}
         {listGroups.map((lg) => {
           const summary = checklists.find((cl) => cl.id === lg.id)

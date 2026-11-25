@@ -14,6 +14,7 @@ import { syncTaskLists } from '@/lib/task-lists.server'
 import { parentLinkError, nextSubtaskOrder } from '@/lib/task-subtasks.server'
 import { sanitiseRichText } from '@/lib/rich-text'
 import { linkedItemSelect, linkedItemError } from '@/lib/task-linked-item.server'
+import { isCustomTask } from '@/lib/custom-tasks'
 
 export async function GET(req: NextRequest) {
   const session = await getWorkerSession()
@@ -92,13 +93,22 @@ export async function GET(req: NextRequest) {
 
   // Show the WHOLE department's lists for the day — everyone on the floor sees
   // every list; completion is shared (global per task+date), so no double-ups.
+  // Plus any task assigned to this person, even from another department:
+  // assignment is visibility, not a privacy boundary.
   // DRAFT/ARCHIVED tasks never reach the floor.
   const where = {
     venueId: session.venueId,
     isActive: true,
     status: 'ACTIVE' as const,
     deletedAt: null,
-    ...(departmentIds ? { departmentId: { in: departmentIds } } : {}),
+    ...(departmentIds
+      ? {
+          OR: [
+            { departmentId: { in: departmentIds } },
+            { assignedToStaffId: session.staffId },
+          ],
+        }
+      : {}),
   }
 
   const tasks = await prisma.task.findMany({
@@ -198,6 +208,13 @@ export async function GET(req: NextRequest) {
     for (const ct of c.tasks) multiDayTaskIds.add(ct.taskId)
   }
   const todayKey = formatDateKey(today)
+
+  // Task ids that live in any applicable checklist — a list task stays in its
+  // list and is never duplicated into the CUSTOM TASKS bucket.
+  const checklistTaskIds = new Set<string>()
+  for (const c of checklists) {
+    for (const ct of c.tasks) checklistTaskIds.add(ct.taskId)
+  }
 
   // Keep a task that is due today, carries a live PARTIAL, or is already
   // completed today. Yesterday's partial on a today-only list no longer carries
@@ -325,6 +342,9 @@ export async function GET(req: NextRequest) {
       dueDate: t.dueDate,
       rolloverEnabled: t.rolloverEnabled,
       rolledOverFrom: t.rolledOverFrom,
+      // #145 — belongs in the combined CUSTOM TASKS bucket (one-off or assigned
+      // to me, and not already in a checklist).
+      custom: isCustomTask(t, { staffId: session.staffId, checklistTaskIds }),
       // Reading-task fields for the worker capture modal
       readingUnit: t.readingUnit,
       readingMin: t.readingMin,
@@ -364,6 +384,7 @@ export async function GET(req: NextRequest) {
     tasks: result,
     checklists: checklistResult,
     firstName: session.firstName,
+    staffId: session.staffId,
     access,
   })
 }

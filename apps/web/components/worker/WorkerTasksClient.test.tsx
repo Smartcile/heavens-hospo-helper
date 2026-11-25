@@ -1009,4 +1009,36 @@ describe('WorkerTasksClient', () => {
       delete (globalThis as unknown as { EventSource?: unknown }).EventSource
     }
   })
+
+  it('renders a CUSTOM TASKS pseudo-list with FOR name and never duplicates a list task (#145)', async () => {
+    const customTask = {
+      ...BASE_TASK,
+      id: 't20',
+      title: 'RESEARCH HIGH CHAIRS',
+      departmentName: 'MANAGER',
+      assigneeName: 'SAM LEE',
+      isOneOff: true,
+    }
+    const listTask = {
+      ...BASE_TASK,
+      id: 't21',
+      title: 'WIPE TABLES',
+      isOneOff: true,
+    }
+    mockTasks(
+      [customTask, listTask],
+      [{ id: 'c1', name: 'OPENING', appearFromTime: null, activatedToday: false, taskIds: ['t21'] }],
+    )
+
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('CUSTOM TASKS')).toBeDefined())
+    expect(screen.getByText('RESEARCH HIGH CHAIRS')).toBeDefined()
+    expect(screen.getByText('FOR SAM LEE')).toBeDefined()
+    // The custom card carries the ONE-OFF tag.
+    expect(screen.getAllByText('ONE-OFF')).toHaveLength(1)
+    // The checklist task stays in OPENING and is never duplicated in CUSTOM.
+    expect(screen.getByText('OPENING')).toBeDefined()
+    expect(screen.getAllByText('WIPE TABLES')).toHaveLength(1)
+  })
 })

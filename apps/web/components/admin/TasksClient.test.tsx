@@ -675,4 +675,47 @@ describe('TasksClient', () => {
     await waitFor(() => expect(screen.queryByText('EDIT TASK')).toBeNull())
     expect(screen.queryByText('ADD A SUBTASK?')).toBeNull()
   })
+
+  it('creates an ad-hoc custom task with assignee, scope, due date and rollover (#145)', async () => {
+    const fetchMock = mockApi([TASK_ONE, TASK_TWO])
+    const { container } = render(<TasksClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('+ CUSTOM TASK')).toBeDefined())
+    fireEvent.click(screen.getByText('+ CUSTOM TASK'))
+
+    // The assignee options load when the compact modal opens.
+    await waitFor(() => expect(screen.getByText('CUSTOM TASK')).toBeDefined())
+    await waitFor(() => expect(screen.getByText('SAM LEE')).toBeDefined())
+
+    fireEvent.change(screen.getByPlaceholderText('E.G. RESEARCH HIGH CHAIRS'), {
+      target: { value: 'RESEARCH HIGH CHAIRS' },
+    })
+
+    const selectFor = (label: string) =>
+      screen.getByText(label).parentElement!.querySelector('select') as HTMLSelectElement
+    fireEvent.change(selectFor('Assign to (optional)'), { target: { value: 's1' } })
+    fireEvent.change(selectFor('Department'), { target: { value: 'd1' } })
+
+    const dueInput = container.querySelector('input[type="date"]') as HTMLInputElement
+    fireEvent.change(dueInput, { target: { value: '2026-11-25' } })
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      const posts = fetchMock.mock.calls.filter(
+        ([url, init]) => String(url) === '/api/admin/tasks' && init?.method === 'POST',
+      )
+      expect(posts).toHaveLength(1)
+      const body = JSON.parse(String((posts[0][1] as RequestInit).body))
+      expect(body).toMatchObject({
+        title: 'RESEARCH HIGH CHAIRS',
+        venueId: 'v1',
+        departmentId: 'd1',
+        assignedToStaffId: 's1',
+        isOneOff: true,
+        dueDate: '2026-11-25',
+        rolloverEnabled: true,
+      })
+    })
+  })
 })
