@@ -522,6 +522,7 @@ model Staff {
   trainingCompletions  TrainingCompletion[]
   guideCompletions     GuideCompletion[]
   guideAssignments     GuideAssignment[]
+  tipsShares           TipsShare[]
   guideRetrainRequests GuideRetrainRequest[] @relation("GuideRetrainStaff")
   guideRetrainRequestsMade GuideRetrainRequest[] @relation("GuideRetrainRequestedBy")
   guideRetrainRequestsResolved GuideRetrainRequest[] @relation("GuideRetrainResolvedBy")
@@ -4412,32 +4413,73 @@ model BeoChangeRequest {
   @@index([status])
 }
 
-// --- TIPS (staff tip pooling + period settlement) ---
+// --- TIPS (staff tip pooling + approval + issuance) ---
 // One settlement period: the cash counted from the till (denomination → qty),
 // the EFTPOS/POS holding figure requested from finance, the date range it
-// covers, and one share row per person with their hours and share weighting.
-// The payout split is computed on read by `lib/tips.ts` and never stored — a
+// covers, and one TipsShare row per person with their hours and share weight.
+// The payout split is computed on read by `lib/tips.ts` and never stored - a
 // corrected hour or total immediately flows through and the reconciliation
-// check is always live. `shares` is a settlement snapshot (no cross-references),
-// so it is a JSON list rather than a child table.
+// check is always live. The legacy `shares` JSON column is kept (mapped as
+// `legacyShares`) so the one-off backfill can rebuild the rows; new writes only
+// touch TipsShare.
 model TipsPeriod {
-  id         String   @id @default(uuid())
-  venueId    String
-  label      String? // e.g. "FEBRUARY 2026"
-  fromDate   DateTime @db.Date
-  toDate     DateTime @db.Date
-  cashCounts Json     @default("{}") // { "100": 5, "50": 1, ... } denomination → qty
-  posTotal   Float    @default(0) // EFTPOS / holding tips requested from finance
-  shares     Json     @default("[]") // [{ name, hours, shareWeight }]
-  notes      String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  deletedAt  DateTime?
+  id            String    @id @default(uuid())
+  venueId       String
+  label         String? // e.g. "FEBRUARY 2026"
+  fromDate      DateTime  @db.Date
+  toDate        DateTime  @db.Date
+  cashCounts    Json      @default("{}") // { "100": 5, "50": 1, ... } denomination → qty
+  posTotal      Float     @default(0) // EFTPOS / holding tips requested from finance
+  legacyShares  Json      @default("[]") @map("shares") // legacy [{ name, hours, shareWeight }] — read by the backfill only
+  notes         String?
+  fullyIssuedAt DateTime? // set automatically when every live share reaches ISSUED
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
 
-  venue Venue @relation(fields: [venueId], references: [id])
+  venue  Venue       @relation(fields: [venueId], references: [id])
+  shares TipsShare[]
 
   @@index([venueId])
   @@index([venueId, fromDate])
+}
+
+enum TipsShareStatus {
+  PLANNED
+  APPROVED
+  ISSUED
+  FULLY_ISSUED
+}
+
+// One person's tip share in a period. `staffId` is null for a manual (non-
+// system) person; the unique key allows any number of those because Postgres
+// treats NULLs as distinct. Approval/issuance are per row; FULLY_ISSUED is
+// applied to every row automatically once the last person is marked ISSUED.
+model TipsShare {
+  id             String          @id @default(uuid())
+  tipsPeriodId   String
+  staffId        String?
+  name           String // snapshot display name (uppercased)
+  hours          Float           @default(0)
+  shareWeight    Float           @default(1)
+  sortOrder      Int             @default(0)
+  status         TipsShareStatus @default(PLANNED)
+  approvedAt     DateTime?
+  approvedById   String?
+  approvalNote   String?
+  issuedAt       DateTime?
+  issuedById     String?
+  issueNote      String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  deletedAt      DateTime?
+
+  tipsPeriod TipsPeriod @relation(fields: [tipsPeriodId], references: [id])
+  staff      Staff?     @relation(fields: [staffId], references: [id])
+
+  @@unique([tipsPeriodId, staffId])
+  @@index([tipsPeriodId, status])
+  @@index([staffId])
 }
 
 // -- HEAVENLY HELP (#50) -------------------------------------------------

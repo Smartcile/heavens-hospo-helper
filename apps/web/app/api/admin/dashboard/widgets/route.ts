@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { getTodayDate } from '@/lib/utils'
+import { canAccess } from '@/lib/permissions'
+import { tipsProgress } from '@/lib/tips'
 import { trainingStatusForVenue } from '@/lib/training-status.server'
 import { parkingHealthForVenue } from '@/lib/parking-health.server'
 import { ftpHealthForVenue, worstFtpHealth } from '@/lib/ftp-health-state.server'
@@ -74,6 +76,46 @@ export async function GET(req: NextRequest) {
       : scan2PayHealth ??
         (ftpWorst ? { ok: ftpWorst.ok, stale: ftpWorst.stale, message: `FTP: ${ftpWorst.message}` } : null)
 
+  // STATUS-ONLY tips projection: counts + percent. Never cash, POS, weights or
+  // per-person amounts (those live on the TIPS page, which is permission-gated).
+  let tips: {
+    label: string
+    total: number
+    planned: number
+    approved: number
+    issued: number
+    fullyIssued: number
+    percent: number
+    stage: string
+  } | null = null
+  if (await canAccess(session, req, 'performance.tips.view')) {
+    const period = await prisma.tipsPeriod.findFirst({
+      where: { venueId, deletedAt: null },
+      orderBy: [{ fromDate: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        label: true,
+        fromDate: true,
+        toDate: true,
+        shares: { where: { deletedAt: null }, select: { status: true } },
+      },
+    })
+    if (period) {
+      const progress = tipsProgress(period.shares)
+      tips = {
+        label:
+          period.label ||
+          `${period.fromDate.toISOString().slice(0, 10)} - ${period.toDate.toISOString().slice(0, 10)}`,
+        total: progress.total,
+        planned: progress.planned,
+        approved: progress.approved,
+        issued: progress.issuedCount,
+        fullyIssued: progress.fullyIssued,
+        percent: progress.percent,
+        stage: progress.stage,
+      }
+    }
+  }
+
   return NextResponse.json({
     date: today.toISOString().slice(0, 10),
     bookings: { count: bookingCount, next: bookings },
@@ -83,5 +125,6 @@ export async function GET(req: NextRequest) {
     clockedIn,
     training: training ? { summary: training.summary, onShiftActionNeeded: training.staff.filter((s) => s.onShift && s.level !== 'GREEN').length } : null,
     parkingHealth,
+    tips,
   })
 }

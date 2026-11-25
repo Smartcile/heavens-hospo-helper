@@ -278,3 +278,72 @@ describe('WorkerDashboardClient chrome', () => {
     }
   })
 })
+
+describe('WorkerDashboardClient tips tile', () => {
+  beforeEach(() => {
+    replaceMock.mockClear()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('shows a status-only TIPS tile to managers and never renders money', async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') return json({ tasks: [], firstName: 'ALEX' })
+      if (u === '/api/worker/notices') return json({ unackedRequired: 0, items: [] })
+      if (u === '/api/worker/calendar') return json({ shifts: [], openShiftCount: 0 })
+      if (u === '/api/worker/guides') return json({ items: [] })
+      if (u === '/api/worker/pathway') return json({ pathway: null })
+      if (u === '/api/worker/stocktake') return json([])
+      if (u === '/api/worker/timeclock/status') return json({ isClockedIn: false })
+      if (u === '/api/worker/events/access') return json({ allowed: false })
+      if (u === '/api/worker/giftcards/access') return json({ allowed: false })
+      if (u === '/api/worker/parking/access') return json({ enabled: false, staffParkingEnabled: false, health: null })
+      if (u === '/api/worker/tips?status=1') {
+        return json({
+          periods: [
+            {
+              id: 'p1',
+              label: 'FEBRUARY 2026',
+              poolTotal: 1234.56,
+              progress: { total: 2, issuedCount: 1, percent: 50 },
+              shares: [{ id: 'r1', amount: 617.28, status: 'ISSUED' }],
+            },
+          ],
+        })
+      }
+      return json({})
+    })
+    vi.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch)
+
+    render(<WorkerDashboardClient role="MANAGER" />)
+    await waitFor(() => expect(screen.getByText('TIPS')).toBeDefined())
+    expect(screen.getByText(/1\/2 ISSUED/)).toBeDefined()
+    expect(document.body.textContent).not.toContain('$')
+  })
+
+  it('does not request tips or show the tile for floor staff', async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') return json({ tasks: [], firstName: 'ALEX' })
+      if (u === '/api/worker/notices') return json({ unackedRequired: 0, items: [] })
+      if (u === '/api/worker/calendar') return json({ shifts: [], openShiftCount: 0 })
+      if (u === '/api/worker/guides') return json({ items: [] })
+      if (u === '/api/worker/pathway') return json({ pathway: null })
+      if (u === '/api/worker/stocktake') return json([])
+      if (u === '/api/worker/timeclock/status') return json({ isClockedIn: false })
+      if (u === '/api/worker/events/access') return json({ allowed: false })
+      if (u === '/api/worker/giftcards/access') return json({ allowed: false })
+      if (u === '/api/worker/parking/access') return json({ enabled: false, staffParkingEnabled: false, health: null })
+      return json({})
+    })
+    vi.spyOn(global, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch)
+
+    render(<WorkerDashboardClient role="STAFF" />)
+    await waitFor(() => expect(screen.getByText('TASKS')).toBeDefined())
+    expect(screen.queryByText('TIPS')).toBeNull()
+    expect(fetchMock.mock.calls.some(([u]) => String(u) === '/api/worker/tips?status=1')).toBe(false)
+  })
+})

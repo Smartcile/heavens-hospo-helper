@@ -1,14 +1,27 @@
 import { describe, it, expect } from 'vitest'
 import {
+  canTransitionTipsShare,
+  cashRound,
   cashTotalOf,
   cleanCashCounts,
   cleanShares,
+  cleanTipsShareRows,
   denominationLabel,
+  distributeCashRounded,
   distributeTips,
+  hoursShare,
+  isTipsPeriodLocked,
+  isTipsShareEditable,
+  matchLegacyTipStaff,
   round2,
   shareLabel,
+  suggestedAmount,
+  suggestedWeight,
   summariseTips,
+  tipsProgress,
   totalTips,
+  valueTipsShares,
+  type TipsShareRow,
 } from '@/lib/tips'
 
 const workbookShares = [
@@ -102,5 +115,148 @@ describe('tips', () => {
       { name: 'SHAYLA', hours: 0, shareWeight: 0 },
     ])
     expect(cleanShares('nope')).toEqual([])
+  })
+})
+
+describe('relational tip shares', () => {
+  const row = (over: Partial<TipsShareRow> = {}): TipsShareRow => ({
+    staffId: null,
+    name: 'A',
+    hours: 0,
+    shareWeight: 1,
+    sortOrder: 0,
+    status: 'PLANNED',
+    ...over,
+  })
+
+  it('hoursShare is the fraction of total hours', () => {
+    expect(hoursShare(75, 100)).toBeCloseTo(0.75)
+    expect(hoursShare(0, 0)).toBe(0)
+    expect(hoursShare(10, 0)).toBe(0)
+  })
+
+  it('suggestedWeight scales hours proportion so suggestions sum to headcount', () => {
+    expect(suggestedWeight(75, 100, 2)).toBe(1.5)
+    expect(suggestedWeight(25, 100, 2)).toBe(0.5)
+    expect(suggestedWeight(10, 0, 2)).toBe(0)
+  })
+
+  it('suggestedAmount is the hours-proportional payout suggestion', () => {
+    expect(suggestedAmount(1000, 75, 100)).toBe(750)
+    expect(suggestedAmount(1000, 10, 0)).toBe(0)
+  })
+
+  it('cashRound rounds to the nearest 10c', () => {
+    expect(cashRound(10.04)).toBe(10)
+    expect(cashRound(10.06)).toBe(10.1)
+  })
+
+  it('distributeCashRounded reconciles a 3-way split with largest remainder', () => {
+    const amounts = distributeCashRounded(100, [
+      { shareWeight: 1 },
+      { shareWeight: 1 },
+      { shareWeight: 1 },
+    ])
+    expect(amounts).toEqual([33.4, 33.3, 33.3])
+    expect(round2(amounts.reduce((a, b) => a + b, 0))).toBe(100)
+  })
+
+  it('distributeCashRounded matches the nearest-10c pool and never loses a cent', () => {
+    const amounts = distributeCashRounded(100.04, [{ shareWeight: 1 }, { shareWeight: 1 }])
+    expect(amounts).toEqual([50, 50])
+    // nearest 10c of 100.04 is 100.00
+    expect(round2(amounts.reduce((a, b) => a + b, 0))).toBe(100)
+  })
+
+  it('distributeCashRounded pays nobody when every weight is zero', () => {
+    expect(distributeCashRounded(100, [{ shareWeight: 0 }, { shareWeight: 0 }])).toEqual([0, 0])
+  })
+
+  it('distributeCashRounded handles a zero total and a single person', () => {
+    expect(distributeCashRounded(0, [{ shareWeight: 1 }, { shareWeight: 1 }])).toEqual([0, 0])
+    expect(distributeCashRounded(12.34, [{ shareWeight: 1 }])).toEqual([12.3])
+    expect(distributeCashRounded(0.06, [{ shareWeight: 1 }])).toEqual([0.1])
+  })
+
+  it('valueTipsShares attaches hours share, suggestions and reconciled amounts', () => {
+    const values = valueTipsShares(100, [
+      row({ name: 'A', hours: 3, shareWeight: 1 }),
+      row({ name: 'B', hours: 1, shareWeight: 1 }),
+    ])
+    expect(values[0].hoursShare).toBeCloseTo(0.75)
+    // Payout follows shareWeight (1 each), not hours — 50/50.
+    expect(values[0].amount).toBe(50)
+    expect(values[1].amount).toBe(50)
+    expect(values[0].suggestedAmount).toBe(75)
+    expect(round2(values.reduce((sum, v) => sum + v.amount, 0))).toBe(100)
+  })
+
+  it('tipsProgress counts stages and reports percentages', () => {
+    expect(tipsProgress([])).toMatchObject({ total: 0, percent: 0, stage: 'PLANNED', complete: false })
+    const progress = tipsProgress([
+      { status: 'PLANNED' },
+      { status: 'APPROVED' },
+      { status: 'ISSUED' },
+      { status: 'FULLY_ISSUED' },
+    ])
+    expect(progress).toMatchObject({
+      total: 4,
+      planned: 1,
+      approved: 1,
+      issued: 1,
+      fullyIssued: 1,
+      issuedCount: 2,
+      percent: 50,
+      approvedPercent: 75,
+      stage: 'ISSUED',
+      complete: false,
+    })
+    expect(tipsProgress([{ status: 'FULLY_ISSUED' }, { status: 'FULLY_ISSUED' }])).toMatchObject({
+      stage: 'FULLY_ISSUED',
+      complete: true,
+      percent: 100,
+    })
+  })
+
+  it('only allows PLANNED -> APPROVED -> ISSUED -> FULLY_ISSUED', () => {
+    expect(canTransitionTipsShare('PLANNED', 'APPROVED')).toBe(true)
+    expect(canTransitionTipsShare('PLANNED', 'ISSUED')).toBe(false)
+    expect(canTransitionTipsShare('APPROVED', 'ISSUED')).toBe(true)
+    expect(canTransitionTipsShare('ISSUED', 'FULLY_ISSUED')).toBe(true)
+    expect(canTransitionTipsShare('FULLY_ISSUED', 'ISSUED')).toBe(false)
+  })
+
+  it('editable only before issuance', () => {
+    expect(isTipsShareEditable('PLANNED')).toBe(true)
+    expect(isTipsShareEditable('APPROVED')).toBe(true)
+    expect(isTipsShareEditable('ISSUED')).toBe(false)
+    expect(isTipsShareEditable('FULLY_ISSUED')).toBe(false)
+    expect(isTipsPeriodLocked([{ status: 'PLANNED' }, { status: 'ISSUED' }])).toBe(true)
+    expect(isTipsPeriodLocked([{ status: 'PLANNED' }])).toBe(false)
+  })
+
+  it('cleanTipsShareRows uppercases names, coerces numbers and dedupes staff', () => {
+    expect(
+      cleanTipsShareRows([
+        { id: 'r1', staffId: 's1', name: 'ignored', hours: '4', shareWeight: '1.5', sortOrder: 0 },
+        { staffId: 's1', name: 'duplicate', hours: 1, shareWeight: 1 },
+        { staffId: null, name: ' manual ', hours: -2, shareWeight: -1 },
+        { staffId: null, name: '   ', hours: 3, shareWeight: 1 },
+      ]),
+    ).toEqual([
+      { id: 'r1', staffId: 's1', name: 'IGNORED', hours: 4, shareWeight: 1.5, sortOrder: 0 },
+      { id: undefined, staffId: null, name: 'MANUAL', hours: 0, shareWeight: 1, sortOrder: 2 },
+    ])
+    expect(cleanTipsShareRows('nope')).toEqual([])
+  })
+
+  it('matches a legacy name only when it is unambiguous', () => {
+    const staff = [
+      { id: 's1', firstName: 'LIAM', lastName: 'SMITH' },
+      { id: 's2', firstName: 'LIAM', lastName: 'JONES' },
+    ]
+    expect(matchLegacyTipStaff('Liam Smith', staff)).toBe('s1')
+    expect(matchLegacyTipStaff('LIAM', staff)).toBeNull()
+    expect(matchLegacyTipStaff('NOBODY', staff)).toBeNull()
   })
 })

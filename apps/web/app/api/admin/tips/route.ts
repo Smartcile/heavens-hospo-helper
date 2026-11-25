@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma, Prisma } from '@hospo-ops/db'
-import { getManagerVenueId } from '@/lib/venue-scope'
+import { getAccessibleVenueIds, getManagerVenueId, resolveScopedVenueId } from '@/lib/venue-scope'
 import { guardAccess } from '@/lib/permissions'
-import { cleanCashCounts, cleanShares } from '@/lib/tips'
+import { cleanCashCounts } from '@/lib/tips'
+import { buildTipsPeriodPayload } from '@/lib/tips.server'
 
 /** "YYYY-MM-DD" (or a full ISO string) → a UTC-midnight Date for a @db.Date column. */
 function parseDate(value: unknown): Date | null {
@@ -13,20 +14,37 @@ function parseDate(value: unknown): Date | null {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
+const SHARES_INCLUDE = {
+  shares: {
+    where: { deletedAt: null },
+    orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
+  },
+}
+
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const denied = await guardAccess(session, req, 'performance.tips.view')
   if (denied) return denied
 
-  const venueId = getManagerVenueId(session, req) ?? new URL(req.url).searchParams.get('venueId')
+  const requested = new URL(req.url).searchParams.get('venueId')
+  let venueId: string | null = null
+  if (session.user.role === 'MANAGER') {
+    venueId = getManagerVenueId(session, req) ?? session.user.venueId
+  } else if (requested) {
+    if (!getAccessibleVenueIds(session).includes(requested)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    venueId = requested
+  }
 
   const periods = await prisma.tipsPeriod.findMany({
     where: { deletedAt: null, ...(venueId ? { venueId } : {}) },
     orderBy: [{ fromDate: 'desc' }, { createdAt: 'desc' }],
+    include: SHARES_INCLUDE,
   })
 
-  return NextResponse.json(periods)
+  return NextResponse.json(periods.map(buildTipsPeriodPayload))
 }
 
 export async function POST(req: NextRequest) {
@@ -42,11 +60,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'fromDate and toDate are required' }, { status: 400 })
   }
 
-  const venueId = getManagerVenueId(session, req) ?? body.venueId ?? session.user.venueId
-  if (!venueId) return NextResponse.json({ error: 'venueId is required' }, { status: 400 })
+  const scoped = resolveScopedVenueId(session, req, body.venueId)
+  if ('error' in scoped) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const venueId = scoped.venueId
 
-  const cashCounts = cleanCashCounts(body.cashCounts)
-  const shares = cleanShares(body.shares)
+  // Every active staff member starts on the period with zero hours and a full
+  // weight. Manual (non-system) people are added on the edit screen.
+  const staff = await prisma.staff.findMany({
+    where: { venueId, deletedAt: null, isActive: true },
+    orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+    select: { id: true, firstName: true, lastName: true },
+  })
 
   const period = await prisma.tipsPeriod.create({
     data: {
@@ -54,12 +78,21 @@ export async function POST(req: NextRequest) {
       label: typeof body.label === 'string' && body.label.trim() ? body.label.trim().toUpperCase() : null,
       fromDate,
       toDate,
-      cashCounts: cashCounts as unknown as Prisma.InputJsonValue,
+      cashCounts: cleanCashCounts(body.cashCounts) as unknown as Prisma.InputJsonValue,
       posTotal: Number(body.posTotal) || 0,
-      shares: shares as unknown as Prisma.InputJsonValue,
       notes: typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim() : null,
+      shares: {
+        create: staff.map((s, index) => ({
+          staffId: s.id,
+          name: `${s.firstName} ${s.lastName}`.trim().toUpperCase(),
+          hours: 0,
+          shareWeight: 1,
+          sortOrder: index,
+        })),
+      },
     },
+    include: SHARES_INCLUDE,
   })
 
-  return NextResponse.json(period, { status: 201 })
+  return NextResponse.json(buildTipsPeriodPayload(period), { status: 201 })
 }

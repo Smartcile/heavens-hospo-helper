@@ -16,6 +16,7 @@ export const DASHBOARD_WIDGETS: WidgetDef[] = [
   { id: 'ORDERS', label: "TODAY'S ORDERS", span: 'half' },
   { id: 'EVENTS', label: 'UPCOMING EVENTS', span: 'half' },
   { id: 'TRAINING', label: 'TRAINING STATUS', span: 'half' },
+  { id: 'TIPS', label: 'TIPS — STATUS', span: 'half' },
   { id: 'STOCK', label: 'PAR / STOCK ALERTS', span: 'half' },
   { id: 'FOOD_SAFETY', label: 'FOOD SAFETY ALERTS', span: 'half' },
   { id: 'LIVE_FLOOR', label: 'LIVE FLOOR', span: 'half' },

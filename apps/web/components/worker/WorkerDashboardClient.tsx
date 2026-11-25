@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLiveRefresh } from '@/lib/use-live-refresh'
 
-type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'shifts' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events' | 'deliveries' | 'kitchen' | 'giftcards' | 'parking' | 'training-status' | 'help'
+type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'shifts' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events' | 'deliveries' | 'kitchen' | 'giftcards' | 'parking' | 'training-status' | 'tips' | 'help'
 
 interface DashData {
   firstName: string
@@ -31,6 +31,11 @@ interface DashData {
   parkingGuestEnabled: boolean
   /** Non-null when the last parking health check failed or is stale. */
   parkingWarning: string | null
+  /** Status-only tips summary for an ADMIN/MANAGER in worker view. No money. */
+  tipsTotal: number
+  tipsIssued: number
+  tipsPercent: number
+  tipsLabel: string | null
 }
 
 export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
@@ -104,7 +109,8 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
   }
 
   async function load() {
-    const [tasksR, noticesR, calR, guidesR, pathwayR, stocktakeR, clockR, eventsR, giftCardsR, parkingR] = await Promise.all([
+    const tipsAllowed = role === 'ADMIN' || role === 'MANAGER'
+    const [tasksR, noticesR, calR, guidesR, pathwayR, stocktakeR, clockR, eventsR, giftCardsR, parkingR, tipsR] = await Promise.all([
       fetch('/api/worker/tasks'),
       fetch('/api/worker/notices'),
       fetch('/api/worker/calendar'),
@@ -116,6 +122,11 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
       // A failed capability check must not hang the dashboard.
       fetch('/api/worker/giftcards/access').catch(() => ({ ok: false } as Response)),
       fetch('/api/worker/parking/access').catch(() => ({ ok: false } as Response)),
+      // Tips are never requested for floor staff. The payload is status-only
+      // here; no monetary value ever reaches this screen.
+      tipsAllowed
+        ? fetch('/api/worker/tips?status=1').catch(() => ({ ok: false } as Response))
+        : Promise.resolve(null),
     ])
 
     if (tasksR.status === 401) { router.push('/w/login'); return }
@@ -134,6 +145,8 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
     const parkingAccess = parkingR.ok
       ? await parkingR.json().catch(() => ({ enabled: false, staffParkingEnabled: false, health: null }))
       : { enabled: false, staffParkingEnabled: false, health: null }
+    const tipsData = tipsR && tipsR.ok ? await tipsR.json().catch(() => ({ periods: [] })) : { periods: [] }
+    const latestTips = Array.isArray(tipsData?.periods) ? tipsData.periods[0] : null
 
     const pending = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => !t.isCompleted).length
     const done = (tasks.tasks ?? []).filter((t: { isCompleted: boolean }) => t.isCompleted).length
@@ -165,6 +178,10 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
         parkingAccess.enabled && parkingAccess.health && !parkingAccess.health.ok
           ? parkingAccess.health.message || 'LAST CHECK FAILED'
           : null,
+      tipsTotal: latestTips?.progress?.total ?? 0,
+      tipsIssued: latestTips?.progress?.issuedCount ?? 0,
+      tipsPercent: latestTips?.progress?.percent ?? 0,
+      tipsLabel: latestTips?.label ?? null,
     })
     setLoading(false)
   }
@@ -396,6 +413,20 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           'text-grey-light',
           'border-grey-mid',
           () => openView('training-status')
+        )}
+
+        {(role === 'ADMIN' || role === 'MANAGER') && card(
+          'TIPS',
+          data && data.tipsTotal > 0
+            ? `${data.tipsIssued}/${data.tipsTotal} ISSUED · ${data.tipsPercent}%`
+            : 'NO TIP PERIOD',
+          <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="square" strokeWidth={1.5} d="M12 8c-2.21 0-4 1.343-4 3s1.79 3 4 3 4 1.343 4 3-1.79 3-4 3m0-15c1.657 0 3 .895 3 2m-3-2V3m0 18v-2m0-13v13" />
+          </svg>,
+          data && data.tipsTotal > 0 ? `${data.tipsPercent}%` : null,
+          'text-grey-light',
+          'border-grey-mid',
+          () => openView('tips')
         )}
 
         {card(

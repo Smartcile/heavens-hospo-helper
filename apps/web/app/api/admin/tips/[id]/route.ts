@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { prisma, Prisma } from '@hospo-ops/db'
+import { prisma, Prisma, TipsShareStatus } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { getManagerVenueId } from '@/lib/venue-scope'
-import { cleanCashCounts, cleanShares } from '@/lib/tips'
+import { cleanCashCounts, cleanTipsShareRows, isTipsPeriodLocked } from '@/lib/tips'
+import { buildTipsPeriodPayload } from '@/lib/tips.server'
 
 interface Params {
   params: { id: string }
+}
+
+const SHARES_INCLUDE = {
+  shares: { orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }] },
 }
 
 /** "YYYY-MM-DD" (or ISO) → a UTC-midnight Date, or null when unparseable. */
@@ -17,7 +22,7 @@ function parseDate(value: unknown): Date | null {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-/** The period must exist, be live, and be in the caller's venue. */
+/** The period must exist and be in the caller's venue (MANAGER is locked). */
 async function loadScoped(id: string, role: string, managerVenueId: string | null) {
   const period = await prisma.tipsPeriod.findUnique({
     where: { id },
@@ -36,10 +41,13 @@ export async function GET(req: NextRequest, { params }: Params) {
   const denied = await guardAccess(session, req, 'performance.tips.view')
   if (denied) return denied
 
-  const period = await prisma.tipsPeriod.findUnique({ where: { id: params.id } })
+  const scoped = await loadScoped(params.id, session.user.role, getManagerVenueId(session, req))
+  if ('error' in scoped) return NextResponse.json({ error: scoped.error }, { status: scoped.status })
+
+  const period = await prisma.tipsPeriod.findUnique({ where: { id: params.id }, include: SHARES_INCLUDE })
   if (!period || period.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  return NextResponse.json(period)
+  return NextResponse.json(buildTipsPeriodPayload(period))
 }
 
 export async function PUT(req: NextRequest, { params }: Params) {
@@ -50,6 +58,17 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   const scoped = await loadScoped(params.id, session.user.role, getManagerVenueId(session, req))
   if ('error' in scoped) return NextResponse.json({ error: scoped.error }, { status: scoped.status })
+
+  const existing = await prisma.tipsPeriod.findUnique({ where: { id: params.id }, include: SHARES_INCLUDE })
+  if (!existing || existing.deletedAt) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const liveShares = existing.shares.filter((s) => !s.deletedAt)
+  if (isTipsPeriodLocked(liveShares)) {
+    return NextResponse.json(
+      { error: 'PERIOD IS LOCKED — SHARES HAVE ALREADY BEEN ISSUED' },
+      { status: 409 },
+    )
+  }
 
   const body = await req.json()
   const data: Record<string, unknown> = {}
@@ -71,15 +90,106 @@ export async function PUT(req: NextRequest, { params }: Params) {
     data.cashCounts = cleanCashCounts(body.cashCounts) as unknown as Prisma.InputJsonValue
   }
   if (body.posTotal !== undefined) data.posTotal = Number(body.posTotal) || 0
-  if (body.shares !== undefined) {
-    data.shares = cleanShares(body.shares) as unknown as Prisma.InputJsonValue
-  }
   if (body.notes !== undefined) {
     data.notes = typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim() : null
   }
 
-  const period = await prisma.tipsPeriod.update({ where: { id: params.id }, data })
-  return NextResponse.json(period)
+  const drafts = body.shares !== undefined ? cleanTipsShareRows(body.shares) : null
+
+  let staffNames = new Map<string, string>()
+  if (drafts) {
+    const staffIds = [...new Set(drafts.map((d) => d.staffId).filter((id): id is string => !!id))]
+    if (staffIds.length > 0) {
+      const staff = await prisma.staff.findMany({
+        where: { id: { in: staffIds }, venueId: existing.venueId, deletedAt: null },
+        select: { id: true, firstName: true, lastName: true },
+      })
+      if (staff.length !== staffIds.length) {
+        return NextResponse.json({ error: 'A staff member is not in this venue' }, { status: 400 })
+      }
+      staffNames = new Map(
+        staff.map((s) => [s.id, `${s.firstName} ${s.lastName}`.trim().toUpperCase()]),
+      )
+    }
+  }
+
+  if (Object.keys(data).length > 0) {
+    await prisma.tipsPeriod.update({ where: { id: params.id }, data })
+  }
+
+  if (drafts) {
+    const allShares = await prisma.tipsShare.findMany({ where: { tipsPeriodId: params.id } })
+    const byId = new Map(allShares.map((s) => [s.id, s]))
+    const byStaff = new Map(allShares.filter((s) => s.staffId).map((s) => [s.staffId as string, s]))
+
+    await prisma.$transaction(async (tx) => {
+      const kept = new Set<string>()
+
+      for (const draft of drafts) {
+        const byIdRow = draft.id ? byId.get(draft.id) : undefined
+        if (byIdRow) {
+          await tx.tipsShare.update({
+            where: { id: byIdRow.id },
+            data: {
+              deletedAt: null,
+              name: byIdRow.staffId ? byIdRow.name : draft.name,
+              hours: draft.hours,
+              shareWeight: draft.shareWeight,
+              sortOrder: draft.sortOrder,
+            },
+          })
+          kept.add(byIdRow.id)
+          continue
+        }
+
+        if (draft.staffId) {
+          const byStaffRow = byStaff.get(draft.staffId)
+          if (byStaffRow) {
+            await tx.tipsShare.update({
+              where: { id: byStaffRow.id },
+              data: {
+                deletedAt: null,
+                name: staffNames.get(draft.staffId) ?? byStaffRow.name,
+                hours: draft.hours,
+                shareWeight: draft.shareWeight,
+                sortOrder: draft.sortOrder,
+                status: TipsShareStatus.PLANNED,
+                approvedAt: null,
+                approvedById: null,
+                approvalNote: null,
+                issuedAt: null,
+                issuedById: null,
+                issueNote: null,
+              },
+            })
+            kept.add(byStaffRow.id)
+            continue
+          }
+        }
+
+        const created = await tx.tipsShare.create({
+          data: {
+            tipsPeriodId: params.id,
+            staffId: draft.staffId,
+            name: draft.staffId ? staffNames.get(draft.staffId) ?? draft.name : draft.name,
+            hours: draft.hours,
+            shareWeight: draft.shareWeight,
+            sortOrder: draft.sortOrder,
+          },
+        })
+        kept.add(created.id)
+      }
+
+      for (const share of liveShares) {
+        if (kept.has(share.id)) continue
+        await tx.tipsShare.update({ where: { id: share.id }, data: { deletedAt: new Date() } })
+      }
+    })
+  }
+
+  const saved = await prisma.tipsPeriod.findUnique({ where: { id: params.id }, include: SHARES_INCLUDE })
+  if (!saved) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  return NextResponse.json(buildTipsPeriodPayload(saved))
 }
 
 export async function DELETE(req: NextRequest, { params }: Params) {
