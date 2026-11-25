@@ -107,6 +107,28 @@ describe('TipsClient', () => {
     })
   })
 
+  it('keeps unsaved form edits when one person is approved', async () => {
+    vi.spyOn(window, 'prompt').mockReturnValue('CHECKED')
+    render(<TipsClient venueId="v1" />)
+    await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())
+
+    const hours = screen.getByLabelText('Staff 1 hours') as HTMLInputElement
+    fireEvent.change(hours, { target: { value: '999' } })
+    fireEvent.change(screen.getByLabelText('EFTPOS / POS holding (from finance)'), {
+      target: { value: '1234' },
+    })
+
+    fireEvent.click(screen.getByText('APPROVE'))
+
+    await waitFor(() => {
+      expect(methodCalls('PATCH').length).toBe(1)
+      expect((screen.getByLabelText('Staff 1 hours') as HTMLInputElement).value).toBe('999')
+      expect(
+        (screen.getByLabelText('EFTPOS / POS holding (from finance)') as HTMLInputElement).value,
+      ).toBe('1234')
+    })
+  })
+
   it('saves shares by id without sending dollar amounts', async () => {
     render(<TipsClient venueId="v1" />)
     await waitFor(() => expect(screen.getByText('FEBRUARY 2026')).toBeTruthy())

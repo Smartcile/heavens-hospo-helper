@@ -73,10 +73,22 @@ export function buildTipsPeriodPayload(period: StoredTipsPeriod): TipsPeriodPayl
   const live = period.shares
     .filter((s) => !s.deletedAt)
     .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+
+  // Read-time self-heal: if every live share is already ISSUED but the period
+  // was never stamped (e.g. a crash after the last issue), present it as
+  // FULLY_ISSUED. This is display-only - the period is already locked, so no
+  // write is needed and a stubborn DB can never leave the board stuck.
+  const allIssued =
+    live.length > 0 && live.every((s) => (s.status as string) === 'ISSUED')
+  const effective = allIssued
+    ? live.map((s) => ({ ...s, status: 'FULLY_ISSUED' as TipsShareStatus }))
+    : live
+
   const poolTotal = poolTotalOf(period)
-  const shares = valueTipsShares(poolTotal, live.map(rowFromStored))
+  const shares = valueTipsShares(poolTotal, effective.map(rowFromStored))
   return {
     ...period,
+    fullyIssuedAt: period.fullyIssuedAt ?? (allIssued ? period.updatedAt : null),
     shares,
     poolTotal,
     progress: tipsProgress(shares),

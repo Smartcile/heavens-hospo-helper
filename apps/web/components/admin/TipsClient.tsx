@@ -198,11 +198,6 @@ export function TipsClient({ venueId }: { venueId: string }) {
     )
   }
 
-  async function refreshSelected(id: string) {
-    const list = await loadList(false)
-    applyPeriod(list.find((p) => p.id === id) ?? null)
-  }
-
   async function approve(index: number) {
     const share = shares[index]
     if (!selectedId || !share.id) {
@@ -229,7 +224,22 @@ export function TipsClient({ venueId }: { venueId: string }) {
       ),
     )
     setError('')
-    await refreshSelected(selectedId)
+    // Keep the rest of the form exactly as typed: approval only changes this
+    // row. Re-hydrating from the server here would silently discard unsaved
+    // hours / cash / POS / notes edits in the same session.
+    setPeriods((prev) =>
+      prev.map((p) => {
+        if (p.id !== selectedId) return p
+        return {
+          ...p,
+          shares: p.shares.map((row) =>
+            row.id === share.id
+              ? { ...row, status: 'APPROVED' as const, approvalNote: note.trim() || null }
+              : row,
+          ),
+        }
+      }),
+    )
   }
 
   async function save() {
@@ -397,6 +407,7 @@ export function TipsClient({ venueId }: { venueId: string }) {
                 onChange={(e) => setPosTotal(e.target.value)}
                 placeholder="0.00"
                 disabled={locked}
+                aria-label="EFTPOS / POS holding (from finance)"
               />
               <div className="flex items-center justify-between border-t border-grey-mid pt-3">
                 <span className="font-mono text-xs uppercase text-grey-light">Total accrued tips</span>

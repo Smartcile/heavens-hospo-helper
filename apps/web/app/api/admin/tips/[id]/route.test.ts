@@ -109,6 +109,67 @@ describe('PUT /api/admin/tips/[id]', () => {
     )
   })
 
+  it('revives a soft-deleted share by staffId instead of creating a new row', async () => {
+    prisma.tipsPeriod.findUnique.mockImplementation(async (args: { include?: unknown }) =>
+      args.include ? period([]) : { id: 'p1', venueId: 'v1', deletedAt: null },
+    )
+    prisma.tipsShare.findMany.mockResolvedValue([
+      share({ deletedAt: new Date(), status: 'APPROVED', approvalNote: 'OLD', issuedAt: new Date() }),
+    ])
+
+    const res = await PUT(
+      req({ shares: [{ staffId: 's1', name: 'ALEX CHEN', hours: 5, shareWeight: 1, sortOrder: 0 }] }),
+      { params: { id: 'p1' } },
+    )
+
+    expect(res.status).toBe(200)
+    expect(tx.tipsShare.create).not.toHaveBeenCalled()
+    expect(tx.tipsShare.update).toHaveBeenCalledWith({
+      where: { id: 'r1' },
+      data: expect.objectContaining({
+        deletedAt: null,
+        status: 'PLANNED',
+        approvalNote: null,
+        approvedAt: null,
+        issuedAt: null,
+        issuedById: null,
+        issueNote: null,
+        hours: 5,
+      }),
+    })
+    expect(tx.tipsShare.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'r1' }, data: expect.objectContaining({ name: 'ALEX CHEN' }) }),
+    )
+  })
+
+  it('creates two separate manual rows when both have a null staffId', async () => {
+    prisma.tipsPeriod.findUnique.mockImplementation(async (args: { include?: unknown }) =>
+      args.include ? period([]) : { id: 'p1', venueId: 'v1', deletedAt: null },
+    )
+    prisma.tipsShare.findMany.mockResolvedValue([])
+
+    const res = await PUT(
+      req({
+        shares: [
+          { staffId: null, name: 'WALK IN', hours: 1, shareWeight: 1, sortOrder: 0 },
+          { staffId: null, name: 'AGENCY', hours: 2, shareWeight: 1, sortOrder: 1 },
+        ],
+      }),
+      { params: { id: 'p1' } },
+    )
+
+    expect(res.status).toBe(200)
+    expect(tx.tipsShare.create).toHaveBeenCalledTimes(2)
+    expect(tx.tipsShare.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ data: expect.objectContaining({ staffId: null, name: 'WALK IN' }) }),
+    )
+    expect(tx.tipsShare.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ data: expect.objectContaining({ staffId: null, name: 'AGENCY' }) }),
+    )
+  })
+
   it('rejects a staff member outside the period venue', async () => {
     prisma.staff.findMany.mockResolvedValue([])
     const res = await PUT(

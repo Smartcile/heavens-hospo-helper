@@ -6,6 +6,7 @@ import { guardAccess } from '@/lib/permissions'
 import { getManagerVenueId } from '@/lib/venue-scope'
 import { buildTipsPeriodPayload } from '@/lib/tips.server'
 import { generateTipsPdf, tipsPdfToBuffer } from '@/lib/tips-pdf'
+import { sanitisePdfFilename } from '@/lib/pdf-actions'
 
 interface Params {
   params: { id: string }
@@ -58,10 +59,11 @@ export async function GET(req: NextRequest, { params }: Params) {
   })
 
   const inline = req.nextUrl.searchParams.get('inline') === '1'
+  const filename = sanitisePdfFilename(`Tips - ${label}.pdf`)
   return new NextResponse(tipsPdfToBuffer(doc), {
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="Tips - ${label}.pdf"`,
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${filename}"`,
     },
   })
 }

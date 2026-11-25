@@ -172,6 +172,12 @@ describe('relational tip shares', () => {
     expect(distributeCashRounded(100, [{ shareWeight: 0 }, { shareWeight: 0 }])).toEqual([0, 0])
   })
 
+  it('distributeCashRounded handles a zero total and a single person', () => {
+    expect(distributeCashRounded(0, [{ shareWeight: 1 }, { shareWeight: 1 }])).toEqual([0, 0])
+    expect(distributeCashRounded(12.34, [{ shareWeight: 1 }])).toEqual([12.3])
+    expect(distributeCashRounded(0.06, [{ shareWeight: 1 }])).toEqual([0.1])
+  })
+
   it('valueTipsShares attaches hours share, suggestions and reconciled amounts', () => {
     const values = valueTipsShares(100, [
       row({ name: 'A', hours: 3, shareWeight: 1 }),

@@ -122,4 +122,41 @@ describe('buildTipsPeriodPayload', () => {
     expect(payload.shares[0].amount).toBe(50)
     expect(payload.progress).toMatchObject({ total: 2, approved: 1, planned: 1 })
   })
+
+  it('self-heals an all-issued period that was never stamped FULLY_ISSUED', () => {
+    const base = {
+      id: 'p1',
+      venueId: 'v1',
+      label: 'FEB',
+      fromDate: new Date('2026-02-01T00:00:00.000Z'),
+      toDate: new Date('2026-02-28T00:00:00.000Z'),
+      cashCounts: {},
+      posTotal: 100,
+      notes: null,
+      fullyIssuedAt: null,
+      createdAt: new Date('2026-02-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+      deletedAt: null,
+    }
+    const issued = {
+      id: 'r1',
+      staffId: 's1',
+      name: 'A',
+      hours: 1,
+      shareWeight: 1,
+      sortOrder: 0,
+      status: 'ISSUED' as const,
+      approvalNote: null,
+      issueNote: null,
+      approvedAt: null,
+      issuedAt: new Date(),
+      deletedAt: null,
+    }
+
+    const payload = buildTipsPeriodPayload({ ...base, shares: [issued, { ...issued, id: 'r2' }] })
+
+    expect(payload.fullyIssuedAt).toBe(base.updatedAt)
+    expect(payload.shares.map((s) => s.status)).toEqual(['FULLY_ISSUED', 'FULLY_ISSUED'])
+    expect(payload.progress).toMatchObject({ stage: 'FULLY_ISSUED', complete: true, percent: 100 })
+  })
 })
