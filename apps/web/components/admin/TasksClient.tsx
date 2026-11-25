@@ -22,6 +22,7 @@ import { TASK_OUTCOMES, type TaskOutcome } from '@/lib/task-outcomes'
 import { availableParentTasks, orderTasksWithChildren } from '@/lib/task-subtasks'
 import { normaliseGroupLabel } from '@/lib/task-groups'
 import { isCustomTask } from '@/lib/custom-tasks'
+import { TaskThread } from '@/components/tasks/TaskThread'
 import { groupTasksBySection, taskSectionPrefix, taskSectionTitle } from '@/lib/task-section-label'
 import { buildSubtaskSeed } from '@/lib/task-subtask-seed'
 import { getActiveVenueId } from '@/lib/active-venue'
@@ -68,6 +69,9 @@ interface Task {
   isOneOff?: boolean
   dueDate?: string | null
   rolloverEnabled?: boolean
+  isThread?: boolean
+  threadClosedAt?: string | null
+  threadClosedById?: string | null
   subtaskOrder?: number
   subtasks?: { id: string; title: string; isActive: boolean; subtaskOrder: number }[]
   allowedOutcomes?: string[]
@@ -136,6 +140,7 @@ interface FormState {
   checklistIds: string[]
   assignedToStaffId: string
   linkedItemId: string
+  isThread: boolean
 }
 
 const EMPTY_FORM: FormState = {
@@ -143,7 +148,7 @@ const EMPTY_FORM: FormState = {
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
   intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, requiredTrainingIds: [], competencyGuideIds: [],
   allowedOutcomes: [...TASK_OUTCOMES], overrideOutcomes: false, requireOutcomeReason: false,
-  parentTaskId: '', checklistIds: [], assignedToStaffId: '', linkedItemId: '',
+  parentTaskId: '', checklistIds: [], assignedToStaffId: '', linkedItemId: '', isThread: false,
 }
 
 const COMPLETION_OPTIONS = [
@@ -227,7 +232,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
   const [customOpen, setCustomOpen] = useState(false)
   const [customForm, setCustomForm] = useState({
     title: '', description: '', venueId: '', departmentId: '', sectionId: '',
-    assignedToStaffId: '', dueDate: '', rolloverEnabled: false,
+    assignedToStaffId: '', dueDate: '', rolloverEnabled: false, isThread: false,
   })
   const [customSaving, setCustomSaving] = useState(false)
   const [customError, setCustomError] = useState('')
@@ -324,7 +329,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     setCustomForm({
       title: '', description: '', venueId,
       departmentId: filterDept || '', sectionId: '',
-      assignedToStaffId: '', dueDate: '', rolloverEnabled: false,
+      assignedToStaffId: '', dueDate: '', rolloverEnabled: false, isThread: false,
     })
     void loadAssignees(venueId)
     setCustomError('')
@@ -351,6 +356,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
           isOneOff: true,
           dueDate: customForm.dueDate || null,
           rolloverEnabled: customForm.rolloverEnabled,
+          isThread: customForm.isThread,
           scheduleType: 'DAILY',
           completionType: 'TICK',
         }),
@@ -385,6 +391,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
       checklistIds: t.checklistIds ?? [],
       assignedToStaffId: t.assignedToStaffId ?? '',
       linkedItemId: t.linkedItemId ?? '',
+      isThread: !!t.isThread,
     })
     void loadAssignees(t.venueId)
     void loadItems(t.venueId)
@@ -467,6 +474,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
         linkedItemId: form.linkedItemId || null,
         requiredTrainingIds: form.requiredTrainingIds,
         competencyGuideIds: form.competencyGuideIds,
+        isThread: form.isThread,
         customCron: form.scheduleType === 'CUSTOM' ? form.customCron : null,
         scheduleDays: form.scheduleType === 'DAILY' ? [] : form.scheduleDays,
         ...(editing ? { requireRetrain, changeSummary } : {}),
@@ -691,6 +699,7 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
     const out: { text: string; cls: string }[] = []
     const n = t._count?.checklistLinks ?? 0
     if (n > 0) out.push({ text: n > 1 ? `${n} LISTS` : 'LIST', cls: 'text-success' })
+    if (t.isThread) out.push({ text: 'THREAD', cls: 'text-info' })
     if (t.isOneOff) out.push({ text: 'ONE-OFF', cls: 'text-warning' })
     else if (t.assignedToStaffId) out.push({ text: 'ASSIGNED', cls: 'text-accent' })
     const kinds = new Set<string>()
@@ -1331,6 +1340,25 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
             onOverrideChange={(overrideOutcomes) => setForm({ ...form, overrideOutcomes })}
           />
 
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.isThread}
+              onChange={(e) => setForm({ ...form, isThread: e.target.checked })}
+              className="w-4 h-4 accent-white"
+            />
+            <span className="font-mono text-xs uppercase text-white">Thread — comments + sign-off</span>
+          </label>
+
+          {editing && form.isThread && (
+            <TaskThread
+              taskId={editing.id}
+              basePath="/api/admin/tasks"
+              uploadEndpoint="/api/admin/upload"
+              initialClosed={!!editing.threadClosedAt}
+            />
+          )}
+
           {form.scheduleType === 'MONTHLY' && (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
@@ -1447,6 +1475,15 @@ export function TasksClient({ role, sessionVenueId, defaultVenueId }: { role: st
                 className="w-4 h-4 accent-white"
               />
               Roll over if not done
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer font-mono text-xs uppercase text-white">
+              <input
+                type="checkbox"
+                checked={customForm.isThread}
+                onChange={(e) => setCustomForm({ ...customForm, isThread: e.target.checked })}
+                className="w-4 h-4 accent-white"
+              />
+              Thread (comments + sign-off)
             </label>
           </div>
           <p className="font-mono text-xs text-grey-light">

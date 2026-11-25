@@ -198,6 +198,10 @@ export interface WorkerTaskView {
   rolledOverFrom: string | null
   /** #145 — belongs in the combined CUSTOM TASKS bucket. */
   custom?: boolean
+  /** #145 Wave B — task thread (comments + sign-off). */
+  isThread?: boolean
+  threadClosedAt?: string | Date | null
+  threadClosedById?: string | null
   // Food Health & Safety READING tasks — capture fields for the worker modal
   readingUnit: string | null
   readingMin: number | null

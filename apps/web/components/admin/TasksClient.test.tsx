@@ -82,6 +82,8 @@ function mockApi(tasks: unknown[] = [TASK_ONE, TASK_TWO], gate?: Promise<void>) 
     if (gate) await gate
     const u = String(url)
     if (u.includes('/progress')) return json({ success: true })
+    if (u.includes('/comments')) return json({ comments: [], canAdd: true, canDeleteAny: true, canSignOff: true, threadClosedAt: null })
+    if (u.includes('/sign-off')) return json({ closed: true })
     if (u.startsWith('/api/admin/tasks/assignees')) return json([{ id: 's1', name: 'SAM LEE' }])
     if (u.startsWith('/api/admin/tasks/item-options')) {
       return json([
@@ -698,7 +700,9 @@ describe('TasksClient', () => {
 
     const dueInput = container.querySelector('input[type="date"]') as HTMLInputElement
     fireEvent.change(dueInput, { target: { value: '2026-11-25' } })
-    fireEvent.click(screen.getByRole('checkbox'))
+    const checkboxes = screen.getAllByRole('checkbox')
+    fireEvent.click(checkboxes[0]) // roll over
+    fireEvent.click(checkboxes[1]) // thread
     fireEvent.click(screen.getByText('SAVE'))
 
     await waitFor(() => {
@@ -715,7 +719,23 @@ describe('TasksClient', () => {
         isOneOff: true,
         dueDate: '2026-11-25',
         rolloverEnabled: true,
+        isThread: true,
       })
     })
+  })
+
+  it('shows the thread panel for a thread task and fetches its comments (#145 Wave B)', async () => {
+    const fetchMock = mockApi([
+      { ...TASK_ONE, id: 'th1', title: 'RESEARCH HIGH CHAIRS', isThread: true, _count: { checklistLinks: 0 } },
+    ])
+    render(<TasksClient role="ADMIN" sessionVenueId="v1" defaultVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByTestId('available-task-th1')).toBeDefined())
+    fireEvent.click(within(screen.getByTestId('available-task-th1')).getByText('EDIT'))
+
+    await waitFor(() => expect(screen.getByText('TASK THREAD')).toBeDefined())
+    expect(
+      fetchMock.mock.calls.some(([u]) => String(u) === '/api/admin/tasks/th1/comments'),
+    ).toBe(true)
   })
 })

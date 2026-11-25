@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   const body = await req.json()
   const {
     title, description, dueDate, rolloverEnabled, completionType,
-    assignedToStaffId, departmentId, sectionId,
+    assignedToStaffId, departmentId, sectionId, isThread,
   } = body
 
   if (!title?.trim()) return NextResponse.json({ error: 'TITLE IS REQUIRED' }, { status: 400 })
@@ -60,6 +60,7 @@ export async function POST(req: Request) {
       scheduleType: 'DAILY',
       scheduleDays: [],
       isOneOff: true,
+      isThread: !!isThread,
       dueDate: due.value,
       rolloverEnabled: !!rolloverEnabled,
       isActive: true,

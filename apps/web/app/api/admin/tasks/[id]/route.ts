@@ -29,6 +29,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       completionType: true, scheduleType: true, scheduleDays: true, customCron: true,
       intervalMonths: true, monthlyOption: true, monthlyDay: true, isActive: true,
       isOneOff: true, dueDate: true, rolloverEnabled: true, rolledOverFrom: true,
+      isThread: true, threadClosedAt: true, threadClosedById: true,
       status: true, hsCategory: true, linkedItemId: true,
       linkedItem: { select: linkedItemSelect },
       readingUnit: true, readingMin: true, readingMax: true, criticalMin: true, criticalMax: true,
@@ -138,6 +139,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
     const due = parseDueDate(body.dueDate)
     if (!due.ok) return NextResponse.json({ error: 'INVALID DUE DATE' }, { status: 400 })
     updates.dueDate = due.value
+  }
+  // --- Threads (#145 Wave B) ---
+  if (body.isThread !== undefined) {
+    updates.isThread = !!body.isThread
+    // Turning a thread off also clears its sign-off stamp.
+    if (!body.isThread) {
+      updates.threadClosedAt = null
+      updates.threadClosedById = null
+    }
   }
   // --- Food Health & Safety fields ---
   if (body.status !== undefined) updates.status = body.status

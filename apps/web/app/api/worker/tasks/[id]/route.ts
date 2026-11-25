@@ -28,6 +28,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     requireRetrain, changeSummary,
     allowedOutcomes, overrideOutcomes, requireOutcomeReason,
     checklistIds, assignedToStaffId, linkedItemId,
+    isThread,
   } = body
 
   const guideIds = resolveCompetencyGuideIds({
@@ -96,6 +97,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (isActive !== undefined) update.isActive = isActive
   if (assignedToStaffId !== undefined) update.assignedToStaffId = assignedToStaffId || null
   if (linkedItemId !== undefined) update.linkedItemId = linkedItemId || null
+  if (isThread !== undefined) {
+    update.isThread = !!isThread
+    if (!isThread) {
+      update.threadClosedAt = null
+      update.threadClosedById = null
+    }
+  }
   if (monthlyOption !== undefined) update.monthlyOption = scheduleType === 'MONTHLY' ? monthlyOption : null
   if (monthlyDay !== undefined) update.monthlyDay = scheduleType === 'MONTHLY' && monthlyOption === 'SPECIFIC_DAY' ? monthlyDay : null
   if (allowedOutcomes !== undefined) update.allowedOutcomes = normaliseOutcomes(allowedOutcomes)

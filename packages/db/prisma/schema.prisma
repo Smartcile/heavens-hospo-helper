@@ -517,6 +517,7 @@ model Staff {
   department           Department?          @relation(fields: [departmentId], references: [id])
   taskCompletions      TaskCompletion[]
   taskCompletionsUndone TaskCompletion[] @relation("TaskCompletionUndoneBy")
+  taskComments         TaskComment[]
   taskProgress         TaskProgress[]
   trainingAssignments  TrainingAssignment[]
   trainingCompletions  TrainingCompletion[]
@@ -619,6 +620,10 @@ model Task {
   readingMax        Float?
   criticalMin       Float?
   criticalMax       Float?
+  // --- Threads (#145 Wave B) ---
+  isThread          Boolean        @default(false) // comments + sign-off on the task
+  threadClosedAt    DateTime?
+  threadClosedById  String? // Staff id of the person who signed off (no relation, like ShiftNote.authorId)
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
   deletedAt         DateTime?
@@ -641,8 +646,27 @@ model Task {
   followUps        FollowUp[]
   moduleTasks      ModuleTask[]
   sections         TaskSection[]
+  comments         TaskComment[]
 
   @@index([parentTaskId])
+}
+
+// A comment in a task thread (#145 Wave B). Soft-delete only; photos live as
+// uploaded URLs (same shape as GuideStep.imageUrls).
+model TaskComment {
+  id        String   @id @default(uuid())
+  taskId    String
+  staffId   String
+  body      String
+  imageUrls String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@index([taskId, createdAt])
 }
 
 model TaskCompletion {

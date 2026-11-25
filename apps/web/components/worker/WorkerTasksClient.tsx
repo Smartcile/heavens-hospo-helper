@@ -19,6 +19,7 @@ import { moveItem } from '@/lib/array'
 import { availableParentTasks, orderTasksWithChildren, subtasksOutsideList } from '@/lib/task-subtasks'
 import { groupChecklistTasks, normaliseGroupLabel } from '@/lib/task-groups'
 import { groupCustomTasks } from '@/lib/custom-tasks'
+import { TaskThread } from '@/components/tasks/TaskThread'
 import { resolveWorkerTaskAccess, type WorkerTaskAccess } from '@/lib/worker-task-access'
 import { Panel } from '@/components/ui/Panel'
 import { OutcomeOptions } from '@/components/ui/OutcomeOptions'
@@ -44,6 +45,7 @@ interface TaskForm {
   checklistIds: string[]
   assignedToStaffId: string
   linkedItemId: string
+  isThread: boolean
 }
 
 interface TaskFull {
@@ -56,6 +58,7 @@ interface TaskFull {
   parentTaskId?: string | null; parentTitle?: string | null; subtaskOrder?: number
   linkedItemId?: string | null; linkedItem?: LinkedItemView | null
   checklistIds?: string[]; assignedToStaffId?: string | null; assigneeName?: string | null
+  isThread?: boolean; threadClosedAt?: string | null; threadClosedById?: string | null
   subtasks?: { id: string; title: string; isActive: boolean; subtaskOrder: number }[]
   department: { id: string; name: string } | null
   section: { id: string; name: string } | null
@@ -105,7 +108,7 @@ const EMPTY_TASK_FORM: TaskForm = {
   completionType: 'TICK', scheduleType: 'DAILY', scheduleDays: [], customCron: '',
   intervalMonths: 1, monthlyOption: 'FIRST_DAY', monthlyDay: 1, competencyGuideIds: [],
   allowedOutcomes: [...TASK_OUTCOMES], overrideOutcomes: false, requireOutcomeReason: false,
-  parentTaskId: '', checklistIds: [], assignedToStaffId: '', linkedItemId: '',
+  parentTaskId: '', checklistIds: [], assignedToStaffId: '', linkedItemId: '', isThread: false,
 }
 
 const COMPLETION_OPTIONS = [
@@ -232,6 +235,7 @@ export function WorkerTasksClient({
   const [quickAssignee, setQuickAssignee] = useState('')
   const [quickDept, setQuickDept] = useState('')
   const [quickSection, setQuickSection] = useState('')
+  const [quickThread, setQuickThread] = useState(false)
   const [quickOptionsLoaded, setQuickOptionsLoaded] = useState(false)
   const [quickOptions, setQuickOptions] = useState<{
     departments: { id: string; name: string }[]
@@ -241,7 +245,7 @@ export function WorkerTasksClient({
 
   function resetQuickForm() {
     setQuickTitle(''); setQuickDesc(''); setQuickDue(''); setQuickRollover(false)
-    setQuickAssignee(''); setQuickDept(''); setQuickSection('')
+    setQuickAssignee(''); setQuickDept(''); setQuickSection(''); setQuickThread(false)
   }
 
   function toggleQuickForm() {
@@ -277,6 +281,7 @@ export function WorkerTasksClient({
         assignedToStaffId: quickAssignee || null,
         departmentId: quickDept || null,
         sectionId: quickSection || null,
+        isThread: quickThread,
       }),
     })
     setQuickSaving(false)
@@ -564,6 +569,7 @@ export function WorkerTasksClient({
       parentTaskId: t.parentTaskId ?? '',
       checklistIds: t.checklistIds ?? editChecklists.filter(c => c.tasks.some(ct => ct.id === t.id)).map(c => c.id),
       assignedToStaffId: t.assignedToStaffId ?? '',
+      isThread: !!t.isThread,
     })
     setRequireRetrain(false); setChangeSummary('')
     setTaskError(''); setTaskModalOpen(true)
@@ -1055,6 +1061,11 @@ export function WorkerTasksClient({
                   {t.isOneOff ? 'ONE-OFF' : 'CUSTOM'}
                 </span>
               )}
+              {t.isThread && (
+                <span className="font-mono text-xs uppercase text-info border border-info/40 px-1.5 py-0.5">
+                  THREAD
+                </span>
+              )}
               {t.guide && (
                 <button
                   type="button"
@@ -1227,6 +1238,11 @@ export function WorkerTasksClient({
                 <input type="checkbox" checked={quickRollover} onChange={(e) => setQuickRollover(e.target.checked)}
                   className="accent-success w-4 h-4" />
                 ROLL OVER IF NOT DONE
+              </label>
+              <label className="flex items-center gap-2 font-mono text-xs text-grey-light cursor-pointer">
+                <input type="checkbox" checked={quickThread} onChange={(e) => setQuickThread(e.target.checked)}
+                  className="accent-success w-4 h-4" />
+                THREAD (COMMENTS + SIGN-OFF)
               </label>
             </div>
             <p className="font-mono text-xs uppercase text-grey-light">
@@ -1663,6 +1679,15 @@ export function WorkerTasksClient({
               )}
             </div>
 
+            {activeTask.isThread && (
+              <TaskThread
+                taskId={activeTask.id}
+                basePath="/api/worker/tasks"
+                uploadEndpoint="/api/worker/upload"
+                initialClosed={!!activeTask.threadClosedAt}
+              />
+            )}
+
             {activeTask.inProgress && outcome === 'DONE' && (
               <div className="border-l-4 border-l-warning pl-3 py-1">
                 <p className="font-mono text-xs text-warning uppercase">
@@ -1963,6 +1988,13 @@ export function WorkerTasksClient({
               override={taskForm.overrideOutcomes}
               onOverrideChange={(overrideOutcomes) => setTaskForm({ ...taskForm, overrideOutcomes })}
             />
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={taskForm.isThread}
+                onChange={(e) => setTaskForm({ ...taskForm, isThread: e.target.checked })}
+                className="accent-warning w-4 h-4" />
+              <span className="font-mono text-xs uppercase text-white">THREAD — COMMENTS + SIGN-OFF</span>
+            </label>
 
             {taskForm.scheduleType === 'WEEKLY' && (
               <div className="flex flex-col gap-1">

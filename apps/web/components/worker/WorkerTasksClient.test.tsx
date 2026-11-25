@@ -7,6 +7,14 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
 }))
 
+vi.mock('@/components/ui/MultiImagePicker', () => ({
+  MultiImagePicker: ({ value, onChange }: { value: string[]; onChange: (urls: string[]) => void }) => (
+    <button type="button" onClick={() => onChange([...(value ?? []), '/api/upload/photo.jpg'])}>
+      ADD PHOTO
+    </button>
+  ),
+}))
+
 import { WorkerTasksClient } from '@/components/worker/WorkerTasksClient'
 import type { WorkerTaskAccess } from '@/lib/worker-task-access'
 
@@ -1061,5 +1069,57 @@ describe('WorkerTasksClient', () => {
     expect(screen.getAllByText('ORDER MORE GLASSES')).toHaveLength(1)
     expect(screen.getByText('FOR SAM LEE')).toBeDefined()
     expect(screen.getByText('CUSTOM')).toBeDefined()
+  })
+
+  it('posts a thread comment with a photo from the worker task modal (#145 Wave B)', async () => {
+    const threadTask = {
+      ...BASE_TASK,
+      id: 't40',
+      title: 'RESEARCH HIGH CHAIRS',
+      departmentName: 'MANAGER',
+      assignedToStaffId: 's1',
+      assigneeName: 'ANN B',
+      isThread: true,
+      threadClosedAt: null,
+    }
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') {
+        return json({ tasks: [threadTask], checklists: [], firstName: 'ANN', staffId: 's1' })
+      }
+      if (u === '/api/worker/tasks/t40/comments' && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body))
+        return json({
+          comment: {
+            id: 'c1', body: body.body, imageUrls: body.imageUrls, authorId: 's1',
+            authorName: 'ANN B', createdAt: '2026-11-25T11:00:00.000Z', canDelete: true,
+          },
+        })
+      }
+      if (u === '/api/worker/tasks/t40/comments') {
+        return json({ comments: [], canAdd: true, canDeleteAny: false, canSignOff: true, threadClosedAt: null })
+      }
+      return json({})
+    })
+
+    render(<WorkerTasksClient role="STAFF" sessionVenueId="v1" />)
+
+    await waitFor(() => expect(screen.getByText('RESEARCH HIGH CHAIRS')).toBeDefined())
+    fireEvent.click(screen.getByText('RESEARCH HIGH CHAIRS'))
+
+    await waitFor(() => expect(screen.getByText('TASK THREAD')).toBeDefined())
+    fireEvent.change(screen.getByPlaceholderText('ADD A COMMENT…'), { target: { value: 'WORKER REPLY' } })
+    fireEvent.click(screen.getByText('ADD PHOTO'))
+    fireEvent.click(screen.getByText('POST COMMENT'))
+
+    await waitFor(() => expect(screen.getByText('WORKER REPLY')).toBeDefined())
+    const post = vi.mocked(global.fetch).mock.calls.find(
+      ([u, init]) => String(u) === '/api/worker/tasks/t40/comments' && init?.method === 'POST',
+    )
+    expect(post).toBeDefined()
+    expect(JSON.parse(String(post![1]!.body))).toEqual({
+      body: 'WORKER REPLY',
+      imageUrls: ['/api/upload/photo.jpg'],
+    })
   })
 })
