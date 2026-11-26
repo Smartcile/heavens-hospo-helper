@@ -35,14 +35,43 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   const item = await prisma.menuItem.findFirst({
     where: { id: params.id, deletedAt: null },
-    select: { id: true, venueId: true },
+    select: { id: true, venueId: true, servesMin: true, servesMax: true },
   })
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (session.user.role === 'MANAGER' && item.venueId !== session.user.venueId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, recipeId, price, wooProductId, wooCategoryId, imageUrl, shortDescription, isVariable, variations, description, dietaryInfo, tastingNotes, vintage, howToServe } = await req.json()
+  const {
+    name,
+    recipeId,
+    price,
+    wooProductId,
+    wooCategoryId,
+    imageUrl,
+    shortDescription,
+    isVariable,
+    variations,
+    description,
+    dietaryInfo,
+    tastingNotes,
+    vintage,
+    howToServe,
+    pricingMode,
+    servesMin,
+    servesMax,
+    minQty,
+    leadTimeDays,
+  } = await req.json()
+
+  const nextServesMin = servesMin !== undefined ? toIntOrNull(servesMin) : item.servesMin
+  const nextServesMax = servesMax !== undefined ? toIntOrNull(servesMax) : item.servesMax
+  if ([servesMin, servesMax, minQty, leadTimeDays].some(isNegativeNumber)) {
+    return NextResponse.json({ error: 'PRICING VALUES CANNOT BE NEGATIVE' }, { status: 400 })
+  }
+  if (nextServesMin != null && nextServesMax != null && nextServesMax < nextServesMin) {
+    return NextResponse.json({ error: 'servesMax cannot be less than servesMin' }, { status: 400 })
+  }
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = String(name).toUpperCase().trim()
   if (recipeId !== undefined) {
@@ -64,6 +93,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (tastingNotes !== undefined) data.tastingNotes = tastingNotes || null
   if (vintage !== undefined) data.vintage = vintage ? String(vintage).trim() : null
   if (howToServe !== undefined) data.howToServe = howToServe || null
+  // Event / catering pricing metadata (#192). Null clears back to the default
+  // behaviour (EACH, no yield, no minimum, no lead time).
+  if (pricingMode !== undefined) data.pricingMode = productPricingMode(pricingMode)
+  if (servesMin !== undefined) data.servesMin = toIntOrNull(servesMin)
+  if (servesMax !== undefined) data.servesMax = toIntOrNull(servesMax)
+  if (minQty !== undefined) data.minQty = toIntOrNull(minQty)
+  if (leadTimeDays !== undefined) data.leadTimeDays = toIntOrNull(leadTimeDays)
 
   const updated = await prisma.menuItem.update({
     where: { id: params.id },
@@ -91,4 +127,24 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
 
   await prisma.menuItem.update({ where: { id: params.id }, data: { deletedAt: new Date() } })
   return NextResponse.json({ success: true })
+}
+
+/** Product-level pricing mode: EACH (the default) / PER_PERSON / PER_PLATTER. */
+function productPricingMode(v: unknown): string | null {
+  const raw = String(v ?? '').trim().toUpperCase()
+  if (!raw || raw === 'EACH') return null
+  return raw === 'PER_PERSON' || raw === 'PER_PLATTER' ? raw : null
+}
+
+function toIntOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = parseInt(String(v), 10)
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+/** A supplied numeric pricing field that is negative must be rejected, not nulled. */
+function isNegativeNumber(v: unknown): boolean {
+  if (v === null || v === undefined || v === '') return false
+  const n = Number(v)
+  return Number.isFinite(n) && n < 0
 }

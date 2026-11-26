@@ -591,3 +591,59 @@ demo rows instead of duplicating them.
 Order/POS selection, kitchen modifiers, per-choice recipe/stock drawdown and
 WooCommerce pushes remain out of scope (Phase 5, deferred).
 
+## 13 — Event menu pricing: units, yields, minimums and lead times (#192, built 2026-11)
+
+An event menu is sold in mixed units, so a BEO line now carries a **unit**
+instead of being a bare `{ menuItemId, qty }`:
+
+| Unit | Quantity | Example |
+|---|---|---|
+| `EACH` | the stored count | canapés, walk-n-fork items |
+| `PER_PERSON` | the event's guest count (falls back to the stored count) | a 2/3-course set menu |
+| `PER_PLATTER` | the stored platter count | a platter that "serves 4–6" |
+
+**Money stays live.** A line stores only non-cash facts (`unit`, `servesMin`,
+`servesMax`) in the block config and in `MenuItem` / `Menu` metadata; every total
+is recomputed from the live `MenuItem.price` / `Menu.pricePerPerson` — the one
+exception is an authored choice `priceDelta` (see the design note below).
+
+**Product metadata (additive, nullable):** `MenuItem.pricingMode`
+(`EACH | PER_PERSON | PER_PLATTER`) is the default unit for a new line,
+`servesMin`/`servesMax` is the platter yield, `minQty` is the product default
+minimum for a direct event line, and `leadTimeDays` is the notice required
+before the event date. All null = today's behaviour.
+
+**Packages reuse `Menu` + `MenuGroup`** (no separate package tables):
+`Menu.pricingMode` + `Menu.pricePerPerson` make a menu a per-head set menu.
+An event whose bound `Menu` is `PER_PERSON` gets **one** automatic priced line at
+`pricePerPerson × guestCount` (unit `PER_PERSON`); a purged menu is reported as
+a violation, never priced at $0. `MenuGroup.minSelect`/`maxSelect` describe how
+many dishes the guest must / may pick. Those picks author on the priced block as
+`config.packageChoices` and price on that same automatic line — they are
+**included** in the per-head price, and a pick carrying a `priceDelta` adds it
+on top. A second priced set-menu product line is never created for the picks; a
+legacy per-line `choices` snapshot is folded into the package line, so a bound
+menu cannot be charged twice.
+
+**Design note — the one non-live cash fact.** Every price is live except a
+choice's `priceDelta`. A pick's upcharge is a stored snapshot (a manual
+"premium main +$8") captured when the pick is authored, exactly like an order
+option snapshot; it is deliberately not re-read from a catalogue so a later
+price change cannot silently rewrite an accepted quote. Everything else
+(`MenuItem.price`, `Menu.pricePerPerson`) stays live.
+
+**Rules.**
+- A menu line's `MenuMenuItem.minQty` is authoritative over the product's
+  `MenuItem.minQty` when the product is on the menu.
+- Minimums apply only when something is ordered, and are **reported, never
+  clamped** — a minimum breach does not silently change the total.
+- Lead time compares the venue-local event date to today.
+- A purged product or package is skipped and reported, never priced at $0.
+
+**Readers.** The BEO PDF and the customer share page render the unit and yield
+("3 PLATTERS · SERVES 4-6") and group the total by PER PERSON / PER PLATTER /
+EACH. The KITCHEN copy keeps the platter counts with no money; the CLIENT copy
+never shows internal minimums or lead times. The pre-order push (`WooOrder`)
+does **not** opt into package pricing and is out of scope for #192.
+
+

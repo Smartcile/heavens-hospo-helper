@@ -5,14 +5,49 @@
 // may bind to an Event column (`eventField`) instead of the block config —
 // those are owned by the event header and edited through `onEventFieldChange`.
 
-import { blockDef, type BeoBlockField, type BeoRowColumn, type BlockLibrary } from '@/lib/beo-blocks'
+import {
+  blockDef,
+  type BeoBlockField,
+  type BeoRowColumn,
+  type BlockLibrary,
+} from '@/lib/beo-blocks'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
 import { RoomSetupCard, type RoomSetupOption } from '@/components/RoomSetupCard'
 import { roomSetupLabel } from '@/lib/room-setup'
+import {
+  PRICING_UNITS,
+  describeLineUnit,
+  parseLineChoices,
+  parsePricingUnit,
+  pricingWarnings,
+  suggestPlatterCount,
+  type LineChoice,
+  type PricingUnit,
+} from '@/lib/event-pricing'
 
-export interface BeoMenuOption { id: string; name: string; price?: number }
+export interface BeoMenuOption {
+  id: string
+  name: string
+  price?: number
+  // Event-pricing metadata (#192) — present on the admin menu-items feed.
+  pricingMode?: string | null
+  servesMin?: number | null
+  servesMax?: number | null
+  minQty?: number | null
+  leadTimeDays?: number | null
+}
+
+/** One choice group of the event's bound menu, with its member dishes. */
+export interface BeoChoiceGroup {
+  id: string
+  name: string
+  minSelect?: number | null
+  maxSelect?: number | null
+  choices: { id: string; name: string }[]
+}
+
 export type BeoSetupOption = RoomSetupOption
 
 export interface BeoBlockEditorProps {
@@ -30,6 +65,20 @@ export interface BeoBlockEditorProps {
   hideBoundFields?: boolean
   /** The resolved library (built-ins + custom defs) to render from. */
   library?: BlockLibrary
+  /** Guest count — drives PER_PERSON lines and the USE PAX helper. */
+  guestCount?: number | null
+  /** Venue-local event date + today (`YYYY-MM-DD`) for the lead-time warning. */
+  eventDate?: string | null
+  today?: string | null
+  /** The bound menu's choice groups, for authoring set-menu picks (#192). */
+  choiceGroups?: BeoChoiceGroup[]
+  /** Menu-line `minQty` overrides (the menu line wins over the product). */
+  minQtyByItem?: Record<string, number | null>
+  /**
+   * The event's bound PER_PERSON menu (auto-priced as a package line). When set,
+   * picks are authored at the block level and never as a second set-menu line.
+   */
+  boundPackage?: { name: string; pricePerPerson: number } | null
 }
 
 const inputClass =
@@ -114,53 +163,311 @@ function RowsEditor({
   )
 }
 
-function ItemsEditor({
-  items,
-  menuItems,
+interface ItemDraft {
+  menuItemId: string
+  qty: number
+  unit?: PricingUnit
+  servesMin?: number
+  servesMax?: number
+  /** Authored choice-group picks for a PER_PERSON set menu (#192). */
+  choices?: LineChoice[]
+}
+
+function unitOf(item: ItemDraft, product: BeoMenuOption | undefined): PricingUnit {
+  return item.unit ?? parsePricingUnit(product?.pricingMode)
+}
+
+function yieldOf(item: ItemDraft, product: BeoMenuOption | undefined) {
+  return {
+    servesMin: item.servesMin ?? product?.servesMin ?? undefined,
+    servesMax: item.servesMax ?? product?.servesMax ?? undefined,
+  }
+}
+
+const RULE_TEXT = (group: BeoChoiceGroup): string => {
+  const min = group.minSelect != null ? Number(group.minSelect) : 0
+  const max = group.maxSelect != null ? Number(group.maxSelect) : null
+  if (min > 0) return max != null && max !== min ? `PICK ${min}-${max}` : `PICK ${min}`
+  return max != null ? `UP TO ${max}` : ''
+}
+
+/**
+ * SET MENU PICKS for the event's bound per-head menu (#192). These live on the
+ * block (`config.packageChoices`) and price on the automatic package line —
+ * never as a second set-menu product line. Picks are included in the per-head
+ * price; an upcharge adds on top.
+ */
+function PackageChoicesEditor({
+  picks,
+  groups,
+  pricePerPerson,
+  menuName,
+  guestCount,
+  eventDate,
+  today,
   onChange,
   disabled,
 }: {
-  items: { menuItemId: string; qty: number }[]
+  picks: LineChoice[]
+  groups: BeoChoiceGroup[]
+  pricePerPerson: number
+  menuName: string
+  guestCount?: number | null
+  eventDate?: string | null
+  today?: string | null
+  onChange: (picks: LineChoice[]) => void
+  disabled?: boolean
+}) {
+  const warnings = pricingWarnings({
+    name: menuName,
+    qty: 0,
+    unit: 'PER_PERSON',
+    guestCount,
+    eventDate,
+    today,
+    choices: picks,
+    choiceGroups: groups,
+  })
+
+  function toggle(group: BeoChoiceGroup, choice: { id: string; name: string }) {
+    const exists = picks.some((c) => c.groupId === group.id && c.choiceId === choice.id)
+    if (exists) {
+      onChange(picks.filter((c) => !(c.groupId === group.id && c.choiceId === choice.id)))
+      return
+    }
+    onChange([
+      ...picks,
+      {
+        groupId: group.id,
+        groupName: group.name,
+        choiceId: choice.id,
+        choiceName: choice.name,
+        priceDelta: 0,
+      },
+    ])
+  }
+
+  function setUpcharge(group: BeoChoiceGroup, choiceId: string, priceDelta: number) {
+    onChange(
+      picks.map((c) =>
+        c.groupId === group.id && c.choiceId === choiceId ? { ...c, priceDelta } : c,
+      ),
+    )
+  }
+
+  return (
+    <div className="border border-grey-mid p-2 space-y-2">
+      <div className="font-mono text-2xs uppercase text-grey-light">
+        SET MENU PICKS — {menuName} · ${pricePerPerson.toFixed(2)}/HEAD
+      </div>
+      {groups.map((group) => {
+        const groupPicks = picks.filter((c) => c.groupId === group.id)
+        const max = group.maxSelect != null ? Number(group.maxSelect) : null
+        const atMax = max != null && groupPicks.length >= max
+        const rule = RULE_TEXT(group)
+        return (
+          <div key={group.id} className="space-y-1">
+            <div className="font-mono text-2xs uppercase text-grey-light">
+              {group.name}{rule ? ` · ${rule}` : ''}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {group.choices.map((choice) => {
+                const selected = groupPicks.some((c) => c.choiceId === choice.id)
+                return (
+                  <button
+                    key={choice.id}
+                    type="button"
+                    aria-pressed={selected}
+                    aria-label={`${group.name}: ${choice.name}`}
+                    disabled={disabled || (!selected && atMax)}
+                    onClick={() => toggle(group, choice)}
+                    className={`font-mono text-2xs uppercase px-1.5 py-0.5 border transition-colors disabled:opacity-40 ${
+                      selected ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:border-white'
+                    }`}
+                  >
+                    {choice.name}
+                  </button>
+                )
+              })}
+            </div>
+            {groupPicks.length > 0 && (
+              <div className="space-y-0.5">
+                {groupPicks.map((pick) => (
+                  <div key={pick.choiceId} className="flex items-center gap-1 font-mono text-2xs uppercase text-grey-light">
+                    <span className="text-white">{pick.choiceName}</span>
+                    <span>+$</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      aria-label={`Upcharge ${pick.choiceName}`}
+                      value={pick.priceDelta}
+                      disabled={disabled}
+                      onChange={(e) => setUpcharge(group, pick.choiceId, Number(e.target.value) || 0)}
+                      className={`${inputClass} w-16 text-right`}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+      {warnings.length > 0 && (
+        <p className="font-mono text-2xs uppercase text-danger">
+          {warnings.map((w) => w.message).join(' · ')}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function ItemsEditor({
+  items,
+  menuItems,
+  minQtyByItem,
+  guestCount,
+  eventDate,
+  today,
+  onChange,
+  disabled,
+}: {
+  items: ItemDraft[]
   menuItems: BeoMenuOption[]
-  onChange: (items: { menuItemId: string; qty: number }[]) => void
+  minQtyByItem?: Record<string, number | null>
+  guestCount?: number | null
+  eventDate?: string | null
+  today?: string | null
+  onChange: (items: ItemDraft[]) => void
   disabled?: boolean
 }) {
   const options = [{ value: '', label: '— PICK —' }, ...menuItems.map((m) => ({ value: m.id, label: m.name }))]
-  function update(index: number, patch: Partial<{ menuItemId: string; qty: number }>) {
+  function update(index: number, patch: Partial<ItemDraft>) {
     onChange(items.map((it, i) => (i === index ? { ...it, ...patch } : it)))
   }
+  const hasGuestCount = guestCount != null && Number.isFinite(Number(guestCount))
+  const paxCount = hasGuestCount ? Math.max(0, Math.round(Number(guestCount))) : 0
+
+  function menuMinFor(item: ItemDraft, product: BeoMenuOption | undefined): number | null {
+    const override = item.menuItemId ? minQtyByItem?.[item.menuItemId] : null
+    return override ?? product?.minQty ?? null
+  }
+
+  /** Picks belong to the package line, so a line leaving PER_PERSON drops them. */
+  function clearChoicesWhenNotPerPerson(unit: PricingUnit): Pick<ItemDraft, 'choices'> {
+    return unit === 'PER_PERSON' ? {} : { choices: undefined }
+  }
+
   return (
     <div className="space-y-1">
       {items.length === 0 && <p className="font-mono text-xs text-grey-light">NO ITEMS YET.</p>}
-      {items.map((it, i) => (
-        <div key={i} className="flex gap-1 items-center">
-          <div className="flex-1">
-            <Select
-              value={it.menuItemId}
-              disabled={disabled}
-              onChange={(e) => update(i, { menuItemId: e.target.value })}
-              options={options}
-            />
+      {items.map((it, i) => {
+        const product = menuItems.find((m) => m.id === it.menuItemId)
+        const unit = unitOf(it, product)
+        const yieldValues = yieldOf(it, product)
+        const effectiveQty = unit === 'PER_PERSON' && hasGuestCount ? paxCount : it.qty
+        const minQty = menuMinFor(it, product)
+        const warnings = product
+          ? pricingWarnings({
+              name: product.name,
+              menuItemId: product.id,
+              qty: it.qty,
+              unit,
+              minQty,
+              leadTimeDays: product.leadTimeDays,
+              guestCount,
+              eventDate,
+              today,
+            })
+          : []
+        const platterSuggestion =
+          unit === 'PER_PLATTER' ? suggestPlatterCount(paxCount, yieldValues.servesMin) : null
+        // A platter without a "serves at least N" yield cannot be derived from
+        // pax — disable USE PAX rather than guess one platter per guest.
+        const usePaxQty = unit === 'PER_PLATTER' ? platterSuggestion : paxCount
+
+        return (
+          <div key={i} className="border border-grey-mid p-1.5 space-y-1">
+            <div className="flex gap-1 items-center">
+              <div className="flex-1 min-w-0">
+                <Select
+                  value={it.menuItemId}
+                  disabled={disabled}
+                  onChange={(e) => {
+                    const picked = menuItems.find((m) => m.id === e.target.value)
+                    const nextUnit = parsePricingUnit(picked?.pricingMode)
+                    update(i, {
+                      menuItemId: e.target.value,
+                      unit: nextUnit,
+                      servesMin: picked?.servesMin ?? undefined,
+                      servesMax: picked?.servesMax ?? undefined,
+                      ...clearChoicesWhenNotPerPerson(nextUnit),
+                    })
+                  }}
+                  options={options}
+                />
+              </div>
+              <select
+                aria-label="Pricing unit"
+                value={unit}
+                disabled={disabled}
+                onChange={(e) => {
+                  const nextUnit = parsePricingUnit(e.target.value)
+                  update(i, { unit: nextUnit, ...clearChoicesWhenNotPerPerson(nextUnit) })
+                }}
+                className={`${inputClass} w-24`}
+              >
+                {PRICING_UNITS.map((u) => (
+                  <option key={u} value={u}>{u === 'PER_PERSON' ? 'PER PERSON' : u === 'PER_PLATTER' ? 'PER PLATTER' : 'EACH'}</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min={0}
+                aria-label="Quantity"
+                value={it.qty}
+                disabled={disabled}
+                onChange={(e) => update(i, { qty: Number(e.target.value) })}
+                className={`${inputClass} w-16 text-right`}
+              />
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onChange(items.filter((_, j) => j !== i))}
+                className="w-6 font-mono text-xs text-grey-light hover:text-danger disabled:opacity-40"
+                aria-label="Remove item"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap font-mono text-2xs uppercase text-grey-light">
+              {it.menuItemId && (
+                <span className="text-white">
+                  {describeLineUnit({ unit, qty: effectiveQty, ...yieldValues })}
+                </span>
+              )}
+              {unit === 'PER_PERSON' && hasGuestCount && <span>USES PAX</span>}
+              {minQty != null && <span>MIN {minQty}</span>}
+              {product?.leadTimeDays != null && product.leadTimeDays > 0 && (
+                <span>{product.leadTimeDays}D NOTICE</span>
+              )}
+              <button
+                type="button"
+                disabled={disabled || usePaxQty == null || usePaxQty <= 0}
+                onClick={() => usePaxQty != null && update(i, { qty: usePaxQty })}
+                className="border border-grey-mid px-1.5 py-0.5 text-grey-light hover:border-white hover:text-white disabled:opacity-40"
+              >
+                USE PAX
+              </button>
+            </div>
+            {warnings.length > 0 && (
+              <p className="font-mono text-2xs uppercase text-danger">
+                {warnings.map((w) => w.message).join(' · ')}
+              </p>
+            )}
           </div>
-          <input
-            type="number"
-            min={1}
-            value={it.qty}
-            disabled={disabled}
-            onChange={(e) => update(i, { qty: Number(e.target.value) })}
-            className={`${inputClass} w-16 text-right`}
-          />
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => onChange(items.filter((_, j) => j !== i))}
-            className="w-6 font-mono text-xs text-grey-light hover:text-danger disabled:opacity-40"
-            aria-label="Remove item"
-          >
-            ✕
-          </button>
-        </div>
-      ))}
+        )
+      })}
       <Button
         type="button"
         size="sm"
@@ -186,6 +493,12 @@ export function BeoBlockEditor({
   disabled,
   hideBoundFields,
   library,
+  guestCount,
+  eventDate,
+  today,
+  choiceGroups,
+  minQtyByItem,
+  boundPackage,
 }: BeoBlockEditorProps) {
   const def = blockDef(type, library)
   if (!def) {
@@ -199,6 +512,9 @@ export function BeoBlockEditor({
   if (fields.length === 0) {
     return <p className="font-mono text-xs text-grey-light">NO CONFIGURABLE FIELDS — THE EVENT FILLS THIS IN.</p>
   }
+  // The bound menu (and so the set-menu picks) belongs to the block that binds
+  // `menuId` — never a DRINKS_SELECTION or a custom `items` block (#192).
+  const carriesBoundMenu = def.fields.some((f) => f.eventField === 'menuId')
 
   return (
     <div className="space-y-3">
@@ -230,9 +546,20 @@ export function BeoBlockEditor({
             )}
             {field.kind === 'menu' && (
               <Select
+                aria-label={field.label}
                 value={String(value ?? '')}
                 disabled={disabled}
-                onChange={(e) => set(e.target.value)}
+                onChange={(e) => {
+                  set(e.target.value)
+                  // Changing the bound menu invalidates any authored picks:
+                  // their group ids belong to the old menu and would otherwise
+                  // price invisibly on the new package line.
+                  if (config.packageChoices !== undefined) {
+                    const next = { ...config }
+                    delete next.packageChoices
+                    onConfigChange(next)
+                  }
+                }}
                 options={[{ value: '', label: '— NONE —' }, ...menus.map((m) => ({ value: m.id, label: m.name }))]}
               />
             )}
@@ -259,12 +586,31 @@ export function BeoBlockEditor({
               />
             )}
             {field.kind === 'items' && (
-              <ItemsEditor
-                items={Array.isArray(config[field.key]) ? (config[field.key] as { menuItemId: string; qty: number }[]) : []}
-                menuItems={menuItems}
-                disabled={disabled}
-                onChange={(items) => onConfigChange({ ...config, [field.key]: items })}
-              />
+              <div className="space-y-2">
+                {boundPackage && carriesBoundMenu && (choiceGroups?.length ?? 0) > 0 && (
+                  <PackageChoicesEditor
+                    picks={parseLineChoices(config.packageChoices) ?? []}
+                    groups={choiceGroups ?? []}
+                    menuName={boundPackage.name}
+                    pricePerPerson={boundPackage.pricePerPerson}
+                    guestCount={guestCount}
+                    eventDate={eventDate}
+                    today={today}
+                    disabled={disabled}
+                    onChange={(picks) => onConfigChange({ ...config, packageChoices: picks })}
+                  />
+                )}
+                <ItemsEditor
+                  items={Array.isArray(config[field.key]) ? (config[field.key] as ItemDraft[]) : []}
+                  menuItems={menuItems}
+                  minQtyByItem={minQtyByItem}
+                  guestCount={guestCount}
+                  eventDate={eventDate}
+                  today={today}
+                  disabled={disabled}
+                  onChange={(items) => onConfigChange({ ...config, [field.key]: items })}
+                />
+              </div>
             )}
           </div>
         )

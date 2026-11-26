@@ -92,6 +92,11 @@ export async function GET(req: NextRequest) {
       tastingNotes: s.menuItem.tastingNotes,
       vintage: s.menuItem.vintage,
       howToServe: s.menuItem.howToServe,
+      pricingMode: s.menuItem.pricingMode,
+      servesMin: s.menuItem.servesMin,
+      servesMax: s.menuItem.servesMax,
+      minQty: s.menuItem.minQty,
+      leadTimeDays: s.menuItem.leadTimeDays,
       optionGroups: s.menuItem.optionGroups,
       isActive: s.menuItem.isActive,
       recipe: s.menuItem.recipe,
@@ -115,9 +120,37 @@ export async function POST(req: NextRequest) {
   const denied = await guardAccess(session, req, 'ops.menus.create')
   if (denied) return denied
 
-  const { name, recipeId, price, wooProductId: providedWooProductId, wooCategoryId, imageUrl, shortDescription, description, dietaryInfo, isVariable, variations, sharedVenueIds, venueId: bodyVenueId } = await req.json()
+  const {
+    name,
+    recipeId,
+    price,
+    wooProductId: providedWooProductId,
+    wooCategoryId,
+    imageUrl,
+    shortDescription,
+    description,
+    dietaryInfo,
+    isVariable,
+    variations,
+    sharedVenueIds,
+    venueId: bodyVenueId,
+    pricingMode,
+    servesMin,
+    servesMax,
+    minQty,
+    leadTimeDays,
+  } = await req.json()
   if (!name?.trim()) {
     return NextResponse.json({ error: 'name is required' }, { status: 400 })
+  }
+
+  const serveMin = toIntOrNull(servesMin)
+  const serveMax = toIntOrNull(servesMax)
+  if ([servesMin, servesMax, minQty, leadTimeDays].some(isNegativeNumber)) {
+    return NextResponse.json({ error: 'PRICING VALUES CANNOT BE NEGATIVE' }, { status: 400 })
+  }
+  if (serveMin != null && serveMax != null && serveMax < serveMin) {
+    return NextResponse.json({ error: 'servesMax cannot be less than servesMin' }, { status: 400 })
   }
 
   const venueId = session.user.role === 'MANAGER' ? session.user.venueId : (bodyVenueId || session.user.venueId)
@@ -155,6 +188,11 @@ export async function POST(req: NextRequest) {
       variations: variations || null,
       description: description || null,
       dietaryInfo: dietaryInfo || null,
+      pricingMode: productPricingMode(pricingMode),
+      servesMin: serveMin,
+      servesMax: serveMax,
+      minQty: toIntOrNull(minQty),
+      leadTimeDays: toIntOrNull(leadTimeDays),
     },
     include: { recipe: { select: { id: true, name: true } } },
   })
@@ -170,4 +208,24 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json(item, { status: 201 })
+}
+
+/** Product-level pricing mode: EACH (the default) / PER_PERSON / PER_PLATTER. */
+function productPricingMode(v: unknown): string | null {
+  const raw = String(v ?? '').trim().toUpperCase()
+  if (!raw || raw === 'EACH') return null
+  return raw === 'PER_PERSON' || raw === 'PER_PLATTER' ? raw : null
+}
+
+function toIntOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = parseInt(String(v), 10)
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+/** A supplied numeric pricing field that is negative must be rejected, not nulled. */
+function isNegativeNumber(v: unknown): boolean {
+  if (v === null || v === undefined || v === '') return false
+  const n = Number(v)
+  return Number.isFinite(n) && n < 0
 }

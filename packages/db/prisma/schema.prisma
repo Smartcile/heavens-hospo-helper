@@ -3523,6 +3523,18 @@ model MenuItem {
   tastingNotes     String?
   vintage          String?
   howToServe       String?
+  // Event / catering pricing metadata (#192). All nullable and additive -
+  // null = today's behaviour (EACH, no yield, no minimum, no lead time).
+  // pricingMode: EACH | PER_PERSON | PER_PLATTER (plain text, no enum change).
+  pricingMode      String?
+  // "serves 4-6" yield on a platter product.
+  servesMin        Int?
+  servesMax        Int?
+  // Product default minimum for a direct event line. A menu line's own
+  // MenuMenuItem.minQty is authoritative when the product is on a menu.
+  minQty           Int?
+  // Days of notice required before the event date.
+  leadTimeDays     Int?
   isActive         Boolean   @default(true)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
@@ -3777,6 +3789,11 @@ model Menu {
   // Null on either side means unbounded in that direction.
   minPax        Int?
   maxPax        Int?
+  // How the menu is sold at an event (#192). EACH = a list of priced products;
+  // PER_PERSON = a set menu charged per head (pricePerPerson). Null = EACH.
+  // Reuses Menu + MenuGroup as the "package" model - no separate package tables.
+  pricingMode    String?
+  pricePerPerson Float?
   isActive      Boolean   @default(true)
   sortOrder     Int       @default(0)
   // The WooCommerce category this menu is synced to. Menus and categories are
@@ -3807,6 +3824,10 @@ model MenuGroup {
   id        String    @id @default(uuid())
   menuId    String
   name      String
+  // Choice-group selection rules for a per-person set menu (#192): how many
+  // lines the guest must / may pick from this group. Null = no limit.
+  minSelect Int?
+  maxSelect Int?
   sortOrder Int       @default(0)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

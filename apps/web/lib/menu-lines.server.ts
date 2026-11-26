@@ -26,7 +26,7 @@ export const menuInclude = {
   groups: {
     where: { deletedAt: null },
     orderBy: { sortOrder: 'asc' },
-    select: { id: true, name: true, sortOrder: true },
+    select: { id: true, name: true, sortOrder: true, minSelect: true, maxSelect: true },
   },
   items: {
     where: {

@@ -74,6 +74,9 @@ export interface MenuGroupDraft {
   key: string
   id?: string
   name: string
+  /** Per-person set menu: how many lines the guest must / may pick. */
+  minSelect?: number | null
+  maxSelect?: number | null
 }
 
 /** A line as edited in the builder — the read shape plus edit bookkeeping. */
@@ -103,9 +106,12 @@ export interface MenuShape {
   description: string | null
   minPax: number | null
   maxPax: number | null
+  /** EACH (default) or PER_PERSON — a set menu charged per head (#192). */
+  pricingMode?: string | null
+  pricePerPerson?: number | null
   isActive: boolean
   wooCategoryId: string | null
-  groups: { id: string; name: string; sortOrder: number }[]
+  groups: { id: string; name: string; sortOrder: number; minSelect?: number | null; maxSelect?: number | null }[]
   items: ShapedMenuLine[]
 }
 

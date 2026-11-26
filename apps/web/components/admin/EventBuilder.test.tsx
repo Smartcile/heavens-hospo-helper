@@ -42,6 +42,31 @@ const EVENT: EventDetail = {
 
 const REFS = { menus: [], menuItems: [], services: [], setups: [] }
 
+const PRICED_EVENT: EventDetail = {
+  ...EVENT,
+  guestCount: 96,
+  depositAmount: 2500,
+  blocks: [
+    {
+      id: 'b1',
+      type: 'MENU_SELECTION',
+      title: null,
+      config: { items: [{ menuItemId: 'set', qty: 1, unit: 'PER_PERSON' }] },
+      sortOrder: 0,
+    },
+  ],
+}
+
+const PRICED_REFS = {
+  menus: [],
+  menuItems: [
+    { id: 'set', name: '3 COURSE SET', price: 85, pricingMode: 'PER_PERSON' },
+    { id: 'can', name: 'CANAPE', price: 4, minQty: 20 },
+  ],
+  services: [],
+  setups: [],
+}
+
 function renderBuilder() {
   return render(
     <EventBuilder event={EVENT} venueId="v1" refs={REFS} onBack={() => {}} onSaved={() => {}} />,
@@ -196,5 +221,366 @@ describe('EventBuilder', () => {
 
     const calls = (globalThis.fetch as unknown as { mock: { calls: [string, { method?: string }][] } }).mock.calls
     expect(calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(0)
+  })
+})
+
+describe('EventBuilder — per-person pricing (#192)', () => {
+  beforeEach(() => {
+    pdfMocks.PdfViewerModal.mockReset()
+    globalThis.fetch = vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(String(url).endsWith('/blocks') ? { saved: [], deleted: 0 } : PRICED_EVENT),
+      }),
+    ) as unknown as typeof fetch
+  })
+  afterEach(() => { vi.restoreAllMocks() })
+
+  function renderPriced() {
+    return render(
+      <EventBuilder event={PRICED_EVENT} venueId="v1" refs={PRICED_REFS} onBack={() => {}} onSaved={() => {}} />,
+    )
+  }
+
+  it('prices a PER_PERSON line at pax x per-head and re-prices when the guest count changes', () => {
+    renderPriced()
+    // 96 guests x $85 = $8,160.00 (also shown in the PER PERSON group).
+    expect(screen.getAllByText('$8160.00').length).toBeGreaterThan(0)
+    expect(screen.getByText('$5660.00')).toBeTruthy()
+
+    fireEvent.change(screen.getByTestId('event-guests'), { target: { value: '50' } })
+    // 50 x $85 = $4,250.00
+    expect(screen.getAllByText('$4250.00').length).toBeGreaterThan(0)
+    expect(screen.getByTestId('pricing-by-unit')).toBeTruthy()
+  })
+
+  it('USE PAX fills the line quantity with the guest count', () => {
+    renderPriced()
+    fireEvent.click(screen.getByRole('button', { name: '▸ MENU SELECTION' }))
+
+    const qty = screen.getByLabelText('Quantity') as HTMLInputElement
+    expect(qty.value).toBe('1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'USE PAX' }))
+    expect((screen.getByLabelText('Quantity') as HTMLInputElement).value).toBe('96')
+  })
+
+  it('disables USE PAX on a platter with no serves-min yield', () => {
+    render(
+      <EventBuilder
+        event={{
+          ...PRICED_EVENT,
+          blocks: [
+            {
+              id: 'b1',
+              type: 'MENU_SELECTION',
+              title: null,
+              config: { items: [{ menuItemId: 'pl', qty: 1, unit: 'PER_PLATTER' }] },
+              sortOrder: 0,
+            },
+          ],
+        }}
+        venueId="v1"
+        refs={{ ...PRICED_REFS, menuItems: [{ id: 'pl', name: 'PLATTER', price: 65 }] }}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '▸ MENU SELECTION' }))
+    expect((screen.getByRole('button', { name: 'USE PAX' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('warns before save when a line is below its minimum', () => {
+    render(
+      <EventBuilder
+        event={{
+          ...PRICED_EVENT,
+          blocks: [
+            {
+              id: 'b1',
+              type: 'MENU_SELECTION',
+              title: null,
+              config: { items: [{ menuItemId: 'can', qty: 10, unit: 'EACH' }] },
+              sortOrder: 0,
+            },
+          ],
+        }}
+        venueId="v1"
+        refs={PRICED_REFS}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    const violations = screen.getByTestId('pricing-violations')
+    expect(violations.textContent).toMatch(/CANAPE: MINIMUM 20, ORDERED 10/)
+  })
+
+  const SET_MENU_REFS = {
+    menus: [
+      {
+        id: 'setmenu',
+        name: 'WEDDING SET MENU',
+        pricingMode: 'PER_PERSON',
+        pricePerPerson: 95,
+        groups: [{ id: 'g-main', name: 'MAIN', sortOrder: 0, minSelect: 1, maxSelect: 1 }],
+        items: [
+          { id: 'l1', menuItemId: 'beef', name: 'BEEF', groupId: 'g-main', sortOrder: 0 },
+          { id: 'l2', menuItemId: 'fish', name: 'FISH', groupId: 'g-main', sortOrder: 1 },
+        ],
+      },
+    ],
+    menuItems: [{ id: 'set', name: 'SET MENU', price: 80, pricingMode: 'PER_PERSON' }],
+    services: [],
+    setups: [],
+  }
+
+  it('prices the bound PER_PERSON menu per head with no block items', () => {
+    render(
+      <EventBuilder
+        event={{ ...PRICED_EVENT, menuId: 'setmenu', guestCount: 96, depositAmount: 0, blocks: [] }}
+        venueId="v1"
+        refs={SET_MENU_REFS}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    // 96 x $95 = $9,120.00 (subtotal, group and balance share the figure).
+    expect(screen.getAllByText('$9120.00').length).toBeGreaterThan(0)
+  })
+
+  it('authors a set-menu pick at the block level and saves it (never a second set-menu line)', async () => {
+    render(
+      <EventBuilder
+        event={{
+          ...PRICED_EVENT,
+          menuId: 'setmenu',
+          guestCount: 96,
+          blocks: [
+            {
+              id: 'b1',
+              type: 'MENU_SELECTION',
+              title: null,
+              config: { items: [] },
+              sortOrder: 0,
+            },
+          ],
+        }}
+        venueId="v1"
+        refs={SET_MENU_REFS}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '▸ MENU SELECTION' }))
+    expect(screen.getByText(/SET MENU PICKS/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'MAIN: BEEF' }))
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      const calls = (globalThis.fetch as unknown as { mock: { calls: [string, { body?: string }][] } }).mock.calls
+      const blocksPut = calls.find(([url]) => String(url).endsWith('/blocks'))
+      expect(blocksPut).toBeTruthy()
+      const body = JSON.parse(blocksPut![1].body as string)
+      expect(body.blocks[0].config.packageChoices).toEqual([
+        { groupId: 'g-main', groupName: 'MAIN', choiceId: 'beef', choiceName: 'BEEF', priceDelta: 0 },
+      ])
+      // The picks are not duplicated onto a priced product line.
+      expect(body.blocks[0].config.items).toEqual([])
+    })
+  })
+
+  it('clears the picks when the menu is changed from the block MENU control', async () => {
+    const refs = {
+      ...SET_MENU_REFS,
+      menus: [
+        ...SET_MENU_REFS.menus,
+        { id: 'other', name: 'A LA CARTE', pricingMode: null, pricePerPerson: null },
+      ],
+    }
+    render(
+      <EventBuilder
+        event={{
+          ...PRICED_EVENT,
+          menuId: 'setmenu',
+          guestCount: 10,
+          depositAmount: 0,
+          blocks: [
+            {
+              id: 'b1',
+              type: 'MENU_SELECTION',
+              title: null,
+              config: {
+                items: [],
+                packageChoices: [
+                  { groupId: 'g-main', groupName: 'MAIN', choiceId: 'beef', choiceName: 'BEEF', priceDelta: 8 },
+                ],
+              },
+              sortOrder: 0,
+            },
+          ],
+        }}
+        venueId="v1"
+        refs={refs}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+
+    // The stale pick starts on the package line, then is cleared with the menu.
+    expect(screen.getAllByText('$1030.00').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: '▸ MENU SELECTION' }))
+    expect(screen.getByText(/SET MENU PICKS/)).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('MENU'), { target: { value: 'other' } })
+    expect(screen.queryByText(/SET MENU PICKS/)).toBeNull()
+
+    fireEvent.click(screen.getByText('SAVE'))
+    await waitFor(() => {
+      const calls = (globalThis.fetch as unknown as { mock: { calls: [string, { body?: string }][] } }).mock.calls
+      const blocksPut = calls.find(([url]) => String(url).endsWith('/blocks'))
+      expect(blocksPut).toBeTruthy()
+      const body = JSON.parse(blocksPut![1].body as string)
+      expect(body.blocks[0].config.packageChoices).toBeUndefined()
+    })
+  })
+
+  it('shows the set-menu picks only in the block that binds the menu', () => {
+    render(
+      <EventBuilder
+        event={{
+          ...PRICED_EVENT,
+          menuId: 'setmenu',
+          guestCount: 10,
+          blocks: [
+            {
+              id: 'b1',
+              type: 'DRINKS_SELECTION',
+              title: null,
+              config: { packageName: '', items: [], notes: '' },
+              sortOrder: 0,
+            },
+          ],
+        }}
+        venueId="v1"
+        refs={SET_MENU_REFS}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '▸ DRINKS SELECTION' }))
+    expect(screen.queryByText(/SET MENU PICKS/)).toBeNull()
+  })
+
+  it('shows the bound menu-line minimum over the product default', () => {
+    const refs = {
+      ...SET_MENU_REFS,
+      menus: [
+        {
+          ...SET_MENU_REFS.menus[0],
+          items: [
+            { id: 'l3', menuItemId: 'can', name: 'CANAPE', groupId: null, sortOrder: 0, minQty: 20 },
+          ],
+        },
+      ],
+      menuItems: [{ id: 'can', name: 'CANAPE', price: 4, minQty: 5 }],
+    }
+    render(
+      <EventBuilder
+        event={{
+          ...PRICED_EVENT,
+          menuId: 'setmenu',
+          blocks: [
+            {
+              id: 'b1',
+              type: 'MENU_SELECTION',
+              title: null,
+              config: { items: [{ menuItemId: 'can', qty: 10, unit: 'EACH' }] },
+              sortOrder: 0,
+            },
+          ],
+        }}
+        venueId="v1"
+        refs={refs}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '▸ MENU SELECTION' }))
+    expect(screen.getByText('MIN 20')).toBeTruthy()
+    const violations = screen.getByTestId('pricing-violations')
+    expect(violations.textContent).toMatch(/CANAPE: MINIMUM 20, ORDERED 10/)
+  })
+
+  it('reports a bound menu that is not in the refs instead of silently omitting it', () => {
+    render(
+      <EventBuilder
+        event={{ ...PRICED_EVENT, menuId: 'gone-menu', blocks: [] }}
+        venueId="v1"
+        menuDataAvailable={true}
+        refs={REFS}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    const violations = screen.getByTestId('pricing-violations')
+    expect(violations.textContent).toMatch(/MENU NO LONGER EXISTS/)
+  })
+
+  it('does not claim a purged menu while the menu list is unavailable', () => {
+    render(
+      <EventBuilder
+        event={{ ...PRICED_EVENT, menuId: 'setmenu', blocks: [] }}
+        venueId="v1"
+        menuDataAvailable={false}
+        refs={REFS}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    const violations = screen.getByTestId('pricing-violations')
+    expect(violations.textContent).toMatch(/MENU DETAILS UNAVAILABLE/)
+    expect(violations.textContent).not.toMatch(/MENU NO LONGER EXISTS/)
+  })
+
+  it('clears the set-menu picks when the bound menu changes', async () => {
+    render(
+      <EventBuilder
+        event={{
+          ...PRICED_EVENT,
+          menuId: 'setmenu',
+          blocks: [
+            {
+              id: 'b1',
+              type: 'MENU_SELECTION',
+              title: null,
+              config: {
+                items: [],
+                packageChoices: [
+                  { groupId: 'g-main', groupName: 'MAIN', choiceId: 'beef', choiceName: 'BEEF', priceDelta: 0 },
+                ],
+              },
+              sortOrder: 0,
+            },
+          ],
+        }}
+        venueId="v1"
+        refs={SET_MENU_REFS}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    fireEvent.change(screen.getByText('Menu').parentElement?.querySelector('select') as HTMLSelectElement, {
+      target: { value: '' },
+    })
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      const calls = (globalThis.fetch as unknown as { mock: { calls: [string, { body?: string }][] } }).mock.calls
+      const blocksPut = calls.find(([url]) => String(url).endsWith('/blocks'))
+      expect(blocksPut).toBeTruthy()
+      const body = JSON.parse(blocksPut![1].body as string)
+      expect(body.blocks[0].config.packageChoices).toBeUndefined()
+    })
   })
 })

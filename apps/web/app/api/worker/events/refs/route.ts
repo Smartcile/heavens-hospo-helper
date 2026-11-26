@@ -4,6 +4,7 @@ import { getWorkerSession } from '@/lib/worker-session'
 import { workerMayManageEvents } from '@/lib/worker-event-access'
 import { isGiftCardCategorized } from '@/lib/gift-cards-woo'
 import { loadCustomDefRows } from '@/lib/beo-block-defs.server'
+import { menuInclude, shapeMenuLine } from '@/lib/menu-lines.server'
 
 /**
  * GET /api/worker/events/refs — the picker data the worker BEO builder needs
@@ -19,15 +20,25 @@ export async function GET() {
 
   const venueId = session!.venueId
 
-  const [menus, items, services, setups, venue, blockDefs] = await Promise.all([
+  const [rawMenus, items, services, setups, venue, blockDefs] = await Promise.all([
     prisma.menu.findMany({
       where: { venueId, deletedAt: null },
-      select: { id: true, name: true },
+      include: menuInclude,
       orderBy: { name: 'asc' },
     }),
     prisma.menuItem.findMany({
       where: { venueId, deletedAt: null },
-      select: { id: true, name: true, wooCategoryId: true },
+      select: {
+        id: true,
+        name: true,
+        wooCategoryId: true,
+        price: true,
+        pricingMode: true,
+        servesMin: true,
+        servesMax: true,
+        minQty: true,
+        leadTimeDays: true,
+      },
       orderBy: { name: 'asc' },
     }),
     prisma.service.findMany({
@@ -40,7 +51,7 @@ export async function GET() {
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
     }),
-    prisma.venue.findUnique({ where: { id: venueId }, select: { giftCardWooCategoryId: true } }),
+    prisma.venue.findUnique({ where: { id: venueId }, select: { giftCardWooCategoryId: true, timezone: true } }),
     loadCustomDefRows(venueId),
   ])
 
@@ -48,7 +59,27 @@ export async function GET() {
   // of the event menu picker, the same rule the recipes/menus lists follow.
   const menuItems = items
     .filter((i) => !isGiftCardCategorized(i.wooCategoryId, venue?.giftCardWooCategoryId))
-    .map((i) => ({ id: i.id, name: i.name }))
+    .map((i) => ({
+      id: i.id,
+      name: i.name,
+      price: i.price,
+      pricingMode: i.pricingMode,
+      servesMin: i.servesMin,
+      servesMax: i.servesMax,
+      minQty: i.minQty,
+      leadTimeDays: i.leadTimeDays,
+    }))
 
-  return NextResponse.json({ menus, menuItems, services, setups, blockDefs })
+  // Full menus (groups + shaped lines) so the worker editor can default the
+  // pricing unit, author set-menu picks and show the right minimums (#192).
+  const menus = rawMenus.map((m) => ({ ...m, items: m.items.map(shapeMenuLine) }))
+
+  return NextResponse.json({
+    menus,
+    menuItems,
+    services,
+    setups,
+    blockDefs,
+    venueTimezone: venue?.timezone ?? null,
+  })
 }

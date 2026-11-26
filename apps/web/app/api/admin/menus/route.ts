@@ -44,6 +44,8 @@ export async function POST(req: NextRequest) {
   if (minPax != null && maxPax != null && minPax > maxPax) {
     return NextResponse.json({ error: 'minPax cannot exceed maxPax' }, { status: 400 })
   }
+  const pricingMode = menuPricingMode(body.pricingMode)
+  const pricePerPerson = toFloatOrNull(body.pricePerPerson)
 
   // A soft-deleted menu still holds the [venueId, name] unique slot — revive it
   // rather than failing on a constraint the user cannot see. Any legacy
@@ -60,6 +62,8 @@ export async function POST(req: NextRequest) {
         description: body.description ?? null,
         minPax,
         maxPax,
+        pricingMode,
+        pricePerPerson,
         isActive: body.isActive ?? true,
       },
     })
@@ -73,6 +77,8 @@ export async function POST(req: NextRequest) {
       description: body.description ?? null,
       minPax,
       maxPax,
+      pricingMode,
+      pricePerPerson,
       isActive: body.isActive ?? true,
       sortOrder: toIntOrNull(body.sortOrder) ?? 0,
     },
@@ -85,4 +91,17 @@ function toIntOrNull(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null
   const n = parseInt(String(v), 10)
   return isNaN(n) ? null : n
+}
+
+/** Menu-level pricing mode: EACH (the default) or PER_PERSON (#192). */
+function menuPricingMode(v: unknown): string | null {
+  const raw = String(v ?? '').trim().toUpperCase()
+  if (!raw || raw === 'EACH') return null
+  return raw === 'PER_PERSON' ? 'PER_PERSON' : null
+}
+
+function toFloatOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = parseFloat(String(v))
+  return Number.isFinite(n) && n >= 0 ? n : null
 }

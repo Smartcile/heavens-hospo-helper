@@ -7,7 +7,7 @@
 // to the list. Reserved `__`-prefixed config keys (e.g. `__state`) are stripped.
 
 import { blockDef, blockLabel, type BlockLibrary } from '@/lib/beo-blocks'
-import type { EventPriceLine } from '@/lib/event-pricing'
+import type { EventPriceLine, PricingUnit } from '@/lib/event-pricing'
 
 export const INTERNAL_BLOCK_TYPES = ['STAFFING', 'NOTES', 'HISTORY', 'AWAITING']
 
@@ -59,6 +59,7 @@ export interface PublicEventView {
     subtotal: number
     deposit: number
     balance: number
+    byUnit?: Record<PricingUnit, number>
     lines: EventPriceLine[]
   }
   approvedAt: string | null
@@ -83,7 +84,7 @@ export interface PublicEventInput {
   menuName: string | null
   setupName: string | null
   menuItems?: { id: string; name: string }[]
-  totals: { subtotal: number; deposit: number; balance: number; lines: EventPriceLine[] }
+  totals: { subtotal: number; deposit: number; balance: number; byUnit?: Record<PricingUnit, number>; lines: EventPriceLine[] }
   requests?: PublicEventRequest[]
 }
 
@@ -142,7 +143,26 @@ export function buildPublicEventView(
     setupName: input.setupName,
     blocks,
     menuItems: input.menuItems ?? [],
-    totals: input.totals,
+    // Customer-facing totals: unit + yield only. Internal minimums, lead times
+    // and violations are never exposed on the share page (#192).
+    totals: {
+      subtotal: input.totals.subtotal,
+      deposit: input.totals.deposit,
+      balance: input.totals.balance,
+      byUnit: input.totals.byUnit,
+      lines: (input.totals.lines ?? []).map((l) => ({
+        menuItemId: l.menuItemId,
+        packageId: l.packageId,
+        name: l.name,
+        qty: l.qty,
+        unit: l.unit,
+        unitPrice: l.unitPrice,
+        total: l.total,
+        servesMin: l.servesMin,
+        servesMax: l.servesMax,
+        choices: l.choices,
+      })),
+    },
     approvedAt: isoOrNull(input.customerApprovedAt),
     approvedByName: input.customerApprovedByName,
     requests: (input.requests ?? []).map((r) => ({

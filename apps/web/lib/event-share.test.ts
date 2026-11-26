@@ -21,7 +21,7 @@ const BASE: PublicEventInput = {
     subtotal: 85,
     deposit: 50,
     balance: 35,
-    lines: [{ menuItemId: 'm1', name: 'ROAST LAMB', qty: 2, unitPrice: 42.5, total: 85 }],
+    lines: [{ menuItemId: 'm1', name: 'ROAST LAMB', qty: 2, unit: 'EACH', unitPrice: 42.5, total: 85 }],
   },
   blocks: [
     { id: 'b2', type: 'MENU_SELECTION', title: null, config: { items: [{ menuItemId: 'm1', qty: 2 }] }, sortOrder: 1 },
@@ -135,5 +135,72 @@ describe('AWAITING + reserved block state', () => {
       ],
     })
     expect(view.blocks[0].config).toEqual({ notes: 'BUFFET' })
+  })
+})
+
+describe('units + yields on the share totals (#192)', () => {
+  it('carries unit and yield but never internal minimums, lead times or violations', () => {
+    const view = buildPublicEventView({
+      ...BASE,
+      totals: {
+        subtotal: 195,
+        deposit: 0,
+        balance: 195,
+        byUnit: { EACH: 0, PER_PERSON: 0, PER_PLATTER: 195 },
+        lines: [
+          {
+            menuItemId: 'pl1',
+            name: 'ANTIPASTO PLATTER',
+            qty: 3,
+            unit: 'PER_PLATTER',
+            unitPrice: 65,
+            total: 195,
+            servesMin: 4,
+            servesMax: 6,
+            minimum: 2,
+            leadTimeDays: 3,
+          },
+        ],
+      },
+    })
+
+    expect(view.totals.lines[0]).toMatchObject({
+      unit: 'PER_PLATTER',
+      servesMin: 4,
+      servesMax: 6,
+    })
+    expect(view.totals.lines[0]).not.toHaveProperty('minimum')
+    expect(view.totals.lines[0]).not.toHaveProperty('leadTimeDays')
+    expect(view.totals.byUnit).toEqual({ EACH: 0, PER_PERSON: 0, PER_PLATTER: 195 })
+    expect(view).not.toHaveProperty('violations')
+  })
+
+  it('passes choice picks through but never a priceDelta-free internal note', () => {
+    const view = buildPublicEventView({
+      ...BASE,
+      totals: {
+        subtotal: 1030,
+        deposit: 0,
+        balance: 1030,
+        byUnit: { EACH: 0, PER_PERSON: 1030, PER_PLATTER: 0 },
+        lines: [
+          {
+            menuItemId: 'menu1',
+            packageId: 'menu1',
+            name: 'WEDDING SET MENU',
+            qty: 10,
+            unit: 'PER_PERSON',
+            unitPrice: 103,
+            total: 1030,
+            choices: [
+              { groupId: 'g-main', groupName: 'MAIN', choiceId: 'lamb', choiceName: 'LAMB', priceDelta: 8 },
+            ],
+          },
+        ],
+      },
+    })
+    expect(view.totals.lines[0].choices).toEqual([
+      { groupId: 'g-main', groupName: 'MAIN', choiceId: 'lamb', choiceName: 'LAMB', priceDelta: 8 },
+    ])
   })
 })

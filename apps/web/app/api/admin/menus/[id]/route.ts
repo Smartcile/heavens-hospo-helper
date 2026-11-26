@@ -44,10 +44,20 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const body = await req.json()
   const data: Record<string, unknown> = {}
 
+  if (Array.isArray(body.groups) && body.groups.some((g: { minSelect?: unknown; maxSelect?: unknown }) => {
+    const min = toIntOrNull(g?.minSelect)
+    const max = toIntOrNull(g?.maxSelect)
+    return (min != null && min < 0) || (max != null && max < 0)
+  })) {
+    return NextResponse.json({ error: 'minSelect and maxSelect cannot be negative' }, { status: 400 })
+  }
+
   if (body.name !== undefined) data.name = String(body.name).toUpperCase().trim()
   if (body.description !== undefined) data.description = body.description || null
   if (body.minPax !== undefined) data.minPax = toIntOrNull(body.minPax)
   if (body.maxPax !== undefined) data.maxPax = toIntOrNull(body.maxPax)
+  if (body.pricingMode !== undefined) data.pricingMode = menuPricingMode(body.pricingMode)
+  if (body.pricePerPerson !== undefined) data.pricePerPerson = toFloatOrNull(body.pricePerPerson)
   if (body.isActive !== undefined) data.isActive = !!body.isActive
   if (body.sortOrder !== undefined) data.sortOrder = toIntOrNull(body.sortOrder) ?? 0
 
@@ -79,21 +89,34 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         const keep = new Set<string>()
 
         for (let i = 0; i < body.groups.length; i++) {
-          const g = body.groups[i] as { id?: string; _clientId?: string; name?: unknown; sortOrder?: unknown }
+          const g = body.groups[i] as {
+            id?: string
+            _clientId?: string
+            name?: unknown
+            sortOrder?: unknown
+            minSelect?: unknown
+            maxSelect?: unknown
+          }
           const name = String(g.name ?? '').toUpperCase().trim()
           if (!name) continue
+          const groupData = {
+            name,
+            sortOrder: toIntOrNull(g.sortOrder) ?? i,
+            minSelect: toIntOrNull(g.minSelect),
+            maxSelect: toIntOrNull(g.maxSelect),
+          }
           const found = g.id ? byId.get(g.id) : undefined
           if (found) {
             await tx.menuGroup.update({
               where: { id: found.id },
-              data: { name, sortOrder: toIntOrNull(g.sortOrder) ?? i, deletedAt: null },
+              data: { ...groupData, deletedAt: null },
             })
             keep.add(found.id)
             groupKeyToId.set(found.id, found.id)
             if (g._clientId) groupKeyToId.set(String(g._clientId), found.id)
           } else {
             const created = await tx.menuGroup.create({
-              data: { menuId: params.id, name, sortOrder: toIntOrNull(g.sortOrder) ?? i },
+              data: { menuId: params.id, ...groupData },
             })
             keep.add(created.id)
             groupKeyToId.set(created.id, created.id)
@@ -206,4 +229,17 @@ function toIntOrNull(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null
   const n = parseInt(String(v), 10)
   return isNaN(n) ? null : n
+}
+
+/** Menu-level pricing mode: EACH (the default) or PER_PERSON (#192). */
+function menuPricingMode(v: unknown): string | null {
+  const raw = String(v ?? '').trim().toUpperCase()
+  if (!raw || raw === 'EACH') return null
+  return raw === 'PER_PERSON' ? 'PER_PERSON' : null
+}
+
+function toFloatOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = parseFloat(String(v))
+  return Number.isFinite(n) && n >= 0 ? n : null
 }

@@ -172,6 +172,21 @@ describe('summariseBlock', () => {
     expect(summariseBlock({ type: 'STAFFING', config: { rows: [] } })).toBe('NO ROWS')
   })
 
+  it('counts authored set-menu picks even with no items', () => {
+    expect(
+      summariseBlock({
+        type: 'MENU_SELECTION',
+        config: { items: [], packageChoices: [{ groupId: 'g', choiceId: 'c' }] },
+      }),
+    ).toBe('1 PICK')
+    expect(
+      summariseBlock({
+        type: 'MENU_SELECTION',
+        config: { items: [{ menuItemId: 'm1', qty: 1 }], packageChoices: [{}, {}] },
+      }),
+    ).toBe('1 ITEM · 2 PICKS')
+  })
+
   it('falls back to the first scalar value, uppercased', () => {
     expect(summariseBlock({ type: 'NOTES', config: { text: 'hello' } })).toBe('HELLO')
   })

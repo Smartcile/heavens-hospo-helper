@@ -25,7 +25,7 @@ const VIEW: PublicEventView = {
     subtotal: 85,
     deposit: 50,
     balance: 35,
-    lines: [{ menuItemId: 'm1', name: 'ROAST LAMB', qty: 2, unitPrice: 42.5, total: 85 }],
+    lines: [{ menuItemId: 'm1', name: 'ROAST LAMB', qty: 2, unit: 'EACH', unitPrice: 42.5, total: 85 }],
   },
   approvedAt: null,
   approvedByName: null,
@@ -60,6 +60,160 @@ describe('EventShareClient', () => {
     globalThis.fetch = mockFetch(false)
     render(<EventShareClient token="tok" />)
     await waitFor(() => expect(screen.getByText('LINK NOT AVAILABLE')).toBeTruthy())
+  })
+
+  it('renders the unit, yield and grouped subtotals for a platter line', async () => {
+    const platterView: PublicEventView = {
+      ...VIEW,
+      blocks: [],
+      menuItems: [{ id: 'pl1', name: 'ANTIPASTO' }],
+      totals: {
+        subtotal: 195,
+        deposit: 0,
+        balance: 195,
+        byUnit: { EACH: 0, PER_PERSON: 0, PER_PLATTER: 195 },
+        lines: [
+          {
+            menuItemId: 'pl1',
+            name: 'ANTIPASTO',
+            qty: 3,
+            unit: 'PER_PLATTER',
+            unitPrice: 65,
+            total: 195,
+            servesMin: 4,
+            servesMax: 6,
+          },
+        ],
+      },
+    }
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve(platterView) }),
+    ) as unknown as typeof fetch
+
+    render(<EventShareClient token="tok" />)
+    await waitFor(() => expect(screen.getByText('SMITH WEDDING')).toBeTruthy())
+    expect(screen.getByText(/3 PLATTERS · SERVES 4-6/)).toBeTruthy()
+    expect(screen.getByText('PER PLATTER')).toBeTruthy()
+  })
+
+  it('uses the guest count for a PER_PERSON block item and resolves a package name', async () => {
+    const view: PublicEventView = {
+      ...VIEW,
+      guestCount: 96,
+      menuItems: [
+        { id: 'm1', name: 'SET MENU' },
+        { id: 'pkg1', name: 'WEDDING PACKAGE' },
+      ],
+      blocks: [
+        {
+          id: 'b1',
+          type: 'MENU_SELECTION',
+          label: 'MENU SELECTION',
+          fields: [],
+          title: null,
+          config: {
+            items: [
+              { menuItemId: 'm1', qty: 1, unit: 'PER_PERSON' },
+              { packageId: 'pkg1', qty: 1, unit: 'PER_PERSON' },
+            ],
+          },
+        },
+      ],
+      totals: {
+        subtotal: 9120,
+        deposit: 0,
+        balance: 9120,
+        byUnit: { EACH: 0, PER_PERSON: 9120, PER_PLATTER: 0 },
+        lines: [
+          {
+            menuItemId: 'pkg1',
+            packageId: 'pkg1',
+            name: 'WEDDING PACKAGE',
+            qty: 96,
+            unit: 'PER_PERSON',
+            unitPrice: 95,
+            total: 9120,
+          },
+        ],
+      },
+    }
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve(view) }),
+    ) as unknown as typeof fetch
+
+    render(<EventShareClient token="tok" />)
+    await waitFor(() => expect(screen.getByText('SMITH WEDDING')).toBeTruthy())
+
+    // The block item follows the guest count too (not "1 PERSON").
+    expect(screen.getAllByText(/96 PEOPLE/).length).toBeGreaterThanOrEqual(2)
+    expect(screen.queryByText('ITEM')).toBeNull()
+    expect(screen.getAllByText(/WEDDING PACKAGE/).length).toBeGreaterThan(0)
+  })
+
+  it('lists a PER_PERSON block item as 0 people when the event has 0 guests', async () => {
+    const view: PublicEventView = {
+      ...VIEW,
+      guestCount: 0,
+      menuItems: [{ id: 'set', name: 'SET MENU' }],
+      blocks: [
+        {
+          id: 'b1',
+          type: 'MENU_SELECTION',
+          label: 'MENU SELECTION',
+          fields: [],
+          title: null,
+          config: { items: [{ menuItemId: 'set', qty: 1, unit: 'PER_PERSON' }] },
+        },
+      ],
+      totals: { subtotal: 0, deposit: 0, balance: 0, lines: [] },
+    }
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve(view) }),
+    ) as unknown as typeof fetch
+
+    render(<EventShareClient token="tok" />)
+    await waitFor(() => expect(screen.getByText('SMITH WEDDING')).toBeTruthy())
+
+    expect(screen.getByText(/0 PEOPLE/)).toBeTruthy()
+    expect(screen.queryByText(/1 PERSON/)).toBeNull()
+    expect(screen.getAllByText('$0.00').length).toBeGreaterThan(0)
+  })
+
+  it('renders the choice picks and their upcharge on the package line', async () => {
+    const view: PublicEventView = {
+      ...VIEW,
+      blocks: [],
+      guestCount: 10,
+      totals: {
+        subtotal: 1030,
+        deposit: 0,
+        balance: 1030,
+        byUnit: { EACH: 0, PER_PERSON: 1030, PER_PLATTER: 0 },
+        lines: [
+          {
+            menuItemId: 'menu1',
+            packageId: 'menu1',
+            name: 'WEDDING SET MENU',
+            qty: 10,
+            unit: 'PER_PERSON',
+            unitPrice: 103,
+            total: 1030,
+            choices: [
+              { groupId: 'g-main', groupName: 'MAIN', choiceId: 'lamb', choiceName: 'LAMB', priceDelta: 8 },
+            ],
+          },
+        ],
+      },
+    }
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve(view) }),
+    ) as unknown as typeof fetch
+
+    render(<EventShareClient token="tok" />)
+    await waitFor(() => expect(screen.getByText('SMITH WEDDING')).toBeTruthy())
+    expect(screen.getByText(/10 PEOPLE · \$103\.00\/HEAD/)).toBeTruthy()
+    expect(screen.getByText('MAIN: LAMB')).toBeTruthy()
+    expect(screen.getByText('+$8.00')).toBeTruthy()
   })
 
   it('refuses to send an empty edit request', async () => {

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
-import { BeoBlockEditor, type BeoSetupOption } from '@/components/admin/BeoBlockEditor'
+import { BeoBlockEditor, type BeoChoiceGroup, type BeoSetupOption } from '@/components/admin/BeoBlockEditor'
 import { RoomSetupCard } from '@/components/RoomSetupCard'
 import { roomSetupLabel } from '@/lib/room-setup'
 import { BeoBlockLibrary, BEO_BLOCK_DRAG_PREFIX } from '@/components/admin/BeoBlockLibrary'
@@ -28,6 +28,8 @@ import {
   type BlockState,
 } from '@/lib/beo-blocks'
 import { computeEventTotals, type EventBlockLike } from '@/lib/event-pricing'
+import { venueNow } from '@/lib/availability'
+import { localDayKey } from '@/lib/date-nav'
 import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
 import { inlinePdfUrl } from '@/lib/pdf-actions'
 
@@ -81,8 +83,33 @@ export interface EventDetail {
 interface Option { id: string; name: string }
 
 export interface BeoRefs {
-  menus: Option[]
-  menuItems: (Option & { price?: number })[]
+  menus: (Option & {
+    pricingMode?: string | null
+    pricePerPerson?: number | null
+    groups?: {
+      id: string
+      name: string
+      sortOrder: number
+      minSelect?: number | null
+      maxSelect?: number | null
+    }[]
+    items?: {
+      id: string
+      menuItemId: string | null
+      name: string
+      groupId: string | null
+      sortOrder: number
+      minQty?: number | null
+    }[]
+  })[]
+  menuItems: (Option & {
+    price?: number
+    pricingMode?: string | null
+    servesMin?: number | null
+    servesMax?: number | null
+    minQty?: number | null
+    leadTimeDays?: number | null
+  })[]
   services: Option[]
   setups: BeoSetupOption[]
   /** Physical rooms (owned + shared) for the event's room picker (#189). */
@@ -125,6 +152,8 @@ function toDraft(e: EventDetail): Draft {
 export function EventBuilder({
   event,
   venueId,
+  venueTimezone,
+  menuDataAvailable,
   refs,
   library = BEO_BLOCKS,
   onBack,
@@ -132,6 +161,13 @@ export function EventBuilder({
 }: {
   event: EventDetail
   venueId: string
+  /** Venue timezone for the lead-time "today" (falls back to device-local). */
+  venueTimezone?: string | null
+  /**
+   * Whether the menu list actually loaded. `true` = a bound menu missing from
+   * it is purged; `false` = menu data is unavailable (do not claim purged).
+   */
+  menuDataAvailable?: boolean | null
   refs: BeoRefs
   library?: BlockLibrary
   onBack: () => void
@@ -181,6 +217,24 @@ export function EventBuilder({
 
   function updateBlock(id: string, p: Partial<BeoBlockRow>) {
     setDraft((d) => ({ ...d, blocks: d.blocks.map((b) => (b.id === id ? { ...b, ...p } : b)) }))
+  }
+
+  /**
+   * Set-menu picks belong to the bound menu's groups. Changing the menu must
+   * drop them, or a stale pick's upcharge would price invisibly on the new
+   * package line.
+   */
+  function changeMenu(menuId: string | null) {
+    setDraft((d) => ({
+      ...d,
+      menuId,
+      blocks: d.blocks.map((b) => {
+        if (!b.config || !('packageChoices' in b.config)) return b
+        const config = { ...b.config }
+        delete config.packageChoices
+        return { ...b, config }
+      }),
+    }))
   }
 
   function removeBlock(id: string) {
@@ -389,10 +443,74 @@ export function EventBuilder({
     return save({ historyNote: result.summary, draftOverride: next })
   }
 
+  const today = venueTimezone ? venueNow(venueTimezone).key : localDayKey()
+  // The event's bound menu is the package — a PER_PERSON menu prices per head.
+  // Matches the server readers (buildEventPricing) so the builder cannot drift.
+  const boundMenu = draft.menuId ? refs.menus.find((m) => m.id === draft.menuId) : undefined
+  const boundPackage =
+    boundMenu && boundMenu.pricingMode === 'PER_PERSON' && boundMenu.pricePerPerson != null
+      ? { id: boundMenu.id, name: boundMenu.name, price: Number(boundMenu.pricePerPerson) }
+      : undefined
+  // A bound menu missing from a loaded menu list is purged — report it, never
+  // $0. While the list is loading, or when it is unavailable (a restricted
+  // manager without ops.menus.view), say so instead of claiming it was purged.
+  const missingPackage =
+    draft.menuId && !boundMenu && menuDataAvailable === true ? { id: draft.menuId } : undefined
+  const menuUnavailableNotice =
+    draft.menuId && !boundMenu && menuDataAvailable === false
+      ? 'MENU DETAILS UNAVAILABLE — EVENT TOTAL MAY BE INCOMPLETE'
+      : null
+
+  // A menu line's own minQty is authoritative over the product's.
+  const minQtyByItem: Record<string, number | null> = {}
+  for (const line of boundMenu?.items ?? []) {
+    if (line.menuItemId) minQtyByItem[line.menuItemId] = line.minQty ?? null
+  }
+
+  const menuChoiceGroups: BeoChoiceGroup[] = [...(boundMenu?.groups ?? [])]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((g) => ({
+      id: g.id,
+      name: g.name,
+      minSelect: g.minSelect ?? null,
+      maxSelect: g.maxSelect ?? null,
+      choices: [...(boundMenu?.items ?? [])]
+        .filter((l) => !!l.menuItemId && l.groupId === g.id)
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((l) => ({ id: l.menuItemId as string, name: l.name })),
+    }))
+    .filter((g) => g.choices.length > 0)
+
   const totals = computeEventTotals(
     draft.blocks as unknown as EventBlockLike[],
-    refs.menuItems.map((m) => ({ id: m.id, name: m.name, price: m.price ?? 0 })),
+    refs.menuItems.map((m) => ({
+      id: m.id,
+      name: m.name,
+      price: m.price ?? 0,
+      pricingMode: m.pricingMode ?? null,
+      servesMin: m.servesMin ?? null,
+      servesMax: m.servesMax ?? null,
+      minQty: minQtyByItem[m.id] ?? m.minQty ?? null,
+      leadTimeDays: m.leadTimeDays ?? null,
+    })),
     draft.depositAmount === '' ? 0 : Number(draft.depositAmount),
+    {
+      guestCount: draft.guestCount,
+      eventDate: draft.eventDate,
+      today,
+      ...(boundPackage ? { package: boundPackage, packages: [boundPackage] } : {}),
+      ...(missingPackage ? { missingPackage } : {}),
+      ...(menuChoiceGroups.length > 0
+        ? {
+            choiceGroups: menuChoiceGroups.map(({ id, name, minSelect, maxSelect }) => ({
+              id,
+              name,
+              minSelect,
+              maxSelect,
+            })),
+          }
+        : {}),
+    },
   )
 
   const eventValues = draft as unknown as Record<string, unknown>
@@ -421,7 +539,7 @@ export function EventBuilder({
           <Input label="Date" type="date" value={draft.eventDate} onChange={(e) => patch({ eventDate: e.target.value })} />
           <Input label="Start" type="time" value={draft.startTime ?? ''} onChange={(e) => patch({ startTime: e.target.value })} />
           <Input label="End" type="time" value={draft.endTime ?? ''} onChange={(e) => patch({ endTime: e.target.value })} />
-          <Input label="Guests" type="number" value={String(draft.guestCount)} onChange={(e) => patch({ guestCount: Number(e.target.value) })} />
+          <Input label="Guests" type="number" data-testid="event-guests" value={String(draft.guestCount)} onChange={(e) => patch({ guestCount: Number(e.target.value) })} />
           <Input label="Dining style" value={draft.diningStyle ?? ''} placeholder="PLATED" onChange={(e) => patch({ diningStyle: e.target.value })} />
           <Select
             label="Room setup"
@@ -450,7 +568,7 @@ export function EventBuilder({
             label="Menu"
             value={draft.menuId ?? ''}
             options={[{ value: '', label: '— NONE —' }, ...refs.menus.map((m) => ({ value: m.id, label: m.name }))]}
-            onChange={(e) => patch({ menuId: e.target.value || null })}
+            onChange={(e) => changeMenu(e.target.value || null)}
           />
           <Select
             label="Service"
@@ -483,21 +601,49 @@ export function EventBuilder({
           {pushMsg && <span className="font-mono text-xs uppercase text-accent">{pushMsg}</span>}
         </div>
 
-        <div className="border border-grey-mid p-3 grid grid-cols-3 gap-3">
-          <div>
-            <div className="font-mono text-xs uppercase text-grey-light mb-0.5">SUBTOTAL</div>
-            <div className="font-mono text-sm text-white">${totals.subtotal.toFixed(2)}</div>
-          </div>
-          <div>
-            <div className="font-mono text-xs uppercase text-grey-light mb-0.5">DEPOSIT</div>
-            <div className="font-mono text-sm text-white">${totals.deposit.toFixed(2)}</div>
-          </div>
-          <div>
-            <div className="font-mono text-xs uppercase text-grey-light mb-0.5">BALANCE</div>
-            <div className={`font-mono text-sm ${totals.balance <= 0 ? 'text-success' : 'text-white'}`}>
-              ${totals.balance.toFixed(2)}
+        <div className="border border-grey-mid p-3 space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <div className="font-mono text-xs uppercase text-grey-light mb-0.5">SUBTOTAL</div>
+              <div className="font-mono text-sm text-white">${totals.subtotal.toFixed(2)}</div>
+            </div>
+            <div>
+              <div className="font-mono text-xs uppercase text-grey-light mb-0.5">DEPOSIT</div>
+              <div className="font-mono text-sm text-white">${totals.deposit.toFixed(2)}</div>
+            </div>
+            <div>
+              <div className="font-mono text-xs uppercase text-grey-light mb-0.5">BALANCE</div>
+              <div className={`font-mono text-sm ${totals.balance <= 0 ? 'text-success' : 'text-white'}`}>
+                ${totals.balance.toFixed(2)}
+              </div>
             </div>
           </div>
+          {(totals.byUnit.PER_PERSON > 0 || totals.byUnit.PER_PLATTER > 0 || totals.byUnit.EACH > 0) && (
+            <div className="grid grid-cols-3 gap-3 border-t border-grey-mid pt-2" data-testid="pricing-by-unit">
+              {([
+                ['PER_PERSON', 'PER PERSON'],
+                ['PER_PLATTER', 'PER PLATTER'],
+                ['EACH', 'EACH'],
+              ] as const).map(([unit, label]) => (
+                <div key={unit}>
+                  <div className="font-mono text-xs uppercase text-grey-light mb-0.5">{label}</div>
+                  <div className="font-mono text-xs text-white">${totals.byUnit[unit].toFixed(2)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {(totals.violations.length > 0 || menuUnavailableNotice) && (
+            <div className="border border-danger p-2 space-y-1" data-testid="pricing-violations">
+              {menuUnavailableNotice && (
+                <p className="font-mono text-2xs uppercase text-danger">{menuUnavailableNotice}</p>
+              )}
+              {totals.violations.map((v, i) => (
+                <p key={`${v.kind}-${i}`} className="font-mono text-2xs uppercase text-danger">
+                  {v.message}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -618,8 +764,22 @@ export function EventBuilder({
                       menuItems={refs.menuItems}
                       setups={refs.setups}
                       library={library}
+                      guestCount={draft.guestCount}
+                      eventDate={draft.eventDate}
+                      today={today}
+                      choiceGroups={menuChoiceGroups}
+                      minQtyByItem={minQtyByItem}
+                      boundPackage={
+                        boundPackage
+                          ? { name: boundPackage.name, pricePerPerson: boundPackage.price }
+                          : null
+                      }
                       onConfigChange={(config) => updateBlock(b.id, { config })}
-                      onEventFieldChange={(field, value) => patch({ [field]: value } as Partial<Draft>)}
+                      onEventFieldChange={(field, value) =>
+                        field === 'menuId'
+                          ? changeMenu((value as string) || null)
+                          : patch({ [field]: value } as Partial<Draft>)
+                      }
                     />
                   </div>
                 )}

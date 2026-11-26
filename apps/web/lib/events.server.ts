@@ -12,7 +12,7 @@ import {
   stripBoundFields,
   type BlockLibrary,
 } from '@/lib/beo-blocks'
-import { computeEventTotals, type EventBlockLike } from '@/lib/event-pricing'
+import { computeEventTotals, type EventBlockLike, type EventPricingOptions, type MenuPrice } from '@/lib/event-pricing'
 // Type-only — keeps jspdf out of every route that imports this module.
 import type { BeoPdfData } from '@/lib/beo-pdf'
 
@@ -27,7 +27,7 @@ export function generateShareToken(): string {
 /** The include shape for a customer-share lookup (no internal-only columns). */
 export const shareEventInclude = {
   venue: { select: { id: true, name: true } },
-  menu: { select: { name: true } },
+  menu: { select: { id: true, name: true, pricingMode: true, pricePerPerson: true, deletedAt: true } },
   setup: { select: { name: true } },
   customer: { select: { name: true } },
   blocks: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } },
@@ -81,6 +81,78 @@ export const eventInclude = {
 } satisfies Prisma.EventInclude
 
 export type EventWithBlocks = Prisma.EventGetPayload<{ include: typeof eventInclude }>
+
+/** The menu shape the pricing helper needs (the event's bound set menu). */
+export interface EventPricingMenu {
+  id: string
+  name: string
+  pricingMode: string | null
+  pricePerPerson: number | null
+  /** Soft-deleted menus are returned by the relation — treat them as purged. */
+  deletedAt?: Date | string | null
+}
+
+/**
+ * Pricing inputs for an event (#192): the effective product list (a menu line's
+ * `minQty` is authoritative when the product is on the event's menu), the
+ * bound PER_PERSON menu as an automatic package line, its choice groups for
+ * min/max validation, and a purged-menu report. Callers opt in by passing these
+ * options — the pre-order path does not.
+ */
+export async function buildEventPricing(
+  event: { menuId: string | null; menu?: EventPricingMenu | null },
+  products: MenuPrice[],
+): Promise<{ menuItems: MenuPrice[]; options: EventPricingOptions }> {
+  const boundMenu = event.menu && !event.menu.deletedAt ? event.menu : null
+  const menuGone = !!event.menuId && !boundMenu
+
+  const minByItem = new Map<string, number>()
+  if (event.menuId) {
+    const lines = await prisma.menuMenuItem.findMany({
+      where: { menuId: event.menuId, menuItemId: { not: null }, minQty: { not: null } },
+      select: { menuItemId: true, minQty: true },
+    })
+    for (const line of lines) {
+      if (line.menuItemId && line.minQty != null) minByItem.set(line.menuItemId, line.minQty)
+    }
+  }
+
+  const menuItems = products.map((p) => ({
+    ...p,
+    minQty: minByItem.get(p.id) ?? p.minQty ?? null,
+  }))
+
+  const options: EventPricingOptions = {}
+
+  if (boundMenu && boundMenu.pricingMode === 'PER_PERSON' && boundMenu.pricePerPerson != null) {
+    const pkg = { id: boundMenu.id, name: boundMenu.name, price: boundMenu.pricePerPerson }
+    options.package = pkg
+    // Also resolve an explicitly authored `packageId` line for the same menu.
+    options.packages = [pkg]
+  }
+
+  if (menuGone) {
+    options.missingPackage = { id: event.menuId as string, name: event.menu?.name }
+  }
+
+  if (boundMenu) {
+    const groups = await prisma.menuGroup.findMany({
+      where: { menuId: boundMenu.id, deletedAt: null },
+      select: { id: true, name: true, minSelect: true, maxSelect: true },
+      orderBy: { sortOrder: 'asc' },
+    })
+    if (groups.length > 0) {
+      options.choiceGroups = groups.map((g) => ({
+        id: g.id,
+        name: g.name,
+        minSelect: g.minSelect,
+        maxSelect: g.maxSelect,
+      }))
+    }
+  }
+
+  return { menuItems, options }
+}
 
 /** Append an entry to an event's append-only history log. */
 export async function logEventEvent(eventId: string, type: string, note: string): Promise<void> {
@@ -399,7 +471,7 @@ export async function buildBeoPdfData(eventId: string, venueId: string): Promise
     where: { id: eventId, venueId, deletedAt: null },
     include: {
       venue: { select: { name: true } },
-      menu: { select: { name: true } },
+      menu: { select: { id: true, name: true, pricingMode: true, pricePerPerson: true, deletedAt: true } },
       setup: { select: { name: true } },
       customer: { select: { name: true } },
       blocks: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } },
@@ -409,12 +481,23 @@ export async function buildBeoPdfData(eventId: string, venueId: string): Promise
 
   const menuItems = await prisma.menuItem.findMany({
     where: { venueId, deletedAt: null },
-    select: { id: true, name: true, price: true },
+    select: {
+      id: true,
+      name: true,
+      price: true,
+      pricingMode: true,
+      servesMin: true,
+      servesMax: true,
+      minQty: true,
+      leadTimeDays: true,
+    },
   })
+  const pricing = await buildEventPricing(event, menuItems)
   const totals = computeEventTotals(
     event.blocks as unknown as EventBlockLike[],
-    menuItems,
+    pricing.menuItems,
     event.depositAmount,
+    { ...pricing.options, guestCount: event.guestCount, eventDate: event.eventDate.toISOString().slice(0, 10) },
   )
 
   return {
@@ -439,12 +522,25 @@ export async function buildBeoPdfData(eventId: string, venueId: string): Promise
       title: b.title,
       config: (b.config && typeof b.config === 'object' ? b.config : {}) as Record<string, unknown>,
     })),
-    menuItems: menuItems.map((m) => ({ id: m.id, name: m.name })),
+    menuItems: [
+      ...pricing.menuItems.map((m) => ({ id: m.id, name: m.name })),
+      ...(pricing.options.packages ?? []).map((p) => ({ id: p.id, name: p.name })),
+    ],
     totals: {
       subtotal: totals.subtotal,
       deposit: totals.deposit,
       balance: totals.balance,
-      lines: totals.lines.map((l) => ({ name: l.name, qty: l.qty, total: l.total })),
+      byUnit: totals.byUnit,
+      lines: totals.lines.map((l) => ({
+        name: l.name,
+        qty: l.qty,
+        unit: l.unit,
+        servesMin: l.servesMin,
+        servesMax: l.servesMax,
+        unitPrice: l.unitPrice,
+        total: l.total,
+        choices: l.choices,
+      })),
     },
   }
 }

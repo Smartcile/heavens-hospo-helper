@@ -28,12 +28,18 @@ export function MenuItemDetailsModal({ menuItemId, menuItemName, venueId, onClos
   const [howToServe, setHowToServe] = useState('')
   const [swiftPosId, setSwiftPosId] = useState('')
   const [swiftPosDirty, setSwiftPosDirty] = useState(false)
+  // Event / catering pricing metadata (#192).
+  const [pricingMode, setPricingMode] = useState('')
+  const [servesMin, setServesMin] = useState('')
+  const [servesMax, setServesMax] = useState('')
+  const [minQty, setMinQty] = useState('')
+  const [leadTimeDays, setLeadTimeDays] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [messageTone, setMessageTone] = useState<'success' | 'error'>('success')
   const { dirty, markClean } = useDirty(
-    { tastingNotes, vintage, howToServe, swiftPosId },
+    { tastingNotes, vintage, howToServe, swiftPosId, pricingMode, servesMin, servesMax, minQty, leadTimeDays },
     { enabled: !loading },
   )
 
@@ -55,6 +61,11 @@ export function MenuItemDetailsModal({ menuItemId, menuItemName, venueId, onClos
       setVintage(item.vintage ?? '')
       setHowToServe(item.howToServe ?? '')
       setSwiftPosId(item.swiftPosId ?? '')
+      setPricingMode(item.pricingMode ?? '')
+      setServesMin(item.servesMin != null ? String(item.servesMin) : '')
+      setServesMax(item.servesMax != null ? String(item.servesMax) : '')
+      setMinQty(item.minQty != null ? String(item.minQty) : '')
+      setLeadTimeDays(item.leadTimeDays != null ? String(item.leadTimeDays) : '')
       setSwiftPosDirty(false)
     } catch {
       setMessage('COULD NOT LOAD PRODUCT DETAILS')
@@ -76,6 +87,11 @@ export function MenuItemDetailsModal({ menuItemId, menuItemName, venueId, onClos
           tastingNotes: tastingNotes || null,
           vintage: vintage || null,
           howToServe: howToServe || null,
+          pricingMode: pricingMode || null,
+          servesMin: servesMin === '' ? null : Number(servesMin),
+          servesMax: servesMax === '' ? null : Number(servesMax),
+          minQty: minQty === '' ? null : Number(minQty),
+          leadTimeDays: leadTimeDays === '' ? null : Number(leadTimeDays),
         }),
       })
       if (!r.ok) {
@@ -166,6 +182,74 @@ export function MenuItemDetailsModal({ menuItemId, menuItemName, venueId, onClos
                 className={textareaClass}
               />
             </div>
+          </div>
+
+          <div className="border-t border-grey-mid pt-3 space-y-2">
+            <label className="font-mono text-xs uppercase text-grey-light block">
+              EVENT PRICING — HOW THIS IS SOLD ON A BANQUET EVENT ORDER
+            </label>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div>
+                <label className="font-mono text-2xs uppercase text-grey-light block mb-1">PRICING MODE</label>
+                <select
+                  aria-label="Pricing mode"
+                  value={pricingMode}
+                  onChange={(e) => setPricingMode(e.target.value)}
+                  className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white"
+                >
+                  <option value="">EACH</option>
+                  <option value="PER_PERSON">PER PERSON</option>
+                  <option value="PER_PLATTER">PER PLATTER</option>
+                </select>
+              </div>
+              <div>
+                <label className="font-mono text-2xs uppercase text-grey-light block mb-1">SERVES MIN</label>
+                <input
+                  aria-label="Serves min"
+                  type="number"
+                  value={servesMin}
+                  onChange={(e) => setServesMin(e.target.value)}
+                  placeholder="4"
+                  className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light"
+                />
+              </div>
+              <div>
+                <label className="font-mono text-2xs uppercase text-grey-light block mb-1">SERVES MAX</label>
+                <input
+                  aria-label="Serves max"
+                  type="number"
+                  value={servesMax}
+                  onChange={(e) => setServesMax(e.target.value)}
+                  placeholder="6"
+                  className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light"
+                />
+              </div>
+              <div>
+                <label className="font-mono text-2xs uppercase text-grey-light block mb-1">MIN QTY</label>
+                <input
+                  aria-label="Minimum quantity"
+                  type="number"
+                  value={minQty}
+                  onChange={(e) => setMinQty(e.target.value)}
+                  placeholder="NONE"
+                  className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light"
+                />
+              </div>
+              <div>
+                <label className="font-mono text-2xs uppercase text-grey-light block mb-1">LEAD TIME (DAYS)</label>
+                <input
+                  aria-label="Lead time days"
+                  type="number"
+                  value={leadTimeDays}
+                  onChange={(e) => setLeadTimeDays(e.target.value)}
+                  placeholder="NONE"
+                  className="w-full bg-black border border-grey-mid text-white font-mono text-xs px-3 py-2 outline-none focus:border-white placeholder:text-grey-light"
+                />
+              </div>
+            </div>
+            <p className="font-mono text-2xs uppercase text-grey-light">
+              PER PERSON LINES FOLLOW THE GUEST COUNT. A MENU LINE&apos;S OWN MINIMUM IS USED WHEN THE PRODUCT IS ON A MENU.
+            </p>
           </div>
 
           <div className="border-t border-grey-mid pt-3">
