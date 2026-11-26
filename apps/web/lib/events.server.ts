@@ -74,6 +74,7 @@ export const eventInclude = {
   menu: { select: { id: true, name: true } },
   service: { select: { id: true, name: true } },
   setup: { select: { id: true, name: true } },
+  area: { select: { id: true, name: true } },
   booking: { select: { id: true, date: true, startTime: true, partySize: true } },
   template: { select: { id: true, name: true } },
   blocks: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } },
@@ -171,6 +172,7 @@ export function buildEventData(
   if (body.menuId !== undefined) data.menuId = nullableStr(body.menuId)
   if (body.serviceId !== undefined) data.serviceId = nullableStr(body.serviceId)
   if (body.setupId !== undefined) data.setupId = nullableStr(body.setupId)
+  if (body.areaId !== undefined) data.areaId = nullableStr(body.areaId)
   if (body.notes !== undefined) data.notes = nullableStr(body.notes)
   if (body.internalNotes !== undefined) data.internalNotes = nullableStr(body.internalNotes)
   if (body.pushToBookings !== undefined) data.pushToBookings = !!body.pushToBookings
@@ -291,6 +293,17 @@ export async function createEventFromTemplate(
     (b) => typeof b.type === 'string' && invalidBlockTypes([b], library).length === 0,
   )
 
+  // A template's default layout already names a room — carry that room onto the
+  // created event so its space view is correct immediately (#189).
+  let defaultAreaId: string | null = null
+  if (tpl.defaultSetupId) {
+    const setup = await prisma.floorPlanSetup.findFirst({
+      where: { id: tpl.defaultSetupId, deletedAt: null },
+      select: { areaId: true },
+    })
+    defaultAreaId = setup?.areaId ?? null
+  }
+
   return prisma.event.create({
     data: {
       venueId,
@@ -302,6 +315,7 @@ export async function createEventFromTemplate(
       menuId: tpl.defaultMenuId ?? null,
       serviceId: tpl.defaultServiceId ?? null,
       setupId: tpl.defaultSetupId ?? null,
+      areaId: defaultAreaId,
       templateId: tpl.id,
       contactName: overrides.contactName ?? null,
       contactEmail: overrides.contactEmail ?? null,

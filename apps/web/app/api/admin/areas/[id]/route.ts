@@ -66,6 +66,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     capacity?: number | string | null
     isActive?: boolean
     notes?: string | null
+    sharedVenueIds?: unknown
   } | null
   if (!body) return NextResponse.json({ error: 'INVALID BODY' }, { status: 400 })
 
@@ -103,7 +104,49 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
   }
 
-  const updated = await prisma.area.update({ where: { id: area.id }, data })
+  const updated = await prisma.$transaction(async (tx) => {
+    const areaRow = await tx.area.update({ where: { id: area.id }, data })
+
+    if (body.sharedVenueIds !== undefined) {
+      // Sharing is an owner-only write: `loadArea` already blocks a manager
+      // whose active venue is not the owner. An ADMIN may manage any venue,
+      // but only share with venues they can access.
+      const accessible = getAccessibleVenueIds(session)
+      const nextIds = (Array.isArray(body.sharedVenueIds) ? body.sharedVenueIds : [])
+        .filter((id): id is string => typeof id === 'string')
+        .map((id) => id.trim())
+        .filter((id) => id && id !== area.venueId && accessible.includes(id))
+      const current = await tx.areaVenue.findMany({
+        where: { areaId: area.id, deletedAt: null },
+        select: { venueId: true, isOwner: true },
+      })
+      const currentShared = new Set(current.filter((r) => !r.isOwner).map((r) => r.venueId))
+      const next = new Set(nextIds)
+      // Owner row always stays.
+      await tx.areaVenue.upsert({
+        where: { areaId_venueId: { areaId: area.id, venueId: area.venueId } },
+        update: { isOwner: true, deletedAt: null },
+        create: { areaId: area.id, venueId: area.venueId, isOwner: true },
+      })
+      for (const venueId of next) {
+        await tx.areaVenue.upsert({
+          where: { areaId_venueId: { areaId: area.id, venueId } },
+          update: { isOwner: false, deletedAt: null },
+          create: { areaId: area.id, venueId, isOwner: false },
+        })
+      }
+      const removed = [...currentShared].filter((id) => !next.has(id))
+      if (removed.length > 0) {
+        await tx.areaVenue.updateMany({
+          where: { areaId: area.id, venueId: { in: removed } },
+          data: { deletedAt: new Date() },
+        })
+      }
+    }
+
+    return areaRow
+  })
+
   return NextResponse.json({ area: updated })
 }
 
@@ -122,6 +165,10 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const { area } = loaded
 
   await prisma.$transaction([
+    prisma.areaVenue.updateMany({
+      where: { areaId: area.id, deletedAt: null },
+      data: { deletedAt: new Date() },
+    }),
     prisma.calendarFeed.updateMany({
       where: { areaId: area.id, deletedAt: null },
       data: { areaId: null, roomDismissed: true },

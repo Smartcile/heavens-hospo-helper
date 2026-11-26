@@ -22,10 +22,13 @@ interface Booking {
   contactName: string; contactPhone: string | null; contactEmail: string | null
   source: string; status: string; notes: string | null
   deletedAt: string | null
+  areaId?: string | null
   tables: BookingTable[]
   service: { id: string; name: string } | null
   orders: BookingOrder[]
 }
+
+interface AreaLite { id: string; name: string }
 
 /** "HOUSE BURGER ×2" lines for the linked pre-order(s), null when none. */
 function preOrderLines(b: Booking): string[] | null {
@@ -95,6 +98,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
   const [venueId, setVenueId] = useState(() => getActiveVenueId(role, sessionVenueId, defaultVenueId))
   const [setups, setSetups] = useState<SetupLite[]>([])
   const [services, setServices] = useState<ServiceLite[]>([])
+  const [areas, setAreas] = useState<AreaLite[]>([])
   const [error, setError] = useState('')
 
   // DIARY / TABLE / DELETED is URL-driven (`sub` on /admin/ops) — the Ops Hub
@@ -113,6 +117,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
   const [formSource, setFormSource] = useState('PHONE')
   const [formSetupId, setFormSetupId] = useState('')
   const [formServiceId, setFormServiceId] = useState('')
+  const [formAreaId, setFormAreaId] = useState('')
   const [formNotes, setFormNotes] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -264,6 +269,15 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
     })
   }, [venueId])
 
+  // Rooms available to this venue (owned + shared), for the ROOM picker.
+  useEffect(() => {
+    if (!venueId) { setAreas([]); return }
+    fetch(`/api/admin/areas?venueId=${venueId}`)
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((data: { areas?: AreaLite[] }) => setAreas(data.areas ?? []))
+      .catch(() => setAreas([]))
+  }, [venueId])
+
   // AVAILABLE windows on the selected date — the union of every active
   // service's slots (exceptions applied), clamped to the grid's hours. The
   // same windows the API enforces on booking create.
@@ -348,7 +362,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
     setEditing(null)
     setFormName(''); setFormPhone(''); setFormEmail('')
     setFormPartySize('2'); setFormStartTime('18:00'); setFormEndTime('20:00')
-    setFormSource('PHONE'); setFormSetupId(selectedSetupId || (setups.length > 0 ? setups[0].id : '')); setFormServiceId(''); setFormNotes(''); setAvailMsg('')
+    setFormSource('PHONE'); setFormSetupId(selectedSetupId || (setups.length > 0 ? setups[0].id : '')); setFormServiceId(''); setFormAreaId(''); setFormNotes(''); setAvailMsg('')
     setCreateSelectedTableIds([])
     setCreateTableSearchValue('')
     setShowModal(true)
@@ -360,6 +374,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
     setFormPartySize(String(b.partySize)); setFormStartTime(b.startTime); setFormEndTime(b.endTime)
     setFormSource(b.source); setFormNotes(b.notes ?? '')
     setFormServiceId(b.service?.id ?? '')
+    setFormAreaId(b.areaId ?? '')
     setEditSelectedTableIds(b.tables.map((t) => t.setupItem.id))
     setEditTableSearchValue('')
     setAvailMsg('')
@@ -448,7 +463,7 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
   function openCreateOnTable(startMins: number, endMins: number, sid?: string) {
     setEditing(null)
     setFormName(''); setFormPhone(''); setFormEmail('')
-    setFormPartySize('2'); setFormSource('PHONE'); setFormSetupId(sid ?? ''); setFormServiceId(''); setFormNotes(''); setAvailMsg('')
+    setFormPartySize('2'); setFormSource('PHONE'); setFormSetupId(sid ?? ''); setFormServiceId(''); setFormAreaId(''); setFormNotes(''); setAvailMsg('')
     setCreateSelectedTableIds([])
     setCreateTableSearchValue('')
     setFormStartTime(minsToTime(startMins)); setFormEndTime(minsToTime(endMins))
@@ -519,13 +534,13 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
     if (editing) {
       const r = await fetch(`/api/admin/bookings/${editing.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contactName: formName, contactPhone: formPhone || null, contactEmail: formEmail || null, partySize: formPartySize, startTime: formStartTime, endTime: formEndTime, source: formSource, notes: formNotes || null, serviceId: formServiceId || null, tableIds: editSelectedTableIds }),
+        body: JSON.stringify({ contactName: formName, contactPhone: formPhone || null, contactEmail: formEmail || null, partySize: formPartySize, startTime: formStartTime, endTime: formEndTime, source: formSource, notes: formNotes || null, serviceId: formServiceId || null, areaId: formAreaId || null, tableIds: editSelectedTableIds }),
       })
       if (!r.ok) { setError('SAVE FAILED'); setSaving(false); return }
     } else {
       const r = await fetch('/api/admin/bookings', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, startTime: formStartTime, endTime: formEndTime, partySize: parseInt(formPartySize), contactName: formName, contactPhone: formPhone || null, contactEmail: formEmail || null, source: formSource, notes: formNotes || null, venueId, serviceId: formServiceId || undefined, setupId: formSetupId || null, floorPlanSlug: formSetupId ? setups.find((s) => s.id === formSetupId)?.floorPlan?.slug ?? null : null, tableIds: createSelectedTableIds.length > 0 ? createSelectedTableIds : undefined }),
+        body: JSON.stringify({ date, startTime: formStartTime, endTime: formEndTime, partySize: parseInt(formPartySize), contactName: formName, contactPhone: formPhone || null, contactEmail: formEmail || null, source: formSource, notes: formNotes || null, venueId, serviceId: formServiceId || undefined, areaId: formAreaId || null, setupId: formSetupId || null, floorPlanSlug: formSetupId ? setups.find((s) => s.id === formSetupId)?.floorPlan?.slug ?? null : null, tableIds: createSelectedTableIds.length > 0 ? createSelectedTableIds : undefined }),
       })
       if (!r.ok) { const d = await r.json(); setError(d.error ?? 'SAVE FAILED'); setSaving(false); return }
     }
@@ -1148,6 +1163,8 @@ export function BookingClient({ role, sessionVenueId, defaultVenueId, sub }: { r
             <Select label={editing ? 'SERVICE' : 'SERVICE (REQUIRED)'} value={formServiceId} onChange={(e) => pickService(e.target.value)}
               options={[{ value: '', label: '— SELECT A SERVICE —' }, ...services.map((s) => ({ value: s.id, label: s.name }))]} />
           )}
+          <Select label="ROOM (OPTIONAL)" aria-label="Room" value={formAreaId} onChange={(e) => setFormAreaId(e.target.value)}
+            options={[{ value: '', label: '— NO ROOM —' }, ...areas.map((a) => ({ value: a.id, label: a.name }))]} />
           {!editing && formServiceId && (
             <Panel variant="outline" padding="xs" className="space-y-1.5">
               <div className="flex items-center justify-between gap-2">

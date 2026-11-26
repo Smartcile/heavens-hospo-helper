@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma, Prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { buildEventData, eventInclude, logEventEvent } from '@/lib/events.server'
+import { areaVisibleToVenue } from '@/lib/area-scope.server'
 
 type Params = { params: { id: string } }
 
@@ -41,13 +42,19 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   const existing = await prisma.event.findFirst({
     where: { id: params.id, deletedAt: null, ...scope(session) },
-    select: { id: true, status: true },
+    select: { id: true, status: true, venueId: true },
   })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
   const { data, error } = buildEventData(body)
   if (error) return NextResponse.json({ error }, { status: 400 })
+
+  if (typeof data.areaId === 'string' && data.areaId) {
+    if (!(await areaVisibleToVenue(data.areaId, existing.venueId))) {
+      return NextResponse.json({ error: 'UNKNOWN ROOM' }, { status: 400 })
+    }
+  }
 
   const event = await prisma.event.update({
     where: { id: params.id },

@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { getManagerVenueId, getAccessibleVenueIds } from '@/lib/venue-scope'
+import { areaWhereForVenues } from '@/lib/area-scope'
 import { expandRoomFeed } from '@/lib/calendar-feeds'
 
 type SessionLike = {
@@ -15,13 +16,19 @@ function canUseVenue(session: SessionLike, venueId: string): boolean {
   return getAccessibleVenueIds(session).includes(venueId)
 }
 
-async function payloadFor(venueId: string) {
-  const [areas, floorPlans, unassignedFeeds] = await Promise.all([
+async function payloadFor(venueId: string, shareableVenueIds: string[]) {
+  const [areas, floorPlans, unassignedFeeds, venues] = await Promise.all([
     prisma.area.findMany({
-      where: { venueId, deletedAt: null },
+      // Owner rooms + rooms shared into this venue (#189).
+      where: { deletedAt: null, ...areaWhereForVenues([venueId]) },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       include: {
         floorPlan: { select: { id: true, slug: true, name: true } },
+        venue: { select: { id: true, name: true } },
+        venueLinks: {
+          where: { deletedAt: null },
+          select: { venueId: true, isOwner: true, venue: { select: { id: true, name: true } } },
+        },
         feeds: {
           where: { deletedAt: null },
           orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
@@ -46,8 +53,26 @@ async function payloadFor(venueId: string) {
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: { id: true, name: true, url: true, source: true, isActive: true, lastSyncedAt: true },
     }),
+    prisma.venue.findMany({
+      where: { deletedAt: null, id: { in: shareableVenueIds } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    }),
   ])
-  return { venueId, areas, floorPlans, unassignedFeeds }
+  return {
+    venueId,
+    areas: areas.map((a) => ({
+      ...a,
+      ownerVenueId: a.venueId,
+      isOwner: a.venueId === venueId,
+      sharedWith: a.venueLinks
+        .filter((l) => !l.isOwner && l.venueId !== a.venueId)
+        .map((l) => ({ venueId: l.venueId, name: l.venue?.name ?? l.venueId })),
+    })),
+    floorPlans,
+    unassignedFeeds,
+    venues,
+  }
 }
 
 // Venue areas — created in Venue Setup. An area may have zero or more calendar
@@ -63,7 +88,7 @@ export async function GET(req: NextRequest) {
   if (!venueId) return NextResponse.json({ error: 'venueId is required' }, { status: 400 })
   if (!canUseVenue(session, venueId)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  return NextResponse.json(await payloadFor(venueId))
+  return NextResponse.json(await payloadFor(venueId, getAccessibleVenueIds(session)))
 }
 
 // Create an area. A calendar URL is optional — with one, the same
@@ -135,6 +160,8 @@ export async function POST(req: NextRequest) {
         sortOrder,
       },
     })
+    // The owner link makes the shared-room union read uniform.
+    await tx.areaVenue.create({ data: { areaId: created.id, venueId, isOwner: true } })
     for (const draft of drafts) {
       await tx.calendarFeed.create({
         data: {

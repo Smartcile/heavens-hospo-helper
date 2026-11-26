@@ -123,6 +123,7 @@ export async function syncVenueCalendar(venueId: string): Promise<SyncResult> {
             title: ev.title.toUpperCase(),
             description: ev.description,
             location: ev.location,
+            areaId: feed.areaId,
             startsAt: ev.startsAt,
             endsAt: ev.endsAt,
             allDay: ev.allDay,
@@ -141,6 +142,14 @@ export async function syncVenueCalendar(venueId: string): Promise<SyncResult> {
             deletedAt: null, // un-delete if it reappeared
           },
         })
+        // Existing events (and rows imported before areas existed) inherit the
+        // feed's room, but never overwrite a room that is already set.
+        if (feed.areaId) {
+          await prisma.calendarEvent.updateMany({
+            where: { venueId, source: feed.source, uid: ev.uid, areaId: null },
+            data: { areaId: feed.areaId },
+          })
+        }
         imported++
       }
       anySuccess = true

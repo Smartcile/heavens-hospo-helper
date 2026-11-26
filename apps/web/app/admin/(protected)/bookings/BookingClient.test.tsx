@@ -20,6 +20,56 @@ const deletedBooking = {
   orders: [],
 }
 
+describe('BookingClient room picker', () => {
+  const activeBooking = {
+    ...deletedBooking,
+    id: 'bk-1',
+    deletedAt: null,
+    areaId: null,
+  }
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const res = (data: unknown) => ({ ok: true, json: async () => data }) as Response
+      if (url === '/api/admin/venues') return res([{ id: 'v1', name: 'TEST VENUE' }])
+      if (url.startsWith('/api/admin/areas')) return res({ areas: [{ id: 'shared-room', name: 'SHARED ROOM' }] })
+      if (url.startsWith('/api/admin/services')) return res([])
+      if (url.includes('deleted=1')) return res([])
+      if (url.startsWith('/api/admin/booking-tables')) return res({ tables: [], bookings: [] })
+      if (url.startsWith('/api/admin/bookings?date=')) return res([activeBooking])
+      if (url.startsWith('/api/admin/bookings/bk-1') && init?.method === 'PUT') return res(activeBooking)
+      return res({})
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('lists shared rooms and sends the selected room when saving an edit', async () => {
+    render(<BookingClient role="ADMIN" sessionVenueId="v1" sub="diary" />)
+
+    fireEvent.click(await screen.findByText('SUE LANE'))
+    const room = await screen.findByLabelText('Room')
+    expect(screen.getByText('SHARED ROOM')).toBeTruthy()
+
+    fireEvent.change(room, { target: { value: 'shared-room' } })
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/admin/bookings/bk-1',
+        expect.objectContaining({
+          method: 'PUT',
+          body: expect.stringContaining('"areaId":"shared-room"'),
+        }),
+      )
+    })
+  })
+})
+
 describe('BookingClient deleted bookings', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {})

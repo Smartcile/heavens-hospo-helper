@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { getManagerVenueId, getAccessibleVenueIds } from '@/lib/venue-scope'
+import { areaWhereForVenues } from '@/lib/area-scope'
 import { expandRoomFeed } from '@/lib/calendar-feeds'
 
 type SessionLike = {
@@ -74,8 +75,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   if (body.areaId !== undefined) {
     if (body.areaId) {
+      // The feed's room may be one shared into the feed's venue (#189).
       const area = await prisma.area.findFirst({
-        where: { id: body.areaId, venueId: feed.venueId, deletedAt: null },
+        where: { id: body.areaId, deletedAt: null, ...areaWhereForVenues([feed.venueId]) },
         select: { id: true },
       })
       if (!area) return NextResponse.json({ error: 'UNKNOWN AREA' }, { status: 400 })

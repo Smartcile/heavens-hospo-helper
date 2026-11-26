@@ -95,15 +95,20 @@ export function EventsPlanner({
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const [menus, menuItems, services, setups, templates] = await Promise.all([
+      const [menus, menuItems, services, setups, templates, areas] = await Promise.all([
         safeArray<{ id: string; name: string }>(`/api/admin/menus?venueId=${venueId}`),
         safeArray<{ id: string; name: string; price?: number }>(`/api/admin/menu-items?venueId=${venueId}`),
         safeArray<{ id: string; name: string }>(`/api/admin/services?venueId=${venueId}`),
         safeArray<BeoRefs['setups'][number]>(`/api/admin/floorplan-setups?venueId=${venueId}`),
         safeArray<TemplateOption>(`/api/admin/event-templates?venueId=${venueId}`),
+        fetch(`/api/admin/areas?venueId=${venueId}`)
+          .then((r) => (r.ok ? r.json() : {}))
+          .then((d: { areas?: Array<{ id: string; name: string }> }) =>
+            (d.areas ?? []).map((a) => ({ id: a.id, name: a.name })))
+          .catch(() => [] as Array<{ id: string; name: string }>),
       ])
       if (!alive) return
-      setRefs({ menus, menuItems, services, setups })
+      setRefs({ menus, menuItems, services, setups, areas })
       setTemplates(templates)
     })()
     return () => { alive = false }

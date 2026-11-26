@@ -90,7 +90,11 @@ export async function POST(req: NextRequest) {
     })
     if (!target) return NextResponse.json({ error: 'UNKNOWN TARGET ROOM' }, { status: 400 })
 
-    const [feeds, events] = await prisma.$transaction([
+    const [, feeds, events] = await prisma.$transaction([
+      prisma.areaVenue.updateMany({
+        where: { areaId: area.id, deletedAt: null },
+        data: { deletedAt: new Date() },
+      }),
       prisma.calendarFeed.updateMany({
         where: { areaId: area.id, deletedAt: null },
         data: { areaId: target.id, roomDismissed: false },
@@ -111,6 +115,10 @@ export async function POST(req: NextRequest) {
 
   if (body.action === 'REMOVE') {
     await prisma.$transaction([
+      prisma.areaVenue.updateMany({
+        where: { areaId: area.id, deletedAt: null },
+        data: { deletedAt: new Date() },
+      }),
       prisma.calendarFeed.updateMany({
         where: { areaId: area.id, deletedAt: null },
         data: { areaId: null, roomDismissed: true },

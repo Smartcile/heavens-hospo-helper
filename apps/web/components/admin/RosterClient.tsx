@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { DateNav } from '@/components/admin/DateNav'
 import { EventStaffingModal, EventClaimsModal } from '@/components/admin/EventStaffingModal'
+import { SpaceAvailabilityModal } from '@/components/admin/SpaceAvailabilityModal'
 import { CalendarEventFormModal } from '@/components/admin/CalendarEventFormModal'
 import { StaffEditModal } from '@/components/admin/StaffEditModal'
 import { RosterTemplatesModal } from '@/components/admin/RosterTemplatesModal'
@@ -154,6 +155,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
   const [editEventId, setEditEventId] = useState<string | null>(null)
   const [createEventOpen, setCreateEventOpen] = useState(false)
   const [showQueue, setShowQueue] = useState(false)
+  const [showSpace, setShowSpace] = useState(false)
   const [pdfTarget, setPdfTarget] = useState<PdfViewerTarget | null>(null)
   const pdfObjectUrlRef = useRef<string | null>(null)
 
@@ -900,6 +902,7 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
               <Button size="sm" variant="ghost" onClick={() => setShowQueue(true)}>
                 CLAIMS{eventRoster.data && eventRoster.data.queue.length > 0 ? ` (${eventRoster.data.queue.length})` : ''}
               </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowSpace(true)}>SPACE</Button>
               <Button size="sm" onClick={() => setCreateEventOpen(true)}>+ NEW EVENT</Button>
               <span className="font-mono text-2xs uppercase text-grey-light">
                 {listedSeats > 0 ? `${listedSeats} LISTED SHIFT${listedSeats === 1 ? '' : 'S'} THIS WEEK` : 'NO LISTED SHIFTS THIS WEEK'}
@@ -1210,6 +1213,14 @@ export function RosterClient({ role, sessionVenueId, defaultVenueId }: { role: s
           busy={busy}
           onReview={reviewQueueClaim}
           onClose={() => setShowQueue(false)}
+        />
+      )}
+
+      {showSpace && (
+        <SpaceAvailabilityModal
+          venueId={venueId}
+          initialDate={weekStart}
+          onClose={() => setShowSpace(false)}
         />
       )}
 

@@ -26,6 +26,10 @@ export async function POST(req: NextRequest) {
     select: { id: true },
   })
   const ownedSet = new Set(owned.map((a) => a.id))
+  // Owner-only: a shared room from another venue must never be reordered here.
+  if (order.some((id) => !ownedSet.has(id))) {
+    return NextResponse.json({ error: 'ONLY THIS VENUE’S OWN ROOMS CAN BE REORDERED' }, { status: 403 })
+  }
 
   const updates = order
     .map((id, index) => ({ id, index }))

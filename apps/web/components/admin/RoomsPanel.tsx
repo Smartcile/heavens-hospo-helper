@@ -27,7 +27,13 @@ interface RoomArea {
   isActive: boolean
   feedCount: number
   eventCount?: number
+  ownerVenueId?: string
+  isOwner?: boolean
+  /** Other venues this room is shared with (#189). */
+  sharedWith?: { venueId: string; name: string }[]
 }
+
+interface VenueOption { id: string; name: string }
 
 interface RoomFeed {
   id: string
@@ -56,6 +62,7 @@ export function RoomsPanel({ venueId }: { venueId: string }) {
   const [areas, setAreas] = useState<RoomArea[]>([])
   const [feeds, setFeeds] = useState<RoomFeed[]>([])
   const [floorPlans, setFloorPlans] = useState<PlanOption[]>([])
+  const [venues, setVenues] = useState<VenueOption[]>([])
   const [junk, setJunk] = useState<JunkRoom[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -78,8 +85,9 @@ export function RoomsPanel({ venueId }: { venueId: string }) {
       setAreas(d.areas ?? [])
       setFeeds(d.feeds ?? [])
       setFloorPlans(d.floorPlans ?? [])
+      setVenues(d.venues ?? [])
     } else {
-      setAreas([]); setFeeds([]); setFloorPlans([])
+      setAreas([]); setFeeds([]); setFloorPlans([]); setVenues([])
     }
     if (junkRes.ok) {
       const d = await junkRes.json()
@@ -156,7 +164,10 @@ export function RoomsPanel({ venueId }: { venueId: string }) {
   async function removeRoom(room: RoomArea) {
     const feedText = `${room.feedCount} CALENDAR${room.feedCount === 1 ? '' : 'S'} BECOME UNASSIGNED AND KEEP SYNCING`
     const eventText = `${room.eventCount ?? 0} EVENT${room.eventCount === 1 ? '' : 'S'} STAY BUT FALL BACK TO "OTHER"`
-    if (!confirm(`REMOVE ${room.name}? ${feedText}; ${eventText}.`)) return
+    const sharedText = room.sharedWith?.length
+      ? ` SHARED WITH ${room.sharedWith.map((v) => v.name).join(', ')} — THEY LOSE ACCESS, BUT THEIR BOOKINGS STAY`
+      : ''
+    if (!confirm(`REMOVE ${room.name}? ${feedText}; ${eventText}.${sharedText}`)) return
     setBusy(true); setMessage('')
     const r = await fetch(`/api/admin/areas/${room.id}`, { method: 'DELETE' })
     setBusy(false)
@@ -171,6 +182,9 @@ export function RoomsPanel({ venueId }: { venueId: string }) {
     const index = areas.findIndex((a) => a.id === id)
     const target = index + dir
     if (index < 0 || target < 0 || target >= areas.length) return
+    // A room shared into this venue is owned elsewhere — it cannot be reordered
+    // here, and the payload must only contain this venue's own rooms.
+    if (areas[index].isOwner === false || areas[target].isOwner === false) return
     const next = [...areas]
     const [row] = next.splice(index, 1)
     next.splice(target, 0, row)
@@ -178,7 +192,7 @@ export function RoomsPanel({ venueId }: { venueId: string }) {
     await fetch('/api/admin/areas/reorder', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ venueId, order: next.map((a) => a.id) }),
+      body: JSON.stringify({ venueId, order: next.filter((a) => a.isOwner !== false).map((a) => a.id) }),
     })
   }
 
@@ -292,7 +306,19 @@ export function RoomsPanel({ venueId }: { venueId: string }) {
             <tbody className="divide-y divide-grey-mid font-mono text-xs text-white">
               {areas.map((a, i) => (
                 <tr key={a.id}>
-                  <td className="px-3 py-2">{a.name}</td>
+                  <td className="px-3 py-2">
+                    <div>{a.name}</div>
+                    {a.isOwner === false && (
+                      <div className="font-mono text-2xs uppercase text-accent">
+                        SHARED FROM {venues.find((v) => v.id === a.ownerVenueId)?.name ?? 'ANOTHER VENUE'}
+                      </div>
+                    )}
+                    {a.isOwner !== false && (a.sharedWith?.length ?? 0) > 0 && (
+                      <div className="font-mono text-2xs uppercase text-grey-light">
+                        SHARED WITH {a.sharedWith!.map((v) => v.name).join(', ')}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-3 py-2">{a.capacity ?? '—'}</td>
                   <td className="px-3 py-2">{planName(a.floorPlanId)}</td>
                   <td className="px-3 py-2">{a.feedCount}</td>
@@ -301,17 +327,21 @@ export function RoomsPanel({ venueId }: { venueId: string }) {
                       <button
                         aria-label={`Move ${a.name} up`}
                         onClick={() => void moveRoom(a.id, -1)}
-                        disabled={i === 0}
+                        disabled={i === 0 || a.isOwner === false || areas[i - 1]?.isOwner === false}
                         className="w-8 h-8 border border-grey-mid text-grey-light font-mono text-xs hover:border-white hover:text-white disabled:opacity-30"
                       >↑</button>
                       <button
                         aria-label={`Move ${a.name} down`}
                         onClick={() => void moveRoom(a.id, 1)}
-                        disabled={i === areas.length - 1}
+                        disabled={i === areas.length - 1 || a.isOwner === false || areas[i + 1]?.isOwner === false}
                         className="w-8 h-8 border border-grey-mid text-grey-light font-mono text-xs hover:border-white hover:text-white disabled:opacity-30"
                       >↓</button>
-                      <Button size="sm" variant="ghost" onClick={() => setEditing(a)}>EDIT</Button>
-                      <Button size="sm" variant="danger" onClick={() => void removeRoom(a)} disabled={busy}>✕</Button>
+                      {a.isOwner !== false && (
+                        <>
+                          <Button size="sm" variant="ghost" onClick={() => setEditing(a)}>EDIT</Button>
+                          <Button size="sm" variant="danger" onClick={() => void removeRoom(a)} disabled={busy}>✕</Button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -430,6 +460,7 @@ export function RoomsPanel({ venueId }: { venueId: string }) {
           venueId={venueId}
           room={editing === 'new' ? null : editing}
           floorPlans={floorPlans}
+          venues={venues}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); setMessage('SAVED'); void load() }}
         />
@@ -442,12 +473,14 @@ function RoomEditorModal({
   venueId,
   room,
   floorPlans,
+  venues,
   onClose,
   onSaved,
 }: {
   venueId: string
   room: RoomArea | null
   floorPlans: PlanOption[]
+  venues: VenueOption[]
   onClose: () => void
   onSaved: () => void
 }) {
@@ -456,11 +489,24 @@ function RoomEditorModal({
   const [floorPlanId, setFloorPlanId] = useState(room?.floorPlanId ?? '')
   const [colour, setColour] = useState(room?.colour ?? '')
   const [notes, setNotes] = useState(room?.notes ?? '')
+  const [sharedVenueIds, setSharedVenueIds] = useState<string[]>(
+    () => (room?.sharedWith ?? []).map((v) => v.venueId),
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  const { dirty, markClean } = useDirty({ name, capacity, floorPlanId, colour, notes })
+  const { dirty, markClean } = useDirty({ name, capacity, floorPlanId, colour, notes, sharedVenueIds })
   useBeforeUnload(dirty)
+
+  const shareOptions = venues.filter((v) => v.id !== (room?.ownerVenueId ?? venueId))
+
+  function toggleShare(id: string, on: boolean) {
+    if (!on && sharedVenueIds.includes(id)) {
+      const name = venues.find((v) => v.id === id)?.name ?? 'THIS VENUE'
+      if (!confirm(`STOP SHARING THIS ROOM WITH ${name}? THEY LOSE ACCESS; THEIR EXISTING BOOKINGS STAY.`)) return
+    }
+    setSharedVenueIds((prev) => (on ? [...new Set([...prev, id])] : prev.filter((x) => x !== id)))
+  }
 
   async function save() {
     if (!name.trim()) { setError('ROOM NAME IS REQUIRED'); return }
@@ -470,6 +516,7 @@ function RoomEditorModal({
       capacity: capacity.trim() === '' ? null : Number(capacity),
       floorPlanId: floorPlanId || null,
       notes: notes.trim() || null,
+      ...(room ? { sharedVenueIds } : {}),
     }
     setBusy(true); setError('')
     const r = await fetch(room ? `/api/admin/areas/${room.id}` : '/api/admin/areas', {
@@ -514,6 +561,26 @@ function RoomEditorModal({
           options={[{ value: '', label: 'NO FLOOR PLAN' }, ...floorPlans.map((p) => ({ value: p.id, label: p.name }))]}
         />
         <Input label="Setup notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="HOW THE ROOM IS SET UP" />
+        {room && shareOptions.length > 0 && (
+          <div className="border border-grey-mid p-3 space-y-2">
+            <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">SHARE THIS ROOM WITH</h3>
+            <p className="font-mono text-2xs uppercase text-grey-light">
+              SHARED VENUES CAN BOOK THIS ROOM AND SEE ITS EVENTS. ONLY THIS VENUE CAN EDIT IT, AND SHARING NEVER WIDENS STAFF ACCESS.
+            </p>
+            {shareOptions.map((v) => (
+              <label key={v.id} className="flex items-center gap-2 font-mono text-xs uppercase text-white">
+                <input
+                  type="checkbox"
+                  aria-label={`Share with ${v.name}`}
+                  checked={sharedVenueIds.includes(v.id)}
+                  onChange={(e) => toggleShare(v.id, e.target.checked)}
+                  className="accent-white"
+                />
+                {v.name}
+              </label>
+            ))}
+          </div>
+        )}
         {error && <p className="font-mono text-xs text-danger">{error}</p>}
         <div className="border-t border-grey-mid pt-3 flex items-center gap-2">
           <Button size="sm" onClick={() => void save()} loading={busy}>SAVE ROOM</Button>

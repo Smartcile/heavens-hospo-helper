@@ -5,6 +5,7 @@ import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { getManagerVenueId } from '@/lib/venue-scope'
 import { formatDateKey } from '@/lib/scheduling'
+import { areaWhereForVenues } from '@/lib/area-scope'
 
 // The event roster week payload: the venue's areas, the week's events with
 // their required staff + listed (open) shifts + linked roster shifts, the
@@ -28,16 +29,20 @@ export async function GET(req: NextRequest) {
   const [venue, areas, events, queue, positions] = await Promise.all([
     prisma.venue.findUnique({ where: { id: venueId }, select: { lastExternalSyncAt: true } }),
     prisma.area.findMany({
-      where: { venueId, deletedAt: null },
+      // Own rooms + rooms shared into this venue (#189).
+      where: { deletedAt: null, ...areaWhereForVenues([venueId]) },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       include: { floorPlan: { select: { slug: true, name: true } } },
     }),
     prisma.calendarEvent.findMany({
       where: {
-        venueId,
         deletedAt: null,
         startsAt: { lt: endExclusive },
-        OR: [{ endsAt: { gte: start } }, { endsAt: null, startsAt: { gte: start } }],
+        AND: [
+          { OR: [{ endsAt: { gte: start } }, { endsAt: null, startsAt: { gte: start } }] },
+          // Events of this venue, plus events in a room shared into it.
+          { OR: [{ venueId }, { area: { deletedAt: null, ...areaWhereForVenues([venueId]) } }] },
+        ],
       },
       orderBy: { startsAt: 'asc' },
       include: {
@@ -108,6 +113,8 @@ export async function GET(req: NextRequest) {
       name: a.name,
       colour: a.colour,
       capacity: a.capacity,
+      ownerVenueId: a.venueId,
+      isOwner: a.venueId === venueId,
       floorPlanSlug: a.floorPlan?.slug ?? null,
       floorPlanName: a.floorPlan?.name ?? null,
     })),

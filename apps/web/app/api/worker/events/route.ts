@@ -3,6 +3,7 @@ import { prisma, Prisma } from '@hospo-ops/db'
 import { getWorkerSession } from '@/lib/worker-session'
 import { workerMayManageEvents } from '@/lib/worker-event-access'
 import { buildEventData, eventInclude } from '@/lib/events.server'
+import { areaVisibleToVenue } from '@/lib/area-scope.server'
 
 // ── Worker event management ──────────────────────────────────────────────
 // Managers / granted floor staff can create and edit BEOs from the phone. The
@@ -47,6 +48,12 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error }, { status: 400 })
   if (!data.name) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
   if (!data.eventDate) return NextResponse.json({ error: 'Event date is required' }, { status: 400 })
+
+  if (typeof data.areaId === 'string' && data.areaId) {
+    if (!(await areaVisibleToVenue(data.areaId, session!.venueId))) {
+      return NextResponse.json({ error: 'UNKNOWN ROOM' }, { status: 400 })
+    }
+  }
 
   const event = await prisma.event.create({
     data: {

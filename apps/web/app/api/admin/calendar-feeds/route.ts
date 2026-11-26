@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { getManagerVenueId, getAccessibleVenueIds } from '@/lib/venue-scope'
+import { areaWhereForVenues } from '@/lib/area-scope'
 import { expandRoomFeed } from '@/lib/calendar-feeds'
 
 type SessionLike = {
@@ -27,9 +28,34 @@ export async function GET(req: NextRequest) {
   if (!venueId) return NextResponse.json({ error: 'venueId is required' }, { status: 400 })
   if (!canUseVenue(session, venueId)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const [feeds, floorPlans, areas] = await Promise.all([
+  const areas = await prisma.area.findMany({
+    where: { deletedAt: null, ...areaWhereForVenues([venueId]) },
+    select: {
+      id: true,
+      venueId: true,
+      name: true,
+      colour: true,
+      capacity: true,
+      floorPlanId: true,
+      sortOrder: true,
+      notes: true,
+      venueLinks: {
+        where: { deletedAt: null },
+        select: { venueId: true, isOwner: true, venue: { select: { id: true, name: true } } },
+      },
+      _count: { select: { events: { where: { deletedAt: null } } } },
+    },
+    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+  })
+  const areaIds = areas.map((a) => a.id)
+
+  const [feeds, floorPlans, venues] = await Promise.all([
     prisma.calendarFeed.findMany({
-      where: { venueId, deletedAt: null },
+      // Feeds owned by this venue, plus the calendars of any room shared into it.
+      where: {
+        deletedAt: null,
+        OR: [{ venueId }, ...(areaIds.length > 0 ? [{ areaId: { in: areaIds } }] : [])],
+      },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       include: { floorPlan: { select: { id: true, slug: true, name: true } } },
     }),
@@ -38,19 +64,10 @@ export async function GET(req: NextRequest) {
       select: { id: true, name: true, slug: true },
       orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
     }),
-    prisma.area.findMany({
-      where: { venueId, deletedAt: null },
-      select: {
-        id: true,
-        name: true,
-        colour: true,
-        capacity: true,
-        floorPlanId: true,
-        sortOrder: true,
-        notes: true,
-        _count: { select: { events: { where: { deletedAt: null } } } },
-      },
-      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    prisma.venue.findMany({
+      where: { deletedAt: null, id: { in: getAccessibleVenueIds(session) } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
     }),
   ])
 
@@ -72,6 +89,7 @@ export async function GET(req: NextRequest) {
       roomDismissed: f.roomDismissed,
     })),
     floorPlans,
+    venues,
     areas: areas.map((a) => ({
       id: a.id,
       name: a.name,
@@ -80,6 +98,11 @@ export async function GET(req: NextRequest) {
       floorPlanId: a.floorPlanId,
       sortOrder: a.sortOrder,
       notes: a.notes,
+      ownerVenueId: a.venueId,
+      isOwner: a.venueId === venueId,
+      sharedWith: a.venueLinks
+        .filter((l) => !l.isOwner && l.venueId !== a.venueId)
+        .map((l) => ({ venueId: l.venueId, name: l.venue?.name ?? l.venueId })),
       feedCount: feeds.filter((f) => f.areaId === a.id).length,
       eventCount: a._count.events,
     })),

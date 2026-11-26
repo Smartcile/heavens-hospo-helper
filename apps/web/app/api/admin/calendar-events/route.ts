@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@hospo-ops/db'
 import { guardAccess } from '@/lib/permissions'
 import { getManagerVenueId, getAccessibleVenueIds, resolveScopedVenueId } from '@/lib/venue-scope'
+import { areaWhereForVenues } from '@/lib/area-scope'
 import { validateManualEvent } from '@/lib/manual-event'
 import { saveEventStaffing } from '@/lib/open-shifts.server'
 import { summariseCalendarEvent } from '@/lib/checklist-activation'
@@ -29,7 +30,14 @@ export async function GET(req: NextRequest) {
   if ('error' in scoped) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const events = await prisma.calendarEvent.findMany({
-    where: { venueId: scoped.venueId, deletedAt: null },
+    where: {
+      deletedAt: null,
+      // Own events + events in a room shared into this venue (#189).
+      OR: [
+        { venueId: scoped.venueId },
+        { area: { deletedAt: null, ...areaWhereForVenues([scoped.venueId]) } },
+      ],
+    },
     select: { id: true, venueId: true, title: true, startsAt: true, endsAt: true, allDay: true },
     orderBy: { startsAt: 'asc' },
     take: 1000,
@@ -72,7 +80,7 @@ export async function POST(req: NextRequest) {
   let area: { id: string; name: string; floorPlan: { slug: string; name: string } | null } | null = null
   if (fields.areaId) {
     area = await prisma.area.findFirst({
-      where: { id: fields.areaId, venueId, deletedAt: null },
+      where: { id: fields.areaId, deletedAt: null, ...areaWhereForVenues([venueId]) },
       select: { id: true, name: true, floorPlan: { select: { slug: true, name: true } } },
     })
     if (!area) return NextResponse.json({ error: 'UNKNOWN AREA' }, { status: 400 })

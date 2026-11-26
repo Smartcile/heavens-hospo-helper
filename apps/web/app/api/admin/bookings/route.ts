@@ -10,6 +10,7 @@ import {
 import { seatPartyOnServicePlan, seatFailureMessage } from '@/lib/service-seating.server'
 import { bookableSlotsForService } from '@/lib/service-windows'
 import { guardAccess } from '@/lib/permissions'
+import { areaVisibleToVenue } from '@/lib/area-scope.server'
 
 function timeToMins(t: string) { const [h, m] = t.split(':').map(Number); return h * 60 + m }
 
@@ -44,6 +45,7 @@ export async function GET(req: NextRequest) {
     include: {
       tables: { include: { setupItem: { select: { id: true, assignedNumber: true, label: true } } } },
       service: { select: { id: true, name: true } },
+      area: { select: { id: true, name: true } },
       orders: {
         where: { deletedAt: null },
         select: {
@@ -71,7 +73,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const {
     date, startTime, endTime, partySize, contactName, contactPhone, contactEmail,
-    source, notes, setupId, floorPlanSlug, tableIds, serviceId,
+    source, notes, setupId, floorPlanSlug, tableIds, serviceId, areaId, hold,
   } = body
 
   if (!date || !startTime || !endTime || !partySize || !contactName) {
@@ -81,41 +83,62 @@ export async function POST(req: NextRequest) {
   const scopedVenueId = session.user.role === 'MANAGER' ? session.user.venueId : body.venueId
   if (!scopedVenueId) return NextResponse.json({ error: 'venueId is required' }, { status: 400 })
 
+  const isHold = hold === true
+  const requestedAreaId = typeof areaId === 'string' && areaId.trim() ? areaId.trim() : null
+  if (requestedAreaId && !(await areaVisibleToVenue(requestedAreaId, scopedVenueId))) {
+    return NextResponse.json({ error: 'UNKNOWN ROOM' }, { status: 400 })
+  }
+
   // Bookings are made against a dated service — its windows define the only
   // times a booking can be placed (the modal's clickable boxes show exactly
-  // these). The internal order/booking paths create via Prisma directly and
-  // are unaffected.
-  if (!serviceId) return NextResponse.json({ error: 'serviceId is required' }, { status: 400 })
+  // these). A room HOLD (group/section space use) may stand alone without a
+  // service; the internal order/event paths create via Prisma directly and are
+  // unaffected.
+  if (!serviceId && !isHold) return NextResponse.json({ error: 'serviceId is required' }, { status: 400 })
 
   const bookingStartMins = timeToMins(startTime)
   const bookingEndMins = timeToMins(endTime)
 
-  const service = await prisma.service.findFirst({
-    where: { id: serviceId, venueId: scopedVenueId, isActive: true, deletedAt: null },
-    select: {
-      slots: { select: { dayOfWeek: true, startTime: true, endTime: true } },
-      exceptions: { select: { date: true, closed: true, startTime: true, endTime: true } },
-      bookingIntervalMinutes: true,
-      bookableTimes: true,
-    },
-  })
-  if (!service) return NextResponse.json({ error: 'Service not found or inactive' }, { status: 400 })
+  const service = serviceId
+    ? await prisma.service.findFirst({
+        where: { id: serviceId, venueId: scopedVenueId, isActive: true, deletedAt: null },
+        select: {
+          slots: { select: { dayOfWeek: true, startTime: true, endTime: true } },
+          exceptions: { select: { date: true, closed: true, startTime: true, endTime: true } },
+          bookingIntervalMinutes: true,
+          bookableTimes: true,
+        },
+      })
+    : null
+  if (serviceId) {
+    if (!service) return NextResponse.json({ error: 'Service not found or inactive' }, { status: 400 })
 
-  // The service's bookable slots are the only start times accepted — the
-  // window may be the full service length (walk-ins → last calls → clock-out),
-  // while bookability is the interval/times configured on the service.
-  const slots = bookableSlotsForService({
-    slots: service.slots,
-    exceptions: service.exceptions.map((e) => ({ ...e, date: e.date.toISOString().slice(0, 10) })),
-    bookingIntervalMinutes: service.bookingIntervalMinutes,
-    bookableTimes: Array.isArray(service.bookableTimes) ? service.bookableTimes as string[] : null,
-  }, String(date))
-  const slot = slots.find((s) => s.startMins === bookingStartMins)
-  if (!slot) {
-    return NextResponse.json({ error: 'That time is not bookable for this service' }, { status: 409 })
+    // The service's bookable slots are the only start times accepted — the
+    // window may be the full service length (walk-ins → last calls → clock-out),
+    // while bookability is the interval/times configured on the service.
+    const slots = bookableSlotsForService({
+      slots: service.slots,
+      exceptions: service.exceptions.map((e) => ({ ...e, date: e.date.toISOString().slice(0, 10) })),
+      bookingIntervalMinutes: service.bookingIntervalMinutes,
+      bookableTimes: Array.isArray(service.bookableTimes) ? service.bookableTimes as string[] : null,
+    }, String(date))
+    const slot = slots.find((s) => s.startMins === bookingStartMins)
+    if (!slot) {
+      return NextResponse.json({ error: 'That time is not bookable for this service' }, { status: 409 })
+    }
+    if (bookingEndMins > slot.endMins) {
+      return NextResponse.json({ error: 'Booking end time is outside the service window' }, { status: 409 })
+    }
   }
-  if (bookingEndMins > slot.endMins) {
-    return NextResponse.json({ error: 'Booking end time is outside the service window' }, { status: 409 })
+
+  // Fall back to the chosen layout's room when no explicit room was picked.
+  let resolvedAreaId = requestedAreaId
+  if (!resolvedAreaId && setupId) {
+    const setup = await prisma.floorPlanSetup.findFirst({
+      where: { id: setupId, deletedAt: null },
+      select: { areaId: true },
+    })
+    resolvedAreaId = setup?.areaId ?? null
   }
 
   const bookingDate = new Date(date)
@@ -127,10 +150,11 @@ export async function POST(req: NextRequest) {
     contactName: String(contactName).toUpperCase().trim(),
     contactPhone: contactPhone || null,
     contactEmail: contactEmail || null,
-    source: source || 'PHONE',
+    source: isHold ? 'PHONE' : (source || 'PHONE'),
     status: 'CONFIRMED',
-    notes: notes || null,
+    notes: isHold ? 'SPACE HOLD' : (notes || null),
     floorPlanSlug: floorPlanSlug || null,
+    areaId: resolvedAreaId,
     serviceId: serviceId || null,
   }
 
@@ -180,6 +204,7 @@ export async function POST(req: NextRequest) {
         title: eventTitle,
         startsAt: new Date(`${date}T${startTime}:00`),
         endsAt: new Date(`${date}T${endTime}:00`),
+        areaId: resolvedAreaId,
         floorPlanSlug: floorPlanSlug || setup?.floorPlan?.slug || undefined,
         floorPlanName: setup?.name,
       },
@@ -259,6 +284,7 @@ export async function POST(req: NextRequest) {
         title: eventTitle,
         startsAt: new Date(`${date}T${startTime}:00`),
         endsAt: new Date(`${date}T${endTime}:00`),
+        areaId: resolvedAreaId,
         floorPlanSlug: floorPlanSlug || undefined,
         floorPlanName: setup.name,
       },
@@ -292,6 +318,7 @@ export async function POST(req: NextRequest) {
           title: eventTitle,
           startsAt: new Date(`${date}T${startTime}:00`),
           endsAt: new Date(`${date}T${endTime}:00`),
+          areaId: resolvedAreaId,
           floorPlanSlug: seat.floorPlanSlug || undefined,
           floorPlanName: seat.setupName,
         },
@@ -302,6 +329,24 @@ export async function POST(req: NextRequest) {
       bookingData.tables = { create: seat.itemIds.map((id) => ({ setupItemId: id })) }
     } else if (seat.reason !== 'NO_PLAN') {
       return NextResponse.json({ error: seatFailureMessage(seat.reason, parseInt(String(partySize))) }, { status: 409 })
+    }
+  }
+
+  // Any seating path that resolved a layout also resolves its room, so the
+  // booking and its calendar event land in the same room's occupancy list.
+  if (!bookingData.areaId && bookingData.seatingSetupId) {
+    const seatSetup = await prisma.floorPlanSetup.findFirst({
+      where: { id: bookingData.seatingSetupId },
+      select: { areaId: true },
+    })
+    if (seatSetup?.areaId) {
+      bookingData.areaId = seatSetup.areaId
+      if (bookingData.calendarEventId) {
+        await prisma.calendarEvent.update({
+          where: { id: bookingData.calendarEventId },
+          data: { areaId: seatSetup.areaId },
+        })
+      }
     }
   }
 
