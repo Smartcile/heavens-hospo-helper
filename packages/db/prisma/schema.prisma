@@ -12,6 +12,27 @@ enum Role {
   STAFF
 }
 
+// A breach / infringement notice handed in by staff (or recorded for a client).
+enum BreachNoticeStatus {
+  SUBMITTED
+  WAIVED
+  DECLINED
+  PAID
+  WITHDRAWN
+}
+
+enum BreachKind {
+  PARKING
+  VEHICLE
+  CONDUCT
+  OTHER
+}
+
+enum BreachSubjectType {
+  STAFF
+  CLIENT
+}
+
 enum CompletionType {
   TICK
   TICK_NOTE
@@ -433,6 +454,7 @@ model Venue {
   staffParkingPlateRequests StaffParkingPlateRequest[]
   customerGroups      CustomerGroup[]
   customerMemberships CustomerMembership[]
+  breachNotices       BreachNotice[]
 }
 
 model Department {
@@ -556,6 +578,9 @@ model Staff {
   parkingRegistrations ParkingRegistration[]
   staffParkingPlates   StaffParkingPlate[]
   staffParkingPlateRequests StaffParkingPlateRequest[]
+  breachNoticesSubmitted BreachNotice[] @relation("BreachNoticeSubmittedBy")
+  breachNoticesSubject   BreachNotice[] @relation("BreachNoticeSubject")
+  breachNoticesReviewed  BreachNotice[] @relation("BreachNoticeReviewedBy")
 }
 
 // A single granted function within the permission tree (area → sub-area →
@@ -4963,6 +4988,47 @@ model StaffParkingPlateRequest {
 
   @@index([venueId, status])
   @@index([venueId, staffId])
+}
+
+// A breach / infringement notice. Staff submit their own parking/vehicle
+// notices and a manager records WAIVED / DECLINED / PAID. CLIENT notices are
+// recorded by a manager (no staff subject). Attachments are photo/PDF upload
+// URLs; a generated in-app PDF is built from the row on demand.
+model BreachNotice {
+  id               String             @id @default(uuid())
+  venueId          String
+  submittedById    String
+  subjectStaffId   String?
+  subjectType      BreachSubjectType  @default(STAFF)
+  kind             BreachKind         @default(PARKING)
+  numberplate      String
+  noticeDetails    String
+  breachDate       DateTime           @db.Date
+  location         String?
+  issuingAuthority String?
+  fineAmount       Float?
+  paymentDueDate   DateTime?          @db.Date
+  notes            String?
+  clientName       String?
+  clientReference  String?
+  attachmentUrls   Json               @default("[]")
+  status           BreachNoticeStatus @default(SUBMITTED)
+  reviewedById     String?
+  reviewedAt       DateTime?
+  reviewNote       String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  deletedAt        DateTime?
+
+  venue       Venue @relation(fields: [venueId], references: [id])
+  submittedBy Staff @relation("BreachNoticeSubmittedBy", fields: [submittedById], references: [id])
+  subjectStaff Staff? @relation("BreachNoticeSubject", fields: [subjectStaffId], references: [id])
+  reviewedBy  Staff? @relation("BreachNoticeReviewedBy", fields: [reviewedById], references: [id])
+
+  @@index([venueId, status])
+  @@index([venueId, submittedById])
+  @@index([venueId, subjectStaffId])
+  @@index([venueId, numberplate])
 }
 
 // --- FTP 4 HOUR PARKING TYPES + MEMBERS ---

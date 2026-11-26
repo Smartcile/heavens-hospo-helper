@@ -7,6 +7,7 @@ import { StaffClient } from '@/components/admin/StaffClient'
 import { RosterClient } from '@/components/admin/RosterClient'
 import { AvailabilityAdminClient } from '@/components/admin/AvailabilityAdminClient'
 import { ClocksClient } from '@/components/admin/ClocksClient'
+import { BreachNoticesPanel } from '@/components/admin/BreachNoticesPanel'
 import { PayrollClient } from '@/components/admin/PayrollClient'
 
 interface TeamClientProps {
@@ -36,6 +37,7 @@ export function TeamClient({ role, sessionVenueId, defaultVenueId, canEditAvaila
         {tab === 'roster' && <RosterClient {...venueProps} />}
         {tab === 'availability' && <AvailabilityAdminClient {...venueProps} canEdit={canEditAvailability} />}
         {tab === 'clocks' && <ClocksClient {...venueProps} />}
+        {tab === 'breaches' && <BreachNoticesPanel {...venueProps} />}
         {tab === 'payroll' && <PayrollClient {...venueProps} />}
       </div>
     </div>

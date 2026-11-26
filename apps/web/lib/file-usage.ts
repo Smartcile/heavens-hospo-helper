@@ -7,7 +7,7 @@ import { prisma } from '@hospo-ops/db'
 // unique across the store). Soft-deleted rows do not count as usage.
 
 export interface FileUsage {
-  kind: 'template' | 'gift-card' | 'staff' | 'completion' | 'training-step' | 'guide-step' | 'inventory' | 'menu' | 'woo-image'
+  kind: 'template' | 'gift-card' | 'staff' | 'completion' | 'training-step' | 'guide-step' | 'inventory' | 'menu' | 'woo-image' | 'breach-notice'
   label: string
   ref: string
   id: string
@@ -21,7 +21,7 @@ function textListsContain(col: unknown, basename: string): boolean {
 
 /** Every active DB reference to one file (by basename). */
 export async function fileUsages(basename: string): Promise<FileUsage[]> {
-  const [templates, cards, staff, completions, trainingSteps, guideSteps, items, menus] = await Promise.all([
+  const [templates, cards, staff, completions, trainingSteps, guideSteps, items, menus, breachNotices] = await Promise.all([
     prisma.giftCardTemplate.findMany({
       where: { deletedAt: null },
       select: { id: true, name: true, filePath: true },
@@ -55,6 +55,10 @@ export async function fileUsages(basename: string): Promise<FileUsage[]> {
     prisma.menuItem.findMany({
       where: { deletedAt: null, imageUrl: contains(basename) },
       select: { id: true, name: true, wooImageId: true },
+    }),
+    prisma.breachNotice.findMany({
+      where: { deletedAt: null },
+      select: { id: true, numberplate: true, breachDate: true, attachmentUrls: true },
     }),
   ])
 
@@ -97,6 +101,16 @@ export async function fileUsages(basename: string): Promise<FileUsage[]> {
       usages.push({ kind: 'woo-image', label: 'WOO PRODUCT IMAGE (ON WORDPRESS)', ref: m.name, id: m.id })
     }
   }
+  for (const b of breachNotices) {
+    if (textListsContain(b.attachmentUrls, basename)) {
+      usages.push({
+        kind: 'breach-notice',
+        label: 'BREACH NOTICE ATTACHMENT',
+        ref: `${b.numberplate} ${b.breachDate.toISOString().slice(0, 10)}`,
+        id: b.id,
+      })
+    }
+  }
   return usages
 }
 
@@ -110,7 +124,7 @@ export async function fileUsagesForNames(names: string[]): Promise<Record<string
     OR: clean.map((n) => ({ [field]: { contains: n } })),
   })
 
-  const [templates, cards, staff, completions, trainingSteps, guideSteps, items, menus] = await Promise.all([
+  const [templates, cards, staff, completions, trainingSteps, guideSteps, items, menus, breachNotices] = await Promise.all([
     prisma.giftCardTemplate.findMany({
       where: { deletedAt: null },
       select: { id: true, name: true, filePath: true },
@@ -142,6 +156,10 @@ export async function fileUsagesForNames(names: string[]): Promise<Record<string
     prisma.menuItem.findMany({
       where: { deletedAt: null, ...orContains('imageUrl') },
       select: { id: true, name: true, imageUrl: true, wooImageId: true },
+    }),
+    prisma.breachNotice.findMany({
+      where: { deletedAt: null },
+      select: { id: true, numberplate: true, breachDate: true, attachmentUrls: true },
     }),
   ])
 
@@ -187,6 +205,20 @@ export async function fileUsagesForNames(names: string[]): Promise<Record<string
       if (m.wooImageId) {
         (grouped[n] ??= []).push({ kind: 'woo-image', label: 'WOO PRODUCT IMAGE (ON WORDPRESS)', ref: m.name, id: m.id })
       }
+    }
+  }
+  for (const b of breachNotices) {
+    const urls = Array.isArray(b.attachmentUrls) ? b.attachmentUrls : null
+    const n = urls
+      ? clean.find((x) => urls.some((u) => typeof u === 'string' && u.includes(x)))
+      : undefined
+    if (n) {
+      (grouped[n] ??= []).push({
+        kind: 'breach-notice',
+        label: 'BREACH NOTICE ATTACHMENT',
+        ref: `${b.numberplate} ${b.breachDate.toISOString().slice(0, 10)}`,
+        id: b.id,
+      })
     }
   }
   return grouped

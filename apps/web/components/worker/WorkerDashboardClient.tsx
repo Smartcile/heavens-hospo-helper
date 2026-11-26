@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLiveRefresh } from '@/lib/use-live-refresh'
 
-type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'shifts' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events' | 'deliveries' | 'kitchen' | 'giftcards' | 'parking' | 'training-status' | 'tips' | 'help'
+type Widget = 'dashboard' | 'notices' | 'tasks' | 'calendar' | 'availability' | 'shifts' | 'guides' | 'floorplan' | 'stocktake' | 'timeclock' | 'events' | 'deliveries' | 'kitchen' | 'giftcards' | 'parking' | 'breach-notices' | 'training-status' | 'tips' | 'help'
 
 interface DashData {
   firstName: string
@@ -31,6 +31,8 @@ interface DashData {
   parkingGuestEnabled: boolean
   /** Non-null when the last parking health check failed or is stale. */
   parkingWarning: string | null
+  /** Any worker may hand in their own breach notice. */
+  breachesAllowed: boolean
   /** Status-only tips summary for an ADMIN/MANAGER in worker view. No money. */
   tipsTotal: number
   tipsIssued: number
@@ -110,7 +112,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
 
   async function load() {
     const tipsAllowed = role === 'ADMIN' || role === 'MANAGER'
-    const [tasksR, noticesR, calR, guidesR, pathwayR, stocktakeR, clockR, eventsR, giftCardsR, parkingR, tipsR] = await Promise.all([
+    const [tasksR, noticesR, calR, guidesR, pathwayR, stocktakeR, clockR, eventsR, giftCardsR, parkingR, breachAccessR, tipsR] = await Promise.all([
       fetch('/api/worker/tasks'),
       fetch('/api/worker/notices'),
       fetch('/api/worker/calendar'),
@@ -122,6 +124,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
       // A failed capability check must not hang the dashboard.
       fetch('/api/worker/giftcards/access').catch(() => ({ ok: false } as Response)),
       fetch('/api/worker/parking/access').catch(() => ({ ok: false } as Response)),
+      fetch('/api/worker/breach-notices/access').catch(() => ({ ok: false } as Response)),
       // Tips are never requested for floor staff. The payload is status-only
       // here; no monetary value ever reaches this screen.
       tipsAllowed
@@ -145,6 +148,9 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
     const parkingAccess = parkingR.ok
       ? await parkingR.json().catch(() => ({ enabled: false, staffParkingEnabled: false, health: null }))
       : { enabled: false, staffParkingEnabled: false, health: null }
+    const breachAccess = breachAccessR.ok
+      ? await breachAccessR.json().catch(() => ({ allowed: false }))
+      : { allowed: false }
     const tipsData = tipsR && tipsR.ok ? await tipsR.json().catch(() => ({ periods: [] })) : { periods: [] }
     const latestTips = Array.isArray(tipsData?.periods) ? tipsData.periods[0] : null
 
@@ -178,6 +184,7 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
         parkingAccess.enabled && parkingAccess.health && !parkingAccess.health.ok
           ? parkingAccess.health.message || 'LAST CHECK FAILED'
           : null,
+      breachesAllowed: !!breachAccess.allowed,
       tipsTotal: latestTips?.progress?.total ?? 0,
       tipsIssued: latestTips?.progress?.issuedCount ?? 0,
       tipsPercent: latestTips?.progress?.percent ?? 0,
@@ -507,6 +514,18 @@ export function WorkerDashboardClient({ role = 'STAFF' }: { role?: string }) {
           'text-danger',
           data.parkingWarning ? 'border-danger' : 'border-grey-mid',
           () => openView('parking')
+        )}
+
+        {data?.breachesAllowed && card(
+          'BREACH NOTICES',
+          'HAND IN A PARKING OR INFRINGEMENT NOTICE',
+          <svg className="w-4 h-4 text-grey-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="square" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>,
+          null,
+          'text-grey-light',
+          'border-grey-mid',
+          () => openView('breach-notices')
         )}
 
         {card(

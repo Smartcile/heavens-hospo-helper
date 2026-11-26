@@ -213,6 +213,29 @@ describe('WorkerDashboardClient chrome', () => {
     expect(screen.getByText('STAFF NUMBER PLATES')).toBeDefined()
   })
 
+  it('shows the Breach Notices tile only when the access check allows it', async () => {
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') return json({ tasks: [], firstName: 'ALEX' })
+      if (u === '/api/worker/breach-notices/access') return json({ allowed: true })
+      return json({})
+    })
+
+    const { unmount } = render(<WorkerDashboardClient role="STAFF" />)
+    await waitFor(() => expect(screen.getByText('BREACH NOTICES')).toBeDefined())
+    unmount()
+
+    vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url)
+      if (u === '/api/worker/tasks') return json({ tasks: [], firstName: 'ALEX' })
+      if (u === '/api/worker/breach-notices/access') return json({ allowed: false })
+      return json({})
+    })
+    render(<WorkerDashboardClient role="STAFF" />)
+    await waitFor(() => expect(screen.getByText('TASKS')).toBeDefined())
+    expect(screen.queryByText('BREACH NOTICES')).toBeNull()
+  })
+
   it('hides the parking tile when both guest and staff parking are off', async () => {
     vi.mocked(global.fetch).mockImplementation(async (url: string | URL | Request) => {
       const u = String(url)
