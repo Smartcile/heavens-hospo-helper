@@ -191,6 +191,24 @@ export function WorkerEventsClient() {
     setDraft((d) => (d ? { ...d, ...p } : d))
   }
 
+  /** Changing the bound menu invalidates authored set-menu picks (#192). */
+  function changeMenu(menuId: string | null) {
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            menuId,
+            blocks: d.blocks.map((b) => {
+              if (!b.config || !('packageChoices' in b.config)) return b
+              const config = { ...b.config }
+              delete config.packageChoices
+              return { ...b, config }
+            }),
+          }
+        : d,
+    )
+  }
+
   function addBlock(type: string) {
     setShowLibrary(false)
     setDraft((d) => {
@@ -507,7 +525,11 @@ export function WorkerEventsClient() {
                             : null
                         }
                         onConfigChange={(config) => setDraft((d) => (d ? { ...d, blocks: d.blocks.map((x) => (x.id === b.id ? { ...x, config } : x)) } : d))}
-                        onEventFieldChange={(field, value) => patch({ [field]: value } as Partial<WorkerEvent>)}
+                        onEventFieldChange={(field, value) =>
+                          field === 'menuId'
+                            ? changeMenu((value as string) || null)
+                            : patch({ [field]: value } as Partial<WorkerEvent>)
+                        }
                       />
                     </div>
                   )}

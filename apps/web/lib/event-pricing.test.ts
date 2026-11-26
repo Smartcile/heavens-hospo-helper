@@ -523,6 +523,7 @@ describe('bound per-person menu package (#192)', () => {
                 menuItemId: 'set',
                 qty: 1,
                 unit: 'PER_PERSON',
+                priceDelta: 2,
                 choices: [
                   { groupId: 'g-main', groupName: 'MAIN', choiceId: 'beef', choiceName: 'BEEF', priceDelta: 8 },
                 ],
@@ -540,10 +541,29 @@ describe('bound per-person menu package (#192)', () => {
         choiceGroups: [{ id: 'g-main', name: 'MAIN', minSelect: 1, maxSelect: 1 }],
       },
     )
-    // One package line only; the $80 product line is not charged again.
+    // One package line only; the $80 product line is not charged again, and its
+    // own upcharge is preserved on the package line.
     expect(totals.lines).toHaveLength(1)
-    expect(totals.lines[0]).toMatchObject({ menuItemId: 'menu1', unitPrice: 103, total: 1030 })
-    expect(totals.byUnit).toEqual({ EACH: 0, PER_PERSON: 1030, PER_PLATTER: 0 })
+    expect(totals.lines[0]).toMatchObject({ menuItemId: 'menu1', unitPrice: 105, total: 1050 })
+    expect(totals.byUnit).toEqual({ EACH: 0, PER_PERSON: 1050, PER_PLATTER: 0 })
+  })
+
+  it('does not fold a PER_PERSON line with an empty choices array', () => {
+    const totals = computeEventTotals(
+      [
+        {
+          type: 'MENU_SELECTION',
+          config: {
+            items: [{ menuItemId: 'drinks', qty: 1, unit: 'PER_PERSON', choices: [] }],
+          },
+        },
+      ],
+      [{ id: 'drinks', name: 'DRINKS PACKAGE', price: 45 }],
+      null,
+      { package: PACKAGE, packages: [PACKAGE], guestCount: 10, choiceGroups: [] },
+    )
+    expect(totals.lines.map((l) => l.menuItemId)).toEqual(['menu1', 'drinks'])
+    expect(totals.subtotal).toBe(950 + 450)
   })
 
   it('reports package pick min/max violations without clamping the per-head price', () => {

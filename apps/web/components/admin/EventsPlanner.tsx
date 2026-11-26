@@ -68,6 +68,7 @@ export function EventsPlanner({
   const [events, setEvents] = useState<EventListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [refs, setRefs] = useState<BeoRefs>({ menus: [], menuItems: [], services: [], setups: [] })
+  const [menusAvailable, setMenusAvailable] = useState<boolean | null>(null)
   const [templates, setTemplates] = useState<TemplateOption[]>([])
   const [selected, setSelected] = useState<EventDetail | null>(null)
   const [opening, setOpening] = useState(false)
@@ -97,8 +98,18 @@ export function EventsPlanner({
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const [menus, menuItems, services, setups, templates, areas] = await Promise.all([
-        safeArray<BeoRefs['menus'][number]>(`/api/admin/menus?venueId=${venueId}`),
+      // Track whether the menu list actually loaded: a restricted manager
+      // without ops.menus.view gets a 403, and that must not read as "the
+      // event's menu was purged" (#192).
+      const menusFetch = fetch(`/api/admin/menus?venueId=${venueId}`)
+        .then(async (r) => ({
+          ok: r.ok,
+          items: r.ok ? ((await r.json()) as BeoRefs['menus']) : ([] as BeoRefs['menus']),
+        }))
+        .catch(() => ({ ok: false, items: [] as BeoRefs['menus'] }))
+
+      const [menusResult, menuItems, services, setups, templates, areas] = await Promise.all([
+        menusFetch,
         safeArray<BeoRefs['menuItems'][number]>(`/api/admin/menu-items?venueId=${venueId}`),
         safeArray<{ id: string; name: string }>(`/api/admin/services?venueId=${venueId}`),
         safeArray<BeoRefs['setups'][number]>(`/api/admin/floorplan-setups?venueId=${venueId}`),
@@ -110,7 +121,8 @@ export function EventsPlanner({
           .catch(() => [] as Array<{ id: string; name: string }>),
       ])
       if (!alive) return
-      setRefs({ menus, menuItems, services, setups, areas })
+      setMenusAvailable(menusResult.ok)
+      setRefs({ menus: menusResult.items, menuItems, services, setups, areas })
       setTemplates(templates)
     })()
     return () => { alive = false }
@@ -177,6 +189,7 @@ export function EventsPlanner({
         event={selected}
         venueId={venueId}
         venueTimezone={venueTimezone}
+        menuDataAvailable={menusAvailable}
         refs={refs}
         library={library}
         onBack={() => { setSelected(null); loadEvents() }}

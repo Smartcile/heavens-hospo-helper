@@ -86,8 +86,6 @@ export interface PackagePrice {
   id: string
   name: string
   price: number
-  /** Optional additive upcharge on the package line. */
-  priceDelta?: number
 }
 
 export interface EventPriceLine {
@@ -506,15 +504,19 @@ export function computeEventTotals(
   // Picks for the bound per-head menu live on the block (`packageChoices`), so
   // they price on the package line and never as a second set-menu product.
   let packageChoices = mergeChoices(options.packageChoices, collectPackageChoices(blocks))
-  // Legacy data: a PER_PERSON product line carrying its own picks was the old
-  // per-line set menu. Those picks move onto the package and the line is not
-  // priced again, so the event cannot double-charge.
+  // Legacy data: a PER_PERSON product line carrying actual picks was the old
+  // per-line set menu. Those picks move onto the package (with the line's own
+  // upcharge preserved) and the line is not priced again, so the event cannot
+  // double-charge. An empty `choices` array is not a set menu — it prices as a
+  // normal per-person line.
   const legacySetMenuLines = new Set<PriceableLine>()
+  let legacySetMenuPriceDelta = 0
   if (options.package) {
     for (const line of collected) {
-      if (line.menuItemId && line.unit === 'PER_PERSON' && line.choices !== undefined) {
+      if (line.menuItemId && line.unit === 'PER_PERSON' && line.choices && line.choices.length > 0) {
         legacySetMenuLines.add(line)
         packageChoices = mergeChoices(packageChoices, line.choices)
+        legacySetMenuPriceDelta += Number(line.priceDelta) || 0
       }
     }
   }
@@ -536,7 +538,8 @@ export function computeEventTotals(
     if (!explicitlyLined && qty > 0 && Number.isFinite(basePrice)) {
       // Per-head price + the picks' additive upcharges. Picks are included by
       // default; a min/max breach is reported, never clamped.
-      const unitPrice = basePrice + (Number(pkg.priceDelta) || 0) + choicesPriceDelta(packageChoices)
+      const unitPrice =
+        basePrice + legacySetMenuPriceDelta + choicesPriceDelta(packageChoices)
       violations.push(
         ...pricingWarnings({
           name: pkg.name,
@@ -596,7 +599,6 @@ export function computeEventTotals(
       const choiceDelta = unit === 'PER_PERSON' ? choicesPriceDelta(choices) : 0
       const unitPrice =
         (Number(pkg.price) || 0) +
-        (Number(pkg.priceDelta) || 0) +
         (Number(item.priceDelta) || 0) +
         choiceDelta
       violations.push(

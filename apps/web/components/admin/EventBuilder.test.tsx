@@ -390,6 +390,88 @@ describe('EventBuilder — per-person pricing (#192)', () => {
     })
   })
 
+  it('clears the picks when the menu is changed from the block MENU control', async () => {
+    const refs = {
+      ...SET_MENU_REFS,
+      menus: [
+        ...SET_MENU_REFS.menus,
+        { id: 'other', name: 'A LA CARTE', pricingMode: null, pricePerPerson: null },
+      ],
+    }
+    render(
+      <EventBuilder
+        event={{
+          ...PRICED_EVENT,
+          menuId: 'setmenu',
+          guestCount: 10,
+          depositAmount: 0,
+          blocks: [
+            {
+              id: 'b1',
+              type: 'MENU_SELECTION',
+              title: null,
+              config: {
+                items: [],
+                packageChoices: [
+                  { groupId: 'g-main', groupName: 'MAIN', choiceId: 'beef', choiceName: 'BEEF', priceDelta: 8 },
+                ],
+              },
+              sortOrder: 0,
+            },
+          ],
+        }}
+        venueId="v1"
+        refs={refs}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+
+    // The stale pick starts on the package line, then is cleared with the menu.
+    expect(screen.getAllByText('$1030.00').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: '▸ MENU SELECTION' }))
+    expect(screen.getByText(/SET MENU PICKS/)).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('MENU'), { target: { value: 'other' } })
+    expect(screen.queryByText(/SET MENU PICKS/)).toBeNull()
+
+    fireEvent.click(screen.getByText('SAVE'))
+    await waitFor(() => {
+      const calls = (globalThis.fetch as unknown as { mock: { calls: [string, { body?: string }][] } }).mock.calls
+      const blocksPut = calls.find(([url]) => String(url).endsWith('/blocks'))
+      expect(blocksPut).toBeTruthy()
+      const body = JSON.parse(blocksPut![1].body as string)
+      expect(body.blocks[0].config.packageChoices).toBeUndefined()
+    })
+  })
+
+  it('shows the set-menu picks only in the block that binds the menu', () => {
+    render(
+      <EventBuilder
+        event={{
+          ...PRICED_EVENT,
+          menuId: 'setmenu',
+          guestCount: 10,
+          blocks: [
+            {
+              id: 'b1',
+              type: 'DRINKS_SELECTION',
+              title: null,
+              config: { packageName: '', items: [], notes: '' },
+              sortOrder: 0,
+            },
+          ],
+        }}
+        venueId="v1"
+        refs={SET_MENU_REFS}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '▸ DRINKS SELECTION' }))
+    expect(screen.queryByText(/SET MENU PICKS/)).toBeNull()
+  })
+
   it('shows the bound menu-line minimum over the product default', () => {
     const refs = {
       ...SET_MENU_REFS,
@@ -435,13 +517,30 @@ describe('EventBuilder — per-person pricing (#192)', () => {
       <EventBuilder
         event={{ ...PRICED_EVENT, menuId: 'gone-menu', blocks: [] }}
         venueId="v1"
+        menuDataAvailable={true}
         refs={REFS}
         onBack={() => {}}
         onSaved={() => {}}
       />,
     )
     const violations = screen.getByTestId('pricing-violations')
-    expect(violations.textContent).toMatch(/MENU NO LONGER EXISTS — NOT PRICED/)
+    expect(violations.textContent).toMatch(/MENU NO LONGER EXISTS/)
+  })
+
+  it('does not claim a purged menu while the menu list is unavailable', () => {
+    render(
+      <EventBuilder
+        event={{ ...PRICED_EVENT, menuId: 'setmenu', blocks: [] }}
+        venueId="v1"
+        menuDataAvailable={false}
+        refs={REFS}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    const violations = screen.getByTestId('pricing-violations')
+    expect(violations.textContent).toMatch(/MENU DETAILS UNAVAILABLE/)
+    expect(violations.textContent).not.toMatch(/MENU NO LONGER EXISTS/)
   })
 
   it('clears the set-menu picks when the bound menu changes', async () => {

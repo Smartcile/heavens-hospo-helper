@@ -153,6 +153,7 @@ export function EventBuilder({
   event,
   venueId,
   venueTimezone,
+  menuDataAvailable,
   refs,
   library = BEO_BLOCKS,
   onBack,
@@ -162,6 +163,11 @@ export function EventBuilder({
   venueId: string
   /** Venue timezone for the lead-time "today" (falls back to device-local). */
   venueTimezone?: string | null
+  /**
+   * Whether the menu list actually loaded. `true` = a bound menu missing from
+   * it is purged; `false` = menu data is unavailable (do not claim purged).
+   */
+  menuDataAvailable?: boolean | null
   refs: BeoRefs
   library?: BlockLibrary
   onBack: () => void
@@ -445,10 +451,15 @@ export function EventBuilder({
     boundMenu && boundMenu.pricingMode === 'PER_PERSON' && boundMenu.pricePerPerson != null
       ? { id: boundMenu.id, name: boundMenu.name, price: Number(boundMenu.pricePerPerson) }
       : undefined
-  // A bound menu missing from the live list is purged — or the refs failed to
-  // load (a restricted manager without ops.menus.view). Either way, report it
-  // rather than silently under-quoting the event.
-  const missingPackage = draft.menuId && !boundMenu ? { id: draft.menuId } : undefined
+  // A bound menu missing from a loaded menu list is purged — report it, never
+  // $0. While the list is loading, or when it is unavailable (a restricted
+  // manager without ops.menus.view), say so instead of claiming it was purged.
+  const missingPackage =
+    draft.menuId && !boundMenu && menuDataAvailable === true ? { id: draft.menuId } : undefined
+  const menuUnavailableNotice =
+    draft.menuId && !boundMenu && menuDataAvailable === false
+      ? 'MENU DETAILS UNAVAILABLE — EVENT TOTAL MAY BE INCOMPLETE'
+      : null
 
   // A menu line's own minQty is authoritative over the product's.
   const minQtyByItem: Record<string, number | null> = {}
@@ -621,8 +632,11 @@ export function EventBuilder({
               ))}
             </div>
           )}
-          {totals.violations.length > 0 && (
+          {(totals.violations.length > 0 || menuUnavailableNotice) && (
             <div className="border border-danger p-2 space-y-1" data-testid="pricing-violations">
+              {menuUnavailableNotice && (
+                <p className="font-mono text-2xs uppercase text-danger">{menuUnavailableNotice}</p>
+              )}
               {totals.violations.map((v, i) => (
                 <p key={`${v.kind}-${i}`} className="font-mono text-2xs uppercase text-danger">
                   {v.message}
@@ -761,7 +775,11 @@ export function EventBuilder({
                           : null
                       }
                       onConfigChange={(config) => updateBlock(b.id, { config })}
-                      onEventFieldChange={(field, value) => patch({ [field]: value } as Partial<Draft>)}
+                      onEventFieldChange={(field, value) =>
+                        field === 'menuId'
+                          ? changeMenu((value as string) || null)
+                          : patch({ [field]: value } as Partial<Draft>)
+                      }
                     />
                   </div>
                 )}

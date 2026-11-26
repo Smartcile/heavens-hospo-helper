@@ -354,7 +354,7 @@ function ItemsEditor({
   }
 
   /** Picks belong to the package line, so a line leaving PER_PERSON drops them. */
-  function clearChoicesWhenNotPerPerson(unit: PricingUnit, item: ItemDraft): Pick<ItemDraft, 'choices'> {
+  function clearChoicesWhenNotPerPerson(unit: PricingUnit): Pick<ItemDraft, 'choices'> {
     return unit === 'PER_PERSON' ? {} : { choices: undefined }
   }
 
@@ -401,7 +401,7 @@ function ItemsEditor({
                       unit: nextUnit,
                       servesMin: picked?.servesMin ?? undefined,
                       servesMax: picked?.servesMax ?? undefined,
-                      ...clearChoicesWhenNotPerPerson(nextUnit, it),
+                      ...clearChoicesWhenNotPerPerson(nextUnit),
                     })
                   }}
                   options={options}
@@ -413,7 +413,7 @@ function ItemsEditor({
                 disabled={disabled}
                 onChange={(e) => {
                   const nextUnit = parsePricingUnit(e.target.value)
-                  update(i, { unit: nextUnit, ...clearChoicesWhenNotPerPerson(nextUnit, it) })
+                  update(i, { unit: nextUnit, ...clearChoicesWhenNotPerPerson(nextUnit) })
                 }}
                 className={`${inputClass} w-24`}
               >
@@ -512,6 +512,9 @@ export function BeoBlockEditor({
   if (fields.length === 0) {
     return <p className="font-mono text-xs text-grey-light">NO CONFIGURABLE FIELDS — THE EVENT FILLS THIS IN.</p>
   }
+  // The bound menu (and so the set-menu picks) belongs to the block that binds
+  // `menuId` — never a DRINKS_SELECTION or a custom `items` block (#192).
+  const carriesBoundMenu = def.fields.some((f) => f.eventField === 'menuId')
 
   return (
     <div className="space-y-3">
@@ -543,9 +546,20 @@ export function BeoBlockEditor({
             )}
             {field.kind === 'menu' && (
               <Select
+                aria-label={field.label}
                 value={String(value ?? '')}
                 disabled={disabled}
-                onChange={(e) => set(e.target.value)}
+                onChange={(e) => {
+                  set(e.target.value)
+                  // Changing the bound menu invalidates any authored picks:
+                  // their group ids belong to the old menu and would otherwise
+                  // price invisibly on the new package line.
+                  if (config.packageChoices !== undefined) {
+                    const next = { ...config }
+                    delete next.packageChoices
+                    onConfigChange(next)
+                  }
+                }}
                 options={[{ value: '', label: '— NONE —' }, ...menus.map((m) => ({ value: m.id, label: m.name }))]}
               />
             )}
@@ -573,7 +587,7 @@ export function BeoBlockEditor({
             )}
             {field.kind === 'items' && (
               <div className="space-y-2">
-                {boundPackage && (choiceGroups?.length ?? 0) > 0 && (
+                {boundPackage && carriesBoundMenu && (choiceGroups?.length ?? 0) > 0 && (
                   <PackageChoicesEditor
                     picks={parseLineChoices(config.packageChoices) ?? []}
                     groups={choiceGroups ?? []}

@@ -554,9 +554,15 @@ export function summariseBlock(
   library: BlockLibrary = BEO_BLOCKS,
 ): string {
   const cfg = block.config ?? {}
+  const picks = Array.isArray(cfg.packageChoices) ? cfg.packageChoices.length : 0
   if (Array.isArray(cfg.items)) {
     const n = cfg.items.length
-    return n === 0 ? 'NO ITEMS' : `${n} ITEM${n === 1 ? '' : 'S'}`
+    const itemText = n === 0 ? '' : `${n} ITEM${n === 1 ? '' : 'S'}`
+    const pickText = picks > 0 ? `${picks} PICK${picks === 1 ? '' : 'S'}` : ''
+    if (itemText && pickText) return `${itemText} · ${pickText}`
+    if (itemText) return itemText
+    if (pickText) return pickText
+    return 'NO ITEMS'
   }
   if (Array.isArray(cfg.rows)) {
     const n = cfg.rows.length
