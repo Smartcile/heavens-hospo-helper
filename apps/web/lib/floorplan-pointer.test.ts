@@ -169,6 +169,16 @@ describe('findMagneticSnap', () => {
     expect(snap).not.toBeNull()
     expect(snap!.y).toBe(80)
   })
+
+  it('reports an already-flush placement as a zero-distance candidate', () => {
+    // No gap to close, but the caller still needs to know which table it is
+    // flush with so an explicit join can be considered.
+    const snap = findMagneticSnap({ ...table, x: 80 }, [table], 15)
+    expect(snap).not.toBeNull()
+    expect(snap!.x).toBe(80)
+    expect(snap!.y).toBe(0)
+    expect(snap!.targetIndex).toBe(0)
+  })
 })
 
 describe('explicit join', () => {
@@ -186,6 +196,15 @@ describe('explicit join', () => {
 
   it('a deliberate long overlap joins', () => {
     expect(shouldJoin({ ...table, x: 80, y: 10 }, table)).toBe(true)
+  })
+
+  it('joins an exactly flush release with a zero-distance gap', () => {
+    // Regression: the magnetic candidate used to skip perp <= 0, so a table
+    // released exactly flush never produced a join.
+    const flush = { ...table, x: 80, y: 0 }
+    expect(findMagneticSnap(flush, [table], 15)).not.toBeNull()
+    expect(edgeOverlapRatio(flush, table)).toBeCloseTo(1, 6)
+    expect(shouldJoin(flush, table)).toBe(true)
   })
 
   it('Shift joins a partial flush fit outright', () => {

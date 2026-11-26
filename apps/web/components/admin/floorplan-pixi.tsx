@@ -102,6 +102,8 @@ interface PixiCanvasProps {
   onZoneDrawStart: (x: number, y: number) => void
   onZoneDrawMove: (x: number, y: number) => void
   onZoneDrawEnd: (x: number, y: number) => void
+  /** Escape / pointercancel during a zone draw — clear the preview. */
+  onZoneDrawCancel?: () => void
   onZoneResize?: (id: string, x: number, y: number, width: number, height: number) => void
   textScale?: number
   selRect?: { x: number; y: number; w: number; h: number } | null
@@ -161,7 +163,7 @@ export function FloorPlanPixiCanvas({
   sectionColours, sectionNames, sectionBoundaries, zoneDrawing, zoneDrawStart, zoneDrawRect, selectedZoneId,
   containerRef, viewRef,
   onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneResizeStart,
-  onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange,
+  onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneDrawCancel, onZoneResize, onViewChange,
   textScale = 1, selRect, onSelRectStart, onSelRectMove, onSelRectEnd,
   rebuildKey, showDimensions = false,
   setupItems, setupSelectedIds, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, setupGroups, zoneTotals, setupActive = false, ghostMode = false,
@@ -183,8 +185,8 @@ export function FloorPlanPixiCanvas({
   // Keep current room dimensions available to the init-effect handlers (which have [] deps)
   const dimsRef = useRef({ roomWidth, roomDepth, gridUnit })
   dimsRef.current = { roomWidth, roomDepth, gridUnit }
-  const cbRef = useRef({ onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneResizeStart, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, onSetupChairMove, onSetupChairAdd, onSetupChairRemove, onCanvasPlace, armedPlacement, wallDrawing, zonePolyMode, onWallPoint, onZonePolyAdd })
-  cbRef.current = { onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneResizeStart, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, onSetupChairMove, onSetupChairAdd, onSetupChairRemove, onCanvasPlace, armedPlacement, wallDrawing, zonePolyMode, onWallPoint, onZonePolyAdd }
+  const cbRef = useRef({ onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneResizeStart, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneDrawCancel, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, onSetupChairMove, onSetupChairAdd, onSetupChairRemove, onCanvasPlace, armedPlacement, wallDrawing, zonePolyMode, onWallPoint, onZonePolyAdd })
+  cbRef.current = { onElementClick, onElementDragEnd, onZoneClick, onZoneDragEnd, onZoneResizeStart, onZoneDrawStart, onZoneDrawMove, onZoneDrawEnd, onZoneDrawCancel, onZoneResize, onViewChange, zoneDrawing, onSelRectStart, onSelRectMove, onSelRectEnd, showDimensions, onSetupItemClick, onSetupItemDragEnd, onSetupChairEdge, onSetupItemRotate, onSetupItemsJoin, onSetupChairMove, onSetupChairAdd, onSetupChairRemove, onCanvasPlace, armedPlacement, wallDrawing, zonePolyMode, onWallPoint, onZonePolyAdd }
 
   // ── Gesture ownership ────────────────────────────────────────────────────
   // Every pointer gesture (pan, drag, draw, select, rotate, resize, chair) is
@@ -380,6 +382,10 @@ export function FloorPlanPixiCanvas({
             const p = screenToWorld(viewRef.current, gesture.lastX, gesture.lastY)
             cbRef.current.onZoneDrawEnd(p.x, p.y)
           },
+          cancel: () => {
+            // Escape / blur mid-draw must not leave the preview rectangle behind.
+            cbRef.current.onZoneDrawCancel?.()
+          },
         })
         return
       }
@@ -397,6 +403,10 @@ export function FloorPlanPixiCanvas({
         finish: (gesture) => {
           const p = screenToWorld(viewRef.current, gesture.lastX, gesture.lastY)
           cbRef.current.onSelRectEnd?.(p.x, p.y)
+        },
+        cancel: () => {
+          // A zero-area end clears the rubber band without selecting anything.
+          cbRef.current.onSelRectEnd?.(at.x, at.y)
         },
       })
     })
@@ -1071,6 +1081,10 @@ export function FloorPlanPixiCanvas({
         finish: (gesture) => {
           showGuide(null)
           if (!gesture.moved) {
+            // A click, not a drag: revert the sub-slop preview so the node
+            // never drifts away from its committed position.
+            node.x = start.x
+            node.y = start.y
             cbRef.current.onElementClick(el.id!, additive)
             return
           }
@@ -1083,7 +1097,11 @@ export function FloorPlanPixiCanvas({
           const rx = clampToRoom(drop.x, el.width, dimsRef.current.roomWidth)
           const ry = clampToRoom(drop.y, el.depth, dimsRef.current.roomDepth)
           // Select as part of the same commit, so the scene rebuilds only once.
-          cbRef.current.onElementClick(el.id!, false)
+          // An additive drag of an item already in a multi-selection keeps that
+          // selection instead of collapsing it to one.
+          if (!(additive && selectedIds.includes(el.id!))) {
+            cbRef.current.onElementClick(el.id!, additive)
+          }
           cbRef.current.onElementDragEnd?.(el.id!, rx, ry, sectionForDrop(rx, ry, el.width, el.depth))
         },
         cancel: () => {
@@ -1128,7 +1146,12 @@ export function FloorPlanPixiCanvas({
           node.y = local.y
         },
         finish: (gesture) => {
-          if (!gesture.moved || !parent) return
+          if (!gesture.moved || !parent) {
+            // A click on the chair: nothing to commit, undo the preview offset.
+            node.x = home.x
+            node.y = home.y
+            return
+          }
           const local = parent.toLocal({ x: gesture.lastX, y: gesture.lastY })
           const hit = projectToPerimeter(ring, local.x, local.y)
           cbRef.current.onSetupChairMove?.(item.id, chairId, hit.t)
@@ -1202,6 +1225,10 @@ export function FloorPlanPixiCanvas({
         finish: (gesture) => {
           showGuide(null)
           if (!gesture.moved) {
+            // A click, not a drag: revert the sub-slop preview so the node
+            // never drifts away from its committed position.
+            node.x = start.x
+            node.y = start.y
             cbRef.current.onSetupItemClick?.(item.id, additive)
             return
           }
@@ -1216,18 +1243,24 @@ export function FloorPlanPixiCanvas({
 
           // Join is explicit: a long deliberate overlap, or Shift held. A small
           // accidental nudge against another table snaps flush but stays apart.
+          //
+          // Evaluated against the *resolved* placement for every nearby
+          // candidate, so an exactly-flush release (nothing left to snap)
+          // still produces a join candidate.
           let joinTargetId: string | null = null
-          if (drop.target !== null) {
-            const target = candidates[drop.target]
-            const flush = { x: rx, y: ry, width: item.width, depth: item.depth, rotation: item.rotation ?? 0 }
-            const targetPlacement = targets[drop.target]
-            if (target && targetPlacement && (!item.tableGroupId || target.tableGroupId !== item.tableGroupId)
-              && shouldJoin(flush, targetPlacement, { shiftHeld })) {
-              joinTargetId = target.id
+          const flush = { x: rx, y: ry, width: item.width, depth: item.depth, rotation: item.rotation ?? 0 }
+          for (let i = 0; i < candidates.length; i++) {
+            const candidate = candidates[i]
+            if (item.tableGroupId && candidate.tableGroupId === item.tableGroupId) continue
+            if (shouldJoin(flush, targets[i], { shiftHeld })) {
+              joinTargetId = candidate.id
+              break
             }
           }
 
-          cbRef.current.onSetupItemClick?.(item.id, false)
+          if (!(additive && (setupSelectedIds ?? []).includes(item.id))) {
+            cbRef.current.onSetupItemClick?.(item.id, additive)
+          }
           cbRef.current.onSetupItemDragEnd?.(item.id, rx, ry, sectionForDrop(rx, ry, item.width, item.depth))
           if (joinTargetId) cbRef.current.onSetupItemsJoin?.(item.id, joinTargetId)
         },
@@ -1295,10 +1328,15 @@ export function FloorPlanPixiCanvas({
       e.stopPropagation()
       const origin = { x: e.globalX, y: e.globalY }
       const start = { x: z.x, y: z.y, width: z.width, height: z.height }
-      // Snapshot undo state once, before the first size reaches the editor.
-      cbRef.current.onZoneResizeStart?.()
+      let started = false
 
       const resizeTo = (gesture: GestureState) => {
+        if (!started) {
+          // Snapshot undo state only when a real resize starts; a plain click
+          // on the handle must not add a history entry.
+          started = true
+          cbRef.current.onZoneResizeStart?.()
+        }
         const gu = stateRef.current.gu || 1
         const d = dragDelta(origin, gesture)
         const dx = gridSnap(d.x, gu)
@@ -1319,7 +1357,7 @@ export function FloorPlanPixiCanvas({
           resizeTo(gesture)
         },
         cancel: () => {
-          cbRef.current.onZoneResize?.(z.id, start.x, start.y, start.width, start.height)
+          if (started) cbRef.current.onZoneResize?.(z.id, start.x, start.y, start.width, start.height)
         },
       })
     })
@@ -1340,6 +1378,9 @@ export function FloorPlanPixiCanvas({
         },
         finish: (gesture) => {
           if (!gesture.moved) {
+            // A click: revert the sub-slop preview before selecting the zone.
+            node.x = start.x
+            node.y = start.y
             cbRef.current.onZoneClick(z.id)
             return
           }

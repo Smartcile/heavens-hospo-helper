@@ -35,6 +35,7 @@ import {
 import {
   clampToRoom,
   zoomAroundCenter,
+  screenToWorld,
   nudgeDirectionForKey,
   nudgeStep,
   nudgeDelta,
@@ -165,12 +166,17 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     const previous = undoHistory(historyRef.current, snapshot())
     if (!previous) return
     restore(previous)
+    // Undo is itself an unsaved change: the saved scene no longer matches.
+    setDirty(true)
+    setLastAction('UNDO')
   }
 
   function redo() {
     const next = redoHistory(historyRef.current, snapshot())
     if (!next) return
     restore(next)
+    setDirty(true)
+    setLastAction('REDO')
   }
 
   function updateZones(fn: (prev: SectionZone[]) => SectionZone[]) {
@@ -351,8 +357,11 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
   // Join two same-profile tables. Deliberate only: the canvas requires a long
   // overlap (or Shift), never a small accidental nudge.
   // Uses a temporary group id; real TableGroup rows are materialised on save.
+  //
+  // No snapshot here on purpose: the canvas calls this immediately after
+  // `handleSetupItemDragEnd`, which already pushed one. Coalescing the move and
+  // the join into a single history entry makes undo one meaningful step.
   function handleSetupItemsJoin(draggedId: string, targetId: string) {
-    pushHistory('JOINED')
     setSetupItems(prev => {
       const dragged = prev.find(i => i.id === draggedId)
       const target = prev.find(i => i.id === targetId)
@@ -395,7 +404,12 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     })
     if (r.ok) {
       const group = await r.json()
-      pushHistory('GROUPED')
+      // Deliberately not pushed to undo: grouping writes a TableGroup row
+      // server-side immediately, while undo only rewrites local `tableGroupId`
+      // values. Reverting it locally would leave items pointing at a
+      // soft-deleted group (or the group orphaned). Group/ungroup is reverted
+      // with UNGROUP, not Ctrl+Z. The drag-join above stays undoable because it
+      // uses a `new_group_*` id that is only materialised on SAVE.
       setSetupItems(prev => prev.map(i =>
         setupSelectedIds.includes(i.id) ? { ...i, tableGroupId: group.id } : i
       ))
@@ -408,7 +422,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     const item = setupItems.find(i => i.id === setupSelectedIds[0])
     if (!item?.tableGroupId) return
     await fetch(`/api/admin/floorplan/${plan.id}/setups/${activeSetupId}/groups/${item.tableGroupId}`, { method: 'DELETE' })
-    pushHistory('UNGROUPED')
+    // Not pushed to undo for the same reason as GROUP (the delete already
+    // happened server-side). Re-group with GROUP.
     setSetupItems(prev => prev.map(i =>
       i.tableGroupId === item.tableGroupId ? { ...i, tableGroupId: null } : i
     ))
@@ -518,6 +533,8 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
 
   /** Drag a chair to a new spot around its table. */
   function handleChairMove(itemId: string, chairId: string, t: number) {
+    // The chair is committed once, on release, so this is a single undo step.
+    pushHistory('MOVED CHAIR')
     updateChairs(itemId, (chairs) => moveChair(chairs, chairId, t))
   }
 
@@ -655,7 +672,11 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
     if (zoneDrawing && selectedZoneId) {
       pushHistory('NUDGED')
       setZones((prev) => prev.map((z) => z.id === selectedZoneId
-        ? { ...z, x: Math.max(0, z.x + delta.x), y: Math.max(0, z.y + delta.y) }
+        ? {
+            ...z,
+            x: clampToRoom(z.x + delta.x, z.width, plan.roomWidth),
+            y: clampToRoom(z.y + delta.y, z.height, plan.roomDepth),
+          }
         : z))
     }
   }
@@ -802,6 +823,9 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
       pushToast('COULD NOT SAVE THE LAYOUT ITEMS — TRY AGAIN.', 'error')
       return
     }
+    // SAVE is a commit point: drop the stack so an undo cannot bring a
+    // `new_*` / `new_setup_*` temp id back into a second save.
+    historyRef.current = { past: [], future: [] }
     setDirty(false)
     setLastAction('')
     pushToast('PLAN SAVED', 'success')
@@ -1118,15 +1142,11 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
           onDrop={(e) => {
             e.preventDefault()
             const type = e.dataTransfer.getData('text/plain')
+            if (!type.startsWith(FURNITURE_DRAG_PREFIX)) return
             const rect = containerRef.current!.getBoundingClientRect()
-            const vs = viewRef.current
-            const screenX = e.clientX - rect.left
-            const screenY = e.clientY - rect.top
-            const x = (screenX - vs.ox - vs.panX) / (vs.baseScale * vs.zoom)
-            const y = (screenY - vs.oy - vs.panY) / (vs.baseScale * vs.zoom)
-            if (type.startsWith(FURNITURE_DRAG_PREFIX)) {
-              placeFurniture(type.slice(FURNITURE_DRAG_PREFIX.length), x, y)
-            }
+            // Same conversion as every other pointer path (pan included).
+            const p = screenToWorld(viewRef.current, e.clientX - rect.left, e.clientY - rect.top)
+            placeFurniture(type.slice(FURNITURE_DRAG_PREFIX.length), p.x, p.y)
           }}
         >
           <FloorPlanPixiCanvas
@@ -1188,6 +1208,11 @@ export function FloorPlanEditor({ plan, sections, onBack }: { plan: FullPlan; se
                 setZones((pz) => [...pz, { id: `zone_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, x: Math.min(s.x, sx), y: Math.min(s.y, sy), width: w, height: h, sectionId: zoneSectionId }])
               }
               setZoneDrawRect(null); setSelectedZoneId(null); setZoneDrawStart(null)
+            }}
+            onZoneDrawCancel={() => {
+              // Escape / pointercancel mid-draw: drop the preview, create nothing.
+              zdStartRef.current = null
+              setZoneDrawRect(null); setZoneDrawStart(null)
             }}
             textScale={textScale}
             onViewChange={(z) => setZoomLevel(z)}

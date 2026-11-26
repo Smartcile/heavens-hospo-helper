@@ -300,8 +300,11 @@ export function findMagneticSnap(
         const dist = Math.abs(perp)
         if (dist >= bestDist) continue
         // The item approaches from outside: the target edge is on the outward
-        // side. An overlapping placement is never snapped on top.
-        if (perp <= 0) continue
+        // side. An overlapping placement is never snapped on top. A
+        // zero-distance (already flush) release is a valid candidate: it
+        // translates by nothing, but it tells the caller which table it is
+        // flush with so an explicit join can be considered.
+        if (perp < 0) continue
 
         // The projections must overlap, otherwise it is not a flush fit.
         const projMin = Math.min(tx1 * ie.ux + ty1 * ie.uy, tx2 * ie.ux + ty2 * ie.uy)

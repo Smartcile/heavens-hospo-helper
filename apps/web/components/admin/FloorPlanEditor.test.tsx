@@ -1,10 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
 
 vi.stubGlobal('ResizeObserver', vi.fn(() => ({ observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() })))
 
+/** Captures the canvas props so tests can drive the callbacks the Pixi canvas would fire. */
+const canvas = vi.hoisted(() => ({ props: null as any }))
 vi.mock('@/components/admin/floorplan-pixi', () => ({
-  FloorPlanPixiCanvas: () => null as any,
+  FloorPlanPixiCanvas: (props: any) => {
+    canvas.props = props
+    return null
+  },
 }))
 vi.mock('@/components/admin/floorplan-elements', async () => {
   const actual = await vi.importActual('@/components/admin/floorplan-elements')
@@ -168,6 +173,43 @@ describe('FloorPlanEditor', () => {
       .find((el) => (el as HTMLInputElement).value === '123') as HTMLInputElement
     fireEvent.keyDown(xInput, { key: 'ArrowRight' })
     expect(numberInputValues(container)).toContain('123')
+  })
+
+  it('marks a chair move as an unsaved change (blocking review item)', async () => {
+    mockPlanWithElement()
+    const { container, getByTestId } = render(
+      <FloorPlanEditor plan={mockPlan} sections={mockSections} onBack={vi.fn()} />
+    )
+    await selectWall(container)
+    expect(getByTestId('save-state').textContent).toBe('SAVED')
+
+    // The canvas commits a chair drag once, on release.
+    act(() => { canvas.props.onSetupChairMove('el-1', 'chair-1', 0.25) })
+
+    await waitFor(() => expect(getByTestId('save-state').textContent).toBe('UNSAVED · MOVED CHAIR'))
+  })
+
+  it('marks undo/redo dirty and clears history after a save', async () => {
+    mockPlanWithElement()
+    const { container, getByTestId, getByText } = render(
+      <FloorPlanEditor plan={mockPlan} sections={mockSections} onBack={vi.fn()} />
+    )
+    await selectWall(container)
+
+    // Undo itself is an unsaved change.
+    fireEvent.keyDown(canvasRoot(container), { key: 'ArrowRight' })
+    fireEvent.keyDown(canvasRoot(container), { key: 'z', ctrlKey: true })
+    await waitFor(() => expect(getByTestId('save-state').textContent).toBe('UNSAVED · UNDO'))
+
+    // SAVE is a commit point: history is dropped and the badge goes clean.
+    fireEvent.click(getByText('SAVE'))
+    await waitFor(() => expect(getByTestId('save-state').textContent).toBe('SAVED'))
+
+    // An undo after SAVE cannot resurrect the pre-save snapshot.
+    const before = numberInputValues(container)
+    fireEvent.keyDown(canvasRoot(container), { key: 'z', ctrlKey: true })
+    expect(getByTestId('save-state').textContent).toBe('SAVED')
+    expect(numberInputValues(container)).toEqual(before)
   })
 
   it('undoes a rotate and a delete', async () => {
