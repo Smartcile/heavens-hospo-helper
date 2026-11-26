@@ -1,6 +1,6 @@
 {
   "version": "1022",
-  "generatedAt": "2026-11-26T11:23:46.411Z",
+  "generatedAt": "2026-11-26T12:16:10.940Z",
   "repo": "Smartcile/heavens-hospo-helper",
   "issues": [
     {
@@ -1017,21 +1017,27 @@
     {
       "number": 143,
       "title": "[TASKS] Add role-aware progress and push-to-tomorrow outcomes",
-      "state": "OPEN",
+      "state": "CLOSED",
       "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/143",
-      "closedAt": null,
+      "closedAt": "2026-11-26T12:09:01Z",
       "labels": [
-        "agent:planned"
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
       ]
     },
     {
       "number": 144,
       "title": "[GUIDES] Add supplier drop-off guides and bad-delivery alerts",
-      "state": "OPEN",
+      "state": "CLOSED",
       "url": "https://github.com/Smartcile/heavens-hospo-helper/issues/144",
-      "closedAt": null,
+      "closedAt": "2026-11-26T12:15:20Z",
       "labels": [
-        "agent:planned"
+        "agent:planned",
+        "agent:approved",
+        "agent:review",
+        "agent:merged"
       ]
     },
     {
