@@ -1,9 +1,10 @@
 'use client'
 
-// Availability HISTORY (#206) — one read-only popup over the audit trail that
+// Availability HISTORY (#206) - one read-only popup over the audit trail that
 // already exists on availability rows: every declaration day (including
 // cancelled ones) and every edit request in every status (pending, applied,
-// discarded, superseded and withdrawn). There is deliberately no second write
+// discarded, superseded, withdrawn and removed by a manager). There is
+// deliberately no second write
 // path here — APPLY / DISCARD stay in the approvals queue. A pending request
 // offers OPEN IN QUEUE, which hands the person back to the existing modal.
 
@@ -94,7 +95,10 @@ export function AvailabilityHistoryModal({
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [tab, setTab] = useState<'REQUESTS' | 'DAYS'>('REQUESTS')
-  const [staffFilter, setStaffFilter] = useState('ALL')
+  // Null while closed. The effective filter falls back to `initialStaffId`, so
+  // opening from a person builds the first query with that person in a single
+  // render — no throwaway ALL-STAFF fetch.
+  const [staffFilter, setStaffFilter] = useState<string | null>(initialStaffId ?? null)
   const [statusFilter, setStatusFilter] = useState<AvailabilityHistoryStatus | 'ALL'>('ALL')
   const [rangeKey, setRangeKey] = useState<RangeKey>(DEFAULT_RANGE)
   /** Venue-local today from the server — never the device's day. */
@@ -102,12 +106,16 @@ export function AvailabilityHistoryModal({
   const [includeDeleted, setIncludeDeleted] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const loadedRef = useRef(false)
+  const activeStaffFilter = staffFilter ?? initialStaffId ?? 'ALL'
 
   useEffect(() => {
-    if (!isOpen) return
-    setStaffFilter(initialStaffId ?? 'ALL')
-    setStatusFilter('ALL')
-    setExpanded(new Set())
+    if (isOpen) {
+      setStaffFilter(initialStaffId ?? 'ALL')
+      setStatusFilter('ALL')
+      setExpanded(new Set())
+    } else {
+      setStaffFilter(null)
+    }
   }, [isOpen, initialStaffId])
 
   // Filters are sent to the route as well as applied client-side, so a narrow
@@ -126,10 +134,10 @@ export function AvailabilityHistoryModal({
       params.set('from', shiftDay(today, range.from))
       params.set('to', shiftDay(today, range.to))
     }
-    if (staffFilter !== 'ALL') params.set('staffId', staffFilter)
+    if (activeStaffFilter !== 'ALL') params.set('staffId', activeStaffFilter)
     if (statusFilter !== 'ALL') params.set('status', statusFilter)
     return `/api/admin/availability/history?${params.toString()}`
-  }, [venueId, rangeKey, today, includeDeleted, staffFilter, statusFilter])
+  }, [venueId, rangeKey, today, includeDeleted, activeStaffFilter, statusFilter])
 
   useEffect(() => {
     if (!isOpen || !query) return
@@ -166,7 +174,7 @@ export function AvailabilityHistoryModal({
 
   const requests = useMemo(
     () => (data ? sortHistoryRequests(filterHistoryRequests(data.requests ?? [], {
-      staffId: staffFilter === 'ALL' ? null : staffFilter,
+      staffId: activeStaffFilter === 'ALL' ? null : activeStaffFilter,
       status: statusFilter,
       includeWithdrawn: includeDeleted,
     })) : []),
@@ -175,7 +183,7 @@ export function AvailabilityHistoryModal({
 
   const days = useMemo(
     () => (data ? sortHistoryDays(filterHistoryDays(data.days ?? [], {
-      staffId: staffFilter === 'ALL' ? null : staffFilter,
+      staffId: activeStaffFilter === 'ALL' ? null : activeStaffFilter,
       includeCancelled: includeDeleted,
     })) : []),
     [data, staffFilter, includeDeleted],
@@ -420,7 +428,7 @@ export function AvailabilityHistoryModal({
           <label className="flex flex-col gap-1">
             <span className="font-mono text-2xs uppercase text-grey-light">STAFF</span>
             <select
-              value={staffFilter}
+              value={activeStaffFilter}
               onChange={(e) => setStaffFilter(e.target.value)}
               aria-label="Filter history by staff"
               className="bg-black border border-grey-mid text-white font-mono text-xs px-2 py-1.5 outline-none focus:border-white"
@@ -509,8 +517,8 @@ export function AvailabilityHistoryModal({
         )}
 
         <p className="font-mono text-2xs uppercase text-grey-light">
-          HISTORY SHOWS EVERY DECLARATION AND EDIT REQUEST, INCLUDING WITHDRAWN AND CANCELLED ROWS. EARLIER
-          DAY VALUES OVERWRITTEN IN PLACE ARE NOT RECOVERABLE — THE CURRENT DAY AND THE REQUEST ARE THE RECORD.
+          HISTORY SHOWS EVERY DECLARATION AND EDIT REQUEST, INCLUDING WITHDRAWN, REMOVED AND CANCELLED ROWS. EARLIER
+          DAY VALUES OVERWRITTEN IN PLACE ARE NOT RECOVERABLE - THE CURRENT DAY AND THE REQUEST ARE THE RECORD.
         </p>
       </div>
     </Modal>

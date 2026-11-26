@@ -57,7 +57,7 @@ describe('history request status', () => {
 
   it('keeps a manager dismissal DISCARDED, never WITHDRAWN', () => {
     expect(historyRequestStatus({
-      status: 'DISCARDED', deleted: true, staffId: 'st1', reviewedById: 'm1', reviewNote: 'SERIES DELETED',
+      status: 'DISCARDED', deleted: true, staffId: 'st1', reviewedById: 'm1', reviewNote: SERIES_DELETED_NOTE,
     })).toBe('DISCARDED')
   })
 

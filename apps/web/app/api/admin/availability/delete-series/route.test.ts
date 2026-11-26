@@ -19,6 +19,7 @@ vi.mock('@/lib/auth', () => ({ authOptions: {} }))
 vi.mock('@hospo-ops/db', () => ({ prisma: db }))
 vi.mock('@/lib/availability.server', () => ({ clearAvailability, parseScope, unlockSeriesAvailability }))
 
+import { SERIES_DELETED_NOTE } from '@/lib/availability-history'
 import { POST } from './route'
 
 function req(body: unknown): NextRequest {
@@ -156,7 +157,7 @@ describe('POST /api/admin/availability/delete-series', () => {
           status: 'DISCARDED',
           reviewedById: 'u1',
           reviewedAt: expect.any(Date),
-          reviewNote: 'SERIES DELETED',
+          reviewNote: SERIES_DELETED_NOTE,
         },
       }),
     )

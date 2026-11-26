@@ -17,7 +17,6 @@ import {
   filterHistoryDays,
   filterHistoryRequests,
   historyActorLabel,
-  historyRequestStatus,
   sortHistoryDays,
   sortHistoryRequests,
   type AvailabilityHistoryComment,

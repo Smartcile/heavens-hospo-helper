@@ -37,7 +37,7 @@ function activeVenueId(session: SessionLike, req: NextRequest): string {
  *
  * Query: `venueId` (ADMIN only), `staffId`, `from`, `to` (YYYY-MM-DD, default
  * the last 90 days), `status` (ALL | PENDING | APPLIED | DISCARDED |
- * SUPERSEDED | WITHDRAWN) and `includeDeleted` (default 1).
+ * SUPERSEDED | WITHDRAWN | REMOVED) and `includeDeleted` (default 1).
  */
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)

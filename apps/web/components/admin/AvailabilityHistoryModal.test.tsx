@@ -171,6 +171,8 @@ describe('AvailabilityHistoryModal', () => {
     renderModal()
 
     await screen.findByText('WAITING WORKER')
+    expect(String(spy.mock.calls[0][0])).toContain('includeDeleted=1')
+
     fireEvent.change(screen.getByLabelText('Filter history by staff'), { target: { value: 'm1' } })
 
     // The narrow view is requested from the API (so caps cannot under-report)
@@ -184,20 +186,54 @@ describe('AvailabilityHistoryModal', () => {
     await waitFor(() => {
       expect(spy.mock.calls.some((c) => String(c[0]).includes('status=APPLIED'))).toBe(true)
     })
+
+    fireEvent.click(screen.getByLabelText('SHOW WITHDRAWN / REMOVED / CANCELLED') as HTMLInputElement)
+    await waitFor(() => {
+      expect(spy.mock.calls.some((c) => String(c[0]).includes('includeDeleted=0'))).toBe(true)
+    })
   })
 
-  it('refetches a forward range from the server today, never the device clock', async () => {
+  it('refetches every range from the server today, never the device clock', async () => {
     const spy = mockFetch(history())
     renderModal()
 
     await screen.findByRole('button', { name: /APPLIED/ })
     expect(screen.getByText(/VENUE-LOCAL TODAY 26-11-2026/)).toBeDefined()
 
-    fireEvent.change(screen.getByLabelText('Filter history by date range'), { target: { value: 'NEXT_90' } })
+    const select = screen.getByLabelText('Filter history by date range')
 
+    fireEvent.change(select, { target: { value: 'NEXT_90' } })
     await waitFor(() => {
       expect(spy.mock.calls.some((c) => String(c[0]).includes('from=2026-11-26&to=2027-02-24'))).toBe(true)
     })
+
+    fireEvent.change(select, { target: { value: 'PAST_30' } })
+    await waitFor(() => {
+      expect(spy.mock.calls.some((c) => String(c[0]).includes('from=2026-10-28&to=2026-11-26'))).toBe(true)
+    })
+
+    fireEvent.change(select, { target: { value: 'PAST_365' } })
+    await waitFor(() => {
+      expect(spy.mock.calls.some((c) => String(c[0]).includes('from=2025-11-27&to=2026-11-26'))).toBe(true)
+    })
+
+    fireEvent.change(select, { target: { value: 'SPAN_180' } })
+    await waitFor(() => {
+      expect(spy.mock.calls.some((c) => String(c[0]).includes('from=2026-08-29&to=2027-02-24'))).toBe(true)
+    })
+  })
+
+  it('opens with the person filter already applied in a single request', async () => {
+    const spy = mockFetch(history())
+    const { rerender } = render(
+      <AvailabilityHistoryModal isOpen={false} venueId="v1" onClose={() => undefined} initialStaffId="st1" />,
+    )
+    rerender(<AvailabilityHistoryModal isOpen venueId="v1" onClose={() => undefined} initialStaffId="st1" />)
+
+    await screen.findByRole('button', { name: /APPLIED/ })
+    const historyCalls = spy.mock.calls.filter((c) => String(c[0]).includes('/availability/history'))
+    expect(historyCalls).toHaveLength(1)
+    expect(String(historyCalls[0][0])).toContain('staffId=st1')
   })
 
   it('shows cancelled declaration days with their review and lock stamps', async () => {
