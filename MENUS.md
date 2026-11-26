@@ -603,8 +603,9 @@ instead of being a bare `{ menuItemId, qty }`:
 | `PER_PLATTER` | the stored platter count | a platter that "serves 4–6" |
 
 **Money stays live.** A line stores only non-cash facts (`unit`, `servesMin`,
-`servesMax`) in the block config and in `MenuItem` / `Menu` metadata; every
-total is recomputed from the live `MenuItem.price` / `Menu.pricePerPerson`.
+`servesMax`) in the block config and in `MenuItem` / `Menu` metadata; every total
+is recomputed from the live `MenuItem.price` / `Menu.pricePerPerson` — the one
+exception is an authored choice `priceDelta` (see the design note below).
 
 **Product metadata (additive, nullable):** `MenuItem.pricingMode`
 (`EACH | PER_PERSON | PER_PLATTER`) is the default unit for a new line,
@@ -614,12 +615,22 @@ before the event date. All null = today's behaviour.
 
 **Packages reuse `Menu` + `MenuGroup`** (no separate package tables):
 `Menu.pricingMode` + `Menu.pricePerPerson` make a menu a per-head set menu.
-An event whose bound `Menu` is `PER_PERSON` gets one automatic priced line at
+An event whose bound `Menu` is `PER_PERSON` gets **one** automatic priced line at
 `pricePerPerson × guestCount` (unit `PER_PERSON`); a purged menu is reported as
 a violation, never priced at $0. `MenuGroup.minSelect`/`maxSelect` describe how
-many dishes the guest must / may pick, and those picks author onto the set-menu
-line as a `choices` snapshot. Choice picks are included in the per-head price;
-a pick carrying a `priceDelta` adds it on top.
+many dishes the guest must / may pick. Those picks author on the priced block as
+`config.packageChoices` and price on that same automatic line — they are
+**included** in the per-head price, and a pick carrying a `priceDelta` adds it
+on top. A second priced set-menu product line is never created for the picks; a
+legacy per-line `choices` snapshot is folded into the package line, so a bound
+menu cannot be charged twice.
+
+**Design note — the one non-live cash fact.** Every price is live except a
+choice's `priceDelta`. A pick's upcharge is a stored snapshot (a manual
+"premium main +$8") captured when the pick is authored, exactly like an order
+option snapshot; it is deliberately not re-read from a catalogue so a later
+price change cannot silently rewrite an accepted quote. Everything else
+(`MenuItem.price`, `Menu.pricePerPerson`) stays live.
 
 **Rules.**
 - A menu line's `MenuMenuItem.minQty` is authoritative over the product's

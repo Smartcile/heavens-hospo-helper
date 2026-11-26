@@ -19,6 +19,7 @@ import { roomSetupLabel } from '@/lib/room-setup'
 import {
   PRICING_UNITS,
   describeLineUnit,
+  parseLineChoices,
   parsePricingUnit,
   pricingWarnings,
   suggestPlatterCount,
@@ -73,6 +74,11 @@ export interface BeoBlockEditorProps {
   choiceGroups?: BeoChoiceGroup[]
   /** Menu-line `minQty` overrides (the menu line wins over the product). */
   minQtyByItem?: Record<string, number | null>
+  /**
+   * The event's bound PER_PERSON menu (auto-priced as a package line). When set,
+   * picks are authored at the block level and never as a second set-menu line.
+   */
+  boundPackage?: { name: string; pricePerPerson: number } | null
 }
 
 const inputClass =
@@ -178,33 +184,87 @@ function yieldOf(item: ItemDraft, product: BeoMenuOption | undefined) {
   }
 }
 
-function ChoicesEditor({
-  line,
+const RULE_TEXT = (group: BeoChoiceGroup): string => {
+  const min = group.minSelect != null ? Number(group.minSelect) : 0
+  const max = group.maxSelect != null ? Number(group.maxSelect) : null
+  if (min > 0) return max != null && max !== min ? `PICK ${min}-${max}` : `PICK ${min}`
+  return max != null ? `UP TO ${max}` : ''
+}
+
+/**
+ * SET MENU PICKS for the event's bound per-head menu (#192). These live on the
+ * block (`config.packageChoices`) and price on the automatic package line —
+ * never as a second set-menu product line. Picks are included in the per-head
+ * price; an upcharge adds on top.
+ */
+function PackageChoicesEditor({
+  picks,
   groups,
-  onToggle,
-  onUpcharge,
+  pricePerPerson,
+  menuName,
+  guestCount,
+  eventDate,
+  today,
+  onChange,
   disabled,
 }: {
-  line: ItemDraft
+  picks: LineChoice[]
   groups: BeoChoiceGroup[]
-  onToggle: (group: BeoChoiceGroup, choice: { id: string; name: string }) => void
-  onUpcharge: (group: BeoChoiceGroup, choiceId: string, priceDelta: number) => void
+  pricePerPerson: number
+  menuName: string
+  guestCount?: number | null
+  eventDate?: string | null
+  today?: string | null
+  onChange: (picks: LineChoice[]) => void
   disabled?: boolean
 }) {
-  const picks = line.choices ?? []
+  const warnings = pricingWarnings({
+    name: menuName,
+    qty: 0,
+    unit: 'PER_PERSON',
+    guestCount,
+    eventDate,
+    today,
+    choices: picks,
+    choiceGroups: groups,
+  })
+
+  function toggle(group: BeoChoiceGroup, choice: { id: string; name: string }) {
+    const exists = picks.some((c) => c.groupId === group.id && c.choiceId === choice.id)
+    if (exists) {
+      onChange(picks.filter((c) => !(c.groupId === group.id && c.choiceId === choice.id)))
+      return
+    }
+    onChange([
+      ...picks,
+      {
+        groupId: group.id,
+        groupName: group.name,
+        choiceId: choice.id,
+        choiceName: choice.name,
+        priceDelta: 0,
+      },
+    ])
+  }
+
+  function setUpcharge(group: BeoChoiceGroup, choiceId: string, priceDelta: number) {
+    onChange(
+      picks.map((c) =>
+        c.groupId === group.id && c.choiceId === choiceId ? { ...c, priceDelta } : c,
+      ),
+    )
+  }
+
   return (
-    <div className="border-t border-grey-mid pt-1.5 space-y-2">
+    <div className="border border-grey-mid p-2 space-y-2">
+      <div className="font-mono text-2xs uppercase text-grey-light">
+        SET MENU PICKS — {menuName} · ${pricePerPerson.toFixed(2)}/HEAD
+      </div>
       {groups.map((group) => {
         const groupPicks = picks.filter((c) => c.groupId === group.id)
         const max = group.maxSelect != null ? Number(group.maxSelect) : null
         const atMax = max != null && groupPicks.length >= max
-        const rule = group.minSelect
-          ? max != null && max !== Number(group.minSelect)
-            ? `PICK ${group.minSelect}-${max}`
-            : `PICK ${group.minSelect}`
-          : max != null
-            ? `UP TO ${max}`
-            : ''
+        const rule = RULE_TEXT(group)
         return (
           <div key={group.id} className="space-y-1">
             <div className="font-mono text-2xs uppercase text-grey-light">
@@ -220,7 +280,7 @@ function ChoicesEditor({
                     aria-pressed={selected}
                     aria-label={`${group.name}: ${choice.name}`}
                     disabled={disabled || (!selected && atMax)}
-                    onClick={() => onToggle(group, choice)}
+                    onClick={() => toggle(group, choice)}
                     className={`font-mono text-2xs uppercase px-1.5 py-0.5 border transition-colors disabled:opacity-40 ${
                       selected ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:border-white'
                     }`}
@@ -243,7 +303,7 @@ function ChoicesEditor({
                       aria-label={`Upcharge ${pick.choiceName}`}
                       value={pick.priceDelta}
                       disabled={disabled}
-                      onChange={(e) => onUpcharge(group, pick.choiceId, Number(e.target.value) || 0)}
+                      onChange={(e) => setUpcharge(group, pick.choiceId, Number(e.target.value) || 0)}
                       className={`${inputClass} w-16 text-right`}
                     />
                   </div>
@@ -253,6 +313,11 @@ function ChoicesEditor({
           </div>
         )
       })}
+      {warnings.length > 0 && (
+        <p className="font-mono text-2xs uppercase text-danger">
+          {warnings.map((w) => w.message).join(' · ')}
+        </p>
+      )}
     </div>
   )
 }
@@ -260,7 +325,6 @@ function ChoicesEditor({
 function ItemsEditor({
   items,
   menuItems,
-  choiceGroups = [],
   minQtyByItem,
   guestCount,
   eventDate,
@@ -270,7 +334,6 @@ function ItemsEditor({
 }: {
   items: ItemDraft[]
   menuItems: BeoMenuOption[]
-  choiceGroups?: BeoChoiceGroup[]
   minQtyByItem?: Record<string, number | null>
   guestCount?: number | null
   eventDate?: string | null
@@ -282,45 +345,17 @@ function ItemsEditor({
   function update(index: number, patch: Partial<ItemDraft>) {
     onChange(items.map((it, i) => (i === index ? { ...it, ...patch } : it)))
   }
-  const pax = Number(guestCount)
-  const paxCount = Number.isFinite(pax) && pax >= 0 ? Math.round(pax) : 0
-  const hasChoiceGroups = choiceGroups.length > 0
+  const hasGuestCount = guestCount != null && Number.isFinite(Number(guestCount))
+  const paxCount = hasGuestCount ? Math.max(0, Math.round(Number(guestCount))) : 0
 
   function menuMinFor(item: ItemDraft, product: BeoMenuOption | undefined): number | null {
     const override = item.menuItemId ? minQtyByItem?.[item.menuItemId] : null
     return override ?? product?.minQty ?? null
   }
 
-  function ensureChoices(unit: PricingUnit, item: ItemDraft): Pick<ItemDraft, 'choices'> {
-    if (unit === 'PER_PERSON' && hasChoiceGroups && item.choices === undefined) return { choices: [] }
-    return {}
-  }
-
-  function toggleChoice(index: number, group: BeoChoiceGroup, choice: { id: string; name: string }) {
-    const current = items[index].choices ?? []
-    const exists = current.some((c) => c.groupId === group.id && c.choiceId === choice.id)
-    const choices = exists
-      ? current.filter((c) => !(c.groupId === group.id && c.choiceId === choice.id))
-      : [
-          ...current,
-          {
-            groupId: group.id,
-            groupName: group.name,
-            choiceId: choice.id,
-            choiceName: choice.name,
-            priceDelta: 0,
-          },
-        ]
-    update(index, { choices })
-  }
-
-  function setUpcharge(index: number, group: BeoChoiceGroup, choiceId: string, priceDelta: number) {
-    const current = items[index].choices ?? []
-    update(index, {
-      choices: current.map((c) =>
-        c.groupId === group.id && c.choiceId === choiceId ? { ...c, priceDelta } : c,
-      ),
-    })
+  /** Picks belong to the package line, so a line leaving PER_PERSON drops them. */
+  function clearChoicesWhenNotPerPerson(unit: PricingUnit, item: ItemDraft): Pick<ItemDraft, 'choices'> {
+    return unit === 'PER_PERSON' ? {} : { choices: undefined }
   }
 
   return (
@@ -330,10 +365,8 @@ function ItemsEditor({
         const product = menuItems.find((m) => m.id === it.menuItemId)
         const unit = unitOf(it, product)
         const yieldValues = yieldOf(it, product)
-        const effectiveQty = unit === 'PER_PERSON' && paxCount > 0 ? paxCount : it.qty
+        const effectiveQty = unit === 'PER_PERSON' && hasGuestCount ? paxCount : it.qty
         const minQty = menuMinFor(it, product)
-        const authoredChoices =
-          it.choices ?? (unit === 'PER_PERSON' && hasChoiceGroups ? [] : undefined)
         const warnings = product
           ? pricingWarnings({
               name: product.name,
@@ -345,8 +378,6 @@ function ItemsEditor({
               guestCount,
               eventDate,
               today,
-              choices: authoredChoices,
-              choiceGroups,
             })
           : []
         const platterSuggestion =
@@ -370,7 +401,7 @@ function ItemsEditor({
                       unit: nextUnit,
                       servesMin: picked?.servesMin ?? undefined,
                       servesMax: picked?.servesMax ?? undefined,
-                      ...ensureChoices(nextUnit, it),
+                      ...clearChoicesWhenNotPerPerson(nextUnit, it),
                     })
                   }}
                   options={options}
@@ -382,7 +413,7 @@ function ItemsEditor({
                 disabled={disabled}
                 onChange={(e) => {
                   const nextUnit = parsePricingUnit(e.target.value)
-                  update(i, { unit: nextUnit, ...ensureChoices(nextUnit, it) })
+                  update(i, { unit: nextUnit, ...clearChoicesWhenNotPerPerson(nextUnit, it) })
                 }}
                 className={`${inputClass} w-24`}
               >
@@ -415,7 +446,7 @@ function ItemsEditor({
                   {describeLineUnit({ unit, qty: effectiveQty, ...yieldValues })}
                 </span>
               )}
-              {unit === 'PER_PERSON' && paxCount > 0 && <span>USES PAX</span>}
+              {unit === 'PER_PERSON' && hasGuestCount && <span>USES PAX</span>}
               {minQty != null && <span>MIN {minQty}</span>}
               {product?.leadTimeDays != null && product.leadTimeDays > 0 && (
                 <span>{product.leadTimeDays}D NOTICE</span>
@@ -429,15 +460,6 @@ function ItemsEditor({
                 USE PAX
               </button>
             </div>
-            {unit === 'PER_PERSON' && hasChoiceGroups && it.menuItemId && (
-              <ChoicesEditor
-                line={{ ...it, choices: authoredChoices ?? [] }}
-                groups={choiceGroups}
-                disabled={disabled}
-                onToggle={(group, choice) => toggleChoice(i, group, choice)}
-                onUpcharge={(group, choiceId, priceDelta) => setUpcharge(i, group, choiceId, priceDelta)}
-              />
-            )}
             {warnings.length > 0 && (
               <p className="font-mono text-2xs uppercase text-danger">
                 {warnings.map((w) => w.message).join(' · ')}
@@ -476,6 +498,7 @@ export function BeoBlockEditor({
   today,
   choiceGroups,
   minQtyByItem,
+  boundPackage,
 }: BeoBlockEditorProps) {
   const def = blockDef(type, library)
   if (!def) {
@@ -549,17 +572,31 @@ export function BeoBlockEditor({
               />
             )}
             {field.kind === 'items' && (
-              <ItemsEditor
-                items={Array.isArray(config[field.key]) ? (config[field.key] as ItemDraft[]) : []}
-                menuItems={menuItems}
-                choiceGroups={choiceGroups}
-                minQtyByItem={minQtyByItem}
-                guestCount={guestCount}
-                eventDate={eventDate}
-                today={today}
-                disabled={disabled}
-                onChange={(items) => onConfigChange({ ...config, [field.key]: items })}
-              />
+              <div className="space-y-2">
+                {boundPackage && (choiceGroups?.length ?? 0) > 0 && (
+                  <PackageChoicesEditor
+                    picks={parseLineChoices(config.packageChoices) ?? []}
+                    groups={choiceGroups ?? []}
+                    menuName={boundPackage.name}
+                    pricePerPerson={boundPackage.pricePerPerson}
+                    guestCount={guestCount}
+                    eventDate={eventDate}
+                    today={today}
+                    disabled={disabled}
+                    onChange={(picks) => onConfigChange({ ...config, packageChoices: picks })}
+                  />
+                )}
+                <ItemsEditor
+                  items={Array.isArray(config[field.key]) ? (config[field.key] as ItemDraft[]) : []}
+                  menuItems={menuItems}
+                  minQtyByItem={minQtyByItem}
+                  guestCount={guestCount}
+                  eventDate={eventDate}
+                  today={today}
+                  disabled={disabled}
+                  onChange={(items) => onConfigChange({ ...config, [field.key]: items })}
+                />
+              </div>
             )}
           </div>
         )

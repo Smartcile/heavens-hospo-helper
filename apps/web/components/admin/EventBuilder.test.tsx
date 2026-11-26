@@ -348,7 +348,7 @@ describe('EventBuilder — per-person pricing (#192)', () => {
     expect(screen.getAllByText('$9120.00').length).toBeGreaterThan(0)
   })
 
-  it('authors a set-menu pick and saves it in the block config', async () => {
+  it('authors a set-menu pick at the block level and saves it (never a second set-menu line)', async () => {
     render(
       <EventBuilder
         event={{
@@ -360,7 +360,7 @@ describe('EventBuilder — per-person pricing (#192)', () => {
               id: 'b1',
               type: 'MENU_SELECTION',
               title: null,
-              config: { items: [{ menuItemId: 'set', qty: 1, unit: 'PER_PERSON' }] },
+              config: { items: [] },
               sortOrder: 0,
             },
           ],
@@ -373,6 +373,7 @@ describe('EventBuilder — per-person pricing (#192)', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '▸ MENU SELECTION' }))
+    expect(screen.getByText(/SET MENU PICKS/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'MAIN: BEEF' }))
     fireEvent.click(screen.getByText('SAVE'))
 
@@ -381,9 +382,106 @@ describe('EventBuilder — per-person pricing (#192)', () => {
       const blocksPut = calls.find(([url]) => String(url).endsWith('/blocks'))
       expect(blocksPut).toBeTruthy()
       const body = JSON.parse(blocksPut![1].body as string)
-      expect(body.blocks[0].config.items[0].choices).toEqual([
+      expect(body.blocks[0].config.packageChoices).toEqual([
         { groupId: 'g-main', groupName: 'MAIN', choiceId: 'beef', choiceName: 'BEEF', priceDelta: 0 },
       ])
+      // The picks are not duplicated onto a priced product line.
+      expect(body.blocks[0].config.items).toEqual([])
+    })
+  })
+
+  it('shows the bound menu-line minimum over the product default', () => {
+    const refs = {
+      ...SET_MENU_REFS,
+      menus: [
+        {
+          ...SET_MENU_REFS.menus[0],
+          items: [
+            { id: 'l3', menuItemId: 'can', name: 'CANAPE', groupId: null, sortOrder: 0, minQty: 20 },
+          ],
+        },
+      ],
+      menuItems: [{ id: 'can', name: 'CANAPE', price: 4, minQty: 5 }],
+    }
+    render(
+      <EventBuilder
+        event={{
+          ...PRICED_EVENT,
+          menuId: 'setmenu',
+          blocks: [
+            {
+              id: 'b1',
+              type: 'MENU_SELECTION',
+              title: null,
+              config: { items: [{ menuItemId: 'can', qty: 10, unit: 'EACH' }] },
+              sortOrder: 0,
+            },
+          ],
+        }}
+        venueId="v1"
+        refs={refs}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '▸ MENU SELECTION' }))
+    expect(screen.getByText('MIN 20')).toBeTruthy()
+    const violations = screen.getByTestId('pricing-violations')
+    expect(violations.textContent).toMatch(/CANAPE: MINIMUM 20, ORDERED 10/)
+  })
+
+  it('reports a bound menu that is not in the refs instead of silently omitting it', () => {
+    render(
+      <EventBuilder
+        event={{ ...PRICED_EVENT, menuId: 'gone-menu', blocks: [] }}
+        venueId="v1"
+        refs={REFS}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    const violations = screen.getByTestId('pricing-violations')
+    expect(violations.textContent).toMatch(/MENU NO LONGER EXISTS — NOT PRICED/)
+  })
+
+  it('clears the set-menu picks when the bound menu changes', async () => {
+    render(
+      <EventBuilder
+        event={{
+          ...PRICED_EVENT,
+          menuId: 'setmenu',
+          blocks: [
+            {
+              id: 'b1',
+              type: 'MENU_SELECTION',
+              title: null,
+              config: {
+                items: [],
+                packageChoices: [
+                  { groupId: 'g-main', groupName: 'MAIN', choiceId: 'beef', choiceName: 'BEEF', priceDelta: 0 },
+                ],
+              },
+              sortOrder: 0,
+            },
+          ],
+        }}
+        venueId="v1"
+        refs={SET_MENU_REFS}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    fireEvent.change(screen.getByText('Menu').parentElement?.querySelector('select') as HTMLSelectElement, {
+      target: { value: '' },
+    })
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      const calls = (globalThis.fetch as unknown as { mock: { calls: [string, { body?: string }][] } }).mock.calls
+      const blocksPut = calls.find(([url]) => String(url).endsWith('/blocks'))
+      expect(blocksPut).toBeTruthy()
+      const body = JSON.parse(blocksPut![1].body as string)
+      expect(body.blocks[0].config.packageChoices).toBeUndefined()
     })
   })
 })

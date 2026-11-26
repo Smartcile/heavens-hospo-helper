@@ -213,6 +213,24 @@ export function EventBuilder({
     setDraft((d) => ({ ...d, blocks: d.blocks.map((b) => (b.id === id ? { ...b, ...p } : b)) }))
   }
 
+  /**
+   * Set-menu picks belong to the bound menu's groups. Changing the menu must
+   * drop them, or a stale pick's upcharge would price invisibly on the new
+   * package line.
+   */
+  function changeMenu(menuId: string | null) {
+    setDraft((d) => ({
+      ...d,
+      menuId,
+      blocks: d.blocks.map((b) => {
+        if (!b.config || !('packageChoices' in b.config)) return b
+        const config = { ...b.config }
+        delete config.packageChoices
+        return { ...b, config }
+      }),
+    }))
+  }
+
   function removeBlock(id: string) {
     setDraft((d) => ({ ...d, blocks: d.blocks.filter((b) => b.id !== id) }))
   }
@@ -427,9 +445,10 @@ export function EventBuilder({
     boundMenu && boundMenu.pricingMode === 'PER_PERSON' && boundMenu.pricePerPerson != null
       ? { id: boundMenu.id, name: boundMenu.name, price: Number(boundMenu.pricePerPerson) }
       : undefined
-  // A bound menu missing from the live list is purged — report it, never $0.
-  const missingPackage =
-    draft.menuId && !boundMenu && refs.menus.length > 0 ? { id: draft.menuId } : undefined
+  // A bound menu missing from the live list is purged — or the refs failed to
+  // load (a restricted manager without ops.menus.view). Either way, report it
+  // rather than silently under-quoting the event.
+  const missingPackage = draft.menuId && !boundMenu ? { id: draft.menuId } : undefined
 
   // A menu line's own minQty is authoritative over the product's.
   const minQtyByItem: Record<string, number | null> = {}
@@ -538,7 +557,7 @@ export function EventBuilder({
             label="Menu"
             value={draft.menuId ?? ''}
             options={[{ value: '', label: '— NONE —' }, ...refs.menus.map((m) => ({ value: m.id, label: m.name }))]}
-            onChange={(e) => patch({ menuId: e.target.value || null })}
+            onChange={(e) => changeMenu(e.target.value || null)}
           />
           <Select
             label="Service"
@@ -736,6 +755,11 @@ export function EventBuilder({
                       today={today}
                       choiceGroups={menuChoiceGroups}
                       minQtyByItem={minQtyByItem}
+                      boundPackage={
+                        boundPackage
+                          ? { name: boundPackage.name, pricePerPerson: boundPackage.price }
+                          : null
+                      }
                       onConfigChange={(config) => updateBlock(b.id, { config })}
                       onEventFieldChange={(field, value) => patch({ [field]: value } as Partial<Draft>)}
                     />

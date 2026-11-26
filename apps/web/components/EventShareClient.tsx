@@ -62,7 +62,7 @@ function BlockView({
         <div className="space-y-1">
           {items.map((it, i) => {
             const itemUnit = it.unit ?? 'EACH'
-            const itemQty = itemUnit === 'PER_PERSON' && guestCount > 0 ? guestCount : it.qty
+            const itemQty = itemUnit === 'PER_PERSON' ? guestCount : it.qty
             return (
               <div key={i} className="flex justify-between gap-2 font-mono text-xs">
                 <span className="text-white">{nameOf(it.menuItemId || it.packageId || '')}</span>

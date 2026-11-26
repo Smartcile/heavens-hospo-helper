@@ -146,6 +146,9 @@ export async function POST(req: NextRequest) {
 
   const serveMin = toIntOrNull(servesMin)
   const serveMax = toIntOrNull(servesMax)
+  if ([servesMin, servesMax, minQty, leadTimeDays].some(isNegativeNumber)) {
+    return NextResponse.json({ error: 'PRICING VALUES CANNOT BE NEGATIVE' }, { status: 400 })
+  }
   if (serveMin != null && serveMax != null && serveMax < serveMin) {
     return NextResponse.json({ error: 'servesMax cannot be less than servesMin' }, { status: 400 })
   }
@@ -218,4 +221,11 @@ function toIntOrNull(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null
   const n = parseInt(String(v), 10)
   return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+/** A supplied numeric pricing field that is negative must be rejected, not nulled. */
+function isNegativeNumber(v: unknown): boolean {
+  if (v === null || v === undefined || v === '') return false
+  const n = Number(v)
+  return Number.isFinite(n) && n < 0
 }

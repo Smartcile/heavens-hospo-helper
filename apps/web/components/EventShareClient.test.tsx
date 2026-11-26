@@ -150,6 +150,72 @@ describe('EventShareClient', () => {
     expect(screen.getAllByText(/WEDDING PACKAGE/).length).toBeGreaterThan(0)
   })
 
+  it('lists a PER_PERSON block item as 0 people when the event has 0 guests', async () => {
+    const view: PublicEventView = {
+      ...VIEW,
+      guestCount: 0,
+      menuItems: [{ id: 'set', name: 'SET MENU' }],
+      blocks: [
+        {
+          id: 'b1',
+          type: 'MENU_SELECTION',
+          label: 'MENU SELECTION',
+          fields: [],
+          title: null,
+          config: { items: [{ menuItemId: 'set', qty: 1, unit: 'PER_PERSON' }] },
+        },
+      ],
+      totals: { subtotal: 0, deposit: 0, balance: 0, lines: [] },
+    }
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve(view) }),
+    ) as unknown as typeof fetch
+
+    render(<EventShareClient token="tok" />)
+    await waitFor(() => expect(screen.getByText('SMITH WEDDING')).toBeTruthy())
+
+    expect(screen.getByText(/0 PEOPLE/)).toBeTruthy()
+    expect(screen.queryByText(/1 PERSON/)).toBeNull()
+    expect(screen.getAllByText('$0.00').length).toBeGreaterThan(0)
+  })
+
+  it('renders the choice picks and their upcharge on the package line', async () => {
+    const view: PublicEventView = {
+      ...VIEW,
+      blocks: [],
+      guestCount: 10,
+      totals: {
+        subtotal: 1030,
+        deposit: 0,
+        balance: 1030,
+        byUnit: { EACH: 0, PER_PERSON: 1030, PER_PLATTER: 0 },
+        lines: [
+          {
+            menuItemId: 'menu1',
+            packageId: 'menu1',
+            name: 'WEDDING SET MENU',
+            qty: 10,
+            unit: 'PER_PERSON',
+            unitPrice: 103,
+            total: 1030,
+            choices: [
+              { groupId: 'g-main', groupName: 'MAIN', choiceId: 'lamb', choiceName: 'LAMB', priceDelta: 8 },
+            ],
+          },
+        ],
+      },
+    }
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve(view) }),
+    ) as unknown as typeof fetch
+
+    render(<EventShareClient token="tok" />)
+    await waitFor(() => expect(screen.getByText('SMITH WEDDING')).toBeTruthy())
+    expect(screen.getByText(/10 PEOPLE · \$103\.00\/HEAD/)).toBeTruthy()
+    expect(screen.getByText('MAIN: LAMB')).toBeTruthy()
+    expect(screen.getByText('+$8.00')).toBeTruthy()
+  })
+
   it('refuses to send an empty edit request', async () => {
     render(<EventShareClient token="tok" />)
     await waitFor(() => expect(screen.getByText('SMITH WEDDING')).toBeTruthy())

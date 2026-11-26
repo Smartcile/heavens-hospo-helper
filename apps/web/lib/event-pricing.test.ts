@@ -476,6 +476,156 @@ describe('bound per-person menu package (#192)', () => {
     expect(totals.lines).toHaveLength(1)
     expect(totals.lines[0]).toMatchObject({ menuItemId: 'm1', unit: 'EACH', total: 85 })
   })
+
+  it('attaches block-level picks to the package line (one line, deltas on the per-head price)', () => {
+    const totals = computeEventTotals(
+      [
+        {
+          type: 'MENU_SELECTION',
+          config: {
+            packageChoices: [
+              { groupId: 'g-main', groupName: 'MAIN', choiceId: 'beef', choiceName: 'BEEF', priceDelta: 0 },
+              { groupId: 'g-main', groupName: 'MAIN', choiceId: 'lamb', choiceName: 'LAMB', priceDelta: 8 },
+            ],
+            items: [],
+          },
+        },
+      ],
+      [],
+      null,
+      {
+        package: PACKAGE,
+        packages: [PACKAGE],
+        guestCount: 10,
+        choiceGroups: [{ id: 'g-main', name: 'MAIN', minSelect: 1, maxSelect: 2 }],
+      },
+    )
+    expect(totals.lines).toHaveLength(1)
+    expect(totals.lines[0]).toMatchObject({
+      menuItemId: 'menu1',
+      unit: 'PER_PERSON',
+      qty: 10,
+      unitPrice: 103,
+      total: 1030,
+    })
+    expect(totals.lines[0].choices).toHaveLength(2)
+    expect(totals.violations).toEqual([])
+  })
+
+  it('folds a legacy per-line set menu into the package instead of double-charging', () => {
+    const totals = computeEventTotals(
+      [
+        {
+          type: 'MENU_SELECTION',
+          config: {
+            items: [
+              {
+                menuItemId: 'set',
+                qty: 1,
+                unit: 'PER_PERSON',
+                choices: [
+                  { groupId: 'g-main', groupName: 'MAIN', choiceId: 'beef', choiceName: 'BEEF', priceDelta: 8 },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      [{ id: 'set', name: 'SET MENU PRODUCT', price: 80 }],
+      null,
+      {
+        package: PACKAGE,
+        packages: [PACKAGE],
+        guestCount: 10,
+        choiceGroups: [{ id: 'g-main', name: 'MAIN', minSelect: 1, maxSelect: 1 }],
+      },
+    )
+    // One package line only; the $80 product line is not charged again.
+    expect(totals.lines).toHaveLength(1)
+    expect(totals.lines[0]).toMatchObject({ menuItemId: 'menu1', unitPrice: 103, total: 1030 })
+    expect(totals.byUnit).toEqual({ EACH: 0, PER_PERSON: 1030, PER_PLATTER: 0 })
+  })
+
+  it('reports package pick min/max violations without clamping the per-head price', () => {
+    const totals = computeEventTotals(
+      [
+        {
+          type: 'MENU_SELECTION',
+          config: {
+            packageChoices: [
+              { groupId: 'g-main', groupName: 'MAIN', choiceId: 'beef', choiceName: 'BEEF', priceDelta: 0 },
+            ],
+          },
+        },
+      ],
+      [],
+      null,
+      {
+        package: PACKAGE,
+        guestCount: 10,
+        choiceGroups: [
+          { id: 'g-main', name: 'MAIN', minSelect: 1, maxSelect: 1 },
+          { id: 'g-dessert', name: 'DESSERT', minSelect: 1, maxSelect: 1 },
+        ],
+      },
+    )
+    expect(totals.lines[0].unitPrice).toBe(95)
+    expect(totals.violations).toEqual([
+      expect.objectContaining({ kind: 'BELOW_MIN_SELECT', name: 'WEDDING SET MENU — DESSERT' }),
+    ])
+  })
+
+  it('applies line and choice deltas to an explicit package line', () => {
+    const totals = computeEventTotals(
+      [
+        {
+          type: 'MENU_SELECTION',
+          config: {
+            items: [
+              {
+                packageId: 'pkg1',
+                qty: 1,
+                unit: 'PER_PERSON',
+                priceDelta: 2,
+                choices: [
+                  { groupId: 'g-main', groupName: 'MAIN', choiceId: 'beef', choiceName: 'BEEF', priceDelta: 3 },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      [],
+      null,
+      { packages: [{ id: 'pkg1', name: 'PKG', price: 100 }], guestCount: 10 },
+    )
+    expect(totals.lines[0]).toMatchObject({ unitPrice: 105, total: 1050 })
+  })
+
+  it('validates choice min/max on an explicit package line, not just the automatic one', () => {
+    const totals = computeEventTotals(
+      [
+        {
+          type: 'MENU_SELECTION',
+          config: { items: [{ packageId: 'menu1', qty: 1, unit: 'PER_PERSON' }] },
+        },
+      ],
+      [],
+      null,
+      {
+        package: PACKAGE,
+        packages: [PACKAGE],
+        guestCount: 10,
+        choiceGroups: [{ id: 'g-main', name: 'MAIN', minSelect: 1, maxSelect: 1 }],
+      },
+    )
+    // The explicit line replaces the automatic one, but its group rules still apply.
+    expect(totals.lines).toHaveLength(1)
+    expect(totals.lines[0].total).toBe(950)
+    expect(totals.violations).toEqual([
+      expect.objectContaining({ kind: 'BELOW_MIN_SELECT', name: 'WEDDING SET MENU — MAIN' }),
+    ])
+  })
 })
 
 describe('choice-group picks (#192)', () => {
@@ -568,6 +718,65 @@ describe('choice-group picks (#192)', () => {
     expect(totals.lines[0]).toMatchObject({ unitPrice: 85, total: 850 })
     expect(totals.violations).toEqual([])
   })
+
+  it('dedupes the same picks on duplicate product+unit lines', () => {
+    const beef = {
+      groupId: 'g-main',
+      groupName: 'MAIN',
+      choiceId: 'beef',
+      choiceName: 'BEEF',
+      priceDelta: 8,
+    }
+    const totals = computeEventTotals(
+      [
+        {
+          type: 'MENU_SELECTION',
+          config: { items: [{ menuItemId: 'set', qty: 1, unit: 'PER_PERSON', choices: [beef] }] },
+        },
+        {
+          type: 'DRINKS_SELECTION',
+          config: { items: [{ menuItemId: 'set', qty: 1, unit: 'PER_PERSON', choices: [beef] }] },
+        },
+      ],
+      SET,
+      null,
+      {
+        guestCount: 10,
+        choiceGroups: [{ id: 'g-main', name: 'MAIN', minSelect: 1, maxSelect: 1 }],
+      },
+    )
+    expect(totals.lines).toHaveLength(1)
+    expect(totals.lines[0]).toMatchObject({ unitPrice: 88, total: 880 })
+    expect(totals.lines[0].choices).toHaveLength(1)
+    // The deduped pick count is 1, so the max of 1 is not breached.
+    expect(totals.violations).toEqual([])
+  })
+
+  it('ignores a choice delta on a line that is not PER_PERSON', () => {
+    const totals = computeEventTotals(
+      [
+        {
+          type: 'MENU_SELECTION',
+          config: {
+            items: [
+              {
+                menuItemId: 'm1',
+                qty: 2,
+                unit: 'EACH',
+                choices: [
+                  { groupId: 'g-main', groupName: 'MAIN', choiceId: 'beef', choiceName: 'BEEF', priceDelta: 5 },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      MENU_ITEMS,
+      null,
+    )
+    expect(totals.lines[0]).toMatchObject({ unit: 'EACH', unitPrice: 42.5, total: 85 })
+    expect(totals.lines[0].choices).toBeUndefined()
+  })
 })
 
 describe('unit helpers', () => {
@@ -591,6 +800,7 @@ describe('unit helpers', () => {
       '1 PLATTER · SERVES 4',
     )
     expect(describeLineUnit({ unit: 'PER_PERSON', qty: 40 })).toBe('40 PEOPLE')
+    expect(describeLineUnit({ unit: 'PER_PERSON', qty: 0 })).toBe('0 PEOPLE')
     expect(describeLineUnit({ unit: 'EACH', qty: 1 })).toBe('1 EACH')
   })
 

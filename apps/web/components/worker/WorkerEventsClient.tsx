@@ -501,6 +501,11 @@ export function WorkerEventsClient() {
                         today={today}
                         choiceGroups={menuChoiceGroups}
                         minQtyByItem={minQtyByItem}
+                        boundPackage={
+                          boundMenu && boundMenu.pricingMode === 'PER_PERSON' && boundMenu.pricePerPerson != null
+                            ? { name: boundMenu.name, pricePerPerson: Number(boundMenu.pricePerPerson) }
+                            : null
+                        }
                         onConfigChange={(config) => setDraft((d) => (d ? { ...d, blocks: d.blocks.map((x) => (x.id === b.id ? { ...x, config } : x)) } : d))}
                         onEventFieldChange={(field, value) => patch({ [field]: value } as Partial<WorkerEvent>)}
                       />

@@ -306,8 +306,7 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
         const itemUnit = it.unit ?? 'EACH'
         // Blocks bind a menu item OR a package; PER_PERSON quantities follow
         // the guest count, matching the priced summary (#192).
-        const itemQty =
-          itemUnit === 'PER_PERSON' && data.guestCount > 0 ? data.guestCount : it.qty
+        const itemQty = itemUnit === 'PER_PERSON' ? data.guestCount : it.qty
         const qtyText = it.unit
           ? describeLineUnit({
               unit: itemUnit,

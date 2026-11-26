@@ -174,4 +174,33 @@ describe('units + yields on the share totals (#192)', () => {
     expect(view.totals.byUnit).toEqual({ EACH: 0, PER_PERSON: 0, PER_PLATTER: 195 })
     expect(view).not.toHaveProperty('violations')
   })
+
+  it('passes choice picks through but never a priceDelta-free internal note', () => {
+    const view = buildPublicEventView({
+      ...BASE,
+      totals: {
+        subtotal: 1030,
+        deposit: 0,
+        balance: 1030,
+        byUnit: { EACH: 0, PER_PERSON: 1030, PER_PLATTER: 0 },
+        lines: [
+          {
+            menuItemId: 'menu1',
+            packageId: 'menu1',
+            name: 'WEDDING SET MENU',
+            qty: 10,
+            unit: 'PER_PERSON',
+            unitPrice: 103,
+            total: 1030,
+            choices: [
+              { groupId: 'g-main', groupName: 'MAIN', choiceId: 'lamb', choiceName: 'LAMB', priceDelta: 8 },
+            ],
+          },
+        ],
+      },
+    })
+    expect(view.totals.lines[0].choices).toEqual([
+      { groupId: 'g-main', groupName: 'MAIN', choiceId: 'lamb', choiceName: 'LAMB', priceDelta: 8 },
+    ])
+  })
 })

@@ -86,6 +86,8 @@ export interface PackagePrice {
   id: string
   name: string
   price: number
+  /** Optional additive upcharge on the package line. */
+  priceDelta?: number
 }
 
 export interface EventPriceLine {
@@ -132,6 +134,8 @@ export interface EventPricingOptions {
   packages?: PackagePrice[]
   /** The event's bound PER_PERSON menu — priced automatically as a package line. */
   package?: PackagePrice
+  /** Picks made against the bound menu's choice groups (block-level config). */
+  packageChoices?: LineChoice[]
   /** Set when the event's bound menu could not be resolved (purged). */
   missingPackage?: { id: string; name?: string }
   /** The bound menu's choice groups, for min/max selection validation. */
@@ -261,7 +265,7 @@ export function collectPriceableLines(
       if (previous) {
         previous.qty += qty
         if (priceDelta != null) previous.priceDelta = round2((previous.priceDelta ?? 0) + priceDelta)
-        if (choices) previous.choices = [...(previous.choices ?? []), ...choices]
+        if (choices) previous.choices = mergeChoices(previous.choices, choices)
         continue
       }
       const line: PriceableLine = { qty, unit }
@@ -305,7 +309,7 @@ function optionalNumber(v: unknown): number | undefined {
 /**
  * A tolerant read of the stored `choices` snapshot. Returns `undefined` when
  * the line has no choices (nothing authored — no min/max validation), and an
- * array (possibly empty) when it does.
+ * array (possibly empty) when it does. Duplicate picks are collapsed.
  */
 export function parseLineChoices(raw: unknown): LineChoice[] | undefined {
   if (!Array.isArray(raw)) return undefined
@@ -324,7 +328,43 @@ export function parseLineChoices(raw: unknown): LineChoice[] | undefined {
       priceDelta: optionalNumber(c.priceDelta) ?? 0,
     })
   }
+  return mergeChoices(out)
+}
+
+/**
+ * Merge choice lists, de-duplicating on `(groupId, choiceId)`. Two identical
+ * lines with the same picks must not double the delta or inflate a min/max
+ * count; the first occurrence wins.
+ */
+export function mergeChoices(...lists: (LineChoice[] | null | undefined)[]): LineChoice[] {
+  const out: LineChoice[] = []
+  const seen = new Set<string>()
+  for (const list of lists) {
+    for (const choice of list ?? []) {
+      const key = `${choice.groupId}|${choice.choiceId}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(choice)
+    }
+  }
   return out
+}
+
+/**
+ * The block-level SET MENU PICKS for the bound per-head menu (#192). Stored on
+ * a priced block's `packageChoices` so the picks travel with the event and are
+ * priced on the package line, never as a second set-menu product line.
+ */
+export function collectPackageChoices(
+  blocks: EventBlockLike[] | null | undefined,
+): LineChoice[] {
+  const lists: LineChoice[][] = []
+  for (const block of blocks ?? []) {
+    if (!PRICED_BLOCK_TYPES.includes(block.type)) continue
+    const parsed = parseLineChoices(block.config?.packageChoices)
+    if (parsed) lists.push(parsed)
+  }
+  return mergeChoices(...lists)
 }
 
 /** Total additive upcharge from a line's picks (included picks are $0). */
@@ -411,9 +451,10 @@ export function pricingWarnings(input: {
     }
   }
 
-  // Choice-group picks: only validated when the line carries a `choices`
-  // snapshot (an empty array means "authored, nothing picked yet").
-  if (input.choices !== undefined && input.choiceGroups && qty > 0) {
+  // Choice-group picks only apply to a per-person set-menu line, and are only
+  // validated when the line carries a `choices` snapshot (an empty array means
+  // "authored, nothing picked yet").
+  if (input.unit === 'PER_PERSON' && input.choices !== undefined && input.choiceGroups && qty > 0) {
     for (const group of input.choiceGroups) {
       const picks = input.choices.filter((c) => c.groupId === group.id).length
       const min = optionalInt(group.minSelect) ?? 0
@@ -462,6 +503,22 @@ export function computeEventTotals(
   const violations: PricingViolation[] = []
   const collected = collectPriceableLines(blocks, menuItems)
 
+  // Picks for the bound per-head menu live on the block (`packageChoices`), so
+  // they price on the package line and never as a second set-menu product.
+  let packageChoices = mergeChoices(options.packageChoices, collectPackageChoices(blocks))
+  // Legacy data: a PER_PERSON product line carrying its own picks was the old
+  // per-line set menu. Those picks move onto the package and the line is not
+  // priced again, so the event cannot double-charge.
+  const legacySetMenuLines = new Set<PriceableLine>()
+  if (options.package) {
+    for (const line of collected) {
+      if (line.menuItemId && line.unit === 'PER_PERSON' && line.choices !== undefined) {
+        legacySetMenuLines.add(line)
+        packageChoices = mergeChoices(packageChoices, line.choices)
+      }
+    }
+  }
+
   // The event's bound PER_PERSON menu is a package line priced per head (#192).
   // A bound menu that has been purged is reported, never priced at $0.
   if (options.missingPackage) {
@@ -474,10 +531,26 @@ export function computeEventTotals(
   } else if (options.package) {
     const pkg = options.package
     const qty = hasGuestCount ? Math.max(0, Math.round(guestCount as number)) : 0
-    const unitPrice = Number(pkg.price)
     const explicitlyLined = collected.some((l) => l.packageId === pkg.id)
-    if (!explicitlyLined && qty > 0 && Number.isFinite(unitPrice)) {
-      lines.push({
+    const basePrice = Number(pkg.price)
+    if (!explicitlyLined && qty > 0 && Number.isFinite(basePrice)) {
+      // Per-head price + the picks' additive upcharges. Picks are included by
+      // default; a min/max breach is reported, never clamped.
+      const unitPrice = basePrice + (Number(pkg.priceDelta) || 0) + choicesPriceDelta(packageChoices)
+      violations.push(
+        ...pricingWarnings({
+          name: pkg.name,
+          menuItemId: pkg.id,
+          qty,
+          unit: 'PER_PERSON',
+          guestCount,
+          eventDate: options.eventDate,
+          today: options.today,
+          choices: packageChoices,
+          choiceGroups: options.choiceGroups,
+        }),
+      )
+      const line: EventPriceLine = {
         menuItemId: pkg.id,
         packageId: pkg.id,
         name: pkg.name,
@@ -485,13 +558,19 @@ export function computeEventTotals(
         unit: 'PER_PERSON',
         unitPrice,
         total: round2(unitPrice * qty),
-      })
+      }
+      if (packageChoices.length > 0) line.choices = packageChoices
+      lines.push(line)
     }
   }
 
   for (const item of collected) {
+    // A legacy per-line set menu is folded into the package line above.
+    if (legacySetMenuLines.has(item)) continue
+
     const unit = item.unit ?? 'EACH'
     const isPackageLine = !item.menuItemId && !!item.packageId
+    const perPersonChoices = unit === 'PER_PERSON' ? item.choices : undefined
 
     if (isPackageLine) {
       const pkg = packageById?.get(item.packageId as string)
@@ -510,8 +589,30 @@ export function computeEventTotals(
       }
       const qty = effectiveQty(item, guestCount, hasGuestCount)
       if (qty <= 0) continue
-      const unitPrice = Number(pkg.price) || 0
-      lines.push({
+      const choices = mergeChoices(
+        item.choices,
+        item.packageId === options.package?.id ? packageChoices : undefined,
+      )
+      const choiceDelta = unit === 'PER_PERSON' ? choicesPriceDelta(choices) : 0
+      const unitPrice =
+        (Number(pkg.price) || 0) +
+        (Number(pkg.priceDelta) || 0) +
+        (Number(item.priceDelta) || 0) +
+        choiceDelta
+      violations.push(
+        ...pricingWarnings({
+          name: pkg.name,
+          menuItemId: pkg.id,
+          qty,
+          unit,
+          guestCount,
+          eventDate: options.eventDate,
+          today: options.today,
+          choices: unit === 'PER_PERSON' ? choices : undefined,
+          choiceGroups: options.choiceGroups,
+        }),
+      )
+      const line: EventPriceLine = {
         menuItemId: pkg.id,
         packageId: pkg.id,
         name: pkg.name,
@@ -519,7 +620,9 @@ export function computeEventTotals(
         unit,
         unitPrice,
         total: round2(unitPrice * qty),
-      })
+      }
+      if (unit === 'PER_PERSON' && choices.length > 0) line.choices = choices
+      lines.push(line)
       continue
     }
 
@@ -552,10 +655,12 @@ export function computeEventTotals(
       continue
     }
 
+    // Choice upcharges only apply to a per-person line (a stored snapshot of
+    // manual upcharges; the only non-live cash fact).
     const unitPrice =
       (Number(product.price) || 0) +
       (Number(item.priceDelta) || 0) +
-      choicesPriceDelta(item.choices)
+      (unit === 'PER_PERSON' ? choicesPriceDelta(perPersonChoices) : 0)
     const servesMin = item.servesMin ?? optionalInt(product.servesMin) ?? undefined
     const servesMax = item.servesMax ?? optionalInt(product.servesMax) ?? undefined
     const minimum = optionalInt(product.minQty) ?? undefined
@@ -572,7 +677,7 @@ export function computeEventTotals(
         guestCount,
         eventDate: options.eventDate,
         today: options.today,
-        choices: item.choices,
+        choices: perPersonChoices,
         choiceGroups: options.choiceGroups,
       }),
     )
@@ -590,7 +695,7 @@ export function computeEventTotals(
     if (servesMax != null) line.servesMax = servesMax
     if (minimum != null) line.minimum = minimum
     if (leadTimeDays != null) line.leadTimeDays = leadTimeDays
-    if (item.choices && item.choices.length > 0) line.choices = item.choices
+    if (perPersonChoices && perPersonChoices.length > 0) line.choices = perPersonChoices
     lines.push(line)
   }
 

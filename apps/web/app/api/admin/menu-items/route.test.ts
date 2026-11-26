@@ -91,4 +91,20 @@ describe('/api/admin/menu-items POST', () => {
     expect(await res.json()).toEqual({ error: 'RECIPE IS NOT IN THIS VENUE' })
     expect(prisma.menuItem.create).not.toHaveBeenCalled()
   })
+
+  it('rejects a negative minQty instead of coercing it to null', async () => {
+    const res = await POST(req({ name: 'CANAPE', price: 4, minQty: -5 }))
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'PRICING VALUES CANNOT BE NEGATIVE' })
+    expect(prisma.menuItem.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects a negative leadTimeDays instead of coercing it to null', async () => {
+    const res = await POST(req({ name: 'CANAPE', price: 4, leadTimeDays: -1 }))
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'PRICING VALUES CANNOT BE NEGATIVE' })
+    expect(prisma.menuItem.create).not.toHaveBeenCalled()
+  })
 })
