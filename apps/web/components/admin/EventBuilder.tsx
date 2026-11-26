@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
-import { BeoBlockEditor, type BeoSetupOption } from '@/components/admin/BeoBlockEditor'
+import { BeoBlockEditor, type BeoChoiceGroup, type BeoSetupOption } from '@/components/admin/BeoBlockEditor'
 import { RoomSetupCard } from '@/components/RoomSetupCard'
 import { roomSetupLabel } from '@/lib/room-setup'
 import { BeoBlockLibrary, BEO_BLOCK_DRAG_PREFIX } from '@/components/admin/BeoBlockLibrary'
@@ -28,6 +28,8 @@ import {
   type BlockState,
 } from '@/lib/beo-blocks'
 import { computeEventTotals, type EventBlockLike } from '@/lib/event-pricing'
+import { venueNow } from '@/lib/availability'
+import { localDayKey } from '@/lib/date-nav'
 import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
 import { inlinePdfUrl } from '@/lib/pdf-actions'
 
@@ -81,7 +83,25 @@ export interface EventDetail {
 interface Option { id: string; name: string }
 
 export interface BeoRefs {
-  menus: (Option & { pricingMode?: string | null; pricePerPerson?: number | null })[]
+  menus: (Option & {
+    pricingMode?: string | null
+    pricePerPerson?: number | null
+    groups?: {
+      id: string
+      name: string
+      sortOrder: number
+      minSelect?: number | null
+      maxSelect?: number | null
+    }[]
+    items?: {
+      id: string
+      menuItemId: string | null
+      name: string
+      groupId: string | null
+      sortOrder: number
+      minQty?: number | null
+    }[]
+  })[]
   menuItems: (Option & {
     price?: number
     pricingMode?: string | null
@@ -132,6 +152,7 @@ function toDraft(e: EventDetail): Draft {
 export function EventBuilder({
   event,
   venueId,
+  venueTimezone,
   refs,
   library = BEO_BLOCKS,
   onBack,
@@ -139,6 +160,8 @@ export function EventBuilder({
 }: {
   event: EventDetail
   venueId: string
+  /** Venue timezone for the lead-time "today" (falls back to device-local). */
+  venueTimezone?: string | null
   refs: BeoRefs
   library?: BlockLibrary
   onBack: () => void
@@ -396,14 +419,37 @@ export function EventBuilder({
     return save({ historyNote: result.summary, draftOverride: next })
   }
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = venueTimezone ? venueNow(venueTimezone).key : localDayKey()
   // The event's bound menu is the package — a PER_PERSON menu prices per head.
   // Matches the server readers (buildEventPricing) so the builder cannot drift.
   const boundMenu = draft.menuId ? refs.menus.find((m) => m.id === draft.menuId) : undefined
-  const packages =
+  const boundPackage =
     boundMenu && boundMenu.pricingMode === 'PER_PERSON' && boundMenu.pricePerPerson != null
-      ? [{ id: boundMenu.id, name: boundMenu.name, price: Number(boundMenu.pricePerPerson) }]
-      : []
+      ? { id: boundMenu.id, name: boundMenu.name, price: Number(boundMenu.pricePerPerson) }
+      : undefined
+  // A bound menu missing from the live list is purged — report it, never $0.
+  const missingPackage =
+    draft.menuId && !boundMenu && refs.menus.length > 0 ? { id: draft.menuId } : undefined
+
+  // A menu line's own minQty is authoritative over the product's.
+  const minQtyByItem: Record<string, number | null> = {}
+  for (const line of boundMenu?.items ?? []) {
+    if (line.menuItemId) minQtyByItem[line.menuItemId] = line.minQty ?? null
+  }
+
+  const menuChoiceGroups: BeoChoiceGroup[] = [...(boundMenu?.groups ?? [])]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((g) => ({
+      id: g.id,
+      name: g.name,
+      minSelect: g.minSelect ?? null,
+      maxSelect: g.maxSelect ?? null,
+      choices: [...(boundMenu?.items ?? [])]
+        .filter((l) => !!l.menuItemId && l.groupId === g.id)
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((l) => ({ id: l.menuItemId as string, name: l.name })),
+    }))
+    .filter((g) => g.choices.length > 0)
 
   const totals = computeEventTotals(
     draft.blocks as unknown as EventBlockLike[],
@@ -414,7 +460,7 @@ export function EventBuilder({
       pricingMode: m.pricingMode ?? null,
       servesMin: m.servesMin ?? null,
       servesMax: m.servesMax ?? null,
-      minQty: m.minQty ?? null,
+      minQty: minQtyByItem[m.id] ?? m.minQty ?? null,
       leadTimeDays: m.leadTimeDays ?? null,
     })),
     draft.depositAmount === '' ? 0 : Number(draft.depositAmount),
@@ -422,7 +468,18 @@ export function EventBuilder({
       guestCount: draft.guestCount,
       eventDate: draft.eventDate,
       today,
-      ...(packages.length > 0 ? { packages } : {}),
+      ...(boundPackage ? { package: boundPackage, packages: [boundPackage] } : {}),
+      ...(missingPackage ? { missingPackage } : {}),
+      ...(menuChoiceGroups.length > 0
+        ? {
+            choiceGroups: menuChoiceGroups.map(({ id, name, minSelect, maxSelect }) => ({
+              id,
+              name,
+              minSelect,
+              maxSelect,
+            })),
+          }
+        : {}),
     },
   )
 
@@ -677,6 +734,8 @@ export function EventBuilder({
                       guestCount={draft.guestCount}
                       eventDate={draft.eventDate}
                       today={today}
+                      choiceGroups={menuChoiceGroups}
+                      minQtyByItem={minQtyByItem}
                       onConfigChange={(config) => updateBlock(b.id, { config })}
                       onEventFieldChange={(field, value) => patch({ [field]: value } as Partial<Draft>)}
                     />

@@ -160,6 +160,7 @@ export function buildPublicEventView(
         total: l.total,
         servesMin: l.servesMin,
         servesMax: l.servesMax,
+        choices: l.choices,
       })),
     },
     approvedAt: isoOrNull(input.customerApprovedAt),

@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MenuItemDetailsModal } from '@/components/admin/MenuItemDetailsModal'
 
 let links: Record<string, unknown>[] = []
+let itemPuts: Record<string, unknown>[] = []
 let loadOk = true
 let linkStatus = 200
 
@@ -18,10 +19,23 @@ function mockFetch() {
         linkStatus,
       )
     }
-    if (u === '/api/admin/menu-items/m1' && init?.method === 'PUT') return json({ ok: true })
+    if (u === '/api/admin/menu-items/m1' && init?.method === 'PUT') {
+      itemPuts.push(JSON.parse(String(init.body)))
+      return json({ ok: true })
+    }
     if (u === '/api/admin/menu-items/m1') {
       if (!loadOk) return json({ error: 'NOT FOUND' }, 404)
-      return json({ tastingNotes: '', vintage: '', howToServe: '', swiftPosId: 'TAP ASAHI' })
+      return json({
+        tastingNotes: '',
+        vintage: '',
+        howToServe: '',
+        swiftPosId: 'TAP ASAHI',
+        pricingMode: 'PER_PLATTER',
+        servesMin: 4,
+        servesMax: 6,
+        minQty: 20,
+        leadTimeDays: 3,
+      })
     }
     if (u.startsWith('/api/admin/menu-items/m1/equipment')) return json([])
     if (u.startsWith('/api/admin/inventory')) return json([])
@@ -38,11 +52,36 @@ function renderModal() {
 describe('MenuItemDetailsModal', () => {
   beforeEach(() => {
     links = []
+    itemPuts = []
     loadOk = true
     linkStatus = 200
     globalThis.fetch = mockFetch()
   })
   afterEach(() => { vi.restoreAllMocks() })
+
+  it('loads and saves the event pricing metadata', async () => {
+    renderModal()
+
+    await waitFor(() => expect(screen.getByLabelText('Serves min')).toBeTruthy())
+    expect((screen.getByLabelText('Serves min') as HTMLInputElement).value).toBe('4')
+    expect((screen.getByLabelText('Serves max') as HTMLInputElement).value).toBe('6')
+    expect((screen.getByLabelText('Minimum quantity') as HTMLInputElement).value).toBe('20')
+    expect((screen.getByLabelText('Lead time days') as HTMLInputElement).value).toBe('3')
+    expect((screen.getByLabelText('Pricing mode') as HTMLSelectElement).value).toBe('PER_PLATTER')
+
+    fireEvent.change(screen.getByLabelText('Pricing mode'), { target: { value: 'PER_PERSON' } })
+    fireEvent.change(screen.getByLabelText('Lead time days'), { target: { value: '7' } })
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => expect(itemPuts).toHaveLength(1))
+    expect(itemPuts[0]).toMatchObject({
+      pricingMode: 'PER_PERSON',
+      servesMin: 4,
+      servesMax: 6,
+      minQty: 20,
+      leadTimeDays: 7,
+    })
+  })
 
   it('saves the SwiftPOS code through the menu-links route when it changes', async () => {
     renderModal()

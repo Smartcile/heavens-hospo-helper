@@ -66,7 +66,10 @@ export async function GET(_req: NextRequest, { params }: Params) {
       venueName: event.venue.name,
       menuName: event.menu?.name ?? null,
       setupName: event.setup?.name ?? null,
-      menuItems: pricing.menuItems.map((m) => ({ id: m.id, name: m.name })),
+      menuItems: [
+        ...pricing.menuItems.map((m) => ({ id: m.id, name: m.name })),
+        ...(pricing.options.packages ?? []).map((p) => ({ id: p.id, name: p.name })),
+      ],
       totals,
       requests: event.changeRequests.map((r) => ({
         id: r.id,

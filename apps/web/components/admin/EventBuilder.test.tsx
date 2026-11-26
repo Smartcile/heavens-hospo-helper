@@ -265,6 +265,31 @@ describe('EventBuilder — per-person pricing (#192)', () => {
     expect((screen.getByLabelText('Quantity') as HTMLInputElement).value).toBe('96')
   })
 
+  it('disables USE PAX on a platter with no serves-min yield', () => {
+    render(
+      <EventBuilder
+        event={{
+          ...PRICED_EVENT,
+          blocks: [
+            {
+              id: 'b1',
+              type: 'MENU_SELECTION',
+              title: null,
+              config: { items: [{ menuItemId: 'pl', qty: 1, unit: 'PER_PLATTER' }] },
+              sortOrder: 0,
+            },
+          ],
+        }}
+        venueId="v1"
+        refs={{ ...PRICED_REFS, menuItems: [{ id: 'pl', name: 'PLATTER', price: 65 }] }}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '▸ MENU SELECTION' }))
+    expect((screen.getByRole('button', { name: 'USE PAX' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
   it('warns before save when a line is below its minimum', () => {
     render(
       <EventBuilder
@@ -288,5 +313,77 @@ describe('EventBuilder — per-person pricing (#192)', () => {
     )
     const violations = screen.getByTestId('pricing-violations')
     expect(violations.textContent).toMatch(/CANAPE: MINIMUM 20, ORDERED 10/)
+  })
+
+  const SET_MENU_REFS = {
+    menus: [
+      {
+        id: 'setmenu',
+        name: 'WEDDING SET MENU',
+        pricingMode: 'PER_PERSON',
+        pricePerPerson: 95,
+        groups: [{ id: 'g-main', name: 'MAIN', sortOrder: 0, minSelect: 1, maxSelect: 1 }],
+        items: [
+          { id: 'l1', menuItemId: 'beef', name: 'BEEF', groupId: 'g-main', sortOrder: 0 },
+          { id: 'l2', menuItemId: 'fish', name: 'FISH', groupId: 'g-main', sortOrder: 1 },
+        ],
+      },
+    ],
+    menuItems: [{ id: 'set', name: 'SET MENU', price: 80, pricingMode: 'PER_PERSON' }],
+    services: [],
+    setups: [],
+  }
+
+  it('prices the bound PER_PERSON menu per head with no block items', () => {
+    render(
+      <EventBuilder
+        event={{ ...PRICED_EVENT, menuId: 'setmenu', guestCount: 96, depositAmount: 0, blocks: [] }}
+        venueId="v1"
+        refs={SET_MENU_REFS}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    // 96 x $95 = $9,120.00 (subtotal, group and balance share the figure).
+    expect(screen.getAllByText('$9120.00').length).toBeGreaterThan(0)
+  })
+
+  it('authors a set-menu pick and saves it in the block config', async () => {
+    render(
+      <EventBuilder
+        event={{
+          ...PRICED_EVENT,
+          menuId: 'setmenu',
+          guestCount: 96,
+          blocks: [
+            {
+              id: 'b1',
+              type: 'MENU_SELECTION',
+              title: null,
+              config: { items: [{ menuItemId: 'set', qty: 1, unit: 'PER_PERSON' }] },
+              sortOrder: 0,
+            },
+          ],
+        }}
+        venueId="v1"
+        refs={SET_MENU_REFS}
+        onBack={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '▸ MENU SELECTION' }))
+    fireEvent.click(screen.getByRole('button', { name: 'MAIN: BEEF' }))
+    fireEvent.click(screen.getByText('SAVE'))
+
+    await waitFor(() => {
+      const calls = (globalThis.fetch as unknown as { mock: { calls: [string, { body?: string }][] } }).mock.calls
+      const blocksPut = calls.find(([url]) => String(url).endsWith('/blocks'))
+      expect(blocksPut).toBeTruthy()
+      const body = JSON.parse(blocksPut![1].body as string)
+      expect(body.blocks[0].config.items[0].choices).toEqual([
+        { groupId: 'g-main', groupName: 'MAIN', choiceId: 'beef', choiceName: 'BEEF', priceDelta: 0 },
+      ])
+    })
   })
 })

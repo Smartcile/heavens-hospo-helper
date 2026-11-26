@@ -96,6 +96,60 @@ describe('EventShareClient', () => {
     expect(screen.getByText('PER PLATTER')).toBeTruthy()
   })
 
+  it('uses the guest count for a PER_PERSON block item and resolves a package name', async () => {
+    const view: PublicEventView = {
+      ...VIEW,
+      guestCount: 96,
+      menuItems: [
+        { id: 'm1', name: 'SET MENU' },
+        { id: 'pkg1', name: 'WEDDING PACKAGE' },
+      ],
+      blocks: [
+        {
+          id: 'b1',
+          type: 'MENU_SELECTION',
+          label: 'MENU SELECTION',
+          fields: [],
+          title: null,
+          config: {
+            items: [
+              { menuItemId: 'm1', qty: 1, unit: 'PER_PERSON' },
+              { packageId: 'pkg1', qty: 1, unit: 'PER_PERSON' },
+            ],
+          },
+        },
+      ],
+      totals: {
+        subtotal: 9120,
+        deposit: 0,
+        balance: 9120,
+        byUnit: { EACH: 0, PER_PERSON: 9120, PER_PLATTER: 0 },
+        lines: [
+          {
+            menuItemId: 'pkg1',
+            packageId: 'pkg1',
+            name: 'WEDDING PACKAGE',
+            qty: 96,
+            unit: 'PER_PERSON',
+            unitPrice: 95,
+            total: 9120,
+          },
+        ],
+      },
+    }
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve(view) }),
+    ) as unknown as typeof fetch
+
+    render(<EventShareClient token="tok" />)
+    await waitFor(() => expect(screen.getByText('SMITH WEDDING')).toBeTruthy())
+
+    // The block item follows the guest count too (not "1 PERSON").
+    expect(screen.getAllByText(/96 PEOPLE/).length).toBeGreaterThanOrEqual(2)
+    expect(screen.queryByText('ITEM')).toBeNull()
+    expect(screen.getAllByText(/WEDDING PACKAGE/).length).toBeGreaterThan(0)
+  })
+
   it('refuses to send an empty edit request', async () => {
     render(<EventShareClient token="tok" />)
     await waitFor(() => expect(screen.getByText('SMITH WEDDING')).toBeTruthy())

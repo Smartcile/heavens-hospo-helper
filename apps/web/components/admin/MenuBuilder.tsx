@@ -266,6 +266,14 @@ export function MenuBuilder({
       pushToast('MIN PAX CANNOT EXCEED MAX PAX', 'error')
       return
     }
+    if (groups.some((g) => (g.minSelect != null && g.minSelect < 0) || (g.maxSelect != null && g.maxSelect < 0))) {
+      pushToast('GROUP MIN/MAX SELECT CANNOT BE NEGATIVE', 'error')
+      return
+    }
+    if (perPerson && pricePerPerson !== '' && (parseFloat(pricePerPerson) || 0) < 0) {
+      pushToast('PRICE PER PERSON CANNOT BE NEGATIVE', 'error')
+      return
+    }
 
     setSaving(true)
     const groupsPayload = groups.map((g, i) => ({

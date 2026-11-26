@@ -3,11 +3,13 @@ import {
   generateBeoPdf,
   beoPdfToBuffer,
   beoPdfFilename,
+  beoPdfShowsMoney,
   blocksForVariant,
   pdfBlockConfig,
   summaryRows,
   type BeoPdfBlock,
   type BeoPdfData,
+  type BeoPdfLine,
 } from '@/lib/beo-pdf'
 
 const BLOCKS: BeoPdfBlock[] = [
@@ -213,5 +215,53 @@ describe('summaryRows (#192)', () => {
     expect(
       summaryRows({ subtotal: 10, deposit: 0, balance: 10, lines: [] }).groups,
     ).toEqual([])
+  })
+
+  it('shows the per-head price only when money is printed', () => {
+    const totals = {
+      subtotal: 9120,
+      deposit: 0,
+      balance: 9120,
+      lines: [{ name: 'SET MENU', qty: 96, unit: 'PER_PERSON' as const, unitPrice: 95, total: 9120 }],
+    }
+    expect(summaryRows(totals).lines[0].qtyText).toBe('96 PEOPLE · $95.00/HEAD')
+    expect(summaryRows(totals, { showMoney: false }).lines[0].qtyText).toBe('96 PEOPLE')
+  })
+
+  it('lists picks with their upcharge only when money is printed', () => {
+    const totals = {
+      subtotal: 880,
+      deposit: 0,
+      balance: 880,
+      lines: [
+        {
+          name: 'SET MENU',
+          qty: 10,
+          unit: 'PER_PERSON' as const,
+          unitPrice: 88,
+          total: 880,
+          choices: [
+            { groupId: 'g-main', groupName: 'MAIN', choiceId: 'c1', choiceName: 'BEEF', priceDelta: 8 },
+          ],
+        },
+      ],
+    }
+    expect(summaryRows(totals).lines[0].choices).toEqual([{ label: 'MAIN: BEEF', upcharge: 8 }])
+    expect(summaryRows(totals, { showMoney: false }).lines[0].choices).toEqual([
+      { label: 'MAIN: BEEF', upcharge: null },
+    ])
+  })
+
+  it('never prints internal minimums or lead times', () => {
+    const line = { name: 'X', qty: 5, unit: 'EACH', total: 20, minimum: 10, leadTimeDays: 3 } as BeoPdfLine
+    const row = summaryRows({ subtotal: 20, deposit: 0, balance: 20, lines: [line] }).lines[0] as unknown as Record<string, unknown>
+    expect(row).not.toHaveProperty('minimum')
+    expect(row).not.toHaveProperty('leadTimeDays')
+  })
+
+  it('prints money for FULL + CLIENT but never for KITCHEN', () => {
+    expect(beoPdfShowsMoney('FULL')).toBe(true)
+    expect(beoPdfShowsMoney('CLIENT')).toBe(true)
+    expect(beoPdfShowsMoney('KITCHEN')).toBe(false)
   })
 })

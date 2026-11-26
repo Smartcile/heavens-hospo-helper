@@ -9,7 +9,7 @@
 import { jsPDF } from 'jspdf'
 import { blockDef, type BlockLibrary } from '@/lib/beo-blocks'
 import { pdfSafe } from '@/lib/pdf-safe'
-import { describeLineUnit, type PricingUnit } from '@/lib/event-pricing'
+import { describeLineUnit, type LineChoice, type PricingUnit } from '@/lib/event-pricing'
 
 export type BeoPdfVariant = 'FULL' | 'CLIENT' | 'KITCHEN'
 
@@ -27,6 +27,10 @@ export interface BeoPdfLine {
   unit?: PricingUnit
   servesMin?: number
   servesMax?: number
+  /** Unit price (per head / per platter) when the reader may show money. */
+  unitPrice?: number
+  /** Choice-group picks with their additive upcharges (#192). */
+  choices?: LineChoice[]
 }
 
 export interface BeoPdfData {
@@ -109,10 +113,17 @@ function money(n: number): string {
   return `$${n.toFixed(2)}`
 }
 
+/** Only FULL + CLIENT print money; KITCHEN is quantities only (#192). */
+export function beoPdfShowsMoney(variant: BeoPdfVariant): boolean {
+  return variant !== 'KITCHEN'
+}
+
 export interface BeoPdfSummaryRow {
   name: string
   qtyText: string
   total: number
+  /** Picked choices; `upcharge` is null when money must not be printed. */
+  choices?: { label: string; upcharge: number | null }[]
 }
 
 export interface BeoPdfSummaryGroup {
@@ -121,25 +132,40 @@ export interface BeoPdfSummaryGroup {
 }
 
 /**
- * The ORDER SUMMARY / DISH TOTALS rows, pure so the unit + yield readout and the
- * per-unit subtotal grouping are testable without parsing a PDF (#192).
+ * The ORDER SUMMARY / DISH TOTALS rows, pure so the unit + yield readout, the
+ * per-head price, the picked choices and the per-unit subtotal grouping are
+ * testable without parsing a PDF (#192). Choices are customer-visible; the
+ * upcharge is only carried when the variant may print money.
  */
-export function summaryRows(totals: BeoPdfData['totals']): {
+export function summaryRows(
+  totals: BeoPdfData['totals'],
+  opts: { showMoney?: boolean } = {},
+): {
   lines: BeoPdfSummaryRow[]
   groups: BeoPdfSummaryGroup[]
 } {
-  const lines = (totals.lines ?? []).map((line) => ({
-    name: line.name,
-    qtyText: line.unit
+  const showMoney = opts.showMoney !== false
+  const lines = (totals.lines ?? []).map((line) => {
+    let qtyText = line.unit
       ? describeLineUnit({
           unit: line.unit,
           qty: line.qty,
           servesMin: line.servesMin,
           servesMax: line.servesMax,
         })
-      : `× ${line.qty}`,
-    total: line.total,
-  }))
+      : `× ${line.qty}`
+    if (showMoney && line.unit === 'PER_PERSON' && Number(line.unitPrice) > 0) {
+      qtyText = `${qtyText} · ${money(Number(line.unitPrice))}/HEAD`
+    }
+    const row: BeoPdfSummaryRow = { name: line.name, qtyText, total: line.total }
+    if (line.choices && line.choices.length > 0) {
+      row.choices = line.choices.map((c) => ({
+        label: c.groupName ? `${c.groupName}: ${c.choiceName}` : c.choiceName,
+        upcharge: showMoney && Number(c.priceDelta) > 0 ? Number(c.priceDelta) : null,
+      }))
+    }
+    return row
+  })
 
   const groups: BeoPdfSummaryGroup[] = []
   const byUnit = totals.byUnit
@@ -162,7 +188,7 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
   const margin = 15
   const innerW = pageW - margin * 2
   const isKitchen = variant === 'KITCHEN'
-  const showMoney = variant !== 'KITCHEN'
+  const showMoney = beoPdfShowsMoney(variant)
 
   let y = 20
   const ensure = (needed: number) => {
@@ -248,7 +274,8 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
     const rows = Array.isArray(cfg.rows) ? (cfg.rows as Record<string, unknown>[]) : null
     const items = Array.isArray(cfg.items)
       ? (cfg.items as {
-          menuItemId: string
+          menuItemId?: string
+          packageId?: string
           qty: number
           unit?: PricingUnit
           servesMin?: number
@@ -276,15 +303,24 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(9.5)
         doc.setTextColor(30)
+        const itemUnit = it.unit ?? 'EACH'
+        // Blocks bind a menu item OR a package; PER_PERSON quantities follow
+        // the guest count, matching the priced summary (#192).
+        const itemQty =
+          itemUnit === 'PER_PERSON' && data.guestCount > 0 ? data.guestCount : it.qty
         const qtyText = it.unit
           ? describeLineUnit({
-              unit: it.unit,
-              qty: it.qty,
+              unit: itemUnit,
+              qty: itemQty,
               servesMin: it.servesMin,
               servesMax: it.servesMax,
             })
           : `× ${it.qty}`
-        doc.text(pdfSafe(`▪ ${nameOf(it.menuItemId)} — ${qtyText}`), margin + 4, y)
+        doc.text(
+          pdfSafe(`▪ ${nameOf(it.menuItemId || it.packageId || '')} — ${qtyText}`),
+          margin + 4,
+          y,
+        )
         y += 4.5
       }
     }
@@ -320,13 +356,24 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9.5)
     doc.setTextColor(30)
-    const summary = summaryRows(data.totals)
+    const summary = summaryRows(data.totals, { showMoney })
     for (const line of summary.lines) {
       ensure(6)
       const textLines = doc.splitTextToSize(pdfSafe(`▪ ${line.name} — ${line.qtyText}`), innerW - 30) as string[]
       doc.text(textLines, margin + 4, y)
       if (showMoney) doc.text(money(line.total), pageW - margin, y, { align: 'right' })
       y += textLines.length * 4.5
+      for (const choice of line.choices ?? []) {
+        ensure(5)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8.5)
+        doc.setTextColor(90)
+        const suffix = choice.upcharge != null ? ` (+${money(choice.upcharge)})` : ''
+        doc.text(pdfSafe(`· ${choice.label}${suffix}`), margin + 8, y)
+        y += 4
+      }
+      doc.setFontSize(9.5)
+      doc.setTextColor(30)
     }
 
     if (showMoney) {

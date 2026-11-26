@@ -44,6 +44,14 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const body = await req.json()
   const data: Record<string, unknown> = {}
 
+  if (Array.isArray(body.groups) && body.groups.some((g: { minSelect?: unknown; maxSelect?: unknown }) => {
+    const min = toIntOrNull(g?.minSelect)
+    const max = toIntOrNull(g?.maxSelect)
+    return (min != null && min < 0) || (max != null && max < 0)
+  })) {
+    return NextResponse.json({ error: 'minSelect and maxSelect cannot be negative' }, { status: 400 })
+  }
+
   if (body.name !== undefined) data.name = String(body.name).toUpperCase().trim()
   if (body.description !== undefined) data.description = body.description || null
   if (body.minPax !== undefined) data.minPax = toIntOrNull(body.minPax)

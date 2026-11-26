@@ -22,6 +22,7 @@ import {
   parsePricingUnit,
   pricingWarnings,
   suggestPlatterCount,
+  type LineChoice,
   type PricingUnit,
 } from '@/lib/event-pricing'
 
@@ -36,6 +37,16 @@ export interface BeoMenuOption {
   minQty?: number | null
   leadTimeDays?: number | null
 }
+
+/** One choice group of the event's bound menu, with its member dishes. */
+export interface BeoChoiceGroup {
+  id: string
+  name: string
+  minSelect?: number | null
+  maxSelect?: number | null
+  choices: { id: string; name: string }[]
+}
+
 export type BeoSetupOption = RoomSetupOption
 
 export interface BeoBlockEditorProps {
@@ -58,6 +69,10 @@ export interface BeoBlockEditorProps {
   /** Venue-local event date + today (`YYYY-MM-DD`) for the lead-time warning. */
   eventDate?: string | null
   today?: string | null
+  /** The bound menu's choice groups, for authoring set-menu picks (#192). */
+  choiceGroups?: BeoChoiceGroup[]
+  /** Menu-line `minQty` overrides (the menu line wins over the product). */
+  minQtyByItem?: Record<string, number | null>
 }
 
 const inputClass =
@@ -148,6 +163,8 @@ interface ItemDraft {
   unit?: PricingUnit
   servesMin?: number
   servesMax?: number
+  /** Authored choice-group picks for a PER_PERSON set menu (#192). */
+  choices?: LineChoice[]
 }
 
 function unitOf(item: ItemDraft, product: BeoMenuOption | undefined): PricingUnit {
@@ -161,9 +178,90 @@ function yieldOf(item: ItemDraft, product: BeoMenuOption | undefined) {
   }
 }
 
+function ChoicesEditor({
+  line,
+  groups,
+  onToggle,
+  onUpcharge,
+  disabled,
+}: {
+  line: ItemDraft
+  groups: BeoChoiceGroup[]
+  onToggle: (group: BeoChoiceGroup, choice: { id: string; name: string }) => void
+  onUpcharge: (group: BeoChoiceGroup, choiceId: string, priceDelta: number) => void
+  disabled?: boolean
+}) {
+  const picks = line.choices ?? []
+  return (
+    <div className="border-t border-grey-mid pt-1.5 space-y-2">
+      {groups.map((group) => {
+        const groupPicks = picks.filter((c) => c.groupId === group.id)
+        const max = group.maxSelect != null ? Number(group.maxSelect) : null
+        const atMax = max != null && groupPicks.length >= max
+        const rule = group.minSelect
+          ? max != null && max !== Number(group.minSelect)
+            ? `PICK ${group.minSelect}-${max}`
+            : `PICK ${group.minSelect}`
+          : max != null
+            ? `UP TO ${max}`
+            : ''
+        return (
+          <div key={group.id} className="space-y-1">
+            <div className="font-mono text-2xs uppercase text-grey-light">
+              {group.name}{rule ? ` · ${rule}` : ''}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {group.choices.map((choice) => {
+                const selected = groupPicks.some((c) => c.choiceId === choice.id)
+                return (
+                  <button
+                    key={choice.id}
+                    type="button"
+                    aria-pressed={selected}
+                    aria-label={`${group.name}: ${choice.name}`}
+                    disabled={disabled || (!selected && atMax)}
+                    onClick={() => onToggle(group, choice)}
+                    className={`font-mono text-2xs uppercase px-1.5 py-0.5 border transition-colors disabled:opacity-40 ${
+                      selected ? 'border-white text-white' : 'border-grey-mid text-grey-light hover:border-white'
+                    }`}
+                  >
+                    {choice.name}
+                  </button>
+                )
+              })}
+            </div>
+            {groupPicks.length > 0 && (
+              <div className="space-y-0.5">
+                {groupPicks.map((pick) => (
+                  <div key={pick.choiceId} className="flex items-center gap-1 font-mono text-2xs uppercase text-grey-light">
+                    <span className="text-white">{pick.choiceName}</span>
+                    <span>+$</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      aria-label={`Upcharge ${pick.choiceName}`}
+                      value={pick.priceDelta}
+                      disabled={disabled}
+                      onChange={(e) => onUpcharge(group, pick.choiceId, Number(e.target.value) || 0)}
+                      className={`${inputClass} w-16 text-right`}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function ItemsEditor({
   items,
   menuItems,
+  choiceGroups = [],
+  minQtyByItem,
   guestCount,
   eventDate,
   today,
@@ -172,6 +270,8 @@ function ItemsEditor({
 }: {
   items: ItemDraft[]
   menuItems: BeoMenuOption[]
+  choiceGroups?: BeoChoiceGroup[]
+  minQtyByItem?: Record<string, number | null>
   guestCount?: number | null
   eventDate?: string | null
   today?: string | null
@@ -183,7 +283,45 @@ function ItemsEditor({
     onChange(items.map((it, i) => (i === index ? { ...it, ...patch } : it)))
   }
   const pax = Number(guestCount)
-  const paxCount = Number.isFinite(pax) && pax > 0 ? Math.round(pax) : 0
+  const paxCount = Number.isFinite(pax) && pax >= 0 ? Math.round(pax) : 0
+  const hasChoiceGroups = choiceGroups.length > 0
+
+  function menuMinFor(item: ItemDraft, product: BeoMenuOption | undefined): number | null {
+    const override = item.menuItemId ? minQtyByItem?.[item.menuItemId] : null
+    return override ?? product?.minQty ?? null
+  }
+
+  function ensureChoices(unit: PricingUnit, item: ItemDraft): Pick<ItemDraft, 'choices'> {
+    if (unit === 'PER_PERSON' && hasChoiceGroups && item.choices === undefined) return { choices: [] }
+    return {}
+  }
+
+  function toggleChoice(index: number, group: BeoChoiceGroup, choice: { id: string; name: string }) {
+    const current = items[index].choices ?? []
+    const exists = current.some((c) => c.groupId === group.id && c.choiceId === choice.id)
+    const choices = exists
+      ? current.filter((c) => !(c.groupId === group.id && c.choiceId === choice.id))
+      : [
+          ...current,
+          {
+            groupId: group.id,
+            groupName: group.name,
+            choiceId: choice.id,
+            choiceName: choice.name,
+            priceDelta: 0,
+          },
+        ]
+    update(index, { choices })
+  }
+
+  function setUpcharge(index: number, group: BeoChoiceGroup, choiceId: string, priceDelta: number) {
+    const current = items[index].choices ?? []
+    update(index, {
+      choices: current.map((c) =>
+        c.groupId === group.id && c.choiceId === choiceId ? { ...c, priceDelta } : c,
+      ),
+    })
+  }
 
   return (
     <div className="space-y-1">
@@ -193,22 +331,29 @@ function ItemsEditor({
         const unit = unitOf(it, product)
         const yieldValues = yieldOf(it, product)
         const effectiveQty = unit === 'PER_PERSON' && paxCount > 0 ? paxCount : it.qty
+        const minQty = menuMinFor(it, product)
+        const authoredChoices =
+          it.choices ?? (unit === 'PER_PERSON' && hasChoiceGroups ? [] : undefined)
         const warnings = product
           ? pricingWarnings({
               name: product.name,
               menuItemId: product.id,
               qty: it.qty,
               unit,
-              minQty: product.minQty,
+              minQty,
               leadTimeDays: product.leadTimeDays,
               guestCount,
               eventDate,
               today,
+              choices: authoredChoices,
+              choiceGroups,
             })
           : []
         const platterSuggestion =
           unit === 'PER_PLATTER' ? suggestPlatterCount(paxCount, yieldValues.servesMin) : null
-        const usePaxQty = unit === 'PER_PLATTER' ? platterSuggestion ?? paxCount : paxCount
+        // A platter without a "serves at least N" yield cannot be derived from
+        // pax — disable USE PAX rather than guess one platter per guest.
+        const usePaxQty = unit === 'PER_PLATTER' ? platterSuggestion : paxCount
 
         return (
           <div key={i} className="border border-grey-mid p-1.5 space-y-1">
@@ -219,11 +364,13 @@ function ItemsEditor({
                   disabled={disabled}
                   onChange={(e) => {
                     const picked = menuItems.find((m) => m.id === e.target.value)
+                    const nextUnit = parsePricingUnit(picked?.pricingMode)
                     update(i, {
                       menuItemId: e.target.value,
-                      unit: parsePricingUnit(picked?.pricingMode),
+                      unit: nextUnit,
                       servesMin: picked?.servesMin ?? undefined,
                       servesMax: picked?.servesMax ?? undefined,
+                      ...ensureChoices(nextUnit, it),
                     })
                   }}
                   options={options}
@@ -233,7 +380,10 @@ function ItemsEditor({
                 aria-label="Pricing unit"
                 value={unit}
                 disabled={disabled}
-                onChange={(e) => update(i, { unit: parsePricingUnit(e.target.value) })}
+                onChange={(e) => {
+                  const nextUnit = parsePricingUnit(e.target.value)
+                  update(i, { unit: nextUnit, ...ensureChoices(nextUnit, it) })
+                }}
                 className={`${inputClass} w-24`}
               >
                 {PRICING_UNITS.map((u) => (
@@ -266,19 +416,28 @@ function ItemsEditor({
                 </span>
               )}
               {unit === 'PER_PERSON' && paxCount > 0 && <span>USES PAX</span>}
-              {product?.minQty != null && <span>MIN {product.minQty}</span>}
+              {minQty != null && <span>MIN {minQty}</span>}
               {product?.leadTimeDays != null && product.leadTimeDays > 0 && (
                 <span>{product.leadTimeDays}D NOTICE</span>
               )}
               <button
                 type="button"
-                disabled={disabled || usePaxQty <= 0}
-                onClick={() => update(i, { qty: usePaxQty })}
+                disabled={disabled || usePaxQty == null || usePaxQty <= 0}
+                onClick={() => usePaxQty != null && update(i, { qty: usePaxQty })}
                 className="border border-grey-mid px-1.5 py-0.5 text-grey-light hover:border-white hover:text-white disabled:opacity-40"
               >
                 USE PAX
               </button>
             </div>
+            {unit === 'PER_PERSON' && hasChoiceGroups && it.menuItemId && (
+              <ChoicesEditor
+                line={{ ...it, choices: authoredChoices ?? [] }}
+                groups={choiceGroups}
+                disabled={disabled}
+                onToggle={(group, choice) => toggleChoice(i, group, choice)}
+                onUpcharge={(group, choiceId, priceDelta) => setUpcharge(i, group, choiceId, priceDelta)}
+              />
+            )}
             {warnings.length > 0 && (
               <p className="font-mono text-2xs uppercase text-danger">
                 {warnings.map((w) => w.message).join(' · ')}
@@ -315,6 +474,8 @@ export function BeoBlockEditor({
   guestCount,
   eventDate,
   today,
+  choiceGroups,
+  minQtyByItem,
 }: BeoBlockEditorProps) {
   const def = blockDef(type, library)
   if (!def) {
@@ -391,6 +552,8 @@ export function BeoBlockEditor({
               <ItemsEditor
                 items={Array.isArray(config[field.key]) ? (config[field.key] as ItemDraft[]) : []}
                 menuItems={menuItems}
+                choiceGroups={choiceGroups}
+                minQtyByItem={minQtyByItem}
                 guestCount={guestCount}
                 eventDate={eventDate}
                 today={today}

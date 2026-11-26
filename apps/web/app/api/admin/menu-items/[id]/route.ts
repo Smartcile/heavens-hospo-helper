@@ -35,7 +35,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   const item = await prisma.menuItem.findFirst({
     where: { id: params.id, deletedAt: null },
-    select: { id: true, venueId: true },
+    select: { id: true, venueId: true, servesMin: true, servesMax: true },
   })
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (session.user.role === 'MANAGER' && item.venueId !== session.user.venueId) {
@@ -63,6 +63,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     minQty,
     leadTimeDays,
   } = await req.json()
+
+  const nextServesMin = servesMin !== undefined ? toIntOrNull(servesMin) : item.servesMin
+  const nextServesMax = servesMax !== undefined ? toIntOrNull(servesMax) : item.servesMax
+  if (nextServesMin != null && nextServesMax != null && nextServesMax < nextServesMin) {
+    return NextResponse.json({ error: 'servesMax cannot be less than servesMin' }, { status: 400 })
+  }
   const data: Record<string, unknown> = {}
   if (name !== undefined) data.name = String(name).toUpperCase().trim()
   if (recipeId !== undefined) {

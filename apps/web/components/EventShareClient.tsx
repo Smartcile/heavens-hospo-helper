@@ -18,9 +18,11 @@ function money(n: number): string {
 function BlockView({
   block,
   menuItems,
+  guestCount,
 }: {
   block: PublicEventBlock
   menuItems: { id: string; name: string }[]
+  guestCount: number
 }) {
   const label = block.title?.trim() || block.label
   const cfg = block.config ?? {}
@@ -29,7 +31,8 @@ function BlockView({
   const rows = Array.isArray(cfg.rows) ? (cfg.rows as Record<string, unknown>[]) : null
   const items = Array.isArray(cfg.items)
     ? (cfg.items as {
-        menuItemId: string
+        menuItemId?: string
+        packageId?: string
         qty: number
         unit?: PricingUnit
         servesMin?: number
@@ -57,16 +60,20 @@ function BlockView({
 
       {items && items.length > 0 && (
         <div className="space-y-1">
-          {items.map((it, i) => (
-            <div key={i} className="flex justify-between gap-2 font-mono text-xs">
-              <span className="text-white">{nameOf(it.menuItemId)}</span>
-              <span className="text-grey-light">
-                {it.unit
-                  ? describeLineUnit({ unit: it.unit, qty: it.qty, servesMin: it.servesMin, servesMax: it.servesMax })
-                  : `× ${it.qty}`}
-              </span>
-            </div>
-          ))}
+          {items.map((it, i) => {
+            const itemUnit = it.unit ?? 'EACH'
+            const itemQty = itemUnit === 'PER_PERSON' && guestCount > 0 ? guestCount : it.qty
+            return (
+              <div key={i} className="flex justify-between gap-2 font-mono text-xs">
+                <span className="text-white">{nameOf(it.menuItemId || it.packageId || '')}</span>
+                <span className="text-grey-light">
+                  {it.unit
+                    ? describeLineUnit({ unit: itemUnit, qty: itemQty, servesMin: it.servesMin, servesMax: it.servesMax })
+                    : `× ${it.qty}`}
+                </span>
+              </div>
+            )
+          })}
         </div>
       )}
 
@@ -196,7 +203,7 @@ export function EventShareClient({ token }: { token: string }) {
         )}
 
         {view.blocks.map((b) => (
-          <BlockView key={b.id} block={b} menuItems={view.menuItems} />
+          <BlockView key={b.id} block={b} menuItems={view.menuItems} guestCount={view.guestCount} />
         ))}
 
         <div className="border border-grey-mid p-4 grid grid-cols-3 gap-3">
@@ -220,14 +227,23 @@ export function EventShareClient({ token }: { token: string }) {
           <div className="border border-grey-mid p-4 space-y-1">
             <h3 className="font-mono text-xs uppercase text-grey-light tracking-wider">ORDER SUMMARY</h3>
             {view.totals.lines.map((l) => (
-              <div key={`${l.menuItemId}-${l.unit}-${l.qty}`} className="flex justify-between gap-2 font-mono text-xs">
-                <span className="text-white">
-                  {l.name}{' '}
-                  <span className="text-grey-light">
-                    — {describeLineUnit({ unit: l.unit ?? 'EACH', qty: l.qty, servesMin: l.servesMin, servesMax: l.servesMax })}
+              <div key={`${l.menuItemId}-${l.unit}-${l.qty}`} className="space-y-0.5">
+                <div className="flex justify-between gap-2 font-mono text-xs">
+                  <span className="text-white">
+                    {l.name}{' '}
+                    <span className="text-grey-light">
+                      — {describeLineUnit({ unit: l.unit ?? 'EACH', qty: l.qty, servesMin: l.servesMin, servesMax: l.servesMax })}
+                      {l.unit === 'PER_PERSON' && l.unitPrice > 0 ? ` · ${money(l.unitPrice)}/HEAD` : ''}
+                    </span>
                   </span>
-                </span>
-                <span className="text-white">{money(l.total)}</span>
+                  <span className="text-white">{money(l.total)}</span>
+                </div>
+                {(l.choices ?? []).map((c, i) => (
+                  <div key={`${c.choiceId}-${i}`} className="flex justify-between gap-2 font-mono text-2xs text-grey-light pl-2">
+                    <span>{c.groupName ? `${c.groupName}: ` : ''}{c.choiceName}</span>
+                    <span>{c.priceDelta > 0 ? `+${money(c.priceDelta)}` : ''}</span>
+                  </div>
+                ))}
               </div>
             ))}
             {view.totals.byUnit && (

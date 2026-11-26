@@ -613,10 +613,13 @@ minimum for a direct event line, and `leadTimeDays` is the notice required
 before the event date. All null = today's behaviour.
 
 **Packages reuse `Menu` + `MenuGroup`** (no separate package tables):
-`Menu.pricingMode` + `Menu.pricePerPerson` make a menu a per-head set menu, and
-`MenuGroup.minSelect`/`maxSelect` describe how many lines the guest must / may
-pick. Choice picks are included in the per-head price; a choice carrying a
-`priceDelta` adds it on top.
+`Menu.pricingMode` + `Menu.pricePerPerson` make a menu a per-head set menu.
+An event whose bound `Menu` is `PER_PERSON` gets one automatic priced line at
+`pricePerPerson × guestCount` (unit `PER_PERSON`); a purged menu is reported as
+a violation, never priced at $0. `MenuGroup.minSelect`/`maxSelect` describe how
+many dishes the guest must / may pick, and those picks author onto the set-menu
+line as a `choices` snapshot. Choice picks are included in the per-head price;
+a pick carrying a `priceDelta` adds it on top.
 
 **Rules.**
 - A menu line's `MenuMenuItem.minQty` is authoritative over the product's

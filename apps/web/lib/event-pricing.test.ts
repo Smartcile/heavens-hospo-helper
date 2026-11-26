@@ -372,6 +372,202 @@ describe('computeEventTotals', () => {
     expect(totals.lines[0].total).toBe(10)
     expect(totals.subtotal).toBe(10)
   })
+
+  it('prices 0 heads for a supplied 0 guest count, and skips the line', () => {
+    const totals = computeEventTotals(
+      [{ type: 'MENU_SELECTION', config: { items: [{ menuItemId: 'm2', qty: 12, unit: 'PER_PERSON' }] } }],
+      MENU_ITEMS,
+      null,
+      { guestCount: 0 },
+    )
+    expect(totals.lines).toEqual([])
+    expect(totals.subtotal).toBe(0)
+  })
+
+  it('does not report a purged product when nothing is ordered', () => {
+    const zero = computeEventTotals(
+      [{ type: 'MENU_SELECTION', config: { items: [{ menuItemId: 'gone', qty: 0 }] } }],
+      MENU_ITEMS,
+      null,
+      { guestCount: 0 },
+    )
+    expect(zero.lines).toEqual([])
+    expect(zero.violations).toEqual([])
+
+    const ordered = computeEventTotals(
+      [{ type: 'MENU_SELECTION', config: { items: [{ menuItemId: 'gone', qty: 5 }] } }],
+      MENU_ITEMS,
+      null,
+    )
+    expect(ordered.violations).toEqual([expect.objectContaining({ kind: 'MISSING_ITEM' })])
+  })
+})
+
+describe('bound per-person menu package (#192)', () => {
+  const PACKAGE = { id: 'menu1', name: 'WEDDING SET MENU', price: 95 }
+
+  it('prices the bound menu per head and follows the guest count', () => {
+    const ninetysix = computeEventTotals([], [], null, {
+      package: PACKAGE,
+      packages: [PACKAGE],
+      guestCount: 96,
+    })
+    expect(ninetysix.lines).toEqual([
+      {
+        menuItemId: 'menu1',
+        packageId: 'menu1',
+        name: 'WEDDING SET MENU',
+        qty: 96,
+        unit: 'PER_PERSON',
+        unitPrice: 95,
+        total: 9120,
+      },
+    ])
+    expect(ninetysix.byUnit).toEqual({ EACH: 0, PER_PERSON: 9120, PER_PLATTER: 0 })
+
+    const fifty = computeEventTotals([], [], null, {
+      package: PACKAGE,
+      packages: [PACKAGE],
+      guestCount: 50,
+    })
+    expect(fifty.lines[0].qty).toBe(50)
+    expect(fifty.lines[0].total).toBe(4750)
+  })
+
+  it('adds no package line with no guest count and none for 0 guests', () => {
+    expect(computeEventTotals([], [], null, { package: PACKAGE }).lines).toEqual([])
+    expect(computeEventTotals([], [], null, { package: PACKAGE, guestCount: 0 }).lines).toEqual([])
+  })
+
+  it('reports a purged bound menu and never prices it at $0', () => {
+    const totals = computeEventTotals([], [], null, {
+      missingPackage: { id: 'gone', name: 'OLD SET MENU' },
+      guestCount: 20,
+    })
+    expect(totals.lines).toEqual([])
+    expect(totals.subtotal).toBe(0)
+    expect(totals.violations).toEqual([
+      expect.objectContaining({ kind: 'MISSING_PACKAGE', packageId: 'gone' }),
+    ])
+  })
+
+  it('does not double-count an explicit package line for the same menu', () => {
+    const totals = computeEventTotals(
+      [
+        {
+          type: 'MENU_SELECTION',
+          config: { items: [{ packageId: 'menu1', qty: 1, unit: 'PER_PERSON' }] },
+        },
+      ],
+      [],
+      null,
+      { package: PACKAGE, packages: [PACKAGE], guestCount: 10 },
+    )
+    expect(totals.lines).toHaveLength(1)
+    expect(totals.lines[0]).toMatchObject({ packageId: 'menu1', qty: 10, total: 950 })
+  })
+
+  it('leaves a legacy block identical when no package is supplied', () => {
+    const totals = computeEventTotals(
+      [{ type: 'MENU_SELECTION', config: { items: [{ menuItemId: 'm1', qty: 2 }] } }],
+      MENU_ITEMS,
+      0,
+    )
+    expect(totals.lines).toHaveLength(1)
+    expect(totals.lines[0]).toMatchObject({ menuItemId: 'm1', unit: 'EACH', total: 85 })
+  })
+})
+
+describe('choice-group picks (#192)', () => {
+  const SET = [{ id: 'set', name: 'SET MENU', price: 80 }]
+  const GROUPS = [
+    { id: 'g-entree', name: 'ENTREE', minSelect: 1, maxSelect: 1 },
+    { id: 'g-main', name: 'MAIN', minSelect: 1, maxSelect: 1 },
+    { id: 'g-dessert', name: 'DESSERT', minSelect: 1, maxSelect: 2 },
+  ]
+
+  function setMenuLine(choices: Record<string, unknown>[]) {
+    return [
+      {
+        type: 'MENU_SELECTION',
+        config: {
+          items: [{ menuItemId: 'set', qty: 1, unit: 'PER_PERSON', choices }],
+        },
+      },
+    ]
+  }
+
+  const FULL_PICKS = [
+    { groupId: 'g-entree', groupName: 'ENTREE', choiceId: 'e1', choiceName: 'SOUP', priceDelta: 0 },
+    { groupId: 'g-main', groupName: 'MAIN', choiceId: 'm1', choiceName: 'LAMB', priceDelta: 0 },
+    { groupId: 'g-dessert', groupName: 'DESSERT', choiceId: 'd1', choiceName: 'CAKE', priceDelta: 0 },
+  ]
+
+  it('includes picks in the per-head price by default', () => {
+    const totals = computeEventTotals(setMenuLine(FULL_PICKS), SET, null, {
+      guestCount: 10,
+      choiceGroups: GROUPS,
+    })
+    expect(totals.lines[0]).toMatchObject({ unitPrice: 80, total: 800, qty: 10 })
+    expect(totals.lines[0].choices).toHaveLength(3)
+    expect(totals.violations).toEqual([])
+  })
+
+  it('adds a priceDelta on top of the base', () => {
+    const totals = computeEventTotals(
+      setMenuLine([
+        FULL_PICKS[0],
+        { groupId: 'g-main', groupName: 'MAIN', choiceId: 'm2', choiceName: 'BEEF', priceDelta: 8 },
+        FULL_PICKS[2],
+      ]),
+      SET,
+      null,
+      { guestCount: 10, choiceGroups: GROUPS },
+    )
+    expect(totals.lines[0]).toMatchObject({ unitPrice: 88, total: 880 })
+    expect(totals.violations).toEqual([])
+  })
+
+  it('reports min/max selection violations without clamping', () => {
+    const missingDessert = computeEventTotals(setMenuLine([FULL_PICKS[0], FULL_PICKS[1]]), SET, null, {
+      guestCount: 10,
+      choiceGroups: GROUPS,
+    })
+    expect(missingDessert.lines[0].total).toBe(800)
+    expect(missingDessert.violations).toEqual([
+      expect.objectContaining({ kind: 'BELOW_MIN_SELECT', name: 'SET MENU — DESSERT' }),
+    ])
+
+    const tooMany = computeEventTotals(
+      setMenuLine([
+        ...FULL_PICKS,
+        { groupId: 'g-dessert', groupName: 'DESSERT', choiceId: 'd2', choiceName: 'TART', priceDelta: 0 },
+        { groupId: 'g-dessert', groupName: 'DESSERT', choiceId: 'd3', choiceName: 'CHEESE', priceDelta: 0 },
+      ]),
+      SET,
+      null,
+      { guestCount: 10, choiceGroups: GROUPS },
+    )
+    expect(tooMany.violations).toEqual([
+      expect.objectContaining({ kind: 'ABOVE_MAX_SELECT', name: 'SET MENU — DESSERT' }),
+    ])
+  })
+
+  it('degrades safely when a choice or group no longer exists', () => {
+    const totals = computeEventTotals(
+      setMenuLine([
+        { groupId: 'g-gone', groupName: 'OLD GROUP', choiceId: 'x1', choiceName: 'GONE DISH', priceDelta: 5 },
+        ...FULL_PICKS,
+      ]),
+      SET,
+      null,
+      { guestCount: 10, choiceGroups: GROUPS },
+    )
+    // The snapshot still prices (a non-cash fact), and the unknown group is
+    // simply not validated — no crash, no phantom violation for it.
+    expect(totals.lines[0]).toMatchObject({ unitPrice: 85, total: 850 })
+    expect(totals.violations).toEqual([])
+  })
 })
 
 describe('unit helpers', () => {

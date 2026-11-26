@@ -108,4 +108,34 @@ describe('MenuBuilder', () => {
       expect(body.groups[0]).toMatchObject({ id: 'g1', name: 'TAP BEER' })
     })
   })
+
+  it('saves the per-person pricing and group selection rules', async () => {
+    renderBuilder(MENU)
+
+    fireEvent.click(screen.getByText('PER PERSON: OFF'))
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '95' } })
+    const anys = screen.getAllByPlaceholderText('ANY')
+    fireEvent.change(anys[0], { target: { value: '1' } })
+    fireEvent.change(anys[1], { target: { value: '2' } })
+    fireEvent.click(screen.getByText('SAVE MENU'))
+
+    await waitFor(() => {
+      const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      const put = calls.find((c) => (c[1] as { method?: string } | undefined)?.method === 'PUT' && String(c[0]).includes('/api/admin/menus/m1'))
+      expect(put).toBeTruthy()
+      const body = JSON.parse((put![1] as { body: string }).body)
+      expect(body.pricingMode).toBe('PER_PERSON')
+      expect(body.pricePerPerson).toBe(95)
+      expect(body.groups[0]).toMatchObject({ id: 'g1', minSelect: 1, maxSelect: 2 })
+    })
+  })
+
+  it('refuses a negative group selection limit', () => {
+    renderBuilder(MENU)
+    const anys = screen.getAllByPlaceholderText('ANY')
+    fireEvent.change(anys[0], { target: { value: '-1' } })
+    fireEvent.click(screen.getByText('SAVE MENU'))
+    const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    expect(calls.some((c) => (c[1] as { method?: string } | undefined)?.method === 'PUT')).toBe(false)
+  })
 })

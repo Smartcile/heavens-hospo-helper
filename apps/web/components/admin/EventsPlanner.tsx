@@ -51,12 +51,14 @@ export function EventsPlanner({
   role,
   sessionVenueId,
   defaultVenueId,
+  venueTimezone,
   initialEventId,
   onInitialOpened,
 }: {
   role: string
   sessionVenueId: string
   defaultVenueId?: string | null
+  venueTimezone?: string | null
   initialEventId?: string | null
   onInitialOpened?: () => void
 }) {
@@ -174,6 +176,7 @@ export function EventsPlanner({
       <EventBuilder
         event={selected}
         venueId={venueId}
+        venueTimezone={venueTimezone}
         refs={refs}
         library={library}
         onBack={() => { setSelected(null); loadEvents() }}

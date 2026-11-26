@@ -42,6 +42,28 @@ export interface PriceableLine {
   servesMax?: number
   /** Additive upcharge for a chosen option / choice group. */
   priceDelta?: number
+  /**
+   * Choice-group picks for a PER_PERSON set-menu line (#192). An empty array
+   * means "choices are authored" so the min/max rules are validated.
+   */
+  choices?: LineChoice[]
+}
+
+/** One authored pick from a menu's choice group (a non-cash snapshot). */
+export interface LineChoice {
+  groupId: string
+  groupName: string
+  choiceId: string
+  choiceName: string
+  priceDelta: number
+}
+
+/** A menu group + its selection rules, for choice validation (#192). */
+export interface ChoiceGroupLike {
+  id: string
+  name: string
+  minSelect?: number | null
+  maxSelect?: number | null
 }
 
 export interface MenuPrice {
@@ -79,6 +101,8 @@ export interface EventPriceLine {
   servesMax?: number
   minimum?: number
   leadTimeDays?: number
+  /** Authored choice-group picks, each with its additive upcharge. */
+  choices?: LineChoice[]
 }
 
 export type PricingViolationKind =
@@ -86,6 +110,8 @@ export type PricingViolationKind =
   | 'MISSING_PACKAGE'
   | 'BELOW_MINIMUM'
   | 'INSIDE_LEAD_TIME'
+  | 'BELOW_MIN_SELECT'
+  | 'ABOVE_MAX_SELECT'
 
 export interface PricingViolation {
   kind: PricingViolationKind
@@ -96,14 +122,20 @@ export interface PricingViolation {
 }
 
 export interface EventPricingOptions {
-  /** Guest count — drives every PER_PERSON line. */
+  /** Guest count — drives every PER_PERSON line. A supplied 0 prices 0 heads. */
   guestCount?: number | null
   /** Venue-local event date key `YYYY-MM-DD` (lead-time comparison). */
   eventDate?: string | null
   /** Venue-local today `YYYY-MM-DD`; omit to skip lead-time checks. */
   today?: string | null
-  /** Menus acting as packages. Omit to skip package pricing entirely. */
+  /** Menus acting as packages for an explicit `packageId` block line. */
   packages?: PackagePrice[]
+  /** The event's bound PER_PERSON menu — priced automatically as a package line. */
+  package?: PackagePrice
+  /** Set when the event's bound menu could not be resolved (purged). */
+  missingPackage?: { id: string; name?: string }
+  /** The bound menu's choice groups, for min/max selection validation. */
+  choiceGroups?: ChoiceGroupLike[]
 }
 
 export interface EventTotals {
@@ -224,10 +256,12 @@ export function collectPriceableLines(
       const servesMin = optionalInt(it?.servesMin)
       const servesMax = optionalInt(it?.servesMax)
       const priceDelta = optionalNumber(it?.priceDelta)
+      const choices = parseLineChoices((it as { choices?: unknown } | null)?.choices)
       const previous = merged.get(key)
       if (previous) {
         previous.qty += qty
         if (priceDelta != null) previous.priceDelta = round2((previous.priceDelta ?? 0) + priceDelta)
+        if (choices) previous.choices = [...(previous.choices ?? []), ...choices]
         continue
       }
       const line: PriceableLine = { qty, unit }
@@ -236,6 +270,7 @@ export function collectPriceableLines(
       if (servesMin != null) line.servesMin = servesMin
       if (servesMax != null) line.servesMax = servesMax
       if (priceDelta != null) line.priceDelta = priceDelta
+      if (choices) line.choices = choices
       merged.set(key, line)
     }
   }
@@ -267,6 +302,36 @@ function optionalNumber(v: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
+/**
+ * A tolerant read of the stored `choices` snapshot. Returns `undefined` when
+ * the line has no choices (nothing authored — no min/max validation), and an
+ * array (possibly empty) when it does.
+ */
+export function parseLineChoices(raw: unknown): LineChoice[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: LineChoice[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const c = item as Record<string, unknown>
+    const groupId = typeof c.groupId === 'string' ? c.groupId.trim() : ''
+    const choiceId = typeof c.choiceId === 'string' ? c.choiceId.trim() : ''
+    if (!groupId || !choiceId) continue
+    out.push({
+      groupId,
+      groupName: typeof c.groupName === 'string' && c.groupName.trim() ? c.groupName.trim() : groupId,
+      choiceId,
+      choiceName: typeof c.choiceName === 'string' && c.choiceName.trim() ? c.choiceName.trim() : choiceId,
+      priceDelta: optionalNumber(c.priceDelta) ?? 0,
+    })
+  }
+  return out
+}
+
+/** Total additive upcharge from a line's picks (included picks are $0). */
+export function choicesPriceDelta(choices: LineChoice[] | undefined): number {
+  return (choices ?? []).reduce((sum, c) => sum + (Number(c.priceDelta) || 0), 0)
+}
+
 /** Days from `fromKey` to `toKey` (both `YYYY-MM-DD`), or null when unparseable. */
 export function daysBetweenKeys(fromKey: string, toKey: string): number | null {
   const from = dayNumber(fromKey)
@@ -281,17 +346,24 @@ function dayNumber(key: string): number | null {
   return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 86400000
 }
 
-function effectiveQty(line: PriceableLine, guestCount: number | null): number {
-  if (line.unit === 'PER_PERSON' && guestCount != null && guestCount > 0) return Math.round(guestCount)
-  // PER_PLATTER and EACH price from the stored count; a per-person line with no
-  // guest count falls back to the authored count (never silently drops).
+function effectiveQty(
+  line: PriceableLine,
+  guestCount: number | null,
+  hasGuestCount: boolean,
+): number {
+  // A supplied guest count (including 0) is authoritative for a per-person
+  // line. With no count at all, fall back to the authored count (never drops).
+  if (line.unit === 'PER_PERSON' && hasGuestCount) {
+    return Math.max(0, Math.round(guestCount as number))
+  }
   return line.qty
 }
 
 /**
- * Minimum / lead-time warnings for one line — shared by `computeEventTotals`
- * and the BEO builder so the editor's soft warning and the priced result can
- * never disagree. Minimums apply only when something is ordered.
+ * Minimum / lead-time / choice-group warnings for one line — shared by
+ * `computeEventTotals` and the BEO builder so the editor's soft warning and the
+ * priced result can never disagree. Minimums apply only when something is
+ * ordered; a supplied guest count of 0 means nothing is ordered.
  */
 export function pricingWarnings(input: {
   name: string
@@ -303,6 +375,8 @@ export function pricingWarnings(input: {
   guestCount?: number | null
   eventDate?: string | null
   today?: string | null
+  choices?: LineChoice[]
+  choiceGroups?: ChoiceGroupLike[]
 }): PricingViolation[] {
   const warnings: PricingViolation[] = []
   const guestCount =
@@ -310,8 +384,8 @@ export function pricingWarnings(input: {
       ? Number(input.guestCount)
       : null
   const qty =
-    input.unit === 'PER_PERSON' && guestCount != null && guestCount > 0
-      ? Math.round(guestCount)
+    input.unit === 'PER_PERSON' && guestCount != null
+      ? Math.max(0, Math.round(guestCount))
       : input.qty
   const minimum = optionalInt(input.minQty)
   const leadTimeDays = optionalInt(input.leadTimeDays)
@@ -337,6 +411,32 @@ export function pricingWarnings(input: {
     }
   }
 
+  // Choice-group picks: only validated when the line carries a `choices`
+  // snapshot (an empty array means "authored, nothing picked yet").
+  if (input.choices !== undefined && input.choiceGroups && qty > 0) {
+    for (const group of input.choiceGroups) {
+      const picks = input.choices.filter((c) => c.groupId === group.id).length
+      const min = optionalInt(group.minSelect) ?? 0
+      const max = optionalInt(group.maxSelect)
+      if (min > 0 && picks < min) {
+        warnings.push({
+          kind: 'BELOW_MIN_SELECT',
+          name: `${input.name} — ${group.name}`,
+          message: `${group.name.toUpperCase()}: PICK AT LEAST ${min} (PICKED ${picks})`,
+          menuItemId: input.menuItemId,
+        })
+      }
+      if (max != null && picks > max) {
+        warnings.push({
+          kind: 'ABOVE_MAX_SELECT',
+          name: `${input.name} — ${group.name}`,
+          message: `${group.name.toUpperCase()}: PICK AT MOST ${max} (PICKED ${picks})`,
+          menuItemId: input.menuItemId,
+        })
+      }
+    }
+  }
+
   return warnings
 }
 
@@ -355,15 +455,41 @@ export function computeEventTotals(
   const packageById = options.packages
     ? new Map(options.packages.map((p) => [p.id, p]))
     : null
-  const guestCount =
-    options.guestCount != null && Number.isFinite(Number(options.guestCount))
-      ? Number(options.guestCount)
-      : null
+  const hasGuestCount = options.guestCount != null && Number.isFinite(Number(options.guestCount))
+  const guestCount = hasGuestCount ? Number(options.guestCount) : null
 
   const lines: EventPriceLine[] = []
   const violations: PricingViolation[] = []
+  const collected = collectPriceableLines(blocks, menuItems)
 
-  for (const item of collectPriceableLines(blocks, menuItems)) {
+  // The event's bound PER_PERSON menu is a package line priced per head (#192).
+  // A bound menu that has been purged is reported, never priced at $0.
+  if (options.missingPackage) {
+    violations.push({
+      kind: 'MISSING_PACKAGE',
+      name: options.missingPackage.name ?? options.missingPackage.id,
+      message: 'MENU NO LONGER EXISTS — NOT PRICED',
+      packageId: options.missingPackage.id,
+    })
+  } else if (options.package) {
+    const pkg = options.package
+    const qty = hasGuestCount ? Math.max(0, Math.round(guestCount as number)) : 0
+    const unitPrice = Number(pkg.price)
+    const explicitlyLined = collected.some((l) => l.packageId === pkg.id)
+    if (!explicitlyLined && qty > 0 && Number.isFinite(unitPrice)) {
+      lines.push({
+        menuItemId: pkg.id,
+        packageId: pkg.id,
+        name: pkg.name,
+        qty,
+        unit: 'PER_PERSON',
+        unitPrice,
+        total: round2(unitPrice * qty),
+      })
+    }
+  }
+
+  for (const item of collected) {
     const unit = item.unit ?? 'EACH'
     const isPackageLine = !item.menuItemId && !!item.packageId
 
@@ -382,7 +508,7 @@ export function computeEventTotals(
         }
         continue
       }
-      const qty = effectiveQty(item, guestCount)
+      const qty = effectiveQty(item, guestCount, hasGuestCount)
       if (qty <= 0) continue
       const unitPrice = Number(pkg.price) || 0
       lines.push({
@@ -396,6 +522,11 @@ export function computeEventTotals(
       })
       continue
     }
+
+    // Resolve the quantity first — a zero-quantity line against a purged
+    // product is not an order, so it is skipped without a violation.
+    const qty = effectiveQty(item, guestCount, hasGuestCount)
+    if (qty <= 0) continue
 
     const product = byId.get(item.menuItemId as string)
     if (!product) {
@@ -421,10 +552,10 @@ export function computeEventTotals(
       continue
     }
 
-    const qty = effectiveQty(item, guestCount)
-    if (qty <= 0) continue
-
-    const unitPrice = (Number(product.price) || 0) + (Number(item.priceDelta) || 0)
+    const unitPrice =
+      (Number(product.price) || 0) +
+      (Number(item.priceDelta) || 0) +
+      choicesPriceDelta(item.choices)
     const servesMin = item.servesMin ?? optionalInt(product.servesMin) ?? undefined
     const servesMax = item.servesMax ?? optionalInt(product.servesMax) ?? undefined
     const minimum = optionalInt(product.minQty) ?? undefined
@@ -441,6 +572,8 @@ export function computeEventTotals(
         guestCount,
         eventDate: options.eventDate,
         today: options.today,
+        choices: item.choices,
+        choiceGroups: options.choiceGroups,
       }),
     )
 
@@ -457,6 +590,7 @@ export function computeEventTotals(
     if (servesMax != null) line.servesMax = servesMax
     if (minimum != null) line.minimum = minimum
     if (leadTimeDays != null) line.leadTimeDays = leadTimeDays
+    if (item.choices && item.choices.length > 0) line.choices = item.choices
     lines.push(line)
   }
 

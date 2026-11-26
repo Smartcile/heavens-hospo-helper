@@ -27,7 +27,7 @@ export function generateShareToken(): string {
 /** The include shape for a customer-share lookup (no internal-only columns). */
 export const shareEventInclude = {
   venue: { select: { id: true, name: true } },
-  menu: { select: { id: true, name: true, pricingMode: true, pricePerPerson: true } },
+  menu: { select: { id: true, name: true, pricingMode: true, pricePerPerson: true, deletedAt: true } },
   setup: { select: { name: true } },
   customer: { select: { name: true } },
   blocks: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } },
@@ -88,18 +88,24 @@ export interface EventPricingMenu {
   name: string
   pricingMode: string | null
   pricePerPerson: number | null
+  /** Soft-deleted menus are returned by the relation — treat them as purged. */
+  deletedAt?: Date | string | null
 }
 
 /**
  * Pricing inputs for an event (#192): the effective product list (a menu line's
- * `minQty` is authoritative when the product is on the event's menu) and the
- * package option (a PER_PERSON menu is a per-head package). Callers opt in to
- * package pricing by passing these options - the pre-order path does not.
+ * `minQty` is authoritative when the product is on the event's menu), the
+ * bound PER_PERSON menu as an automatic package line, its choice groups for
+ * min/max validation, and a purged-menu report. Callers opt in by passing these
+ * options — the pre-order path does not.
  */
 export async function buildEventPricing(
   event: { menuId: string | null; menu?: EventPricingMenu | null },
   products: MenuPrice[],
 ): Promise<{ menuItems: MenuPrice[]; options: EventPricingOptions }> {
+  const boundMenu = event.menu && !event.menu.deletedAt ? event.menu : null
+  const menuGone = !!event.menuId && !boundMenu
+
   const minByItem = new Map<string, number>()
   if (event.menuId) {
     const lines = await prisma.menuMenuItem.findMany({
@@ -116,12 +122,36 @@ export async function buildEventPricing(
     minQty: minByItem.get(p.id) ?? p.minQty ?? null,
   }))
 
-  const packages =
-    event.menu && event.menu.pricingMode === 'PER_PERSON' && event.menu.pricePerPerson != null
-      ? [{ id: event.menu.id, name: event.menu.name, price: event.menu.pricePerPerson }]
-      : undefined
+  const options: EventPricingOptions = {}
 
-  return { menuItems, options: { packages } }
+  if (boundMenu && boundMenu.pricingMode === 'PER_PERSON' && boundMenu.pricePerPerson != null) {
+    const pkg = { id: boundMenu.id, name: boundMenu.name, price: boundMenu.pricePerPerson }
+    options.package = pkg
+    // Also resolve an explicitly authored `packageId` line for the same menu.
+    options.packages = [pkg]
+  }
+
+  if (menuGone) {
+    options.missingPackage = { id: event.menuId as string, name: event.menu?.name }
+  }
+
+  if (boundMenu) {
+    const groups = await prisma.menuGroup.findMany({
+      where: { menuId: boundMenu.id, deletedAt: null },
+      select: { id: true, name: true, minSelect: true, maxSelect: true },
+      orderBy: { sortOrder: 'asc' },
+    })
+    if (groups.length > 0) {
+      options.choiceGroups = groups.map((g) => ({
+        id: g.id,
+        name: g.name,
+        minSelect: g.minSelect,
+        maxSelect: g.maxSelect,
+      }))
+    }
+  }
+
+  return { menuItems, options }
 }
 
 /** Append an entry to an event's append-only history log. */
@@ -441,7 +471,7 @@ export async function buildBeoPdfData(eventId: string, venueId: string): Promise
     where: { id: eventId, venueId, deletedAt: null },
     include: {
       venue: { select: { name: true } },
-      menu: { select: { id: true, name: true, pricingMode: true, pricePerPerson: true } },
+      menu: { select: { id: true, name: true, pricingMode: true, pricePerPerson: true, deletedAt: true } },
       setup: { select: { name: true } },
       customer: { select: { name: true } },
       blocks: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } },
@@ -492,7 +522,10 @@ export async function buildBeoPdfData(eventId: string, venueId: string): Promise
       title: b.title,
       config: (b.config && typeof b.config === 'object' ? b.config : {}) as Record<string, unknown>,
     })),
-    menuItems: menuItems.map((m) => ({ id: m.id, name: m.name })),
+    menuItems: [
+      ...pricing.menuItems.map((m) => ({ id: m.id, name: m.name })),
+      ...(pricing.options.packages ?? []).map((p) => ({ id: p.id, name: p.name })),
+    ],
     totals: {
       subtotal: totals.subtotal,
       deposit: totals.deposit,
@@ -504,7 +537,9 @@ export async function buildBeoPdfData(eventId: string, venueId: string): Promise
         unit: l.unit,
         servesMin: l.servesMin,
         servesMax: l.servesMax,
+        unitPrice: l.unitPrice,
         total: l.total,
+        choices: l.choices,
       })),
     },
   }

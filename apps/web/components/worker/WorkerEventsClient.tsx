@@ -9,8 +9,10 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
-import { BeoBlockEditor } from '@/components/admin/BeoBlockEditor'
+import { BeoBlockEditor, type BeoChoiceGroup } from '@/components/admin/BeoBlockEditor'
 import { useWorkerImmersive } from '@/components/worker/useWorkerImmersive'
+import { venueNow } from '@/lib/availability'
+import { localDayKey } from '@/lib/date-nav'
 import { BeoBlockLibrary } from '@/components/admin/BeoBlockLibrary'
 import { BeoBlockReferences } from '@/components/admin/BeoBlockReferences'
 import { PdfViewerModal, type PdfViewerTarget } from '@/components/ui/PdfViewerModal'
@@ -56,11 +58,41 @@ interface WorkerEvent {
 }
 
 interface Refs {
-  menus: { id: string; name: string }[]
-  menuItems: { id: string; name: string }[]
+  menus: {
+    id: string
+    name: string
+    pricingMode?: string | null
+    pricePerPerson?: number | null
+    groups?: {
+      id: string
+      name: string
+      sortOrder: number
+      minSelect?: number | null
+      maxSelect?: number | null
+    }[]
+    items?: {
+      id: string
+      menuItemId: string | null
+      name: string
+      groupId: string | null
+      sortOrder: number
+      minQty?: number | null
+    }[]
+  }[]
+  menuItems: {
+    id: string
+    name: string
+    price?: number
+    pricingMode?: string | null
+    servesMin?: number | null
+    servesMax?: number | null
+    minQty?: number | null
+    leadTimeDays?: number | null
+  }[]
   services: { id: string; name: string }[]
   setups: { id: string; name: string }[]
   blockDefs: Parameters<typeof defRowToBlockDef>[0][]
+  venueTimezone?: string | null
 }
 
 const STATUSES = ['ENQUIRY', 'DRAFT', 'TENTATIVE', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']
@@ -148,6 +180,7 @@ export function WorkerEventsClient() {
           services: d.services ?? [],
           setups: d.setups ?? [],
           blockDefs: d.blockDefs ?? [],
+          venueTimezone: d.venueTimezone ?? null,
         })
       } catch { /* pickers degrade to empty */ }
     })()
@@ -343,6 +376,26 @@ export function WorkerEventsClient() {
 
   if (draft) {
     const eventValues = draft as unknown as Record<string, unknown>
+    const boundMenu = draft.menuId ? refs.menus.find((m) => m.id === draft.menuId) : undefined
+    const minQtyByItem: Record<string, number | null> = {}
+    for (const line of boundMenu?.items ?? []) {
+      if (line.menuItemId) minQtyByItem[line.menuItemId] = line.minQty ?? null
+    }
+    const menuChoiceGroups: BeoChoiceGroup[] = [...(boundMenu?.groups ?? [])]
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((g) => ({
+        id: g.id,
+        name: g.name,
+        minSelect: g.minSelect ?? null,
+        maxSelect: g.maxSelect ?? null,
+        choices: [...(boundMenu?.items ?? [])]
+          .filter((l) => !!l.menuItemId && l.groupId === g.id)
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map((l) => ({ id: l.menuItemId as string, name: l.name })),
+      }))
+      .filter((g) => g.choices.length > 0)
+    const today = refs.venueTimezone ? venueNow(refs.venueTimezone).key : localDayKey()
+    const eventDate = draft.eventDate.slice(0, 10)
     return (
       <div className="min-h-screen bg-black pb-24">
         <div className="sticky top-0 z-20 bg-black border-b border-grey-mid px-3 py-2 flex items-center gap-2">
@@ -443,6 +496,11 @@ export function WorkerEventsClient() {
                         menuItems={refs.menuItems}
                         setups={refs.setups}
                         library={library}
+                        guestCount={draft.guestCount}
+                        eventDate={eventDate}
+                        today={today}
+                        choiceGroups={menuChoiceGroups}
+                        minQtyByItem={minQtyByItem}
                         onConfigChange={(config) => setDraft((d) => (d ? { ...d, blocks: d.blocks.map((x) => (x.id === b.id ? { ...x, config } : x)) } : d))}
                         onEventFieldChange={(field, value) => patch({ [field]: value } as Partial<WorkerEvent>)}
                       />

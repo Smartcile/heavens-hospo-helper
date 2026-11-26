@@ -19,9 +19,11 @@ interface EventsClientProps {
   defaultVenueId?: string | null
   /** Restricted-manager granted areas; null/undefined = unrestricted. */
   grantedAreas?: string[] | null
+  /** Active venue timezone, for the BEO lead-time "today". */
+  venueTimezone?: string | null
 }
 
-export function EventsClient({ role, sessionVenueId, defaultVenueId, grantedAreas }: EventsClientProps) {
+export function EventsClient({ role, sessionVenueId, defaultVenueId, grantedAreas, venueTimezone }: EventsClientProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const canSeeRooms = !grantedAreas || grantedAreas.includes('floorplans')
@@ -54,6 +56,7 @@ export function EventsClient({ role, sessionVenueId, defaultVenueId, grantedArea
         {tab === 'events' && (
           <EventsPlanner
             {...venueProps}
+            venueTimezone={venueTimezone}
             initialEventId={openEventId}
             onInitialOpened={() => setOpenEventId(null)}
           />
