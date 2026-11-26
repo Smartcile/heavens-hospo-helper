@@ -141,7 +141,8 @@ BudgetDayAllocation shape) → `prisma db push --accept-data-loss` (with a
 `--force-reset` fallback for ancient DBs) → `db:migrate-furniture` →
 `db:migrate-uom` → `db:migrate-step-links` + `db:backfill-guide-audiences` →
 `db:migrate-timeoff` → `db:migrate-calendar-feeds` → `db:migrate-areas` →
-`db:migrate-availability-comments` → `db:seed` (idempotent) →
+`db:migrate-availability-comments` → `db:migrate-tips-shares` → `db:seed`
+(idempotent) →
 `db:seed-help` (Heavenly Help sync, writes only
 changed articles) → `next start -H 0.0.0.0 -p 3000`.
 Every migration step is non-fatal (`|| echo …`) except the db push reset. No
@@ -183,7 +184,8 @@ cd packages/db && npx prisma studio
 `docker-entrypoint.sh` unless noted): `db:migrate-budget`,
 `db:migrate-furniture`, `db:migrate-uom`, `db:migrate-step-links`,
 `db:backfill-guide-audiences`, `db:migrate-timeoff`, `db:migrate-calendar-feeds`,
-`db:migrate-areas`, `db:migrate-availability-comments`. Manual/dev-only:
+`db:migrate-areas`, `db:migrate-availability-comments`, `db:migrate-tips-shares`.
+Manual/dev-only:
 `db:migrate-to-guides` (not wired — the legacy Training models now only exist
 to keep old deployments migratable), `db:backfill-orders`,
 `db:mock-furniture`, `db:mock-menu`, `db:verify-furniture`.
@@ -2063,23 +2065,41 @@ seed does not enable the kiosk or staff plates.
 
 The 4 HOUR kiosk tab is driven by `FtpParkingType` rows. Each type has a name,
 window label, duration, vPermit claim URL/code, contact name/email/phone, a
-`logPlates` switch, an optional bcrypt admin PIN, health settings and a sort
-order. The kiosk shows the active types first; selecting one asks for a
-membership number (or the type’s admin PIN).
+`logPlates` switch, an optional bcrypt admin PIN, `plateRemovalRequiresPin`,
+health settings and a sort order. The kiosk shows the active types first;
+selecting one asks for a membership number (or the type’s admin PIN).
 
 - **Members** — `Member` (unique membership number per venue, name/email/phone,
-  one `parkingTypeId`, `isActive`, `isTest`) + `MemberPlate` (plate, default,
-  `ACTIVE|RETIRED`). The membership number is the credential; the member must
-  match the selected type. Plates are added by the kiosk on the first confirmed
-  claim and saved plates render as an easy select. The temporary **Settings →
-  FTP → 4 HOUR → TEST MEMBERS** panel creates these rows until the full Members
-  hub exists; the same tables are the future store.
+  one `parkingTypeId`, `isActive`, `isTest`, `savePlates`) + `MemberPlate`
+  (plate, default, `ACTIVE|RETIRED`). The membership number is the credential;
+  the member must match the selected type. Plates are added by the kiosk on the
+  first confirmed claim and saved plates render as an easy select. The temporary
+  **Settings → FTP → 4 HOUR → TEST MEMBERS** panel creates these rows until the
+  full Members hub exists; the same tables are the future store.
+- **Per-member plate saving + kiosk plate management (#174, built 2026-11).**
+  `Member.savePlates` (default `true`) is the per-member switch: when off the
+  kiosk still claims a plate but never remembers it and shows `PLATES ARE NOT
+  SAVED - THIS PLATE IS NOT REMEMBERED`; a write returns 409 `PLATE SAVING IS
+  OFF - SPEAK WITH STAFF`. Existing plates are hidden from the kiosk but kept
+  for the admin to manage. The kiosk lists the member's saved plates and offers
+  **SET DEFAULT** / **REMOVE** via `POST
+  /api/public/parking/kiosk/member/plates` (`{ token, plateId, action }`),
+  re-checking the credential token, kiosk lock and venue/member/type scope on
+  every write. Removal soft-deletes and sets `RETIRED`; when the default is
+  removed the oldest remaining ACTIVE plate is promoted inside the same
+  transaction (`lib/ftp-member-plates.server.ts` — there is no unique index on
+  one default). `FtpParkingType.plateRemovalRequiresPin` (default `false`)
+  requires the type's bcrypt admin PIN for REMOVE only (setting a default is
+  unaffected); the admin editor refuses to enable it without an admin PIN. The
+  admin member list gains a **SAVE NUMBER PLATES** toggle and a **NOT SAVED**
+  badge, and the 4-hour credential token is now **10 minutes**
+  (`CREDENTIAL_TTL`). Additive columns only — `prisma db push`, no backfill.
 - **Admin PIN** — per type, optional, enabled with `adminPinEnabled`; bcrypt
   hash + last-two hint. `POST /api/admin/parking/ftp/types/[id]/admin-pin`
   rotates it and returns the raw value once. It is a staff/testing fallback, not
   the primary credential.
 - **Claim flow** — `POST /api/public/parking/kiosk/credential` resolves the
-  number/PIN into a 2-minute signed token. `POST
+  number/PIN into a 10-minute signed token. `POST
   /api/public/parking/kiosk/claim` re-resolves the type/member, applies a
   per-plate/type/venue-day duplicate guard, writes a `FtpClaim` audit row and
   drives the real **headless Chromium** vPermit form. The stealth setup is
@@ -2112,7 +2132,8 @@ membership number (or the type’s admin PIN).
 
 | Route | Methods | Purpose |
 |---|---|---|
-| `/api/public/parking/kiosk/credential` | POST | Membership number/admin PIN → public type/member view + 2-minute token |
+| `/api/public/parking/kiosk/credential` | POST | Membership number/admin PIN → public type/member view + 10-minute token |
+| `/api/public/parking/kiosk/member/plates` | POST | Member `SET_DEFAULT` / `REMOVE` a saved plate (soft delete + transactional default promotion; PIN-gated removal when configured) |
 | `/api/public/parking/kiosk/claim` | POST | Re-resolve, guard duplicates, claim via Chromium, write audit/evidence |
 | `/api/public/parking/kiosk/claim/manual` | POST | Record OPENED / CONFIRMED / NOT_CONFIRMED for the fallback |
 | `/api/admin/parking/ftp/types` | GET, POST | List/create parking types (with member/claim counts) |
@@ -3667,10 +3688,23 @@ bottom bar.
 | `/api/worker/giftcards/[id]/redeem` | POST | Redeem part or all (`{ amount }`); 400/409 on invalid/over-balance/void/expired |
 | `/api/worker/giftcards/[id]/reset` | POST | Managers/admins only (restricted manager needs `performance.giftcards.redeem`) — reset to DRAFT for reuse, same number, history kept |
 | `/api/admin/gift-cards/[id]/redeem` | POST | Same partial/full redemption from the admin card popup |
+| `/api/admin/gift-cards/[id]/pdf` | GET, POST | GET streams the stored PDF (`?inline=1` for the viewer); POST reprints from the current row (ISSUED/SENT only, appends `PDF_UPDATED`) |
 
 The admin gift-card popup shows the remaining balance and a redeem amount
 (blank = full balance). `resetGiftCardToDraft()` also clears the new redemption
 fields so a reused card starts clean.
+
+**Reprint (#175, built 2026-11).** `POST /api/admin/gift-cards/[id]/pdf`
+regenerates the card PDF from the **current** row through the same
+template-resolution path as issue (`issueGiftCardPdf` → active template, else
+the built-in design), overwrites `pdfPath` and appends a `PDF_UPDATED` history
+event. Guard `performance.giftcards.issue`. Only `ISSUED` / `SENT` cards with an
+existing PDF can reprint (409 otherwise) — DRAFT was never issued, and
+REDEEMED / VOIDED / EXPIRED must not return to circulation. A straight reprint:
+**no statement page**, and redemptions never trigger it automatically. The
+popup's viewer/download URLs carry a `v=<updatedAt>` query so the in-app PDF
+viewer reloads the regenerated file; the REPRINT button is disabled while the
+amount field has unsaved edits. **No schema change.**
 
 **In-app PDFs (`PdfDocumentView` + `PdfActionBar`).** Every gift-card PDF opens
 *inside* the app — worker issued card (`GiftCardPdfView`, which calls
@@ -3694,11 +3728,45 @@ affordance. PDF routes accept `?inline=1` for the viewer/print iframe (default
 stays `attachment`); bulk card printing remains a direct download, which is the
 right action for a stack.
 
-### Tips (built 2026-09)
-`TipsPeriod` (`fromDate`/`toDate`, `cashCounts Json`, `posTotal`,
-`shares Json`, `notes`) + `lib/tips.ts` (tested) allocate pooled tips across
-staff. `/admin/tips` (`TipsClient`) creates periods, enters cash/pos totals and
-shares, and shows each person's accrued amount. Seeded with one mock period.
+### Tips (built 2026-09; approval + issuance 2026-11)
+
+`TipsPeriod` (`fromDate`/`toDate`, `cashCounts Json`, `posTotal`, `label`,
+`fullyIssuedAt`) + one `TipsShare` row per person (`name`, `hours`,
+`shareWeight`, `status`, approval/issue stamp + note, soft delete;
+`@@unique([tipsPeriodId, staffId])`). The split is **computed on read** by
+`lib/tips.ts` and never stored, so a corrected hour or total reconciles live.
+The legacy `shares` JSON column is kept as `legacyShares @map("shares")` and is
+read only by the backfill; new writes only touch `TipsShare`.
+
+**Share weight + cash rounding.** Payout is proportional to `shareWeight`
+(seeded from hours, editable per person), then `distributeCashRounded` rounds
+each amount to the nearest **10c** and reconciles the 10c units with the
+largest-remainder method, so the payouts add up exactly to the pool (never a
+cent lost or invented). `suggestedAmount` stays advisory/unrounded.
+
+**Status flow.** `TipsShareStatus` = `PLANNED → APPROVED → ISSUED →
+FULLY_ISSUED`. A manager approves each person (`PATCH
+/api/admin/tips/[id]/shares/[shareId]` `{ action: 'APPROVE', note? }`; guard
+`performance.tips.approve`; conditional `updateMany`, so a double tap is a
+409). Issuance is the **admin in worker view** (`POST
+/api/worker/tips/[shareId]/issue` `{ note? }`, APPROVED only, 409 otherwise).
+`maybeFullyIssuePeriod` stamps `TipsPeriod.fullyIssuedAt` and flips every row to
+`FULLY_ISSUED` automatically once the last person is paid.
+
+**Access + UI.** Tips are **not** a floor-staff feature: `lib/worker-tips-access.ts`
+(`workerMayAccessTips`) allows only ADMIN/MANAGER in the worker view, and the
+dashboard requests the status-only summary only for them. The admin
+`/admin/tips` page (`TipsClient`) creates periods, enters cash/pos totals and
+shares, approves with notes and renders the **admin-only** distribution PDF
+(`GET /api/admin/tips/[id]/pdf`, `lib/tips-pdf.ts`). Both dashboards show a
+**status-only** widget (issued / total / percent + PLANNED·APPROVED·ISSUED) —
+no monetary value on the worker dashboard. The demo seed creates one sample
+period.
+
+**Deploy note:** additive only. `prisma db push` creates `TipsShare` + the
+`TipsShareStatus` enum and adds `TipsPeriod.label`/`fullyIssuedAt`; the
+idempotent `db:migrate-tips-shares` runs **after** `db push` (before seed) to
+rebuild each period's people from `legacyShares` once. No other backfill.
 
 ### Public API + API keys (built 2026-09)
 `ApiKey` (venue-scoped, `keyHash` sha256, `lastUsedAt`; raw `ho_…` shown once)
