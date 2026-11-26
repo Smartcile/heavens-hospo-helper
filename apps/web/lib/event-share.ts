@@ -1,14 +1,15 @@
 // Pure shaping for the customer share page. Prisma-free so the public page and
 // its tests share one definition of what a customer may see.
 //
-// Deliberately an explicit DENY list for blocks (STAFFING / NOTES / HISTORY are
-// internal working notes) plus the Event's own `internalNotes`, which is never
-// copied here. A new block type is customer-visible unless added to the list.
+// Deliberately an explicit DENY list for blocks (STAFFING / NOTES / HISTORY /
+// AWAITING are internal working notes) plus the Event's own `internalNotes`,
+// which is never copied here. A new block type is customer-visible unless added
+// to the list. Reserved `__`-prefixed config keys (e.g. `__state`) are stripped.
 
 import { blockDef, blockLabel, type BlockLibrary } from '@/lib/beo-blocks'
 import type { EventPriceLine } from '@/lib/event-pricing'
 
-export const INTERNAL_BLOCK_TYPES = ['STAFFING', 'NOTES', 'HISTORY']
+export const INTERNAL_BLOCK_TYPES = ['STAFFING', 'NOTES', 'HISTORY', 'AWAITING']
 
 export interface ShareBlockLike {
   id: string
@@ -100,6 +101,15 @@ export function isPublicBlock(type: string): boolean {
   return !INTERNAL_BLOCK_TYPES.includes(type)
 }
 
+/** A block config without the app's reserved (`__`-prefixed) working keys. */
+export function publicBlockConfig(config: unknown): Record<string, unknown> {
+  const base = config && typeof config === 'object' ? { ...(config as Record<string, unknown>) } : {}
+  for (const key of Object.keys(base)) {
+    if (key.startsWith('__')) delete base[key]
+  }
+  return base
+}
+
 /** Build the sanitised customer-facing view of an event. */
 export function buildPublicEventView(
   input: PublicEventInput,
@@ -114,7 +124,7 @@ export function buildPublicEventView(
       label: blockLabel(b.type, library),
       fields: (blockDef(b.type, library)?.fields ?? []).map((f) => ({ key: f.key, label: f.label })),
       title: b.title,
-      config: b.config && typeof b.config === 'object' ? (b.config as Record<string, unknown>) : {},
+      config: publicBlockConfig(b.config),
     }))
 
   return {

@@ -69,6 +69,7 @@ export const BEO_REQUEST_STATUS_VALUES = ['PENDING', 'ACCEPTED', 'DECLINED'] as 
 
 /** Everything the admin/worker event detail needs in one round trip. */
 export const eventInclude = {
+  venue: { select: { name: true } },
   customer: { select: { id: true, name: true, email: true, phone: true } },
   menu: { select: { id: true, name: true } },
   service: { select: { id: true, name: true } },

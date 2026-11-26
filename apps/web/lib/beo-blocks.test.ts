@@ -16,6 +16,10 @@ import {
   makeBlock,
   moveBlock,
   summariseBlock,
+  blockState,
+  setBlockState,
+  blockStateSummary,
+  BLOCK_STATES,
   type BeoBlockDef,
   type BeoFieldKind,
 } from '@/lib/beo-blocks'
@@ -263,5 +267,55 @@ describe('defRowToBlockDef', () => {
     expect(def.group).toBe('CUSTOM')
     expect(def.defaultConfig).toEqual({ limit: 0 })
     expect(def.fields.every((f) => !f.eventField)).toBe(true)
+  })
+})
+
+describe('block state', () => {
+  it('defaults to TODO when the key is missing or garbage', () => {
+    expect(blockState({ config: {} })).toBe('TODO')
+    expect(blockState({ config: { __state: 'NOPE' } })).toBe('TODO')
+    expect(blockState({})).toBe('TODO')
+  })
+
+  it('round-trips through normaliseConfig and keeps unknown keys', () => {
+    const saved = setBlockState({ text: 'HELLO' }, 'CONFIRMED')
+    const normalised = normaliseConfig('NOTES', saved)
+    expect(normalised).toEqual({ text: 'HELLO', __state: 'CONFIRMED' })
+    expect(blockState({ config: normalised })).toBe('CONFIRMED')
+  })
+
+  it('does not mutate the input config', () => {
+    const original = { text: 'HELLO' }
+    setBlockState(original, 'SENT')
+    expect(original).toEqual({ text: 'HELLO' })
+  })
+
+  it('records every valid state', () => {
+    expect(BLOCK_STATES).toEqual(['TODO', 'SENT', 'CONFIRMED'])
+  })
+
+  it('summarises non-TODO states', () => {
+    expect(
+      blockStateSummary([
+        { config: {} },
+        { config: setBlockState({}, 'SENT') },
+        { config: setBlockState({}, 'CONFIRMED') },
+        { config: setBlockState({}, 'CONFIRMED') },
+      ]),
+    ).toEqual({ TODO: 1, SENT: 1, CONFIRMED: 2 })
+  })
+})
+
+describe('AWAITING block', () => {
+  it('is a built-in block with a rows config', () => {
+    const def = blockDef('AWAITING')
+    expect(def?.label).toBe('AWAITING FROM CUSTOMER')
+    expect(def?.readOnly).not.toBe(true)
+    expect(def?.fields[0]).toMatchObject({ key: 'rows', kind: 'rows' })
+    expect(BEO_BLOCK_TYPES).toContain('AWAITING')
+  })
+
+  it('summarises its rows', () => {
+    expect(summariseBlock({ type: 'AWAITING', config: { rows: [{ label: 'DEPOSIT' }] } })).toBe('1 ROW')
   })
 })

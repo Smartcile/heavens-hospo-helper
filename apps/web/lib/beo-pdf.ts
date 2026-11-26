@@ -69,6 +69,18 @@ const VARIANT_BLOCKS: Record<BeoPdfVariant, string[] | null> = {
 const ALWAYS_SKIP = ['HISTORY']
 
 /**
+ * A block config with the app's reserved (`__`-prefixed) working keys removed,
+ * e.g. `__state`. These are never part of the printed BEO.
+ */
+export function pdfBlockConfig(config: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(config ?? {})) {
+    if (!key.startsWith('__')) out[key] = value
+  }
+  return out
+}
+
+/**
  * The blocks a variant prints. FULL and CLIENT keep the operator's authored
  * order; KITCHEN is re-sorted so dietary always leads.
  */
@@ -166,7 +178,7 @@ function drawBeo(doc: jsPDF, data: BeoPdfData, variant: BeoPdfVariant, library?:
   for (const block of blocks) {
     const def = blockDef(block.type, library)
     const label = pdfSafe(block.title?.trim() || def?.label || block.type).toUpperCase()
-    const cfg = block.config ?? {}
+    const cfg = pdfBlockConfig(block.config)
 
     ensure(14)
     doc.setFont('helvetica', 'bold')

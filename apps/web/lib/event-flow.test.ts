@@ -53,6 +53,16 @@ describe('buildEventFlow', () => {
     expect(flow.stages[0].nodes.find((n) => n.label === 'HISTORY')).toBeUndefined()
   })
 
+  it('never puts the AWAITING customer to-do block in planning', () => {
+    const blocks = [
+      ...BLOCKS,
+      { id: 'w', type: 'AWAITING', title: null, config: { rows: [{ label: 'DEPOSIT' }] } },
+    ]
+    const flow = buildEventFlow({ blocks, library: LIB })
+    expect(flow.stages[0].nodes.find((n) => n.label === 'AWAITING FROM CUSTOMER')).toBeUndefined()
+    expect(flow.stages[0].nodes).toHaveLength(3)
+  })
+
   it('dedupes the same linked task across areas', () => {
     const blocks = [
       { id: 'a', type: 'DIETARY', title: null, config: {} },

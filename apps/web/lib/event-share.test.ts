@@ -101,3 +101,39 @@ describe('buildPublicEventView', () => {
     expect(view.blocks[0].config).toEqual({})
   })
 })
+
+describe('AWAITING + reserved block state', () => {
+  it('hides the AWAITING block from the customer share', () => {
+    expect(isPublicBlock('AWAITING')).toBe(false)
+    const view = buildPublicEventView({
+      ...BASE,
+      blocks: [
+        { id: 'b1', type: 'MENU_SELECTION', title: null, config: { items: [] }, sortOrder: 0 },
+        {
+          id: 'b2',
+          type: 'AWAITING',
+          title: null,
+          config: { rows: [{ label: 'FINAL NUMBERS', since: '2026-11-20' }] },
+          sortOrder: 1,
+        },
+      ],
+    })
+    expect(view.blocks.map((b) => b.type)).toEqual(['MENU_SELECTION'])
+  })
+
+  it('strips the reserved __state key from a shared block config', () => {
+    const view = buildPublicEventView({
+      ...BASE,
+      blocks: [
+        {
+          id: 'b1',
+          type: 'MENU_SELECTION',
+          title: null,
+          config: { notes: 'BUFFET', __state: 'CONFIRMED' },
+          sortOrder: 0,
+        },
+      ],
+    })
+    expect(view.blocks[0].config).toEqual({ notes: 'BUFFET' })
+  })
+})

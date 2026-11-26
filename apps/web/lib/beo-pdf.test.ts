@@ -4,6 +4,7 @@ import {
   beoPdfToBuffer,
   beoPdfFilename,
   blocksForVariant,
+  pdfBlockConfig,
   type BeoPdfBlock,
   type BeoPdfData,
 } from '@/lib/beo-pdf'
@@ -81,6 +82,27 @@ describe('blocksForVariant', () => {
   it('preserves the incoming order for FULL and CLIENT', () => {
     expect(blocksForVariant(BLOCKS, 'FULL')[0].type).toBe('CUSTOMER_DETAILS')
     expect(blocksForVariant(BLOCKS, 'CLIENT')[0].type).toBe('CUSTOMER_DETAILS')
+  })
+})
+
+describe('pdfBlockConfig', () => {
+  it('strips reserved working keys from every PDF variant', () => {
+    const blocks: BeoPdfBlock[] = [
+      {
+        type: 'MENU_SELECTION',
+        title: null,
+        config: { items: [{ menuItemId: 'm1', qty: 2 }], __state: 'CONFIRMED', __other: 'X' },
+      },
+    ]
+    for (const variant of ['FULL', 'CLIENT', 'KITCHEN'] as const) {
+      for (const block of blocksForVariant(blocks, variant)) {
+        const keys = Object.keys(pdfBlockConfig(block.config))
+        expect(keys.some((key) => key.startsWith('__'))).toBe(false)
+        expect(pdfBlockConfig(block.config)).toEqual({ items: [{ menuItemId: 'm1', qty: 2 }] })
+      }
+    }
+    // The source config still carries the state — only the print path strips it.
+    expect(blocks[0].config.__state).toBe('CONFIRMED')
   })
 })
 

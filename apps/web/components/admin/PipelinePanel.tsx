@@ -6,7 +6,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
-import { blockDef, type BlockLibrary } from '@/lib/beo-blocks'
+import { blockDef, blockStateSummary, type BlockLibrary } from '@/lib/beo-blocks'
+import { awaitingFromBlocks } from '@/lib/event-prompt'
 import { linkIdsFor } from '@/lib/beo-links'
 import { buildEventFlow, type EventFlowBlock } from '@/lib/event-flow'
 import { useBlockLibrary } from '@/lib/use-block-library'
@@ -39,6 +40,17 @@ function collectLinkIds(blocks: EventFlowBlock[], library: BlockLibrary) {
     linkIdsFor(def, 'CHECKLIST').forEach((id) => checklists.add(id))
   }
   return { tasks: [...tasks], checklists: [...checklists] }
+}
+
+/** Block-state readout for a card — TODO is the default and is not shown. */
+function stateLabel(blocks: EventItem['blocks']): string {
+  const counts = blockStateSummary(blocks)
+  return [
+    counts.CONFIRMED ? `${counts.CONFIRMED} CONFIRMED` : '',
+    counts.SENT ? `${counts.SENT} SENT` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 export function PipelinePanel({
@@ -208,6 +220,22 @@ export function PipelinePanel({
                         {dateKey(e.eventDate)}{e.guestCount ? ` · ${e.guestCount} PAX` : ''}
                       </span>
                       {e.eventType && <span className="block font-mono text-xs uppercase text-grey-light truncate">{e.eventType}</span>}
+                      {stateLabel(e.blocks) && (
+                        <span className="block font-mono text-xs uppercase text-grey-light truncate">{stateLabel(e.blocks)}</span>
+                      )}
+                      {awaitingFromBlocks(e.blocks).length > 0 && (
+                        <div className="flex flex-wrap gap-1 pt-0.5">
+                          {awaitingFromBlocks(e.blocks).map((a, i) => (
+                            <span
+                              key={`${a.label}-${i}`}
+                              data-testid="awaiting-chip"
+                              className="font-mono text-2xs uppercase text-warning border border-warning px-1"
+                            >
+                              AWAITING: {a.label}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </button>
                   ))}
                 </div>
